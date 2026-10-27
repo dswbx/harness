@@ -1,0 +1,441 @@
+//! Drives the Harness against the scripted `fake-agent` binary.
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use harness_core::api::{
+    AgentInfo, Boundary, Command, CommandResult, Decision, Event, EventKind, FrontendManifest, NewPermissionRule, Resolver, RuleScope,
+    ProcessState, SessionStatus,
+};
+use harness_core::Harness;
+
+fn fake_agent_bin() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-q", "-p", "fake-agent"])
+        .current_dir(&root)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    root.join("target/debug/fake-agent").canonicalize().unwrap()
+}
+
+async fn setup() -> (Arc<Harness>, String, tempfile::TempDir) {
+    setup_with(&[], Duration::from_secs(900)).await
+}
+
+fn fake_info() -> AgentInfo {
+    AgentInfo {
+        id: "fake".into(),
+        name: "Fake".into(),
+        command: fake_agent_bin().display().to_string(),
+        args: vec![],
+        env: Default::default(),
+        source: Default::default(),
+        version: None,
+        icon: None,
+    }
+}
+
+fn harness(data: &std::path::Path, flags: &[&str], idle: Duration) -> Arc<Harness> {
+    let args = flags.iter().map(|f| f.to_string()).collect();
+    let agent = AgentInfo { args, ..fake_info() };
+    let options = harness_core::host::Options { idle_timeout: idle, ..Default::default() };
+    let h = Harness::with_options(data.to_owned(), vec![agent], options).unwrap();
+    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), frontend_tools: vec![] });
+    h
+}
+
+async fn setup_with(flags: &[&str], idle: Duration) -> (Arc<Harness>, String, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), flags, idle);
+    let folder = dir.path().display().to_string();
+    let CommandResult::SessionCreated { session_id } = h
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else { panic!() };
+    (h, session_id, dir)
+}
+
+fn collect(h: &Harness, sid: &str) -> (Arc<Mutex<Vec<Event>>>, tokio::sync::mpsc::UnboundedReceiver<Event>) {
+    let all = Arc::new(Mutex::new(Vec::new()));
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let a = all.clone();
+    h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
+        a.lock().unwrap().push(e.clone());
+        let _ = tx.send(e.clone());
+        true
+    }))
+    .unwrap();
+    (all, rx)
+}
+
+async fn until(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Event>, f: impl Fn(&EventKind) -> bool) -> Event {
+    loop {
+        let e = tokio::time::timeout(Duration::from_secs(20), rx.recv()).await.expect("timeout").expect("closed");
+        if f(&e.kind) {
+            return e;
+        }
+    }
+}
+
+fn kinds(events: &[Event]) -> Vec<String> {
+    events.iter().map(|e| serde_json::to_value(&e.kind).unwrap()["type"].as_str().unwrap().to_owned()).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn turn_streams_into_session_log() {
+    let (h, sid, _dir) = setup().await;
+    let (all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "use a tool".into() }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    let k = kinds(&all.lock().unwrap());
+    for expected in ["SessionCreated", "ThreadStarted", "AgentSessionStarted", "TurnStarted", "AgentMessageChunk", "TaskListUpdated", "ToolCall", "ToolCallUpdate", "TurnEnded"] {
+        assert!(k.iter().any(|x| x == expected), "missing {expected} in {k:?}");
+    }
+    let seqs: Vec<u64> = all.lock().unwrap().iter().map(|e| e.seq).collect();
+    assert_eq!(seqs, (0..seqs.len() as u64).collect::<Vec<_>>(), "contiguous seq");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn permission_first_answer_wins_and_late_view_replays() {
+    let (h, sid, _dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    assert_eq!(status_of(&h).await, SessionStatus::NeedsAttention);
+
+    let answer = |opt: &str| Command::ResolvePermission { session_id: sid.clone(), request_id: request_id.clone(), option_id: Some(opt.into()) };
+    h.execute(answer("reject")).await.unwrap();
+    assert!(h.execute(answer("allow")).await.is_err(), "second answer must lose");
+
+    let end = until(&mut rx, |k| matches!(k, EventKind::ToolCallUpdate { status: Some(_), .. })).await;
+    let EventKind::ToolCallUpdate { status, .. } = end.kind else { unreachable!() };
+    assert_eq!(status.as_deref(), Some("failed"));
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+
+    // A View attaching late sees the identical log.
+    let (late, _rx2) = collect(&h, &sid);
+    let replayed = late.lock().unwrap().clone();
+    assert!(kinds(&replayed).iter().any(|k| k == "PermissionResolved"));
+    assert_eq!(replayed.first().unwrap().seq, 0);
+}
+
+async fn status_of(h: &Harness) -> SessionStatus {
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    sessions[0].status
+}
+
+fn rule(scope: RuleScope, pattern: &str, decision: Decision) -> Command {
+    Command::AddPermissionRule {
+        rule: NewPermissionRule { scope, tool_kind: Some("execute".into()), pattern: Some(pattern.into()), decision },
+    }
+}
+
+/// Runs one "needs permission" Turn; returns how it was resolved and the tool call's final status.
+async fn permission_turn(h: &Harness, sid: &str) -> (Resolver, Option<String>, String) {
+    let (_all, mut rx) = collect(h, sid);
+    let start = _all.lock().unwrap().len();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    // Skip the replayed history of earlier Turns.
+    for _ in 0..start {
+        rx.recv().await.unwrap();
+    }
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionResolved { .. })).await;
+    let EventKind::PermissionResolved { by, rule_id, .. } = e.kind else { unreachable!() };
+    let end = until(&mut rx, |k| matches!(k, EventKind::ToolCallUpdate { status: Some(_), .. })).await;
+    let EventKind::ToolCallUpdate { status, .. } = end.kind else { unreachable!() };
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    (by, rule_id, status.unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn policy_rules_answer_without_a_view() {
+    let (h, sid, _dir) = setup().await;
+    let CommandResult::PermissionRuleAdded { rule: allow } = h.execute(rule(RuleScope::Global, "echo", Decision::Allow)).await.unwrap() else { panic!() };
+    let (by, rule_id, status) = permission_turn(&h, &sid).await;
+    assert_eq!((by, rule_id.as_deref(), status.as_str()), (Resolver::Policy, Some(allow.id.as_str()), "completed"));
+
+    // A Session rule beats the global one.
+    h.execute(rule(RuleScope::Session { session_id: sid.clone() }, "echo hi", Decision::Deny)).await.unwrap();
+    let (by, _, status) = permission_turn(&h, &sid).await;
+    assert_eq!((by, status.as_str()), (Resolver::Policy, "failed"));
+
+    let log = h_events(&h, &sid);
+    assert!(!log.iter().any(|k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn always_allow_is_remembered_for_the_session() {
+    let (h, sid, _dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()) }).await.unwrap();
+    let added = until(&mut rx, |k| matches!(k, EventKind::PermissionRuleAdded { .. })).await;
+    let EventKind::PermissionRuleAdded { rule } = added.kind else { unreachable!() };
+    assert_eq!(rule.pattern.as_deref(), Some("echo hi"));
+    assert_eq!(rule.scope, RuleScope::Session { session_id: sid.clone() });
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+
+    let (by, rule_id, status) = permission_turn(&h, &sid).await;
+    assert_eq!((by, rule_id, status.as_str()), (Resolver::Policy, Some(rule.id), "completed"));
+}
+
+fn h_events(h: &Harness, sid: &str) -> Vec<EventKind> {
+    events(h, sid).into_iter().map(|e| e.kind).collect()
+}
+
+/// A snapshot of the log that does not stay subscribed (so it never counts as an open View).
+fn events(h: &Harness, sid: &str) -> Vec<Event> {
+    let all = Arc::new(Mutex::new(Vec::new()));
+    let a = all.clone();
+    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
+        a.lock().unwrap().push(e.clone());
+        true
+    }))
+    .unwrap();
+    h.unsubscribe_session(sid, id);
+    all.lock().unwrap().clone()
+}
+
+/// Prompts and waits for the Turn's end; returns its stop reason.
+async fn turn(h: &Harness, sid: &str, thread_id: Option<String>, text: &str) -> String {
+    let before = events(h, sid).len();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into() }).await.unwrap();
+    for _ in 0..400 {
+        let evs = events(h, sid);
+        if let Some(EventKind::TurnEnded { stop_reason, .. }) =
+            evs[before..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::TurnEnded { .. }))
+        {
+            return stop_reason.clone();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("turn did not end");
+}
+
+fn boundaries(h: &Harness, sid: &str) -> Vec<Boundary> {
+    h_events(h, sid)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::AgentSessionStarted { boundary, .. } => Some(boundary),
+            _ => None,
+        })
+        .collect()
+}
+
+fn texts(h: &Harness, sid: &str) -> Vec<String> {
+    h_events(h, sid)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::AgentMessageChunk { text } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restart_resumes_the_agent_session() {
+    let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    let h2 = harness(&dir.path().join("data"), &["--resume"], Duration::from_secs(900));
+    assert_eq!(turn(&h2, &sid, None, "again").await, "end_turn");
+    assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn load_replay_is_not_logged_twice() {
+    let (h, sid, dir) = setup_with(&["--load"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hi").await;
+    let h2 = harness(&dir.path().join("data"), &["--load"], Duration::from_secs(900));
+    assert_eq!(turn(&h2, &sid, None, "again").await, "end_turn");
+    assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Loaded]);
+    assert!(!texts(&h2, &sid).iter().any(|t| t.contains("replayed")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn no_continuation_makes_the_thread_read_only_until_continued_with_summary() {
+    let (h, sid, dir) = setup().await;
+    turn(&h, &sid, None, "remember the word banana").await;
+    let h2 = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into() };
+    assert!(h2.execute(prompt("again")).await.is_err());
+    assert!(h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { .. })));
+    assert!(h2.execute(prompt("still?")).await.is_err(), "stays read-only");
+
+    h2.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None }).await.unwrap();
+    assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::ContinuedWithSummary]);
+    turn(&h2, &sid, None, "what was the word?").await;
+    turn(&h2, &sid, None, "and now?").await;
+    assert_eq!(texts(&h2, &sid).iter().filter(|t| t.starts_with("seeded")).count(), 1, "seed is sent once");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn crash_mid_turn_ends_the_turn_and_the_next_prompt_recovers() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    assert_eq!(turn(&h, &sid, None, "crash now").await, "error");
+    for _ in 0..100 {
+        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Exited | ProcessState::Failed, .. })) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(status_of(&h).await, SessionStatus::Idle);
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_hanging_up_without_exiting_is_replaced_on_next_prompt() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    assert_eq!(turn(&h, &sid, None, "hangup now").await, "error");
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_millis(200)).await;
+    let stopped = |h: &Harness| {
+        h_events(h, &sid).iter().filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })).count()
+    };
+    let view = h.subscribe_session(&sid, 0, Box::new(|_: &Event| true)).unwrap();
+    turn(&h, &sid, None, "hi").await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(stopped(&h), 0, "an open View keeps the Agent running");
+
+    h.unsubscribe_session(&sid, view);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(stopped(&h), 1);
+    assert_eq!(turn(&h, &sid, None, "back").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn side_thread_gets_its_own_seeded_agent_session() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "main").await;
+    let CommandResult::ThreadStarted { thread_id } =
+        h.execute(Command::StartSideThread { session_id: sid.clone(), seed: Some("look at the tests".into()) }).await.unwrap()
+    else { panic!() };
+    turn(&h, &sid, Some(thread_id.clone()), "side").await;
+    let evs = events(&h, &sid);
+    let side: Vec<_> = evs.iter().filter(|e| e.thread_id.as_deref() == Some(&thread_id)).map(|e| &e.kind).collect();
+    assert!(matches!(side[0], EventKind::ThreadStarted { main: false, .. }));
+    assert!(side.iter().any(|k| matches!(k, EventKind::AgentSessionStarted { boundary: Boundary::Initial, .. })));
+    assert!(side.iter().any(|k| matches!(k, EventKind::AgentMessageChunk { text } if text.starts_with("seeded"))));
+    let main: Vec<_> = evs.iter().filter(|e| e.thread_id.as_deref() != Some(&thread_id)).collect();
+    assert!(!main.iter().any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text } if text.contains("seeded"))), "main Thread is unseeded");
+}
+
+
+#[tokio::test(flavor = "multi_thread")]
+async fn config_change_starts_the_agent_and_logs_the_answer() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    // No prompt yet: the Agent is not running.
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "b".into() })
+        .await
+        .unwrap();
+    let current: Vec<String> = h_events(&h, &sid)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::ConfigOptionsChanged { options } => options[0]["currentValue"].as_str().map(str::to_owned),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(current, vec!["a", "b"], "initial options, then the answer to the change");
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial], "the prompt reuses the Agent Session");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_that_fails_to_start_reports_its_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let broken = AgentInfo { command: "/bin/sh".into(), args: vec!["-c".into(), "echo 'config missing: API_KEY' >&2; exit 3".into()], ..fake_info() };
+    let h = Harness::with_agents(dir.path().join("data"), vec![broken]).unwrap();
+    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), frontend_tools: vec![] });
+    let cmd = Command::CreateSession {
+        folder: dir.path().display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "inspector".into(),
+        title: None,
+        branch: None,
+        worktree: false,
+        mcp_servers: vec![],
+    };
+    let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
+    let err = h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "hi".into() }).await.unwrap_err();
+    assert!(err.contains("exited during startup") && err.contains("config missing: API_KEY"), "{err}");
+    assert!(h_events(&h, &session_id).iter().any(|k| matches!(k,
+        EventKind::AgentProcessState { state: ProcessState::Failed, message: Some(m) } if m.contains("config missing"))));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn app_events_announce_list_changes_and_attention() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        s.lock().unwrap().push(serde_json::to_value(e).unwrap());
+        true
+    }));
+    let cmd = Command::CreateSession {
+        folder: dir.path().display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "inspector".into(),
+        title: None,
+        branch: None,
+        worktree: false,
+        mcp_servers: vec![],
+    };
+    let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
+    let (_all, mut rx) = collect(&h, &session_id);
+    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    until(&mut rx, |k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })).await;
+    h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id, option_id: Some("allow".into()) }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    for _ in 0..40 {
+        if seen.lock().unwrap().iter().any(|e| e["type"] == "TurnFinished") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen[0]["type"], "SessionsChanged");
+    assert!(seen.iter().any(|e| e["type"] == "SessionStatus" && e["status"] == "needs_attention" && e["session_id"] == session_id));
+    assert!(seen.iter().any(|e| e["type"] == "TurnFinished" && e["stop_reason"] == "end_turn" && e["session_id"] == session_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn warm_up_delivers_config_options_before_the_first_prompt() {
+    let (h, sid, _dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::ConfigOptionsChanged { .. })).await;
+    until(&mut rx, |k| matches!(k, EventKind::AgentSessionStarted { .. })).await;
+    // A second warm-up and the first prompt reuse the same Agent Session.
+    h.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn warm_up_racing_the_first_prompt_opens_one_agent_session() {
+    let (h, sid, _dir) = setup().await;
+    let (a, b) = tokio::join!(
+        h.execute(Command::WarmUp { session_id: sid.clone() }),
+        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into() })
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(turn(&h, &sid, None, "again").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
+}

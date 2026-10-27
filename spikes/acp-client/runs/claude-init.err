@@ -1,0 +1,12 @@
+[spike] cwd=/private/var/folders/qp/3hqcn7d50275mchzkqwqxhww0000gn/T/acp-spike-74449
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=validate-cwd durationMs=0 totalMs=0
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=settings durationMs=8 totalMs=8
+[agent-stderr] [session/query] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 resume=none apiType=native baseUrl=native
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=prepare-query durationMs=3 totalMs=11
+[agent-stderr] [authStatus] discarding a probe that predates the latest auth change
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=sdk-initialize durationMs=3046 totalMs=3057
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=models durationMs=1 totalMs=3058
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=modes durationMs=0 totalMs=3058
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=agents durationMs=0 totalMs=3058
+[agent-stderr] [session/create] sessionId=100eb9fc-53e1-4f1d-9b4f-1f6e502df696 phase=register durationMs=1 totalMs=3059
+[spike] session id = 100eb9fc-53e1-4f1d-9b4f-1f6e502df696

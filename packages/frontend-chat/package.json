@@ -1,0 +1,29 @@
+{
+  "name": "@harness/frontend-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@harness/api": "workspace:*",
+    "@harness/ui": "workspace:*",
+    "jsonv-ts": "^0.11.1",
+    "lucide-react": "^1.0.0",
+    "react-markdown": "^10.0.0",
+    "remark-gfm": "^4.0.0"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "react": "^19",
+    "vite": "^8"
+  }
+}

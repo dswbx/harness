@@ -1,0 +1,13 @@
+[spike] cwd=/private/var/folders/qp/3hqcn7d50275mchzkqwqxhww0000gn/T/acp-spike-75433
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=validate-cwd durationMs=0 totalMs=0
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=settings durationMs=8 totalMs=8
+[agent-stderr] [session/query] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 resume=none apiType=native baseUrl=native
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=prepare-query durationMs=3 totalMs=11
+[agent-stderr] [authStatus] discarding a probe that predates the latest auth change
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=sdk-initialize durationMs=615 totalMs=626
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=models durationMs=1 totalMs=627
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=modes durationMs=0 totalMs=627
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=agents durationMs=0 totalMs=627
+[agent-stderr] [session/create] sessionId=ce83fa61-8534-4890-9e6a-936429b0b9f9 phase=register durationMs=1 totalMs=628
+[spike] session id = ce83fa61-8534-4890-9e6a-936429b0b9f9
+Error: Authentication required

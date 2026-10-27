@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "All Harness windows: core IPC, opening View windows, folder picker, external links.",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-title",
+    "dialog:allow-open",
+    "opener:allow-open-url",
+    "notification:default"
+  ]
+}

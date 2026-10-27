@@ -1,0 +1,7 @@
+node_modules/
+target/
+dist/
+.env
+.env.*
+.claude/settings.local.json
+src-tauri/gen/

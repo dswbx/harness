@@ -1,0 +1,57 @@
+{
+  "id": "chat",
+  "name": "Chat",
+  "version": "0.1.0",
+  "frontend_tools": [
+    {
+      "name": "json_render",
+      "description": "Show a small structured card in the chat for the user: a title, optional markdown body, optional label/value rows and a tone (info, success, warning, error). Use it for summaries, results or status the user should notice, instead of a long plain message.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Card heading, short."
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown text shown under the title."
+          },
+          "items": {
+            "type": "array",
+            "description": "Label/value rows, shown as a list under the body.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "description": "Row label, e.g. a field name."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Row value."
+                }
+              },
+              "required": [
+                "label"
+              ]
+            }
+          },
+          "tone": {
+            "type": "string",
+            "description": "Accent of the card. Default info.",
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    }
+  ]
+}

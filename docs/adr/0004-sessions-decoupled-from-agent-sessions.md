@@ -1,0 +1,3 @@
+# Sessions are decoupled from Agent Sessions via Threads
+
+A Session is the user's working environment, not a wrapper around one ACP session. It holds one Main Thread and any number of Side Threads (sidechats, btw windows, comment threads), each backed by its own Agent Session with its own Agent and Context Seed, all sharing the Session's Frontend, Workspace, Session Directory and Session Log. This lets side conversations stay cheap and avoid polluting the main context, and lets a Thread survive Agent loss or (discouraged) Agent switching via explicit boundaries. Cost: the Harness, not the Agent, must model conversation structure.

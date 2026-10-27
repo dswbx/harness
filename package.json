@@ -1,0 +1,20 @@
+{
+  "name": "harness",
+  "private": true,
+  "type": "module",
+  "workspaces": ["app", "packages/*"],
+  "scripts": {
+    "dev": "tauri dev",
+    "bundle": "tauri build",
+    "gen-ts": "cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts && bun run gen-manifests",
+    "typecheck": "bun run --filter '*' typecheck && bun run check-boundaries",
+    "test": "vitest run",
+    "check-boundaries": "bun scripts/check-boundaries.ts && bun scripts/gen-manifests.ts --check",
+    "gen-manifests": "bun scripts/gen-manifests.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "^6.0.0",
+    "vitest": "^3.2.0"
+  }
+}

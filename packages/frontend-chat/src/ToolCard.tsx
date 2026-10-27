@@ -1,0 +1,100 @@
+import { useState } from "react";
+import { CheckCircle2, ChevronRight, CircleDashed, Loader2, XCircle } from "lucide-react";
+import { diffLines } from "./diff";
+import { Badge, cn } from "@harness/ui";
+import { blockText, harnessToolName, type ContentBlock, type Item } from "./reducer";
+
+type Tool = Extract<Item, { type: "tool" }>;
+
+export function StatusIcon({ status }: { status: string | null }) {
+  if (status === "completed") return <CheckCircle2 className="size-4 text-emerald-500" aria-label="completed" />;
+  if (status === "failed") return <XCircle className="size-4 text-destructive" aria-label="failed" />;
+  if (status === "in_progress") return <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="in progress" />;
+  return <CircleDashed className="size-4 text-muted-foreground" aria-label={status ?? "pending"} />;
+}
+
+export function Diff({ path, oldText, newText }: { path: string; oldText?: string | null; newText: string }) {
+  return (
+    <div className="overflow-hidden rounded border font-mono text-xs">
+      <div className="border-b bg-muted px-2 py-1 text-muted-foreground">{path}</div>
+      <pre className="overflow-x-auto">
+        {diffLines(oldText, newText).map((l, i) => (
+          <div
+            key={i}
+            className={cn("px-2", l.op === "+" && "bg-emerald-500/15", l.op === "-" && "bg-red-500/15")}
+          >
+            {l.op} {l.text}
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
+function Block({ b }: { b: ContentBlock }) {
+  if (b.type === "diff") {
+    return <Diff path={String(b.path)} oldText={b.oldText as string | null} newText={String(b.newText ?? "")} />;
+  }
+  if (b.type === "terminal") {
+    return <div className="text-xs text-muted-foreground">Terminal {String(b.terminalId)}</div>;
+  }
+  const text = blockText(b);
+  if (text != null) return <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs">{text}</pre>;
+  return <pre className="overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(b, null, 2)}</pre>;
+}
+
+const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
+
+export function ToolCard({ tool }: { tool: Tool }) {
+  const [open, setOpen] = useState(false);
+  const hasBody = tool.content.length > 0 || tool.rawInput != null || tool.rawOutput != null;
+  const harness = harnessToolName(tool.title);
+  const diffs = tool.content.filter((b) => b.type === "diff");
+  return (
+    <div className="rounded-lg border bg-card text-card-foreground">
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        onClick={() => hasBody && setOpen(!open)}
+        aria-expanded={open}
+      >
+        <StatusIcon status={tool.status} />
+        {harness ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-xs">
+            <span>Harness · <span className="font-mono">{harness}</span></span>
+            <Badge variant="secondary">MCP</Badge>
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{tool.title}</span>
+        )}
+        {tool.kind && <span className="text-xs text-muted-foreground">{tool.kind}</span>}
+        {hasBody && <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} />}
+      </button>
+      {!open && diffs.length > 0 && (
+        <div className="space-y-2 px-3 pb-3">
+          {diffs.map((b, i) => (
+            <Block key={i} b={b} />
+          ))}
+        </div>
+      )}
+      {open && (
+        <div className="space-y-2 border-t px-3 py-2">
+          {tool.content.map((b, i) => (
+            <Block key={i} b={b} />
+          ))}
+          {tool.rawInput != null && (
+            <details>
+              <summary className="cursor-pointer text-xs text-muted-foreground">Input</summary>
+              <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">{json(tool.rawInput)}</pre>
+            </details>
+          )}
+          {tool.rawOutput != null && (
+            <details>
+              <summary className="cursor-pointer text-xs text-muted-foreground">Output</summary>
+              <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">{json(tool.rawOutput)}</pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

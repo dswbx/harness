@@ -1,0 +1,201 @@
+import type {
+  AgentInfo, AppEvent, Branches, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule,
+  SessionSummary, WorkspaceInfo,
+} from "./generated";
+import type { Transport, Unsubscribe } from "./transport";
+
+/** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
+export interface SessionApi {
+  sessionId: string;
+  /** Replays from `fromSeq`, then live. Returns an unsubscribe function. */
+  subscribe(onEvent: (e: Event) => void, fromSeq?: number): Promise<Unsubscribe>;
+  prompt(text: string): Promise<void>;
+  cancel(): Promise<void>;
+  /** Starts the Agent in the background so its models and modes show before the first prompt. */
+  warmUp(): Promise<void>;
+  /** Starts a new Agent Session seeded with a summary; prompts `text` right away when given. */
+  continueWithSummary(text: string | null): Promise<void>;
+  /** `null` answers "cancelled". */
+  resolvePermission(requestId: string, optionId: string | null): Promise<void>;
+  setConfigOption(id: string, value: string): Promise<void>;
+  setMode(id: string): Promise<void>;
+  /** This Session's Workspace (repo_root null: not a git repository), via a ListSessions lookup. */
+  workspace(): Promise<WorkspaceInfo | null>;
+  archive(): Promise<void>;
+  unarchive(): Promise<void>;
+  /** Without `force` the core refuses uncommitted or unmerged Worktree work. */
+  delete(force?: boolean): Promise<void>;
+  gitStatus(): Promise<GitStatus>;
+  /** Null `from`: where the Session's changes start. Null `to`: the working tree now. */
+  gitDiff(from?: string | null, to?: string | null): Promise<Diff>;
+  /** Stages everything; returns the commit id. */
+  gitCommit(message: string): Promise<string>;
+  gitPush(): Promise<void>;
+  /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
+  frontendRead(path: string): Promise<string>;
+  frontendWrite(path: string, content: string): Promise<void>;
+  /** Files under `dir` (recursive, relative to `frontend/`). */
+  frontendList(dir?: string): Promise<string[]>;
+  /** For an AuthRequired method of kind "agent": the Agent runs its own sign-in (often a browser). */
+  authenticate(methodId: string): Promise<void>;
+  /** For an AuthRequired method of kind "terminal": opens Terminal.app running the Agent's login. */
+  openAuthTerminal(methodId: string): Promise<void>;
+}
+
+export function createSessionApi(transport: Transport, sessionId: string): SessionApi {
+  const run = async (cmd: Command) => {
+    await transport.execute(cmd);
+  };
+  const expect = async <T extends Awaited<ReturnType<Transport["execute"]>>["type"]>(cmd: Command, type: T) => {
+    const r = await transport.execute(cmd);
+    if (r.type !== type) throw new Error("unexpected result: " + r.type);
+    return r as Extract<typeof r, { type: T }>;
+  };
+  return {
+    sessionId,
+    subscribe: (onEvent, fromSeq = 0) => transport.subscribe(sessionId, fromSeq, onEvent),
+    prompt: (text) => run({ type: "Prompt", session_id: sessionId, thread_id: null, text }),
+    continueWithSummary: (text) => run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: null, text }),
+    cancel: () => run({ type: "Cancel", session_id: sessionId, thread_id: null }),
+    warmUp: () => run({ type: "WarmUp", session_id: sessionId }),
+    resolvePermission: (request_id, option_id) =>
+      run({ type: "ResolvePermission", session_id: sessionId, request_id, option_id }),
+    setConfigOption: (config_id, value) =>
+      run({ type: "SetConfigOption", session_id: sessionId, thread_id: null, config_id, value }),
+    setMode: (mode_id) => run({ type: "SetMode", session_id: sessionId, thread_id: null, mode_id }),
+    workspace: async () => {
+      const r = await transport.execute({ type: "ListSessions" });
+      return r.type === "Sessions" ? (r.sessions.find((s) => s.id === sessionId)?.workspace ?? null) : null;
+    },
+    archive: () => run({ type: "ArchiveSession", session_id: sessionId }),
+    unarchive: () => run({ type: "UnarchiveSession", session_id: sessionId }),
+    delete: (force = false) => run({ type: "DeleteSession", session_id: sessionId, force }),
+    gitStatus: async () => (await expect({ type: "GitStatus", session_id: sessionId }, "GitStatus")).status,
+    gitDiff: async (from = null, to = null) =>
+      (await expect({ type: "GitDiff", session_id: sessionId, from, to }, "Diff")).diff,
+    gitCommit: async (message) =>
+      (await expect({ type: "GitCommit", session_id: sessionId, message }, "Committed")).commit,
+    gitPush: () => run({ type: "GitPush", session_id: sessionId }),
+    frontendRead: async (path) =>
+      (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent")).content,
+    frontendWrite: (path, content) => run({ type: "FrontendWrite", session_id: sessionId, path, content }),
+    frontendList: async (dir) =>
+      (await expect({ type: "FrontendList", session_id: sessionId, dir }, "Files")).files,
+    authenticate: (method_id) => run({ type: "Authenticate", session_id: sessionId, method_id }),
+    openAuthTerminal: (method_id) => run({ type: "OpenAuthTerminal", session_id: sessionId, method_id }),
+  };
+}
+
+/** App-scope operations for the shell (sidebar, Composer). */
+export class HarnessClient {
+  constructor(private transport: Transport) {}
+
+  async listSessions(): Promise<SessionSummary[]> {
+    const r = await this.transport.execute({ type: "ListSessions" });
+    return r.type === "Sessions" ? r.sessions : [];
+  }
+  async listAgents(): Promise<AgentInfo[]> {
+    const r = await this.transport.execute({ type: "ListAgents" });
+    return r.type === "Agents" ? r.agents : [];
+  }
+  /** ACP Registry entries; `refresh` re-fetches instead of using the local cache. */
+  async listRegistry(refresh = false): Promise<RegistryAgent[]> {
+    const r = await this.transport.execute({ type: "ListRegistry", refresh });
+    return r.type === "Registry" ? r.agents : [];
+  }
+  /** Slow on first use (downloads Node/uv + package). Also updates an installed Agent. */
+  async installAgent(registryId: string): Promise<AgentInfo> {
+    const r = await this.transport.execute({ type: "InstallAgent", registry_id: registryId });
+    if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+    return r.agent;
+  }
+  async addCustomAgent(args: { name: string; command: string; args: string[]; env: Record<string, string> }): Promise<AgentInfo> {
+    const r = await this.transport.execute({ type: "AddCustomAgent", ...args });
+    if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+    return r.agent;
+  }
+  async removeAgent(agentId: string): Promise<void> {
+    await this.transport.execute({ type: "RemoveAgent", agent_id: agentId });
+  }
+  async listFrontends(): Promise<FrontendManifest[]> {
+    const r = await this.transport.execute({ type: "ListFrontends" });
+    return r.type === "Frontends" ? r.frontends : [];
+  }
+  async createSession(args: {
+    folder: string;
+    agentId: string;
+    frontendId: string;
+    title?: string | null;
+    /** Base branch (worktree) or branch to check out; null = current. */
+    branch?: string | null;
+    worktree?: boolean;
+    /** MCP Library server ids to give the Agent. */
+    mcpServers?: string[];
+  }): Promise<string> {
+    const r = await this.transport.execute({
+      type: "CreateSession",
+      folder: args.folder,
+      agent_id: args.agentId,
+      frontend_id: args.frontendId,
+      title: args.title || null,
+      branch: args.branch ?? null,
+      worktree: args.worktree ?? false,
+      mcp_servers: args.mcpServers ?? [],
+    });
+    if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
+    return r.session_id;
+  }
+  async listBranches(folder: string): Promise<Branches> {
+    const r = await this.transport.execute({ type: "ListBranches", folder });
+    if (r.type !== "Branches") throw new Error("unexpected result: " + r.type);
+    return r.branches;
+  }
+  async archiveSession(sessionId: string): Promise<void> {
+    await this.transport.execute({ type: "ArchiveSession", session_id: sessionId });
+  }
+  async unarchiveSession(sessionId: string): Promise<void> {
+    await this.transport.execute({ type: "UnarchiveSession", session_id: sessionId });
+  }
+  /** Rejects with the core's reason when work would be lost and `force` is false. */
+  async deleteSession(sessionId: string, force = false): Promise<void> {
+    await this.transport.execute({ type: "DeleteSession", session_id: sessionId, force });
+  }
+  async listMcpServers(): Promise<McpServerDef[]> {
+    const r = await this.transport.execute({ type: "ListMcpServers" });
+    return r.type === "McpServers" ? r.servers : [];
+  }
+  /** `secrets`: values for `server.secret_keys` (Keychain). Omitted ones keep the stored value. */
+  async saveMcpServer(server: McpServerDef, secrets: Record<string, string> = {}): Promise<McpServerDef> {
+    const r = await this.transport.execute({ type: "SaveMcpServer", server, secrets });
+    if (r.type !== "McpServerSaved") throw new Error("unexpected result: " + r.type);
+    return r.server;
+  }
+  async removeMcpServer(serverId: string): Promise<void> {
+    await this.transport.execute({ type: "RemoveMcpServer", server_id: serverId });
+  }
+  async listPermissionRules(): Promise<PermissionRule[]> {
+    const r = await this.transport.execute({ type: "ListPermissionRules" });
+    return r.type === "PermissionRules" ? r.rules : [];
+  }
+  async addPermissionRule(rule: NewPermissionRule): Promise<PermissionRule> {
+    const r = await this.transport.execute({ type: "AddPermissionRule", rule });
+    if (r.type !== "PermissionRuleAdded") throw new Error("unexpected result: " + r.type);
+    return r.rule;
+  }
+  async removePermissionRule(ruleId: string): Promise<void> {
+    await this.transport.execute({ type: "RemovePermissionRule", rule_id: ruleId });
+  }
+  /** Core-only in v1 (no UI): opens a Side Thread and returns its id. */
+  async startSideThread(sessionId: string, seed: string | null = null): Promise<string> {
+    const r = await this.transport.execute({ type: "StartSideThread", session_id: sessionId, seed });
+    if (r.type !== "ThreadStarted") throw new Error("unexpected result: " + r.type);
+    return r.thread_id;
+  }
+  /** Sessions list / status / Agents changes pushed by the core. Live only. */
+  subscribeApp(onEvent: (e: AppEvent) => void): Promise<Unsubscribe> {
+    return this.transport.subscribeApp(onEvent);
+  }
+  sessionApi(sessionId: string): SessionApi {
+    return createSessionApi(this.transport, sessionId);
+  }
+}

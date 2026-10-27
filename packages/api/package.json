@@ -1,0 +1,11 @@
+{
+  "name": "@harness/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p ." },
+  "dependencies": { "@tauri-apps/api": "^2" },
+  "peerDependencies": { "react": "^19" },
+  "devDependencies": { "@types/react": "^19", "react": "^19" }
+}

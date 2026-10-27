@@ -1,0 +1,14 @@
+[spike] cwd=/private/tmp
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=validate-cwd durationMs=2 totalMs=2
+[agent-stderr] [session/models] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=read-transcript-tail durationMs=1 totalMs=1 model=unknown permissionMode=default
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=resume-transcript durationMs=2 totalMs=4
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=settings durationMs=8 totalMs=11
+[agent-stderr] [session/query] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 resume=4e5c14fd-e4a0-4839-8506-fb04d5543d04 apiType=native baseUrl=native
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=prepare-query durationMs=3 totalMs=14
+[agent-stderr] [authStatus] discarding a probe that predates the latest auth change
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=sdk-initialize durationMs=400 totalMs=414
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=models durationMs=1 totalMs=415
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=modes durationMs=0 totalMs=415
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=agents durationMs=0 totalMs=415
+[agent-stderr] [session/create] sessionId=4e5c14fd-e4a0-4839-8506-fb04d5543d04 phase=register durationMs=1 totalMs=415
+[spike] session id = 4e5c14fd-e4a0-4839-8506-fb04d5543d04

@@ -1,0 +1,18 @@
+[package]
+name = "spike"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+rmcp = { version = "3.7.0", features = ["server", "client", "macros", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+schemars = "1"
+anyhow = "1"
+tokio-util = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+http = "1"
+serde_json = "1"
