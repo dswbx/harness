@@ -6,6 +6,7 @@ import { Badge, Button, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 import { Markdown } from "./Markdown";
+import { MessageFooter } from "./MessageFooter";
 import { AuthCard } from "./Auth";
 import { PermissionCard } from "./Permission";
 import { FrontendToolRow } from "./FrontendToolCard";
@@ -117,12 +118,18 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
       );
     case "user":
       return (
-        <div className="flex justify-end">
+        <div className="group flex flex-col items-end">
           <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-secondary px-3.5 py-2 text-sm">{item.text}</div>
+          <MessageFooter text={item.text} ts={item.ts} align="end" />
         </div>
       );
     case "agent":
-      return <Markdown>{item.text}</Markdown>;
+      return (
+        <div className="group">
+          <Markdown>{item.text}</Markdown>
+          <MessageFooter text={item.text} ts={item.ts} />
+        </div>
+      );
     case "thought":
       return (
         <details className="text-sm text-muted-foreground">

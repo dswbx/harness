@@ -16,9 +16,10 @@ export type ConfigOption = {
 };
 
 export type Item =
-  | { type: "user"; id: string; text: string }
-  | { type: "agent"; id: string; text: string }
-  | { type: "thought"; id: string; text: string }
+  /** `ts`: ms epoch of the message's first Event. */
+  | { type: "user"; id: string; text: string; ts: number }
+  | { type: "agent"; id: string; text: string; ts: number }
+  | { type: "thought"; id: string; text: string; ts: number }
   | {
       type: "tool";
       id: string;
@@ -146,11 +147,11 @@ function permIndex(c: Ctx): Map<string, number> {
   return c.perms;
 }
 
-function appendText(c: Ctx, type: "agent" | "thought", text: string, id: string) {
+function appendText(c: Ctx, type: "agent" | "thought", text: string, id: string, ts: number) {
   const items = own(c);
   const last = items[items.length - 1];
   if (last && last.type === type) items[items.length - 1] = { ...last, text: last.text + text };
-  else items.push({ type, id, text });
+  else items.push({ type, id, text, ts });
 }
 
 /** Folds one Event. Pure from the caller's view: never mutates `state`. */
@@ -182,7 +183,7 @@ function apply(c: Ctx, e: Event) {
     case "TurnStarted":
       d.turnId = k.turn_id;
       d.lastTurnErrored = false;
-      push(c, { type: "user", id, text: k.text });
+      push(c, { type: "user", id, text: k.text, ts: e.ts_ms });
       return;
     case "TurnEnded":
       d.turnId = null;
@@ -190,10 +191,10 @@ function apply(c: Ctx, e: Event) {
       if (k.stop_reason !== "end_turn") notice(k.stop_reason === "error" ? "error" : "info", `Turn stopped: ${k.stop_reason}`);
       return;
     case "AgentMessageChunk":
-      appendText(c, "agent", k.text, id);
+      appendText(c, "agent", k.text, id, e.ts_ms);
       return;
     case "AgentThoughtChunk":
-      appendText(c, "thought", k.text, id);
+      appendText(c, "thought", k.text, id, e.ts_ms);
       return;
     case "ToolCall": {
       const idx = toolIndex(c);

@@ -78,6 +78,17 @@ describe("turns", () => {
     expect(s.items[2]).toMatchObject({ text: "ab" });
   });
 
+  it("messages keep the time of their first Event", () => {
+    const at = (ts_ms: number, kind: EventKind) => ({ ...ev(kind), ts_ms });
+    const s = fold([
+      started(),
+      at(100, { type: "TurnStarted", turn_id: "t1", text: "q" }),
+      at(200, { type: "AgentMessageChunk", text: "a" }),
+      at(300, { type: "AgentMessageChunk", text: "b" }),
+    ]);
+    expect(s.items.map((i) => i.type !== "tool" && "ts" in i && i.ts)).toEqual([100, 200]);
+  });
+
   it("shows boundaries (not initial) and errors", () => {
     const s = fold([
       ev({ type: "AgentSessionStarted", acp_session_id: "x", boundary: "initial" }),
