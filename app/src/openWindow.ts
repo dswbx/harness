@@ -11,7 +11,10 @@ export async function openViewWindow(sessionId: string, title: string) {
     window.open(url, "_blank");
     return;
   }
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const w = new WebviewWindow(`view-${sessionId}-${n}`, { url, title, width: 900, height: 760, visible: false });
+  const [{ WebviewWindow }, { LogicalPosition }] = await Promise.all([import("@tauri-apps/api/webviewWindow"), import("@tauri-apps/api/dpi")]);
+  const w = new WebviewWindow(`view-${sessionId}-${n}`, {
+    url, title, width: 900, height: 760, visible: false,
+    titleBarStyle: "overlay", hiddenTitle: true, trafficLightPosition: new LogicalPosition(18, 26),
+  });
   w.once("tauri://error", (e) => console.error("window create failed", e));
 }

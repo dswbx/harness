@@ -229,6 +229,9 @@ async fn main() -> agent_client_protocol::Result<()> {
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
                     update(&cx, &sid, text("Working on it."))?;
+                    if prompt.contains("title") {
+                        update(&cx, &sid, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Fake title")))?;
+                    }
                     if prompt.contains("write")
                         && let Some(cwd) = cwd_of(&sid)
                     {

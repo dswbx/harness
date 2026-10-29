@@ -764,6 +764,9 @@ fn on_update(session: &Session, n: &acp::SessionNotification) {
     let update = serde_json::to_value(&n.update).unwrap_or(Value::Null);
     track_tool_call(session, &update);
     let kind = normalize(update);
+    if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
+        session.set_agent_title(thread.as_ref(), t);
+    }
     let _ = session.log().append(thread, kind);
 }
 

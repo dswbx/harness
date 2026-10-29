@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Commit, SessionApi } from "@harness/api";
 import { HoverTip, cn } from "@harness/ui";
 import { ALL, WIP, toggleSelection } from "./scope";
@@ -82,6 +82,20 @@ export function CommitsPane({
     ...commits.map((c) => ({ id: c.sha, commit: c, title: c.subject, sub: `${c.short} · ${c.author} · ${formatRelativeTime(c.time * 1000)}` })),
   ];
 
+  // ↑/↓ select the previous/next item alone (from the last selected one) and keep it in view and focused.
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const onKey = (e: KeyboardEvent) => {
+    if (e.altKey || e.metaKey || e.ctrlKey || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+    e.preventDefault();
+    const last = sel?.length ? items.findIndex((it) => it.id === sel[sel.length - 1]) : -1;
+    const next = items[last < 0 ? 0 : Math.min(items.length - 1, Math.max(0, last + (e.key === "ArrowDown" ? 1 : -1)))];
+    if (!next) return;
+    onSelect([next.id]);
+    const el = buttons.current.get(next.id);
+    el?.focus({ preventScroll: true });
+    el?.scrollIntoView({ block: "nearest" });
+  };
+
   return (
     <div className="flex shrink-0 flex-col border-t" style={{ height }}>
       <div
@@ -107,16 +121,21 @@ export function CommitsPane({
         <span>{commits.length}</span>
         <span className="ml-auto text-[11px]">⌘/⇧-click to combine</span>
       </div>
-      <div role="listbox" aria-label="Commits" aria-multiselectable className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5">
+      <div role="listbox" aria-label="Commits" aria-multiselectable className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5" onKeyDown={onKey}>
         {items.map((it) => {
           const on = !!sel?.includes(it.id);
           const row = (
             <button
               key={it.id}
+              ref={(el) => { if (el) buttons.current.set(it.id, el); else buttons.current.delete(it.id); }}
               role="option"
               aria-selected={on}
-              className={cn("flex w-full select-none flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs", on ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
-              onClick={(e) => onSelect(toggleSelection(sel ?? [], it.id, e.metaKey || e.ctrlKey || e.shiftKey))}
+              className={cn("flex w-full select-none flex-col outline-none gap-0.5 rounded-md px-2 py-1.5 text-left text-xs", on ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
+              onClick={(e) => {
+                // WebKit (Tauri on macOS) doesn't focus a clicked button; focus it so ↑/↓ reach this list instead of scrolling the page.
+                e.currentTarget.focus({ preventScroll: true });
+                onSelect(toggleSelection(sel ?? [], it.id, e.metaKey || e.ctrlKey || e.shiftKey));
+              }}
             >
               <span className="w-full truncate">{it.title}</span>
               <span className="w-full truncate text-[11px] text-muted-foreground">{it.sub}</span>

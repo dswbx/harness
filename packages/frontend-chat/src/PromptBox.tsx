@@ -28,6 +28,39 @@ function CommentChips({ sessionId, comments }: { sessionId: string; comments: Re
   );
 }
 
+/** Context window use as a ring; details on hover. */
+function ContextRing({ pct, used, size }: { pct: number; used: number; size: number }) {
+  const r = 8;
+  const c = 2 * Math.PI * r;
+  const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  return (
+    <HoverTip
+      side="top"
+      align="end"
+      className="w-56 max-w-56 p-3"
+      content={
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-between font-medium"><span>Context window</span><span>{pct}%</span></div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className={cn("h-full", pct > 85 ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="grid grid-cols-[1fr_auto] gap-y-0.5 text-muted-foreground">
+            <span>Used</span><span className="tabular-nums">{fmt(used)} / {fmt(size)} tokens</span>
+            <span>Remaining</span><span className="tabular-nums">{fmt(Math.max(0, size - used))}</span>
+          </div>
+        </div>
+      }
+    >
+      <button type="button" className="grid size-8 place-items-center rounded-full hover:bg-accent" aria-label={`Context window ${pct}% used`}>
+        <svg viewBox="0 0 20 20" className="size-5 -rotate-90" aria-hidden>
+          <circle cx="10" cy="10" r={r} fill="none" strokeWidth="2.5" className="stroke-muted" />
+          <circle cx="10" cy="10" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${(c * pct) / 100} ${c}`} className={pct > 85 ? "stroke-destructive" : "stroke-muted-foreground"} />
+        </svg>
+      </button>
+    </HoverTip>
+  );
+}
+
 export function PromptBox({ api, state }: { api: SessionApi; state: ChatState }) {
   const [text, setText] = useState("");
   const [lines, setLines] = useState(0);
@@ -73,9 +106,9 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const pick = (c: SlashCommand) => ref.current?.setText(`/${c.name} `);
 
   return (
-    <div className="relative border-t p-3">
+    <div className="relative mx-auto w-full max-w-3xl px-8 pb-5">
       {matches.length > 0 && (
-        <div className="absolute bottom-full left-3 mb-1 max-h-72 w-72 max-w-[calc(100%-1.5rem)] overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox" aria-label="Commands">
+        <div className="absolute bottom-full left-8 mb-1 max-h-72 w-72 max-w-[calc(100%-4rem)] overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox" aria-label="Commands">
           {matches.map((c, i) => (
             <HoverTip key={c.name} content={c.description} open={i === sel && !!c.description}>
               <button
@@ -105,7 +138,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           {error}
         </div>
       )}
-      <div className="rounded-xl border bg-card p-2">
+      <div className="rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm">
         {comments.length > 0 && <CommentChips sessionId={api.sessionId} comments={comments} />}
         <PromptEditor
           ref={ref}
@@ -134,22 +167,16 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           />
           <div className="flex-1" />
           {overflow && <span className="text-xs tabular-nums text-muted-foreground">{lines} lines</span>}
-          {pct != null && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground" title={`${state.usage!.used.toLocaleString()} / ${state.usage!.size.toLocaleString()} tokens`}>
-              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                <div className={cn("h-full", pct > 85 ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
-              </div>
-              {pct}%
-            </div>
-          )}
-          {running && (
-            <Button size="sm" variant="outline" onClick={() => { setError(null); api.cancel().catch((err) => setError(errorMessage(err))); }}>
-              <Square className="size-3" /> Cancel
+          {pct != null && <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />}
+          {running ? (
+            <Button size="icon" className="size-8 rounded-full" onClick={() => { setError(null); api.cancel().catch((err) => setError(errorMessage(err))); }} aria-label="Stop Agent" title="Stop Agent">
+              <Square className="size-3 fill-current" />
+            </Button>
+          ) : (
+            <Button size="icon" className="size-8 rounded-full" disabled={(!text.trim() && comments.length === 0) || readOnly} onClick={send} aria-label="Send">
+              <ArrowUp />
             </Button>
           )}
-          <Button size="icon" className="size-7 rounded-full" disabled={(!text.trim() && comments.length === 0) || readOnly} onClick={send} aria-label="Send">
-            <ArrowUp />
-          </Button>
         </div>
       </div>
     </div>

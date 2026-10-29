@@ -1,8 +1,8 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, GitCompare, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import type { SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
-import { Badge, Button, VirtualList, cn } from "@harness/ui";
+import { Badge, Button, Portal, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
@@ -170,15 +170,22 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 
 /** Claude Code desktop-like chat. Pure fold of the Session Log (see reducer.ts). */
-export function View({ api }: { api: SessionApi }) {
-  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} />;
+export function View({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | null }) {
+  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} toolbar={toolbar} />;
 }
 
-function ChatView({ api }: { api: SessionApi }) {
+function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
   const [panel, setPanel] = useState(false);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  // Changes need git; hidden until the Workspace is known to be a repository.
+  const [git, setGit] = useState(false);
+  useEffect(() => {
+    let off = false;
+    api.workspace().then((w) => !off && setGit(!!w?.repo_root), () => {});
+    return () => { off = true; };
+  }, [api]);
 
   const openDiff = useCallback((s: DiffScope) => { setScope(s); setPanel(true); }, []);
   // Resolved permission cards render nothing; keep them out of the virtual list.
@@ -188,29 +195,51 @@ function ChatView({ api }: { api: SessionApi }) {
   const running = state.turnId !== null;
   const proc = state.process;
   const refreshKey = `${changeCount}:${running}`;
+  // In the host's Session header when it gives a slot, else in a header of our own.
+  const actions = (
+    <>
+      {proc && proc.state !== "ready" && (
+        <Badge variant={proc.state === "failed" ? "destructive" : "secondary"} title={proc.message ?? undefined}>
+          Agent {proc.state}
+        </Badge>
+      )}
+      {git && (
+        <Button
+          size="icon"
+          variant="ghost"
+          className={cn("size-7 text-muted-foreground hover:text-foreground", panel && "bg-accent text-foreground")}
+          aria-label="Changes"
+          title="Changes"
+          aria-pressed={panel}
+          onClick={() => setPanel(!panel)}
+        >
+          <GitCompare />
+        </Button>
+      )}
+    </>
+  );
   return (
     <div className="flex h-full">
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b px-4 py-2">
-        <span className="truncate text-sm font-medium">{state.title ?? "New Session"}</span>
-        {proc && proc.state !== "ready" && (
-          <Badge variant={proc.state === "failed" ? "destructive" : "secondary"} title={proc.message ?? undefined}>
-            Agent {proc.state}
-          </Badge>
-        )}
-        {proc?.state === "ready" && <span className="text-xs text-muted-foreground/70">Agent ready</span>}
-        <div className="flex-1" />
-        <Button size="sm" variant={panel ? "secondary" : "ghost"} aria-pressed={panel} onClick={() => setPanel(!panel)}>
-          <GitCompare /> Changes
-        </Button>
-      </div>
+      <Portal
+        container={toolbar}
+        fallback={
+          <div className="flex h-13 shrink-0 items-center gap-2 border-b px-5">
+            <span className="truncate text-sm font-semibold">{state.title ?? "New Session"}</span>
+            <div className="flex-1" />
+            {actions}
+          </div>
+        }
+      >
+        {actions}
+      </Portal>
       <TaskListPanel entries={state.taskList} />
       <VirtualList
         count={rows.length}
         getKey={(i) => rows[i]!.id}
         estimateSize={72}
-        gap={16}
-        innerClassName="mx-auto max-w-3xl px-4 pb-4"
+        gap={24}
+        innerClassName="mx-auto max-w-3xl px-8 pb-8 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
         renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} />}
         footer={
