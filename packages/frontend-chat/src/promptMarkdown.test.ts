@@ -83,7 +83,7 @@ describe("markdown round trip", () => {
     "```ts\nconst a = 1;\n\nconst b = 2;\n```",
     "```\nno lang\n```",
     "see [docs](https://example.com)",
-    "line one\nline two\n\nafter blank",
+    "line one\n\nafter blank",
     "- a\n    - b\n        - c\n- d",
     "1. a\n    1. b\n2. c",
   ])("%s", (md) => {
@@ -91,6 +91,14 @@ describe("markdown round trip", () => {
   });
   it("plain text keeps slash commands and special chars", () => {
     expect(roundTrip("/review a_b_c 2*3 ~x a\\b").md).toBe("/review a_b_c 2*3 ~x a\\b");
+  });
+  it("blocks are split by a blank line, so text after a list or code block stays out of it", () => {
+    const editor = createHeadlessEditor({ nodes: PROMPT_NODES, onError: (e) => { throw e; } });
+    editor.update(() => {
+      $convertFromMarkdownString("- a\n    - b", PROMPT_TRANSFORMERS, undefined, true);
+      $getRoot().append($createParagraphNode().append($createTextNode("after list")));
+    }, { discrete: true });
+    expect(mdOf(editor)).toBe("- a\n    - b\n\nafter list");
   });
   it("code keeps its text verbatim", () => {
     expect(roundTrip("`a_b` and a_b").md).toBe("`a_b` and a_b");

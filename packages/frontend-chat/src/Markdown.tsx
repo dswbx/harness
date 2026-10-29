@@ -1,11 +1,13 @@
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { cn } from "@harness/ui";
 
-export function Markdown({ children, className }: { children: string; className?: string }) {
+/** `breaks`: single newlines become line breaks (user prompts are typed that way). */
+export function Markdown({ children, className, breaks }: { children: string; className?: string; breaks?: boolean }) {
   return (
     <div className={cn("prose-harness", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );
 }

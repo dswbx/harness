@@ -46,8 +46,11 @@ export const PROMPT_TRANSFORMERS: Transformer[] = [
   LINK,
 ];
 
-/** Markdown of the editor's content, escapes undone outside code (call inside read/update). */
-export const $exportMarkdown = () => unescapeMarkdown($convertToMarkdownString(PROMPT_TRANSFORMERS, undefined, true));
+/**
+ * Markdown of the editor's content, escapes undone outside code (call inside read/update).
+ * Blocks are joined by a blank line (not preserveNewLines), so a paragraph after a list is not read as part of the last item.
+ */
+export const $exportMarkdown = () => unescapeMarkdown($convertToMarkdownString(PROMPT_TRANSFORMERS, undefined, false));
 
 export const MAX_LIST_DEPTH = 5;
 
@@ -130,7 +133,7 @@ export function fenceLanguage(line: string): string | null {
 export const lineCount = (s: string) => (s ? s.split("\n").length : 0);
 
 /**
- * Lexical escapes `*_\`~` in plain text on export (`a_b` → `a\_b`). Prompts go to an Agent, so undo that
+ * Lexical escapes `*_\`~\\` in plain text on export (`a_b` → `a\_b`). Prompts go to an Agent, so undo that
  * outside code: fenced blocks and inline code spans stay verbatim.
  */
 export function unescapeMarkdown(md: string): string {
@@ -151,7 +154,7 @@ export function unescapeMarkdown(md: string): string {
     }
     for (let j = 0; j < line.length; ) {
       const c = line[j]!;
-      if (c === "\\" && /[*_`~]/.test(line[j + 1] ?? "")) {
+      if (c === "\\" && /[*_`~\\]/.test(line[j + 1] ?? "")) {
         out += line[j + 1];
         j += 2;
       } else if (c === "`") {

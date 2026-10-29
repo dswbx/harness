@@ -119,7 +119,7 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
     case "user":
       return (
         <div className="group flex flex-col items-end">
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-secondary px-3.5 py-2 text-sm">{item.text}</div>
+          <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2 text-sm">{item.text}</Markdown>
           <MessageFooter text={item.text} ts={item.ts} align="end" />
         </div>
       );
