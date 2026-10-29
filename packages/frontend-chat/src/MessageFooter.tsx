@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { cn } from "@harness/ui";
-import { formatMessageTime, fullMessageTime } from "./time";
+import { Tooltip, cn } from "@harness/ui";
+import { formatRelativeTime, fullMessageTime, useNow } from "./time";
 
 /** Actions under a message. Shown while the message is hovered or has focus (parent needs `group`). */
 export function MessageFooter({ text, ts, align = "start" }: { text: string; ts: number; align?: "start" | "end" }) {
   const [copied, setCopied] = useState(false);
+  const now = useNow();
 
   useEffect(() => {
     if (!copied) return;
@@ -31,9 +32,11 @@ export function MessageFooter({ text, ts, align = "start" }: { text: string; ts:
       >
         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       </button>
-      <time dateTime={new Date(ts).toISOString()} title={fullMessageTime(ts)} className="px-1 tabular-nums">
-        {formatMessageTime(ts)}
-      </time>
+      <Tooltip content={fullMessageTime(ts)} align={align} fast>
+        <time dateTime={new Date(ts).toISOString()} className="px-1">
+          {formatRelativeTime(ts, now)}
+        </time>
+      </Tooltip>
     </div>
   );
 }

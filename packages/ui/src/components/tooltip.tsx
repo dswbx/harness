@@ -10,17 +10,27 @@ function Tooltip({
   content,
   children,
   className,
+  align = "start",
+  fast = false,
 }: {
   content: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /** Which trigger edge the tooltip lines up with. */
+  align?: "start" | "end";
+  /** Show after 100ms instead of 300ms. */
+  fast?: boolean;
 }) {
   return (
     <span className={cn("group/tooltip relative inline-flex", className)}>
       {children}
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 w-max max-w-72 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-focus-within/tooltip:opacity-100 group-hover/tooltip:opacity-100 group-hover/tooltip:delay-300"
+        className={cn(
+          "pointer-events-none absolute bottom-full z-50 mb-1.5 w-max max-w-72 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-focus-within/tooltip:opacity-100 group-hover/tooltip:opacity-100",
+          align === "end" ? "right-0" : "left-0",
+          fast ? "group-hover/tooltip:delay-100" : "group-hover/tooltip:delay-300",
+        )}
       >
         {content}
       </span>
