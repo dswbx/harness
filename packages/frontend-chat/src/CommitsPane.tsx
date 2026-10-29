@@ -130,7 +130,7 @@ export function CommitsPane({
               ref={(el) => { if (el) buttons.current.set(it.id, el); else buttons.current.delete(it.id); }}
               role="option"
               aria-selected={on}
-              className={cn("flex w-full select-none flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs", on ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
+              className={cn("flex w-full select-none flex-col outline-none gap-0.5 rounded-md px-2 py-1.5 text-left text-xs", on ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
               onClick={(e) => {
                 // WebKit (Tauri on macOS) doesn't focus a clicked button; focus it so ↑/↓ reach this list instead of scrolling the page.
                 e.currentTarget.focus({ preventScroll: true });
