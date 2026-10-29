@@ -4,4 +4,5 @@ dist/
 .env
 .env.*
 .claude/settings.local.json
+.claude/worktrees/
 src-tauri/gen/
