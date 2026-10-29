@@ -77,7 +77,7 @@ function SessionRow({
         <button
           onClick={onSelect}
           aria-current={selected || undefined}
-          className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2.5 pr-8 text-left text-sm text-foreground/80 hover:bg-accent/60 hover:text-foreground", selected && "bg-accent font-medium text-foreground hover:bg-accent", s.archived && "opacity-70")}
+          className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8 text-sm text-foreground/80 hover:bg-accent/60 hover:text-foreground", selected && "bg-accent font-medium text-foreground hover:bg-accent", s.archived && "opacity-70")}
         >
           <span className="min-w-0 flex-1 truncate">{s.title}</span>
           <StatusDot status={s.status} className="group-hover:hidden" />
@@ -86,7 +86,7 @@ function SessionRow({
       <button
         aria-label="Session menu"
         title="Session menu"
-        className="absolute right-1 top-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-background group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"
         onClick={() => setMenu(!menu)}
       >
         <MoreHorizontal className="size-4" />
@@ -323,7 +323,7 @@ function Shell({ transport }: { transport: Transport }) {
             aria-orientation="vertical"
             aria-label="Resize sidebar"
             title="Drag to resize, double-click to reset"
-            className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-ring/30"
+            className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors hover:after:bg-ring"
             onPointerDown={sidebar.onPointerDown}
             onDoubleClick={sidebar.reset}
           />
