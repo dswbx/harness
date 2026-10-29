@@ -245,8 +245,15 @@ async fn git_log_without_worktree() {
     // On a branch: everything since it forked from main.
     assert_eq!(log(h.clone(), sid.clone()).await, ["b", "a"]);
 
-    // On main itself: everything since the last checkout.
+    // On main without an upstream: nothing.
     sh(&repo, &["checkout", "-q", "main"]);
     commit("c");
-    assert_eq!(log(h.clone(), sid.clone()).await, ["c"]);
+    assert!(log(h.clone(), sid.clone()).await.is_empty());
+
+    // On main with an upstream: only unpushed commits.
+    sh(&repo, &["remote", "add", "origin", "."]);
+    sh(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    sh(&repo, &["branch", "-q", "-u", "origin/main"]);
+    commit("d");
+    assert_eq!(log(h.clone(), sid.clone()).await, ["d"]);
 }

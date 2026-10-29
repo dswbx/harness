@@ -226,28 +226,25 @@ pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
         .collect())
 }
 
-/// Where a Session's changes start: the merge base with its Worktree's base branch. Without a Worktree: where HEAD
-/// forked from the default branch (`origin/HEAD`, else `main`/`master`), unless that is HEAD itself (on the default
-/// branch, nothing unpushed); then HEAD right after the last checkout; else HEAD.
+/// Where a Session's changes start: the merge base with its Worktree's base branch. Without a Worktree: on a branch,
+/// where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default branch, its upstream,
+/// so only unpushed commits count; else HEAD (no commits, only uncommitted work).
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
     if let Some(base) = base
         && let Ok(mb) = git(dir, &["merge-base", "HEAD", base]).await
     {
         return Ok(mb.trim().to_owned());
     }
-    let head = git(dir, &["rev-parse", "HEAD"]).await?.trim().to_owned();
     if base.is_none() {
-        if let Some(default) = default_branch(dir).await
-            && let Ok(mb) = git(dir, &["merge-base", "HEAD", &default]).await
-            && mb.trim() != head
-        {
+        let default = default_branch(dir).await;
+        let current = current_branch(dir).await.ok().flatten();
+        let on_default = default.as_deref().is_some_and(|d| current.as_deref() == Some(d.split_once('/').map_or(d, |(_, b)| b)));
+        let fork = if on_default { "@{upstream}" } else { default.as_deref().unwrap_or("@{upstream}") };
+        if let Ok(mb) = git(dir, &["merge-base", "HEAD", fork]).await {
             return Ok(mb.trim().to_owned());
         }
-        if let Some(c) = last_checkout(dir).await {
-            return Ok(c);
-        }
     }
-    Ok(head)
+    Ok(git(dir, &["rev-parse", "HEAD"]).await?.trim().to_owned())
 }
 
 /// The repo's main line: `origin/HEAD`, else a local `main` or `master`.
@@ -265,14 +262,6 @@ async fn default_branch(dir: &Path) -> Option<String> {
     None
 }
 
-/// HEAD right after the most recent checkout, from the reflog.
-async fn last_checkout(dir: &Path) -> Option<String> {
-    let out = git(dir, &["reflog", "--format=%H%x1f%gs", "HEAD"]).await.ok()?;
-    out.lines()
-        .filter_map(|l| l.split_once('\x1f'))
-        .find(|(_, s)| s.starts_with("checkout:"))
-        .map(|(h, _)| h.to_owned())
-}
 
 pub async fn commit(dir: &Path, message: &str) -> anyhow::Result<String> {
     git(dir, &["add", "-A"]).await?;
