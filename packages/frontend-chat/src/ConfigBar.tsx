@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Brain, ChevronDown, MoreHorizontal, Shield, Zap } from "lucide-react";
+import { Brain, ChevronDown, Info, MoreHorizontal, Shield, Zap } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +12,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSwitchItem,
   DropdownMenuTrigger,
+  HoverTip,
   cn,
 } from "@harness/ui";
 import { chipLabel, fastOn, groupConfigOptions, isToggle, toggleKind, valueName } from "./configGroups";
@@ -30,7 +31,7 @@ export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onCh
     <>
       {g.mode && (
         <DropdownMenu>
-          <DropdownMenuTrigger className={trigger} aria-label={`${g.mode.name}: ${valueName(g.mode)}`} title={g.mode.description}>
+          <DropdownMenuTrigger className={trigger} aria-label={`${g.mode.name}: ${valueName(g.mode)}`}>
             <Shield className="size-3.5 shrink-0" />
             <span className="truncate">{valueName(g.mode)}</span>
             <ChevronDown className="size-3 shrink-0 opacity-60" />
@@ -43,7 +44,7 @@ export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onCh
       )}
       {g.model && label && (
         <DropdownMenu>
-          <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`} title={g.model.description}>
+          <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`}>
             <span className="truncate">{label}</span>
             {fastOn(g) && <Zap className="size-3.5 shrink-0 fill-yellow-400 text-yellow-400" aria-label="Fast mode on" />}
             <ChevronDown className="size-3 shrink-0 opacity-60" />
@@ -78,11 +79,18 @@ export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onCh
   );
 }
 
+/** Menu header: option name, its description behind an "i" icon. */
 function OptionHeader({ o, name }: { o: ConfigOption; name?: string }) {
   return (
-    <DropdownMenuLabel>
-      <span className="block">{name ?? o.name}</span>
-      {o.description && <span className="block font-normal">{o.description}</span>}
+    <DropdownMenuLabel className="flex items-center gap-1.5">
+      <span>{name ?? o.name}</span>
+      {o.description && (
+        <HoverTip content={o.description} side="top" align="start">
+          <span role="img" aria-label={o.description} className="text-muted-foreground/70 hover:text-foreground">
+            <Info className="size-3.5" />
+          </span>
+        </HoverTip>
+      )}
     </DropdownMenuLabel>
   );
 }
@@ -92,12 +100,11 @@ function Values({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
   return (
     <DropdownMenuRadioGroup value={o.currentValue} onValueChange={(v) => v !== o.currentValue && onChange(o.id, v)}>
       {o.options.map((v) => (
-        <DropdownMenuRadioItem key={v.value} value={v.value}>
-          <span className="min-w-0">
-            <span className="block truncate">{v.name}</span>
-            {v.description && <span className="block text-xs text-muted-foreground">{v.description}</span>}
-          </span>
-        </DropdownMenuRadioItem>
+        <HoverTip key={v.value} content={v.description}>
+          <DropdownMenuRadioItem value={v.value} aria-description={v.description ?? undefined}>
+            <span className="truncate">{v.name}</span>
+          </DropdownMenuRadioItem>
+        </HoverTip>
       ))}
     </DropdownMenuRadioGroup>
   );
@@ -109,16 +116,18 @@ function OptionRow({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
   if (!t) return <OptionSub o={o} onChange={onChange} />;
   const kind = toggleKind(o);
   return (
-    <DropdownMenuSwitchItem
-      checked={o.currentValue === t.on}
-      onCheckedChange={(c) => onChange(o.id, c ? t.on : t.off)}
-      onSelect={(e) => e.preventDefault()}
-      title={o.description}
-    >
-      {kind === "fast" && <Zap className={cn("size-4", o.currentValue === t.on ? "text-yellow-400" : "text-muted-foreground")} />}
-      {kind === "think" && <Brain className="size-4 text-muted-foreground" />}
-      <span className="truncate">{o.name}</span>
-    </DropdownMenuSwitchItem>
+    <HoverTip content={o.description}>
+      <DropdownMenuSwitchItem
+        checked={o.currentValue === t.on}
+        onCheckedChange={(c) => onChange(o.id, c ? t.on : t.off)}
+        onSelect={(e) => e.preventDefault()}
+        aria-description={o.description ?? undefined}
+      >
+        {kind === "fast" && <Zap className={cn("size-4", o.currentValue === t.on ? "text-yellow-400" : "text-muted-foreground")} />}
+        {kind === "think" && <Brain className="size-4 text-muted-foreground" />}
+        <span className="truncate">{o.name}</span>
+      </DropdownMenuSwitchItem>
+    </HoverTip>
   );
 }
 
@@ -126,7 +135,7 @@ function OptionRow({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
 function OptionSub({ o, label, onChange }: { o: ConfigOption; label?: string; onChange: OnChange }) {
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger title={o.description}>
+      <DropdownMenuSubTrigger aria-description={o.description ?? undefined}>
         <span className="flex-1 truncate">{label ?? o.name}</span>
         <span className="max-w-28 truncate text-xs text-muted-foreground">{valueName(o)}</span>
       </DropdownMenuSubTrigger>
