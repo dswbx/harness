@@ -131,7 +131,11 @@ export function CommitsPane({
               role="option"
               aria-selected={on}
               className={cn("flex w-full select-none flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs", on ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
-              onClick={(e) => onSelect(toggleSelection(sel ?? [], it.id, e.metaKey || e.ctrlKey || e.shiftKey))}
+              onClick={(e) => {
+                // WebKit (Tauri on macOS) doesn't focus a clicked button; focus it so ↑/↓ reach this list instead of scrolling the page.
+                e.currentTarget.focus({ preventScroll: true });
+                onSelect(toggleSelection(sel ?? [], it.id, e.metaKey || e.ctrlKey || e.shiftKey));
+              }}
             >
               <span className="w-full truncate">{it.title}</span>
               <span className="w-full truncate text-[11px] text-muted-foreground">{it.sub}</span>
