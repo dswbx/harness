@@ -12,6 +12,7 @@ function HoverTip({
   side = "right",
   align = "center",
   delay = 150,
+  open,
   className,
 }: {
   content: React.ReactNode;
@@ -19,12 +20,14 @@ function HoverTip({
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
   delay?: number;
+  /** Controlled: shown while true (e.g. the keyboard-highlighted item of a list), no hover handling. */
+  open?: boolean;
   className?: string;
 }) {
   if (!content) return children;
   return (
     <TooltipPrimitive.Provider delayDuration={delay} skipDelayDuration={300}>
-      <TooltipPrimitive.Root>
+      <TooltipPrimitive.Root {...(open !== undefined && { open })}>
         <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal>
           <TooltipPrimitive.Content

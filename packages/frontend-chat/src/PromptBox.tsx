@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import type { SessionApi, SlashCommand } from "@harness/api";
-import { Button, cn } from "@harness/ui";
+import { Button, HoverTip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
 import { matchCommands } from "./commands";
 import { errorMessage } from "./errors";
@@ -45,20 +45,22 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   return (
     <div className="relative border-t p-3">
       {matches.length > 0 && (
-        <div className="absolute inset-x-3 bottom-full mb-1 max-h-64 overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox">
+        <div className="absolute bottom-full left-3 mb-1 max-h-72 w-72 max-w-[calc(100%-1.5rem)] overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox" aria-label="Commands">
           {matches.map((c, i) => (
-            <button
-              key={c.name}
-              role="option"
-              aria-selected={i === sel}
-              className={cn("flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-sm", i === sel && "bg-accent")}
-              onMouseEnter={() => setSel(i)}
-              onClick={() => pick(c)}
-            >
-              <span className="font-mono">/{c.name}</span>
-              {c.hint && <span className="text-xs text-muted-foreground">{c.hint}</span>}
-              <span className="truncate text-xs text-muted-foreground">{c.description}</span>
-            </button>
+            <HoverTip key={c.name} content={c.description} open={i === sel && !!c.description}>
+              <button
+                ref={i === sel ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                role="option"
+                aria-selected={i === sel}
+                aria-description={c.description || undefined}
+                className={cn("flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm", i === sel && "bg-accent")}
+                onMouseMove={() => i !== sel && setSel(i)}
+                onClick={() => pick(c)}
+              >
+                <span className="truncate">/{c.name}</span>
+                {c.hint && <span className="shrink-0 truncate text-xs text-muted-foreground">{c.hint}</span>}
+              </button>
+            </HoverTip>
           ))}
         </div>
       )}
