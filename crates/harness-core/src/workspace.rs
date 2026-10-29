@@ -197,6 +197,12 @@ pub async fn diff(dir: &Path, from: &str, to: &str) -> anyhow::Result<Diff> {
     Ok(Diff { from: from.to_owned(), to: to.to_owned(), files, patch })
 }
 
+/// `path` at `rev`, or empty when it does not exist there (added or deleted file).
+pub async fn show_file(dir: &Path, rev: &str, path: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(!rev.starts_with('-') && !path.starts_with('-'), "invalid rev or path");
+    Ok(git(dir, &["show", &format!("{rev}:{path}")]).await.unwrap_or_default())
+}
+
 /// Where a Session's changes start: the merge base with its Worktree's base branch, else HEAD.
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
     if let Some(base) = base

@@ -28,6 +28,8 @@ export interface SessionApi {
   gitStatus(): Promise<GitStatus>;
   /** Null `from`: where the Session's changes start. Null `to`: the working tree now. */
   gitDiff(from?: string | null, to?: string | null): Promise<Diff>;
+  /** A file at `rev` (e.g. `Diff.from`/`Diff.to`); empty when absent there. */
+  gitShowFile(rev: string, path: string): Promise<string>;
   /** Stages everything; returns the commit id. */
   gitCommit(message: string): Promise<string>;
   gitPush(): Promise<void>;
@@ -73,6 +75,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     gitStatus: async () => (await expect({ type: "GitStatus", session_id: sessionId }, "GitStatus")).status,
     gitDiff: async (from = null, to = null) =>
       (await expect({ type: "GitDiff", session_id: sessionId, from, to }, "Diff")).diff,
+    gitShowFile: async (rev, path) =>
+      (await expect({ type: "GitShowFile", session_id: sessionId, rev, path }, "FileContent")).content,
     gitCommit: async (message) =>
       (await expect({ type: "GitCommit", session_id: sessionId, message }, "Committed")).commit,
     gitPush: () => run({ type: "GitPush", session_id: sessionId }),

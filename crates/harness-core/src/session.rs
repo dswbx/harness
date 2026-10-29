@@ -403,6 +403,10 @@ impl Session {
         crate::workspace::diff(&folder, &from, &to).await
     }
 
+    pub async fn git_show_file(&self, rev: &str, path: &str) -> anyhow::Result<String> {
+        crate::workspace::show_file(&self.folder()?, rev, path).await
+    }
+
     pub async fn git_commit(&self, message: String) -> anyhow::Result<String> {
         let commit = crate::workspace::commit(&self.folder()?, &message).await?;
         self.log.append(None, EventKind::GitCommitted { commit: commit.clone(), message })?;

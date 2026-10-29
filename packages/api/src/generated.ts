@@ -96,6 +96,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  with the Worktree's base branch, else HEAD); `to` defaults to the working tree now.
  */
 { type: "GitDiff"; session_id: string; from: string | null; to: string | null } | 
+/**  A file's content at `rev` (a commit or tree id, e.g. `Diff.from`/`Diff.to`); empty if absent there. */
+{ type: "GitShowFile"; session_id: string; rev: string; path: string } | 
 /**  Stages everything and commits (hooks run). */
 { type: "GitCommit"; session_id: string; message: string } | 
 /**  Pushes the current branch to `origin`, setting upstream. */

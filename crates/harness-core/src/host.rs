@@ -240,6 +240,9 @@ impl Harness {
             Command::GitDiff { session_id, from, to } => {
                 CommandResult::Diff { diff: self.session(&session_id)?.git_diff(from, to).await? }
             }
+            Command::GitShowFile { session_id, rev, path } => {
+                CommandResult::FileContent { content: self.session(&session_id)?.git_show_file(&rev, &path).await? }
+            }
             Command::GitCommit { session_id, message } => {
                 CommandResult::Committed { commit: self.session(&session_id)?.git_commit(message).await? }
             }

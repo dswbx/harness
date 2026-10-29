@@ -124,6 +124,12 @@ pub enum Command {
         from: Option<String>,
         to: Option<String>,
     },
+    /// A file's content at `rev` (a commit or tree id, e.g. `Diff.from`/`Diff.to`); empty if absent there.
+    GitShowFile {
+        session_id: SessionId,
+        rev: String,
+        path: String,
+    },
     /// Stages everything and commits (hooks run).
     GitCommit {
         session_id: SessionId,
