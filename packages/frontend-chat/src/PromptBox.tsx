@@ -3,14 +3,18 @@ import { ArrowUp, Square } from "lucide-react";
 import type { SessionApi, SlashCommand } from "@harness/api";
 import { Button, HoverTip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
+import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
+import { lineCount } from "./promptMarkdown";
 import { matchCommands } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
 
 export function PromptBox({ api, state }: { api: SessionApi; state: ChatState }) {
   const [text, setText] = useState("");
+  const [lines, setLines] = useState(0);
+  const [overflow, setOverflow] = useState(false);
   const [sel, setSel] = useState(0);
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const ref = useRef<PromptEditorHandle>(null);
   const running = state.turnId !== null;
   const matches = useMemo(() => matchCommands(state.commands, text), [state.commands, text]);
   const pct = state.usage ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100)) : null;
@@ -19,28 +23,25 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const readOnly = state.readOnly;
 
   const send = () => {
-    const t = text.trim();
+    const t = ref.current?.getMarkdown().trim() ?? "";
     if (!t || readOnly) return;
-    setText("");
+    ref.current?.clear();
     setError(null);
     api.prompt(t).catch((err) => {
       setError(errorMessage(err));
-      setText((cur) => cur || t);
+      ref.current?.restore(t);
     });
   };
   const continueWithSummary = () => {
-    const t = text.trim();
-    setText("");
+    const t = ref.current?.getMarkdown().trim() ?? "";
+    ref.current?.clear();
     setError(null);
     api.continueWithSummary(t || null).catch((err) => {
       setError(errorMessage(err));
-      if (t) setText((cur) => cur || t);
+      if (t) ref.current?.restore(t);
     });
   };
-  const pick = (c: SlashCommand) => {
-    setText(`/${c.name} `);
-    ref.current?.focus();
-  };
+  const pick = (c: SlashCommand) => ref.current?.setText(`/${c.name} `);
 
   return (
     <div className="relative border-t p-3">
@@ -76,27 +77,22 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
         </div>
       )}
       <div className="rounded-xl border bg-card p-2">
-        <textarea
+        <PromptEditor
           ref={ref}
-          value={text}
-          rows={2}
           placeholder={running ? "Agent is working... (you can still queue a prompt)" : "Message the Agent. Type / for commands."}
-          className="w-full resize-none bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
-          onChange={(e) => {
-            setText(e.target.value);
-            setSel(0);
+          menuOpen={matches.length > 0}
+          onMenuKey={(k) => {
+            if (k === "down") setSel((sel + 1) % matches.length);
+            else if (k === "up") setSel((sel + matches.length - 1) % matches.length);
+            else pick(matches[sel]!);
           }}
-          onKeyDown={(e) => {
-            if (matches.length > 0) {
-              if (e.key === "ArrowDown") { e.preventDefault(); setSel((sel + 1) % matches.length); return; }
-              if (e.key === "ArrowUp") { e.preventDefault(); setSel((sel + matches.length - 1) % matches.length); return; }
-              if (e.key === "Tab" || e.key === "Enter") { e.preventDefault(); pick(matches[sel]!); return; }
-            }
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              send();
-            }
+          onChange={(t, md) => {
+            if (t !== text) setSel(0);
+            setText(t);
+            setLines(lineCount(md));
           }}
+          onSubmit={send}
+          onOverflowChange={setOverflow}
         />
         <div className="flex flex-wrap items-center gap-1 pt-1">
           <ConfigBar
@@ -107,6 +103,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
             }}
           />
           <div className="flex-1" />
+          {overflow && <span className="text-xs tabular-nums text-muted-foreground">{lines} lines</span>}
           {pct != null && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground" title={`${state.usage!.used.toLocaleString()} / ${state.usage!.size.toLocaleString()} tokens`}>
               <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
