@@ -1,12 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { createHeadlessEditor } from "@lexical/headless";
 import { $convertFromMarkdownString } from "@lexical/markdown";
-import { $isListItemNode } from "@lexical/list";
-import { $createParagraphNode, $createTextNode, $getRoot, $isTextNode, type ElementNode, type LexicalEditor, type TextNode } from "lexical";
+import { $createCodeNode, $isCodeNode } from "@lexical/code";
+import { $createListItemNode, $createListNode, $isListItemNode } from "@lexical/list";
+import {
+  $createLineBreakNode,
+  $createParagraphNode,
+  $createRangeSelection,
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isParagraphNode,
+  $isRangeSelection,
+  $isTextNode,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type TextNode,
+} from "lexical";
 import {
   $codeTab,
+  $escapeBlock,
+  $exitCode,
   $exportMarkdown,
   $indentListItems,
+  $insertPlainText,
   MAX_LIST_DEPTH,
   PROMPT_NODES,
   PROMPT_TRANSFORMERS,
@@ -36,24 +54,28 @@ const at = (editor: LexicalEditor, needle: string, fn: () => void, offset = 0) =
 
 describe("enterAction", () => {
   const ctx = (o: Partial<EnterCtx>): EnterCtx => ({ menuOpen: false, composing: false, shift: false, mod: false, block: "text", ...o });
-  it("plain Enter sends in text, keeps editor behavior in list/code", () => {
+  it("Enter sends in text and lists; in code it makes a newline (or leaves the block)", () => {
     expect(enterAction(ctx({}))).toBe("send");
-    expect(enterAction(ctx({ block: "list" }))).toBe("default");
-    expect(enterAction(ctx({ block: "code" }))).toBe("default");
+    expect(enterAction(ctx({ block: "list" }))).toBe("send");
+    expect(enterAction(ctx({ block: "code" }))).toBe("code");
   });
-  it("mod+Enter sends everywhere; Shift+Enter never sends", () => {
-    expect(enterAction(ctx({ mod: true, block: "code" }))).toBe("send");
-    expect(enterAction(ctx({ mod: true, block: "list" }))).toBe("send");
-    expect(enterAction(ctx({ shift: true }))).toBe("default");
+  it("Shift+Enter makes a new paragraph / list item, newline in code; never sends", () => {
+    expect(enterAction(ctx({ shift: true }))).toBe("paragraph");
+    expect(enterAction(ctx({ shift: true, block: "list" }))).toBe("paragraph");
+    expect(enterAction(ctx({ shift: true, block: "code" }))).toBe("code");
+  });
+  it("mod+Enter sends everywhere", () => {
+    for (const block of ["text", "list", "code", "fence"] as const) expect(enterAction(ctx({ mod: true, block }))).toBe("send");
   });
   it("menu picks; composing wins over everything", () => {
     expect(enterAction(ctx({ menuOpen: true, mod: true }))).toBe("pick");
+    expect(enterAction(ctx({ menuOpen: true, block: "list" }))).toBe("pick");
     expect(enterAction(ctx({ composing: true, menuOpen: true }))).toBe("default");
     expect(enterAction(ctx({ composing: true, mod: true }))).toBe("default");
   });
-  it("fence line becomes a code block", () => {
+  it("fence line becomes a code block on Enter and Shift+Enter", () => {
     expect(enterAction(ctx({ block: "fence" }))).toBe("fence");
-    expect(enterAction(ctx({ block: "fence", mod: true }))).toBe("send");
+    expect(enterAction(ctx({ block: "fence", shift: true }))).toBe("fence");
   });
 });
 
@@ -178,5 +200,167 @@ describe("snapshot restore", () => {
     ed.update(() => void $getRoot().clear().append($createParagraphNode().append($createTextNode("new"))), { discrete: true });
     expect(restoreSnapshot(ed, snap)).toBe(false);
     expect(mdOf(ed)).toBe("new");
+  });
+});
+
+/** Editor built from blocks (`p("text")` paragraph, `p()` empty, `ul(...)`, `code(...)`). */
+const built = (...blocks: (() => LexicalNode)[]) => {
+  const ed = createHeadlessEditor({ nodes: PROMPT_NODES, onError: (e) => { throw e; } });
+  ed.update(() => void $getRoot().clear().append(...blocks.map((b) => b())), { discrete: true });
+  return ed;
+};
+const p = (t?: string) => () => $createParagraphNode().append(...(t ? [$createTextNode(t)] : []));
+const ul = (...items: string[]) => () => $createListNode("bullet").append(...items.map((t) => $createListItemNode().append($createTextNode(t))));
+const kinds = (ed: LexicalEditor) => ed.getEditorState().read(() => $getRoot().getChildren().map((n) => n.getType()));
+const caretBlock = (ed: LexicalEditor) =>
+  ed.getEditorState().read(() => {
+    const sel = $getSelection();
+    return $isRangeSelection(sel) ? $getRoot().getChildren().findIndex((n) => n.is(sel.anchor.getNode().getTopLevelElement())) : -1;
+  });
+
+describe("export joining", () => {
+  it("paragraphs join with a newline; an empty paragraph is a blank line", () => {
+    expect(mdOf(built(p("a"), p("b")))).toBe("a\nb");
+    expect(mdOf(built(p("a"), p(), p("b")))).toBe("a\n\nb");
+    expect(mdOf(built(p("a"), p(), p(), p("b")))).toBe("a\n\n\nb");
+  });
+  it("lists and code get one blank line around them", () => {
+    expect(mdOf(built(p("a"), ul("x", "y")))).toBe("a\n\n- x\n- y");
+    expect(mdOf(built(ul("x"), p("b")))).toBe("- x\n\nb");
+    expect(mdOf(built(ul("x"), p(), p("b")))).toBe("- x\n\nb");
+    expect(mdOf(editorWith("```\nc\n```\n\nafter"))).toBe("```\nc\n```\n\nafter");
+    expect(mdOf(built(p("a"), () => $createCodeBlock("c"), p("b")))).toBe("a\n\n```\nc\n```\n\nb");
+  });
+  it("leading/trailing empty paragraphs are dropped; escapes undone", () => {
+    expect(mdOf(built(p(), p("a_b"), p(), p()))).toBe("a_b");
+    expect(mdOf(built(p(), p()))).toBe("");
+  });
+  it("line breaks inside a paragraph (older content) still export", () => {
+    const ed = built(() => $createParagraphNode().append($createTextNode("a"), $createLineBreakNode(), $createTextNode("b")));
+    expect(mdOf(ed).replace(/ +\n/, "\n")).toBe("a\nb");
+  });
+});
+
+/** A code block with `text` (lines split into line breaks). */
+function $createCodeBlock(text: string, lang?: string) {
+  const code = $createCodeNode(lang);
+  text.split("\n").forEach((line, i) => {
+    if (i) code.append($createLineBreakNode());
+    if (line) code.append($createTextNode(line));
+  });
+  return code;
+}
+
+describe("paste", () => {
+  it("each pasted line becomes a paragraph", () => {
+    const ed = built(p("start "));
+    at(ed, "start", () => $insertPlainText("one\r\n\ntwo"), 6);
+    expect(kinds(ed)).toEqual(["paragraph", "paragraph", "paragraph"]);
+    expect(mdOf(ed)).toBe("start one\n\ntwo");
+  });
+  it("in a code block lines stay inside the block", () => {
+    const ed = built(() => $createCodeBlock("x"));
+    at(ed, "x", () => $insertPlainText("a\nb"), 1);
+    expect(mdOf(ed)).toBe("```\nxa\nb\n```");
+  });
+});
+
+describe("code block escape", () => {
+  const codeEd = (text: string, after = false) => built(...(after ? [p("before")] : []), () => $createCodeBlock(text));
+  it("ArrowDown on the last line / ArrowRight at the end of a last code block adds a paragraph after", () => {
+    for (const key of ["down", "right"] as const) {
+      const ed = codeEd("l1\nl2");
+      let r = false;
+      at(ed, "l2", () => (r = $escapeBlock(key)), 2);
+      expect(r).toBe(true);
+      expect(kinds(ed)).toEqual(["code", "paragraph"]);
+      expect(caretBlock(ed)).toBe(1);
+    }
+    const ed = codeEd("l1\nl2");
+    let r = true;
+    at(ed, "l1", () => (r = $escapeBlock("down")), 1);
+    expect(r).toBe(false);
+    at(ed, "l2", () => (r = $escapeBlock("right")), 1);
+    expect(r).toBe(false);
+    expect(kinds(ed)).toEqual(["code"]);
+  });
+  it("ArrowUp on the first line / ArrowLeft at the start of a first code block adds a paragraph before", () => {
+    for (const key of ["up", "left"] as const) {
+      const ed = codeEd("l1\nl2");
+      let r = false;
+      at(ed, "l1", () => (r = $escapeBlock(key)), 0);
+      expect(r).toBe(true);
+      expect(kinds(ed)).toEqual(["paragraph", "code"]);
+      expect(caretBlock(ed)).toBe(0);
+    }
+    const ed = codeEd("l1\nl2");
+    let r = true;
+    at(ed, "l2", () => (r = $escapeBlock("up")), 0);
+    expect(r).toBe(false);
+  });
+  it("does nothing when another block is on that side", () => {
+    const ed = codeEd("l1", true);
+    let r = true;
+    at(ed, "l1", () => (r = $escapeBlock("up")), 0);
+    expect(r).toBe(false);
+    at(ed, "l1", () => (r = $escapeBlock("down")), 2);
+    expect(r).toBe(true);
+  });
+  it("lists escape only from the very end of the last item / start of the first", () => {
+    const ed = built(ul("a", "b"));
+    let r = true;
+    at(ed, "a", () => (r = $escapeBlock("down")), 1);
+    expect(r).toBe(false);
+    at(ed, "b", () => (r = $escapeBlock("down")), 0);
+    expect(r).toBe(false);
+    at(ed, "b", () => (r = $escapeBlock("down")), 1);
+    expect(r).toBe(true);
+    expect(kinds(ed)).toEqual(["list", "paragraph"]);
+    at(ed, "a", () => (r = $escapeBlock("up")), 0);
+    expect(r).toBe(true);
+    expect(kinds(ed)).toEqual(["paragraph", "list", "paragraph"]);
+  });
+  it("paragraphs never escape", () => {
+    const ed = built(p("x"));
+    let r = true;
+    at(ed, "x", () => (r = $escapeBlock("down")), 1);
+    expect(r).toBe(false);
+  });
+
+  const atCodeEnd = (ed: LexicalEditor, fn: () => void) =>
+    ed.update(() => {
+      $getRoot().getChildren().find($isCodeNode)!.selectEnd();
+      fn();
+    }, { discrete: true });
+  it("Enter after two empty last lines leaves the block and drops them", () => {
+    const ed = codeEd("x\n\n");
+    let r = false;
+    atCodeEnd(ed, () => (r = $exitCode()));
+    expect(r).toBe(true);
+    expect(kinds(ed)).toEqual(["code", "paragraph"]);
+    expect(caretBlock(ed)).toBe(1);
+    expect(mdOf(ed)).toBe("```\nx\n```");
+  });
+  it("only after two empty lines, at the end", () => {
+    let r = true;
+    const one = codeEd("x\n");
+    atCodeEnd(one, () => (r = $exitCode()));
+    expect(r).toBe(false);
+    const mid = codeEd("x\n\ny");
+    at(mid, "x", () => (r = $exitCode()), 1);
+    expect(r).toBe(false);
+  });
+  it("an emptied code block becomes the paragraph", () => {
+    const ed = codeEd("\n");
+    let r = false;
+    atCodeEnd(ed, () => (r = $exitCode()));
+    expect(r).toBe(true);
+    expect(kinds(ed)).toEqual(["paragraph"]);
+  });
+  it("Backspace at the start of an empty code block turns it into a paragraph (Lexical's collapseAtStart)", () => {
+    const ed = built(() => $createCodeNode());
+    // deleteCharacter needs a DOM window; at offset 0 it calls the block's collapseAtStart.
+    ed.update(() => void ($getRoot().getFirstChildOrThrow() as ElementNode).collapseAtStart($createRangeSelection()), { discrete: true });
+    expect(ed.getEditorState().read(() => $isParagraphNode($getRoot().getFirstChild()))).toBe(true);
   });
 });

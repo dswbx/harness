@@ -19,7 +19,10 @@ import {
   $setSelection,
   COMMAND_PRIORITY_HIGH,
   INDENT_CONTENT_COMMAND,
+  INSERT_PARAGRAPH_COMMAND,
   KEY_ARROW_DOWN_COMMAND,
+  KEY_ARROW_LEFT_COMMAND,
+  KEY_ARROW_RIGHT_COMMAND,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_TAB_COMMAND,
@@ -30,8 +33,11 @@ import {
 } from "lexical";
 import {
   $codeTab,
+  $escapeBlock,
+  $exitCode,
   $exportMarkdown,
   $indentListItems,
+  $insertPlainText,
   PROMPT_NODES,
   PROMPT_TRANSFORMERS,
   enterAction,
@@ -39,6 +45,7 @@ import {
   restoreSnapshot,
   snapshot,
   type EnterCtx,
+  type EscapeKey,
   type PromptSnapshot,
 } from "./promptMarkdown";
 
@@ -167,8 +174,24 @@ function Behavior(props: Props & { onUpdate(): void }) {
         editorState.read(() => p.current.onChange($getRoot().getTextContent(), $exportMarkdown()));
         p.current.onUpdate();
       }),
-      editor.registerCommand(KEY_ARROW_UP_COMMAND, menu("up"), COMMAND_PRIORITY_HIGH),
-      editor.registerCommand(KEY_ARROW_DOWN_COMMAND, menu("down"), COMMAND_PRIORITY_HIGH),
+      // Up/Down go to the open "/" menu; otherwise arrows past the first/last code block (or list) add a paragraph there.
+      ...([
+        [KEY_ARROW_UP_COMMAND, "up"],
+        [KEY_ARROW_DOWN_COMMAND, "down"],
+        [KEY_ARROW_LEFT_COMMAND, "left"],
+        [KEY_ARROW_RIGHT_COMMAND, "right"],
+      ] as const).map(([cmd, key]: readonly [typeof KEY_ARROW_UP_COMMAND, EscapeKey]) =>
+        editor.registerCommand(
+          cmd,
+          (e) => {
+            if ((key === "up" || key === "down") && menu(key)(e)) return true;
+            if (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || !$escapeBlock(key)) return false;
+            e.preventDefault();
+            return true;
+          },
+          COMMAND_PRIORITY_HIGH,
+        ),
+      ),
       // Tab: menu pick, else nest list items / indent code; in plain text it is left to the browser (focus moves on).
       editor.registerCommand(
         KEY_TAB_COMMAND,
@@ -200,11 +223,12 @@ function Behavior(props: Props & { onUpdate(): void }) {
             mod: e.metaKey || e.ctrlKey,
             block,
           });
-          if (action === "default") return false;
+          if (action === "default" || (action === "code" && !$exitCode())) return false;
           e.preventDefault();
           if (action === "pick") p.current.onMenuKey("pick");
           else if (action === "send") p.current.onSubmit();
-          else if ($isRangeSelection(sel)) {
+          else if (action === "paragraph") editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+          else if (action === "fence" && $isRangeSelection(sel)) {
             const para = sel.anchor.getNode().getTopLevelElement();
             if (!para) return true;
             const code = $createCodeNode(fenceLanguage(para.getTextContent()) || undefined);
@@ -215,7 +239,7 @@ function Behavior(props: Props & { onUpdate(): void }) {
         },
         COMMAND_PRIORITY_HIGH,
       ),
-      // Paste as plain text (no HTML/Markdown parsing); newlines become line breaks. Content copied from a Lexical
+      // Paste as plain text (no HTML/Markdown parsing); each line becomes a paragraph (line breaks in code). Content copied from a Lexical
       // editor (`application/x-lexical-editor`, written by RichTextPlugin's copy) goes to Lexical to keep formatting.
       editor.registerCommand(
         PASTE_COMMAND,
@@ -223,10 +247,9 @@ function Behavior(props: Props & { onUpdate(): void }) {
           const data = "clipboardData" in e ? e.clipboardData : null;
           if (data?.types.includes("application/x-lexical-editor")) return false;
           const t = data?.getData("text/plain");
-          const sel = $getSelection();
-          if (!t || !$isRangeSelection(sel)) return false;
+          if (!t || !$isRangeSelection($getSelection())) return false;
           e.preventDefault();
-          sel.insertRawText(t.replace(/\r\n?/g, "\n"));
+          $insertPlainText(t);
           return true;
         },
         COMMAND_PRIORITY_HIGH,
