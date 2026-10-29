@@ -44,10 +44,12 @@ function Block({ b }: { b: ContentBlock }) {
 }
 
 const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
+/** null, `{}` and `[]` carry nothing worth showing. */
+const present = (v: unknown) => v != null && !(typeof v === "object" && Object.keys(v).length === 0);
 
 export function ToolCard({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
-  const hasBody = tool.content.length > 0 || tool.rawInput != null || tool.rawOutput != null;
+  const hasBody = tool.content.length > 0 || present(tool.rawInput) || present(tool.rawOutput);
   const harness = harnessToolName(tool.title);
   const diffs = tool.content.filter((b) => b.type === "diff");
   return (
@@ -81,13 +83,13 @@ export function ToolCard({ tool }: { tool: Tool }) {
           {tool.content.map((b, i) => (
             <Block key={i} b={b} />
           ))}
-          {tool.rawInput != null && (
+          {present(tool.rawInput) && (
             <details>
               <summary className="cursor-pointer text-xs text-muted-foreground">Input</summary>
               <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">{json(tool.rawInput)}</pre>
             </details>
           )}
-          {tool.rawOutput != null && (
+          {present(tool.rawOutput) && (
             <details>
               <summary className="cursor-pointer text-xs text-muted-foreground">Output</summary>
               <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">{json(tool.rawOutput)}</pre>

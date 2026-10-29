@@ -803,6 +803,7 @@ fn normalize(u: Value) -> EventKind {
             status: s("status"),
             content: u.get("content").cloned(),
             locations: u.get("locations").cloned(),
+            raw_input: u.get("rawInput").cloned(),
             raw_output: u.get("rawOutput").cloned(),
         },
         Some("plan") => EventKind::TaskListUpdated {

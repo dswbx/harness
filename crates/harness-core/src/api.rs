@@ -498,6 +498,9 @@ pub enum EventKind {
         content: Option<Json>,
         #[specta(type = Option<specta_typescript::Unknown>)]
         locations: Option<Json>,
+        /// Agents often send the full input only here (the `ToolCall` carries `{}` while streaming).
+        #[specta(type = Option<specta_typescript::Unknown>)]
+        raw_input: Option<Json>,
         #[specta(type = Option<specta_typescript::Unknown>)]
         raw_output: Option<Json>,
     },

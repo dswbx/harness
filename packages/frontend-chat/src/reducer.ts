@@ -229,6 +229,7 @@ function apply(c: Ctx, e: Event) {
         status: k.status ?? base.status,
         content: k.content != null ? asBlocks(k.content) : base.content,
         locations: k.locations ?? base.locations,
+        rawInput: k.raw_input ?? base.rawInput,
         rawOutput: k.raw_output ?? base.rawOutput,
       };
       if (at === undefined) {
