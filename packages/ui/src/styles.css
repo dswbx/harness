@@ -73,7 +73,8 @@
 
 @layer base {
   * { @apply border-border outline-ring/50; }
-  html, body, #root { height: 100%; }
+  /* App shell: only inner scroll containers scroll, never the page itself. */
+  html, body, #root { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body { @apply bg-background text-foreground antialiased; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; font-size: 14px; }
 }
 
