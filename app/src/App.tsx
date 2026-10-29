@@ -259,7 +259,7 @@ function Shell({ transport }: { transport: Transport }) {
         </ScrollArea>
         <Separator />
         <div className="p-2">
-          <Button size="sm" variant="ghost" onClick={() => setSettingsSection("permissions")}>
+          <Button size="sm" variant="ghost" onClick={() => setSettingsSection("appearance")}>
             <Settings /> Settings
           </Button>
         </div>
@@ -304,7 +304,7 @@ function Shell({ transport }: { transport: Transport }) {
         client={client}
         open={settingsSection !== null}
         onOpenChange={(o) => !o && setSettingsSection(null)}
-        section={settingsSection ?? "permissions"}
+        section={settingsSection ?? "appearance"}
         onSectionChange={setSettingsSection}
         sessionId={selected}
         agentsVersion={agentsVersion}

@@ -1,19 +1,12 @@
-import { inTauri } from "@harness/api";
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import type { AgentInfo, HarnessClient, RegistryAgent } from "@harness/api";
 import {
   Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Textarea, cn,
 } from "@harness/ui";
+import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
 import { filterAgents, filterRegistry } from "./settings";
-
-/** Inside Tauri, links open in the default browser; in a plain browser the anchor works as is. */
-function openExternal(e: React.MouseEvent, url: string) {
-  if (!inTauri()) return;
-  e.preventDefault();
-  void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url));
-}
 
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 

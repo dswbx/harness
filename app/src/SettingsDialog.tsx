@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Plug, Search, Shield } from "lucide-react";
+import { Bot, Palette, Plug, Search, Shield } from "lucide-react";
 import type { HarnessClient } from "@harness/api";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, Input, cn } from "@harness/ui";
 import { AgentsPanel } from "./AgentsPanel";
+import { AppearancePanel } from "./AppearancePanel";
 import { McpPanel } from "./McpPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 
-export type SettingsSection = "permissions" | "agents" | "mcp";
+export type SettingsSection = "appearance" | "permissions" | "agents" | "mcp";
 
 const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "permissions", label: "Permissions", icon: Shield },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "mcp", label: "MCP servers", icon: Plug },
 ];
 
-/** Permission rules, Agents and MCP servers in one modal with a sidebar. */
+/** Appearance, Permission rules, Agents and MCP servers in one modal with a sidebar. */
 export function SettingsDialog({
   client, open, onOpenChange, section, onSectionChange, sessionId, agentsVersion, onAgentsChanged, onMcpChanged,
 }: {
@@ -31,6 +33,7 @@ export function SettingsDialog({
 }) {
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
+  const nav = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (open) setQuery("");
@@ -45,17 +48,25 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[640px] max-h-[85vh] max-w-5xl flex-col gap-0 overflow-hidden p-0" onKeyDown={onKeyDown}>
+      <DialogContent className="flex h-[640px] max-h-[85vh] max-w-5xl flex-col gap-0 overflow-hidden p-0" onKeyDown={onKeyDown}
+        // Land on the active nav item instead of the search box; Cmd/Ctrl+K focuses search.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          nav.current?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+        }}
+        // Popups inside (theme picker) handle Escape themselves.
+        onEscapeKeyDown={(e) => (e.target as Element | null)?.closest?.("[data-keep-escape]") && e.preventDefault()}
+      >
         <div className="flex shrink-0 items-center gap-4 border-b bg-muted/30 py-3 pl-4 pr-12">
           <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
-          <DialogDescription className="sr-only">Permission rules, Agents and MCP servers.</DialogDescription>
+          <DialogDescription className="sr-only">Appearance, Permission rules, Agents and MCP servers.</DialogDescription>
           <div className="relative w-full max-w-[420px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input ref={search} className="h-8 pl-8" placeholder="Search rules, Agents, servers" aria-label="Search settings" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
         </div>
         <div className="flex min-h-0 flex-1">
-          <nav className="flex w-52 shrink-0 flex-col border-r bg-muted/30 p-2">
+          <nav ref={nav} className="flex w-52 shrink-0 flex-col border-r bg-muted/30 p-2">
             <div className="grid gap-0.5">
               {NAV.map(({ id, label, icon: Icon }) => (
                 <button
@@ -72,6 +83,7 @@ export function SettingsDialog({
             <p className="px-2.5 py-1 text-xs text-muted-foreground">Changes save right away.</p>
           </nav>
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+            {section === "appearance" && <AppearancePanel />}
             {section === "permissions" && <PermissionsPanel client={client} sessionId={sessionId} agentsVersion={agentsVersion} query={query} />}
             {section === "agents" && <AgentsPanel client={client} version={agentsVersion} onChanged={onAgentsChanged} query={query} />}
             {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} query={query} />}
