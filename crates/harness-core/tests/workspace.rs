@@ -155,6 +155,11 @@ async fn worktree_session_lifecycle() {
         h.execute(Command::GitCommit { session_id: sid.clone(), message: "Add fake".into() }).await.unwrap()
     else { panic!() };
     assert_eq!(sh(&wt, &["rev-parse", "HEAD"]), commit);
+    let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid.clone() }).await.unwrap() else { panic!() };
+    // Newest first: ours, then the archive WIP commit; never the base's "init".
+    assert_eq!(commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), vec!["Add fake", "WIP (archived by Harness)"]);
+    assert_eq!((commits[0].sha.as_str(), commits[0].subject.as_str()), (commit.as_str(), "Add fake"));
+    assert!(commits[0].time > 0 && !commits[0].short.is_empty() && !commits[0].author.is_empty());
     assert!(events(&h, &sid).iter().any(|e| matches!(&e.kind, EventKind::GitCommitted { message, .. } if message == "Add fake")));
 
     h.execute(delete(true)).await.unwrap();

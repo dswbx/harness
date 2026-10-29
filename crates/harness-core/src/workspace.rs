@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{Branches, Diff, FileChange, GitStatus};
+use crate::api::{Branches, Commit, Diff, FileChange, GitStatus};
 
 pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     git_env(dir, args, &[]).await
@@ -201,6 +201,25 @@ pub async fn diff(dir: &Path, from: &str, to: &str) -> anyhow::Result<Diff> {
 pub async fn show_file(dir: &Path, rev: &str, path: &str) -> anyhow::Result<String> {
     anyhow::ensure!(!rev.starts_with('-') && !path.starts_with('-'), "invalid rev or path");
     Ok(git(dir, &["show", &format!("{rev}:{path}")]).await.unwrap_or_default())
+}
+
+/// Commits in `base..HEAD`, newest first.
+pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
+    anyhow::ensure!(!base.starts_with('-'), "invalid base");
+    let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ct", &format!("{base}..HEAD")]).await?;
+    Ok(out
+        .lines()
+        .filter_map(|l| {
+            let mut p = l.split('\x1f');
+            Some(Commit {
+                sha: p.next()?.to_owned(),
+                short: p.next()?.to_owned(),
+                subject: p.next()?.to_owned(),
+                author: p.next()?.to_owned(),
+                time: p.next()?.parse().ok()?,
+            })
+        })
+        .collect())
 }
 
 /// Where a Session's changes start: the merge base with its Worktree's base branch, else HEAD.

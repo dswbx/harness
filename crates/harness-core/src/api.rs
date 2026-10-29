@@ -124,6 +124,10 @@ pub enum Command {
         from: Option<String>,
         to: Option<String>,
     },
+    /// Commits since where the Session's changes start (see GitDiff), newest first.
+    GitLog {
+        session_id: SessionId,
+    },
     /// A file's content at `rev` (a commit or tree id, e.g. `Diff.from`/`Diff.to`); empty if absent there.
     GitShowFile {
         session_id: SessionId,
@@ -207,6 +211,7 @@ pub enum CommandResult {
     ThreadStarted { thread_id: ThreadId },
     Branches { branches: Branches },
     GitStatus { status: GitStatus },
+    GitLog { commits: Vec<Commit> },
     Diff { diff: Diff },
     Committed { commit: String },
     McpServers { servers: Vec<McpServerDef> },
@@ -374,6 +379,17 @@ pub struct FileChange {
     pub status: String,
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct Commit {
+    pub sha: String,
+    pub short: String,
+    pub subject: String,
+    pub author: String,
+    /// Unix seconds, committer time.
+    #[specta(type = specta_typescript::Number)]
+    pub time: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

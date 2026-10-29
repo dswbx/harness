@@ -96,6 +96,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  with the Worktree's base branch, else HEAD); `to` defaults to the working tree now.
  */
 { type: "GitDiff"; session_id: string; from: string | null; to: string | null } | 
+/**  Commits since where the Session's changes start (see GitDiff), newest first. */
+{ type: "GitLog"; session_id: string } | 
 /**  A file's content at `rev` (a commit or tree id, e.g. `Diff.from`/`Diff.to`); empty if absent there. */
 { type: "GitShowFile"; session_id: string; rev: string; path: string } | 
 /**  Stages everything and commits (hooks run). */
@@ -123,7 +125,16 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
 option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "GitStatus"; status: GitStatus } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule };
+export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule };
+
+export type Commit = {
+	sha: string,
+	short: string,
+	subject: string,
+	author: string,
+	/**  Unix seconds, committer time. */
+	time: number,
+};
 
 export type Decision = "allow" | "ask" | "deny";
 

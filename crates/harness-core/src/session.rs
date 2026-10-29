@@ -403,6 +403,13 @@ impl Session {
         crate::workspace::diff(&folder, &from, &to).await
     }
 
+    pub async fn git_log(&self) -> anyhow::Result<Vec<crate::api::Commit>> {
+        let folder = self.folder()?;
+        let base = self.meta().workspace.worktree.map(|w| w.base);
+        let base = crate::workspace::diff_base(&folder, base.as_deref()).await?;
+        crate::workspace::log(&folder, &base).await
+    }
+
     pub async fn git_show_file(&self, rev: &str, path: &str) -> anyhow::Result<String> {
         crate::workspace::show_file(&self.folder()?, rev, path).await
     }
