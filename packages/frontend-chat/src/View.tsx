@@ -5,6 +5,7 @@ import { useSessionEvents } from "@harness/api";
 import { Badge, Button, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
+import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
 import { AuthCard } from "./Auth";
@@ -165,8 +166,15 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
   }
 });
 
+// A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
+const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
+
 /** Claude Code desktop-like chat. Pure fold of the Session Log (see reducer.ts). */
 export function View({ api }: { api: SessionApi }) {
+  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} />;
+}
+
+function ChatView({ api }: { api: SessionApi }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
   const [panel, setPanel] = useState(false);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);

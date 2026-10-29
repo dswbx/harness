@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, GitCommitHorizontal, RefreshCw, X } from "lucide-react";
-import type { Diff, FileChange, GitStatus, SessionApi, WorkspaceInfo } from "@harness/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronRight, GitCommitHorizontal, Maximize2, RefreshCw, X } from "lucide-react";
+import { openWindow, type Diff, type FileChange, type GitStatus, type SessionApi, type WorkspaceInfo } from "@harness/api";
 import { Button, Input, cn } from "@harness/ui";
-import { parsePatch } from "./diff";
+import { splitPatch } from "./diff";
+import { DiffViewer } from "./DiffViewer";
+import { diffWindowUrl } from "./DiffWindow";
+import { useReviewComments } from "./reviewComments";
+
+const fileAnchor = (path: string) => `diff-file-${path}`;
 
 /** Diff range; `null` bounds mean "where the Session's changes start" / "the working tree now". */
 export type DiffScope = { from: string | null; to: string | null; label: string };
@@ -22,29 +27,32 @@ export function FileStat({ f }: { f: FileChange }) {
   );
 }
 
-function Patch({ patch }: { patch: string }) {
-  const files = parsePatch(patch);
+/** All files of a patch, condensed (unified, small font, wrapped) for the narrow panel. */
+function Patch({ api, patch }: { api: SessionApi; patch: string }) {
+  const files = useMemo(() => splitPatch(patch), [patch]);
+  const comments = useReviewComments(api.sessionId);
+  const [closed, setClosed] = useState<Set<string>>(new Set());
   if (files.length === 0) return <p className="p-3 text-xs text-muted-foreground">No changes.</p>;
+  const toggle = (path: string) => setClosed((c) => {
+    const n = new Set(c);
+    if (!n.delete(path)) n.add(path);
+    return n;
+  });
   return (
     <div className="space-y-3 p-3">
-      {files.map((f, i) => (
-        <div key={i} className="overflow-hidden rounded border font-mono text-xs">
-          <div className="border-b bg-muted px-2 py-1 text-muted-foreground">{f.path}</div>
-          <pre className="overflow-x-auto">
-            {f.lines.filter((l) => l.kind !== "meta").map((l, j) => (
-              <div
-                key={j}
-                className={cn(
-                  "whitespace-pre px-2",
-                  l.kind === "add" && "bg-emerald-500/15",
-                  l.kind === "del" && "bg-red-500/15",
-                  l.kind === "hunk" && "bg-muted/60 text-muted-foreground",
-                )}
-              >
-                {l.text || " "}
-              </div>
-            ))}
-          </pre>
+      {files.map((f) => (
+        <div key={f.path} id={fileAnchor(f.path)} className="overflow-hidden rounded border">
+          <button
+            className="flex w-full items-center gap-1 border-b bg-muted px-2 py-1 text-left font-mono text-xs text-muted-foreground"
+            aria-expanded={!closed.has(f.path)}
+            onClick={() => toggle(f.path)}
+          >
+            <ChevronRight className={cn("size-3 shrink-0 transition-transform", !closed.has(f.path) && "rotate-90")} />
+            <span className="min-w-0 flex-1 truncate">{f.path}</span>
+          </button>
+          {!closed.has(f.path) && (
+            <DiffViewer sessionId={api.sessionId} file={f} comments={comments} mode="unified" fontSize={11} wrap />
+          )}
         </div>
       ))}
     </div>
@@ -118,6 +126,10 @@ export function DiffPanel({
           <Button size="sm" variant="ghost" onClick={() => onScope(ALL_CHANGES)}>Show all</Button>
         )}
         <div className="flex-1" />
+        <Button size="icon" variant="ghost" className="size-7" aria-label="Open diff in window" title="Open in window" disabled={noRepo}
+          onClick={() => void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), { title: `Diff: ${scope.label}` })}>
+          <Maximize2 />
+        </Button>
         <Button size="icon" variant="ghost" className="size-7" aria-label="Refresh diff" title="Refresh" disabled={noRepo || busy} onClick={() => void load()}>
           <RefreshCw />
         </Button>
@@ -134,11 +146,15 @@ export function DiffPanel({
             {diff && diff.files.length > 0 && (
               <ul className="space-y-1 border-b p-3">
                 {diff.files.map((f) => (
-                  <li key={f.path}><FileStat f={f} /></li>
+                  <li key={f.path}>
+                    <button className="block w-full rounded text-left hover:bg-accent" onClick={() => document.getElementById(fileAnchor(f.path))?.scrollIntoView({ block: "start" })}>
+                      <FileStat f={f} />
+                    </button>
+                  </li>
                 ))}
               </ul>
             )}
-            {diff ? <Patch patch={diff.patch} /> : !error && <p className="p-3 text-xs text-muted-foreground">Loading...</p>}
+            {diff ? <Patch api={api} patch={diff.patch} /> : !error && <p className="p-3 text-xs text-muted-foreground">Loading...</p>}
           </div>
           <div className="space-y-2 border-t p-3">
             {scope === ALL_CHANGES && (

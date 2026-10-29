@@ -1,5 +1,6 @@
 import type { AppEvent, McpServerDef, AgentInfo, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
+import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 
 /**
  * Browser-only Transport for development without Tauri. Sessions start with `fixture`
@@ -186,6 +187,8 @@ export class MockTransport implements Transport {
           diff: { from: cmd.from ?? "base", to: cmd.to ?? "worktree", files: done ? [] : MOCK_FILES, patch: done ? "" : MOCK_PATCH },
         };
       }
+      case "GitShowFile":
+        return { type: "FileContent", content: (cmd.rev === "base" ? MOCK_OLD : MOCK_NEW)[cmd.path] ?? "" };
       case "GitCommit": {
         if (!cmd.message.trim()) throw new Error("empty commit message");
         const commit = `c${++this.commitN}ab12cd`;
@@ -344,27 +347,10 @@ const MOCK_REGISTRY: Omit<RegistryAgent, "installed_version">[] = [
 ];
 
 const MOCK_FILES: FileChange[] = [
-  { path: "src/hello.ts", status: "M", additions: 3, deletions: 1 },
   { path: "README.md", status: "A", additions: 2, deletions: 0 },
+  { path: "docs/guide.md", status: "M", additions: 3, deletions: 2 },
+  { path: "package.json", status: "M", additions: 3, deletions: 2 },
+  { path: "src/hello.ts", status: "M", additions: 3, deletions: 1 },
+  { path: "src/legacy.ts", status: "D", additions: 0, deletions: 5 },
+  { path: "src/server/router.ts", status: "M", additions: 6, deletions: 4 },
 ];
-
-const MOCK_PATCH = `diff --git a/src/hello.ts b/src/hello.ts
-index 1111111..2222222 100644
---- a/src/hello.ts
-+++ b/src/hello.ts
-@@ -1,4 +1,6 @@
- export function hello() {
--  return "hi";
-+  const name = "world";
-+  return \`hello \${name}\`;
- }
-+export const answer = 42;
-diff --git a/README.md b/README.md
-new file mode 100644
-index 0000000..3333333
---- /dev/null
-+++ b/README.md
-@@ -0,0 +1,2 @@
-+# Mock
-+A tiny project.
-`;

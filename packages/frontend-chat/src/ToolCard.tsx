@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, ChevronRight, CircleDashed, Loader2, XCircle } from "lucide-react";
-import { diffLines } from "./diff";
+import { splitPatch, unifiedPatch } from "./diff";
+import { DiffViewer } from "./DiffViewer";
 import { Badge, cn } from "@harness/ui";
 import { blockText, harnessToolName, type ContentBlock, type Item } from "./reducer";
 
@@ -14,19 +15,11 @@ export function StatusIcon({ status }: { status: string | null }) {
 }
 
 export function Diff({ path, oldText, newText }: { path: string; oldText?: string | null; newText: string }) {
+  const file = useMemo(() => splitPatch(unifiedPatch(path, oldText, newText))[0], [path, oldText, newText]);
   return (
-    <div className="overflow-hidden rounded border font-mono text-xs">
-      <div className="border-b bg-muted px-2 py-1 text-muted-foreground">{path}</div>
-      <pre className="overflow-x-auto">
-        {diffLines(oldText, newText).map((l, i) => (
-          <div
-            key={i}
-            className={cn("px-2", l.op === "+" && "bg-emerald-500/15", l.op === "-" && "bg-red-500/15")}
-          >
-            {l.op} {l.text}
-          </div>
-        ))}
-      </pre>
+    <div className="overflow-hidden rounded border">
+      <div className="border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">{path}</div>
+      {file && <DiffViewer file={file} mode="unified" fontSize={11} wrap />}
     </div>
   );
 }
