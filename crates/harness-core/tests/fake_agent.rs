@@ -99,6 +99,30 @@ async fn turn_streams_into_session_log() {
     assert_eq!(seqs, (0..seqs.len() as u64).collect::<Vec<_>>(), "contiguous seq");
 }
 
+async fn title_of(h: &Harness) -> String {
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    sessions[0].title.clone()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_title_becomes_session_title() {
+    let (h, sid, dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into() }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    assert_eq!(title_of(&h).await, "Fake title");
+    drop(h);
+
+    // A Session from before titles were kept: its title comes back from the log once.
+    let meta_path = dir.path().join("data/sessions").join(&sid).join("session.json");
+    let mut meta: serde_json::Value = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
+    meta["title"] = "folder".into();
+    meta.as_object_mut().unwrap().remove("title_backfilled");
+    std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap()).unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    assert_eq!(title_of(&h).await, "Fake title");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn permission_first_answer_wins_and_late_view_replays() {
     let (h, sid, _dir) = setup().await;

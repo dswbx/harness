@@ -52,7 +52,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
   if (session === null) return <div className="p-6 text-sm text-destructive">Session not found.</div>;
   return (
     <div className="flex h-full flex-col">
-      <SessionHeader session={session} toolbarRef={setToolbar} leading={trafficLights && <div className="w-14 shrink-0" />} />
+      <SessionHeader session={session} toolbarRef={setToolbar} leading={trafficLights && <div className="w-12 shrink-0" />} />
       <div className="min-h-0 flex-1">
         <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} />
       </div>
@@ -249,7 +249,7 @@ function Shell({ transport }: { transport: Transport }) {
 
   const controls = <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} onNew={() => setComposer(true)} />;
   // Sidebar hidden: the controls move next to the traffic lights in the main header.
-  const leading = sidebarOpen ? undefined : <div className={cn("mr-2 shrink-0", trafficLights && "pl-14")}>{controls}</div>;
+  const leading = sidebarOpen ? undefined : <div className={cn("mr-2 shrink-0", trafficLights && "pl-[68px]")}>{controls}</div>;
 
   return (
     <div className="flex h-full">

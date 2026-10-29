@@ -81,6 +81,9 @@ pub struct SessionMeta {
     /// MCP Library servers given to the Agent.
     #[serde(default)]
     pub mcp_servers: Vec<String>,
+    /// The title was taken from the log's `SessionInfoUpdated` events once (Sessions from before titles were kept here).
+    #[serde(default)]
+    pub title_backfilled: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -127,6 +130,7 @@ impl Session {
             workspace,
             archived: false,
             mcp_servers,
+            title_backfilled: true,
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
@@ -147,7 +151,37 @@ impl Session {
     pub fn open(dir: &Path, shared: Arc<Shared>) -> anyhow::Result<Self> {
         let meta: SessionMeta = serde_json::from_slice(&std::fs::read(dir.join("session.json"))?)?;
         let log = SessionLog::open(meta.id.clone(), &dir.join("log.jsonl"))?;
-        Ok(Self::from_parts(dir, meta, log, shared))
+        let session = Self::from_parts(dir, meta, log, shared);
+        if !session.meta.lock().unwrap().title_backfilled {
+            let title = session.log.events()?.into_iter().rev().find_map(|e| match e.kind {
+                EventKind::SessionInfoUpdated { title } if session.is_main(e.thread_id.as_ref()) => title.filter(|t| !t.trim().is_empty()),
+                _ => None,
+            });
+            session.update_meta(|m| {
+                if let Some(t) = title {
+                    m.title = t;
+                }
+                m.title_backfilled = true;
+            })?;
+        }
+        Ok(session)
+    }
+
+    fn is_main(&self, thread: Option<&ThreadId>) -> bool {
+        thread.is_none_or(|t| *t == self.meta.lock().unwrap().main_thread_id)
+    }
+
+    /// Keeps the Agent's title for the Session (`session_info_update` on the main Thread).
+    pub fn set_agent_title(&self, thread: Option<&ThreadId>, title: &str) {
+        let title = title.trim();
+        if title.is_empty() || !self.is_main(thread) {
+            return;
+        }
+        let changed = self.update_meta(|m| std::mem::replace(&mut m.title, title.to_owned()) != title).unwrap_or(false);
+        if changed {
+            let session_id = self.id();
+            self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title: title.to_owned(), status: self.agent.status() });
+        }
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {

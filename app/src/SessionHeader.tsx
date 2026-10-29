@@ -5,7 +5,7 @@ import { inTauri } from "@harness/api";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, cn } from "@harness/ui";
 import { useReportError } from "./toast";
 
-/** Room for the macOS traffic lights (overlay title bar, `trafficLightPosition` in tauri.conf.json). */
+/** Room for the macOS traffic lights (overlay title bar, `trafficLightPosition` in tauri.conf.json: y centers them in the 52px header). */
 export const trafficLights = inTauri();
 
 const statusLabel: Record<SessionStatus, string> = {
