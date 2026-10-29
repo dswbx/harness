@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Columns2, FileMinus, FilePen, FilePlus, MessageSquare, Rows2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Columns2, FileMinus, FilePen, FilePlus, Folder, List, ListTree, MessageSquare, Rows2 } from "lucide-react";
 import type { Diff, SessionApi } from "@harness/api";
 import { Button, cn } from "@harness/ui";
+import { CommitsPane, useCommits } from "./CommitsPane";
 import { changeCount, splitPatch, type FilePatch } from "./diff";
 import { DiffViewer, type FileContents } from "./DiffViewer";
+import { ancestorKeys, fileTree, type TreeRow } from "./fileTree";
 import { useReviewComments } from "./reviewComments";
 import { errorMessage } from "./errors";
-import type { DiffScope } from "./DiffPanel";
+import { selectionScope, type DiffScope } from "./scope";
 
 /** URL of the pop-out diff window. Boots through the app entry like any solo View window. */
 export function diffWindowUrl(sessionId: string, scope: DiffScope) {
   const q = new URLSearchParams({ session: sessionId, solo: "1", pane: "diff", label: scope.label });
   if (scope.from) q.set("from", scope.from);
   if (scope.to) q.set("to", scope.to);
+  if (scope.sel) q.set("sel", scope.sel.join(","));
   return `/?${q}`;
 }
 
@@ -20,7 +23,8 @@ export function diffWindowUrl(sessionId: string, scope: DiffScope) {
 export function diffWindowScope(search: string): DiffScope | null {
   const q = new URLSearchParams(search);
   if (q.get("pane") !== "diff") return null;
-  return { from: q.get("from"), to: q.get("to"), label: q.get("label") ?? "Changes" };
+  const sel = q.get("sel");
+  return { from: q.get("from"), to: q.get("to"), label: q.get("label") ?? "Changes", ...(sel && { sel: sel.split(",") }) };
 }
 
 const STATUS = {
@@ -41,14 +45,28 @@ function changeRows(root: HTMLElement | null): HTMLElement[] {
   return rows.filter((_, i) => changed[i] && !changed[i - 1]);
 }
 
-/** JetBrains-like diff viewer: file list left, one file's diff right, keyboard navigation through files and changes. */
-export function DiffWindow({ api, scope }: { api: SessionApi; scope: DiffScope }) {
+const VIEW_KEY = "harness:diff-file-view";
+type FileView = "list" | "tree";
+const readView = (): FileView => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "tree";
+  } catch {
+    return "tree";
+  }
+};
+
+/** JetBrains-like diff viewer: files (list or tree) and commits left, one file's diff right, keyboard navigation through files and changes. */
+export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scope: DiffScope }) {
+  const [scope, setScope] = useState(initialScope);
   const [diff, setDiff] = useState<Diff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [idx, setIdx] = useState(0);
   const [mode, setMode] = useState<"split" | "unified">("split");
+  const [view, setView] = useState<FileView>(readView);
+  const [closed, setClosed] = useState<Set<string>>(new Set());
   const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
   const comments = useReviewComments(api.sessionId);
+  const commits = useCommits(api);
   const pane = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const change = useRef(-1);
@@ -56,12 +74,25 @@ export function DiffWindow({ api, scope }: { api: SessionApi; scope: DiffScope }
   const pendingJump = useRef<"first" | "last" | null>(null);
 
   useEffect(() => {
+    let off = false;
     document.title = `Diff: ${scope.label}`;
-    api.gitDiff(scope.from, scope.to).then(setDiff, (e) => setError(errorMessage(e)));
-  }, [api, scope.from, scope.to, scope.label]);
+    // A reload keeps the current selection.
+    history.replaceState(null, "", diffWindowUrl(api.sessionId, scope));
+    setDiff(null);
+    setError(null);
+    setIdx(0);
+    setContents(new Map());
+    change.current = -1;
+    api.gitDiff(scope.from, scope.to).then((d) => !off && setDiff(d), (e) => !off && setError(errorMessage(e)));
+    return () => { off = true; };
+  }, [api, scope]);
 
   const files = useMemo(() => (diff ? splitPatch(diff.patch) : []), [diff]);
-  const file: FilePatch | undefined = files[idx];
+  const tree = useMemo(() => fileTree(files, closed), [files, closed]);
+  /** Files in display order; `idx` points into it. */
+  const order = view === "tree" ? tree.order : files;
+  const orderIndex = useMemo(() => new Map(order.map((f, i) => [f.path, i])), [order]);
+  const file: FilePatch | undefined = order[idx];
 
   // Full contents let git-diff-view expand the collapsed unchanged regions.
   useEffect(() => {
@@ -75,12 +106,21 @@ export function DiffWindow({ api, scope }: { api: SessionApi; scope: DiffScope }
     return () => { off = true; };
   }, [api, diff, file, contents]);
 
+  // Selecting a file opens its folders, so keyboard navigation never lands in a hidden row. Collapsing one later stays collapsed.
+  useEffect(() => {
+    if (!file) return;
+    setClosed((c) => {
+      const hidden = ancestorKeys(c, file.path);
+      return hidden.length ? new Set([...c].filter((k) => !hidden.includes(k))) : c;
+    });
+  }, [file]);
+
   const goFile = useCallback((i: number, jump: "first" | "last" | null = null) => {
-    if (i < 0 || i >= files.length) return;
+    if (i < 0 || i >= order.length) return;
     change.current = -1;
     pendingJump.current = jump;
     setIdx(i);
-  }, [files.length]);
+  }, [order.length]);
 
   const scrollTo = (rows: HTMLElement[], i: number) => {
     change.current = i;
@@ -132,9 +172,62 @@ export function DiffWindow({ api, scope }: { api: SessionApi; scope: DiffScope }
     return () => window.removeEventListener("keydown", onKey);
   }, [goChange, goFile, idx]);
 
-  if (error) return <p role="alert" className="p-4 text-sm text-destructive">{error}</p>;
-  if (!diff) return <p className="p-4 text-sm text-muted-foreground">Loading...</p>;
+  const changeView = (v: FileView) => {
+    // Keep the selected file across the reorder.
+    const path = file?.path;
+    setView(v);
+    setIdx(Math.max(0, (v === "tree" ? tree.order : files).findIndex((f) => f.path === path)));
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-viewer convenience only */ }
+  };
+  const toggleDir = (key: string) => setClosed((c) => {
+    const n = new Set(c);
+    if (!n.delete(key)) n.add(key);
+    return n;
+  });
+
   const pathComments = (p: string) => comments.filter((c) => c.path === p).length;
+  const sum = (k: "additions" | "deletions") => files.reduce((s, f) => s + f[k], 0);
+  const fileItem = (f: FilePatch, depth: number, showDir: boolean) => {
+    const i = orderIndex.get(f.path)!;
+    const s = STATUS[f.status];
+    const n = pathComments(f.path);
+    const slash = f.path.lastIndexOf("/");
+    return (
+      <li
+        key={f.path}
+        id={`diff-file-${i}`}
+        data-index={i}
+        role="option"
+        aria-selected={i === idx}
+        title={`${f.path} (${s.label})`}
+        style={{ paddingLeft: 8 + depth * 14 }}
+        className={cn("flex cursor-default items-center gap-1.5 py-0.5 pr-2 text-xs", i === idx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
+        onClick={() => goFile(i)}
+      >
+        <s.Icon className={cn("size-3.5 shrink-0", s.className)} aria-label={s.label} />
+        <span className="truncate">{f.path.slice(slash + 1)}</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{showDir && slash > 0 ? f.path.slice(0, slash) : ""}</span>
+        {n > 0 && <span className="flex items-center gap-0.5 text-muted-foreground" title={`${n} comments`}><MessageSquare className="size-3" />{n}</span>}
+      </li>
+    );
+  };
+  const dirItem = (r: Extract<TreeRow<FilePatch>, { kind: "dir" }>) => (
+    <li key={`dir:${r.key}`} role="presentation">
+      <button
+        aria-expanded={r.open}
+        title={r.key}
+        style={{ paddingLeft: 8 + r.depth * 14 }}
+        className="flex w-full cursor-default items-center gap-1.5 py-0.5 pr-2 text-left text-xs hover:bg-accent/50"
+        onClick={() => toggleDir(r.key)}
+      >
+        <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", r.open && "rotate-90")} />
+        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate">{r.name}</span>
+        {!r.open && <span className="font-mono text-emerald-500">+{r.additions}</span>}
+        {!r.open && r.deletions > 0 && <span className="font-mono text-red-500">−{r.deletions}</span>}
+      </button>
+    </li>
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -143,8 +236,9 @@ export function DiffWindow({ api, scope }: { api: SessionApi; scope: DiffScope }
         <Button size="icon" variant="ghost" className="size-7" aria-label="Next change" title="Next change (Alt+↓)" onClick={() => goChange(1)}><ArrowDown /></Button>
         <div className="mx-1 h-4 w-px bg-border" />
         <Button size="icon" variant="ghost" className="size-7" aria-label="Previous file" title="Previous file (Alt+←)" disabled={idx === 0} onClick={() => goFile(idx - 1)}><ArrowLeft /></Button>
-        <span className="tabular-nums text-muted-foreground">{files.length ? idx + 1 : 0}/{files.length} files</span>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Next file" title="Next file (Alt+→)" disabled={idx >= files.length - 1} onClick={() => goFile(idx + 1)}><ArrowRight /></Button>
+        <span className="tabular-nums text-muted-foreground">{order.length ? idx + 1 : 0}/{order.length} files</span>
+        <Button size="icon" variant="ghost" className="size-7" aria-label="Next file" title="Next file (Alt+→)" disabled={idx >= order.length - 1} onClick={() => goFile(idx + 1)}><ArrowRight /></Button>
+        <span className="ml-2 max-w-64 shrink-0 truncate rounded-full bg-muted px-2 py-0.5" title={scope.label}>{scope.label}</span>
         <span className="ml-2 min-w-0 flex-1 truncate font-mono text-muted-foreground">{file?.path}</span>
         {file && <span className="tabular-nums text-muted-foreground">{changeCount(file.text)} {changeCount(file.text) === 1 ? "difference" : "differences"}</span>}
         <div className="ml-2 flex rounded-md border">
@@ -153,47 +247,47 @@ export function DiffWindow({ api, scope }: { api: SessionApi; scope: DiffScope }
         </div>
       </div>
       <div className="flex min-h-0 flex-1">
-        <ul
-          ref={list}
-          role="listbox"
-          aria-label="Changed files"
-          tabIndex={0}
-          aria-activedescendant={file ? `diff-file-${idx}` : undefined}
-          className="w-64 shrink-0 overflow-auto border-r py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          onKeyDown={(e) => {
-            if (e.altKey) return;
-            if (e.key === "ArrowDown") { e.preventDefault(); goFile(idx + 1); }
-            else if (e.key === "ArrowUp") { e.preventDefault(); goFile(idx - 1); }
-          }}
-        >
-          {files.map((f, i) => {
-            const s = STATUS[f.status];
-            const n = pathComments(f.path);
-            const slash = f.path.lastIndexOf("/");
-            return (
-              <li
-                key={f.path}
-                id={`diff-file-${i}`}
-                data-index={i}
-                role="option"
-                aria-selected={i === idx}
-                title={`${f.path} (${s.label})`}
-                className={cn("flex cursor-default items-center gap-1.5 px-2 py-0.5 text-xs", i === idx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50")}
-                onClick={() => goFile(i)}
-              >
-                <s.Icon className={cn("size-3.5 shrink-0", s.className)} aria-label={s.label} />
-                <span className="truncate">{f.path.slice(slash + 1)}</span>
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{slash > 0 ? f.path.slice(0, slash) : ""}</span>
-                {n > 0 && <span className="flex items-center gap-0.5 text-muted-foreground" title={`${n} comments`}><MessageSquare className="size-3" />{n}</span>}
-              </li>
-            );
-          })}
-        </ul>
+        <div className="flex w-72 shrink-0 flex-col border-r">
+          <div className="flex items-center gap-1.5 py-1 pr-1.5 pl-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/80">Changed files</span>
+            <span>{files.length}</span>
+            <span className="font-mono text-emerald-500">+{sum("additions")}</span>
+            <span className="font-mono text-red-500">−{sum("deletions")}</span>
+            <div className="ml-auto flex rounded-md border" role="group" aria-label="File view">
+              <Button size="icon" variant={view === "list" ? "secondary" : "ghost"} className="size-6 rounded-r-none" aria-label="List" aria-pressed={view === "list"} title="List" onClick={() => changeView("list")}><List /></Button>
+              <Button size="icon" variant={view === "tree" ? "secondary" : "ghost"} className="size-6 rounded-l-none" aria-label="Tree" aria-pressed={view === "tree"} title="Tree" onClick={() => changeView("tree")}><ListTree /></Button>
+            </div>
+          </div>
+          <ul
+            ref={list}
+            role="listbox"
+            aria-label="Changed files"
+            tabIndex={0}
+            aria-activedescendant={file ? `diff-file-${idx}` : undefined}
+            className="min-h-0 flex-1 overflow-auto pb-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            onKeyDown={(e) => {
+              if (e.altKey) return;
+              if (e.key === "ArrowDown") { e.preventDefault(); goFile(idx + 1); }
+              else if (e.key === "ArrowUp") { e.preventDefault(); goFile(idx - 1); }
+            }}
+          >
+            {error ? (
+              <li role="alert" className="p-3 text-xs text-destructive">{error}</li>
+            ) : !diff ? (
+              <li className="p-3 text-xs text-muted-foreground">Loading...</li>
+            ) : view === "tree" ? (
+              tree.rows.map((r) => (r.kind === "dir" ? dirItem(r) : fileItem(r.file, r.depth, false)))
+            ) : (
+              files.map((f) => fileItem(f, 0, true))
+            )}
+          </ul>
+          <CommitsPane commits={commits} sel={scope.sel} defaultHeight={250} onSelect={(sel) => setScope(selectionScope(sel, commits))} />
+        </div>
         <div ref={pane} className="min-w-0 flex-1 overflow-auto">
           {file ? (
             <DiffViewer key={file.path} sessionId={api.sessionId} file={file} comments={comments} mode={mode} contents={contents.get(file.path)} />
           ) : (
-            <p className="p-4 text-sm text-muted-foreground">No changes.</p>
+            diff && <p className="p-4 text-sm text-muted-foreground">No changes.</p>
           )}
         </div>
       </div>

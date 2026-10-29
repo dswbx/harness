@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronRight, GitCommitHorizontal, Maximize2, RefreshCw, X } from "lucide-react";
+import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw, X } from "lucide-react";
 import { openWindow, type Diff, type FileChange, type GitStatus, type SessionApi, type WorkspaceInfo } from "@harness/api";
-import { Button, Input, cn } from "@harness/ui";
-import { splitPatch } from "./diff";
+import {
+  Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
+  DropdownMenuTrigger, cn,
+} from "@harness/ui";
+import { CommitsPane, useCommits } from "./CommitsPane";
+import { splitPatch, type FilePatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
-import { useReviewComments } from "./reviewComments";
+import { useReviewComments, type ReviewComment } from "./reviewComments";
+import { selectionScope, type DiffScope } from "./scope";
 
-const fileAnchor = (path: string) => `diff-file-${path}`;
-
-/** Diff range; `null` bounds mean "where the Session's changes start" / "the working tree now". */
-export type DiffScope = { from: string | null; to: string | null; label: string };
-export const ALL_CHANGES: DiffScope = { from: null, to: null, label: "All changes" };
+export { ALL_CHANGES, type DiffScope } from "./scope";
 
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
@@ -27,34 +28,61 @@ export function FileStat({ f }: { f: FileChange }) {
   );
 }
 
-/** All files of a patch, condensed (unified, small font, wrapped) for the narrow panel. */
-function Patch({ api, patch }: { api: SessionApi; patch: string }) {
-  const files = useMemo(() => splitPatch(patch), [patch]);
-  const comments = useReviewComments(api.sessionId);
-  const [closed, setClosed] = useState<Set<string>>(new Set());
-  if (files.length === 0) return <p className="p-3 text-xs text-muted-foreground">No changes.</p>;
-  const toggle = (path: string) => setClosed((c) => {
-    const n = new Set(c);
-    if (!n.delete(path)) n.add(path);
-    return n;
-  });
+const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
+
+/** Per-file actions. Copy is a submenu so more top-level entries fit later. */
+function FileMenu({ path, root }: { path: string; root: string | null | undefined }) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
   return (
-    <div className="space-y-3 p-3">
-      {files.map((f) => (
-        <div key={f.path} id={fileAnchor(f.path)} className="overflow-hidden rounded border">
-          <button
-            className="flex w-full items-center gap-1 border-b bg-muted px-2 py-1 text-left font-mono text-xs text-muted-foreground"
-            aria-expanded={!closed.has(f.path)}
-            onClick={() => toggle(f.path)}
-          >
-            <ChevronRight className={cn("size-3 shrink-0 transition-transform", !closed.has(f.path) && "rotate-90")} />
-            <span className="min-w-0 flex-1 truncate">{f.path}</span>
-          </button>
-          {!closed.has(f.path) && (
-            <DiffViewer sessionId={api.sessionId} file={f} comments={comments} mode="unified" fontSize={11} wrap />
-          )}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Actions for ${path}`}
+        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-accent data-[state=open]:opacity-100"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <MoreHorizontal className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger><Copy /> Copy</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {root && <DropdownMenuItem onSelect={() => copy(`${root.replace(/\/$/, "")}/${path}`)}>Absolute path</DropdownMenuItem>}
+            <DropdownMenuItem onSelect={() => copy(path)}>Relative path</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => copy(name)}>Filename</DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** One collapsible file: name, folder, +/− and actions; the condensed unified diff when open. */
+function FileRow({ api, file, comments, root, open, onToggle }: {
+  api: SessionApi;
+  file: FilePatch;
+  comments: ReviewComment[];
+  root: string | null | undefined;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const slash = file.path.lastIndexOf("/");
+  return (
+    <div>
+      <div className="group flex h-8 items-center gap-1.5 pr-2 pl-2 text-sm hover:bg-accent/50">
+        <button className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left" aria-expanded={open} title={file.path} onClick={onToggle}>
+          <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          <span className="shrink-0 truncate">{file.path.slice(slash + 1)}</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{slash > 0 ? file.path.slice(0, slash) : ""}</span>
+          <span className="shrink-0 font-mono text-xs text-emerald-500">+{file.additions}</span>
+          <span className="w-8 shrink-0 font-mono text-xs text-red-500">−{file.deletions}</span>
+        </button>
+        <FileMenu path={file.path} root={root} />
+      </div>
+      {open && (
+        <div className="mb-2 border-y">
+          <DiffViewer sessionId={api.sessionId} file={file} comments={comments} mode="unified" fontSize={11} wrap />
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -73,8 +101,9 @@ export function DiffPanel({
   const [diff, setDiff] = useState<Diff | null>(null);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const comments = useReviewComments(api.sessionId);
+  const commits = useCommits(api, refreshKey);
 
   useEffect(() => {
     let off = false;
@@ -99,38 +128,31 @@ export function DiffPanel({
     if (workspace?.repo_root) void load();
   }, [workspace, load, refreshKey]);
 
-  const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-      await load();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const commit = () =>
-    act(async () => {
-      await api.gitCommit(message.trim());
-      setMessage("");
-    });
+  const files = useMemo(() => (diff ? splitPatch(diff.patch) : []), [diff]);
+  const toggle = (path: string) => setOpen((o) => {
+    const n = new Set(o);
+    if (!n.delete(path)) n.add(path);
+    return n;
+  });
+  const sum = (k: "additions" | "deletions") => files.reduce((s, f) => s + f[k], 0);
 
   return (
     <aside className="flex h-full w-[420px] shrink-0 flex-col border-l bg-background" aria-label="Diff panel">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <span className="text-sm font-medium">{scope.label}</span>
-        {scope !== ALL_CHANGES && (
-          <Button size="sm" variant="ghost" onClick={() => onScope(ALL_CHANGES)}>Show all</Button>
+      <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
+        <span className="min-w-0 truncate text-sm font-medium" title={scope.label}>{scope.label}</span>
+        {diff && (
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            {files.length} {files.length === 1 ? "file" : "files"}
+            <span className="font-mono text-emerald-500">+{sum("additions")}</span>
+            <span className="font-mono text-red-500">−{sum("deletions")}</span>
+          </span>
         )}
         <div className="flex-1" />
         <Button size="icon" variant="ghost" className="size-7" aria-label="Open diff in window" title="Open in window" disabled={noRepo}
           onClick={() => void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), { title: `Diff: ${scope.label}` })}>
           <Maximize2 />
         </Button>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Refresh diff" title="Refresh" disabled={noRepo || busy} onClick={() => void load()}>
+        <Button size="icon" variant="ghost" className="size-7" aria-label="Refresh diff" title="Refresh" disabled={noRepo} onClick={() => void load()}>
           <RefreshCw />
         </Button>
         <Button size="icon" variant="ghost" className="size-7" aria-label="Close diff panel" onClick={onClose}>
@@ -138,50 +160,22 @@ export function DiffPanel({
         </Button>
       </div>
       {noRepo ? (
-        <p className="p-4 text-sm text-muted-foreground">This Session's folder is not a git repository, so there is nothing to diff, commit or push.</p>
+        <p className="p-4 text-sm text-muted-foreground">This Session's folder is not a git repository, so there is nothing to diff.</p>
       ) : (
         <>
           {error && <p role="alert" className="border-b px-3 py-2 text-xs text-destructive">{error}</p>}
-          <div className="min-h-0 flex-1 overflow-auto">
-            {diff && diff.files.length > 0 && (
-              <ul className="space-y-1 border-b p-3">
-                {diff.files.map((f) => (
-                  <li key={f.path}>
-                    <button className="block w-full rounded text-left hover:bg-accent" onClick={() => document.getElementById(fileAnchor(f.path))?.scrollIntoView({ block: "start" })}>
-                      <FileStat f={f} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          <div className="min-h-0 flex-1 overflow-auto py-1">
+            {!diff ? (
+              !error && <p className="p-3 text-xs text-muted-foreground">Loading...</p>
+            ) : files.length === 0 ? (
+              <p className="p-3 text-xs text-muted-foreground">No changes.</p>
+            ) : (
+              files.map((f) => (
+                <FileRow key={f.path} api={api} file={f} comments={comments} root={workspace?.repo_root} open={open.has(f.path)} onToggle={() => toggle(f.path)} />
+              ))
             )}
-            {diff ? <Patch api={api} patch={diff.patch} /> : !error && <p className="p-3 text-xs text-muted-foreground">Loading...</p>}
           </div>
-          <div className="space-y-2 border-t p-3">
-            {scope === ALL_CHANGES && (
-            <div className="flex gap-2">
-              <Input
-                value={message}
-                placeholder="Commit message"
-                aria-label="Commit message"
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && message.trim() && !busy) void commit(); }}
-              />
-              <Button disabled={busy || !message.trim()} onClick={() => void commit()}>
-                <GitCommitHorizontal /> Commit
-              </Button>
-            </div>
-            )}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="min-w-0 flex-1 truncate">{status?.branch ?? "detached HEAD"}</span>
-              <span className="flex items-center" title="ahead"><ArrowUp className="size-3" />{status?.ahead ?? 0}</span>
-              <span className="flex items-center" title="behind"><ArrowDown className="size-3" />{status?.behind ?? 0}</span>
-              <Button size="sm" variant="outline" disabled={busy || !status || (!!status.upstream && status.ahead === 0)}
-                title={status && !status.upstream ? "Publish branch to origin" : undefined}
-                onClick={() => void act(() => api.gitPush())}>
-                Push
-              </Button>
-            </div>
-          </div>
+          <CommitsPane commits={commits} sel={scope.sel} uncommitted={status?.files.length} onSelect={(sel) => onScope(selectionScope(sel, commits))} />
         </>
       )}
     </aside>
