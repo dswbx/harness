@@ -224,3 +224,29 @@ async fn non_repo_folder_works_without_git() {
     h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
     h.execute(Command::DeleteSession { session_id: sid.clone(), force: false }).await.unwrap();
 }
+
+#[tokio::test]
+async fn git_log_without_worktree() {
+    let (_dir, repo, data) = repo();
+    let commit = |msg: &str| {
+        std::fs::write(repo.join("f.txt"), msg).unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", msg]);
+    };
+    let log = |h: Arc<Harness>, sid: String| async move {
+        let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid }).await.unwrap() else { panic!() };
+        commits.into_iter().map(|c| c.subject).collect::<Vec<_>>()
+    };
+    sh(&repo, &["checkout", "-q", "-b", "feat"]);
+    commit("a");
+    commit("b");
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    // On a branch: everything since it forked from main.
+    assert_eq!(log(h.clone(), sid.clone()).await, ["b", "a"]);
+
+    // On main itself: everything since the last checkout.
+    sh(&repo, &["checkout", "-q", "main"]);
+    commit("c");
+    assert_eq!(log(h.clone(), sid.clone()).await, ["c"]);
+}
