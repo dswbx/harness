@@ -1,6 +1,6 @@
 # Harness
 
-Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](GLOSSARY.md) (use its terms exactly), [docs/adr/](docs/adr/), [docs/plans/v1.md](docs/plans/v1.md), [docs/spikes/](docs/spikes/).
+Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](GLOSSARY.md) (use its terms exactly), [docs/adr/](docs/adr/), [docs/plans/v1.md](docs/plans/v1.md), [docs/spikes/](docs/spikes/). [docs/explorations/](docs/explorations/) holds dated notes from explorations: hints, not facts. Check them before you rely on them, and add a note there when you explore something (format in its README).
 
 ## Layout
 
