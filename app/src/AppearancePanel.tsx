@@ -69,22 +69,23 @@ export function AppearancePanel() {
 
   return (
     <div className="text-sm">
-      <SectionHeader title="Appearance" description="Theme, color mode, fonts and text size for all windows.">
-        <div role="group" aria-label="Color mode" className="inline-flex shrink-0 rounded-md border p-0.5">
-          {MODES.map((m) => (
-            <button
-              key={m}
-              aria-pressed={a.mode === m}
-              onClick={() => update({ mode: m })}
-              className={cn("rounded px-2.5 py-1 text-xs capitalize", a.mode === m ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50")}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      </SectionHeader>
+      <SectionHeader title="Appearance" description="Theme, color mode, fonts and text size for all windows." />
 
       <div className="grid grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-3">
+        <Row label="Mode">
+          <div role="group" aria-label="Mode" className="inline-flex shrink-0 rounded-md border p-0.5">
+            {MODES.map((m) => (
+              <button
+                key={m}
+                aria-pressed={a.mode === m}
+                onClick={() => update({ mode: m })}
+                className={cn("rounded px-2.5 py-1 text-xs capitalize", a.mode === m ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50")}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </Row>
         <Row label="Theme">
           <ThemePicker
             value={a.theme}
