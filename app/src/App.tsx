@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppWindow, Archive, ArchiveRestore, ChevronRight, GitBranch, MoreHorizontal, Bot, Plug, Plus, Shield, Trash2 } from "lucide-react";
+import { AppWindow, Archive, ArchiveRestore, ChevronRight, GitBranch, MoreHorizontal, Plus, Settings, Trash2 } from "lucide-react";
 import type { HarnessClient, SessionStatus, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import {
   Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ScrollArea, Separator, cn,
 } from "@harness/ui";
-import { AgentsDialog } from "./AgentsDialog";
 import { ComposerDialog } from "./ComposerDialog";
-import { McpDialog } from "./McpDialog";
-import { PermissionRulesDialog } from "./PermissionRulesDialog";
+import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
 import { ViewHost } from "./ViewHost";
 import { openViewWindow } from "./openWindow";
 import { makeTransport } from "./transport";
@@ -127,10 +125,8 @@ function Shell({ transport }: { transport: Transport }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [composer, setComposer] = useState(false);
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [agentsVersion, setAgentsVersion] = useState(0);
-  const [mcpOpen, setMcpOpen] = useState(false);
   const [mcpVersion, setMcpVersion] = useState(0);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
@@ -262,15 +258,9 @@ function Shell({ transport }: { transport: Transport }) {
           {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
         </ScrollArea>
         <Separator />
-        <div className="flex flex-wrap p-2">
-          <Button size="sm" variant="ghost" aria-label="Permission rules" title="Permission rules" onClick={() => setRulesOpen(true)}>
-            <Shield /> Permission rules
-          </Button>
-          <Button size="sm" variant="ghost" aria-label="Agents" title="Agents" onClick={() => setAgentsOpen(true)}>
-            <Bot /> Agents
-          </Button>
-          <Button size="sm" variant="ghost" aria-label="MCP" title="MCP servers" onClick={() => setMcpOpen(true)}>
-            <Plug /> MCP
+        <div className="p-2">
+          <Button size="sm" variant="ghost" onClick={() => setSettingsSection("permissions")}>
+            <Settings /> Settings
           </Button>
         </div>
       </aside>
@@ -310,10 +300,18 @@ function Shell({ transport }: { transport: Transport }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <PermissionRulesDialog client={client} open={rulesOpen} onOpenChange={setRulesOpen} sessionId={selected} agentsVersion={agentsVersion} />
-      <AgentsDialog client={client} open={agentsOpen} onOpenChange={setAgentsOpen} version={agentsVersion} onChanged={() => setAgentsVersion((v) => v + 1)} />
-      <McpDialog client={client} open={mcpOpen} onOpenChange={setMcpOpen} onChanged={() => setMcpVersion((v) => v + 1)} />
-      <ComposerDialog client={client} open={composer} onOpenChange={setComposer} agentsVersion={agentsVersion} mcpVersion={mcpVersion} onManageAgents={() => { setComposer(false); setAgentsOpen(true); }} onCreated={(id) => { setSelected(id); refresh().catch((e) => report("Could not load sessions", e)); }} />
+      <SettingsDialog
+        client={client}
+        open={settingsSection !== null}
+        onOpenChange={(o) => !o && setSettingsSection(null)}
+        section={settingsSection ?? "permissions"}
+        onSectionChange={setSettingsSection}
+        sessionId={selected}
+        agentsVersion={agentsVersion}
+        onAgentsChanged={() => setAgentsVersion((v) => v + 1)}
+        onMcpChanged={() => setMcpVersion((v) => v + 1)}
+      />
+      <ComposerDialog client={client} open={composer} onOpenChange={setComposer} agentsVersion={agentsVersion} mcpVersion={mcpVersion} onManageAgents={() => { setComposer(false); setSettingsSection("agents"); }} onCreated={(id) => { setSelected(id); refresh().catch((e) => report("Could not load sessions", e)); }} />
     </div>
   );
 }
