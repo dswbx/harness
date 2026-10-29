@@ -184,6 +184,15 @@ describe("tool calls (synthetic)", () => {
     expect(s.items[0]).toMatchObject({ rawInput: { command: "ls" } });
   });
 
+  it("splits agent text around a notice", () => {
+    const s = fold([
+      ev({ type: "AgentMessageChunk", text: "a" }),
+      ev({ type: "AgentNotice", severity: "info", title: "UserPromptSubmit says", description: "hi" }),
+      ev({ type: "AgentMessageChunk", text: "b" }),
+    ]);
+    expect(s.items.map((i) => i.type)).toEqual(["agent", "agent_notice", "agent"]);
+  });
+
   it("creates a card for an update with no preceding call", () => {
     const s = fold([ev({ type: "ToolCallUpdate", tool_call_id: "z", title: "T", kind: null, status: "failed", content: null, locations: null, raw_input: null, raw_output: null })]);
     expect(s.items[0]).toMatchObject({ type: "tool", title: "T", status: "failed" });

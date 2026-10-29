@@ -171,6 +171,11 @@ rule_id?: string | null } |
  *  Session's `frontend/` directory).
  */
 { type: "FrontendToolOutput"; tool: string; call_id: string; path: string; input: unknown } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
+/**
+ *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
+ *  output). `severity` is `info`, `warning`, `error` or a custom value.
+ */
+{ type: "AgentNotice"; severity: string; title: string; description: string | null } | 
 /**  An ACP update the Harness does not normalize yet; kept so nothing is lost. */
 { type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string };
 
