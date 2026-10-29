@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, GitCompare, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import type { SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
@@ -179,6 +179,13 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
   const [panel, setPanel] = useState(false);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  // Changes need git; hidden until the Workspace is known to be a repository.
+  const [git, setGit] = useState(false);
+  useEffect(() => {
+    let off = false;
+    api.workspace().then((w) => !off && setGit(!!w?.repo_root), () => {});
+    return () => { off = true; };
+  }, [api]);
 
   const openDiff = useCallback((s: DiffScope) => { setScope(s); setPanel(true); }, []);
   // Resolved permission cards render nothing; keep them out of the virtual list.
@@ -196,17 +203,19 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
           Agent {proc.state}
         </Badge>
       )}
-      <Button
-        size="icon"
-        variant="ghost"
-        className={cn("size-7 text-muted-foreground hover:text-foreground", panel && "bg-accent text-foreground")}
-        aria-label="Changes"
-        title="Changes"
-        aria-pressed={panel}
-        onClick={() => setPanel(!panel)}
-      >
-        <GitCompare />
-      </Button>
+      {git && (
+        <Button
+          size="icon"
+          variant="ghost"
+          className={cn("size-7 text-muted-foreground hover:text-foreground", panel && "bg-accent text-foreground")}
+          aria-label="Changes"
+          title="Changes"
+          aria-pressed={panel}
+          onClick={() => setPanel(!panel)}
+        >
+          <GitCompare />
+        </Button>
+      )}
     </>
   );
   return (

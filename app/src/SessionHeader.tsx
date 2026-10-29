@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AppWindow, Copy, FolderOpen, Info, MoreHorizontal } from "lucide-react";
+import { AppWindow, Copy, FolderOpen, GitBranch, Info, MoreHorizontal } from "lucide-react";
 import type { SessionStatus, SessionSummary } from "@harness/api";
 import { inTauri } from "@harness/api";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, cn } from "@harness/ui";
@@ -58,9 +58,11 @@ const iconBtn = "size-7 text-muted-foreground hover:text-foreground data-[state=
  * fills with its own actions (`toolbarRef`). `leading` sits left of the title (traffic lights, sidebar toggle).
  */
 export function SessionHeader({
-  session, leading, onOpenWindow, toolbarRef,
+  session, branch, leading, onOpenWindow, toolbarRef,
 }: {
   session: SessionSummary;
+  /** Current git branch; none outside a repository. */
+  branch?: string | null;
   leading?: ReactNode;
   onOpenWindow?: () => void;
   toolbarRef: (el: HTMLDivElement | null) => void;
@@ -81,7 +83,7 @@ export function SessionHeader({
             <Info />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-96 p-4 text-sm">
+        <DropdownMenuContent align="start" className="w-96 p-4 text-sm" onCloseAutoFocus={(e) => e.preventDefault()}>
           <SessionDetails s={session} />
         </DropdownMenuContent>
       </DropdownMenu>
@@ -91,7 +93,7 @@ export function SessionHeader({
             <MoreHorizontal />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuContent align="start" className="w-56" onCloseAutoFocus={(e) => e.preventDefault()}>
           {onOpenWindow && (
             <>
               <DropdownMenuItem onSelect={onOpenWindow}><AppWindow /> Open in new window</DropdownMenuItem>
@@ -103,6 +105,12 @@ export function SessionHeader({
         </DropdownMenuContent>
       </DropdownMenu>
       <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
+      {branch && (
+        <span className="flex min-w-0 max-w-64 items-center gap-1.5 px-1 text-xs text-muted-foreground" title={`Branch ${branch}`}>
+          <GitBranch className="size-3.5 shrink-0" />
+          <span className="truncate font-mono">{branch}</span>
+        </span>
+      )}
       <div ref={toolbarRef} className="flex items-center gap-1" />
     </header>
   );

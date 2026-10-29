@@ -7,10 +7,11 @@ type Props = React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   onViewportScroll?: React.UIEventHandler<HTMLDivElement>;
 };
 
+/** Vertical scrolling; content is block (not Radix's `display: table`) so rows can truncate. */
 function ScrollArea({ className, children, viewportRef, onViewportScroll, ...props }: Props) {
   return (
     <ScrollAreaPrimitive.Root className={cn("relative overflow-hidden", className)} {...props}>
-      <ScrollAreaPrimitive.Viewport ref={viewportRef} onScroll={onViewportScroll} className="size-full rounded-[inherit]">
+      <ScrollAreaPrimitive.Viewport ref={viewportRef} onScroll={onViewportScroll} className="size-full rounded-[inherit] [&>div]:block!">
         {children}
       </ScrollAreaPrimitive.Viewport>
       <ScrollAreaPrimitive.Scrollbar orientation="vertical" className="flex w-2 touch-none select-none p-px transition-colors">

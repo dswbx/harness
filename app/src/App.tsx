@@ -145,6 +145,67 @@ function useSidebarOpen() {
   return [open, toggle] as const;
 }
 
+const WIDTH_KEY = "harness.sidebarWidth";
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 480;
+
+/** Sidebar width, dragged from its right edge (double-click resets). */
+function useSidebarWidth() {
+  const [width, setWidth] = useState(() => {
+    try {
+      const w = Number(localStorage.getItem(WIDTH_KEY));
+      return w >= MIN_WIDTH && w <= MAX_WIDTH ? w : 256;
+    } catch {
+      return 256;
+    }
+  });
+  const save = (w: number) => {
+    try {
+      localStorage.setItem(WIDTH_KEY, String(w));
+    } catch { /* per-window convenience only */ }
+  };
+  const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const start = width;
+    let last = start;
+    const move = (ev: PointerEvent) => {
+      last = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, start + ev.clientX - startX));
+      setWidth(last);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+      save(last);
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const reset = () => {
+    setWidth(256);
+    save(256);
+  };
+  return { width, onPointerDown, reset };
+}
+
+/** The Session's current branch, when its folder is a git repository (refreshed as its status changes). */
+function useBranch(client: HarnessClient, s: SessionSummary | null) {
+  const [branch, setBranch] = useState<string | null>(null);
+  const id = s?.workspace.repo_root ? s.id : null;
+  const status = s?.status;
+  useEffect(() => {
+    if (!id) return setBranch(null);
+    let off = false;
+    client.sessionApi(id).gitStatus().then((g) => !off && setBranch(g.branch), () => !off && setBranch(null));
+    return () => { off = true; };
+  }, [client, id, status]);
+  return branch;
+}
+
 function Shell({ transport }: { transport: Transport }) {
   const [client] = useState<HarnessClient>(() => new Client(transport));
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -207,6 +268,8 @@ function Shell({ transport }: { transport: Transport }) {
   }, [client, report]);
 
   const current = sessions.find((s) => s.id === selected) ?? null;
+  const branch = useBranch(client, current);
+  const sidebar = useSidebarWidth();
   // Sessions needing attention first (stable within each group).
   const active = useMemo(() => {
     const l = sessions.filter((s) => !s.archived);
@@ -254,7 +317,16 @@ function Shell({ transport }: { transport: Transport }) {
   return (
     <div className="flex h-full">
       {sidebarOpen && (
-        <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/30">
+        <aside className="relative flex shrink-0 flex-col border-r bg-muted/30" style={{ width: sidebar.width }}>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            title="Drag to resize, double-click to reset"
+            className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-ring/30"
+            onPointerDown={sidebar.onPointerDown}
+            onDoubleClick={sidebar.reset}
+          />
           <div data-tauri-drag-region className={cn("flex h-13 shrink-0 items-center gap-1 pr-2", trafficLights ? "pl-[76px]" : "pl-3")}>
             <div data-tauri-drag-region className="h-full flex-1" />
             {controls}
@@ -292,6 +364,7 @@ function Shell({ transport }: { transport: Transport }) {
           <>
             <SessionHeader
               session={current}
+              branch={branch}
               leading={leading}
               toolbarRef={setToolbar}
               onOpenWindow={() => openViewWindow(current.id, current.title).catch((e) => report("Could not open window", e))}
