@@ -369,9 +369,9 @@ const MOCK_REGISTRY: Omit<RegistryAgent, "installed_version">[] = [
 const NOW_S = Math.floor(Date.now() / 1000);
 /** Newest first. */
 const MOCK_COMMITS: Commit[] = [
-  { sha: "c3f1a9e7d2b84c0a5e6f7a1b9c8d3e2f4a5b6c7d", short: "c3f1a9e", subject: "Document routes, lowercase method match", author: "Dennis", time: NOW_S - 1800 },
-  { sha: "b2e8d4a61f903c7b5a2d8e4f6c1a0b9d7e3f5a21", short: "b2e8d4a", subject: "Drop legacy entry point, greet by name", author: "Dennis", time: NOW_S - 7200 },
-  { sha: "a1d7c3f50e8b2a4d6c9f1e3b5a7d0c2e4f6a8b10", short: "a1d7c3f", subject: "Add README, bump to 0.2.0 with dev script", author: "Dennis", time: NOW_S - 86400 },
+  { sha: "c3f1a9e7d2b84c0a5e6f7a1b9c8d3e2f4a5b6c7d", short: "c3f1a9e", subject: "Document routes, lowercase method match", author: "Dennis", author_email: "dennis@example.com", committer: "Dennis", body: "Router matches methods case-insensitively now; the guide lists every route.\n\nCo-authored-by: Claude <noreply@anthropic.com>", time: NOW_S - 1800 },
+  { sha: "b2e8d4a61f903c7b5a2d8e4f6c1a0b9d7e3f5a21", short: "b2e8d4a", subject: "Drop legacy entry point, greet by name", author: "Dennis", author_email: "dennis@example.com", committer: "Dennis", body: "", time: NOW_S - 7200 },
+  { sha: "a1d7c3f50e8b2a4d6c9f1e3b5a7d0c2e4f6a8b10", short: "a1d7c3f", subject: "Add README, bump to 0.2.0 with dev script", author: "Sam", author_email: "sam@example.com", committer: "Dennis", body: "Adds a `dev` script that reloads on save.", time: NOW_S - 86400 },
 ];
 const MOCK_COMMIT_FILES: Record<string, string[]> = {
   [MOCK_COMMITS[0].sha]: ["docs/guide.md", "src/server/router.ts"],

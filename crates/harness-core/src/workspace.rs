@@ -206,17 +206,21 @@ pub async fn show_file(dir: &Path, rev: &str, path: &str) -> anyhow::Result<Stri
 /// Commits in `base..HEAD`, newest first.
 pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
     anyhow::ensure!(!base.starts_with('-'), "invalid base");
-    let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ct", &format!("{base}..HEAD")]).await?;
+    // Records end with \x1e: the body spans lines.
+    let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%cn%x1f%ct%x1f%b%x1e", &format!("{base}..HEAD")]).await?;
     Ok(out
-        .lines()
-        .filter_map(|l| {
-            let mut p = l.split('\x1f');
+        .split('\x1e')
+        .filter_map(|r| {
+            let mut p = r.trim_start_matches('\n').split('\x1f');
             Some(Commit {
-                sha: p.next()?.to_owned(),
+                sha: p.next().filter(|s| !s.is_empty())?.to_owned(),
                 short: p.next()?.to_owned(),
                 subject: p.next()?.to_owned(),
                 author: p.next()?.to_owned(),
+                author_email: p.next()?.to_owned(),
+                committer: p.next()?.to_owned(),
                 time: p.next()?.parse().ok()?,
+                body: p.next()?.trim_end().to_owned(),
             })
         })
         .collect())

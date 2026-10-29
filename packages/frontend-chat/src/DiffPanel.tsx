@@ -37,7 +37,7 @@ function FileMenu({ path, root }: { path: string; root: string | null | undefine
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Actions for ${path}`}
-        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-accent data-[state=open]:opacity-100"
+        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
         onClick={(e) => e.stopPropagation()}
       >
         <MoreHorizontal className="size-4" />
@@ -175,7 +175,7 @@ export function DiffPanel({
               ))
             )}
           </div>
-          <CommitsPane commits={commits} sel={scope.sel} uncommitted={status?.files.length} onSelect={(sel) => onScope(selectionScope(sel, commits))} />
+          <CommitsPane commits={commits} sel={scope.sel} tipSide="left" uncommitted={status?.files.length} onSelect={(sel) => onScope(selectionScope(sel, commits))} />
         </>
       )}
     </aside>

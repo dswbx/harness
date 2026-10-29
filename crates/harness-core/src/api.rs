@@ -387,6 +387,10 @@ pub struct Commit {
     pub short: String,
     pub subject: String,
     pub author: String,
+    pub author_email: String,
+    pub committer: String,
+    /// Message after the subject line (trailers such as `Co-authored-by:` included).
+    pub body: String,
     /// Unix seconds, committer time.
     #[specta(type = specta_typescript::Number)]
     pub time: i64,

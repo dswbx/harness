@@ -132,6 +132,10 @@ export type Commit = {
 	short: string,
 	subject: string,
 	author: string,
+	author_email: string,
+	committer: string,
+	/**  Message after the subject line (trailers such as `Co-authored-by:` included). */
+	body: string,
 	/**  Unix seconds, committer time. */
 	time: number,
 };

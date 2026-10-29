@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Commit } from "@harness/api";
 import { ALL, ALL_CHANGES, UNCOMMITTED, WIP, selectionScope, toggleSelection } from "./scope";
 
-const c = (sha: string, subject = `subject ${sha}`): Commit => ({ sha, short: sha.slice(0, 3), subject, author: "a", time: 0 });
+const c = (sha: string, subject = `subject ${sha}`): Commit => ({ sha, short: sha.slice(0, 3), subject, author: "a", author_email: "", committer: "a", body: "", time: 0 });
 // Newest first.
 const commits = [c("ccc111"), c("bbb222"), c("aaa333")];
 

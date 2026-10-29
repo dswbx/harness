@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Columns2, FileMinus, FilePen, FilePlus, Folder, List, ListTree, MessageSquare, Rows2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Columns2, FileMinus, FilePen, FilePlus, Folder, List, ListTree, MessageSquare, Rows2, WrapText } from "lucide-react";
 import type { Diff, SessionApi } from "@harness/api";
-import { Button, cn } from "@harness/ui";
-import { CommitsPane, useCommits } from "./CommitsPane";
-import { changeCount, splitPatch, type FilePatch } from "./diff";
+import { Button, HoverTip, cn } from "@harness/ui";
+import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
+import { splitPatch, type FilePatch } from "./diff";
 import { DiffViewer, type FileContents } from "./DiffViewer";
 import { ancestorKeys, fileTree, type TreeRow } from "./fileTree";
 import { useReviewComments } from "./reviewComments";
@@ -46,6 +46,7 @@ function changeRows(root: HTMLElement | null): HTMLElement[] {
 }
 
 const VIEW_KEY = "harness:diff-file-view";
+const WRAP_KEY = "harness:diff-wrap";
 type FileView = "list" | "tree";
 const readView = (): FileView => {
   try {
@@ -76,6 +77,9 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
   const [cursor, setCursor] = useState<string | null>(null);
   const [mode, setMode] = useState<"split" | "unified">("split");
   const [view, setView] = useState<FileView>(readView);
+  const [wrap, setWrap] = useState(() => {
+    try { return localStorage.getItem(WRAP_KEY) === "1"; } catch { return false; }
+  });
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
   const comments = useReviewComments(api.sessionId);
@@ -229,6 +233,12 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
     act();
   };
 
+  const toggleWrap = () => {
+    setWrap(!wrap);
+    try { localStorage.setItem(WRAP_KEY, wrap ? "0" : "1"); } catch { /* per-viewer convenience only */ }
+  };
+  const selectedCommits = commits.filter((c) => scope.sel?.includes(c.sha));
+
   const changeView = (v: FileView) => {
     setView(v);
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-viewer convenience only */ }
@@ -249,8 +259,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
           </button>
           <Folder className="size-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">{r.name}</span>
-          {!r.open && <span className="font-mono text-xs text-emerald-500">+{r.additions}</span>}
-          {!r.open && r.deletions > 0 && <span className="font-mono text-xs text-red-500">−{r.deletions}</span>}
         </li>
       );
     const f = r.file;
@@ -277,9 +285,22 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
         <Button size="icon" variant="ghost" className="size-7" aria-label="Previous file" title="Previous file (Alt+←)" disabled={idx <= 0} onClick={() => goFile(idx - 1)}><ArrowLeft /></Button>
         <span className="tabular-nums text-muted-foreground">{idx + 1}/{order.length} files</span>
         <Button size="icon" variant="ghost" className="size-7" aria-label="Next file" title="Next file (Alt+→)" disabled={idx >= order.length - 1} onClick={() => goFile(idx + 1)}><ArrowRight /></Button>
-        <span className="ml-2 max-w-64 shrink-0 truncate rounded-full bg-muted px-2 py-0.5" title={scope.label}>{scope.label}</span>
+        <HoverTip
+          side="bottom"
+          align="start"
+          className="max-h-[70vh] max-w-[28rem] overflow-auto"
+          content={selectedCommits.length ? <div className="space-y-3 divide-y">{selectedCommits.map((c) => <div key={c.sha} className="pt-3 first:pt-0"><CommitInfo commit={c} /></div>)}</div> : null}
+        >
+          <span className="ml-2 max-w-64 shrink-0 truncate rounded-full bg-muted px-2 py-0.5">{scope.label}</span>
+        </HoverTip>
         <span className="ml-2 min-w-0 flex-1 truncate font-mono text-muted-foreground">{file?.path}</span>
-        {file && <span className="tabular-nums text-muted-foreground">{changeCount(file.text)} {changeCount(file.text) === 1 ? "difference" : "differences"}</span>}
+        {file && (
+          <span className="flex gap-1.5 font-mono tabular-nums">
+            <span className="text-emerald-500">+{file.additions}</span>
+            <span className="text-red-500">−{file.deletions}</span>
+          </span>
+        )}
+        <Button size="icon" variant={wrap ? "secondary" : "ghost"} className="ml-2 size-7" aria-label="Soft wrap" aria-pressed={wrap} title="Soft wrap" onClick={toggleWrap}><WrapText /></Button>
         <div className="ml-2 flex rounded-md border">
           <Button size="icon" variant={mode === "split" ? "secondary" : "ghost"} className="size-7 rounded-r-none" aria-label="Side by side" aria-pressed={mode === "split"} title="Side by side" onClick={() => setMode("split")}><Columns2 /></Button>
           <Button size="icon" variant={mode === "unified" ? "secondary" : "ghost"} className="size-7 rounded-l-none" aria-label="Unified" aria-pressed={mode === "unified"} title="Unified" onClick={() => setMode("unified")}><Rows2 /></Button>
@@ -318,7 +339,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
         </div>
         <div ref={pane} className="min-w-0 flex-1 overflow-auto">
           {file ? (
-            <DiffViewer key={file.path} sessionId={api.sessionId} file={file} comments={comments} mode={mode} contents={contents.get(file.path)} />
+            <DiffViewer key={file.path} sessionId={api.sessionId} file={file} comments={comments} mode={mode} wrap={wrap} contents={contents.get(file.path)} />
           ) : (
             diff && <p className="p-4 text-sm text-muted-foreground">No changes.</p>
           )}
