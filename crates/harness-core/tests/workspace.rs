@@ -155,6 +155,11 @@ async fn worktree_session_lifecycle() {
         h.execute(Command::GitCommit { session_id: sid.clone(), message: "Add fake".into() }).await.unwrap()
     else { panic!() };
     assert_eq!(sh(&wt, &["rev-parse", "HEAD"]), commit);
+    let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid.clone() }).await.unwrap() else { panic!() };
+    // Newest first: ours, then the archive WIP commit; never the base's "init".
+    assert_eq!(commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), vec!["Add fake", "WIP (archived by Harness)"]);
+    assert_eq!((commits[0].sha.as_str(), commits[0].subject.as_str()), (commit.as_str(), "Add fake"));
+    assert!(commits[0].time > 0 && !commits[0].short.is_empty() && !commits[0].author.is_empty());
     assert!(events(&h, &sid).iter().any(|e| matches!(&e.kind, EventKind::GitCommitted { message, .. } if message == "Add fake")));
 
     h.execute(delete(true)).await.unwrap();
@@ -218,4 +223,37 @@ async fn non_repo_folder_works_without_git() {
     assert!(h.execute(Command::GitStatus { session_id: sid.clone() }).await.is_err());
     h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
     h.execute(Command::DeleteSession { session_id: sid.clone(), force: false }).await.unwrap();
+}
+
+#[tokio::test]
+async fn git_log_without_worktree() {
+    let (_dir, repo, data) = repo();
+    let commit = |msg: &str| {
+        std::fs::write(repo.join("f.txt"), msg).unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", msg]);
+    };
+    let log = |h: Arc<Harness>, sid: String| async move {
+        let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid }).await.unwrap() else { panic!() };
+        commits.into_iter().map(|c| c.subject).collect::<Vec<_>>()
+    };
+    sh(&repo, &["checkout", "-q", "-b", "feat"]);
+    commit("a");
+    commit("b");
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    // On a branch: everything since it forked from main.
+    assert_eq!(log(h.clone(), sid.clone()).await, ["b", "a"]);
+
+    // On main without an upstream: nothing.
+    sh(&repo, &["checkout", "-q", "main"]);
+    commit("c");
+    assert!(log(h.clone(), sid.clone()).await.is_empty());
+
+    // On main with an upstream: only unpushed commits.
+    sh(&repo, &["remote", "add", "origin", "."]);
+    sh(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    sh(&repo, &["branch", "-q", "-u", "origin/main"]);
+    commit("d");
+    assert_eq!(log(h.clone(), sid.clone()).await, ["d"]);
 }

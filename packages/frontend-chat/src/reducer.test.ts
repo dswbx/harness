@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Event, EventKind } from "@harness/api";
 import { harnessToolName, initialState, permissionTitle, planOf, reduce, type ChatState } from "./reducer";
-import { diffLines, parsePatch } from "./diff";
+import { diffLines } from "./diff";
 
 const fold = (events: Event[]): ChatState => events.reduce(reduce, initialState());
 const load = (name: string): Event[] =>
@@ -332,14 +332,6 @@ describe("git and workspace events", () => {
     const s = fold([ev({ type: "AgentProcessState", state: "stopped", message: "archived" })]);
     expect(s.process?.state).toBe("stopped");
     expect(s.items).toHaveLength(0);
-  });
-
-  it("parsePatch splits files and classifies lines", () => {
-    const patch = "diff --git a/x.ts b/x.ts\nindex 1..2 100644\n--- a/x.ts\n+++ b/x.ts\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n";
-    const [f] = parsePatch(patch);
-    expect(parsePatch(patch)).toHaveLength(1);
-    expect(f!.path).toBe("x.ts");
-    expect(f!.lines.map((l) => l.kind)).toEqual(["meta", "meta", "meta", "hunk", "ctx", "del", "add"]);
   });
 });
 

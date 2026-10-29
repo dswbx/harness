@@ -1,5 +1,5 @@
 import type {
-  AgentInfo, AppEvent, Branches, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule,
+  AgentInfo, AppEvent, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule,
   SessionSummary, WorkspaceInfo,
 } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
@@ -28,6 +28,10 @@ export interface SessionApi {
   gitStatus(): Promise<GitStatus>;
   /** Null `from`: where the Session's changes start. Null `to`: the working tree now. */
   gitDiff(from?: string | null, to?: string | null): Promise<Diff>;
+  /** The Session's own commits (since its changes start), newest first. */
+  gitLog(): Promise<Commit[]>;
+  /** A file at `rev` (e.g. `Diff.from`/`Diff.to`); empty when absent there. */
+  gitShowFile(rev: string, path: string): Promise<string>;
   /** Stages everything; returns the commit id. */
   gitCommit(message: string): Promise<string>;
   gitPush(): Promise<void>;
@@ -73,6 +77,9 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     gitStatus: async () => (await expect({ type: "GitStatus", session_id: sessionId }, "GitStatus")).status,
     gitDiff: async (from = null, to = null) =>
       (await expect({ type: "GitDiff", session_id: sessionId, from, to }, "Diff")).diff,
+    gitLog: async () => (await expect({ type: "GitLog", session_id: sessionId }, "GitLog")).commits,
+    gitShowFile: async (rev, path) =>
+      (await expect({ type: "GitShowFile", session_id: sessionId, rev, path }, "FileContent")).content,
     gitCommit: async (message) =>
       (await expect({ type: "GitCommit", session_id: sessionId, message }, "Committed")).commit,
     gitPush: () => run({ type: "GitPush", session_id: sessionId }),

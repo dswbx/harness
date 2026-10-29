@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{Branches, Diff, FileChange, GitStatus};
+use crate::api::{Branches, Commit, Diff, FileChange, GitStatus};
 
 pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     git_env(dir, args, &[]).await
@@ -197,15 +197,71 @@ pub async fn diff(dir: &Path, from: &str, to: &str) -> anyhow::Result<Diff> {
     Ok(Diff { from: from.to_owned(), to: to.to_owned(), files, patch })
 }
 
-/// Where a Session's changes start: the merge base with its Worktree's base branch, else HEAD.
+/// `path` at `rev`, or empty when it does not exist there (added or deleted file).
+pub async fn show_file(dir: &Path, rev: &str, path: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(!rev.starts_with('-') && !path.starts_with('-'), "invalid rev or path");
+    Ok(git(dir, &["show", &format!("{rev}:{path}")]).await.unwrap_or_default())
+}
+
+/// Commits in `base..HEAD`, newest first.
+pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
+    anyhow::ensure!(!base.starts_with('-'), "invalid base");
+    // Records end with \x1e: the body spans lines.
+    let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%cn%x1f%ct%x1f%b%x1e", &format!("{base}..HEAD")]).await?;
+    Ok(out
+        .split('\x1e')
+        .filter_map(|r| {
+            let mut p = r.trim_start_matches('\n').split('\x1f');
+            Some(Commit {
+                sha: p.next().filter(|s| !s.is_empty())?.to_owned(),
+                short: p.next()?.to_owned(),
+                subject: p.next()?.to_owned(),
+                author: p.next()?.to_owned(),
+                author_email: p.next()?.to_owned(),
+                committer: p.next()?.to_owned(),
+                time: p.next()?.parse().ok()?,
+                body: p.next()?.trim_end().to_owned(),
+            })
+        })
+        .collect())
+}
+
+/// Where a Session's changes start: the merge base with its Worktree's base branch. Without a Worktree: on a branch,
+/// where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default branch, its upstream,
+/// so only unpushed commits count; else HEAD (no commits, only uncommitted work).
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
     if let Some(base) = base
         && let Ok(mb) = git(dir, &["merge-base", "HEAD", base]).await
     {
         return Ok(mb.trim().to_owned());
     }
+    if base.is_none() {
+        let default = default_branch(dir).await;
+        let current = current_branch(dir).await.ok().flatten();
+        let on_default = default.as_deref().is_some_and(|d| current.as_deref() == Some(d.split_once('/').map_or(d, |(_, b)| b)));
+        let fork = if on_default { "@{upstream}" } else { default.as_deref().unwrap_or("@{upstream}") };
+        if let Ok(mb) = git(dir, &["merge-base", "HEAD", fork]).await {
+            return Ok(mb.trim().to_owned());
+        }
+    }
     Ok(git(dir, &["rev-parse", "HEAD"]).await?.trim().to_owned())
 }
+
+/// The repo's main line: `origin/HEAD`, else a local `main` or `master`.
+async fn default_branch(dir: &Path) -> Option<String> {
+    if let Ok(r) = git(dir, &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).await
+        && !r.trim().is_empty()
+    {
+        return Some(r.trim().to_owned());
+    }
+    for b in ["main", "master"] {
+        if git(dir, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).await.is_ok() {
+            return Some(b.to_owned());
+        }
+    }
+    None
+}
+
 
 pub async fn commit(dir: &Path, message: &str) -> anyhow::Result<String> {
     git(dir, &["add", "-A"]).await?;

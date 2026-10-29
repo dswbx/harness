@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, MessageSquare, Square, X } from "lucide-react";
 import type { SessionApi, SlashCommand } from "@harness/api";
 import { Button, HoverTip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
@@ -8,6 +8,25 @@ import { lineCount } from "./promptMarkdown";
 import { matchCommands } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
+import { getReviewComments, removeReviewComment, setReviewComments, useReviewComments, withReviewComments, type ReviewComment } from "./reviewComments";
+
+/** Review comments from the diff views, sent with the next prompt. */
+function CommentChips({ sessionId, comments }: { sessionId: string; comments: ReviewComment[] }) {
+  return (
+    <div className="flex flex-wrap gap-1 pb-1.5" aria-label="Review comments">
+      {comments.map((c) => (
+        <span key={c.id} className="flex max-w-full items-center gap-1 rounded-md border bg-muted py-0.5 pl-1.5 pr-0.5 text-xs" title={`${c.path}:${c.line} (${c.side})\n${c.code}\n\n${c.text}`}>
+          <MessageSquare className="size-3 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 font-mono text-muted-foreground">{c.path.split("/").pop()}:{c.line}</span>
+          <span className="min-w-0 max-w-64 truncate">{c.text}</span>
+          <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={`Remove comment on ${c.path}:${c.line}`} onClick={() => removeReviewComment(sessionId, c.id)}>
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function PromptBox({ api, state }: { api: SessionApi; state: ChatState }) {
   const [text, setText] = useState("");
@@ -21,18 +40,23 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
 
   const [error, setError] = useState<string | null>(null);
   const readOnly = state.readOnly;
+  const comments = useReviewComments(api.sessionId);
 
   // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
   const send = () => {
     const ed = ref.current;
     const t = ed?.getMarkdown().trim() ?? "";
-    if (!ed || !t || readOnly) return;
+    const sent = getReviewComments(api.sessionId);
+    if (!ed || (!t && sent.length === 0) || readOnly) return;
     const snap = ed.snapshot();
     ed.clear();
+    setReviewComments(api.sessionId, []);
     setError(null);
-    api.prompt(t).catch((err) => {
+    api.prompt(withReviewComments(t, sent)).catch((err) => {
       setError(errorMessage(err));
       ref.current?.restore(snap);
+      // Put them back ahead of any added since.
+      setReviewComments(api.sessionId, [...sent, ...getReviewComments(api.sessionId)]);
     });
   };
   const continueWithSummary = () => {
@@ -82,6 +106,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
         </div>
       )}
       <div className="rounded-xl border bg-card p-2">
+        {comments.length > 0 && <CommentChips sessionId={api.sessionId} comments={comments} />}
         <PromptEditor
           ref={ref}
           placeholder={running ? "Agent is working... (you can still queue a prompt)" : "Message the Agent. Type / for commands."}
@@ -122,7 +147,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
               <Square className="size-3" /> Cancel
             </Button>
           )}
-          <Button size="icon" className="size-7 rounded-full" disabled={!text.trim() || readOnly} onClick={send} aria-label="Send">
+          <Button size="icon" className="size-7 rounded-full" disabled={(!text.trim() && comments.length === 0) || readOnly} onClick={send} aria-label="Send">
             <ArrowUp />
           </Button>
         </div>

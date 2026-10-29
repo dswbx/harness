@@ -1,5 +1,6 @@
-import type { AppEvent, McpServerDef, AgentInfo, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
+import type { AppEvent, Commit, McpServerDef, AgentInfo, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
+import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 
 /**
  * Browser-only Transport for development without Tauri. Sessions start with `fixture`
@@ -180,12 +181,34 @@ export class MockTransport implements Transport {
       }
       case "GitDiff": {
         if (!this.session(cmd.session_id).workspace.repo_root) throw new Error("not a git repository");
+        if (cmd.from !== null || cmd.to !== null) {
+          // Revs the UI sends: "HEAD".."" = uncommitted; "<sha>^"..("<sha>" | null) = commits in the span.
+          let paths: Set<string>;
+          if (cmd.from === "HEAD") paths = new Set(MOCK_UNCOMMITTED);
+          else {
+            const start = MOCK_COMMITS.findIndex((c) => cmd.from === `${c.sha}^`);
+            const end = cmd.to === null ? 0 : MOCK_COMMITS.findIndex((c) => c.sha === cmd.to);
+            paths = new Set<string>();
+            if (start >= 0 && end >= 0)
+              for (const c of MOCK_COMMITS.slice(end, start + 1)) for (const f of MOCK_COMMIT_FILES[c.sha]) paths.add(f);
+            if (cmd.to === null) for (const f of MOCK_UNCOMMITTED) paths.add(f);
+          }
+          const files = MOCK_FILES.filter((f) => paths.has(f.path));
+          const patch = MOCK_PATCH.split(/(?=^diff --git )/m).filter((c) => files.some((f) => c.startsWith(`diff --git a/${f.path} `))).join("");
+          return { type: "Diff", diff: { from: cmd.from ?? "base", to: cmd.to ?? "worktree", files, patch } };
+        }
         const done = this.committed.has(cmd.session_id) && cmd.from === null && cmd.to === null;
         return {
           type: "Diff",
           diff: { from: cmd.from ?? "base", to: cmd.to ?? "worktree", files: done ? [] : MOCK_FILES, patch: done ? "" : MOCK_PATCH },
         };
       }
+      case "GitLog":
+        if (!this.session(cmd.session_id).workspace.repo_root) throw new Error("not a git repository");
+        return { type: "GitLog", commits: [...MOCK_COMMITS] };
+      case "GitShowFile":
+        // Old side: "base" and any "<sha>^"; everything else falls back to the new contents.
+        return { type: "FileContent", content: (cmd.rev === "base" || cmd.rev.endsWith("^") ? MOCK_OLD : MOCK_NEW)[cmd.path] ?? "" };
       case "GitCommit": {
         if (!cmd.message.trim()) throw new Error("empty commit message");
         const commit = `c${++this.commitN}ab12cd`;
@@ -343,28 +366,25 @@ const MOCK_REGISTRY: Omit<RegistryAgent, "installed_version">[] = [
   { id: "windows-only", name: "Windows Only Agent", version: "1.0.0", description: "No build for this Mac", icon: null, website: null, install_method: null },
 ];
 
-const MOCK_FILES: FileChange[] = [
-  { path: "src/hello.ts", status: "M", additions: 3, deletions: 1 },
-  { path: "README.md", status: "A", additions: 2, deletions: 0 },
+const NOW_S = Math.floor(Date.now() / 1000);
+/** Newest first. */
+const MOCK_COMMITS: Commit[] = [
+  { sha: "c3f1a9e7d2b84c0a5e6f7a1b9c8d3e2f4a5b6c7d", short: "c3f1a9e", subject: "Document routes, lowercase method match", author: "Dennis", author_email: "dennis@example.com", committer: "Dennis", body: "Router matches methods case-insensitively now; the guide lists every route.\n\nCo-authored-by: Claude <noreply@anthropic.com>", time: NOW_S - 1800 },
+  { sha: "b2e8d4a61f903c7b5a2d8e4f6c1a0b9d7e3f5a21", short: "b2e8d4a", subject: "Drop legacy entry point, greet by name", author: "Dennis", author_email: "dennis@example.com", committer: "Dennis", body: "", time: NOW_S - 7200 },
+  { sha: "a1d7c3f50e8b2a4d6c9f1e3b5a7d0c2e4f6a8b10", short: "a1d7c3f", subject: "Add README, bump to 0.2.0 with dev script", author: "Sam", author_email: "sam@example.com", committer: "Dennis", body: "Adds a `dev` script that reloads on save.", time: NOW_S - 86400 },
 ];
+const MOCK_COMMIT_FILES: Record<string, string[]> = {
+  [MOCK_COMMITS[0].sha]: ["docs/guide.md", "src/server/router.ts"],
+  [MOCK_COMMITS[1].sha]: ["src/legacy.ts", "src/hello.ts"],
+  [MOCK_COMMITS[2].sha]: ["README.md", "package.json"],
+};
+const MOCK_UNCOMMITTED = ["src/hello.ts", "src/server/router.ts"];
 
-const MOCK_PATCH = `diff --git a/src/hello.ts b/src/hello.ts
-index 1111111..2222222 100644
---- a/src/hello.ts
-+++ b/src/hello.ts
-@@ -1,4 +1,6 @@
- export function hello() {
--  return "hi";
-+  const name = "world";
-+  return \`hello \${name}\`;
- }
-+export const answer = 42;
-diff --git a/README.md b/README.md
-new file mode 100644
-index 0000000..3333333
---- /dev/null
-+++ b/README.md
-@@ -0,0 +1,2 @@
-+# Mock
-+A tiny project.
-`;
+const MOCK_FILES: FileChange[] = [
+  { path: "README.md", status: "A", additions: 2, deletions: 0 },
+  { path: "docs/guide.md", status: "M", additions: 3, deletions: 2 },
+  { path: "package.json", status: "M", additions: 3, deletions: 2 },
+  { path: "src/hello.ts", status: "M", additions: 3, deletions: 1 },
+  { path: "src/legacy.ts", status: "D", additions: 0, deletions: 5 },
+  { path: "src/server/router.ts", status: "M", additions: 6, deletions: 4 },
+];
