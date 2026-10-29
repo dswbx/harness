@@ -43,6 +43,8 @@ export type Item =
   /** The Agent refuses to start a session until the user signs in. */
   | { type: "auth"; id: string; message: string; methods: AuthMethodInfo[] }
   | { type: "notice"; id: string; level: "boundary" | "error" | "info"; text: string }
+  /** An Agent's session notice (e.g. hook output): shown apart from its reply. */
+  | { type: "agent_notice"; id: string; severity: string; title: string; description: string | null }
   /** An Agent called a Frontend Tool. `json_render` input is re-validated on the client. */
   | {
       type: "frontend_tool";
@@ -229,6 +231,7 @@ function apply(c: Ctx, e: Event) {
         status: k.status ?? base.status,
         content: k.content != null ? asBlocks(k.content) : base.content,
         locations: k.locations ?? base.locations,
+        rawInput: k.raw_input ?? base.rawInput,
         rawOutput: k.raw_output ?? base.rawOutput,
       };
       if (at === undefined) {
@@ -295,6 +298,9 @@ function apply(c: Ctx, e: Event) {
       push(c, { type: "frontend_tool", id, tool: k.tool, callId: k.call_id, path: k.path, input: k.input, render });
       return;
     }
+    case "AgentNotice":
+      push(c, { type: "agent_notice", id, severity: k.severity, title: k.title, description: k.description });
+      return;
     case "GitCommitted":
       notice("info", `Committed ${k.commit.slice(0, 7)}: ${k.message}`);
       return;

@@ -12,6 +12,6 @@ export async function openViewWindow(sessionId: string, title: string) {
     return;
   }
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const w = new WebviewWindow(`view-${sessionId}-${n}`, { url, title, width: 900, height: 760 });
+  const w = new WebviewWindow(`view-${sessionId}-${n}`, { url, title, width: 900, height: 760, visible: false });
   w.once("tauri://error", (e) => console.error("window create failed", e));
 }

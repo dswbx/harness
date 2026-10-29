@@ -498,6 +498,9 @@ pub enum EventKind {
         content: Option<Json>,
         #[specta(type = Option<specta_typescript::Unknown>)]
         locations: Option<Json>,
+        /// Agents often send the full input only here (the `ToolCall` carries `{}` while streaming).
+        #[specta(type = Option<specta_typescript::Unknown>)]
+        raw_input: Option<Json>,
         #[specta(type = Option<specta_typescript::Unknown>)]
         raw_output: Option<Json>,
     },
@@ -565,6 +568,13 @@ pub enum EventKind {
     },
     SessionArchived {
         archived: bool,
+    },
+    /// An ACP session notice: information for the user outside the Agent's reply (e.g. hook
+    /// output). `severity` is `info`, `warning`, `error` or a custom value.
+    AgentNotice {
+        severity: String,
+        title: String,
+        description: Option<String>,
     },
     /// An ACP update the Harness does not normalize yet; kept so nothing is lost.
     AgentUpdate {

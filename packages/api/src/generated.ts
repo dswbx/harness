@@ -155,7 +155,9 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
 /**  A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary. */
 { type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | { type: "TurnStarted"; turn_id: string; text: string } | { type: "TurnEnded"; turn_id: string; 
 /**  ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
-stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; raw_output: unknown | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+/**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
+raw_input: unknown | null; raw_output: unknown | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[] } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */
@@ -169,6 +171,11 @@ rule_id?: string | null } |
  *  Session's `frontend/` directory).
  */
 { type: "FrontendToolOutput"; tool: string; call_id: string; path: string; input: unknown } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
+/**
+ *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
+ *  output). `severity` is `info`, `warning`, `error` or a custom value.
+ */
+{ type: "AgentNotice"; severity: string; title: string; description: string | null } | 
 /**  An ACP update the Harness does not normalize yet; kept so nothing is lost. */
 { type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string };
 

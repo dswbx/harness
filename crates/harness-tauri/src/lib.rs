@@ -168,6 +168,10 @@ pub fn run() {
                     app.state::<Subscriptions>().drop_webview(&harness, webview.label());
                 }
             }
+            // Windows start hidden so the blank (white) webview never shows before the first paint.
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                let _ = webview.window().show();
+            }
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

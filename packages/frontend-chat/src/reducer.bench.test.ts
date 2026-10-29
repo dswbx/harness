@@ -18,10 +18,10 @@ export function syntheticLog(total = 20_000): Event[] {
       for (let i = 0; i < 6; i++) push({ type: "AgentMessageChunk", text: `word${i} ` });
       const id = `tc${tool++}`;
       push({ type: "ToolCall", tool_call_id: id, title: "Run", kind: "execute", status: "pending", content: [], locations: null, raw_input: { cmd: "ls" } });
-      push({ type: "ToolCallUpdate", tool_call_id: id, title: null, kind: null, status: "in_progress", content: null, locations: null, raw_output: null });
+      push({ type: "ToolCallUpdate", tool_call_id: id, title: null, kind: null, status: "in_progress", content: null, locations: null, raw_input: null, raw_output: null });
       push({
         type: "ToolCallUpdate", tool_call_id: id, title: null, kind: null, status: "completed",
-        content: [{ type: "content", content: { type: "text", text: "ok" } }], locations: null, raw_output: "ok",
+        content: [{ type: "content", content: { type: "text", text: "ok" } }], locations: null, raw_input: null, raw_output: "ok",
       });
     }
     push({ type: "TaskListUpdated", entries: [{ content: "a", status: "completed", priority: "medium" }, { content: "b", status: "pending", priority: "medium" }] as never });

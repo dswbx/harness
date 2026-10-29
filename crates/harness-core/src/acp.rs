@@ -632,7 +632,11 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
                 let init = cx
                     .send_request(
                         acp::InitializeRequest::new(ProtocolVersion::V1)
-                            .client_capabilities(acp::ClientCapabilities::new())
+                            // Notices: Agents send hook/SDK messages as `notice` instead of
+                            // bold-label text glued into the reply.
+                            .client_capabilities(acp::ClientCapabilities::new().session(
+                                acp::ClientSessionCapabilities::new().notices(acp::NoticeCapabilities::new()),
+                            ))
                             .client_info(acp::Implementation::new("harness", env!("CARGO_PKG_VERSION"))),
                     )
                     .block_task()
@@ -803,7 +807,13 @@ fn normalize(u: Value) -> EventKind {
             status: s("status"),
             content: u.get("content").cloned(),
             locations: u.get("locations").cloned(),
+            raw_input: u.get("rawInput").cloned(),
             raw_output: u.get("rawOutput").cloned(),
+        },
+        Some("notice") => EventKind::AgentNotice {
+            severity: s("severity").unwrap_or_else(|| "info".into()),
+            title: s("title").unwrap_or_default(),
+            description: s("description"),
         },
         Some("plan") => EventKind::TaskListUpdated {
             entries: u

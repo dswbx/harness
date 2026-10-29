@@ -168,7 +168,7 @@ describe("tool calls (synthetic)", () => {
       ev({ type: "ToolCall", tool_call_id: "c1", title: "Editing files", kind: "edit", status: "pending", content: [], locations: [], raw_input: { a: 1 } }),
       ev({
         type: "ToolCallUpdate", tool_call_id: "c1", title: null, kind: null, status: "completed",
-        content: [{ type: "diff", path: "a.txt", oldText: "x", newText: "y" }], locations: null, raw_output: "ok",
+        content: [{ type: "diff", path: "a.txt", oldText: "x", newText: "y" }], locations: null, raw_input: null, raw_output: "ok",
       }),
     ]);
     expect(s.items).toHaveLength(1);
@@ -176,8 +176,25 @@ describe("tool calls (synthetic)", () => {
     expect((s.items[0] as { content: unknown[] }).content).toHaveLength(1);
   });
 
+  it("takes the full input from a later update (call streamed with {})", () => {
+    const s = fold([
+      ev({ type: "ToolCall", tool_call_id: "c2", title: "Bash", kind: "execute", status: "pending", content: [], locations: [], raw_input: {} }),
+      ev({ type: "ToolCallUpdate", tool_call_id: "c2", title: null, kind: null, status: null, content: null, locations: null, raw_input: { command: "ls" }, raw_output: null }),
+    ]);
+    expect(s.items[0]).toMatchObject({ rawInput: { command: "ls" } });
+  });
+
+  it("splits agent text around a notice", () => {
+    const s = fold([
+      ev({ type: "AgentMessageChunk", text: "a" }),
+      ev({ type: "AgentNotice", severity: "info", title: "UserPromptSubmit says", description: "hi" }),
+      ev({ type: "AgentMessageChunk", text: "b" }),
+    ]);
+    expect(s.items.map((i) => i.type)).toEqual(["agent", "agent_notice", "agent"]);
+  });
+
   it("creates a card for an update with no preceding call", () => {
-    const s = fold([ev({ type: "ToolCallUpdate", tool_call_id: "z", title: "T", kind: null, status: "failed", content: null, locations: null, raw_output: null })]);
+    const s = fold([ev({ type: "ToolCallUpdate", tool_call_id: "z", title: "T", kind: null, status: "failed", content: null, locations: null, raw_input: null, raw_output: null })]);
     expect(s.items[0]).toMatchObject({ type: "tool", title: "T", status: "failed" });
   });
 });
