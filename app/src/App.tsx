@@ -1,24 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppWindow, Archive, ArchiveRestore, ChevronRight, GitBranch, MoreHorizontal, Plus, Settings, Trash2 } from "lucide-react";
-import type { HarnessClient, SessionStatus, SessionSummary, Transport } from "@harness/api";
+import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, Settings, Trash2 } from "lucide-react";
+import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import {
-  Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ScrollArea, Separator, cn,
+  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, HoverTip, ScrollArea, Separator, cn,
 } from "@harness/ui";
 import { ComposerDialog } from "./ComposerDialog";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
 import { ViewHost } from "./ViewHost";
+import { SessionDetails, SessionHeader, StatusDot, trafficLights } from "./SessionHeader";
 import { openViewWindow } from "./openWindow";
 import { makeTransport } from "./transport";
 import { ToastProvider, errText, useReportError } from "./toast";
 
 const params = new URLSearchParams(window.location.search);
-
-const statusBadge: Record<SessionStatus, { label: string; variant: "secondary" | "success" | "warning" }> = {
-  idle: { label: "idle", variant: "secondary" },
-  working: { label: "working", variant: "success" },
-  needs_attention: { label: "needs attention", variant: "warning" },
-};
 
 function useTransport() {
   const [t, setT] = useState<Transport | null>(null);
@@ -42,6 +37,7 @@ export function App() {
 /** A window showing only one Session's View. */
 function Solo({ transport, sessionId }: { transport: Transport; sessionId: string }) {
   const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
+  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
   const report = useReportError();
   useEffect(() => {
     new Client(transport).listSessions().then((l) => setSession(l.find((s) => s.id === sessionId) ?? null)).catch((e) => {
@@ -55,8 +51,11 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
   if (session === undefined) return null;
   if (session === null) return <div className="p-6 text-sm text-destructive">Session not found.</div>;
   return (
-    <div className="h-full">
-      <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} />
+    <div className="flex h-full flex-col">
+      <SessionHeader session={session} toolbarRef={setToolbar} leading={trafficLights && <div className="w-14 shrink-0" />} />
+      <div className="min-h-0 flex-1">
+        <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} />
+      </div>
     </div>
   );
 }
@@ -74,30 +73,20 @@ function SessionRow({
   const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent";
   return (
     <li className="group relative" onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
-      <button
-        onClick={onSelect}
-        className={cn("flex w-full flex-col gap-1 rounded-md border-l-2 border-transparent px-3 py-2 pr-8 text-left hover:bg-accent", s.status === "needs_attention" && "border-amber-500 bg-amber-500/10", selected && "bg-accent", s.archived && "opacity-70")}
-      >
-        <span className="flex items-center gap-1.5">
-          {s.status === "needs_attention" && <span aria-hidden className="size-2 shrink-0 rounded-full bg-amber-500" />}
-          <span className={cn("truncate text-sm", s.status === "needs_attention" && "font-medium")}>{s.title}</span>
-        </span>
-        {s.workspace.worktree_branch && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground" title={`Worktree branch (base ${s.workspace.base_branch ?? "?"})`}>
-            <GitBranch className="size-3 shrink-0" />
-            <span className="truncate">{s.workspace.worktree_branch}</span>
-          </span>
-        )}
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant={statusBadge[s.status].variant}>{statusBadge[s.status].label}</Badge>
-          <span>{s.frontend_id}</span>
-          <span className="truncate">{s.folder.split("/").pop()}</span>
-        </span>
-      </button>
+      <HoverTip side="right" align="start" delay={700} className="w-80 max-w-80 p-3 text-xs" content={<><div className="mb-2 text-sm font-semibold">{s.title}</div><SessionDetails s={s} /></>}>
+        <button
+          onClick={onSelect}
+          aria-current={selected || undefined}
+          className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2.5 pr-8 text-left text-sm text-foreground/80 hover:bg-accent/60 hover:text-foreground", selected && "bg-accent font-medium text-foreground hover:bg-accent", s.archived && "opacity-70")}
+        >
+          <span className="min-w-0 flex-1 truncate">{s.title}</span>
+          <StatusDot status={s.status} className="group-hover:hidden" />
+        </button>
+      </HoverTip>
       <button
         aria-label="Session menu"
         title="Session menu"
-        className="absolute right-1 top-1.5 rounded p-1 text-muted-foreground opacity-0 hover:bg-background group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute right-1 top-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-background group-hover:opacity-100 focus-visible:opacity-100"
         onClick={() => setMenu(!menu)}
       >
         <MoreHorizontal className="size-4" />
@@ -120,6 +109,42 @@ function SessionRow({
   );
 }
 
+/** Sidebar toggle and New Session, next to the traffic lights. */
+function WindowControls({ sidebarOpen, onToggleSidebar, onNew }: { sidebarOpen: boolean; onToggleSidebar: () => void; onNew: () => void }) {
+  const btn = "size-7 text-muted-foreground hover:text-foreground";
+  return (
+    <div className="flex items-center gap-0.5">
+      <Button size="icon" variant="ghost" className={btn} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} title={sidebarOpen ? "Hide sidebar" : "Show sidebar"} onClick={onToggleSidebar}>
+        <PanelLeft />
+      </Button>
+      <Button size="icon" variant="ghost" className={btn} aria-label="New Session" title="New Session" onClick={onNew}>
+        <Plus />
+      </Button>
+    </div>
+  );
+}
+
+const SIDEBAR_KEY = "harness.sidebarOpen";
+
+function useSidebarOpen() {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggle = useCallback(() => {
+    setOpen((o) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, o ? "0" : "1");
+      } catch { /* per-window convenience only */ }
+      return !o;
+    });
+  }, []);
+  return [open, toggle] as const;
+}
+
 function Shell({ transport }: { transport: Transport }) {
   const [client] = useState<HarnessClient>(() => new Client(transport));
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -133,6 +158,8 @@ function Shell({ transport }: { transport: Transport }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [menuError, setMenuError] = useState<string | null>(null);
+  const [sidebarOpen, toggleSidebar] = useSidebarOpen();
+  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
 
   const report = useReportError();
 
@@ -220,67 +247,64 @@ function Shell({ transport }: { transport: Transport }) {
     <SessionRow key={s.id} s={s} selected={s.id === selected} onSelect={() => setSelected(s.id)} onArchive={() => toggleArchive(s)} onDelete={() => askDelete(s)} />
   );
 
+  const controls = <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} onNew={() => setComposer(true)} />;
+  // Sidebar hidden: the controls move next to the traffic lights in the main header.
+  const leading = sidebarOpen ? undefined : <div className={cn("mr-2 shrink-0", trafficLights && "pl-14")}>{controls}</div>;
+
   return (
     <div className="flex h-full">
-      <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/30">
-        <div className="flex items-center justify-between p-3">
-          <span className="flex items-center gap-2 font-semibold">
-            Harness
-            {attention > 0 && (
-              <Badge variant="warning" title={`${attention} ${attention === 1 ? "Session needs" : "Sessions need"} attention`}>
-                {attention}
-              </Badge>
+      {sidebarOpen && (
+        <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/30">
+          <div data-tauri-drag-region className={cn("flex h-13 shrink-0 items-center gap-1 pr-2", trafficLights ? "pl-[76px]" : "pl-3")}>
+            <div data-tauri-drag-region className="h-full flex-1" />
+            {controls}
+          </div>
+          <ScrollArea className="min-h-0 flex-1">
+            <ul className="flex flex-col gap-px px-2 py-1">
+              {sessions.length === 0 && <li className="p-3 text-xs text-muted-foreground">No Sessions yet.</li>}
+              {active.map(row)}
+            </ul>
+            {archived.length > 0 && (
+              <div className="p-2 pt-1">
+                <button
+                  className="flex w-full items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  aria-expanded={archivedOpen}
+                  onClick={() => setArchivedOpen(!archivedOpen)}
+                >
+                  <ChevronRight className={cn("size-3 transition-transform", archivedOpen && "rotate-90")} />
+                  Archived ({archived.length})
+                </button>
+                {archivedOpen && <ul className="flex flex-col gap-px">{archived.map(row)}</ul>}
+              </div>
             )}
-          </span>
-          <Button size="sm" onClick={() => setComposer(true)}>
-            <Plus /> New Session
-          </Button>
-        </div>
-        <Separator />
-        <ScrollArea className="min-h-0 flex-1">
-          <ul className="p-2">
-            {sessions.length === 0 && <li className="p-3 text-xs text-muted-foreground">No Sessions yet.</li>}
-            {active.map(row)}
-          </ul>
-          {archived.length > 0 && (
-            <div className="p-2 pt-0">
-              <button
-                className="flex w-full items-center gap-1 px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
-                aria-expanded={archivedOpen}
-                onClick={() => setArchivedOpen(!archivedOpen)}
-              >
-                <ChevronRight className={cn("size-3 transition-transform", archivedOpen && "rotate-90")} />
-                Archived ({archived.length})
-              </button>
-              {archivedOpen && <ul>{archived.map(row)}</ul>}
-            </div>
-          )}
-          {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
-        </ScrollArea>
-        <Separator />
-        <div className="p-2">
-          <Button size="sm" variant="ghost" onClick={() => setSettingsSection("appearance")}>
-            <Settings /> Settings
-          </Button>
-        </div>
-      </aside>
+            {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
+          </ScrollArea>
+          <Separator />
+          <div className="p-2">
+            <Button size="sm" variant="ghost" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => setSettingsSection("appearance")}>
+              <Settings /> Settings
+            </Button>
+          </div>
+        </aside>
+      )}
       <main className="flex min-w-0 flex-1 flex-col">
         {current ? (
           <>
-            <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
-              <span className="truncate" title={current.folder}>{current.folder}</span>
-              <span>· {current.agent_id}</span>
-              <div className="flex-1" />
-              <Button size="sm" variant="ghost" onClick={() => openViewWindow(current.id, current.title).catch((e) => report("Could not open window", e))}>
-                <AppWindow /> Open in new window
-              </Button>
-            </div>
+            <SessionHeader
+              session={current}
+              leading={leading}
+              toolbarRef={setToolbar}
+              onOpenWindow={() => openViewWindow(current.id, current.title).catch((e) => report("Could not open window", e))}
+            />
             <div className="min-h-0 flex-1">
-              <ViewHost transport={transport} sessionId={current.id} frontendId={current.frontend_id} />
+              <ViewHost transport={transport} sessionId={current.id} frontendId={current.frontend_id} toolbar={toolbar} />
             </div>
           </>
         ) : (
-          <div className="grid flex-1 place-items-center text-sm text-muted-foreground">Select or create a Session.</div>
+          <>
+            {leading && <div data-tauri-drag-region className="flex h-13 shrink-0 items-center pl-5">{leading}</div>}
+            <div className="grid flex-1 place-items-center text-sm text-muted-foreground">Select or create a Session.</div>
+          </>
         )}
       </main>
       <Dialog open={toDelete !== null} onOpenChange={(o) => !o && setToDelete(null)}>
