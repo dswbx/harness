@@ -22,23 +22,28 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const [error, setError] = useState<string | null>(null);
   const readOnly = state.readOnly;
 
+  // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
   const send = () => {
-    const t = ref.current?.getMarkdown().trim() ?? "";
-    if (!t || readOnly) return;
-    ref.current?.clear();
+    const ed = ref.current;
+    const t = ed?.getMarkdown().trim() ?? "";
+    if (!ed || !t || readOnly) return;
+    const snap = ed.snapshot();
+    ed.clear();
     setError(null);
     api.prompt(t).catch((err) => {
       setError(errorMessage(err));
-      ref.current?.restore(t);
+      ref.current?.restore(snap);
     });
   };
   const continueWithSummary = () => {
-    const t = ref.current?.getMarkdown().trim() ?? "";
-    ref.current?.clear();
+    const ed = ref.current;
+    const t = ed?.getMarkdown().trim() ?? "";
+    const snap = ed?.snapshot();
+    ed?.clear();
     setError(null);
     api.continueWithSummary(t || null).catch((err) => {
       setError(errorMessage(err));
-      if (t) ref.current?.restore(t);
+      if (t && snap) ref.current?.restore(snap);
     });
   };
   const pick = (c: SlashCommand) => ref.current?.setText(`/${c.name} `);

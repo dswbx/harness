@@ -1,7 +1,8 @@
 import { CodeHighlightNode, CodeNode } from "@lexical/code";
 import { LinkNode } from "@lexical/link";
-import { ListItemNode, ListNode } from "@lexical/list";
+import { $isListItemNode, $isListNode, ListItemNode, ListNode } from "@lexical/list";
 import {
+  $convertToMarkdownString,
   BOLD_ITALIC_STAR,
   BOLD_ITALIC_UNDERSCORE,
   BOLD_STAR,
@@ -16,6 +17,17 @@ import {
   UNORDERED_LIST,
   type Transformer,
 } from "@lexical/markdown";
+import {
+  $getRoot,
+  $getSelection,
+  $isLineBreakNode,
+  $isRangeSelection,
+  $isTabNode,
+  $isTextNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type SerializedEditorState,
+} from "lexical";
 
 export const PROMPT_NODES = [ListNode, ListItemNode, CodeNode, CodeHighlightNode, LinkNode];
 
@@ -33,6 +45,68 @@ export const PROMPT_TRANSFORMERS: Transformer[] = [
   STRIKETHROUGH,
   LINK,
 ];
+
+/** Markdown of the editor's content, escapes undone outside code (call inside read/update). */
+export const $exportMarkdown = () => unescapeMarkdown($convertToMarkdownString(PROMPT_TRANSFORMERS, undefined, true));
+
+export const MAX_LIST_DEPTH = 5;
+
+/** Indent (+1) / outdent (-1) the list items in the selection (nesting, max MAX_LIST_DEPTH levels). Other blocks never indent. */
+export function $indentListItems(delta: 1 | -1) {
+  const sel = $getSelection();
+  if (!$isRangeSelection(sel)) return;
+  const items = new Map<string, ListItemNode>();
+  for (const n of sel.getNodes()) {
+    const li = [n, ...n.getParents()].find((x): x is ListItemNode => $isListItemNode(x) && !$isListNode(x.getFirstChild()));
+    if (li) items.set(li.getKey(), li);
+  }
+  for (const li of items.values()) {
+    const next = li.getIndent() + delta;
+    if (next >= 0 && next < MAX_LIST_DEPTH) li.setIndent(next);
+  }
+}
+
+/** Tab in a code block: insert a tab. Shift+Tab: drop a leading tab (or up to 2 spaces) from the caret's line. */
+export function $codeTab(shift: boolean) {
+  const sel = $getSelection();
+  if (!$isRangeSelection(sel)) return;
+  if (!shift) return void sel.insertRawText("\t");
+  const a = sel.anchor;
+  let node: LexicalNode | null = a.getNode();
+  let off = a.offset;
+  if (a.type === "element") {
+    const prev = a.offset > 0 ? a.getNode().getChildAtIndex(a.offset - 1) : null;
+    [node, off] = prev && !$isLineBreakNode(prev) ? [prev, prev.getTextContentSize()] : [a.getNode().getChildAtIndex(a.offset), 0];
+  }
+  // Walk back to the line start; code text may hold "\n" itself or be split by LineBreakNodes.
+  while (node) {
+    const i = node.getTextContent().lastIndexOf("\n", off - 1);
+    if (i >= 0 && off > 0) { off = i + 1; break; }
+    const prev: LexicalNode | null = node.getPreviousSibling();
+    if (!prev || $isLineBreakNode(prev)) { off = 0; break; }
+    [node, off] = [prev, prev.getTextContentSize()];
+  }
+  if (node && off >= node.getTextContentSize()) [node, off] = [node.getNextSibling(), 0];
+  if (!node || $isLineBreakNode(node)) return;
+  if ($isTabNode(node)) return void node.remove();
+  if (!$isTextNode(node)) return;
+  const k = node.getTextContent()[off] === "\t" ? 1 : Math.min(2, /^ */.exec(node.getTextContent().slice(off))![0].length);
+  if (!k) return;
+  const key = node.getKey();
+  const fix = [a, sel.focus].filter((pt) => pt.type === "text" && pt.key === key && pt.offset > off).map((pt) => [pt, pt.offset] as const);
+  node.spliceText(off, k, "");
+  for (const [pt, o] of fix) pt.set(key, o - Math.min(k, o - off), "text");
+}
+
+/** Exact editor content, to put back after a failed send (no Markdown re-parse, so literal `2*3*4` stays literal). */
+export type PromptSnapshot = SerializedEditorState;
+export const snapshot = (editor: LexicalEditor): PromptSnapshot => editor.getEditorState().toJSON();
+/** Put `s` back only if the editor is empty. Returns whether it did. */
+export function restoreSnapshot(editor: LexicalEditor, s: PromptSnapshot): boolean {
+  if (editor.getEditorState().read(() => $getRoot().getTextContent().trim())) return false;
+  editor.setEditorState(editor.parseEditorState(s));
+  return true;
+}
 
 export type EnterCtx = { menuOpen: boolean; composing: boolean; shift: boolean; mod: boolean; block: "list" | "code" | "fence" | "text" };
 export type EnterAction = "pick" | "send" | "fence" | "default";
