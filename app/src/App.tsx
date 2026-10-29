@@ -50,6 +50,14 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
   }, [session]);
   if (session === undefined) return null;
   if (session === null) return <div className="p-6 text-sm text-destructive">Session not found.</div>;
+  // A Frontend's own window (`pane=...`, e.g. a pop-out diff) brings its own chrome.
+  if (params.get("pane")) {
+    return (
+      <div className="h-full">
+        <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} />
+      </div>
+    );
+  }
   return (
     <div className="flex h-full flex-col">
       <SessionHeader session={session} toolbarRef={setToolbar} leading={trafficLights && <div className="w-12 shrink-0" />} />

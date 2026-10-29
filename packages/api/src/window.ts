@@ -1,6 +1,6 @@
 import { inTauri } from "./transport";
 
-/** Opens an app URL (e.g. `/?session=..&solo=1`) in a new window. Frontends can't import Tauri, so this lives here. */
+/** Opens an app URL (e.g. `/?session=..&solo=1`) in a new window. Frontends can't import Tauri, so this lives here. With `pane=...` the host adds no Session header. */
 export async function openWindow(label: string, url: string, opts: { title: string; width?: number; height?: number }) {
   if (!inTauri()) {
     window.open(url, "_blank");
