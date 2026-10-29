@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import type { SessionApi, SlashCommand } from "@harness/api";
-import { Button, Select, Tooltip, cn } from "@harness/ui";
+import { Button, cn } from "@harness/ui";
+import { ConfigBar } from "./ConfigBar";
 import { matchCommands } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
@@ -12,7 +13,6 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const ref = useRef<HTMLTextAreaElement>(null);
   const running = state.turnId !== null;
   const matches = useMemo(() => matchCommands(state.commands, text), [state.commands, text]);
-  const selects = state.configOptions.filter((o) => o.type === "select");
   const pct = state.usage ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100)) : null;
 
   const [error, setError] = useState<string | null>(null);
@@ -96,43 +96,14 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
             }
           }}
         />
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          {selects.map((o) => {
-            const current = o.options.find((v) => v.value === o.currentValue);
-            return (
-              <Tooltip
-                key={o.id}
-                content={
-                  <span className="block space-y-0.5">
-                    <span className="block font-medium">{o.name}</span>
-                    {o.description && <span className="block text-muted-foreground">{o.description}</span>}
-                    {current?.description && (
-                      <span className="block">
-                        {current.name}: {current.description}
-                      </span>
-                    )}
-                  </span>
-                }
-              >
-                <Select
-                  className="h-7 w-auto max-w-44 text-xs"
-                  aria-label={o.name}
-                  aria-description={o.description ?? undefined}
-                  value={o.currentValue}
-                  onChange={(e) => {
-                    setError(null);
-                    api.setConfigOption(o.id, e.target.value).catch((err) => setError(errorMessage(err)));
-                  }}
-                >
-                  {o.options.map((v) => (
-                    <option key={v.value} value={v.value} title={v.description ?? undefined}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              </Tooltip>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-1 pt-1">
+          <ConfigBar
+            options={state.configOptions}
+            onChange={(id, value) => {
+              setError(null);
+              api.setConfigOption(id, value).catch((err) => setError(errorMessage(err)));
+            }}
+          />
           <div className="flex-1" />
           {pct != null && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground" title={`${state.usage!.used.toLocaleString()} / ${state.usage!.size.toLocaleString()} tokens`}>

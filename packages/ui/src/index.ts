@@ -10,3 +10,4 @@ export * from "./components/card";
 export * from "./components/dialog";
 export * from "./components/virtual-list";
 export * from "./components/tooltip";
+export * from "./components/dropdown-menu";
