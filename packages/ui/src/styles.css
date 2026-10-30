@@ -1,5 +1,6 @@
 /* Harness theme: shadcn tokens for Tailwind v4. Import after `@import "tailwindcss";`. */
 @import "./typeset.css";
+@import "./code-theme.css";
 /* Dark mode is class-based: the app sets `.dark` on <html> (light / dark / system). Theme presets override these tokens inline. */
 @custom-variant dark (&:where(.dark, .dark *));
 

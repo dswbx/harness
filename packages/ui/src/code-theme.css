@@ -1,0 +1,50 @@
+/*
+ * The code theme: one set of syntax colors for every place that shows code (message code blocks,
+ * render_ui Code, diffs). All of them use highlight.js token classes (`.hljs-*`): messages through
+ * rehype-highlight, diffs through @git-diff-view's lowlight. A code theme setting would swap these
+ * tokens only.
+ */
+:root {
+  --code-keyword: oklch(0.52 0.2 15);
+  --code-string: oklch(0.45 0.12 150);
+  --code-comment: oklch(0.55 0.02 260);
+  --code-number: oklch(0.5 0.15 250);
+  --code-title: oklch(0.48 0.18 300);
+  --code-type: oklch(0.52 0.14 60);
+  --code-attr: oklch(0.5 0.15 250);
+  --code-variable: oklch(0.55 0.15 40);
+  --code-meta: oklch(0.5 0.1 200);
+  --code-addition: oklch(0.45 0.12 150);
+  --code-deletion: oklch(0.52 0.2 15);
+}
+:root.dark {
+  --code-keyword: oklch(0.72 0.16 15);
+  --code-string: oklch(0.78 0.12 150);
+  --code-comment: oklch(0.62 0.02 260);
+  --code-number: oklch(0.78 0.11 240);
+  --code-title: oklch(0.78 0.13 300);
+  --code-type: oklch(0.8 0.12 75);
+  --code-attr: oklch(0.78 0.11 240);
+  --code-variable: oklch(0.78 0.12 50);
+  --code-meta: oklch(0.75 0.08 200);
+  --code-addition: oklch(0.78 0.12 150);
+  --code-deletion: oklch(0.72 0.16 15);
+}
+
+/* Diff selectors carry an extra attribute so they beat the library's built-in theme. */
+:is(.typeset, .diff-tailwindcss-wrapper[data-theme][data-theme][data-theme] .diff-line-syntax-raw) {
+  & :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-template-tag, .hljs-built_in) { color: var(--code-keyword); }
+  & :is(.hljs-string, .hljs-regexp, .hljs-char, .hljs-quote, .hljs-template-variable) { color: var(--code-string); }
+  & :is(.hljs-comment) { color: var(--code-comment); font-style: italic; }
+  & :is(.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link) { color: var(--code-number); }
+  & :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id) { color: var(--code-title); }
+  & :is(.hljs-type, .hljs-class, .hljs-params) { color: var(--code-type); }
+  & :is(.hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-pseudo) { color: var(--code-attr); }
+  & :is(.hljs-variable, .hljs-subst, .hljs-operator, .hljs-punctuation, .hljs-formula) { color: inherit; }
+  & :is(.hljs-variable.language_, .hljs-tag) { color: var(--code-variable); }
+  & :is(.hljs-meta, .hljs-meta .hljs-keyword) { color: var(--code-meta); }
+  & .hljs-addition { color: var(--code-addition); }
+  & .hljs-deletion { color: var(--code-deletion); }
+  & .hljs-emphasis { font-style: italic; }
+  & .hljs-strong { font-weight: 600; }
+}

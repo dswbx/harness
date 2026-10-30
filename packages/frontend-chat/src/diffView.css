@@ -1,8 +1,8 @@
 /*
  * git-diff-view colors from the UI theme tokens. Loaded after the library CSS; `[data-theme]` raises
  * specificity above its own `[data-theme="dark"|"light"]` rules.
- * Syntax colors still come from the library's built-in highlight.js theme (`.hljs-*` under `.diff-line-syntax-raw`).
- * A shared code theme would replace those rules (or set `--diff-view-light`/`--diff-view-dark`) in one place.
+ * Syntax colors come from the shared code theme in `@harness/ui` (`code-theme.css`), which overrides the
+ * library's built-in highlight.js rules.
  */
 .harness-diff .diff-tailwindcss-wrapper[data-theme] .diff-style-root {
   --diff-border--: var(--border);
