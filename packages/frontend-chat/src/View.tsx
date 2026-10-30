@@ -215,9 +215,11 @@ function HarnessContext({ text }: { text: string }) {
   );
 }
 
-const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, streaming }: {
+const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, active, streaming }: {
   item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
   onOpenDiff: (s: DiffScope) => void; subagents: Map<string, Subagent<Tool>>;
+  /** A Turn is running. */
+  active: boolean;
   /** The last row while a Turn runs: an agent message is still coming in. */
   streaming?: boolean;
 }) {
@@ -258,9 +260,9 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, str
     case "frontend_tool":
       return <FrontendToolRow item={item} env={env} view={view ?? undefined} />;
     case "tools":
-      return <ToolGroupRow calls={item.calls} subagents={subagents} />;
+      return <ToolGroupRow calls={item.calls} subagents={subagents} active={active} />;
     case "tool":
-      return <ToolGroupRow calls={[item]} subagents={subagents} />;
+      return <ToolGroupRow calls={[item]} subagents={subagents} active={active} />;
     case "permission":
       if (item.auto) {
         return (
@@ -283,7 +285,7 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, str
   }
 });
 
-function ToolGroupRow(props: { calls: Tool[]; subagents: Map<string, Subagent<Tool>> }) {
+function ToolGroupRow(props: { calls: Tool[]; subagents: Map<string, Subagent<Tool>>; active: boolean }) {
   const { Group } = useToolDisplay();
   return <Group {...props} />;
 }
@@ -486,7 +488,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         gap={24}
         innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
-        renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagents={subagents} streaming={running && i === rows.length - 1} />}
+        renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagents={subagents} active={running} streaming={running && i === rows.length - 1} />}
         footer={<Working since={state.turnStartedAt} />}
       />
       <Slots slots={ui.slots.bottom} env={env} className="pt-1" />

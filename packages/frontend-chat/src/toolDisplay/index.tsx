@@ -10,6 +10,8 @@ export type ToolGroupProps = {
   calls: Tool[];
   /** Calls a subagent made, by the id of the call that started it. */
   subagents: Map<string, Subagent<Tool>>;
+  /** A Turn is running: unfinished calls are in flight (Agents often keep them `pending` until done). */
+  active: boolean;
 };
 
 /** One way to show tool calls. Each gets a whole run of consecutive calls, so it can lay them out as one. */

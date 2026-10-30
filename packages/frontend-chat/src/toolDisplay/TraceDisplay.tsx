@@ -13,10 +13,10 @@ import type { Tool } from "./group";
 import type { ToolGroupProps } from ".";
 
 /** Steps of a run, one line each (shadcn Trace); the running step opens itself. */
-export function TraceDisplay({ calls, subagents }: ToolGroupProps) {
+export function TraceDisplay({ calls, subagents, active }: ToolGroupProps) {
   return (
     <Trace className="text-ui-sm">
-      {calls.map((c) => <Step key={c.id} tool={c} subagent={subagents.get(c.id)} />)}
+      {calls.map((c) => <Step key={c.id} tool={c} subagent={subagents.get(c.id)} active={active} />)}
     </Trace>
   );
 }
@@ -40,10 +40,10 @@ function diffStat(tool: Tool): string | null {
   return add || del ? `+${add} -${del}` : null;
 }
 
-const Step = memo(function Step({ tool, subagent }: { tool: Tool; subagent?: Subagent<Tool> }) {
+const Step = memo(function Step({ tool, subagent, active }: { tool: Tool; subagent?: Subagent<Tool>; active: boolean }) {
   // Only a click is stored, so a live step opens and closes itself until the reader takes over.
   const [opened, setOpened] = useState<boolean | null>(null);
-  const state = subagent ? subagentState(tool, subagent) : tool.status === "failed" ? "failed" : tool.status === "completed" ? "done" : tool.status === "in_progress" ? "running" : "pending";
+  const state = subagent ? subagentState(tool, subagent) : tool.status === "failed" ? "failed" : tool.status === "completed" ? "done" : active ? "running" : "pending";
   const stat = useMemo(() => diffStat(tool), [tool.content]);
   const Icon = subagent ? Bot : state === "failed" ? XCircle : KIND_ICONS[tool.kind ?? ""] ?? Wrench;
   const n = subagent?.calls.length ?? 0;
@@ -63,7 +63,7 @@ const Step = memo(function Step({ tool, subagent }: { tool: Tool; subagent?: Sub
     <TraceCollapsible open={opened ?? state === "running"} onOpenChange={setOpened}>
       <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
       <TraceCollapsibleContent className="space-y-2">
-        {subagent ? <SubagentBody task={tool} subagent={subagent} /> : <CallBody tool={tool} />}
+        {subagent ? <SubagentBody task={tool} subagent={subagent} active={active} /> : <CallBody tool={tool} />}
       </TraceCollapsibleContent>
     </TraceCollapsible>
   );
@@ -79,7 +79,7 @@ function CallBody({ tool }: { tool: Tool }) {
   );
 }
 
-function SubagentBody({ task, subagent }: { task: Tool; subagent: Subagent<Tool> }) {
+function SubagentBody({ task, subagent, active }: { task: Tool; subagent: Subagent<Tool>; active: boolean }) {
   const prompt = (task.rawInput as { prompt?: unknown } | null)?.prompt;
   return (
     <>
@@ -89,7 +89,7 @@ function SubagentBody({ task, subagent }: { task: Tool; subagent: Subagent<Tool>
           <Markdown className="mt-1 rounded bg-muted p-2 text-xs">{prompt}</Markdown>
         </details>
       )}
-      {subagent.calls.length > 0 && <TraceDisplay calls={subagent.calls} subagents={new Map()} />}
+      {subagent.calls.length > 0 && <TraceDisplay calls={subagent.calls} subagents={new Map()} active={active} />}
       {subagent.report != null && <Markdown className="rounded bg-muted p-2 text-foreground">{subagent.report}</Markdown>}
     </>
   );
