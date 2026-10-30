@@ -171,6 +171,7 @@ async fn frontend_tool_is_validated_and_stored() {
     let bad = ask(&h, &sid, r#"mcp json_render {"items":[1]}"#, None).await;
     assert!(bad.starts_with("mcp error: invalid input for json_render"), "{bad}");
     assert!(bad.contains("title"), "names the missing property: {bad}");
+    assert!(bad.contains("How to call json_render:\nRender a card"), "teaches the input format: {bad}");
 
     let missing = ask(&h, &sid, r#"mcp json_render {"title":"Hi","image":"nope.png"}"#, None).await;
     assert!(missing.starts_with("mcp error: nope.png"), "{missing}");
