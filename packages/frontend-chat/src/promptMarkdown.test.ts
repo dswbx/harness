@@ -25,6 +25,7 @@ import {
   $exportMarkdown,
   $indentListItems,
   $insertPlainText,
+  $quoteBreak,
   MAX_LIST_DEPTH,
   PROMPT_NODES,
   PROMPT_TRANSFORMERS,
@@ -79,6 +80,24 @@ describe("enterAction", () => {
   });
 });
 
+describe("quote", () => {
+  it("Shift+Enter in a quote is a quote line break; Enter sends", () => {
+    const ctx: EnterCtx = { menuOpen: false, composing: false, shift: true, mod: false, block: "quote" };
+    expect(enterAction(ctx)).toBe("quote");
+    expect(enterAction({ ...ctx, shift: false })).toBe("send");
+  });
+  it("a new line inside, an empty last line leaves the quote", () => {
+    const ed = editorWith("> one");
+    at(ed, "one", $quoteBreak, 3);
+    ed.update(() => void $getSelection()!.insertText("two"), { discrete: true });
+    expect(mdOf(ed)).toBe("> one\n> two");
+    at(ed, "two", $quoteBreak, 3);
+    ed.update($quoteBreak, { discrete: true });
+    ed.update(() => void $getSelection()!.insertText("after"), { discrete: true });
+    expect(mdOf(ed)).toBe("> one\n> two\n\nafter");
+  });
+});
+
 describe("fenceLanguage", () => {
   it("parses fences", () => {
     expect(fenceLanguage("```")).toBe("");
@@ -108,6 +127,8 @@ describe("markdown round trip", () => {
     "line one\n\nafter blank",
     "- a\n    - b\n        - c\n- d",
     "1. a\n    1. b\n2. c",
+    "> quoted\n> two lines",
+    "before\n\n> quoted\n\nafter",
   ])("%s", (md) => {
     expect(roundTrip(md).md).toBe(md);
   });

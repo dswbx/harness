@@ -1,6 +1,7 @@
 import { $isCodeNode, CodeHighlightNode, CodeNode } from "@lexical/code";
 import { LinkNode } from "@lexical/link";
 import { $isListItemNode, $isListNode, ListItemNode, ListNode } from "@lexical/list";
+import { $isQuoteNode, QuoteNode } from "@lexical/rich-text";
 import {
   $convertToMarkdownString,
   BOLD_ITALIC_STAR,
@@ -13,6 +14,7 @@ import {
   ITALIC_UNDERSCORE,
   LINK,
   ORDERED_LIST,
+  QUOTE,
   STRIKETHROUGH,
   UNORDERED_LIST,
   type Transformer,
@@ -33,9 +35,10 @@ import {
   type SerializedEditorState,
 } from "lexical";
 
-export const PROMPT_NODES = [ListNode, ListItemNode, CodeNode, CodeHighlightNode, LinkNode];
+export const PROMPT_NODES = [ListNode, ListItemNode, CodeNode, CodeHighlightNode, LinkNode, QuoteNode];
 
 export const PROMPT_TRANSFORMERS: Transformer[] = [
+  QUOTE,
   UNORDERED_LIST,
   ORDERED_LIST,
   CODE,
@@ -103,19 +106,22 @@ function $offsetIn(block: ElementNode, pt: PointType): number | null {
   return off;
 }
 
-/** Collapsed caret's top-level block and the caret's text offset in it (flat blocks only: code; else offset null). */
+/** Blocks whose children are leaves (text, line breaks): the caret's offset in them is a text offset. */
+const $isFlat = (n: LexicalNode) => $isCodeNode(n) || $isQuoteNode(n);
+
+/** Collapsed caret's top-level block and the caret's text offset in it (flat blocks only: code, quote; else offset null). */
 function $caret() {
   const sel = $getSelection();
   if (!$isRangeSelection(sel) || !sel.isCollapsed()) return null;
   const top = sel.anchor.getNode().getTopLevelElement();
   if (!top) return null;
-  return { sel, top, off: $isCodeNode(top) ? $offsetIn(top, sel.anchor) : null };
+  return { sel, top, off: $isFlat(top) ? $offsetIn(top, sel.anchor) : null };
 }
 
 export type EscapeKey = "up" | "down" | "left" | "right";
 
 /**
- * Leave a code block (or list) that is the first/last block: ArrowDown on its last line / ArrowRight at its end adds an
+ * Leave a code block, quote (or list) that is the first/last block: ArrowDown on its last line / ArrowRight at its end adds an
  * empty paragraph after it; ArrowUp on the first line / ArrowLeft at the start adds one before it. Caret moves there.
  * Lists only escape with the caret at the very end of the last item (down/right) or start of the first (up/left).
  * Returns whether it did.
@@ -126,7 +132,7 @@ export function $escapeBlock(key: EscapeKey): boolean {
   const { sel, top, off } = c;
   const after = key === "down" || key === "right";
   if (after ? top.getNextSibling() : top.getPreviousSibling()) return false;
-  if ($isCodeNode(top)) {
+  if ($isFlat(top)) {
     if (off === null) return false;
     const text = top.getTextContent();
     const ok = { up: !text.slice(0, off).includes("\n"), down: !text.slice(off).includes("\n"), left: off === 0, right: off === text.length }[key];
@@ -163,6 +169,23 @@ export function $exitCode(): boolean {
   else code.insertAfter(para);
   para.select();
   return true;
+}
+
+/**
+ * Shift+Enter in a quote: a new line in it; on an empty last line, leave it (drop that line, new paragraph after;
+ * an empty quote becomes that paragraph).
+ */
+export function $quoteBreak() {
+  const c = $caret();
+  if (!c || !$isQuoteNode(c.top) || c.off === null) return;
+  const { sel, top: quote, off } = c;
+  const text = quote.getTextContent();
+  if (off !== text.length || !(text === "" || text.endsWith("\n"))) return void sel.insertLineBreak();
+  if ($isLineBreakNode(quote.getLastChild())) quote.getLastChild()!.remove();
+  const para = $createParagraphNode();
+  if (quote.getTextContentSize() === 0) quote.replace(para);
+  else quote.insertAfter(para);
+  para.select();
 }
 
 export const MAX_LIST_DEPTH = 5;
@@ -224,21 +247,22 @@ export function restoreSnapshot(editor: LexicalEditor, s: PromptSnapshot): boole
   return true;
 }
 
-export type EnterCtx = { menuOpen: boolean; composing: boolean; shift: boolean; mod: boolean; block: "list" | "code" | "fence" | "text" };
+export type EnterCtx = { menuOpen: boolean; composing: boolean; shift: boolean; mod: boolean; block: "list" | "code" | "fence" | "quote" | "text" };
 /**
  * "paragraph": new paragraph / list item (INSERT_PARAGRAPH). "code": leave the block if at its end after 2 empty lines
- * ($exitCode), else editor default (newline). "fence": turn the ``` line into a code block.
+ * ($exitCode), else editor default (newline). "fence": turn the ``` line into a code block. "quote": $quoteBreak.
  */
-export type EnterAction = "pick" | "send" | "fence" | "paragraph" | "code" | "default";
+export type EnterAction = "pick" | "send" | "fence" | "paragraph" | "code" | "quote" | "default";
 
-/** What Enter does. Enter sends in text and lists, Shift+Enter makes a new line (block); in code both make a newline. */
+/** What Enter does. Enter sends in text, lists and quotes, Shift+Enter makes a new line (block); in code both make a newline. */
 export function enterAction({ menuOpen, composing, shift, mod, block }: EnterCtx): EnterAction {
   if (composing) return "default";
   if (menuOpen) return "pick";
   if (mod) return "send";
   if (block === "fence") return "fence";
   if (block === "code") return "code";
-  return shift ? "paragraph" : "send";
+  if (!shift) return "send";
+  return block === "quote" ? "quote" : "paragraph";
 }
 
 /** Language of a ``` fence line ("" if none), or null if the line is not a fence. */

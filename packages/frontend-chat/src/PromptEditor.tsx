@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { $createCodeNode, $isCodeNode } from "@lexical/code";
 import { $isListItemNode } from "@lexical/list";
+import { $isQuoteNode } from "@lexical/rich-text";
 import { LexicalComposer, type InitialConfigType } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -38,6 +39,7 @@ import {
   $exportMarkdown,
   $indentListItems,
   $insertPlainText,
+  $quoteBreak,
   PROMPT_NODES,
   PROMPT_TRANSFORMERS,
   enterAction,
@@ -97,6 +99,7 @@ const theme: InitialConfigType["theme"] = {
     nested: { listitem: "list-none" },
   },
   link: "text-primary underline underline-offset-2",
+  quote: "my-1 border-l-2 pl-3 text-muted-foreground",
 };
 
 const config: InitialConfigType = { namespace: "prompt", theme, nodes: PROMPT_NODES, onError: (e) => { throw e; } };
@@ -111,6 +114,7 @@ function $block(node: LexicalNode): EnterCtx["block"] {
   const chain = [node, ...node.getParents()];
   if (chain.some($isCodeNode)) return "code";
   if (chain.some($isListItemNode)) return "list";
+  if (chain.some($isQuoteNode)) return "quote";
   const top = chain.at(-2) ?? node;
   return $isParagraphNode(top) && fenceLanguage(top.getTextContent()) !== null ? "fence" : "text";
 }
@@ -228,6 +232,7 @@ function Behavior(props: Props & { onUpdate(): void }) {
           if (action === "pick") p.current.onMenuKey("pick");
           else if (action === "send") p.current.onSubmit();
           else if (action === "paragraph") editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+          else if (action === "quote") $quoteBreak();
           else if (action === "fence" && $isRangeSelection(sel)) {
             const para = sel.anchor.getNode().getTopLevelElement();
             if (!para) return true;
