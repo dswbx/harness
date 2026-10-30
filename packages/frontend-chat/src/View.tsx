@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, ListTree, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
+import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
-import { Badge, Button, Dialog, DialogContent, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
+import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
@@ -15,7 +15,7 @@ import { FrontendToolRow } from "./FrontendToolCard";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { splitRenderUi, type Slot } from "./slots";
 import type { RawNode } from "./tools";
-import { groupTools, setToolDisplay, toolDisplays, useToolDisplay, type ToolGroup } from "./toolDisplay";
+import { groupTools, useToolDisplay, type ToolGroup } from "./toolDisplay";
 import { splitDetails } from "./errors";
 import { initialState, reduce, reduceBatch, type Item, type ChatState } from "./reducer";
 
@@ -245,7 +245,8 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
       return (
         <div className="group">
           <Markdown>{item.text}</Markdown>
-          <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />
+          {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}
+          {(item.durationMs !== undefined || streaming) && <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />}
         </div>
       );
     case "thought":
@@ -288,26 +289,6 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
 function ToolGroupRow(props: { calls: Tool[]; subagents: Map<string, Subagent<Tool>>; active: boolean }) {
   const { Group } = useToolDisplay();
   return <Group {...props} />;
-}
-
-function ToolDisplayMenu() {
-  const current = useToolDisplay();
-  return (
-    <DropdownMenu>
-      <Tooltip content="Tool call display" side="bottom">
-        <DropdownMenuTrigger asChild>
-          <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-foreground" aria-label="Tool call display">
-            <ListTree />
-          </Button>
-        </DropdownMenuTrigger>
-      </Tooltip>
-      <DropdownMenuContent align="end">
-        <DropdownMenuRadioGroup value={current.id} onValueChange={setToolDisplay}>
-          {toolDisplays.map((d) => <DropdownMenuRadioItem key={d.id} value={d.id}>{d.label}</DropdownMenuRadioItem>)}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 }
 
 const slotKey = (x: Slot) => JSON.stringify(x.root);
@@ -447,7 +428,6 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
       ))}
-      <ToolDisplayMenu />
       {git && (
         <Tooltip content="Changes" side="bottom">
           <Button

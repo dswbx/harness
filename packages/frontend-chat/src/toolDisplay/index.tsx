@@ -22,7 +22,7 @@ export const toolDisplays: ToolDisplay[] = [
   { id: "trace", label: "Trace", Group: TraceDisplay },
 ];
 
-// Per-viewer choice; every chat in the window follows it.
+// Per-viewer choice (Settings > Appearance); every chat follows it, across windows too.
 const KEY = "harness.chat.toolDisplay";
 const listeners = new Set<() => void>();
 const read = () => {
@@ -30,7 +30,12 @@ const read = () => {
 };
 const subscribe = (f: () => void) => {
   listeners.add(f);
-  return () => listeners.delete(f);
+  const onStorage = (e: StorageEvent) => e.key === KEY && f();
+  window.addEventListener("storage", onStorage);
+  return () => {
+    listeners.delete(f);
+    window.removeEventListener("storage", onStorage);
+  };
 };
 
 export function setToolDisplay(id: string) {

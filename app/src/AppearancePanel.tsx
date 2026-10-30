@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { Button, Input, Select, cn } from "@harness/ui";
+import { setToolDisplay, toolDisplays, useToolDisplay } from "@harness/frontend-chat";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
@@ -59,6 +60,18 @@ function RhythmRow({ label, id, value, options, onChange }: {
         {options.map((o) => (
           <option key={o.id} value={o.id}>{o.label} ({o.value})</option>
         ))}
+      </Select>
+    </Row>
+  );
+}
+
+/** Chat Frontend: how tool calls look (stored by the Frontend itself). */
+function ToolDisplayRow() {
+  const current = useToolDisplay();
+  return (
+    <Row label="Tool calls" htmlFor="tool-display">
+      <Select id="tool-display" className="h-8 w-44 shrink-0 text-xs" value={current.id} onChange={(e) => setToolDisplay(e.target.value)}>
+        {toolDisplays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
       </Select>
     </Row>
   );
@@ -173,6 +186,7 @@ export function AppearancePanel() {
         </Row>
         <RhythmRow label="Chat leading" id="chat-leading" value={a.leading} options={LEADINGS} onChange={(leading) => update({ leading })} />
         <RhythmRow label="Chat flow" id="chat-flow" value={a.flow} options={FLOWS} onChange={(flow) => update({ flow })} />
+        <ToolDisplayRow />
       </div>
     </div>
   );
