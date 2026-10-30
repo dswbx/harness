@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, LayoutGrid, Palette, Plug, Search, Shield } from "lucide-react";
+import { Bot, Code, LayoutGrid, Palette, Plug, Search, Shield } from "lucide-react";
 import { RenderUiGallery } from "@harness/frontend-chat";
 import type { HarnessClient } from "@harness/api";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, Input, cn } from "@harness/ui";
 import { AgentsPanel } from "./AgentsPanel";
 import { AppearancePanel } from "./AppearancePanel";
+import { EditorPanel } from "./EditorPanel";
 import { McpPanel } from "./McpPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 
-export type SettingsSection = "appearance" | "permissions" | "agents" | "mcp" | "components";
+export type SettingsSection = "appearance" | "editor" | "permissions" | "agents" | "mcp" | "components";
 
 const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "editor", label: "Editor", icon: Code },
   { id: "permissions", label: "Permissions", icon: Shield },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "mcp", label: "MCP servers", icon: Plug },
@@ -61,7 +63,7 @@ export function SettingsDialog({
       >
         <div className="flex shrink-0 items-center gap-4 border-b bg-muted/30 py-3 pl-4 pr-12">
           <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
-          <DialogDescription className="sr-only">Appearance, Permission rules, Agents, MCP servers and UI components.</DialogDescription>
+          <DialogDescription className="sr-only">Appearance, Editor, Permission rules, Agents, MCP servers and UI components.</DialogDescription>
           <div className="relative w-full max-w-[420px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input ref={search} className="h-8 pl-8" placeholder="Search rules, Agents, servers" aria-label="Search settings" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -86,6 +88,7 @@ export function SettingsDialog({
           </nav>
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
             {section === "appearance" && <AppearancePanel />}
+            {section === "editor" && <EditorPanel client={client} />}
             {section === "permissions" && <PermissionsPanel client={client} sessionId={sessionId} agentsVersion={agentsVersion} query={query} />}
             {section === "agents" && <AgentsPanel client={client} version={agentsVersion} onChanged={onAgentsChanged} query={query} />}
             {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} query={query} />}

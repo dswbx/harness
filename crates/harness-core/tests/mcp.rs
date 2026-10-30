@@ -208,6 +208,27 @@ async fn frontend_tool_is_validated_and_stored() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn editor_setting_and_open_guard() {
+    use harness_core::api::Editor;
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo(dir.path()), vec![]).await;
+    let open = |path: &str| Command::OpenInEditor { session_id: sid.clone(), path: Some(path.into()), line: Some(3) };
+
+    let CommandResult::Editor { editor } = h.execute(Command::GetEditor).await.unwrap() else { panic!() };
+    assert_eq!(editor, None);
+    assert!(h.execute(open("a.txt")).await.unwrap_err().contains("choose an editor"));
+
+    let custom = Editor::Custom { template: "x://{path}:{line}".into() };
+    h.execute(Command::SetEditor { editor: Some(custom.clone()) }).await.unwrap();
+    let CommandResult::Editor { editor } = h.execute(Command::GetEditor).await.unwrap() else { panic!() };
+    assert_eq!(editor, Some(custom));
+    // Checked before anything opens.
+    assert!(h.execute(open("../outside.txt")).await.is_err());
+    assert!(h.execute(open("missing.txt")).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn session_state_and_harness_info() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[]);

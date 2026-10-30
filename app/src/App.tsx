@@ -60,7 +60,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
   }
   return (
     <div className="flex h-full flex-col">
-      <SessionHeader session={session} toolbarRef={setToolbar} leading={trafficLights && <div className="w-12 shrink-0" />} />
+      <SessionHeader client={new Client(transport)} session={session} toolbarRef={setToolbar} leading={trafficLights && <div className="w-12 shrink-0" />} />
       <div className="min-h-0 flex-1">
         <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} />
       </div>
@@ -377,11 +377,13 @@ function Shell({ transport }: { transport: Transport }) {
         {current ? (
           <>
             <SessionHeader
+              client={client}
               session={current}
               branch={branch}
               leading={leading}
               toolbarRef={setToolbar}
               onOpenWindow={() => openViewWindow(current.id, current.title).catch((e) => report("Could not open window", e))}
+              onChooseEditor={() => setSettingsSection("editor")}
             />
             <div className="min-h-0 flex-1">
               <ViewHost transport={transport} sessionId={current.id} frontendId={current.frontend_id} toolbar={toolbar} />

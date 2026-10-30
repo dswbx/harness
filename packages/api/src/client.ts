@@ -1,6 +1,6 @@
 import type {
   AgentInfo, AppEvent, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
-  SessionSummary, StatePatchOp, WorkspaceInfo,
+  Editor, SessionSummary, StatePatchOp, WorkspaceInfo,
 } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
 
@@ -42,6 +42,8 @@ export interface SessionApi {
   gitPush(): Promise<void>;
   /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
   frontendRead(path: string): Promise<string>;
+  /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
+  openInEditor(path?: string, line?: number): Promise<void>;
   /** The Session State (ADR 0015); also rebuilt from `StateChanged` events. */
   getState(): Promise<unknown>;
   /** Changes the Session State as the user (all or nothing). */
@@ -104,6 +106,7 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     gitPush: () => run({ type: "GitPush", session_id: sessionId }),
     frontendRead: async (path) =>
       (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent")).content,
+    openInEditor: (path, line) => run({ type: "OpenInEditor", session_id: sessionId, path: path ?? null, line: line ?? null }),
     getState: async () => (await expect({ type: "GetState", session_id: sessionId }, "State")).state,
     patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),
     frontendReadImage: async (path) => {
@@ -145,6 +148,17 @@ export class HarnessClient {
     const r = await this.transport.execute({ type: "AddCustomAgent", ...args });
     if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
     return r.agent;
+  }
+  /** The editor for "Open in editor"; null until chosen. */
+  async getEditor(): Promise<Editor | null> {
+    const r = await this.transport.execute({ type: "GetEditor" });
+    return r.type === "Editor" ? r.editor : null;
+  }
+  async setEditor(editor: Editor | null): Promise<void> {
+    await this.transport.execute({ type: "SetEditor", editor });
+  }
+  async openInEditor(sessionId: string, path?: string, line?: number): Promise<void> {
+    await this.transport.execute({ type: "OpenInEditor", session_id: sessionId, path: path ?? null, line: line ?? null });
   }
   async removeAgent(agentId: string): Promise<void> {
     await this.transport.execute({ type: "RemoveAgent", agent_id: agentId });

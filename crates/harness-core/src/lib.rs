@@ -5,6 +5,7 @@ mod agent_quirks;
 pub mod agents;
 pub mod api;
 mod attachments;
+mod editor;
 mod env;
 mod frontend_files;
 mod github;

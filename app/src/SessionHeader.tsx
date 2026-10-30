@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
-import { AppWindow, Copy, FolderOpen, GitBranch, Info, MoreHorizontal } from "lucide-react";
-import type { SessionStatus, SessionSummary } from "@harness/api";
+import { useState, type ReactNode } from "react";
+import { AppWindow, Code, Copy, FolderOpen, GitBranch, Info, MoreHorizontal } from "lucide-react";
+import type { Editor, HarnessClient, SessionStatus, SessionSummary } from "@harness/api";
 import { inTauri } from "@harness/api";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip, cn } from "@harness/ui";
 import { useReportError } from "./toast";
@@ -51,6 +51,10 @@ export function SessionDetails({ s }: { s: SessionSummary }) {
   );
 }
 
+/** Menu label of an editor. */
+export const editorName = (e: Editor): string =>
+  ({ vscode: "VS Code", cursor: "Cursor", windsurf: "Windsurf", zed: "Zed", custom: "your editor", system: "the default app" })[e.type];
+
 const iconBtn = "size-7 text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground";
 
 /**
@@ -58,13 +62,16 @@ const iconBtn = "size-7 text-muted-foreground hover:text-foreground data-[state=
  * fills with its own actions (`toolbarRef`). `leading` sits left of the title (traffic lights, sidebar toggle).
  */
 export function SessionHeader({
-  session, branch, leading, onOpenWindow, toolbarRef,
+  client, session, branch, leading, onOpenWindow, onChooseEditor, toolbarRef,
 }: {
+  client: HarnessClient;
   session: SessionSummary;
   /** Current git branch; none outside a repository. */
   branch?: string | null;
   leading?: ReactNode;
   onOpenWindow?: () => void;
+  /** Opens Settings at the editor choice (no editor chosen yet). */
+  onChooseEditor?: () => void;
   toolbarRef: (el: HTMLDivElement | null) => void;
 }) {
   const report = useReportError();
@@ -73,6 +80,11 @@ export function SessionHeader({
       .then(({ revealItemInDir }) => revealItemInDir(session.folder))
       .catch((e) => report("Could not reveal folder", e));
   const copy = () => navigator.clipboard.writeText(session.folder).catch((e) => report("Could not copy path", e));
+  // Read when the menu opens, so a change in Settings shows at once.
+  const [editor, setEditor] = useState<Editor | null | undefined>(undefined);
+  const loadEditor = (open: boolean) => open && void client.getEditor().then(setEditor, () => setEditor(null));
+  const openInEditor = () =>
+    editor ? client.openInEditor(session.id).catch((e) => report("Could not open the editor", e)) : onChooseEditor?.();
   return (
     <header data-tauri-drag-region className="flex h-13 shrink-0 items-center gap-1 border-b pl-5 pr-3">
       {leading}
@@ -90,7 +102,7 @@ export function SessionHeader({
           <SessionDetails s={session} />
         </DropdownMenuContent>
       </DropdownMenu>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={loadEditor}>
         <DropdownMenuTrigger asChild>
           <Tooltip content="Session actions" side="bottom">
             <Button size="icon" variant="ghost" className={iconBtn} aria-label="Session actions">
@@ -104,6 +116,11 @@ export function SessionHeader({
               <DropdownMenuItem onSelect={onOpenWindow}><AppWindow /> Open in new window</DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
+          )}
+          {(editor || onChooseEditor) && (
+            <DropdownMenuItem onSelect={() => void openInEditor()}>
+              <Code /> {editor ? `Open in ${editorName(editor)}` : "Open in editor…"}
+            </DropdownMenuItem>
           )}
           <DropdownMenuItem onSelect={() => void copy()}><Copy /> Copy path</DropdownMenuItem>
           {inTauri() && <DropdownMenuItem onSelect={() => void reveal()}><FolderOpen /> Reveal in Finder</DropdownMenuItem>}

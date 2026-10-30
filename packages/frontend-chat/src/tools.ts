@@ -202,7 +202,7 @@ export const components = {
     }, state: { setup: { target: "staging", branch: "main" } } },
   },
   Diff: {
-    description: "A code diff, highlighted. Give `patch` (a unified git diff; several files are fine) or `path` with `old` and `new` text.",
+    description: "A code diff, highlighted. Give `patch` (a unified git diff; several files are fine) or `path` with `old` and `new` text. File names open the file in the user's editor.",
     children: false,
     props: s.object({ patch: s.string().optional(), path: s.string().optional(), old: s.string().optional(), new: s.string().optional() }),
     example: { node: { type: "Diff", props: { path: "src/config.ts", old: "export const retries = 3;\nexport const timeoutMs = 1000;\n", new: "export const retries = 5;\nexport const timeoutMs = 1000;\nexport const backoff = true;\n" } } },
@@ -328,6 +328,15 @@ export const components = {
       { id: "db", name: "db.query", start: 40, duration: 310, parent: "req", tone: "warning", meta: "full table scan on items" },
       { id: "render", name: "render", start: 355, duration: 60, parent: "req" },
     ] } } },
+  },
+  FileLink: {
+    description: "A link that opens a file of the workspace, at a line, in the user's editor. `path` is relative to the workspace (or absolute inside it).",
+    children: false,
+    props: s.object({ path: s.string(), line: s.number().optional(), label: s.string().optional() }),
+    example: { node: { type: "Stack", props: { direction: "horizontal", gap: "sm" }, children: [
+      { type: "FileLink", props: { path: "src/api/users.ts", line: 42 } },
+      { type: "FileLink", props: { path: "README.md", label: "Setup notes" } },
+    ] } },
   },
 } as const satisfies Record<string, Entry>;
 
@@ -476,7 +485,7 @@ export const frontendTools = [
   {
     name: RENDER_UI,
     description:
-      "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
+      "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
       'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Grid, Card, Tabs, Stepper and Accordion take children.\n' +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +

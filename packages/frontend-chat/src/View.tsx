@@ -379,6 +379,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
       send: (text) => api.prompt(text),
       files: {},
       readImage: (p) => api.frontendReadImage(p),
+      open: (p, line) => api.openInEditor(p, line),
       scope: api.sessionId,
     }),
     [api, state.uiState],

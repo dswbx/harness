@@ -30,7 +30,8 @@ function Entry({ name }: { name: ComponentType }) {
     () => ({
       state,
       patch: async (ops: Parameters<typeof applyStatePatch>[1]) => setState((s: unknown) => applyStatePatch(s, ops)),
-      send: async (text: string) => setSent(text),
+      send: async (text: string) => setSent(`sendMessage: ${text}`),
+      open: async (path: string, line?: number) => setSent(`open in editor: ${path}${line ? `:${line}` : ""}`),
       files: {},
     }),
     [state],
@@ -50,7 +51,7 @@ function Entry({ name }: { name: ComponentType }) {
       </div>
       {(json || stateful || sent) && (
         <div className="grid grid-cols-1 gap-2 border-t bg-muted/30 px-4 py-2.5 text-xs">
-          {sent && <div><span className="text-muted-foreground">sendMessage: </span>{sent}</div>}
+          {sent && <div><span className="text-muted-foreground">Action: </span>{sent}</div>}
           {stateful && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">State</span>

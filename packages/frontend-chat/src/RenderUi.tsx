@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Info, Search, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronLeft, ChevronRight, FileCode, ImageOff, Info, Search, XCircle } from "lucide-react";
 import { getAt, type StatePatchOp } from "@harness/api";
 import { Button, Input, Select, Textarea, Tooltip, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
@@ -35,6 +35,8 @@ export type UiEnv = {
   /** Image srcs resolve through the core's copies of local files (`files`), else the URL as given. */
   files: Record<string, string>;
   readImage?: (path: string) => Promise<{ mime: string; data: string }>;
+  /** Opens a workspace file (at a line) in the user's editor; absent: file links are plain text. */
+  open?: (path: string, line?: number) => Promise<void>;
   /** Cache key prefix for read images (e.g. the Session id). */
   scope?: string;
 };
@@ -627,16 +629,42 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
   );
 }
 
+/** A workspace path that opens in the user's editor; plain text where nothing can open it. */
+function OpenFile({ path, line, label, className }: { path: string; line?: number; label?: string; className?: string }) {
+  const env = useEnv();
+  const [error, setError] = useState<string | null>(null);
+  const text = label ?? `${path}${line ? `:${line}` : ""}`;
+  if (!env.open) return <span className={cn("font-mono", className)}>{text}</span>;
+  return (
+    <Tooltip content={error ?? `Open ${path}${line ? ` at line ${line}` : ""} in your editor`}>
+      <button
+        type="button"
+        onClick={() => env.open!(path, line).then(() => setError(null), (e) => setError(e instanceof Error ? e.message : String(e)))}
+        className={cn("inline-flex min-w-0 items-center gap-1 font-mono underline-offset-2 hover:underline", error ? "text-destructive" : "text-sky-600 dark:text-sky-400", className)}
+      >
+        <span className="truncate">{text}</span>
+      </button>
+    </Tooltip>
+  );
+}
+
 function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
   const p = node.props;
   const files = useMemo(() => (p.patch ? splitPatch(p.patch) : []), [p.patch]);
-  if (!p.patch) return p.path && p.new != null ? <FileDiff path={p.path} oldText={p.old ?? null} newText={p.new} /> : null;
+  if (!p.patch) {
+    return p.path && p.new != null ? (
+      <div className="grid grid-cols-1 gap-1">
+        <OpenFile path={p.path} className="w-fit text-xs" />
+        <FileDiff path={p.path} oldText={p.old ?? null} newText={p.new} />
+      </div>
+    ) : null;
+  }
   return (
     <div className="grid grid-cols-1 gap-2">
       {files.map((f) => (
         <div key={f.path} className="overflow-hidden rounded border">
           <div className="flex gap-2 border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
-            <span className="min-w-0 flex-1 truncate">{f.path}</span>
+            <span className="flex min-w-0 flex-1"><OpenFile path={f.path} /></span>
             <span className="text-emerald-600 dark:text-emerald-400">+{f.additions}</span>
             <span className="text-destructive">-{f.deletions}</span>
           </div>
@@ -738,7 +766,7 @@ function Node({ raw }: { raw: RawNode }) {
       return (
         <div className={cn("flex min-w-0 flex-row flex-wrap items-center", gap)}>
           {shown.map(([c, i]) =>
-            c.type === "Badge" || c.type === "Button" || c.type === "Checkbox" || c.type === "Switch" ? (
+            c.type === "Badge" || c.type === "Button" || c.type === "Checkbox" || c.type === "Switch" || c.type === "FileLink" ? (
               <Node key={i} raw={c} />
             ) : (
               <div key={i} className="flex min-w-48 flex-1 basis-0 flex-col self-stretch [&>*]:flex-1">
@@ -863,6 +891,13 @@ function Node({ raw }: { raw: RawNode }) {
     }
     case "Log":
       return <LogBox node={node} />;
+    case "FileLink":
+      return (
+        <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-sm">
+          <FileCode className="size-4 shrink-0 text-muted-foreground" />
+          <OpenFile path={node.props.path} line={node.props.line} label={node.props.label} />
+        </span>
+      );
     case "Trace":
       return <Trace node={node} />;
     case "Chart": {

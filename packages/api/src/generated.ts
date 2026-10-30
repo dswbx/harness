@@ -120,6 +120,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "SaveMcpServer"; server: McpServerDef; secrets?: { [key in string]: string } } | { type: "RemoveMcpServer"; server_id: string } | 
 /**  Reads a file of the Session's Frontend state (`frontend/` in the Session Directory). */
 { type: "FrontendRead"; session_id: string; path: string } | 
+/**  The user's editor for "Open in editor" (None until chosen). */
+{ type: "GetEditor" } | { type: "SetEditor"; editor: Editor | null } | 
+/**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
+{ type: "OpenInEditor"; session_id: string; path?: string | null; line?: number | null } | 
 /**  The Session State (ADR 0015). */
 { type: "GetState"; session_id: string } | 
 /**  Changes the Session State as the user (e.g. a bound UI component). */
@@ -188,7 +192,7 @@ option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermi
  */
 { type: "ReadImageFile"; path: string };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
+export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
 { type: "Attachment"; mime: string; data: string };
 
@@ -214,6 +218,12 @@ export type Diff = {
 	/**  Unified diff. */
 	patch: string,
 };
+
+/**
+ *  The editor "Open in editor" uses: a known editor's URL scheme, a custom URL template
+ *  (`{path}`, `{line}`), or the system default app (no line).
+ */
+export type Editor = { type: "vscode" } | { type: "cursor" } | { type: "windsurf" } | { type: "zed" } | { type: "custom"; template: string } | { type: "system" };
 
 /**  One entry of a Session Log, as delivered to Views. */
 export type Event = {

@@ -225,6 +225,19 @@ impl Harness {
             Command::FrontendRead { session_id, path } => {
                 CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? }
             }
+            Command::GetEditor => CommandResult::Editor { editor: crate::editor::load(&self.data_dir) },
+            Command::SetEditor { editor } => {
+                crate::editor::save(&self.data_dir, editor.as_ref())?;
+                CommandResult::Ok
+            }
+            Command::OpenInEditor { session_id, path, line } => {
+                let editor = crate::editor::load(&self.data_dir).ok_or_else(|| anyhow::anyhow!("choose an editor in Settings first"))?;
+                let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
+                let file = crate::editor::resolve(&folder, path.as_deref())?;
+                let target = crate::editor::target(&editor, &file, line);
+                tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+                CommandResult::Ok
+            }
             Command::GetState { session_id } => CommandResult::State { state: self.session(&session_id)?.state()? },
             Command::PatchState { session_id, ops } => {
                 self.session(&session_id)?.patch_state(None, ops, crate::api::StateWriter::User)?;

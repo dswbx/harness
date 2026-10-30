@@ -1,4 +1,4 @@
-import type { AppEvent, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, BranchInfo, PullRequest, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
+import type { AppEvent, Editor, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, BranchInfo, PullRequest, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 import { applyStatePatch } from "./state";
@@ -74,6 +74,9 @@ export class MockTransport implements Transport {
   private frontendFiles = new Map<string, Map<string, string>>();
   private cardN = 0;
   private states = new Map<string, unknown>();
+  private editor: Editor | null = null;
+  /** What "Open in editor" was asked to open (tests). */
+  opened: { path: string | null; line: number | null }[] = [];
   /** Stored attachment path -> pasted bytes (path inputs have no bytes in the browser). */
   private attachments = new Map<string, { mime: string; data: string }>();
 
@@ -317,6 +320,16 @@ export class MockTransport implements Transport {
         if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
         return { type: "FileContent", content: c };
       }
+      case "GetEditor":
+        return { type: "Editor", editor: this.editor };
+      case "SetEditor":
+        this.editor = cmd.editor;
+        return { type: "Ok" };
+      case "OpenInEditor":
+        if (!this.editor) throw new Error("choose an editor in Settings first");
+        this.opened.push({ path: cmd.path ?? null, line: cmd.line ?? null });
+        console.info("[mock] open in editor", this.editor.type, cmd.path ?? "(folder)", cmd.line ?? "");
+        return { type: "Ok" };
       case "GetState":
         return { type: "State", state: this.states.get(cmd.session_id) ?? {} };
       case "PatchState": {

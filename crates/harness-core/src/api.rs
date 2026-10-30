@@ -93,6 +93,19 @@ pub enum Command {
         session_id: SessionId,
         path: String,
     },
+    /// The user's editor for "Open in editor" (None until chosen).
+    GetEditor,
+    SetEditor {
+        editor: Option<Editor>,
+    },
+    /// Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor.
+    OpenInEditor {
+        session_id: SessionId,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        line: Option<u32>,
+    },
     /// The Session State (ADR 0015).
     GetState {
         session_id: SessionId,
@@ -242,6 +255,19 @@ pub enum Command {
     },
 }
 
+/// The editor "Open in editor" uses: a known editor's URL scheme, a custom URL template
+/// (`{path}`, `{line}`), or the system default app (no line).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Editor {
+    Vscode,
+    Cursor,
+    Windsurf,
+    Zed,
+    Custom { template: String },
+    System,
+}
+
 /// One Session State patch operation (lenient JSON Patch, see `state.rs`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -325,6 +351,7 @@ pub enum CommandResult {
         #[specta(type = specta_typescript::Unknown)]
         state: Json,
     },
+    Editor { editor: Option<Editor> },
     Files { files: Vec<String> },
     PermissionRules { rules: Vec<PermissionRule> },
     PermissionRuleAdded { rule: PermissionRule },
