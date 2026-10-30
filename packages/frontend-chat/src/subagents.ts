@@ -1,12 +1,9 @@
-import { blockText, type Item } from "./reducer";
+import type { Item } from "./reducer";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
-/** What a subagent did: its tool calls, and the report it handed back (when it has). */
-export type Subagent = { calls: Tool[]; report: string | null };
-
-/** The tool a background subagent calls to send its final report to the main Agent. */
-const HANDBACK = "SubagentHandback";
+/** The tool calls a subagent made. */
+export type Subagent = { calls: Tool[] };
 
 /**
  * Moves tool calls made by a subagent under its Task call. Calls whose Task call is not in the
@@ -22,27 +19,18 @@ export function groupSubagents(items: Item[]): { rows: Item[]; subagents: Map<st
       continue;
     }
     let s = subagents.get(i.parent);
-    if (!s) subagents.set(i.parent, (s = { calls: [], report: null }));
-    if (i.title === HANDBACK) s.report = handbackText(i);
-    else s.calls.push(i);
+    if (!s) subagents.set(i.parent, (s = { calls: [] }));
+    s.calls.push(i);
   }
   return { rows, subagents };
 }
 
-export function handbackText(t: Tool): string | null {
-  const m = (t.rawInput as { message?: unknown } | null)?.message;
-  return typeof m === "string" ? m : null;
-}
-
-export const isHandback = (t: Tool) => t.title === HANDBACK;
-
-/** A Task call that started a background subagent finishes at once; the subagent goes on. */
-const launchedAsync = (t: Tool) => t.content.some((b) => blockText(b)?.startsWith("Async agent launched"));
-
 export type SubagentState = "running" | "done" | "failed";
 
+const finished = (t: Tool) => t.status === "completed" || t.status === "failed";
+
+/** From the calls alone (no Agent-specific signals): running while any call is unfinished. */
 export function subagentState(task: Tool, s: Subagent): SubagentState {
   if (task.status === "failed") return "failed";
-  if (s.report != null) return "done";
-  return task.status === "completed" && !launchedAsync(task) ? "done" : "running";
+  return s.calls.every(finished) ? "done" : "running";
 }

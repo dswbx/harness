@@ -8,7 +8,7 @@ import { subagentState, type Subagent } from "./subagents";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
-/** A Task call that started a subagent: its tool calls (collapsed) and its report. */
+/** A Task call that started a subagent, with its tool calls (collapsed). */
 export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagent }) {
   const [open, setOpen] = useState(false);
   const state = subagentState(task, subagent);
@@ -46,12 +46,6 @@ export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagen
           {n > 0 && (
             <div className="space-y-1.5 border-l-2 pl-3">
               {subagent.calls.map((c) => <ToolCard key={c.id} tool={c} />)}
-            </div>
-          )}
-          {subagent.report != null && (
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">Report</div>
-              <Markdown className="rounded bg-muted p-2">{subagent.report}</Markdown>
             </div>
           )}
         </div>
