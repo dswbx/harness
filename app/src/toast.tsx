@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div key={t.id} role="alert" className="pointer-events-auto flex items-start gap-2 rounded-lg border border-destructive/40 bg-popover p-3 text-sm shadow-lg">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
             <p className="max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-words">{t.text}</p>
-            <button aria-label="Dismiss" className="rounded p-0.5 text-muted-foreground hover:bg-accent" onClick={() => dismiss(t.id)}>
+            <button aria-label="Dismiss" className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground" onClick={() => dismiss(t.id)}>
               <X className="size-4" />
             </button>
           </div>

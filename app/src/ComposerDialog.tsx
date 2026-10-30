@@ -569,7 +569,7 @@ export function ComposerDialog({
                       onClick={() => setFrontendId(f.id)}
                       className={cn(
                         "flex h-9 min-w-0 items-center gap-2 rounded-md border px-2.5 text-left shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                        on ? "border-primary bg-accent" : "border-input hover:bg-accent/50",
+                        on ? "border-primary bg-accent text-accent-foreground" : "border-input hover:bg-accent/50",
                       )}
                     >
                       <Icon className={cn("size-4 shrink-0", on ? "text-foreground" : "text-muted-foreground")} />

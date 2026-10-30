@@ -82,7 +82,7 @@ export function PermissionsPanel({
               key={f}
               aria-pressed={filter === f}
               onClick={() => setFilter(f)}
-              className={cn("rounded px-2.5 py-1 text-xs capitalize", filter === f ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50")}
+              className={cn("rounded px-2.5 py-1 text-xs capitalize", filter === f ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}
             >
               {f}
             </button>

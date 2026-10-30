@@ -42,7 +42,7 @@ export function EditorPanel({ client }: { client: HarnessClient }) {
               role="radio"
               aria-checked={on}
               onClick={() => pick(c.type)}
-              className={cn("flex items-center gap-3 rounded-md border px-3 py-2 text-left text-sm", on ? "border-primary bg-primary/10" : "hover:bg-accent")}
+              className={cn("flex items-center gap-3 rounded-md border px-3 py-2 text-left text-sm", on ? "border-primary bg-primary/10" : "hover:bg-accent hover:text-accent-foreground")}
             >
               <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border border-muted-foreground/50", on && "border-primary")}>
                 {on && <span className="size-2 rounded-full bg-primary" />}

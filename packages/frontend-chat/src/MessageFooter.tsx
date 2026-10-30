@@ -34,7 +34,7 @@ export function MessageFooter({ text, ts, durationMs, align = "start", hidden, c
           type="button"
           aria-label={copied ? "Copied" : "Copy message"}
           onClick={copy}
-          className="grid size-6 place-items-center rounded hover:bg-accent hover:text-foreground"
+          className="grid size-6 place-items-center rounded hover:bg-accent hover:text-accent-foreground"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>

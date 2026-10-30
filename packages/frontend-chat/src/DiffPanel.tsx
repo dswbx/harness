@@ -37,7 +37,7 @@ function FileMenu({ path, root }: { path: string; root: string | null | undefine
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Actions for ${path}`}
-        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent"
         onClick={(e) => e.stopPropagation()}
       >
         <MoreHorizontal className="size-4" />

@@ -246,7 +246,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                 key={m}
                 aria-pressed={a.mode === m}
                 onClick={() => update({ mode: m })}
-                className={cn("rounded px-2.5 py-1 text-xs capitalize", a.mode === m ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50")}
+                className={cn("rounded px-2.5 py-1 text-xs capitalize", a.mode === m ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}
               >
                 {m}
               </button>

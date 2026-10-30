@@ -84,14 +84,14 @@ function SessionRow({
   onDelete: () => void;
 }) {
   const [menu, setMenu] = useState(false);
-  const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent";
+  const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground";
   return (
     <li className="group relative" onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
       <Tooltip side="right" align="start" delay={700} className="w-80 max-w-80 p-3 text-xs" content={<><div className="mb-2 text-sm font-semibold">{s.title}</div><SessionDetails s={s} /></>}>
         <button
           onClick={onSelect}
           aria-current={selected || undefined}
-          className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8 text-sm text-foreground/80 hover:bg-accent/60 hover:text-foreground", selected && "bg-accent font-medium text-foreground hover:bg-accent", s.archived && "opacity-70")}
+          className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8 text-sm text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground", selected && "bg-accent font-medium text-accent-foreground hover:bg-accent hover:text-accent-foreground", s.archived && "opacity-70")}
         >
           <span className="min-w-0 flex-1 truncate">{s.title}</span>
           <StatusDot status={s.status} className="group-hover:hidden" />

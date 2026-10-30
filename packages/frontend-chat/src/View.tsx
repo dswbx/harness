@@ -201,7 +201,7 @@ function HarnessContext({ text }: { text: string }) {
   return (
     <>
       <Tooltip content="Context the Harness sent the Agent with this message" delay={100}>
-        <button type="button" onClick={() => setOpen(true)} className="flex h-6 items-center gap-1 rounded px-1.5 hover:bg-accent hover:text-foreground">
+        <button type="button" onClick={() => setOpen(true)} className="flex h-6 items-center gap-1 rounded px-1.5 hover:bg-accent hover:text-accent-foreground">
           <Info className="size-3.5" /> Harness context
         </button>
       </Tooltip>
@@ -236,7 +236,7 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
       return (
         <div className="group flex flex-col items-end">
           {item.attachments.length > 0 && <UserAttachments api={api} items={item.attachments} />}
-          {item.text && <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2">{item.text}</Markdown>}
+          {item.text && <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2 text-secondary-foreground">{item.text}</Markdown>}
           <MessageFooter text={item.text} ts={item.ts} align="end">
             {item.context && <HarnessContext text={item.context} />}
           </MessageFooter>
@@ -309,7 +309,7 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
             <button
               aria-label={`Hide ${x.title ?? x.id}`}
               onClick={() => setHidden({ ...hidden, [x.id]: slotKey(x) })}
-              className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/slot:opacity-100"
+              className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-accent-foreground focus:opacity-100 group-hover/slot:opacity-100"
             >
               <X className="size-3.5" />
             </button>
@@ -332,7 +332,7 @@ function SlotTab({ slot, open, onClick }: { slot: Slot; open: boolean; onClick: 
       <Button
         size="icon"
         variant="ghost"
-        className={cn("relative size-7 text-muted-foreground hover:text-foreground", open && "bg-accent text-foreground")}
+        className={cn("relative size-7 text-muted-foreground hover:text-accent-foreground", open && "bg-accent text-accent-foreground")}
         aria-label={label}
         aria-pressed={open}
         onClick={onClick}
@@ -440,7 +440,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
           <Button
             size="icon"
             variant="ghost"
-            className={cn("size-7 text-muted-foreground hover:text-foreground", panel === "changes" && "bg-accent text-foreground")}
+            className={cn("size-7 text-muted-foreground hover:text-accent-foreground", panel === "changes" && "bg-accent text-accent-foreground")}
             aria-label="Changes"
             aria-pressed={panel === "changes"}
             onClick={() => setPanelId(panel === "changes" ? null : "changes")}

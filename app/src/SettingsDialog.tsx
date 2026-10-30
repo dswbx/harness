@@ -60,7 +60,7 @@ export function SettingsDialog({
                   key={id}
                   aria-current={section === id ? "page" : undefined}
                   onClick={() => onSectionChange(id)}
-                  className={cn("flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm", section === id ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50")}
+                  className={cn("flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm", section === id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}
                 >
                   <Icon className="size-4" /> {label}
                 </button>

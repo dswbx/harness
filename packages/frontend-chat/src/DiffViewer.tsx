@@ -67,7 +67,7 @@ function CommentList({ sessionId, comments }: { sessionId: string; comments: Dif
           <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{c.text}</span>
           <Tooltip content="Remove comment">
             <button
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               aria-label="Remove comment"
               onClick={() => removeReviewComment(sessionId, c.id)}
             >

@@ -60,7 +60,7 @@ function CommentChips({ sessionId, comments }: { sessionId: string; comments: Re
               ? <span className="min-w-0 max-w-40 shrink-0 truncate text-muted-foreground">“{c.quote}”</span>
               : <span className="shrink-0 font-mono text-muted-foreground">{c.path.split("/").pop()}:{c.line}</span>}
             <span className="min-w-0 max-w-64 truncate">{c.text}</span>
-            <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={c.kind === "quote" ? "Remove comment" : `Remove comment on ${c.path}:${c.line}`} onClick={() => removeReviewComment(sessionId, c.id)}>
+            <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground" aria-label={c.kind === "quote" ? "Remove comment" : `Remove comment on ${c.path}:${c.line}`} onClick={() => removeReviewComment(sessionId, c.id)}>
               <X className="size-3" />
             </button>
           </span>
@@ -93,7 +93,7 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
         </div>
       }
     >
-      <button type="button" className="grid size-8 place-items-center rounded-full hover:bg-accent" aria-label={`Context window ${pct}% used`}>
+      <button type="button" className="grid size-8 place-items-center rounded-full hover:bg-accent hover:text-accent-foreground" aria-label={`Context window ${pct}% used`}>
         <svg viewBox="0 0 20 20" className="size-5 -rotate-90" aria-hidden>
           <circle cx="10" cy="10" r={r} fill="none" strokeWidth="2.5" className="stroke-muted" />
           <circle cx="10" cy="10" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${(c * pct) / 100} ${c}`} className={pct > 85 ? "stroke-destructive" : "stroke-muted-foreground"} />
@@ -199,7 +199,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
                 role="option"
                 aria-selected={i === sel}
                 aria-description={c.description || undefined}
-                className={cn("flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm", i === sel && "bg-accent")}
+                className={cn("flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm", i === sel && "bg-accent text-accent-foreground")}
                 onMouseMove={() => i !== sel && setSel(i)}
                 onClick={() => pick(c)}
               >
@@ -267,7 +267,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           <Tooltip content="Attach files or images">
             <button
               type="button"
-              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
               aria-label="Attach files or images"
               disabled={readOnly}
               onClick={() => void attach().catch((err) => setError(errorMessage(err)))}

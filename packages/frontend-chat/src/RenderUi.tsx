@@ -301,7 +301,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
               onClick={() => void pick(o.value)}
               className={cn(
                 "rounded px-3 py-1 text-ui transition-colors disabled:cursor-default",
-                verdict === "right" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : verdict === "wrong" ? "bg-destructive/15 text-destructive" : on ? "bg-accent font-medium" : "text-muted-foreground hover:text-foreground",
+                verdict === "right" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : verdict === "wrong" ? "bg-destructive/15 text-destructive" : on ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {o.label}
@@ -325,7 +325,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
             onClick={() => void pick(o.value)}
             className={cn(
               "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-ui transition-colors disabled:cursor-default",
-              verdict === "right" ? "border-emerald-500/60 bg-emerald-500/10" : verdict === "wrong" ? "border-destructive/60 bg-destructive/10" : on ? "border-primary bg-primary/10 font-medium" : !graded && "hover:bg-accent",
+              verdict === "right" ? "border-emerald-500/60 bg-emerald-500/10" : verdict === "wrong" ? "border-destructive/60 bg-destructive/10" : on ? "border-primary bg-primary/10 font-medium" : !graded && "hover:bg-accent hover:text-accent-foreground",
             )}
           >
             <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border border-muted-foreground/50", on && "border-primary")}>

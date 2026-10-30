@@ -253,7 +253,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       return (
         <li key={r.key} id={`diff-row-${pos}`} data-pos={pos} role="treeitem" aria-selected={on} aria-expanded={r.open} title={r.dir}
           style={{ paddingLeft: indent(r) }} className={base} onClick={() => setCursor(r.key)} onDoubleClick={() => setOpen(r.dir, !r.open)}>
-          <button tabIndex={-1} aria-label={r.open ? "Collapse" : "Expand"} className="-m-0.5 rounded p-0.5 hover:bg-accent"
+          <button tabIndex={-1} aria-label={r.open ? "Collapse" : "Expand"} className="-m-0.5 rounded p-0.5 hover:bg-accent hover:text-accent-foreground"
             onClick={(e) => { e.stopPropagation(); setCursor(r.key); setOpen(r.dir, !r.open); }}>
             <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform", r.open && "rotate-90")} />
           </button>

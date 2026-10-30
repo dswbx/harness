@@ -21,7 +21,7 @@ import type { ConfigOption } from "./reducer";
 type OnChange = (id: string, value: string) => void;
 
 const trigger =
-  "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground";
+  "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
 
 /** Footer controls for the Agent's config options: Mode, Model chip, and a "More options" menu. */
 export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onChange: OnChange }) {

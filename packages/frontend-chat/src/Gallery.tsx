@@ -38,7 +38,7 @@ function Entry({ name }: { name: ComponentType }) {
       <header className="flex items-baseline gap-2 border-b px-4 py-2.5">
         <h3 className="font-mono text-sm font-medium">{name}</h3>
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={c.description}>{c.description}</p>
-        <button onClick={() => setJson(!json)} className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent", json && "bg-accent text-foreground")}>
+        <button onClick={() => setJson(!json)} className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground", json && "bg-accent text-accent-foreground")}>
           JSON
         </button>
       </header>

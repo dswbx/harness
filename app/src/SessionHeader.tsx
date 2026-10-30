@@ -55,7 +55,7 @@ export function SessionDetails({ s }: { s: SessionSummary }) {
 export const editorName = (e: Editor): string =>
   ({ vscode: "VS Code", cursor: "Cursor", windsurf: "Windsurf", zed: "Zed", custom: "your editor", system: "the default app" })[e.type];
 
-const iconBtn = "size-7 text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground";
+const iconBtn = "size-7 text-muted-foreground hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
 
 /**
  * The one header above a Session's View: title, info popover, actions menu, and a slot the Frontend
