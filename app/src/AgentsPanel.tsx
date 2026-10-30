@@ -6,7 +6,6 @@ import {
 } from "@harness/ui";
 import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
-import { filterAgents, filterRegistry } from "./settings";
 
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
@@ -25,14 +24,13 @@ export function AgentIcon({ icon, name, className = "size-8" }: { icon: string |
 
 /** Installed Agents, the ACP Registry, and Custom Agents. */
 export function AgentsPanel({
-  client, onChanged, version = 0, query,
+  client, onChanged, version = 0,
 }: {
   client: HarnessClient;
   /** Called after the installed list changed. */
   onChanged?: () => void;
   /** Bumps when the core reports AgentsChanged: reloads the lists while mounted. */
   version?: number;
-  query: string;
 }) {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [registry, setRegistry] = useState<RegistryAgent[]>([]);
@@ -128,8 +126,6 @@ export function AgentsPanel({
 
   const registryVersion = (a: AgentInfo) =>
     a.source?.type === "registry" ? registry.find((r) => r.id === (a.source as { registry_id: string }).registry_id) : undefined;
-  const installed = filterAgents(agents, query);
-  const shown = filterRegistry(registry, query);
 
   return (
     <>
@@ -140,8 +136,8 @@ export function AgentsPanel({
         <section className="grid gap-2">
           <h3 className={heading}>Installed</h3>
           <ul className="divide-y rounded-md border">
-            {installed.length === 0 && <li className="p-3 text-xs text-muted-foreground">{agents.length === 0 ? "No Agents installed yet." : "No matching Agents."}</li>}
-            {installed.map((a) => {
+            {agents.length === 0 && <li className="p-3 text-xs text-muted-foreground">No Agents installed yet.</li>}
+            {agents.map((a) => {
               const reg = registryVersion(a);
               const canUpdate = !!reg && !!a.version && reg.version !== a.version && !!reg.install_method;
               const id = reg?.id ?? "";
@@ -179,8 +175,8 @@ export function AgentsPanel({
             </Tooltip>
           </div>
           <ul className="divide-y rounded-md border">
-            {shown.length === 0 && <li className="p-3 text-xs text-muted-foreground">No matching Agents.</li>}
-            {shown.map((r) => {
+            {registry.length === 0 && <li className="p-3 text-xs text-muted-foreground">No Agents in the registry.</li>}
+            {registry.map((r) => {
               const unavailable = !r.install_method;
               const busy = installing.has(r.id);
               return (

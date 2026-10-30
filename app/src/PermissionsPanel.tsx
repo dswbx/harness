@@ -12,14 +12,13 @@ const sel = "h-8 px-2 text-xs";
 
 /** Lists, adds and removes Permission Policy rules. */
 export function PermissionsPanel({
-  client, sessionId, agentsVersion = 0, query,
+  client, sessionId, agentsVersion = 0,
 }: {
   client: HarnessClient;
   /** Currently selected Session, if any (enables the "this session" scope). */
   sessionId: string | null;
   /** Bump to reload the Agent list. */
   agentsVersion?: number;
-  query: string;
 }) {
   const [rules, setRules] = useState<PermissionRule[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -69,7 +68,7 @@ export function PermissionsPanel({
   };
 
   const placeholder = kind === "execute" ? "command prefix, e.g. git status" : "path glob, e.g. src/**";
-  const shown = filterRules(rules, filter, query);
+  const shown = filterRules(rules, filter);
 
   return (
     <div className="text-sm">

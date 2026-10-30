@@ -1,4 +1,4 @@
-import type { AgentInfo, McpServerDef, PermissionRule, RegistryAgent, RuleScope } from "@harness/api";
+import type { McpServerDef, PermissionRule, RuleScope } from "@harness/api";
 
 export const FILTERS = ["all", "global", "agent", "session"] as const;
 export type Filter = (typeof FILTERS)[number];
@@ -16,32 +16,12 @@ export function parseScope(value: string, sessionId: string | null): RuleScope {
       : { type: "agent", agent_id: value.slice("agent:".length) };
 }
 
-export function filterRules(rules: PermissionRule[], filter: Filter, query: string): PermissionRule[] {
-  const q = query.trim().toLowerCase();
-  return rules.filter(
-    (r) =>
-      (filter === "all" || r.scope.type === filter) &&
-      (!q || [r.pattern ?? "", r.tool_kind ?? "any", scopeLabel(r.scope), r.decision].some((t) => t.toLowerCase().includes(q))),
-  );
-}
-
-export function filterAgents(agents: AgentInfo[], query: string): AgentInfo[] {
-  const q = query.trim().toLowerCase();
-  return agents.filter((a) => !q || a.name.toLowerCase().includes(q));
-}
-
-export function filterRegistry(registry: RegistryAgent[], query: string): RegistryAgent[] {
-  const q = query.trim().toLowerCase();
-  return registry.filter((r) => !q || r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q));
+export function filterRules(rules: PermissionRule[], filter: Filter): PermissionRule[] {
+  return rules.filter((r) => filter === "all" || r.scope.type === filter);
 }
 
 export function summary(s: McpServerDef) {
   return s.transport.type === "stdio" ? `${s.transport.command} ${(s.transport.args ?? []).join(" ")}`.trim() : s.transport.url;
-}
-
-export function filterServers(servers: McpServerDef[], query: string): McpServerDef[] {
-  const q = query.trim().toLowerCase();
-  return servers.filter((s) => !q || s.name.toLowerCase().includes(q) || summary(s).toLowerCase().includes(q));
 }
 
 export type Row = { key: string; value: string; secret: boolean; /** Secret already stored in the Keychain. */ stored: boolean };

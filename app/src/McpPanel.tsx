@@ -3,7 +3,7 @@ import { Lock, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { HarnessClient, McpServerDef } from "@harness/api";
 import { Badge, Button, Input, Select, Tooltip } from "@harness/ui";
 import { SectionHeader } from "./SectionHeader";
-import { filterServers, fromForm, summary, type Form, type Row } from "./settings";
+import { fromForm, summary, type Form, type Row } from "./settings";
 
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e));
@@ -27,11 +27,10 @@ function toForm(s: McpServerDef): Form {
 
 /** The MCP Library: MCP servers the user can give to Agents when creating a Session. */
 export function McpPanel({
-  client, onChanged, query,
+  client, onChanged,
 }: {
   client: HarnessClient;
   onChanged?: () => void;
-  query: string;
 }) {
   const [servers, setServers] = useState<McpServerDef[]>([]);
   const [form, setForm] = useState<Form | null>(null);
@@ -84,7 +83,6 @@ export function McpPanel({
   const patch = (p: Partial<Form>) => setForm((f) => f && { ...f, ...p });
   const patchRow = (i: number, p: Partial<Row>) => setForm((f) => f && { ...f, rows: f.rows.map((r, j) => (j === i ? { ...r, ...p } : r)) });
   const rowLabel = form?.kind === "http" ? "Headers" : "Environment";
-  const shown = filterServers(servers, query);
   const valid = form && form.name.trim() && (form.kind === "stdio" ? form.command.trim() : form.url.trim());
 
   return (
@@ -164,9 +162,9 @@ export function McpPanel({
         </div>
       ) : (
         <div className="grid gap-3 text-sm">
-          {shown.length === 0 && <p className="text-muted-foreground">{servers.length === 0 ? "No MCP servers yet." : "No matching servers."}</p>}
+          {servers.length === 0 && <p className="text-muted-foreground">No MCP servers yet.</p>}
           <ul className="grid gap-2">
-            {shown.map((s) => (
+            {servers.map((s) => (
               <li key={s.id} className="flex items-center gap-2 rounded-md border p-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

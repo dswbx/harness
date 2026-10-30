@@ -140,7 +140,7 @@ export function PromptEditor(props: Props) {
       <div className="relative">
         <div ref={scroller} onScroll={measure} className="relative max-h-[40vh] overflow-y-auto">
           <RichTextPlugin
-            contentEditable={<ContentEditable aria-label="Message" className="min-h-10 px-1 text-sm outline-none" />}
+            contentEditable={<ContentEditable aria-label="Message" spellCheck={false} autoCorrect="off" autoCapitalize="off" className="min-h-10 px-1 text-sm outline-none" />}
             placeholder={<div className="pointer-events-none absolute left-1 top-0 select-none text-sm text-muted-foreground">{props.placeholder}</div>}
             ErrorBoundary={LexicalErrorBoundary}
           />

@@ -5,18 +5,14 @@ import { RenderUi } from "./RenderUi";
 import { components, type ComponentType, type RawNode } from "./tools";
 
 /** Every `render_ui` component with its live example (ADR 0013). State and messages stay local. */
-export function RenderUiGallery({ query = "" }: { query?: string }) {
-  const q = query.trim().toLowerCase();
-  const names = (Object.keys(components) as ComponentType[]).filter(
-    (n) => !q || n.toLowerCase().includes(q) || components[n].description.toLowerCase().includes(q),
-  );
+export function RenderUiGallery() {
+  const names = Object.keys(components) as ComponentType[];
   return (
     <div className="grid grid-cols-1 gap-4">
       <p className="text-sm text-muted-foreground">
         What Agents can show with <code className="rounded bg-muted px-1 font-mono text-xs">render_ui</code>: inline in the chat, or in a live area (top, bottom, a tab on the right). Examples are interactive; their state stays on this page.
       </p>
       {names.map((n) => <Entry key={n} name={n} />)}
-      {names.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No component matches.</p>}
     </div>
   );
 }
