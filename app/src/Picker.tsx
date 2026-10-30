@@ -71,7 +71,7 @@ export function Picker({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent matchTrigger className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] flex-col p-0" onKeyDown={onKeyDown}>
         {search && (
-          <div className="flex items-center gap-2 border-b px-3">
+          <div className="flex items-center gap-2 border-b px-2.5">
             <Search className="size-4 shrink-0 text-muted-foreground" />
             <input
               autoFocus
@@ -79,7 +79,7 @@ export function Picker({
               value={search.value}
               onChange={(e) => search.onChange(e.target.value)}
               placeholder={search.placeholder}
-              className={cn("h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground", search.mono && "font-mono text-[13px]")}
+              className={cn("h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground", search.mono && "font-mono text-[13px]")}
             />
           </div>
         )}
@@ -90,7 +90,7 @@ export function Picker({
             <div key={it.key}>
               {it.separated && <div className="-mx-1 my-1 h-px bg-border" />}
               {it.section && it.section !== items[i - 1]?.section && (
-                <div className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{it.section}</div>
+                <div className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">{it.section}</div>
               )}
               <button
                 type="button"
@@ -102,7 +102,7 @@ export function Picker({
                 onMouseMove={() => active !== i && !it.disabled && setActive(i)}
                 onClick={it.onSelect}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm outline-none disabled:opacity-50",
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none disabled:opacity-50",
                   i === active && "bg-accent text-accent-foreground",
                 )}
               >
@@ -117,7 +117,7 @@ export function Picker({
   );
 }
 
-/** The closed state of a picker: icon, title, subtitle, chevron. Forwards trigger props. */
+/** The closed state of a picker, one line like an input: icon, title, muted subtitle, chevron. Forwards trigger props. */
 export function FieldButton({
   icon, title, subtitle, placeholder, className, ...props
 }: { icon: ReactNode; title?: ReactNode; subtitle?: ReactNode; placeholder?: string } & Omit<React.ComponentProps<"button">, "title">) {
@@ -125,15 +125,15 @@ export function FieldButton({
     <button
       type="button"
       className={cn(
-        "flex h-14 w-full items-center gap-3 rounded-lg border border-input bg-background px-3 text-left text-sm outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:border-primary disabled:opacity-50",
+        "flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-transparent px-3 text-left text-sm shadow-xs outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:ring-2 data-[state=open]:ring-ring disabled:opacity-50",
         className,
       )}
       {...props}
     >
-      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-4">{icon}</span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        {title ? <span className="truncate font-medium">{title}</span> : <span className="text-muted-foreground">{placeholder}</span>}
-        {subtitle && <span className="truncate text-xs text-muted-foreground">{subtitle}</span>}
+      <span className="flex shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span>
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        {title ? <span className="min-w-0 shrink-0 truncate">{title}</span> : <span className="text-muted-foreground">{placeholder}</span>}
+        {subtitle && <span className="min-w-0 truncate text-xs text-muted-foreground">{subtitle}</span>}
       </span>
       <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
     </button>

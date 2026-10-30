@@ -33,8 +33,8 @@ const FRONTEND_INFO: Record<string, { icon: typeof MessageSquare; text: string }
 
 function Label({ children, extra }: { children: React.ReactNode; extra?: React.ReactNode }) {
   return (
-    <div className="flex min-h-6 items-center gap-1.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</span>
+    <div className="flex min-h-6 items-center gap-1">
+      <span className="text-xs font-medium text-muted-foreground">{children}</span>
       {extra}
     </div>
   );
@@ -279,12 +279,12 @@ export function ComposerDialog({
         content: (
           <>
             <Folder className={cn("size-4 shrink-0", r.path === folder ? "text-primary" : "text-muted-foreground")} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate font-medium">{baseName(r.path)}</span>
-              <span className="truncate text-xs text-muted-foreground">{tildify(r.path)}</span>
+            <span className="flex min-w-0 flex-1 items-baseline gap-2">
+              <span className="shrink-0">{baseName(r.path)}</span>
+              <span className="min-w-0 truncate text-xs text-muted-foreground">{tildify(r.path)}</span>
             </span>
             {b === null ? <span className="shrink-0 text-xs text-muted-foreground">no git</span> : b && <span className="max-w-32 shrink-0 truncate font-mono text-[11px] text-muted-foreground">{b}</span>}
-            <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">{relTime(r.at)}</span>
+            <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">{relTime(r.at)}</span>
           </>
         ),
       };
@@ -308,7 +308,7 @@ export function ComposerDialog({
       {b.worktree && <Pill>worktree</Pill>}
       <span className="flex-1" />
       {!remote && <AheadBehind b={b} />}
-      <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">{b.time ? relTime(b.time * 1000) : ""}</span>
+      <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">{b.time ? relTime(b.time * 1000) : ""}</span>
     </>
   );
   const branchItems: PickItem[] = [
@@ -348,7 +348,7 @@ export function ComposerDialog({
         <>
           <PrIcon pr={p} className="self-start mt-0.5" />
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate font-medium">{p.title}</span>
+            <span className="truncate">{p.title}</span>
             <span className="truncate text-xs text-muted-foreground">
               #{p.number} · {p.draft ? "draft · " : ""}{p.author} · <span className="font-mono">{p.fork ? `fork:${p.head}` : p.head}</span> · {relTime(Date.parse(p.updated_at))}
             </span>
@@ -367,8 +367,8 @@ export function ComposerDialog({
       onSelect: () => { setAgentId(a.id); setAgentOpen(false); },
       content: (
         <>
-          <AgentIcon icon={a.icon} name={a.name} className="size-7" />
-          <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
+          <AgentIcon icon={a.icon} name={a.name} className="size-5 text-xs" />
+          <span className="min-w-0 flex-1 truncate">{a.name}</span>
           {a.version && <span className="shrink-0 text-xs text-muted-foreground">v{a.version}</span>}
           <Check className={cn("size-4 shrink-0 text-primary", a.id !== agentId && "invisible")} />
         </>
@@ -386,13 +386,13 @@ export function ComposerDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[35rem] gap-5 p-0" onKeyDown={onKeyDown}>
-        <DialogHeader className="px-6 pt-6">
+      <DialogContent className="max-w-[32rem] gap-4 p-0" onKeyDown={onKeyDown}>
+        <DialogHeader className="px-5 pt-5">
           <DialogTitle>New Session</DialogTitle>
           <DialogDescription className="sr-only">Pick the Workspace folder, where to start, the Agent and the Frontend.</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-5 px-6 text-sm">
+        <div className="grid gap-3 px-5 text-sm">
           <div className="grid gap-2">
             <Label>Workspace</Label>
             <Picker
@@ -404,7 +404,7 @@ export function ComposerDialog({
               empty={recent.length ? "No folder matches" : "No recent folders yet"}
               trigger={
                 <FieldButton
-                  icon={<Folder className="text-primary" />}
+                  icon={<Folder />}
                   title={folder ? baseName(folder) : undefined}
                   subtitle={folder ? tildify(folder) : undefined}
                   placeholder="Choose a folder"
@@ -446,8 +446,7 @@ export function ComposerDialog({
                     hint="Another branch than the folder's opens in a new worktree."
                     trigger={
                       <FieldButton
-                        className="h-11"
-                        icon={<GitBranch className="text-primary" />}
+                        icon={<GitBranch />}
                         placeholder="Pick a branch"
                         title={target && (
                           <span className="flex items-center gap-2">
@@ -462,16 +461,16 @@ export function ComposerDialog({
                       />
                     }
                   />
-                  <label className={cn("flex items-center gap-2.5 py-0.5", mustWorktree && "opacity-60")}>
+                  <label className={cn("flex items-center gap-2", mustWorktree && "opacity-60")}>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={worktree || mustWorktree}
                       disabled={mustWorktree}
                       onClick={() => setWorktree((w) => !w)}
-                      className={cn("relative h-[18px] w-8 shrink-0 rounded-full transition-colors", worktree || mustWorktree ? "bg-primary" : "bg-muted-foreground/30")}
+                      className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", worktree || mustWorktree ? "bg-primary" : "bg-muted-foreground/30")}
                     >
-                      <span className={cn("absolute top-0.5 size-3.5 rounded-full bg-background transition-all", worktree || mustWorktree ? "left-4" : "left-0.5")} />
+                      <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", worktree || mustWorktree ? "left-3.5" : "left-0.5")} />
                     </button>
                     <span>Work in a new worktree</span>
                     <span className="text-xs text-muted-foreground">
@@ -504,7 +503,6 @@ export function ComposerDialog({
                   hint="A PR always opens in a new worktree on its head branch."
                   trigger={
                     <FieldButton
-                      className="h-11"
                       icon={<PrIcon pr={pr} />}
                       placeholder="Pick a pull request"
                       title={pr && <span className="truncate">#{pr.number}{pr.title ? ` ${pr.title}` : ""}</span>}
@@ -518,9 +516,9 @@ export function ComposerDialog({
           <div className="grid gap-2">
             <Label>Agent</Label>
             {agents.length === 0 ? (
-              <div className="flex items-center gap-2 rounded-lg border p-3">
+              <div className="flex h-9 items-center gap-2 rounded-md border pl-3 pr-1">
                 <span className="flex-1 text-muted-foreground">No Agents installed yet</span>
-                <Button size="sm" variant="outline" onClick={onManageAgents}>Open Agents</Button>
+                <Button size="sm" variant="ghost" className="h-7" onClick={onManageAgents}>Open Agents</Button>
               </div>
             ) : (
               <Picker
@@ -531,8 +529,7 @@ export function ComposerDialog({
                 items={agentItems}
                 trigger={
                   <FieldButton
-                    className="[&>span:first-child]:bg-transparent"
-                    icon={agent ? <AgentIcon icon={agent.icon} name={agent.name} /> : null}
+                    icon={agent ? <AgentIcon icon={agent.icon} name={agent.name} className="size-4 text-[10px]" /> : null}
                     title={agent?.name}
                     subtitle={agent?.version ? `v${agent.version}` : undefined}
                     placeholder="Pick an Agent"
@@ -560,28 +557,28 @@ export function ComposerDialog({
                 const Icon = info?.icon ?? Puzzle;
                 const on = f.id === frontendId;
                 return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => setFrontendId(f.id)}
-                    className={cn(
-                      "flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                      on ? "border-primary bg-primary/10" : "border-input hover:bg-accent/50",
-                    )}
-                  >
-                    <Icon className={cn("size-[18px]", on ? "text-primary" : "text-muted-foreground")} />
-                    <span className="font-medium">{f.name}</span>
-                    <span className="text-xs text-muted-foreground">{info?.text ?? `v${f.version}`}</span>
-                  </button>
+                  <Tooltip key={f.id} content={info?.text ?? `v${f.version}`}>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setFrontendId(f.id)}
+                      className={cn(
+                        "flex h-9 min-w-0 items-center gap-2 rounded-md border px-2.5 text-left shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                        on ? "border-primary bg-accent" : "border-input hover:bg-accent/50",
+                      )}
+                    >
+                      <Icon className={cn("size-4 shrink-0", on ? "text-foreground" : "text-muted-foreground")} />
+                      <span className="truncate">{f.name}</span>
+                    </button>
+                  </Tooltip>
                 );
               })}
             </div>
           </div>
 
           <div className="grid gap-3">
-            <button type="button" aria-expanded={more} onClick={() => setMore((m) => !m)} className="flex items-center gap-2 text-left text-muted-foreground hover:text-foreground">
+            <button type="button" aria-expanded={more} onClick={() => setMore((m) => !m)} className="flex items-center gap-1.5 text-left text-xs text-muted-foreground hover:text-foreground">
               <ChevronRight className={cn("size-3.5 transition-transform", more && "rotate-90")} />
               More options
               {!more && <span className="truncate text-muted-foreground/70">{moreSummary}</span>}
@@ -590,7 +587,7 @@ export function ComposerDialog({
               <div className="grid gap-3 pl-5">
                 {mcpServers.length > 0 && (
                   <fieldset className="grid gap-1">
-                    <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">MCP servers</legend>
+                    <legend className="mb-1 text-xs font-medium text-muted-foreground">MCP servers</legend>
                     {mcpServers.map((s) => (
                       <label key={s.id} className="flex items-center gap-2">
                         <input
@@ -605,7 +602,7 @@ export function ComposerDialog({
                   </fieldset>
                 )}
                 <label className="grid gap-1">
-                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Title</span>
+                  <span className="text-xs font-medium text-muted-foreground">Title</span>
                   <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={mode === "pr" && pr?.title ? `#${pr.number} ${pr.title}` : folder ? baseName(folder) : "Optional"} />
                 </label>
               </div>
@@ -614,7 +611,7 @@ export function ComposerDialog({
           {error && <p className="whitespace-pre-wrap text-destructive">{error}</p>}
         </div>
 
-        <DialogFooter className="border-t px-6 py-4">
+        <DialogFooter className="border-t px-5 py-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={!canCreate} onClick={() => void create()}>
             Create <span className="text-xs opacity-60">⌘↵</span>
