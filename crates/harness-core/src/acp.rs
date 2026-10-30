@@ -834,6 +834,7 @@ fn merge(base: &mut Value, update: &Value) {
 fn normalize(u: Value) -> EventKind {
     let s = |k: &str| u.get(k).and_then(Value::as_str).map(str::to_owned);
     let text = || u.pointer("/content/text").and_then(Value::as_str).map(str::to_owned);
+    let parent = || u.pointer("/_meta/claudeCode/parentToolUseId").and_then(Value::as_str).map(str::to_owned);
     match s("sessionUpdate").as_deref() {
         Some("agent_message_chunk") if text().is_some() => EventKind::AgentMessageChunk { text: text().unwrap() },
         Some("agent_thought_chunk") if text().is_some() => EventKind::AgentThoughtChunk { text: text().unwrap() },
@@ -845,6 +846,7 @@ fn normalize(u: Value) -> EventKind {
             content: u.get("content").cloned().unwrap_or(Value::Array(vec![])),
             locations: u.get("locations").cloned().unwrap_or(Value::Array(vec![])),
             raw_input: u.get("rawInput").cloned(),
+            parent_tool_call_id: parent(),
         },
         Some("tool_call_update") => EventKind::ToolCallUpdate {
             tool_call_id: s("toolCallId").unwrap_or_default(),
@@ -855,6 +857,7 @@ fn normalize(u: Value) -> EventKind {
             locations: u.get("locations").cloned(),
             raw_input: u.get("rawInput").cloned(),
             raw_output: u.get("rawOutput").cloned(),
+            parent_tool_call_id: parent(),
         },
         Some("notice") => EventKind::AgentNotice {
             severity: s("severity").unwrap_or_else(|| "info".into()),
@@ -1059,3 +1062,20 @@ fn enum_str<T: serde::Serialize>(v: &T) -> String {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tool_calls_keep_the_subagent_parent() {
+        let call = normalize(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Search",
+            "_meta": { "claudeCode": { "parentToolUseId": "task1" } }
+        }));
+        assert!(matches!(call, EventKind::ToolCall { parent_tool_call_id: Some(p), .. } if p == "task1"));
+        let update = normalize(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed" }));
+        assert!(matches!(update, EventKind::ToolCallUpdate { parent_tool_call_id: None, .. }));
+    }
+}

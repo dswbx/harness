@@ -31,6 +31,8 @@ export type Item =
       locations: unknown;
       rawInput: unknown;
       rawOutput: unknown;
+      /** The subagent's Task tool call when a subagent made this call. */
+      parent: string | null;
     }
   | {
       type: "permission";
@@ -235,6 +237,7 @@ function apply(c: Ctx, e: Event) {
         locations: k.locations,
         rawInput: k.raw_input,
         rawOutput: null,
+        parent: k.parent_tool_call_id ?? (existing !== undefined ? (d.items[existing] as Tool).parent : null),
       };
       if (existing !== undefined) own(c)[existing] = item;
       else {
@@ -249,7 +252,7 @@ function apply(c: Ctx, e: Event) {
       const prev = at !== undefined ? (d.items[at] as Tool) : null;
       const base: Tool = prev ?? {
         type: "tool", id: k.tool_call_id, title: "Tool call", kind: null, status: null,
-        content: [], locations: null, rawInput: null, rawOutput: null,
+        content: [], locations: null, rawInput: null, rawOutput: null, parent: null,
       };
       const next: Tool = {
         ...base,
@@ -260,6 +263,7 @@ function apply(c: Ctx, e: Event) {
         locations: k.locations ?? base.locations,
         rawInput: k.raw_input ?? base.rawInput,
         rawOutput: k.raw_output ?? base.rawOutput,
+        parent: k.parent_tool_call_id ?? base.parent,
       };
       if (at === undefined) {
         idx.set(next.id, own(c).length);

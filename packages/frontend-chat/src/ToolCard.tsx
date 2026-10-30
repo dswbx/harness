@@ -4,6 +4,7 @@ import { splitPatch, unifiedPatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
 import { Badge, cn } from "@harness/ui";
 import { blockText, harnessToolName, type ContentBlock, type Item } from "./reducer";
+import { isHandback } from "./subagents";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
@@ -59,7 +60,7 @@ export function ToolCard({ tool }: { tool: Tool }) {
             <Badge variant="secondary">MCP</Badge>
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate font-mono text-xs">{tool.title}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{isHandback(tool) ? "Subagent report" : tool.title}</span>
         )}
         {tool.kind && <span className="text-xs text-muted-foreground">{tool.kind}</span>}
         {hasBody && <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} />}

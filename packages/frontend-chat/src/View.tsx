@@ -13,6 +13,8 @@ import { AuthCard } from "./Auth";
 import { PermissionCard } from "./Permission";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { ToolCard } from "./ToolCard";
+import { SubagentCard } from "./SubagentCard";
+import { groupSubagents, type Subagent } from "./subagents";
 import { splitDetails } from "./errors";
 import { initialState, reduce, reduceBatch, type Item, type ChatState } from "./reducer";
 
@@ -188,7 +190,7 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
   );
 }
 
-const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void }) {
+const Row = memo(function Row({ item, api, onOpenDiff, subagent }: { item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent }) {
   switch (item.type) {
     case "changes":
       return (
@@ -224,7 +226,7 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
     case "frontend_tool":
       return <FrontendToolRow item={item} />;
     case "tool":
-      return <ToolCard tool={item} />;
+      return subagent ? <SubagentCard task={item} subagent={subagent} /> : <ToolCard tool={item} />;
     case "permission":
       if (item.auto) {
         return (
@@ -270,7 +272,11 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
 
   const openDiff = useCallback((s: DiffScope) => { setScope(s); setPanel(true); }, []);
   // Resolved permission cards render nothing; keep them out of the virtual list.
-  const rows = useMemo(() => state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved)), [state.items]);
+  // Subagent tool calls go inside their Task call's card.
+  const { rows, subagents } = useMemo(
+    () => groupSubagents(state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved))),
+    [state.items],
+  );
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);
 
   const running = state.turnId !== null;
@@ -325,7 +331,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         gap={24}
         innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
-        renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} />}
+        renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} subagent={subagents.get(rows[i]!.id)} />}
         footer={<Working since={state.turnStartedAt} />}
       />
       {state.archived ? (

@@ -629,6 +629,10 @@ pub enum EventKind {
         locations: Json,
         #[specta(type = Option<specta_typescript::Unknown>)]
         raw_input: Option<Json>,
+        /// The subagent's Task tool call when a subagent made this call (Claude:
+        /// `_meta.claudeCode.parentToolUseId`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -644,6 +648,8 @@ pub enum EventKind {
         raw_input: Option<Json>,
         #[specta(type = Option<specta_typescript::Unknown>)]
         raw_output: Option<Json>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
     },
     TaskListUpdated {
         entries: Vec<TaskEntry>,

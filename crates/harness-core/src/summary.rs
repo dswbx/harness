@@ -91,6 +91,7 @@ mod tests {
                 content: serde_json::json!([]),
                 locations: serde_json::json!([]),
                 raw_input: None,
+                parent_tool_call_id: None,
             }),
             ev("t", EventKind::AgentMessageChunk { text: "done.".into() }),
             ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![] }),
