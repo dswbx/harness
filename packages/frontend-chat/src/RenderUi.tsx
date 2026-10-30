@@ -9,6 +9,7 @@ import { DiffViewer } from "./DiffViewer";
 import { Diff as FileDiff } from "./ToolCard";
 import { uiIcons } from "./uiIcons";
 import { AnsiText } from "./AnsiText";
+import { InlineMarkdown as Md } from "./InlineMarkdown";
 
 /** recharts is large: loaded the first time a Chart shows. */
 const UiChart = lazy(() => import("./UiChart"));
@@ -309,7 +310,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
             <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border border-muted-foreground/50", on && "border-primary")}>
               {on && <span className="size-2 rounded-full bg-primary" />}
             </span>
-            <span className="min-w-0 flex-1">{o.label}</span>
+            <span className="min-w-0 flex-1"><Md>{o.label}</Md></span>
             {verdict === "right" && <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-label="correct" />}
             {verdict === "wrong" && <XCircle className="size-4 shrink-0 text-destructive" aria-label="wrong" />}
           </button>
@@ -505,8 +506,8 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
             {path && <span className="mt-0.5"><CheckBox on={done} label={it.title} /></span>}
             {it.icon && <IconOf name={it.icon} className={cn("mt-0.5 text-muted-foreground", it.tone && it.tone !== "neutral" && t.fg)} />}
             <span className="min-w-0 flex-1">
-              <span className={cn("block text-ui", done && "text-muted-foreground line-through")}>{it.title}</span>
-              {it.description && <span className="block text-ui-sm text-muted-foreground">{it.description}</span>}
+              <span className={cn("block text-ui", done && "text-muted-foreground line-through")}><Md>{it.title}</Md></span>
+              {it.description && <span className="block text-ui-sm text-muted-foreground"><Md>{it.description}</Md></span>}
             </span>
             {it.badge && <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-ui-sm", t.box, t.fg)}>{it.badge}</span>}
             {it.meta && <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">{it.meta}</span>}
@@ -608,10 +609,10 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
                 <th key={i} className="px-3 py-2 font-medium" aria-sort={sort?.col === i ? (sort.desc ? "descending" : "ascending") : undefined}>
                   {node.props.sortable ? (
                     <button type="button" onClick={() => click(i)} className="inline-flex items-center gap-1 hover:text-foreground">
-                      {c}
+                      <Md>{c}</Md>
                       {sort?.col === i && (sort.desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
                     </button>
-                  ) : c}
+                  ) : <Md>{c}</Md>}
                 </th>
               ))}
             </tr>
@@ -619,7 +620,7 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className="border-t">
-                {r.map((c, j) => <td key={j} className="px-3 py-2 align-top">{c}</td>)}
+                {r.map((c, j) => <td key={j} className="px-3 py-2 align-top"><Md>{c}</Md></td>)}
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={columns.length} className="px-3 py-3 text-center text-muted-foreground">No rows</td></tr>}
@@ -789,7 +790,7 @@ function Node({ raw }: { raw: RawNode }) {
                 {Icon && <Icon className={cn("size-4 shrink-0", node.props.tone && node.props.tone !== "neutral" ? t.fg : "text-muted-foreground")} />}
                 <span className="min-w-0">{node.props.title}</span>
               </div>
-              {node.props.description && <div className="mt-0.5 text-ui-sm text-muted-foreground">{node.props.description}</div>}
+              {node.props.description && <div className="mt-0.5 text-ui-sm text-muted-foreground"><Md>{node.props.description}</Md></div>}
             </div>
           )}
           {(kids?.length ?? 0) > 0 && <div className="space-y-2 p-3">{kids}</div>}
@@ -803,8 +804,8 @@ function Node({ raw }: { raw: RawNode }) {
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
           {(node.props.items ?? []).map((it, i) => (
             <div key={i} className="contents">
-              <dt className="text-muted-foreground">{it.label}</dt>
-              <dd className="min-w-0 break-words">{it.value}</dd>
+              <dt className="text-muted-foreground"><Md>{it.label}</Md></dt>
+              <dd className="min-w-0 break-words"><Md>{it.value}</Md></dd>
             </div>
           ))}
         </dl>

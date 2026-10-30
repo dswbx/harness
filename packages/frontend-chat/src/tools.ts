@@ -81,7 +81,7 @@ export const components = {
     description: "A table: column headings and rows of cell text. `sortable` sorts by a clicked column; `filter` adds a search box.",
     children: false,
     props: s.object({ columns: s.array(s.string()), rows: s.array(s.array(s.string())), sortable: s.boolean().optional(), filter: s.boolean().optional() }),
-    example: { node: { type: "Table", props: { sortable: true, filter: true, columns: ["Page", "Before", "After"], rows: [["Home", "1.8s", "0.9s"], ["Settings", "1.2s", "0.7s"], ["Search", "2.4s", "1.1s"]] } } },
+    example: { node: { type: "Table", props: { sortable: true, filter: true, columns: ["Route", "Before", "After"], rows: [["`/`", "1.8s", "0.9s"], ["`/settings`", "1.2s", "0.7s"], ["`/search`", "2.4s", "**1.1s**"]] } } },
   },
   Badge: {
     description: "A short label, e.g. a status.",
@@ -496,6 +496,7 @@ export const frontendTools = [
       '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
       "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
+      "Short text props (table cells and headings, KeyValue, List items, Choice labels, Card descriptions) take inline Markdown: `code`, **bold**, *italic*, links.\n" +
       "Use it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message.\n" +
       `Icons (the icon prop): ${ICONS.join(", ")}.\nComponents:\n` +
       catalogText(),
