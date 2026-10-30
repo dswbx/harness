@@ -1,6 +1,7 @@
 import type { AppEvent, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, BranchInfo, PullRequest, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
+import { applyStatePatch } from "./state";
 
 /**
  * Browser-only Transport for development without Tauri. Sessions start with `fixture`
@@ -72,6 +73,7 @@ export class MockTransport implements Transport {
   /** Per-session Frontend state files. */
   private frontendFiles = new Map<string, Map<string, string>>();
   private cardN = 0;
+  private states = new Map<string, unknown>();
   /** Stored attachment path -> pasted bytes (path inputs have no bytes in the browser). */
   private attachments = new Map<string, { mime: string; data: string }>();
 
@@ -314,6 +316,14 @@ export class MockTransport implements Transport {
         const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);
         if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
         return { type: "FileContent", content: c };
+      }
+      case "GetState":
+        return { type: "State", state: this.states.get(cmd.session_id) ?? {} };
+      case "PatchState": {
+        const next = applyStatePatch(this.states.get(cmd.session_id) ?? {}, cmd.ops);
+        this.states.set(cmd.session_id, next);
+        this.emit(cmd.session_id, { type: "StateChanged", ops: cmd.ops, by: "user" });
+        return { type: "Ok" };
       }
       case "FrontendReadImage": {
         const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);

@@ -104,6 +104,8 @@ pub struct Session {
     log: SessionLog,
     agent: crate::acp::AgentSlot,
     shared: Arc<Shared>,
+    /// Serializes Session State writes (`state.json` + `StateChanged`).
+    state_lock: std::sync::Mutex<()>,
 }
 
 impl Session {
@@ -191,7 +193,7 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
-        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared }
+        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared, state_lock: Default::default() }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -250,6 +252,47 @@ impl Session {
 
     pub fn frontend_read(&self, rel: &str) -> anyhow::Result<String> {
         Ok(std::fs::read_to_string(self.frontend_path(rel)?)?)
+    }
+
+    /// The Session State (ADR 0015); `{}` before the first change.
+    pub fn state(&self) -> anyhow::Result<serde_json::Value> {
+        match std::fs::read(self.dir.join("state.json")) {
+            Ok(b) => Ok(serde_json::from_slice(&b)?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Applies `ops` to the Session State (all or nothing), stores it and logs `StateChanged`.
+    pub fn patch_state(&self, thread: Option<ThreadId>, ops: Vec<crate::api::StatePatchOp>, by: crate::api::StateWriter) -> anyhow::Result<serde_json::Value> {
+        anyhow::ensure!(!ops.is_empty(), "no operations");
+        let _guard = self.state_lock.lock().unwrap();
+        let next = crate::state::apply(&self.state()?, &ops)?;
+        let tmp = self.dir.join("state.json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&next)?)?;
+        std::fs::rename(tmp, self.dir.join("state.json"))?;
+        self.log.append(thread, EventKind::StateChanged { ops, by })?;
+        Ok(next)
+    }
+
+    /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
+    /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<(String, String, serde_json::Value)>> {
+        let mut items: Vec<(String, String, serde_json::Value)> = Vec::new();
+        for e in self.log.events()? {
+            let EventKind::FrontendToolOutput { tool, input, .. } = e.kind else { continue };
+            let Some(id) = input.get("id").and_then(|v| v.as_str()).map(str::to_owned) else { continue };
+            let at = items.iter().position(|(t, i, _)| *t == tool && *i == id);
+            match (input.get("remove") == Some(&serde_json::Value::Bool(true)), at) {
+                (true, Some(i)) => {
+                    items.remove(i);
+                }
+                (true, None) => {}
+                (false, Some(i)) => items[i].2 = input,
+                (false, None) => items.push((tool, id, input)),
+            }
+        }
+        Ok(items)
     }
 
     pub fn frontend_dir(&self) -> PathBuf {

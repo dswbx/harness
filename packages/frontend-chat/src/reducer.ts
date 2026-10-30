@@ -1,5 +1,5 @@
 import { renderUiSchema, RENDER_UI, type RenderUiInput } from "./tools";
-import type { Attachment, AuthMethodInfo, Event, FileChange, PermissionOption, PermissionRule, SlashCommand, TaskEntry } from "@harness/api";
+import { applyStatePatch, type Attachment, type AuthMethodInfo, type Event, type FileChange, type PermissionOption, type PermissionRule, type SlashCommand, type TaskEntry } from "@harness/api";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
 
@@ -105,6 +105,8 @@ export type ChatState = {
   archived: boolean;
   /** What the Agent accepts in a prompt; null until its process has started. */
   promptCaps: { image: boolean; embeddedContext: boolean } | null;
+  /** The Session State (ADR 0015), rebuilt from `StateChanged` (every Thread: it is per Session). */
+  uiState: unknown;
 };
 
 export const initialState = (): ChatState => ({
@@ -122,6 +124,7 @@ export const initialState = (): ChatState => ({
   lastTurnErrored: false,
   archived: false,
   promptCaps: null,
+  uiState: {},
 });
 
 /** Plan Mode approval: a permission request for a `switch_mode` tool call carrying a plan. */
@@ -206,6 +209,14 @@ export function reduceBatch(state: ChatState, events: readonly Event[]): ChatSta
 function apply(c: Ctx, e: Event) {
   const d = c.d;
   const k = e.kind;
+  if (k.type === "StateChanged") {
+    try {
+      d.uiState = applyStatePatch(d.uiState, k.ops);
+    } catch {
+      // The core applied this patch; a failure here means our rules drifted. Keep the last state.
+    }
+    return;
+  }
   // Ignore Side Threads: the chat View renders the Main Thread only.
   if (k.type === "ThreadStarted" && k.main && !d.mainThreadId) d.mainThreadId = e.thread_id;
   if (e.thread_id && d.mainThreadId && e.thread_id !== d.mainThreadId) return;

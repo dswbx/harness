@@ -153,10 +153,11 @@ fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
     facts.paths.iter().all(|p| m.is_match(p))
 }
 
-/// Built-in defaults: reading inside the Workspace, committing and Frontend Tools are allowed;
+/// Built-in defaults: reading inside the Workspace, committing, Frontend Tools and Session State
+/// changes are allowed;
 /// everything else (edits, commands, fetches, pushes) asks.
 fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
-    let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool"));
+    let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
     if safe && facts.paths.iter().all(|p| p.starts_with(cx.folder)) {
         Decision::Allow
     } else {

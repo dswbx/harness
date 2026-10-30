@@ -1,6 +1,6 @@
 import type {
   AgentInfo, AppEvent, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
-  SessionSummary, WorkspaceInfo,
+  SessionSummary, StatePatchOp, WorkspaceInfo,
 } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
 
@@ -42,6 +42,10 @@ export interface SessionApi {
   gitPush(): Promise<void>;
   /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
   frontendRead(path: string): Promise<string>;
+  /** The Session State (ADR 0015); also rebuilt from `StateChanged` events. */
+  getState(): Promise<unknown>;
+  /** Changes the Session State as the user (all or nothing). */
+  patchState(ops: StatePatchOp[]): Promise<void>;
   /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
   frontendReadImage(path: string): Promise<{ mime: string; data: string }>;
   frontendWrite(path: string, content: string): Promise<void>;
@@ -100,6 +104,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     gitPush: () => run({ type: "GitPush", session_id: sessionId }),
     frontendRead: async (path) =>
       (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent")).content,
+    getState: async () => (await expect({ type: "GetState", session_id: sessionId }, "State")).state,
+    patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),
     frontendReadImage: async (path) => {
       const r = await expect({ type: "FrontendReadImage", session_id: sessionId, path }, "Attachment");
       return { mime: r.mime, data: r.data };

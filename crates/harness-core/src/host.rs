@@ -225,6 +225,11 @@ impl Harness {
             Command::FrontendRead { session_id, path } => {
                 CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? }
             }
+            Command::GetState { session_id } => CommandResult::State { state: self.session(&session_id)?.state()? },
+            Command::PatchState { session_id, ops } => {
+                self.session(&session_id)?.patch_state(None, ops, crate::api::StateWriter::User)?;
+                CommandResult::Ok
+            }
             Command::FrontendReadImage { session_id, path } => {
                 let (mime, data) = self.session(&session_id)?.frontend_read_image(&path)?;
                 CommandResult::Attachment { mime, data }

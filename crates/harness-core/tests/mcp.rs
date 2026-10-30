@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_core::api::{
-    AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, FrontendToolDecl, McpServerDef, McpTransport,
+    AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, StatePatchOp, StateWriter, FrontendToolDecl, McpServerDef, McpTransport,
 };
 use harness_core::host::Options;
 use harness_core::Harness;
@@ -48,7 +48,10 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
                 "properties": {
                     "title": { "type": "string" },
                     "items": { "type": "array", "items": { "type": "string" } },
-                    "image": { "type": "string", "format": "harness-image" }
+                    "image": { "type": "string", "format": "harness-image" },
+                    "id": { "type": "string" },
+                    "placement": { "type": "string" },
+                    "remove": { "type": "boolean" }
                 },
                 "required": ["title"],
                 "additionalProperties": false
@@ -144,7 +147,7 @@ async fn primitives_over_http() {
     let sid = create(&h, &repo, vec![]).await;
 
     let tools = ask(&h, &sid, "mcp-list", None).await;
-    assert_eq!(tools, "tools: git_status,git_diff,list_branches,git_commit,git_push,json_render");
+    assert_eq!(tools, "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,json_render");
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
     let status = ask(&h, &sid, "mcp git_status {}", None).await;
@@ -206,6 +209,45 @@ async fn frontend_tool_is_validated_and_stored() {
     h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "state/view.json".into(), content: "{}".into() }).await.unwrap();
     assert!(h.execute(Command::FrontendRead { session_id: sid.clone(), path: "../session.json".into() }).await.is_err());
     assert!(h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "/tmp/x".into(), content: "".into() }).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_state_and_harness_info() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+
+    let r = ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"add","path":"/quiz/score","value":0},{"op":"add","path":"/quiz/answers","value":[]}]}"#, None).await;
+    assert!(r.starts_with("mcp: {") && r.contains("\"score\": 0"), "{r}");
+    let bad = ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"replace","path":"/quiz/score","value":9},{"op":"test","path":"/quiz/score","value":0}]}"#, None).await;
+    assert!(bad.starts_with("mcp error: test failed at /quiz/score"), "{bad}");
+    // The user (a bound UI component) changes it too.
+    h.execute(Command::PatchState {
+        session_id: sid.clone(),
+        ops: vec![StatePatchOp::Add { path: "/quiz/answers/-".into(), value: serde_json::json!("B") }],
+    })
+    .await
+    .unwrap();
+    let got = ask(&h, &sid, r#"mcp state_get {"statePath":"/quiz"}"#, None).await;
+    assert!(got.contains("\"answers\": [\n    \"B\"\n  ]") && got.contains("\"score\": 0"), "{got}");
+    let CommandResult::State { state } = h.execute(Command::GetState { session_id: sid.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(state, serde_json::json!({ "quiz": { "score": 0, "answers": ["B"] } }));
+    let writers: Vec<StateWriter> = events(&h, &sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::StateChanged { by, .. } => Some(by),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(writers, vec![StateWriter::Agent, StateWriter::User], "a failed patch logs nothing");
+
+    // Frontend Tool calls with an id are live items until removed.
+    ask(&h, &sid, r#"mcp json_render {"title":"a","id":"score","placement":"bottom"}"#, None).await;
+    let done = ask(&h, &sid, r#"mcp json_render {"title":"b","id":"q","placement":"right"}"#, None).await;
+    assert!(done.contains(r#"Live items: [{"tool":"json_render","id":"score","placement":"bottom","title":"a"},{"tool":"json_render","id":"q","placement":"right","title":"b"}]"#), "{done}");
+    ask(&h, &sid, r#"mcp json_render {"title":"c","id":"score","remove":true}"#, None).await;
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    assert!(info.contains("\"id\": \"q\"") && !info.contains("\"score\"") && info.contains("\"quiz\""), "{info}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -334,4 +376,11 @@ fn generated_chat_manifest_validates_in_core() {
     assert!(e.contains("/root/type"), "{e}");
     let e = errors(json!({ "root": { "type": "Markdown", "props": { "text": "x" }, "children": [{ "type": "Markdown", "props": { "text": "y" } }] } }));
     assert!(e.contains("/root/children"), "{e}");
+    // Placements, bindings and actions.
+    assert_eq!(errors(json!({ "id": "score", "placement": "bottom", "root": { "type": "Stat", "props": { "label": "Score", "value": { "$template": "${/quiz/score} / 5" } } } })), "");
+    assert_eq!(errors(json!({ "id": "score", "remove": true })), "");
+    assert_eq!(errors(json!({ "root": { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" }, "options": [{ "value": "a", "label": "A" }] },
+        "on": { "change": { "action": "sendMessage", "params": { "text": { "$template": "Answer: ${/a/q1}" } } } } } })), "");
+    assert!(errors(json!({ "placement": "right", "root": { "type": "Markdown", "props": { "text": "x" } } })).contains("\"id\" is a required property"));
+    assert!(!errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "setState", "params": { "value": 1 } } } } })).is_empty());
 }

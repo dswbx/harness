@@ -120,6 +120,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "SaveMcpServer"; server: McpServerDef; secrets?: { [key in string]: string } } | { type: "RemoveMcpServer"; server_id: string } | 
 /**  Reads a file of the Session's Frontend state (`frontend/` in the Session Directory). */
 { type: "FrontendRead"; session_id: string; path: string } | 
+/**  The Session State (ADR 0015). */
+{ type: "GetState"; session_id: string } | 
+/**  Changes the Session State as the user (e.g. a bound UI component). */
+{ type: "PatchState"; session_id: string; ops: StatePatchOp[] } | 
 /**  An image in `frontend/` (base64), e.g. one a Frontend Tool call named. */
 { type: "FrontendReadImage"; session_id: string; path: string } | { type: "FrontendWrite"; session_id: string; path: string; content: string } | 
 /**  Files under `dir` (recursive, relative to `frontend/`). */
@@ -184,7 +188,7 @@ option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermi
  */
 { type: "ReadImageFile"; path: string };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
+export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
 { type: "Attachment"; mime: string; data: string };
 
@@ -272,7 +276,12 @@ rule_id?: string | null } |
  *  Local images the input names (`"format": "harness-image"`): src as given -> the copy,
  *  relative to `frontend/`. Read them with `FrontendReadImage`.
  */
-files?: { [key in string]: string } } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
+files?: { [key in string]: string } } | 
+/**
+ *  The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
+ *  current state.
+ */
+{ type: "StateChanged"; ops: StatePatchOp[]; by: StateWriter } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
 /**
  *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
  *  output). `severity` is `info`, `warning`, `error` or a custom value.
@@ -409,6 +418,12 @@ export type SlashCommand = {
 	description: string,
 	hint: string | null,
 };
+
+/**  One Session State patch operation (lenient JSON Patch, see `state.rs`). */
+export type StatePatchOp = { op: "add"; path: string; value: unknown } | { op: "replace"; path: string; value: unknown } | { op: "remove"; path: string } | { op: "test"; path: string; value: unknown };
+
+/**  Who changed the Session State. */
+export type StateWriter = "agent" | "user";
 
 export type TaskEntry = {
 	content: string,

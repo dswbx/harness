@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, ShieldCheck, ShieldX } from "lucide-react";
+import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
@@ -12,6 +12,9 @@ import { formatDuration } from "./time";
 import { AuthCard } from "./Auth";
 import { PermissionCard } from "./Permission";
 import { FrontendToolRow } from "./FrontendToolCard";
+import { RenderUi, type UiEnv } from "./RenderUi";
+import { splitRenderUi, type Slot } from "./slots";
+import type { RawNode } from "./tools";
 import { ToolCard } from "./ToolCard";
 import { SubagentCard } from "./SubagentCard";
 import { splitDetails } from "./errors";
@@ -213,8 +216,9 @@ function HarnessContext({ text }: { text: string }) {
   );
 }
 
-const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
-  item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent<Tool>;
+const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagent, streaming }: {
+  item: Item; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
+  onOpenDiff: (s: DiffScope) => void; subagent?: Subagent<Tool>;
   /** The last row while a Turn runs: an agent message is still coming in. */
   streaming?: boolean;
 }) {
@@ -253,7 +257,7 @@ const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
         </details>
       );
     case "frontend_tool":
-      return <FrontendToolRow item={item} api={api} />;
+      return <FrontendToolRow item={item} env={env} view={view ?? undefined} />;
     case "tool":
       return subagent ? <SubagentCard task={item} subagent={subagent} /> : <ToolCard tool={item} />;
     case "permission":
@@ -278,6 +282,72 @@ const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
   }
 });
 
+const slotKey = (x: Slot) => JSON.stringify(x.root);
+
+/** render_ui items placed top or bottom: live, in the chat's column. Each can be hidden until it changes. */
+function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className?: string }) {
+  const [hidden, setHidden] = useState<Record<string, string>>({});
+  const shown = slots.filter((x) => hidden[x.id] !== slotKey(x));
+  if (shown.length === 0) return null;
+  return (
+    <div className={cn("shrink-0", className)}>
+      <div className="mx-auto grid max-w-3xl gap-2 px-10 pb-3">
+        {shown.map((x) => (
+          <div key={x.id} className="group/slot relative rounded-lg border bg-card p-3">
+            <button
+              aria-label={`Hide ${x.title ?? x.id}`}
+              onClick={() => setHidden({ ...hidden, [x.id]: slotKey(x) })}
+              className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/slot:opacity-100"
+            >
+              <X className="size-3.5" />
+            </button>
+            <RenderUi root={x.root} env={{ ...env, files: x.files }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Toolbar button of a right-placed slot; a dot marks changes made while it was closed. */
+function SlotTab({ slot, open, onClick }: { slot: Slot; open: boolean; onClick: () => void }) {
+  const key = slotKey(slot);
+  const [seen, setSeen] = useState(key);
+  useEffect(() => { if (open) setSeen(key); }, [open, key]);
+  const label = slot.title ?? slot.id;
+  return (
+    <Tooltip content={label} side="bottom">
+      <Button
+        size="icon"
+        variant="ghost"
+        className={cn("relative size-7 text-muted-foreground hover:text-foreground", open && "bg-accent text-foreground")}
+        aria-label={label}
+        aria-pressed={open}
+        onClick={onClick}
+      >
+        <PanelRight />
+        {!open && seen !== key && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />}
+      </Button>
+    </Tooltip>
+  );
+}
+
+function SlotPanel({ slot, env, onClose }: { slot: Slot; env: UiEnv; onClose: () => void }) {
+  return (
+    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l bg-background" aria-label={slot.title ?? slot.id}>
+      <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{slot.title ?? slot.id}</span>
+        <Button size="icon" variant="ghost" className="size-7" aria-label="Close panel" onClick={onClose}>
+          <X />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <RenderUi root={slot.root} env={{ ...env, files: slot.files }} />
+      </div>
+    </aside>
+  );
+}
+
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 
@@ -288,7 +358,8 @@ export function View({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement 
 
 function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  const [panel, setPanel] = useState(false);
+  /** The right panel: "changes" (the diff) or the id of a right-placed render_ui slot. */
+  const [panel, setPanelId] = useState<string | null>(null);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   // Changes need git; hidden until the Workspace is known to be a repository.
@@ -299,13 +370,30 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
     return () => { off = true; };
   }, [api]);
 
-  const openDiff = useCallback((s: DiffScope) => { setScope(s); setPanel(true); }, []);
-  // Resolved permission cards render nothing; keep them out of the virtual list.
+  const openDiff = useCallback((s: DiffScope) => { setScope(s); setPanelId("changes"); }, []);
+  const ui = useMemo(() => splitRenderUi(state.items), [state.items]);
+  const env = useMemo<UiEnv>(
+    () => ({
+      state: state.uiState,
+      patch: (ops) => api.patchState(ops),
+      send: (text) => api.prompt(text),
+      files: {},
+      readImage: (p) => api.frontendReadImage(p),
+      scope: api.sessionId,
+    }),
+    [api, state.uiState],
+  );
+  // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
+  // calls that moved to a slot or were replaced by a later call with their id.
   // Subagent tool calls go inside their Task call's card.
   const { rows, subagents } = useMemo(
-    () => groupSubagents(state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved)), (i) => (i.type === "tool" ? i : null)),
-    [state.items],
+    () => groupSubagents(
+      state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved) && ui.inline.get(i.id) !== null),
+      (i) => (i.type === "tool" ? i : null),
+    ),
+    [state.items, ui],
   );
+  const rightSlot = ui.slots.right.find((x) => x.id === panel) ?? null;
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);
 
   const running = state.turnId !== null;
@@ -321,15 +409,18 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
           </Badge>
         </Tooltip>
       )}
+      {ui.slots.right.map((x) => (
+        <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
+      ))}
       {git && (
         <Tooltip content="Changes" side="bottom">
           <Button
             size="icon"
             variant="ghost"
-            className={cn("size-7 text-muted-foreground hover:text-foreground", panel && "bg-accent text-foreground")}
+            className={cn("size-7 text-muted-foreground hover:text-foreground", panel === "changes" && "bg-accent text-foreground")}
             aria-label="Changes"
-            aria-pressed={panel}
-            onClick={() => setPanel(!panel)}
+            aria-pressed={panel === "changes"}
+            onClick={() => setPanelId(panel === "changes" ? null : "changes")}
           >
             <GitCompare />
           </Button>
@@ -353,6 +444,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         {actions}
       </Portal>
       <TaskListPanel entries={state.taskList} />
+      <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
       <VirtualList
         count={rows.length}
         getKey={(i) => rows[i]!.id}
@@ -360,9 +452,10 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         gap={24}
         innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
-        renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} subagent={subagents.get(rows[i]!.id)} streaming={running && i === rows.length - 1} />}
+        renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagent={subagents.get(rows[i]!.id)} streaming={running && i === rows.length - 1} />}
         footer={<Working since={state.turnStartedAt} />}
       />
+      <Slots slots={ui.slots.bottom} env={env} className="pt-1" />
       {state.archived ? (
         <div role="alert" className="border-t p-3">
           <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
@@ -381,7 +474,8 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         <PromptBox api={api} state={state} />
       )}
     </div>
-    {panel && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanel(false)} refreshKey={refreshKey} />}
+    {panel === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanelId(null)} refreshKey={refreshKey} />}
+    {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => setPanelId(null)} />}
     </div>
   );
 }

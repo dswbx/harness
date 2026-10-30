@@ -93,6 +93,15 @@ pub enum Command {
         session_id: SessionId,
         path: String,
     },
+    /// The Session State (ADR 0015).
+    GetState {
+        session_id: SessionId,
+    },
+    /// Changes the Session State as the user (e.g. a bound UI component).
+    PatchState {
+        session_id: SessionId,
+        ops: Vec<StatePatchOp>,
+    },
     /// An image in `frontend/` (base64), e.g. one a Frontend Tool call named.
     FrontendReadImage {
         session_id: SessionId,
@@ -233,6 +242,38 @@ pub enum Command {
     },
 }
 
+/// One Session State patch operation (lenient JSON Patch, see `state.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "op", rename_all = "lowercase")]
+pub enum StatePatchOp {
+    Add {
+        path: String,
+        #[specta(type = specta_typescript::Unknown)]
+        value: Json,
+    },
+    Replace {
+        path: String,
+        #[specta(type = specta_typescript::Unknown)]
+        value: Json,
+    },
+    Remove {
+        path: String,
+    },
+    Test {
+        path: String,
+        #[specta(type = specta_typescript::Unknown)]
+        value: Json,
+    },
+}
+
+/// Who changed the Session State.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum StateWriter {
+    Agent,
+    User,
+}
+
 /// A file given with a prompt.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -280,6 +321,10 @@ pub enum CommandResult {
     McpServers { servers: Vec<McpServerDef> },
     McpServerSaved { server: McpServerDef },
     FileContent { content: String },
+    State {
+        #[specta(type = specta_typescript::Unknown)]
+        state: Json,
+    },
     Files { files: Vec<String> },
     PermissionRules { rules: Vec<PermissionRule> },
     PermissionRuleAdded { rule: PermissionRule },
@@ -733,6 +778,12 @@ pub enum EventKind {
         /// relative to `frontend/`. Read them with `FrontendReadImage`.
         #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         files: std::collections::BTreeMap<String, String>,
+    },
+    /// The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
+    /// current state.
+    StateChanged {
+        ops: Vec<StatePatchOp>,
+        by: StateWriter,
     },
     GitCommitted {
         commit: String,

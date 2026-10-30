@@ -1,13 +1,17 @@
-import type { SessionApi } from "@harness/api";
-import { RenderUi } from "./RenderUi";
+import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Item } from "./reducer";
+import type { RawNode } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
 
 const raw = (v: unknown) => JSON.stringify(v, null, 2);
 
-export function FrontendToolRow({ item, api }: { item: FT; api: SessionApi }) {
-  if (item.render?.ok) return <RenderUi input={item.render.value} api={api} files={item.files} />;
+/** `view`: what to show for a `render_ui` call with an id (its latest content), if not its own. */
+export function FrontendToolRow({ item, env, view }: { item: FT; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } }) {
+  if (item.render?.ok) {
+    const shown = view ?? (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
+    return shown ? <RenderUi root={shown.root} env={{ ...env, files: shown.files }} /> : null;
+  }
   if (item.render && !item.render.ok) {
     return (
       <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-xs">

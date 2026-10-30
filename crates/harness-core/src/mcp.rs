@@ -142,7 +142,33 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
             json!({ "type": "object", "properties": { "message": { "type": "string" } }, "required": ["message"] }),
             "git_commit",
         ),
-        ("git_push", "Push the current branch to origin (sets upstream).", empty, "git_push"),
+        ("git_push", "Push the current branch to origin (sets upstream).", empty.clone(), "git_push"),
+        (
+            "state_get",
+            "Read the Session State: one JSON document the user's UI can show and change (e.g. a score, answers). Omit `statePath` for all of it.",
+            json!({ "type": "object", "properties": {
+                "statePath": { "type": "string", "description": "JSON Pointer, e.g. /quiz/score" }
+            } }),
+            "read",
+        ),
+        (
+            "state_patch",
+            "Change the Session State with JSON Patch operations, applied all or nothing. `add`/`replace` create missing parent objects; `-` appends to an array; `test` checks a value first. UI bound to a path (`{\"$state\": \"/quiz/score\"}`) updates at once. Returns the new state.",
+            json!({ "type": "object", "properties": {
+                "ops": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": {
+                    "op": { "type": "string", "enum": ["add", "replace", "remove", "test"] },
+                    "path": { "type": "string", "description": "JSON Pointer, e.g. /quiz/score" },
+                    "value": { "description": "For add, replace and test" }
+                }, "required": ["op", "path"] } }
+            }, "required": ["ops"] }),
+            "state",
+        ),
+        (
+            "harness_info",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title) and the top-level keys of the Session State.",
+            empty,
+            "read",
+        ),
     ]
 }
 
@@ -215,6 +241,21 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
                 session.git_push().await?;
                 "Pushed.".to_owned()
             }
+            "state_get" => {
+                let state = session.state()?;
+                let v = match s("statePath").filter(|p| !p.is_empty()) {
+                    Some(p) => state.pointer(&p).cloned().ok_or_else(|| anyhow::anyhow!("nothing at {p}"))?,
+                    None => state,
+                };
+                serde_json::to_string_pretty(&v)?
+            }
+            "state_patch" => {
+                let ops: Vec<crate::api::StatePatchOp> =
+                    serde_json::from_value(args.get("ops").cloned().unwrap_or_default()).map_err(|e| anyhow::anyhow!("invalid ops: {e}"))?;
+                let state = session.patch_state(Some(thread.clone()), ops, crate::api::StateWriter::Agent)?;
+                serde_json::to_string_pretty(&state)?
+            }
+            "harness_info" => serde_json::to_string_pretty(&info(session)?)?,
             _ => unreachable!(),
         });
     }
@@ -232,7 +273,27 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
     let files = crate::frontend_files::store(&session.frontend_dir(), planned)?;
     let path = session.write_frontend_tool_output(thread, name, args, files)?;
-    Ok(format!("Done. The Frontend received it ({path})."))
+    let items = info(session)?["items"].clone();
+    Ok(format!("Done. The Frontend received it ({path}). Live items: {items}"))
+}
+
+/// `harness_info`: live Frontend items (calls with an `id`) and the Session State's top-level keys.
+fn info(session: &Session) -> anyhow::Result<Value> {
+    let items: Vec<Value> = session
+        .frontend_items()?
+        .into_iter()
+        .map(|(tool, id, input)| {
+            let mut item = json!({ "tool": tool, "id": id });
+            for k in ["placement", "title"] {
+                if let Some(v) = input.get(k) {
+                    item[k] = v.clone();
+                }
+            }
+            item
+        })
+        .collect();
+    let keys: Vec<String> = session.state()?.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    Ok(json!({ "items": items, "state_keys": keys }))
 }
 
 /// `harness mcp-shim`: proxies stdio MCP (one JSON-RPC message per line) to the Harness MCP at

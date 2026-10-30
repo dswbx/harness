@@ -5,19 +5,239 @@
   "frontend_tools": [
     {
       "name": "render_ui",
-      "description": "Show rich content to the user in the chat: cards, tables, images, an image carousel, and more. Input: {\"root\": node}. A node is {\"type\", \"props\", \"children\"?}; only Stack and Card take children. Use it for results, status, comparisons or screenshots the user should see, instead of a long plain message. Components:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row.\n- Card(title?, tone?: neutral|info|success|warning|error) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows): A table: column headings and rows of cell text.\n- Badge(text, tone?: neutral|info|success|warning|error): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.",
+      "description": "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, choices, inputs, buttons. Input: {\"root\": node, \"placement\"?, \"id\"?, \"title\"?}. A node is {\"type\", \"props\", \"children\"?, \"on\"?}; only Stack and Card take children.\nPlacement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). A call with the same id replaces that item; {\"id\", \"remove\": true} removes it.\nSession State: any prop can be {\"$state\": \"/path\"} or {\"$template\": \"Score: ${/quiz/score}\"} and updates when the state changes (change it with state_patch). Choice and Input write the user's answer with {\"$bindState\": \"/path\"}. on.press/change/submit run actions: {\"action\": \"setState\"|\"pushState\", \"params\": {\"statePath\", \"value\"}}, {\"action\": \"removeState\", \"params\": {\"statePath\", \"index\"?}}, {\"action\": \"sendMessage\", \"params\": {\"text\"}} (sends the text to you as the user's next message; text can be a $template). The user's state changes do not reach you by themselves: add a sendMessage when you must react.\nUse it for results, status, comparisons, screenshots or interactive tasks, instead of a long plain message. Components:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row; children in a row share the width.\n- Card(title?, tone?: neutral|info|success|warning|error) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows): A table: column headings and rows of cell text.\n- Badge(text, tone?: neutral|info|success|warning|error): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.\n- Stat(label, value, hint?, tone?: neutral|info|success|warning|error): One number or short value with a label, e.g. a score.\n- Progress(value, max?, label?): A progress bar from 0 to max (default 100).\n- Choice(options, value: $bindState, columns?: 1|2): Options to pick one from; writes the picked value to its $bindState path. `on.change` runs after a pick. on: change.\n- Input(value: $bindState, label?, placeholder?): A text field; writes its text to its $bindState path. `on.submit` runs on Enter. on: submit.\n- Button(label, variant?: primary|secondary|ghost, disabled?): A button; `on.press` runs its actions. on: press.",
       "input_schema": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "description": "Names this item: a later call with the same id replaces it. Required for top, bottom and right."
+          },
+          "placement": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "top",
+              "bottom",
+              "right"
+            ],
+            "description": "Where it shows: inline in the chat (default), or in a live area of the chat: top, bottom, or a tab on the right."
+          },
+          "title": {
+            "type": "string",
+            "description": "Label of the right-side tab."
+          },
+          "remove": {
+            "const": true,
+            "description": "Remove the item with this id."
+          },
           "root": {
             "$ref": "#/$defs/node"
           }
         },
-        "required": [
-          "root"
-        ],
         "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "remove": {
+                  "const": true
+                }
+              },
+              "required": [
+                "remove"
+              ]
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            },
+            "else": {
+              "required": [
+                "root"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "placement": {
+                  "enum": [
+                    "top",
+                    "bottom",
+                    "right"
+                  ]
+                }
+              },
+              "required": [
+                "placement"
+              ]
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            }
+          }
+        ],
         "$defs": {
+          "expr": {
+            "description": "Read from the Session State: {\"$state\": \"/path\"} or {\"$template\": \"Score: ${/quiz/score}\"}.",
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "$state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "$state"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$template": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "$template"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "bind": {
+            "type": "object",
+            "properties": {
+              "$bindState": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "$bindState"
+            ],
+            "additionalProperties": false,
+            "description": "Two-way binding: {\"$bindState\": \"/path\"}."
+          },
+          "action": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "setState",
+                  "pushState",
+                  "removeState",
+                  "sendMessage"
+                ]
+              },
+              "params": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "action",
+              "params"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "action": {
+                      "enum": [
+                        "setState",
+                        "pushState"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "params": {
+                      "type": "object",
+                      "properties": {
+                        "statePath": {
+                          "type": "string"
+                        },
+                        "value": {}
+                      },
+                      "required": [
+                        "statePath",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "action": {
+                      "const": "removeState"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "params": {
+                      "type": "object",
+                      "properties": {
+                        "statePath": {
+                          "type": "string"
+                        },
+                        "index": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "statePath"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "action": {
+                      "const": "sendMessage"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "params": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              }
+            ]
+          },
           "node": {
             "type": "object",
             "properties": {
@@ -32,7 +252,12 @@
                   "Badge",
                   "Code",
                   "Image",
-                  "Carousel"
+                  "Carousel",
+                  "Stat",
+                  "Progress",
+                  "Choice",
+                  "Input",
+                  "Button"
                 ]
               },
               "props": {
@@ -44,6 +269,51 @@
                   "$ref": "#/$defs/node"
                 },
                 "description": "Only for Stack and Card."
+              },
+              "on": {
+                "type": "object",
+                "properties": {
+                  "press": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/action"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/action"
+                        }
+                      }
+                    ]
+                  },
+                  "change": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/action"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/action"
+                        }
+                      }
+                    ]
+                  },
+                  "submit": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/action"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/action"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
@@ -65,18 +335,32 @@
                       "type": "object",
                       "properties": {
                         "direction": {
-                          "type": "string",
-                          "enum": [
-                            "vertical",
-                            "horizontal"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "vertical",
+                                "horizontal"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
                           ]
                         },
                         "gap": {
-                          "type": "string",
-                          "enum": [
-                            "sm",
-                            "md",
-                            "lg"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "sm",
+                                "md",
+                                "lg"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
                           ]
                         }
                       },
@@ -99,17 +383,31 @@
                       "type": "object",
                       "properties": {
                         "title": {
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         },
                         "tone": {
-                          "type": "string",
-                          "description": "Accent. Default neutral.",
-                          "enum": [
-                            "neutral",
-                            "info",
-                            "success",
-                            "warning",
-                            "error"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Accent. Default neutral.",
+                              "enum": [
+                                "neutral",
+                                "info",
+                                "success",
+                                "warning",
+                                "error"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
                           ]
                         }
                       },
@@ -132,7 +430,14 @@
                       "type": "object",
                       "properties": {
                         "text": {
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -163,22 +468,29 @@
                       "type": "object",
                       "properties": {
                         "items": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "label": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "value"
+                                ]
                               }
                             },
-                            "required": [
-                              "label",
-                              "value"
-                            ]
-                          }
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -209,19 +521,33 @@
                       "type": "object",
                       "properties": {
                         "columns": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         },
                         "rows": {
-                          "type": "array",
-                          "items": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
                             }
-                          }
+                          ]
                         }
                       },
                       "required": [
@@ -253,17 +579,31 @@
                       "type": "object",
                       "properties": {
                         "text": {
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         },
                         "tone": {
-                          "type": "string",
-                          "description": "Accent. Default neutral.",
-                          "enum": [
-                            "neutral",
-                            "info",
-                            "success",
-                            "warning",
-                            "error"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Accent. Default neutral.",
+                              "enum": [
+                                "neutral",
+                                "info",
+                                "success",
+                                "warning",
+                                "error"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
                           ]
                         }
                       },
@@ -295,10 +635,24 @@
                       "type": "object",
                       "properties": {
                         "code": {
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         },
                         "language": {
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -329,16 +683,37 @@
                       "type": "object",
                       "properties": {
                         "src": {
-                          "type": "string",
-                          "description": "Image file path (relative to the workspace, or absolute) or an https URL.",
-                          "format": "harness-image"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Image file path (relative to the workspace, or absolute) or an https URL.",
+                              "format": "harness-image"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         },
                         "alt": {
-                          "type": "string",
-                          "description": "What the image shows."
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "What the image shows."
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         },
                         "caption": {
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -370,33 +745,368 @@
                       "type": "object",
                       "properties": {
                         "images": {
-                          "type": "array",
-                          "minItems": 1,
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "src": {
-                                "type": "string",
-                                "description": "Image file path (relative to the workspace, or absolute) or an https URL.",
-                                "format": "harness-image"
-                              },
-                              "alt": {
-                                "type": "string",
-                                "description": "What the image shows."
-                              },
-                              "caption": {
-                                "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "src": {
+                                    "type": "string",
+                                    "description": "Image file path (relative to the workspace, or absolute) or an https URL.",
+                                    "format": "harness-image"
+                                  },
+                                  "alt": {
+                                    "type": "string",
+                                    "description": "What the image shows."
+                                  },
+                                  "caption": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "src",
+                                  "alt"
+                                ]
                               }
                             },
-                            "required": [
-                              "src",
-                              "alt"
-                            ]
-                          }
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "images"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Stat"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "hint": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "tone": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Accent. Default neutral.",
+                              "enum": [
+                                "neutral",
+                                "info",
+                                "success",
+                                "warning",
+                                "error"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Progress"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "max": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Choice"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "options": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "label"
+                                ]
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "value": {
+                          "$ref": "#/$defs/bind"
+                        },
+                        "columns": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "enum": [
+                                1,
+                                2
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "options",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Input"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "$ref": "#/$defs/bind"
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "placeholder": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Button"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "variant": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "primary",
+                                "secondary",
+                                "ghost"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "disabled": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "label"
                       ],
                       "additionalProperties": false
                     },
