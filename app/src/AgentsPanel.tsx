@@ -15,7 +15,8 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : typeof e === "
 function AgentIcon({ icon, name }: { icon: string | null; name: string }) {
   const [broken, setBroken] = useState(false);
   if (icon && !broken) {
-    return <img src={icon} alt="" className="size-8 shrink-0 rounded object-contain" onError={() => setBroken(true)} />;
+    // Registry icons are monochrome SVGs drawn in black (currentColor doesn't reach an <img>): invert in dark mode.
+    return <img src={icon} alt="" className="size-8 shrink-0 rounded object-contain dark:invert" onError={() => setBroken(true)} />;
   }
   return (
     <div className="grid size-8 shrink-0 place-items-center rounded bg-muted text-sm font-medium uppercase">{name.slice(0, 1)}</div>
