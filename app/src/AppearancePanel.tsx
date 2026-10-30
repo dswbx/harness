@@ -5,8 +5,8 @@ import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
 import {
-  CUSTOM_FONT_MAX, DEFAULT_APPEARANCE, FONT_SIZE_MAX, FONT_SIZE_MIN, MODES, MONO_FONTS, SANS_FONTS, clampFontSize, cleanFont,
-  getAppearance, isDarkMode, previewAppearance, revertPreview, setAppearance, type Appearance, type FontOption,
+  CUSTOM_FONT_MAX, DEFAULT_APPEARANCE, FLOWS, FONT_SIZE_MAX, FONT_SIZE_MIN, LEADINGS, MODES, MONO_FONTS, SANS_FONTS, clampFontSize, cleanFont,
+  getAppearance, isDarkMode, previewAppearance, revertPreview, setAppearance, type Appearance, type FontOption, type RhythmOption,
 } from "./appearance/appearance";
 
 const TWEAKCN = "https://github.com/jnsahaj/tweakcn";
@@ -50,10 +50,73 @@ function FontRow({ label, id, value, custom, placeholder, fonts, onChange }: {
   );
 }
 
+function RhythmRow({ label, id, value, options, onChange }: {
+  label: string; id: string; value: string; options: RhythmOption[]; onChange: (id: string) => void;
+}) {
+  return (
+    <Row label={label} htmlFor={id}>
+      <Select id={id} className="h-8 w-44 shrink-0 text-xs" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>{o.label} ({o.value})</option>
+        ))}
+      </Select>
+    </Row>
+  );
+}
+
+/** px stepper: typing, arrows, +/- buttons, clamped to FONT_SIZE_MIN..MAX, with Reset. */
+function SizeField({ id, label, value, fallback, onChange }: {
+  id: string; label: string; value: number; fallback: number; onChange: (n: number) => void;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const set = (n: number) => {
+    setText(null);
+    if (Number.isFinite(n)) onChange(clampFontSize(n));
+  };
+  return (
+    <>
+      <div className="flex items-center gap-1">
+        <Button size="icon" variant="outline" className="size-8" aria-label={`Decrease ${label}`} disabled={value <= FONT_SIZE_MIN} onClick={() => set(value - 1)}>
+          <Minus />
+        </Button>
+        <div className="relative">
+          <Input
+            id={id}
+            inputMode="numeric"
+            className="h-8 w-16 pl-2 pr-7 text-right text-xs tabular-nums"
+            value={text ?? String(value)}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^\d]/g, "").slice(0, 2);
+              setText(v);
+              const n = Number(v);
+              if (v && n >= FONT_SIZE_MIN && n <= FONT_SIZE_MAX) onChange(n);
+            }}
+            onBlur={() => text !== null && set(text ? Number(text) : value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                e.preventDefault();
+                set(value + (e.key === "ArrowUp" ? 1 : -1));
+              } else if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">px</span>
+        </div>
+        <Button size="icon" variant="outline" className="size-8" aria-label={`Increase ${label}`} disabled={value >= FONT_SIZE_MAX} onClick={() => set(value + 1)}>
+          <Plus />
+        </Button>
+      </div>
+      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={value === fallback} onClick={() => set(fallback)}>
+        Reset
+      </Button>
+    </>
+  );
+}
+
 /** Theme preset, color mode, fonts and text size. Changes apply and save right away. */
 export function AppearancePanel() {
   const [a, setA] = useState<Appearance>(getAppearance);
-  const [sizeText, setSizeText] = useState<string | null>(null);
   const update = (patch: Partial<Appearance>) => {
     const next = { ...a, ...patch };
     setA(next);
@@ -62,14 +125,10 @@ export function AppearancePanel() {
   // Leaving the panel mid-preview restores the saved theme.
   useEffect(() => revertPreview, []);
   const isDark = isDarkMode(a.mode, window);
-  const setSize = (n: number) => {
-    setSizeText(null);
-    if (Number.isFinite(n)) update({ fontSize: clampFontSize(n) });
-  };
 
   return (
     <div className="text-sm">
-      <SectionHeader title="Appearance" description="Theme, color mode, fonts and text size for all windows." />
+      <SectionHeader title="Appearance" description="Theme, color mode, fonts and text sizes for all windows." />
 
       <div className="grid grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-3">
         <Row label="Mode">
@@ -106,43 +165,14 @@ export function AppearancePanel() {
           label="Mono font" id="font-mono" value={a.mono} custom={a.customMono} placeholder="Berkeley Mono, monospace" fonts={MONO_FONTS}
           onChange={({ choice, custom }) => update(custom === undefined ? { mono: choice } : { customMono: custom })}
         />
-        <Row label="Font size" htmlFor="font-size">
-          <div className="flex items-center gap-1">
-            <Button size="icon" variant="outline" className="size-8" aria-label="Decrease font size" disabled={a.fontSize <= FONT_SIZE_MIN} onClick={() => setSize(a.fontSize - 1)}>
-              <Minus />
-            </Button>
-            <div className="relative">
-              <Input
-                id="font-size"
-                inputMode="numeric"
-                className="h-8 w-16 pl-2 pr-7 text-right text-xs tabular-nums"
-                value={sizeText ?? String(a.fontSize)}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^\d]/g, "").slice(0, 2);
-                  setSizeText(v);
-                  const n = Number(v);
-                  if (v && n >= FONT_SIZE_MIN && n <= FONT_SIZE_MAX) update({ fontSize: n });
-                }}
-                onBlur={() => sizeText !== null && setSize(sizeText ? Number(sizeText) : a.fontSize)}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSize(a.fontSize + (e.key === "ArrowUp" ? 1 : -1));
-                  } else if (e.key === "Enter") {
-                    e.currentTarget.blur();
-                  }
-                }}
-              />
-              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">px</span>
-            </div>
-            <Button size="icon" variant="outline" className="size-8" aria-label="Increase font size" disabled={a.fontSize >= FONT_SIZE_MAX} onClick={() => setSize(a.fontSize + 1)}>
-              <Plus />
-            </Button>
-          </div>
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={a.fontSize === DEFAULT_APPEARANCE.fontSize} onClick={() => setSize(DEFAULT_APPEARANCE.fontSize)}>
-            Reset
-          </Button>
+        <Row label="UI font size" htmlFor="font-size">
+          <SizeField id="font-size" label="UI font size" value={a.fontSize} fallback={DEFAULT_APPEARANCE.fontSize} onChange={(fontSize) => update({ fontSize })} />
         </Row>
+        <Row label="Chat font size" htmlFor="chat-font-size">
+          <SizeField id="chat-font-size" label="chat font size" value={a.chatFontSize} fallback={DEFAULT_APPEARANCE.chatFontSize} onChange={(chatFontSize) => update({ chatFontSize })} />
+        </Row>
+        <RhythmRow label="Chat leading" id="chat-leading" value={a.leading} options={LEADINGS} onChange={(leading) => update({ leading })} />
+        <RhythmRow label="Chat flow" id="chat-flow" value={a.flow} options={FLOWS} onChange={(flow) => update({ flow })} />
       </div>
     </div>
   );

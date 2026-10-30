@@ -141,7 +141,7 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
     case "user":
       return (
         <div className="group flex flex-col items-end">
-          <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2 text-sm">{item.text}</Markdown>
+          <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2">{item.text}</Markdown>
           <MessageFooter text={item.text} ts={item.ts} align="end" />
         </div>
       );
@@ -158,7 +158,7 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
           <summary className="flex cursor-pointer items-center gap-1.5 text-xs">
             <Brain className="size-3.5" /> Thinking
           </summary>
-          <Markdown className="mt-1 border-l-2 pl-3 italic">{item.text}</Markdown>
+          <Markdown className="mt-1 border-l-2 pl-3 italic text-muted-foreground">{item.text}</Markdown>
         </details>
       );
     case "frontend_tool":

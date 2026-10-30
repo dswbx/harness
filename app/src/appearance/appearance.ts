@@ -15,9 +15,29 @@ export type Appearance = {
   customMono: string;
   /** Base text size in px. */
   fontSize: number;
+  /** Chat message text (typeset): size in px, leading and flow ids. */
+  chatFontSize: number;
+  leading: string;
+  flow: string;
 };
 
-export const DEFAULT_APPEARANCE: Appearance = { theme: "default", mode: "system", font: "theme", mono: "theme", customFont: "", customMono: "", fontSize: 14 };
+export type RhythmOption = { id: string; label: string; value: string };
+/** Typeset leading (line height) and flow (space between blocks): a few steps, not free values. */
+export const LEADINGS: RhythmOption[] = [
+  { id: "tight", label: "Tight", value: "1.6" },
+  { id: "regular", label: "Regular", value: "1.75" },
+  { id: "loose", label: "Loose", value: "1.9" },
+];
+export const FLOWS: RhythmOption[] = [
+  { id: "compact", label: "Compact", value: "1em" },
+  { id: "regular", label: "Regular", value: "1.25em" },
+  { id: "airy", label: "Airy", value: "2em" },
+];
+
+export const DEFAULT_APPEARANCE: Appearance = {
+  theme: "default", mode: "system", font: "theme", mono: "theme", customFont: "", customMono: "", fontSize: 14,
+  chatFontSize: 14, leading: "tight", flow: "regular",
+};
 export const CUSTOM_FONT_MAX = 200;
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 18;
@@ -88,6 +108,9 @@ export function normalize(raw: unknown): Appearance {
     customFont: typeof r.customFont === "string" ? cleanFont(r.customFont).trim() : d.customFont,
     customMono: typeof r.customMono === "string" ? cleanFont(r.customMono).trim() : d.customMono,
     fontSize: typeof r.fontSize === "number" && Number.isFinite(r.fontSize) ? clampFontSize(r.fontSize) : d.fontSize,
+    chatFontSize: typeof r.chatFontSize === "number" && Number.isFinite(r.chatFontSize) ? clampFontSize(r.chatFontSize) : d.chatFontSize,
+    leading: pick(r.leading, (s) => LEADINGS.some((o) => o.id === s), d.leading),
+    flow: pick(r.flow, (s) => FLOWS.some((o) => o.id === s), d.flow),
   };
 }
 
@@ -113,7 +136,7 @@ function fontVar(choice: string, custom: string, list: FontOption[], system: str
   return f ? `"${f.family}", ${system}` : null;
 }
 
-/** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size. */
+/** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size, chat text. */
 export function resolveVars(a: Appearance, isDark: boolean): Record<string, string> {
   const vars: Record<string, string> = {};
   const p = PRESETS[a.theme];
@@ -127,6 +150,9 @@ export function resolveVars(a: Appearance, isDark: boolean): Record<string, stri
   if (sans) vars["--font-sans"] = sans;
   if (mono) vars["--font-mono"] = mono;
   vars["--app-font-size"] = `${a.fontSize}px`;
+  vars["--chat-font-size"] = `${a.chatFontSize}px`;
+  vars["--chat-leading"] = (LEADINGS.find((o) => o.id === a.leading) ?? LEADINGS[0]!).value;
+  vars["--chat-flow"] = (FLOWS.find((o) => o.id === a.flow) ?? FLOWS[1]!).value;
   return vars;
 }
 

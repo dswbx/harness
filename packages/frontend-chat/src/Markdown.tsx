@@ -6,7 +6,7 @@ import { cn } from "@harness/ui";
 /** `breaks`: single newlines become line breaks (user prompts are typed that way). */
 export function Markdown({ children, className, breaks }: { children: string; className?: string; breaks?: boolean }) {
   return (
-    <div className={cn("prose-harness", className)}>
+    <div className={cn("typeset typeset-chat", className)}>
       <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );

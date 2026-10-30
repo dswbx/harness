@@ -20,7 +20,7 @@ describe("load / save", () => {
 
   it("round-trips", () => {
     const s = store();
-    const v = a({ theme: "claude", mode: "dark", font: "inter", mono: "geist-mono", fontSize: 16 });
+    const v = a({ theme: "claude", mode: "dark", font: "inter", mono: "geist-mono", fontSize: 16, chatFontSize: 15, leading: "loose", flow: "airy" });
     saveAppearance(s, v);
     expect(loadAppearance(s)).toEqual(v);
   });
@@ -30,6 +30,7 @@ describe("load / save", () => {
     expect(normalize({ theme: "toString", fontSize: 3 })).toEqual(a({ fontSize: 12 }));
     expect(normalize({ fontSize: 15.6, font: "system" })).toEqual(a({ fontSize: 16, font: "system" }));
     expect(normalize({ fontSize: "16" }).fontSize).toBe(14);
+    expect(normalize({ chatFontSize: 99, leading: "huge", flow: 2 })).toEqual(a({ chatFontSize: 18 }));
   });
 
   it("custom fonts: trimmed, stripped, limited", () => {
@@ -43,12 +44,17 @@ describe("load / save", () => {
 });
 
 describe("resolveVars", () => {
-  it("default theme sets only size", () => {
-    expect(resolveVars(DEFAULT_APPEARANCE, false)).toEqual({ "--app-font-size": "14px" });
+  it("default theme sets only sizes and chat rhythm", () => {
+    const chat = { "--chat-font-size": "14px", "--chat-leading": "1.6", "--chat-flow": "1.25em" };
+    expect(resolveVars(DEFAULT_APPEARANCE, false)).toEqual({ "--app-font-size": "14px", ...chat });
     expect(resolveVars(a({ font: "geist", mono: "system", fontSize: 13 }), true)).toEqual({
       "--font-sans": '"Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif',
       "--font-mono": "ui-monospace, monospace",
       "--app-font-size": "13px",
+      ...chat,
+    });
+    expect(resolveVars(a({ chatFontSize: 16, leading: "regular", flow: "airy" }), false)).toMatchObject({
+      "--chat-font-size": "16px", "--chat-leading": "1.75", "--chat-flow": "2em",
     });
   });
 
@@ -145,6 +151,6 @@ describe("applyAppearance", () => {
     expect(d.props.get("--background")).toBe(PRESETS.claude!.dark.background);
     applyAppearance(a({ mode: "light" }), d);
     expect(d.classes.has("dark")).toBe(false);
-    expect([...d.props.keys()]).toEqual(["--app-font-size"]);
+    expect([...d.props.keys()]).toEqual(["--app-font-size", "--chat-font-size", "--chat-leading", "--chat-flow"]);
   });
 });
