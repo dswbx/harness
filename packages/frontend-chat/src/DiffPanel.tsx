@@ -9,7 +9,7 @@ import { CommitsPane, useCommits } from "./CommitsPane";
 import { splitPatch, type FilePatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
-import { useReviewComments, type ReviewComment } from "./reviewComments";
+import { useDiffComments, type DiffComment } from "./reviewComments";
 import { selectionScope, type DiffScope } from "./scope";
 
 export { ALL_CHANGES, type DiffScope } from "./scope";
@@ -60,7 +60,7 @@ function FileMenu({ path, root }: { path: string; root: string | null | undefine
 function FileRow({ api, file, comments, root, open, onToggle }: {
   api: SessionApi;
   file: FilePatch;
-  comments: ReviewComment[];
+  comments: DiffComment[];
   root: string | null | undefined;
   open: boolean;
   onToggle: () => void;
@@ -102,7 +102,7 @@ export function DiffPanel({
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const comments = useReviewComments(api.sessionId);
+  const comments = useDiffComments(api.sessionId);
   const commits = useCommits(api, refreshKey);
 
   useEffect(() => {

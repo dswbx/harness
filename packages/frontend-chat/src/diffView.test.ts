@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DiffFile } from "@git-diff-view/react";
 import { changeCount, hunkLines, splitPatch, unifiedPatch } from "./diff";
 import { codeAt } from "./DiffViewer";
-import { formatReviewComments, withReviewComments, type ReviewComment } from "./reviewComments";
+import { formatReviewComments, withReviewComments, type DiffComment, type ReviewComment } from "./reviewComments";
 
 const PATCH = `diff --git a/README.md b/README.md
 new file mode 100644
@@ -122,13 +122,22 @@ describe("unifiedPatch", () => {
 });
 
 describe("review comments", () => {
-  const c = (o: Partial<ReviewComment>): ReviewComment => ({ id: "1", path: "src/a.ts", line: 3, side: "new", code: "const x = 1;", text: "Rename x.", ...o });
+  const c = (o: Partial<DiffComment>): DiffComment => ({ id: "1", path: "src/a.ts", line: 3, side: "new", code: "const x = 1;", text: "Rename x.", ...o });
 
   it("formats a Review comments section", () => {
     expect(formatReviewComments([c({}), c({ id: "2", path: "b.md", line: 9, side: "old", code: "old line", text: " Why removed?\nKeep it. " })])).toBe(
       "Review comments:\n\n" +
         "src/a.ts:3 (new)\n```\nconst x = 1;\n```\nRename x.\n\n" +
         "b.md:9 (old)\n```\nold line\n```\nWhy removed?\nKeep it.",
+    );
+  });
+
+  it("quote comments get their own section, after the diff ones", () => {
+    const q: ReviewComment = { id: "q", kind: "quote", quote: "Frontend, which until\n\nnow", text: " Why? " };
+    expect(formatReviewComments([q])).toBe("Comments on the conversation:\n\n> Frontend, which until\n>\n> now\n\nWhy?");
+    expect(formatReviewComments([q, c({})])).toBe(
+      "Review comments:\n\nsrc/a.ts:3 (new)\n```\nconst x = 1;\n```\nRename x.\n\n" +
+        "Comments on the conversation:\n\n> Frontend, which until\n>\n> now\n\nWhy?",
     );
   });
 

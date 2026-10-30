@@ -6,7 +6,7 @@ import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
 import { splitPatch, type FilePatch } from "./diff";
 import { DiffViewer, type FileContents } from "./DiffViewer";
 import { ancestorKeys, fileTree, type TreeRow } from "./fileTree";
-import { useReviewComments } from "./reviewComments";
+import { useDiffComments } from "./reviewComments";
 import { errorMessage } from "./errors";
 import { selectionScope, type DiffScope } from "./scope";
 
@@ -82,7 +82,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
   });
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
-  const comments = useReviewComments(api.sessionId);
+  const comments = useDiffComments(api.sessionId);
   const commits = useCommits(api);
   const pane = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);

@@ -5,7 +5,7 @@ import "@git-diff-view/react/styles/diff-view-pure.css";
 import "./diffView.css";
 import { Button, Textarea, Tooltip, cn } from "@harness/ui";
 import { hunkLines, langOf, type FilePatch } from "./diff";
-import { addReviewComment, removeReviewComment, type ReviewComment } from "./reviewComments";
+import { addReviewComment, removeReviewComment, type DiffComment } from "./reviewComments";
 
 /** Full old/new file text; lets git-diff-view expand collapsed unchanged regions. */
 export type FileContents = { old: string; new: string };
@@ -25,7 +25,7 @@ export function codeAt(file: FilePatch, contents: FileContents | undefined, side
   return hunkLines(file.text)[side].get(line) ?? "";
 }
 
-const NO_COMMENTS: ReviewComment[] = [];
+const NO_COMMENTS: DiffComment[] = [];
 const sideName = (s: SplitSide): "old" | "new" => (s === SplitSide.old ? "old" : "new");
 
 function CommentForm({ onSubmit, onCancel }: { onSubmit: (text: string) => void; onCancel: () => void }) {
@@ -58,7 +58,7 @@ function CommentForm({ onSubmit, onCancel }: { onSubmit: (text: string) => void;
   );
 }
 
-function CommentList({ sessionId, comments }: { sessionId: string; comments: ReviewComment[] }) {
+function CommentList({ sessionId, comments }: { sessionId: string; comments: DiffComment[] }) {
   return (
     <div className="harness-diff-widget space-y-1 border-y bg-muted/40 px-2 py-1.5 font-sans">
       {comments.map((c) => (
@@ -91,7 +91,7 @@ export function DiffViewer({
   sessionId?: string;
   file: FilePatch;
   /** This Session's comments; the ones for `file` show under their lines. */
-  comments?: ReviewComment[];
+  comments?: DiffComment[];
   mode: "split" | "unified";
   contents?: FileContents;
   fontSize?: number;
@@ -110,7 +110,7 @@ export function DiffViewer({
     [file.text, file.oldPath, file.newPath, lang, contents],
   );
   const extendData = useMemo(() => {
-    const ext: { oldFile: Record<string, { data: ReviewComment[] }>; newFile: Record<string, { data: ReviewComment[] }> } = { oldFile: {}, newFile: {} };
+    const ext: { oldFile: Record<string, { data: DiffComment[] }>; newFile: Record<string, { data: DiffComment[] }> } = { oldFile: {}, newFile: {} };
     for (const c of comments) {
       if (c.path !== file.path) continue;
       const m = c.side === "old" ? ext.oldFile : ext.newFile;
@@ -121,7 +121,7 @@ export function DiffViewer({
 
   return (
     <div className={cn("harness-diff", className)}>
-      <DiffView<ReviewComment[]>
+      <DiffView<DiffComment[]>
         data={data}
         extendData={extendData}
         diffViewMode={mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}

@@ -12,6 +12,7 @@ import { formatDuration } from "./time";
 import { AuthCard } from "./Auth";
 import { PermissionCard } from "./Permission";
 import { FrontendToolRow } from "./FrontendToolCard";
+import { QUOTABLE, SelectionComment } from "./SelectionComment";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { splitRenderUi, type Slot } from "./slots";
 import type { RawNode } from "./tools";
@@ -244,7 +245,9 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
     case "agent":
       return (
         <div className="group">
-          <Markdown>{item.text}</Markdown>
+          <div {...{ [QUOTABLE]: "" }}>
+            <Markdown>{item.text}</Markdown>
+          </div>
           {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}
           {(item.durationMs !== undefined || streaming) && <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />}
         </div>
@@ -465,6 +468,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         {actions}
       </Portal>
       {toolbar && <Portal container={status}>{badge}</Portal>}
+      <SelectionComment sessionId={api.sessionId} />
       <TaskListPanel entries={state.taskList} />
       <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
       <VirtualList
