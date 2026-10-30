@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { AppWindow, Code, Copy, FolderOpen, GitBranch, Info, MoreHorizontal } from "lucide-react";
+import { AppWindow, Code, Copy, FolderOpen, Info, MoreHorizontal } from "lucide-react";
 import type { Editor, HarnessClient, SessionStatus, SessionSummary } from "@harness/api";
 import { inTauri } from "@harness/api";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip, cn } from "@harness/ui";
@@ -129,10 +129,7 @@ export function SessionHeader({
       <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
       {branch && (
         <Tooltip content={`Branch ${branch}`} side="bottom">
-          <span className="flex min-w-0 max-w-64 items-center gap-1.5 px-1 text-xs text-muted-foreground">
-            <GitBranch className="size-3.5 shrink-0" />
-            <span className="truncate font-mono">{branch}</span>
-          </span>
+          <span className="min-w-0 max-w-64 truncate px-1 font-mono text-xs text-muted-foreground">{branch}</span>
         </Tooltip>
       )}
       <div ref={toolbarRef} className="flex items-center gap-1" />
