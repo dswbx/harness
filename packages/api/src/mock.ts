@@ -411,15 +411,15 @@ export class MockTransport implements Transport {
             children: [
               { type: "Stack", children: [
               { type: "Markdown", props: { text: 'Which feature lets Rust free memory **without** a garbage collector?' } },
-              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q1" }, result: { $bindState: "/quiz/results/q1" }, answer: 'a', options: [{ value: 'a', label: 'Ownership' }, { value: 'b', label: 'A garbage collector' }, { value: 'c', label: 'Reference counting only' }] } },
+              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q1" }, result: { $bindState: "/quiz/results/q1" }, explanation: 'The right answer is A. (mock explanation)', answer: 'a', options: [{ value: 'a', label: 'Ownership' }, { value: 'b', label: 'A garbage collector' }, { value: 'c', label: 'Reference counting only' }] } },
             ] },
               { type: "Stack", children: [
               { type: "Markdown", props: { text: 'Which type shows that a value may be missing?' } },
-              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q2" }, result: { $bindState: "/quiz/results/q2" }, answer: 'b', options: [{ value: 'a', label: 'Result<T, E>' }, { value: 'b', label: 'Option<T>' }, { value: 'c', label: 'Vec<T>' }] } },
+              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q2" }, result: { $bindState: "/quiz/results/q2" }, explanation: 'The right answer is B. (mock explanation)', answer: 'b', options: [{ value: 'a', label: 'Result<T, E>' }, { value: 'b', label: 'Option<T>' }, { value: 'c', label: 'Vec<T>' }] } },
             ] },
               { type: "Stack", children: [
               { type: "Markdown", props: { text: 'Which rule does the borrow checker enforce?' } },
-              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q3" }, result: { $bindState: "/quiz/results/q3" }, answer: 'a', options: [{ value: 'a', label: 'One &mut or many &, not both' }, { value: 'b', label: 'Many &mut at once' }, { value: 'c', label: 'Only one & at a time' }] } },
+              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q3" }, result: { $bindState: "/quiz/results/q3" }, explanation: 'The right answer is A. (mock explanation)', answer: 'a', options: [{ value: 'a', label: 'One &mut or many &, not both' }, { value: 'b', label: 'Many &mut at once' }, { value: 'c', label: 'Only one & at a time' }] } },
             ] },
             ],
           } });

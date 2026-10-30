@@ -4,7 +4,7 @@ import { getAt, type StatePatchOp } from "@harness/api";
 import { Button, Input, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { Markdown } from "./Markdown";
-import { components, type RawNode, type UiAction, type UiNode } from "./tools";
+import { components, type RawNode, type UiAction, type UiNode, type Visible } from "./tools";
 
 type Tone = "neutral" | "info" | "success" | "warning" | "error";
 type Img = { src: string; alt: string; caption?: string };
@@ -60,6 +60,18 @@ export function resolveValue(v: unknown, state: unknown): unknown {
   return v;
 }
 
+/** json-render's visibility: `$state` is truthy (non-empty, non-zero, true), or `eq`/`neq` it; `not` flips. */
+export function isVisible(v: Visible | undefined, state: unknown): boolean {
+  if (v === undefined || v === true) return true;
+  if (v === false) return false;
+  if ("$and" in v) return v.$and.every((x) => isVisible(x, state));
+  if ("$or" in v) return v.$or.some((x) => isVisible(x, state));
+  const x = getAt(state, v.$state);
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const ok = "eq" in v ? same(x, v.eq) : "neq" in v ? !same(x, v.neq) : Array.isArray(x) ? x.length > 0 : !!x;
+  return v.not ? !ok : ok;
+}
+
 /** Binds a node's props: expressions read from `state`, `$bindState` props read their path. */
 export function resolveNode(raw: RawNode, state: unknown): UiNode {
   const bind: readonly string[] = (components[raw.type] as { bind?: readonly string[] }).bind ?? [];
@@ -81,7 +93,7 @@ export async function runActions(actions: UiAction | UiAction[] | undefined, env
   const ops: StatePatchOp[] = [];
   const texts: string[] = [];
   for (const a of list) {
-    if (a.action === "setState") ops.push({ op: "add", path: a.params.statePath, value: resolveValue(a.params.value, env.state) });
+    if (a.action === "setState") ops.push({ op: "replace", path: a.params.statePath, value: resolveValue(a.params.value, env.state) });
     else if (a.action === "pushState") {
       if (!Array.isArray(getAt(env.state, a.params.statePath))) ops.push({ op: "add", path: a.params.statePath, value: [] });
       ops.push({ op: "add", path: `${a.params.statePath}/-`, value: resolveValue(a.params.value, env.state) });
@@ -217,11 +229,11 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   const pick = async (value: string) => {
     const path = node.bindings.value;
     if (!path || graded) return;
-    const ops: StatePatchOp[] = [{ op: "add", path, value }];
+    const ops: StatePatchOp[] = [{ op: "replace", path, value }];
     let next = structuredCloneSet(env.state, path, value);
     const result = node.bindings.result;
     if (result && answer != null) {
-      ops.push({ op: "add", path: result, value: value === answer });
+      ops.push({ op: "replace", path: result, value: value === answer });
       next = structuredCloneSet(next, result, value === answer);
     }
     await env.patch(ops);
@@ -231,7 +243,9 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   if (new Set(options.map((o) => o.value)).size !== options.length) {
     return <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">Choice options need distinct values.</div>;
   }
+  const right = graded && picked === answer;
   return (
+    <div className="grid gap-2">
     <div role="radiogroup" className={cn("grid gap-1.5", node.props.columns === 2 && "sm:grid-cols-2")}>
       {options.map((o) => {
         const on = picked === o.value;
@@ -258,6 +272,13 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
         );
       })}
     </div>
+    {graded && node.props.explanation && (
+      <div role="note" className={cn("rounded-md border px-3 py-2", right ? tones.success.box : tones.error.box)}>
+        <div className={cn("mb-1 text-xs font-medium", right ? tones.success.fg : tones.error.fg)}>{right ? "Correct" : "Not quite"}</div>
+        <Markdown>{node.props.explanation}</Markdown>
+      </div>
+    )}
+    </div>
   );
 }
 
@@ -268,7 +289,7 @@ function useIndex(node: { props: { value?: unknown }; bindings: Record<string, s
   const path = node.bindings.value;
   const bound = Number(node.props.value);
   const index = Math.max(0, Math.min(count - 1, path && Number.isInteger(bound) ? bound : local));
-  const set = (i: number) => (path ? void env.patch([{ op: "add", path, value: i }]) : setLocal(i));
+  const set = (i: number) => (path ? void env.patch([{ op: "replace", path, value: i }]) : setLocal(i));
   return [index, set];
 }
 
@@ -343,7 +364,7 @@ function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
   const [text, setText] = useState(stored);
   useEffect(() => setText(stored), [stored]);
   const commit = async (submit: boolean) => {
-    if (path && text !== stored) await env.patch([{ op: "add", path, value: text }]);
+    if (path && text !== stored) await env.patch([{ op: "replace", path, value: text }]);
     if (submit) await runActions(node.on?.submit, { ...env, state: path ? structuredCloneSet(env.state, path, text) : env.state });
   };
   return (
@@ -362,17 +383,20 @@ function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
 
 function Node({ raw }: { raw: RawNode }) {
   const env = useEnv();
+  if (!isVisible(raw.visible, env.state)) return null;
   const node = resolveNode(raw, env.state);
   const kids = raw.children?.map((c, i) => <Node key={i} raw={c} />);
   switch (node.type) {
     case "Stack": {
       const gap = { sm: "gap-1.5", md: "gap-3", lg: "gap-5" }[node.props?.gap ?? "md"];
-      if (node.props?.direction !== "horizontal") return <div className={cn("flex min-w-0 flex-col", gap)}>{kids}</div>;
+      // Hidden children leave no gap or empty cell; keys stay their original index.
+      const shown = (raw.children ?? []).map((c, i) => [c, i] as const).filter(([c]) => isVisible(c.visible, env.state));
+      if (node.props?.direction !== "horizontal") return <div className={cn("flex min-w-0 flex-col", gap)}>{shown.map(([c, i]) => <Node key={i} raw={c} />)}</div>;
       // A row: badges and buttons keep their width; other children share it equally (same height)
       // and wrap when narrower than 12rem.
       return (
         <div className={cn("flex min-w-0 flex-row flex-wrap items-center", gap)}>
-          {raw.children?.map((c, i) =>
+          {shown.map(([c, i]) =>
             c.type === "Badge" || c.type === "Button" ? (
               <Node key={i} raw={c} />
             ) : (

@@ -3,8 +3,9 @@
 //! patches; each patch is logged as `StateChanged`, so any Frontend can rebuild it from the log.
 //!
 //! Patches are JSON Patch (RFC 6902) `add`, `replace`, `remove` and `test`, a little more lenient:
-//! `add`/`replace` create missing parent objects and set missing keys; `remove` of a missing path
-//! does nothing. `-` appends to an array. A patch applies whole or not at all.
+//! `add`/`replace` create missing parent objects and set missing keys; `replace` at an array's
+//! length appends; `remove` of a missing path does nothing. `-` appends to an array. A patch
+//! applies whole or not at all. UI writes use `replace` (an `add` at an array index inserts).
 //! `@harness/api`'s `applyStatePatch` must match these rules.
 
 use serde_json::{Map, Value};
@@ -67,8 +68,8 @@ fn set(doc: &mut Value, path: &str, value: Value, insert: bool) -> anyhow::Resul
         Value::Array(a) if last == "-" => a.push(value),
         Value::Array(a) => {
             let i: usize = last.parse().map_err(|_| anyhow::anyhow!("{path}: {last} is not an array index"))?;
-            anyhow::ensure!(i <= a.len() && (insert || i < a.len()), "{path}: index {i} is out of range");
-            if insert { a.insert(i, value) } else { a[i] = value }
+            anyhow::ensure!(i <= a.len(), "{path}: index {i} is out of range");
+            if insert { a.insert(i, value) } else if i == a.len() { a.push(value) } else { a[i] = value }
         }
         _ => anyhow::bail!("{path}: the parent is not an object or array"),
     }
@@ -144,5 +145,8 @@ mod tests {
         assert!(apply(&doc, &[Add { path: p("/quiz/score/x"), value: json!(1) }]).is_err());
         assert!(apply(&doc, &[Add { path: p("quiz"), value: json!(1) }]).is_err());
         assert!(apply(&doc, &[Replace { path: p("/quiz/answers/3"), value: json!(1) }]).is_err());
+        // `replace` at an index sets it (or appends at the length); `add` inserts.
+        let doc = apply(&json!({ "r": [null, null] }), &[Replace { path: p("/r/0"), value: json!(true) }, Replace { path: p("/r/2"), value: json!(false) }]).unwrap();
+        assert_eq!(doc["r"], json!([true, null, false]));
     }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StatePatchOp } from "@harness/api";
-import { resolveNode, resolveValue, runActions } from "./RenderUi";
+import { isVisible, resolveNode, resolveValue, runActions } from "./RenderUi";
 import { components, renderUiSchema } from "./tools";
 
 describe("render_ui binding", () => {
@@ -13,6 +13,17 @@ describe("render_ui binding", () => {
     expect(resolveValue({ $computed: "length", args: { values: { $state: "/quiz/answers" } } }, state)).toBe(2);
     expect(resolveValue({ $computed: "sum", args: { values: { $state: "/quiz/points" } } }, state)).toBe(6);
     expect(resolveValue({ $computed: "length", args: { values: { $state: "/missing" } } }, state)).toBe(0);
+  });
+  it("evaluates json-render visibility conditions", () => {
+    expect(isVisible(undefined, state)).toBe(true);
+    expect(isVisible({ $state: "/quiz/answers/q1" }, state)).toBe(true);
+    expect(isVisible({ $state: "/quiz/answers/q9" }, state)).toBe(false);
+    expect(isVisible({ $state: "/quiz/answers/q9", not: true }, state)).toBe(true);
+    expect(isVisible({ $state: "/quiz/answers/q2", eq: "b" }, state)).toBe(true);
+    expect(isVisible({ $state: "/quiz/answers/q2", neq: "b" }, state)).toBe(false);
+    expect(isVisible({ $and: [{ $state: "/quiz/results/q1" }, { $state: "/quiz/results/q2" }] }, state)).toBe(false);
+    expect(isVisible({ $or: [{ $state: "/quiz/results/q1" }, { $state: "/quiz/results/q2" }] }, state)).toBe(true);
+    expect(isVisible({ $state: "/quiz/points" }, state)).toBe(true);
   });
   it("binds $bindState props to their path", () => {
     const n = resolveNode({ type: "Choice", props: { value: { $bindState: "/quiz/answers/q2" }, options: [] } }, state);
@@ -31,7 +42,7 @@ describe("render_ui binding", () => {
       { state, patch: async (ops) => void patches.push(ops), send: async (t) => void sent.push(t) },
     );
     expect(patches).toEqual([[
-      { op: "add", path: "/a", value: "a" },
+      { op: "replace", path: "/a", value: "a" },
       { op: "add", path: "/log", value: [] },
       { op: "add", path: "/log/-", value: 1 },
       { op: "remove", path: "/quiz/answers/0" },

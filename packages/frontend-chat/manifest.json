@@ -5,7 +5,7 @@
   "frontend_tools": [
     {
       "name": "render_ui",
-      "description": "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, tabs, steppers, choices, inputs, buttons. Input: {\"root\": node, \"placement\"?, \"id\"?, \"title\"?}. A node is {\"type\", \"props\", \"children\"?, \"on\"?}; only Stack, Card, Tabs and Stepper take children.\nPlacement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). A call with the same id replaces that item; {\"id\", \"remove\": true} removes it.\nSession State: any prop can be {\"$state\": \"/path\"}, {\"$template\": \"Score: ${/quiz/score}\"} or {\"$computed\": \"count\", \"args\": {\"values\": {\"$state\": \"/quiz/results\"}, \"eq\": true}} (also \"length\" and \"sum\") and updates when the state changes (change it with state_patch). Choice and Input write the user's answer with {\"$bindState\": \"/path\"}. on.press/change/submit run actions: {\"action\": \"setState\"|\"pushState\", \"params\": {\"statePath\", \"value\"}}, {\"action\": \"removeState\", \"params\": {\"statePath\", \"index\"?}}, {\"action\": \"sendMessage\", \"params\": {\"text\"}} (sends the text to you as the user's next message; text can be a $template). The user's state changes do not reach you by themselves: add a sendMessage when you must react.\nFor a test or quiz: one right tab (or inline card) with a Stepper of questions; each Choice with `answer` and `result` grades itself, and a Stat with $computed count shows the score.\nUse it for results, status, comparisons, screenshots or interactive tasks, instead of a long plain message. Components:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row; children in a row share the width.\n- Card(title?, tone?: neutral|info|success|warning|error) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows): A table: column headings and rows of cell text.\n- Badge(text, tone?: neutral|info|success|warning|error): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.\n- Stat(label, value, hint?, tone?: neutral|info|success|warning|error): One number or short value with a label, e.g. a score.\n- Progress(value, max?, label?): A progress bar from 0 to max (default 100).\n- Choice(options, value: $bindState, answer?, result?: $bindState, columns?: 1|2): Options to pick one from (distinct values); writes the picked value to `value` ($bindState). For a quiz, set `answer` to the correct value: after a pick it shows right/wrong, locks, and writes true/false to `result` ($bindState). `on.change` runs after a pick. on: change.\n- Input(value: $bindState, label?, placeholder?): A text field; writes its text to its $bindState path. `on.submit` runs on Enter. on: submit.\n- Button(label, variant?: primary|secondary|ghost, disabled?): A button; `on.press` runs its actions. on: press.\n- Tabs(tabs, value?: $bindState) + children: Tabs: one child per tab, one shown at a time. `value` ($bindState, optional) holds the open tab's index.\n- Stepper(steps, value?: $bindState) + children: Steps shown one at a time with Back/Next, e.g. the questions of a test: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step. on: finish.",
+      "description": "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, tabs, steppers, choices, inputs, buttons. Input: {\"root\": node, \"placement\"?, \"id\"?, \"title\"?}. A node is {\"type\", \"props\", \"children\"?, \"on\"?, \"visible\"?}; only Stack, Card, Tabs and Stepper take children.\nPlacement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). A call with the same id replaces that item; {\"id\", \"remove\": true} removes it.\nSession State: any prop can be {\"$state\": \"/path\"}, {\"$template\": \"Score: ${/quiz/score}\"} or {\"$computed\": \"count\", \"args\": {\"values\": {\"$state\": \"/quiz/results\"}, \"eq\": true}} (also \"length\" and \"sum\") and updates when the state changes (change it with state_patch). Choice and Input write the user's answer with {\"$bindState\": \"/path\"}. on.press/change/submit run actions: {\"action\": \"setState\"|\"pushState\", \"params\": {\"statePath\", \"value\"}}, {\"action\": \"removeState\", \"params\": {\"statePath\", \"index\"?}}, {\"action\": \"sendMessage\", \"params\": {\"text\"}} (sends the text to you as the user's next message; text can be a $template). \"visible\" shows a node only when the state says so, e.g. {\"$state\": \"/quiz/answers/q1\"} (answered) or {\"$state\": \"/quiz/step\", \"eq\": 2}. The user's state changes do not reach you by themselves: add a sendMessage when you must react.\nFor a test or quiz: one right tab (or inline card) with a Stepper of questions (its Next button moves on); each Choice with `answer`, `result` and `explanation` grades itself and explains, and a Stat with $computed count shows the score.\nUse it for results, status, comparisons, screenshots or interactive tasks, instead of a long plain message. Components:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row; children in a row share the width.\n- Card(title?, tone?: neutral|info|success|warning|error) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows): A table: column headings and rows of cell text.\n- Badge(text, tone?: neutral|info|success|warning|error): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.\n- Stat(label, value, hint?, tone?: neutral|info|success|warning|error): One number or short value with a label, e.g. a score.\n- Progress(value, max?, label?): A progress bar from 0 to max (default 100).\n- Choice(options, value: $bindState, answer?, result?: $bindState, explanation?, columns?: 1|2): Options to pick one from (distinct values); writes the picked value to `value` ($bindState). For a quiz, set `answer` to the correct value: after a pick it shows right/wrong, locks, writes true/false to `result` ($bindState) and shows `explanation`. `on.change` runs after a pick. on: change.\n- Input(value: $bindState, label?, placeholder?): A text field; writes its text to its $bindState path. `on.submit` runs on Enter. on: submit.\n- Button(label, variant?: primary|secondary|ghost, disabled?): A button; `on.press` runs its actions. on: press.\n- Tabs(tabs, value?: $bindState) + children: Tabs: one child per tab, one shown at a time. `value` ($bindState, optional) holds the open tab's index.\n- Stepper(steps, value?: $bindState) + children: Steps shown one at a time with Back/Next, e.g. the questions of a test: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step. on: finish.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -135,6 +135,61 @@
                 "required": [
                   "$computed",
                   "args"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "visible": {
+            "description": "Show the node only when true: {\"$state\": \"/path\"} (truthy), with \"eq\", \"neq\" or \"not\": true; {\"$and\": [...]}, {\"$or\": [...]}; or a boolean.",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$state": {
+                    "type": "string"
+                  },
+                  "eq": {},
+                  "neq": {},
+                  "not": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "$state"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$and": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/visible"
+                    }
+                  }
+                },
+                "required": [
+                  "$and"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$or": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/visible"
+                    }
+                  }
+                },
+                "required": [
+                  "$or"
                 ],
                 "additionalProperties": false
               }
@@ -358,6 +413,9 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "visible": {
+                "$ref": "#/$defs/visible"
               }
             },
             "required": [
@@ -1032,6 +1090,17 @@
                         "result": {
                           "$ref": "#/$defs/bind"
                         },
+                        "explanation": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Markdown shown after a graded pick: why the answer is right."
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
                         "columns": {
                           "anyOf": [
                             {
@@ -1266,5 +1335,5 @@
       }
     }
   ],
-  "instructions": "This Frontend is a chat. It renders your messages as Markdown.\n\n- To show structured results to the user (a summary of a task, a comparison, a table, status, screenshots or other images), call the `render_ui` tool instead of writing a long plain message. Keep plain text for short answers and explanations.\n- `render_ui` images can be local file paths (for example screenshots you made); the Harness copies them, so they stay visible later. Use a carousel for several images.\n- Live areas: `render_ui` with a `placement` of `top`, `bottom` or `right` (a tab next to the diff view) and an `id` keeps content visible outside the message flow, such as a score or the current question. Call it again with the same `id` to replace it, or with `\"remove\": true` to remove it.\n- Interactive tasks: keep the data in the Session State and bind components to it (`{\"$state\": \"/path\"}`, `{\"$template\": \"...\"}`, `{\"$computed\": \"count\", ...}`). Choice and Input write the user's answers with `$bindState`. State changes alone do not reach you: add a `sendMessage` action (or a Stepper's `on.finish`) where you must react. Update the state yourself with `state_patch`.\n- Group related content in one place: use Tabs or a Stepper inside one item instead of one item per part. For example, a practice test is one right tab with a Stepper (one question per step). Each Choice gets the correct `answer` and a `result` path, so it grades itself; a Stat with `{\"$computed\": \"count\", \"args\": {\"values\": {\"$state\": \"/quiz/results\"}, \"eq\": true}}` shows the score. Choice option values must be distinct; never use them to encode right or wrong."
+  "instructions": "This Frontend is a chat. It renders your messages as Markdown.\n\n- To show structured results to the user (a summary of a task, a comparison, a table, status, screenshots or other images), call the `render_ui` tool instead of writing a long plain message. Keep plain text for short answers and explanations.\n- `render_ui` images can be local file paths (for example screenshots you made); the Harness copies them, so they stay visible later. Use a carousel for several images.\n- Live areas: `render_ui` with a `placement` of `top`, `bottom` or `right` (a tab next to the diff view) and an `id` keeps content visible outside the message flow, such as a score or the current question. Call it again with the same `id` to replace it, or with `\"remove\": true` to remove it.\n- Interactive tasks: keep the data in the Session State and bind components to it (`{\"$state\": \"/path\"}`, `{\"$template\": \"...\"}`, `{\"$computed\": \"count\", ...}`). Choice and Input write the user's answers with `$bindState`. State changes alone do not reach you: add a `sendMessage` action (or a Stepper's `on.finish`) where you must react. Update the state yourself with `state_patch`.\n- Group related content in one place: use Tabs or a Stepper inside one item instead of one item per part.\n- Practice tests and other tasks done in order: one right tab with a **Stepper** (one question per step; its Next button moves on), not Tabs. Each Choice gets the correct `answer`, a `result` path and an `explanation` (why the answer is right), so it grades itself and teaches. A Stat with `{\"$computed\": \"count\", \"args\": {\"values\": {\"$state\": \"/quiz/results\"}, \"eq\": true}}` shows the score. Use `visible` to show something only when it fits, for example a hint after an answer (`{\"$state\": \"/quiz/answers/q1\"}`) or a result card on the last step. Give the Stepper an `on.finish` `sendMessage` so you can sum up when the user is done.\n- Choice option values must be distinct; never use them to encode right or wrong. Use object keys (`/quiz/results/q1`), not array indexes, for answers and results."
 }

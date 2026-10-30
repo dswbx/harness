@@ -3,7 +3,8 @@ import type { StatePatchOp } from "./generated";
 /**
  * Session State (ADR 0015): applies `ops` to `doc` and returns the new document (all or nothing;
  * throws on failure). Same lenient JSON Patch rules as the core's `state.rs`: `add`/`replace`
- * create missing parent objects, `-` appends, `remove` of a missing path does nothing.
+ * create missing parent objects, `replace` at an array's length appends, `-` appends, `remove` of a
+ * missing path does nothing. UI writes use `replace` (an `add` at an array index inserts).
  */
 export function applyStatePatch(doc: unknown, ops: StatePatchOp[]): unknown {
   let out: unknown = structuredClone(doc ?? {});
@@ -64,7 +65,7 @@ function setAt(doc: unknown, path: string, value: unknown, insert: boolean): unk
     if (last === "-") target.push(value);
     else {
       const i = Number(last);
-      if (!Number.isInteger(i) || i < 0 || i > target.length || (!insert && i === target.length)) throw new Error(`${path}: index ${last} is out of range`);
+      if (!Number.isInteger(i) || i < 0 || i > target.length) throw new Error(`${path}: index ${last} is out of range`);
       if (insert) target.splice(i, 0, value);
       else target[i] = value;
     }

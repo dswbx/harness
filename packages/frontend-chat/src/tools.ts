@@ -116,13 +116,14 @@ export const components = {
   },
   Choice: {
     description:
-      "Options to pick one from (distinct values); writes the picked value to `value` ($bindState). For a quiz, set `answer` to the correct value: after a pick it shows right/wrong, locks, and writes true/false to `result` ($bindState). `on.change` runs after a pick.",
+      "Options to pick one from (distinct values); writes the picked value to `value` ($bindState). For a quiz, set `answer` to the correct value: after a pick it shows right/wrong, locks, writes true/false to `result` ($bindState) and shows `explanation`. `on.change` runs after a pick.",
     children: false,
     props: s.object({
       options: s.array(s.object({ value: s.string(), label: s.string() }), { minItems: 1 }),
       value: s.any(),
       answer: s.string().optional(),
       result: s.any().optional(),
+      explanation: s.string({ description: "Markdown shown after a graded pick: why the answer is right." }).optional(),
       columns: s.number({ enum: [1, 2] }).optional(),
     }),
     bind: ["value", "result"],
@@ -131,7 +132,9 @@ export const components = {
       { type: "Choice", props: {
         value: { $bindState: "/quiz/answers/q1" }, result: { $bindState: "/quiz/results/q1" }, answer: "a",
         options: [{ value: "a", label: "A. Ownership" }, { value: "b", label: "B. Garbage collection" }, { value: "c", label: "C. Reference counting only" }],
+        explanation: "Each value has one owner; Rust frees it when the owner goes out of scope.",
       } },
+      { type: "Badge", props: { text: "Shown once you answer (visible)", tone: "info" }, visible: { $state: "/quiz/answers/q1" } },
       { type: "Stat", props: { label: "Score", value: { $computed: "count", args: { values: { $state: "/quiz/results" }, eq: true } } } },
     ] }, state: { quiz: { answers: {}, results: {} } } },
   },
@@ -195,10 +198,12 @@ export type UiAction =
 type On = Partial<Record<"press" | "change" | "submit" | "finish", UiAction | UiAction[]>>;
 
 /** A node as the Agent sends it: props may hold `$state`/`$template`/`$bindState` expressions. */
-export type RawNode = { type: ComponentType; props?: Record<string, unknown>; children?: RawNode[]; on?: On };
+/** json-render's visibility conditions: truthy `$state`, with `eq`/`neq`/`not`; `$and`/`$or`. */
+export type Visible = boolean | { $state: string; eq?: unknown; neq?: unknown; not?: boolean } | { $and: Visible[] } | { $or: Visible[] };
+export type RawNode = { type: ComponentType; props?: Record<string, unknown>; children?: RawNode[]; on?: On; visible?: Visible };
 /** A node after binding: plain props, and the state paths its bound props write to. */
 export type UiNode = {
-  [K in ComponentType]: { type: K; props: Static<Components[K]["props"]>; children?: UiNode[]; on?: On; bindings: Record<string, string> };
+  [K in ComponentType]: { type: K; props: Static<Components[K]["props"]>; children?: UiNode[]; on?: On; visible?: Visible; bindings: Record<string, string> };
 }[ComponentType];
 
 /**
@@ -256,6 +261,15 @@ const renderUiJson = {
         },
       ],
     },
+    visible: {
+      description: 'Show the node only when true: {"$state": "/path"} (truthy), with "eq", "neq" or "not": true; {"$and": [...]}, {"$or": [...]}; or a boolean.',
+      anyOf: [
+        { type: "boolean" },
+        { type: "object", properties: { $state: { type: "string" }, eq: {}, neq: {}, not: { type: "boolean" } }, required: ["$state"], additionalProperties: false },
+        { type: "object", properties: { $and: { type: "array", items: { $ref: "#/$defs/visible" } } }, required: ["$and"], additionalProperties: false },
+        { type: "object", properties: { $or: { type: "array", items: { $ref: "#/$defs/visible" } } }, required: ["$or"], additionalProperties: false },
+      ],
+    },
     bind: { type: "object", properties: { $bindState: { type: "string" } }, required: ["$bindState"], additionalProperties: false, description: 'Two-way binding: {"$bindState": "/path"}.' },
     action: {
       type: "object",
@@ -275,6 +289,7 @@ const renderUiJson = {
         props: { type: "object" },
         children: { type: "array", items: { $ref: node }, description: "Only for Stack, Card, Tabs and Stepper." },
         on: { type: "object", properties: { press: actionList, change: actionList, submit: actionList, finish: actionList }, additionalProperties: false },
+        visible: { $ref: "#/$defs/visible" },
       },
       required: ["type"],
       additionalProperties: false,
@@ -317,15 +332,16 @@ export const frontendTools = [
     name: RENDER_UI,
     description:
       "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, tabs, steppers, choices, inputs, buttons. " +
-      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?}; only Stack, Card, Tabs and Stepper take children.\n' +
+      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Card, Tabs and Stepper take children.\n' +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Score: ${/quiz/score}"} or {"$computed": "count", "args": {"values": {"$state": "/quiz/results"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
       'Choice and Input write the user\'s answer with {"$bindState": "/path"}. ' +
       'on.press/change/submit run actions: {"action": "setState"|"pushState", "params": {"statePath", "value"}}, {"action": "removeState", "params": {"statePath", "index"?}}, ' +
       '{"action": "sendMessage", "params": {"text"}} (sends the text to you as the user\'s next message; text can be a $template). ' +
+      '"visible" shows a node only when the state says so, e.g. {"$state": "/quiz/answers/q1"} (answered) or {"$state": "/quiz/step", "eq": 2}. ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
-      "For a test or quiz: one right tab (or inline card) with a Stepper of questions; each Choice with `answer` and `result` grades itself, and a Stat with $computed count shows the score.\n" +
+      "For a test or quiz: one right tab (or inline card) with a Stepper of questions (its Next button moves on); each Choice with `answer`, `result` and `explanation` grades itself and explains, and a Stat with $computed count shows the score.\n" +
       "Use it for results, status, comparisons, screenshots or interactive tasks, instead of a long plain message. Components:\n" +
       catalogText(),
     schema: renderUiJson,

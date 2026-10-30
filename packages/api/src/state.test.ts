@@ -18,5 +18,7 @@ describe("applyStatePatch (same rules as the core's state.rs)", () => {
     expect(getAt(next, "/quiz/score")).toBe(1);
     expect(() => applyStatePatch(next, [{ op: "add", path: "/quiz/score/x", value: 1 }])).toThrow();
     expect(() => applyStatePatch(next, [{ op: "replace", path: "/quiz/answers/3", value: 1 }])).toThrow();
+    // `replace` at an index sets it (or appends at the length); `add` inserts.
+    expect(applyStatePatch({ r: [null, null] }, [{ op: "replace", path: "/r/0", value: true }, { op: "replace", path: "/r/2", value: false }])).toEqual({ r: [true, null, false] });
   });
 });
