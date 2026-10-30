@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { lazy, Suspense } from "react";
 import { AnsiText } from "./AnsiText";
+import { Expandable } from "./Expandable";
 
 /** mermaid is large: loaded with the first diagram. */
 const Mermaid = lazy(() => import("./Mermaid").then((m) => ({ default: m.Mermaid })));
@@ -28,6 +29,23 @@ const components: import("react-markdown").Components = {
     }
     return <pre {...props}>{children}</pre>;
   },
+  // Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
+  // break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
+  table({ node: _, ...props }) {
+    const table = (
+      <div className="overflow-x-auto rounded-md border">
+        <table {...props} className="m-0 w-full max-w-none border-b-0 [overflow-wrap:break-word]" />
+      </div>
+    );
+    return (
+      <Expandable label="table" className="mt-(--typeset-flow)" expanded={<div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>}>
+        {table}
+      </Expandable>
+    );
+  },
+  thead: ({ node: _, ...props }) => <thead {...props} className="bg-muted/50" />,
+  th: ({ node: _, ...props }) => <th {...props} className="px-3 py-2 font-medium" />,
+  td: ({ node: _, ...props }) => <td {...props} className="px-3 py-2" />,
 };
 import { cn } from "@harness/ui";
 

@@ -1,3 +1,4 @@
+import { Expandable } from "./Expandable";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Item } from "./reducer";
 import type { RawNode } from "./tools";
@@ -10,7 +11,11 @@ const raw = (v: unknown) => JSON.stringify(v, null, 2);
 export function FrontendToolRow({ item, env, view }: { item: FT; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } }) {
   if (item.render?.ok) {
     const shown = view ?? (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
-    return shown ? <RenderUi root={shown.root} env={{ ...env, files: shown.files }} /> : null;
+    return shown ? (
+      <Expandable label="view">
+        <RenderUi root={shown.root} env={{ ...env, files: shown.files }} />
+      </Expandable>
+    ) : null;
   }
   if (item.render && !item.render.ok) {
     return (
