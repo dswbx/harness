@@ -3,8 +3,11 @@ import { Check, Copy } from "lucide-react";
 import { Tooltip, cn } from "@harness/ui";
 import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "./time";
 
-/** Actions under a message. Shown while the message is hovered or has focus (parent needs `group`). */
-export function MessageFooter({ text, ts, durationMs, align = "start" }: { text: string; ts: number; durationMs?: number; align?: "start" | "end" }) {
+/**
+ * Actions under a message. Shown while the message is hovered or has focus (parent needs `group`).
+ * `hidden` (a message still streaming in) keeps its space so the layout doesn't shift when it ends.
+ */
+export function MessageFooter({ text, ts, durationMs, align = "start", hidden }: { text: string; ts: number; durationMs?: number; align?: "start" | "end"; hidden?: boolean }) {
   const [copied, setCopied] = useState(false);
   const now = useNow();
 
@@ -21,7 +24,9 @@ export function MessageFooter({ text, ts, durationMs, align = "start" }: { text:
       className={cn(
         "mt-1 flex h-6 items-center gap-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
         align === "end" && "flex-row-reverse",
+        hidden && "invisible",
       )}
+      aria-hidden={hidden}
     >
       <Tooltip content={copied ? "Copied" : "Copy"} delay={100}>
         <button

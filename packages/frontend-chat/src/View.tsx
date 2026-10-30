@@ -190,7 +190,11 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
   );
 }
 
-const Row = memo(function Row({ item, api, onOpenDiff, subagent }: { item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent }) {
+const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
+  item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent;
+  /** The last row while a Turn runs: an agent message is still coming in. */
+  streaming?: boolean;
+}) {
   switch (item.type) {
     case "changes":
       return (
@@ -211,7 +215,7 @@ const Row = memo(function Row({ item, api, onOpenDiff, subagent }: { item: Item;
       return (
         <div className="group">
           <Markdown>{item.text}</Markdown>
-          <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} />
+          <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />
         </div>
       );
     case "thought":
@@ -331,7 +335,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         gap={24}
         innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
-        renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} subagent={subagents.get(rows[i]!.id)} />}
+        renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} subagent={subagents.get(rows[i]!.id)} streaming={running && i === rows.length - 1} />}
         footer={<Working since={state.turnStartedAt} />}
       />
       {state.archived ? (

@@ -26,11 +26,11 @@ export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagen
           <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-label="done" />
         )}
         <Bot className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs">
+        <span className="min-w-0 shrink truncate text-xs">
           <span className="text-muted-foreground">Subagent · </span>
           {task.title}
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">
+        <span className="min-w-0 max-w-[45%] flex-1 truncate text-right text-xs text-muted-foreground">
           {state === "running" && last ? <span className="font-mono">{last.title}</span> : `${n} tool call${n === 1 ? "" : "s"}`}
         </span>
         <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
