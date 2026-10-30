@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { StatePatchOp } from "@harness/api";
+import { applyStatePatch, type StatePatchOp } from "@harness/api";
 import { isVisible, resolveNode, resolveValue, runActions } from "./RenderUi";
-import { components, renderUiSchema } from "./tools";
+import { calculatorExample, components, renderUiSchema } from "./tools";
+import { loadJs, runJs } from "./sandbox";
 
 describe("render_ui binding", () => {
   const state = { quiz: { answers: { q1: "a", q2: "b" }, results: { q1: true, q2: false, q3: true }, points: [1, 2, "3"] } };
@@ -53,5 +54,38 @@ describe("render_ui binding", () => {
     for (const [name, c] of Object.entries(components)) {
       expect(renderUiSchema.validate({ root: c.example.node }).valid, name).toBe(true);
     }
+  });
+});
+
+describe("render_ui JavaScript (sandboxed)", () => {
+  it("evaluates $js against the state, without host globals or endless loops", async () => {
+    await loadJs();
+    expect(resolveValue({ $js: "state.a * 2" }, { a: 21 })).toBe(42);
+    expect(resolveValue({ $js: "const x = state.a; return { x };" }, { a: 1 })).toEqual({ x: 1 });
+    expect(runJs("typeof fetch + typeof window + typeof setTimeout", {})).toEqual({ value: "undefinedundefinedundefined" });
+    expect(runJs("(() => { while (true) {} })()", {})).toMatchObject({ error: expect.stringContaining("interrupted") });
+    expect(runJs("nope(", {})).toMatchObject({ error: expect.stringContaining("SyntaxError") });
+  });
+  it("runs a calculator: each press builds on the last, = evaluates", async () => {
+    let state: unknown = { calc: { expr: "" } };
+    const patch = async (ops: StatePatchOp[]) => void (state = applyStatePatch(state, ops));
+    const keys = Object.fromEntries(calculatorExample().children[1].children!.map((k) => [k.props.label, k.on.press]));
+    const press = (...ls: string[]) => Promise.all(ls.map(async (l) => runActions(keys[l], { state, patch, send: async () => {} })));
+    for (const l of ["1", "2", "+", "3", "×", "4", "="]) await press(l);
+    expect(state).toEqual({ calc: { expr: "24" } });
+    for (const l of ["⌫", "%"]) await press(l);
+    expect(state).toEqual({ calc: { expr: "0.02" } });
+    for (const l of ["AC", "÷", "="]) await press(l);
+    expect(state).toEqual({ calc: { expr: "Error" } });
+  });
+  it("a failing js action changes nothing and reports", async () => {
+    const patches: StatePatchOp[][] = [];
+    const errors: string[] = [];
+    await runActions(
+      [{ action: "setState", params: { statePath: "/a", value: 1 } }, { action: "js", params: { statePath: "/b", code: "state.x.y" } }],
+      { state: {}, patch: async (ops) => void patches.push(ops), send: async () => {}, onError: (m) => void errors.push(m) },
+    );
+    expect(patches).toEqual([]);
+    expect(errors[0]).toContain("TypeError");
   });
 });

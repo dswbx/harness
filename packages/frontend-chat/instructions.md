@@ -10,3 +10,4 @@ This Frontend is a chat. It renders your messages as Markdown.
 - Use `visible` to show something only when it fits, for example a next step after a choice is made, or a summary on the last step.
 - When a pick can be checked (a quiz, a known correct option), give the Choice the expected value as `answer`, a `result` path and an `explanation`: it marks right or wrong itself, and `$computed` `count` over the results gives a total.
 - Choice option values must be distinct and name the option; never use them to encode a verdict. Use object keys (`/review/findings/f1`), not array indexes, for values the UI writes.
+- When the UI should react without you (a calculator, a converter, a filter, totals), compute it with `{"$js": "..."}` values and `{"action": "js", "params": {"statePath", "code"}}` actions: sandboxed JavaScript with `state` in scope that runs in the app. A Grid of only Buttons is a keypad.

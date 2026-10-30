@@ -10,6 +10,38 @@ import { fromSchema, s, type Schema, type Static } from "jsonv-ts";
  * (`setState`, `pushState`, `removeState`, plus our `sendMessage`).
  */
 
+/** A keypad Grid with `js` actions: a calculator that works without the Agent (the Grid example, mock, tests). */
+export function calculatorExample() {
+  const calc = "const e = state.calc?.expr ?? '';";
+  const solve = "try { const v = Function('return (' + (e || '0') + ')')(); return { expr: Number.isFinite(v) ? String(+v.toFixed(10)) : 'Error' }; } catch { return { expr: 'Error' }; }";
+  const key = (label: string, code: string, variant: "primary" | "secondary" | "outline" = "outline") =>
+    ({ type: "Button" as const, props: { label, variant }, on: { press: { action: "js" as const, params: { statePath: "/calc", code: `${calc} ${code}` } } } });
+  const put = (label: string, s = label, variant?: "primary") => key(label, `return { expr: (e === 'Error' ? '' : e) + '${s}' };`, variant);
+  return {
+    type: "Card" as const,
+    props: { title: "Calculator" },
+    children: [
+      { type: "Stat" as const, props: { label: "Result", value: { $js: "(state.calc?.expr || '0').replace(/\\*/g, '×').replace(/\\//g, '÷')" } } },
+      {
+        type: "Grid" as const,
+        props: { columns: 4 },
+        children: [
+          key("⌫", "return { expr: e.slice(0, -1) };", "secondary"),
+          key("AC", "return { expr: '' };", "secondary"),
+          key("%", `const r = (() => { ${solve} })(); return { expr: r.expr === 'Error' ? 'Error' : String(Number(r.expr) / 100) };`, "secondary"),
+          put("÷", "/", "primary"),
+          put("7"), put("8"), put("9"), put("×", "*", "primary"),
+          put("4"), put("5"), put("6"), put("−", "-", "primary"),
+          put("1"), put("2"), put("3"), put("+", "+", "primary"),
+          key("±", "return { expr: e ? '-(' + e + ')' : '-' };"),
+          put("0"), put("."),
+          key("=", solve, "primary"),
+        ],
+      },
+    ],
+  };
+}
+
 const tone = s.string({ enum: ["neutral", "info", "success", "warning", "error"], description: "Accent. Default neutral." });
 /** The core copies local image files named here into the Session (ADR 0012, level 1). */
 const imageSrc = s.string({ format: "harness-image", description: "Image file path (relative to the workspace, or absolute) or an https URL." });
@@ -163,9 +195,9 @@ export const components = {
     example: { node: { type: "Input", props: { label: "Branch name", placeholder: "feat/...", value: { $bindState: "/setup/branch" } } }, state: { setup: {} } },
   },
   Button: {
-    description: "A button; `on.press` runs its actions.",
+    description: "A button; `on.press` runs its actions. A Grid of only Buttons is a keypad: exactly `columns` wide, keys fill their cells.",
     children: false,
-    props: s.object({ label: s.string(), variant: s.string({ enum: ["primary", "secondary", "ghost"] }).optional(), disabled: s.boolean().optional(), icon: icon.optional(), tooltip: tooltip.optional() }),
+    props: s.object({ label: s.string(), variant: s.string({ enum: ["primary", "secondary", "outline", "ghost"] }).optional(), disabled: s.boolean().optional(), icon: icon.optional(), tooltip: tooltip.optional() }),
     events: ["press"],
     example: { node: { type: "Stack", props: { direction: "horizontal", gap: "sm" }, children: [
       { type: "Button", props: { label: "Approve plan", icon: "check" }, on: { press: { action: "sendMessage", params: { text: { $template: "Approved, go with ${/plan/approach}." } } } } },
@@ -291,14 +323,17 @@ export const components = {
     ] } } },
   },
   Grid: {
-    description: "Children in up to `columns` equal columns (default 3); fewer when the area is narrow. E.g. a row of Stats.",
+    description: "Children in up to `columns` equal columns (default 3); fewer when the area is narrow. E.g. a row of Stats. Only Buttons: a keypad, always `columns` wide.",
     children: true,
-    props: s.object({ columns: s.number({ enum: [2, 3, 4] }).optional() }),
-    example: { node: { type: "Grid", props: { columns: 3 }, children: [
-      { type: "Stat", props: { label: "Tests", value: "48", hint: "2 skipped" } },
-      { type: "Stat", props: { label: "Coverage", value: "81%", tone: "success" } },
-      { type: "Stat", props: { label: "Build", value: "42s", tone: "warning", hint: "+6s" } },
-    ] } },
+    props: s.object({ columns: s.number({ enum: [2, 3, 4, 5, 6] }).optional() }),
+    example: { node: { type: "Stack", children: [
+      { type: "Grid", props: { columns: 3 }, children: [
+        { type: "Stat", props: { label: "Tests", value: "48", hint: "2 skipped" } },
+        { type: "Stat", props: { label: "Coverage", value: "81%", tone: "success" } },
+        { type: "Stat", props: { label: "Build", value: "42s", tone: "warning", hint: "+6s" } },
+      ] },
+      calculatorExample(),
+    ] }, state: { calc: { expr: "" } } },
   },
   Log: {
     description: "Terminal or log output with its ANSI colors, in a scrolling box that starts at the end. `title` names it, e.g. the command.",
@@ -348,7 +383,8 @@ export type UiAction =
   | { action: "setState"; params: { statePath: string; value: unknown } }
   | { action: "pushState"; params: { statePath: string; value: unknown } }
   | { action: "removeState"; params: { statePath: string; index?: number } }
-  | { action: "sendMessage"; params: { text: unknown } };
+  | { action: "sendMessage"; params: { text: unknown } }
+  | { action: "js"; params: { statePath: string; code: string } };
 type On = Partial<Record<"press" | "change" | "submit" | "finish", UiAction | UiAction[]>>;
 
 /** A node as the Agent sends it: props may hold `$state`/`$template`/`$bindState` expressions. */
@@ -403,10 +439,11 @@ const renderUiJson = {
   ],
   $defs: {
     expr: {
-      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Done: ${/checks/done}"}, or {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}.',
+      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Done: ${/checks/done}"}, {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}, or {"$js": "JavaScript"} (an expression or a function body with return; `state` is the Session State).',
       oneOf: [
         { type: "object", properties: { $state: { type: "string" } }, required: ["$state"], additionalProperties: false },
         { type: "object", properties: { $template: { type: "string" } }, required: ["$template"], additionalProperties: false },
+        { type: "object", properties: { $js: { type: "string" } }, required: ["$js"], additionalProperties: false },
         {
           type: "object",
           properties: { $computed: { type: "string", enum: COMPUTED }, args: { type: "object", properties: { values: {}, eq: {} }, required: ["values"], additionalProperties: false } },
@@ -427,12 +464,13 @@ const renderUiJson = {
     bind: { type: "object", properties: { $bindState: { type: "string" } }, required: ["$bindState"], additionalProperties: false, description: 'Two-way binding: {"$bindState": "/path"}.' },
     action: {
       type: "object",
-      properties: { action: { type: "string", enum: ["setState", "pushState", "removeState", "sendMessage"] }, params: { type: "object" } },
+      properties: { action: { type: "string", enum: ["setState", "pushState", "removeState", "sendMessage", "js"] }, params: { type: "object" } },
       required: ["action", "params"],
       additionalProperties: false,
       allOf: [
         { if: { properties: { action: { enum: ["setState", "pushState"] } } }, then: { properties: { params: { type: "object", properties: { statePath: { type: "string" }, value: {} }, required: ["statePath", "value"], additionalProperties: false } } } },
         { if: { properties: { action: { const: "removeState" } } }, then: { properties: { params: { type: "object", properties: { statePath: { type: "string" }, index: { type: "integer" } }, required: ["statePath"], additionalProperties: false } } } },
+        { if: { properties: { action: { const: "js" } } }, then: { properties: { params: { type: "object", properties: { statePath: { type: "string" }, code: { type: "string" } }, required: ["statePath", "code"], additionalProperties: false } } } },
         { if: { properties: { action: { const: "sendMessage" } } }, then: { properties: { params: { type: "object", properties: { text: { anyOf: [{ type: "string" }, { $ref: "#/$defs/expr" }] } }, required: ["text"], additionalProperties: false } } } },
       ],
     },
@@ -492,7 +530,9 @@ export const frontendTools = [
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
       'Choice and Input write the user\'s input with {"$bindState": "/path"}. ' +
       'on.press/change/submit/finish run actions: {"action": "setState"|"pushState", "params": {"statePath", "value"}}, {"action": "removeState", "params": {"statePath", "index"?}}, ' +
-      '{"action": "sendMessage", "params": {"text"}} (sends the text to you as the user\'s next message; text can be a $template). ' +
+      '{"action": "sendMessage", "params": {"text"}} (sends the text to you as the user\'s next message; text can be a $template), ' +
+      '{"action": "js", "params": {"statePath", "code"}} (runs JavaScript, an expression or a function body with return, with `state` in scope, and writes its result to statePath; actions in a list see the writes before them). ' +
+      'JavaScript ($js, js) runs sandboxed in the app without you, e.g. a calculator or a converter: no DOM, network or timers, 50 ms at most, JSON in and out. ' +
       '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
       "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +

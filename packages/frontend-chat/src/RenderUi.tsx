@@ -1,6 +1,6 @@
-import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useState, type ReactNode } from "react";
+import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useReducer, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronLeft, ChevronRight, FileCode, ImageOff, Info, Search, XCircle } from "lucide-react";
-import { getAt, type StatePatchOp } from "@harness/api";
+import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
 import { Button, Input, Select, Textarea, Tooltip, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { Markdown } from "./Markdown";
@@ -10,6 +10,7 @@ import { Diff as FileDiff } from "./ToolCard";
 import { uiIcons } from "./uiIcons";
 import { AnsiText } from "./AnsiText";
 import { InlineMarkdown as Md } from "./InlineMarkdown";
+import { jsReady, loadJs, onJsReady, runJs } from "./sandbox";
 
 /** recharts is large: loaded the first time a Chart shows. */
 const UiChart = lazy(() => import("./UiChart"));
@@ -40,6 +41,8 @@ export type UiEnv = {
   open?: (path: string, line?: number) => Promise<void>;
   /** Cache key prefix for read images (e.g. the Session id). */
   scope?: string;
+  /** A `js` action failed (RenderUi shows it under the tree). */
+  onError?: (message: string) => void;
 };
 const Env = createContext<UiEnv | null>(null);
 const useEnv = () => useContext(Env)!;
@@ -50,6 +53,11 @@ export function resolveValue(v: unknown, state: unknown): unknown {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return v;
   const o = v as Record<string, unknown>;
   if (typeof o.$state === "string") return getAt(state, o.$state);
+  if (typeof o.$js === "string") {
+    const r = runJs(o.$js, state);
+    if (r && "error" in r) console.warn(`render_ui $js: ${r.error}`);
+    return r && "value" in r ? r.value : undefined;
+  }
   if (typeof o.$computed === "string") {
     const args = (o.args ?? {}) as { values?: unknown; eq?: unknown };
     const raw = resolveValue(args.values, state);
@@ -98,18 +106,31 @@ export function resolveNode(raw: RawNode, state: unknown): UiNode {
   return { ...raw, props, bindings, children: undefined } as unknown as UiNode;
 }
 
-/** Runs `actions`: state actions become one patch (applied in order), then messages are sent. */
-export async function runActions(actions: UiAction | UiAction[] | undefined, env: Pick<UiEnv, "state" | "patch" | "send">) {
+/** Runs `actions`: state actions become one patch (applied in order, each seeing the ones before), then messages are sent. */
+export async function runActions(actions: UiAction | UiAction[] | undefined, env: Pick<UiEnv, "state" | "patch" | "send" | "onError">) {
   const list = actions == null ? [] : Array.isArray(actions) ? actions : [actions];
+  if (list.some((a) => a.action === "js") && !jsReady()) await loadJs();
   const ops: StatePatchOp[] = [];
   const texts: string[] = [];
+  let cur = env.state;
+  const push = (...more: StatePatchOp[]) => {
+    ops.push(...more);
+    try {
+      cur = applyStatePatch(cur, more);
+    } catch { /* the core decides; later actions read the state as it was */ }
+  };
   for (const a of list) {
-    if (a.action === "setState") ops.push({ op: "replace", path: a.params.statePath, value: resolveValue(a.params.value, env.state) });
+    if (a.action === "setState") push({ op: "replace", path: a.params.statePath, value: resolveValue(a.params.value, cur) });
     else if (a.action === "pushState") {
-      if (!Array.isArray(getAt(env.state, a.params.statePath))) ops.push({ op: "add", path: a.params.statePath, value: [] });
-      ops.push({ op: "add", path: `${a.params.statePath}/-`, value: resolveValue(a.params.value, env.state) });
-    } else if (a.action === "removeState") ops.push({ op: "remove", path: a.params.index == null ? a.params.statePath : `${a.params.statePath}/${a.params.index}` });
-    else if (a.action === "sendMessage") texts.push(String(resolveValue(a.params.text, env.state) ?? ""));
+      if (!Array.isArray(getAt(cur, a.params.statePath))) push({ op: "add", path: a.params.statePath, value: [] });
+      push({ op: "add", path: `${a.params.statePath}/-`, value: resolveValue(a.params.value, cur) });
+    } else if (a.action === "removeState") push({ op: "remove", path: a.params.index == null ? a.params.statePath : `${a.params.statePath}/${a.params.index}` });
+    else if (a.action === "js") {
+      const r = runJs(a.params.code, cur);
+      // A failing script changes nothing and sends nothing.
+      if (!r || "error" in r) return env.onError?.(r ? r.error : "The script engine did not load.");
+      push({ op: "replace", path: a.params.statePath, value: r.value });
+    } else if (a.action === "sendMessage") texts.push(String(resolveValue(a.params.text, cur) ?? ""));
   }
   if (ops.length) await env.patch(ops);
   for (const t of texts) if (t.trim()) await env.send(t);
@@ -864,7 +885,7 @@ function Node({ raw }: { raw: RawNode }) {
         node.props.tooltip,
         <Button
           size="sm"
-          variant={node.props.variant === "secondary" ? "secondary" : node.props.variant === "ghost" ? "ghost" : "default"}
+          variant={node.props.variant === "primary" || !node.props.variant ? "default" : node.props.variant}
           disabled={node.props.disabled}
           className="w-fit"
           onClick={() => void runActions(node.on?.press, env)}
@@ -888,6 +909,14 @@ function Node({ raw }: { raw: RawNode }) {
     case "Grid": {
       const n = node.props.columns ?? 3;
       const shown = (raw.children ?? []).map((c, i) => [c, i] as const).filter(([c]) => isVisible(c.visible, env.state));
+      // Only Buttons: a keypad, exactly `columns` wide, keys filling their cells.
+      if (shown.length && shown.every(([c]) => c.type === "Button")) {
+        return (
+          <div className="grid gap-2 [&_button]:h-10 [&_button]:w-full" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
+            {shown.map(([c, i]) => <Node key={i} raw={c} />)}
+          </div>
+        );
+      }
       return (
         <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(max(10rem, calc((100% - ${n - 1} * 0.75rem) / ${n})), 1fr))` }}>
           {shown.map(([c, i]) => <Node key={i} raw={c} />)}
@@ -916,13 +945,72 @@ function Node({ raw }: { raw: RawNode }) {
   }
 }
 
-/** A `render_ui` tree, bound to the Session State in `env`. */
+type Batch = { ops: StatePatchOp[]; settled?: { at: unknown } };
+
+const tryApply = (state: unknown, ops: StatePatchOp[]) => {
+  try {
+    return applyStatePatch(state, ops);
+  } catch {
+    return state;
+  }
+};
+
+/**
+ * A `render_ui` tree, bound to the Session State in `env`. The user's writes show at once: they
+ * stay applied on top of `env.state` until it changes after the write settled (the core's
+ * StateChanged has arrived), and each write builds on the ones before, so fast presses keep all.
+ */
 export function RenderUi({ root, env }: { root: RawNode; env: UiEnv }) {
+  const [pending, setPending] = useState<Batch[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const shown = useMemo(() => pending.reduce((s, b) => tryApply(s, b.ops), env.state), [env.state, pending]);
+  const latest = useRef(shown);
+  latest.current = shown;
+  const base = useRef(env.state);
+  base.current = env.state;
+  useEffect(() => setPending((p) => (p.some((b) => b.settled && b.settled.at !== env.state) ? p.filter((b) => !b.settled || b.settled.at === env.state) : p)), [env.state]);
+
+  // Scripts ($js, js actions) load the engine; re-render once it is there.
+  const scripted = useMemo(() => /"\$js"|"action":"js"/.test(JSON.stringify(root)), [root]);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (!scripted || jsReady()) return;
+    const off = onJsReady(rerender);
+    void loadJs();
+    return off;
+  }, [scripted]);
+
+  const value = useMemo<UiEnv>(
+    () => ({
+      ...env,
+      get state() {
+        return latest.current;
+      },
+      patch: async (ops) => {
+        const batch: Batch = { ops };
+        latest.current = tryApply(latest.current, ops);
+        setPending((p) => [...p, batch]);
+        setError(null);
+        try {
+          await env.patch(ops);
+          setPending((p) => p.map((b) => (b === batch ? { ops, settled: { at: base.current } } : b)));
+        } catch (e) {
+          setPending((p) => p.filter((b) => b !== batch));
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+      onError: (m) => setError(m),
+    }),
+    // A new object per state, so components re-render; reads go through `latest`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [env, shown],
+  );
   return (
-    <Env.Provider value={env}>
+    <Env.Provider value={value}>
       {/* Sizes (text-ui*) follow the chat font size, like Markdown in messages. */}
       <div className="min-w-0 text-ui">
         <Node raw={root} />
+        {error && <p className="mt-2 text-ui-sm text-destructive">{error}</p>}
       </div>
     </Env.Provider>
   );
