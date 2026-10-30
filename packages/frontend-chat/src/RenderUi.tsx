@@ -141,7 +141,22 @@ function Node({ node }: { node: UiNode }) {
   switch (node.type) {
     case "Stack": {
       const gap = { sm: "gap-1.5", md: "gap-3", lg: "gap-5" }[node.props?.gap ?? "md"];
-      return <div className={cn("flex min-w-0", node.props?.direction === "horizontal" ? "flex-row flex-wrap items-start" : "flex-col", gap)}>{kids}</div>;
+      if (node.props?.direction !== "horizontal") return <div className={cn("flex min-w-0 flex-col", gap)}>{kids}</div>;
+      // A row: badges keep their width; other children share it equally (same height) and wrap
+      // when narrower than 12rem.
+      return (
+        <div className={cn("flex min-w-0 flex-row flex-wrap", gap)}>
+          {node.children?.map((c, i) =>
+            c.type === "Badge" ? (
+              <Node key={i} node={c} />
+            ) : (
+              <div key={i} className="flex min-w-48 flex-1 basis-0 flex-col [&>*]:flex-1">
+                <Node node={c} />
+              </div>
+            ),
+          )}
+        </div>
+      );
     }
     case "Card": {
       const t = tones[node.props?.tone ?? "neutral"];

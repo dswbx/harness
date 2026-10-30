@@ -43,6 +43,16 @@ export function mockRenderUi(srcs: string[]) {
             ] },
           ],
         },
+        { type: "Stack", props: { direction: "horizontal" }, children: [
+          { type: "Card", props: { title: "read_to_string", tone: "info" }, children: [
+            { type: "Markdown", props: { text: "Reads the whole file into a `String`. Best for small files." } },
+            { type: "Code", props: { language: "rust", code: "let s = fs::read_to_string(\"data.txt\")?;" } },
+          ] },
+          { type: "Card", props: { title: "BufReader", tone: "success" }, children: [
+            { type: "Markdown", props: { text: "Reads one line at a time." } },
+            { type: "Code", props: { language: "rust", code: "for l in BufReader::new(f).lines() {\n    println!(\"{}\", l?);\n}" } },
+          ] },
+        ] },
         { type: "Table", props: { columns: ["Page", "Before", "After"], rows: [["Home", "1.8s", "0.9s"], ["Settings", "1.2s", "0.7s"]] } },
         { type: "Carousel", props: { images: srcs.map((src, i) => ({ src, alt: `Screenshot ${i + 1}`, caption: `Screenshot ${i + 1} of ${srcs.length}` })) } },
       ],
