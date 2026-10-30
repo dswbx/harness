@@ -62,6 +62,8 @@ export type Item =
   | {
       type: "frontend_tool";
       id: string;
+      /** ms epoch of the call. */
+      ts: number;
       tool: string;
       callId: string;
       path: string;
@@ -353,7 +355,7 @@ function apply(c: Ctx, e: Event) {
           ? { ok: true, value: k.input as RenderUiInput }
           : { ok: false, errors: r.errors.map((x) => `${x.instanceLocation} ${x.error}`) };
       }
-      push(c, { type: "frontend_tool", id, tool: k.tool, callId: k.call_id, path: k.path, input: k.input, files: k.files ?? {}, render });
+      push(c, { type: "frontend_tool", id, ts: e.ts_ms, tool: k.tool, callId: k.call_id, path: k.path, input: k.input, files: k.files ?? {}, render });
       return;
     }
     case "AgentNotice":

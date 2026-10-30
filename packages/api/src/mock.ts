@@ -395,20 +395,34 @@ export class MockTransport implements Transport {
         }
         // Typing "/quiz" simulates an Agent building a practice test with Session State and slots.
         if (cmd.text.trim() === "/quiz") {
-          const ops = [{ op: "add" as const, path: "/quiz", value: { score: 0, done: 0, total: 3, answers: {} } }];
+          const ops = [{ op: "add" as const, path: "/quiz", value: { step: 0, answers: {}, results: {} } }];
           this.states.set(sid, applyStatePatch(this.states.get(sid) ?? {}, ops));
           this.emit(sid, { type: "StateChanged", ops, by: "agent" });
           const ui = (call: string, input: unknown) =>
             this.emit(sid, { type: "FrontendToolOutput", tool: "render_ui", call_id: call, path: `tools/render_ui/${call}.json`, input });
           ui("quiz-score", { id: "score", placement: "bottom", root: { type: "Stack", props: { direction: "horizontal" }, children: [
-            { type: "Stat", props: { label: "Score", value: { $template: "${/quiz/score} / ${/quiz/total}" } } },
-            { type: "Progress", props: { label: "Progress", value: { $state: "/quiz/done" }, max: 3 } },
+            { type: "Stat", props: { label: "Score", value: { $computed: "count", args: { values: { $state: "/quiz/results" }, eq: true } } } },
+            { type: "Progress", props: { label: "Answered", value: { $computed: "length", args: { values: { $state: "/quiz/answers" } } }, max: 3 } },
           ] } });
-          ui("quiz-q1", { id: "question", placement: "right", title: "Question 1", root: { type: "Card", props: { title: "Question 1 of 3" }, children: [
-            { type: "Markdown", props: { text: "Which feature lets Rust free memory **without** a garbage collector?" } },
-            { type: "Choice", props: { value: { $bindState: "/quiz/answers/q1" }, options: [{ value: "a", label: "A. Ownership" }, { value: "b", label: "B. A garbage collector" }, { value: "c", label: "C. Reference counting only" }] },
-              on: { change: { action: "sendMessage", params: { text: { $template: "Answer to Q1: ${/quiz/answers/q1}" } } } } },
-          ] } });
+          ui("quiz-test", { id: "test", placement: "right", title: "Rust practice test", root: {
+            type: "Stepper",
+            props: { steps: ["Ownership", "Option", "Borrowing"], value: { $bindState: "/quiz/step" } },
+            on: { finish: { action: "sendMessage", params: { text: "I finished the test." } } },
+            children: [
+              { type: "Stack", children: [
+              { type: "Markdown", props: { text: 'Which feature lets Rust free memory **without** a garbage collector?' } },
+              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q1" }, result: { $bindState: "/quiz/results/q1" }, answer: 'a', options: [{ value: 'a', label: 'Ownership' }, { value: 'b', label: 'A garbage collector' }, { value: 'c', label: 'Reference counting only' }] } },
+            ] },
+              { type: "Stack", children: [
+              { type: "Markdown", props: { text: 'Which type shows that a value may be missing?' } },
+              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q2" }, result: { $bindState: "/quiz/results/q2" }, answer: 'b', options: [{ value: 'a', label: 'Result<T, E>' }, { value: 'b', label: 'Option<T>' }, { value: 'c', label: 'Vec<T>' }] } },
+            ] },
+              { type: "Stack", children: [
+              { type: "Markdown", props: { text: 'Which rule does the borrow checker enforce?' } },
+              { type: "Choice", props: { value: { $bindState: "/quiz/answers/q3" }, result: { $bindState: "/quiz/results/q3" }, answer: 'a', options: [{ value: 'a', label: 'One &mut or many &, not both' }, { value: 'b', label: 'Many &mut at once' }, { value: 'c', label: 'Only one & at a time' }] } },
+            ] },
+            ],
+          } });
           this.emit(sid, { type: "AgentMessageChunk", text: "The practice test has started: the question is on the right, your score is at the bottom." });
           return { type: "Ok" };
         }

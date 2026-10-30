@@ -2,7 +2,8 @@ import type { Item } from "./reducer";
 import type { Placement, RawNode } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
-export type Slot = { id: string; title: string | null; root: RawNode; files: Record<string, string> };
+/** `ts`: when the Agent last placed it (ms epoch). */
+export type Slot = { id: string; title: string | null; root: RawNode; files: Record<string, string>; ts: number };
 
 /**
  * Splits `render_ui` calls by placement. A call with an `id` replaces earlier calls with that id
@@ -47,7 +48,7 @@ export function splitRenderUi(items: Item[]): {
       inline.set(firstRow.get(v.id)!, { root: v.root, files: ft.files });
       where.set(v.id, "inline");
     } else {
-      const slot = { id: v.id, title: v.title ?? null, root: v.root, files: ft.files };
+      const slot = { id: v.id, title: v.title ?? null, root: v.root, files: ft.files, ts: ft.ts };
       if (where.get(v.id) === placement) slots[placement] = slots[placement].map((s) => (s.id === v.id ? slot : s));
       else {
         drop(v.id);

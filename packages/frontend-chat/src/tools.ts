@@ -115,15 +115,25 @@ export const components = {
     example: { node: { type: "Progress", props: { label: "Question 2 of 5", value: { $state: "/quiz/done" }, max: 5 } }, state: { quiz: { done: 2 } } },
   },
   Choice: {
-    description: "Options to pick one from; writes the picked value to its $bindState path. `on.change` runs after a pick.",
+    description:
+      "Options to pick one from (distinct values); writes the picked value to `value` ($bindState). For a quiz, set `answer` to the correct value: after a pick it shows right/wrong, locks, and writes true/false to `result` ($bindState). `on.change` runs after a pick.",
     children: false,
-    props: s.object({ options: s.array(s.object({ value: s.string(), label: s.string() }), { minItems: 1 }), value: s.any(), columns: s.number({ enum: [1, 2] }).optional() }),
-    bind: ["value"],
+    props: s.object({
+      options: s.array(s.object({ value: s.string(), label: s.string() }), { minItems: 1 }),
+      value: s.any(),
+      answer: s.string().optional(),
+      result: s.any().optional(),
+      columns: s.number({ enum: [1, 2] }).optional(),
+    }),
+    bind: ["value", "result"],
     events: ["change"],
-    example: { node: {
-      type: "Choice",
-      props: { value: { $bindState: "/answers/q1" }, options: [{ value: "a", label: "A. Ownership" }, { value: "b", label: "B. Garbage collection" }, { value: "c", label: "C. Reference counting only" }] },
-    }, state: { answers: {} } },
+    example: { node: { type: "Stack", children: [
+      { type: "Choice", props: {
+        value: { $bindState: "/quiz/answers/q1" }, result: { $bindState: "/quiz/results/q1" }, answer: "a",
+        options: [{ value: "a", label: "A. Ownership" }, { value: "b", label: "B. Garbage collection" }, { value: "c", label: "C. Reference counting only" }],
+      } },
+      { type: "Stat", props: { label: "Score", value: { $computed: "count", args: { values: { $state: "/quiz/results" }, eq: true } } } },
+    ] }, state: { quiz: { answers: {}, results: {} } } },
   },
   Input: {
     description: "A text field; writes its text to its $bindState path. `on.submit` runs on Enter.",
@@ -144,6 +154,33 @@ export const components = {
       { type: "Badge", props: { text: { $template: "Picked: ${/answers/q1}" } } },
     ] }, state: { answers: { q1: "a" } } },
   },
+  Tabs: {
+    description: "Tabs: one child per tab, one shown at a time. `value` ($bindState, optional) holds the open tab's index.",
+    children: true,
+    props: s.object({ tabs: s.array(s.string(), { minItems: 1 }), value: s.any().optional() }),
+    bind: ["value"],
+    example: { node: { type: "Tabs", props: { tabs: ["Summary", "Details"] }, children: [
+      { type: "Markdown", props: { text: "Short summary." } },
+      { type: "KeyValue", props: { items: [{ label: "Files", value: "3" }] } },
+    ] } },
+  },
+  Stepper: {
+    description:
+      "Steps shown one at a time with Back/Next, e.g. the questions of a test: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step.",
+    children: true,
+    props: s.object({ steps: s.array(s.string(), { minItems: 1 }), value: s.any().optional() }),
+    bind: ["value"],
+    events: ["finish"],
+    example: { node: {
+      type: "Stepper",
+      props: { steps: ["Question 1", "Question 2"] },
+      on: { finish: { action: "sendMessage", params: { text: "I finished the test." } } },
+      children: [
+        { type: "Choice", props: { value: { $bindState: "/t/q1" }, result: { $bindState: "/t/r/q1" }, answer: "b", options: [{ value: "a", label: "Box<T>" }, { value: "b", label: "Option<T>" }] } },
+        { type: "Choice", props: { value: { $bindState: "/t/q2" }, result: { $bindState: "/t/r/q2" }, answer: "a", options: [{ value: "a", label: "One &mut or many &" }, { value: "b", label: "Many &mut" }] } },
+      ],
+    }, state: { t: {} } },
+  },
 } as const satisfies Record<string, Entry>;
 
 type Components = typeof components;
@@ -155,7 +192,7 @@ export type UiAction =
   | { action: "pushState"; params: { statePath: string; value: unknown } }
   | { action: "removeState"; params: { statePath: string; index?: number } }
   | { action: "sendMessage"; params: { text: unknown } };
-type On = Partial<Record<"press" | "change" | "submit", UiAction | UiAction[]>>;
+type On = Partial<Record<"press" | "change" | "submit" | "finish", UiAction | UiAction[]>>;
 
 /** A node as the Agent sends it: props may hold `$state`/`$template`/`$bindState` expressions. */
 export type RawNode = { type: ComponentType; props?: Record<string, unknown>; children?: RawNode[]; on?: On };
@@ -163,6 +200,13 @@ export type RawNode = { type: ComponentType; props?: Record<string, unknown>; ch
 export type UiNode = {
   [K in ComponentType]: { type: K; props: Static<Components[K]["props"]>; children?: UiNode[]; on?: On; bindings: Record<string, string> };
 }[ComponentType];
+
+/**
+ * Built-in `$computed` functions (json-render's syntax; it registers its own by name).
+ * `count`: entries of `values` (array or object) equal to `eq` (default true). `length`: all entries.
+ * `sum`: numbers in `values`.
+ */
+export const COMPUTED = ["count", "length", "sum"] as const;
 
 export const PLACEMENTS = ["inline", "top", "bottom", "right"] as const;
 export type Placement = (typeof PLACEMENTS)[number];
@@ -200,10 +244,16 @@ const renderUiJson = {
   ],
   $defs: {
     expr: {
-      description: 'Read from the Session State: {"$state": "/path"} or {"$template": "Score: ${/quiz/score}"}.',
+      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Score: ${/quiz/score}"}, or {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}.',
       oneOf: [
         { type: "object", properties: { $state: { type: "string" } }, required: ["$state"], additionalProperties: false },
         { type: "object", properties: { $template: { type: "string" } }, required: ["$template"], additionalProperties: false },
+        {
+          type: "object",
+          properties: { $computed: { type: "string", enum: COMPUTED }, args: { type: "object", properties: { values: {}, eq: {} }, required: ["values"], additionalProperties: false } },
+          required: ["$computed", "args"],
+          additionalProperties: false,
+        },
       ],
     },
     bind: { type: "object", properties: { $bindState: { type: "string" } }, required: ["$bindState"], additionalProperties: false, description: 'Two-way binding: {"$bindState": "/path"}.' },
@@ -223,8 +273,8 @@ const renderUiJson = {
       properties: {
         type: { type: "string", enum: names },
         props: { type: "object" },
-        children: { type: "array", items: { $ref: node }, description: "Only for Stack and Card." },
-        on: { type: "object", properties: { press: actionList, change: actionList, submit: actionList }, additionalProperties: false },
+        children: { type: "array", items: { $ref: node }, description: "Only for Stack, Card, Tabs and Stepper." },
+        on: { type: "object", properties: { press: actionList, change: actionList, submit: actionList, finish: actionList }, additionalProperties: false },
       },
       required: ["type"],
       additionalProperties: false,
@@ -266,15 +316,16 @@ export const frontendTools = [
   {
     name: RENDER_UI,
     description:
-      "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, choices, inputs, buttons. " +
-      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?}; only Stack and Card take children.\n' +
+      "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, tabs, steppers, choices, inputs, buttons. " +
+      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?}; only Stack, Card, Tabs and Stepper take children.\n' +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
-      'Session State: any prop can be {"$state": "/path"} or {"$template": "Score: ${/quiz/score}"} and updates when the state changes (change it with state_patch). ' +
+      'Session State: any prop can be {"$state": "/path"}, {"$template": "Score: ${/quiz/score}"} or {"$computed": "count", "args": {"values": {"$state": "/quiz/results"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
       'Choice and Input write the user\'s answer with {"$bindState": "/path"}. ' +
       'on.press/change/submit run actions: {"action": "setState"|"pushState", "params": {"statePath", "value"}}, {"action": "removeState", "params": {"statePath", "index"?}}, ' +
       '{"action": "sendMessage", "params": {"text"}} (sends the text to you as the user\'s next message; text can be a $template). ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
+      "For a test or quiz: one right tab (or inline card) with a Stepper of questions; each Choice with `answer` and `result` grades itself, and a Stat with $computed count shows the score.\n" +
       "Use it for results, status, comparisons, screenshots or interactive tasks, instead of a long plain message. Components:\n" +
       catalogText(),
     schema: renderUiJson,

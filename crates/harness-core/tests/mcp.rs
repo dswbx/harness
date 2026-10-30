@@ -382,5 +382,10 @@ fn generated_chat_manifest_validates_in_core() {
     assert_eq!(errors(json!({ "root": { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" }, "options": [{ "value": "a", "label": "A" }] },
         "on": { "change": { "action": "sendMessage", "params": { "text": { "$template": "Answer: ${/a/q1}" } } } } } })), "");
     assert!(errors(json!({ "placement": "right", "root": { "type": "Markdown", "props": { "text": "x" } } })).contains("\"id\" is a required property"));
+    assert_eq!(errors(json!({ "id": "test", "placement": "right", "title": "Test", "root": { "type": "Stepper", "props": { "steps": ["Q1"] },
+        "on": { "finish": { "action": "sendMessage", "params": { "text": "done" } } },
+        "children": [{ "type": "Choice", "props": { "value": { "$bindState": "/q/a1" }, "result": { "$bindState": "/q/r/q1" }, "answer": "a", "options": [{ "value": "a", "label": "A" }] } }] } })), "");
+    assert_eq!(errors(json!({ "root": { "type": "Stat", "props": { "label": "Score", "value": { "$computed": "count", "args": { "values": { "$state": "/q/r" }, "eq": true } } } } })), "");
+    assert!(!errors(json!({ "root": { "type": "Stat", "props": { "label": "S", "value": { "$computed": "average", "args": { "values": [] } } } } })).is_empty());
     assert!(!errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "setState", "params": { "value": 1 } } } } })).is_empty());
 }

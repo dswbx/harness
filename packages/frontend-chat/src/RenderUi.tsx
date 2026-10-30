@@ -39,6 +39,18 @@ export function resolveValue(v: unknown, state: unknown): unknown {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return v;
   const o = v as Record<string, unknown>;
   if (typeof o.$state === "string") return getAt(state, o.$state);
+  if (typeof o.$computed === "string") {
+    const args = (o.args ?? {}) as { values?: unknown; eq?: unknown };
+    const raw = resolveValue(args.values, state);
+    const values = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? Object.values(raw) : [];
+    if (o.$computed === "count") {
+      const eq = args.eq === undefined ? true : resolveValue(args.eq, state);
+      return values.filter((x) => JSON.stringify(x) === JSON.stringify(eq)).length;
+    }
+    if (o.$computed === "length") return values.length;
+    if (o.$computed === "sum") return values.reduce((n: number, x) => n + (typeof x === "number" ? x : Number(x) || 0), 0);
+    return undefined;
+  }
   if (typeof o.$template === "string") {
     return o.$template.replace(/\$\{([^}]*)\}/g, (_, p: string) => {
       const x = getAt(state, p);
@@ -199,35 +211,114 @@ function Carousel({ images }: { images: Img[] }) {
 
 function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   const env = useEnv();
-  const path = node.bindings.value;
+  const { options, answer } = node.props;
+  const picked = node.props.value;
+  const graded = answer != null && picked != null && picked !== "";
   const pick = async (value: string) => {
-    if (!path) return;
-    const next = { ...env, state: structuredCloneSet(env.state, path, value) };
-    await env.patch([{ op: "add", path, value }]);
-    await runActions(node.on?.change, next);
+    const path = node.bindings.value;
+    if (!path || graded) return;
+    const ops: StatePatchOp[] = [{ op: "add", path, value }];
+    let next = structuredCloneSet(env.state, path, value);
+    const result = node.bindings.result;
+    if (result && answer != null) {
+      ops.push({ op: "add", path: result, value: value === answer });
+      next = structuredCloneSet(next, result, value === answer);
+    }
+    await env.patch(ops);
+    await runActions(node.on?.change, { ...env, state: next });
   };
+  // Picked by value: duplicate values would pick several options at once.
+  if (new Set(options.map((o) => o.value)).size !== options.length) {
+    return <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">Choice options need distinct values.</div>;
+  }
   return (
     <div role="radiogroup" className={cn("grid gap-1.5", node.props.columns === 2 && "sm:grid-cols-2")}>
-      {node.props.options.map((o) => {
-        const on = node.props.value === o.value;
+      {options.map((o) => {
+        const on = picked === o.value;
+        const verdict = !graded ? null : o.value === answer ? "right" : on ? "wrong" : null;
         return (
           <button
             key={o.value}
             role="radio"
             aria-checked={on}
+            disabled={graded && !on}
             onClick={() => void pick(o.value)}
             className={cn(
-              "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors",
-              on ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent",
+              "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-default",
+              verdict === "right" ? "border-emerald-500/60 bg-emerald-500/10" : verdict === "wrong" ? "border-destructive/60 bg-destructive/10" : on ? "border-primary bg-primary/10 font-medium" : !graded && "hover:bg-accent",
             )}
           >
-            <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border", on && "border-primary")}>
+            <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border border-muted-foreground/50", on && "border-primary")}>
               {on && <span className="size-2 rounded-full bg-primary" />}
             </span>
-            {o.label}
+            <span className="min-w-0 flex-1">{o.label}</span>
+            {verdict === "right" && <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-label="correct" />}
+            {verdict === "wrong" && <XCircle className="size-4 shrink-0 text-destructive" aria-label="wrong" />}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** Index from a bound `value`, else local; writes go to the bound path when there is one. */
+function useIndex(node: { props: { value?: unknown }; bindings: Record<string, string> }, count: number): [number, (i: number) => void] {
+  const env = useEnv();
+  const [local, setLocal] = useState(0);
+  const path = node.bindings.value;
+  const bound = Number(node.props.value);
+  const index = Math.max(0, Math.min(count - 1, path && Number.isInteger(bound) ? bound : local));
+  const set = (i: number) => (path ? void env.patch([{ op: "add", path, value: i }]) : setLocal(i));
+  return [index, set];
+}
+
+function Tabs({ node, kids }: { node: Extract<UiNode, { type: "Tabs" }>; kids: React.ReactNode[] }) {
+  const [i, setI] = useIndex(node, node.props.tabs.length);
+  return (
+    <div className="grid gap-3">
+      <div role="tablist" className="flex gap-1 overflow-x-auto border-b">
+        {node.props.tabs.map((t, j) => (
+          <button
+            key={j}
+            role="tab"
+            aria-selected={i === j}
+            onClick={() => setI(j)}
+            className={cn("-mb-px shrink-0 border-b-2 px-3 py-1.5 text-sm", i === j ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel">{kids[i]}</div>
+    </div>
+  );
+}
+
+function Stepper({ node, kids }: { node: Extract<UiNode, { type: "Stepper" }>; kids: React.ReactNode[] }) {
+  const env = useEnv();
+  const steps = node.props.steps;
+  const [i, setI] = useIndex(node, steps.length);
+  const last = i === steps.length - 1;
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="tabular-nums">Step {i + 1} of {steps.length}</span>
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{steps[i]}</span>
+        <div className="flex gap-1">
+          {steps.map((_, j) => (
+            <button key={j} aria-label={`Go to step ${j + 1}`} onClick={() => setI(j)} className={cn("size-2 rounded-full", j === i ? "bg-primary" : "bg-muted-foreground/30 hover:bg-muted-foreground/60")} />
+          ))}
+        </div>
+      </div>
+      <div>{kids[i]}</div>
+      <div className="flex justify-between gap-2">
+        <Button size="sm" variant="ghost" disabled={i === 0} onClick={() => setI(i - 1)}>Back</Button>
+        {last ? (
+          node.on?.finish && <Button size="sm" onClick={() => void runActions(node.on?.finish, env)}>Finish</Button>
+        ) : (
+          <Button size="sm" onClick={() => setI(i + 1)}>Next</Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -374,6 +465,10 @@ function Node({ raw }: { raw: RawNode }) {
       return <Choice node={node} />;
     case "Input":
       return <TextInput node={node} />;
+    case "Tabs":
+      return <Tabs node={node} kids={kids ?? []} />;
+    case "Stepper":
+      return <Stepper node={node} kids={kids ?? []} />;
     case "Button":
       return (
         <Button

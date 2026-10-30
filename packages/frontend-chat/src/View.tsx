@@ -394,6 +394,12 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
     [state.items, ui],
   );
   const rightSlot = ui.slots.right.find((x) => x.id === panel) ?? null;
+  // A right item the Agent adds or changes while the Session is open shows at once (not replayed ones).
+  const [openedAt] = useState(() => Date.now());
+  const lastRight = useMemo(() => ui.slots.right.reduce<Slot | null>((a, x) => (!a || x.ts > a.ts ? x : a), null), [ui.slots.right]);
+  useEffect(() => {
+    if (lastRight && lastRight.ts >= openedAt) setPanelId(lastRight.id);
+  }, [lastRight?.id, lastRight?.ts, openedAt]);
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);
 
   const running = state.turnId !== null;
