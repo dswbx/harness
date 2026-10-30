@@ -5,7 +5,7 @@ import { fromSchema, s, type Schema, type Static } from "jsonv-ts";
  *
  * `render_ui` (ADR 0013, 0015): a tree of `{ type, props, children?, on? }` nodes from the catalog
  * below. Data binding follows json-render's syntax so we can adopt the library later: any prop
- * can be `{ "$state": "/path" }` or `{ "$template": "Score: ${/quiz/score}" }` (read from the
+ * can be `{ "$state": "/path" }` or `{ "$template": "Done: ${/checks/done}" }` (read from the
  * Session State), inputs write with `{ "$bindState": "/path" }`, and `on` runs actions
  * (`setState`, `pushState`, `removeState`, plus our `sendMessage`).
  */
@@ -103,40 +103,46 @@ export const components = {
     example: { node: { type: "Carousel", props: { images: [1, 2, 3].map((i) => ({ src: demoImage(`Image ${i}`, 150 + i * 50), alt: `Image ${i}`, caption: `Image ${i} of 3` })) } } },
   },
   Stat: {
-    description: "One number or short value with a label, e.g. a score.",
+    description: "One number or short value with a label, e.g. a count, a total or a status.",
     children: false,
     props: s.object({ label: s.string(), value: s.anyOf([s.string(), s.number()]), hint: s.string().optional(), tone: tone.optional() }),
-    example: { node: { type: "Stat", props: { label: "Score", value: { $template: "${/quiz/score} / 5" }, hint: "3 questions left" } }, state: { quiz: { score: 2 } } },
+    example: { node: { type: "Stat", props: { label: "Tests passing", value: { $template: "${/tests/passed} / ${/tests/total}" }, hint: "2 failing in api/" } }, state: { tests: { passed: 46, total: 48 } } },
   },
   Progress: {
     description: "A progress bar from 0 to max (default 100).",
     children: false,
     props: s.object({ value: s.number(), max: s.number().optional(), label: s.string().optional() }),
-    example: { node: { type: "Progress", props: { label: "Question 2 of 5", value: { $state: "/quiz/done" }, max: 5 } }, state: { quiz: { done: 2 } } },
+    example: { node: { type: "Progress", props: { label: "Files migrated", value: { $state: "/migration/done" }, max: 12 } }, state: { migration: { done: 7 } } },
   },
   Choice: {
     description:
-      "Options to pick one from (distinct values); writes the picked value to `value` ($bindState). For a quiz, set `answer` to the correct value: after a pick it shows right/wrong, locks, writes true/false to `result` ($bindState) and shows `explanation`. `on.change` runs after a pick.",
+      "Options to pick one from (distinct values); writes the picked value to `value` ($bindState). When a pick can be checked, set `answer` to the expected value: after a pick it shows right/wrong, locks, writes true/false to `result` ($bindState) and shows `explanation`. `on.change` runs after a pick.",
     children: false,
     props: s.object({
       options: s.array(s.object({ value: s.string(), label: s.string() }), { minItems: 1 }),
       value: s.any(),
       answer: s.string().optional(),
       result: s.any().optional(),
-      explanation: s.string({ description: "Markdown shown after a graded pick: why the answer is right." }).optional(),
+      explanation: s.string({ description: "Markdown shown after a checked pick: why the expected value is right." }).optional(),
       columns: s.number({ enum: [1, 2] }).optional(),
     }),
     bind: ["value", "result"],
     events: ["change"],
     example: { node: { type: "Stack", children: [
+      { type: "Markdown", props: { text: "Where should the preview deploy go?" } },
       { type: "Choice", props: {
-        value: { $bindState: "/quiz/answers/q1" }, result: { $bindState: "/quiz/results/q1" }, answer: "a",
-        options: [{ value: "a", label: "A. Ownership" }, { value: "b", label: "B. Garbage collection" }, { value: "c", label: "C. Reference counting only" }],
-        explanation: "Each value has one owner; Rust frees it when the owner goes out of scope.",
+        value: { $bindState: "/deploy/target" }, columns: 2,
+        options: [{ value: "staging", label: "Staging" }, { value: "preview", label: "Per-branch preview" }],
       } },
-      { type: "Badge", props: { text: "Shown once you answer (visible)", tone: "info" }, visible: { $state: "/quiz/answers/q1" } },
-      { type: "Stat", props: { label: "Score", value: { $computed: "count", args: { values: { $state: "/quiz/results" }, eq: true } } } },
-    ] }, state: { quiz: { answers: {}, results: {} } } },
+      { type: "Badge", props: { text: { $template: "Next: deploy to ${/deploy/target}" }, tone: "info" }, visible: { $state: "/deploy/target" } },
+      { type: "Markdown", props: { text: "A pick that can be checked (`answer`, `result`, `explanation`): which call reads a whole file at once?" } },
+      { type: "Choice", props: {
+        value: { $bindState: "/checks/picks/read" }, result: { $bindState: "/checks/results/read" }, answer: "string",
+        options: [{ value: "string", label: "fs::read_to_string" }, { value: "lines", label: "BufReader::lines" }],
+        explanation: "`read_to_string` returns the whole file as one `String`; `lines` reads it one line at a time.",
+      } },
+      { type: "Stat", props: { label: "Correct", value: { $computed: "count", args: { values: { $state: "/checks/results" }, eq: true } } } },
+    ] }, state: { deploy: {}, checks: { picks: {}, results: {} } } },
   },
   Input: {
     description: "A text field; writes its text to its $bindState path. `on.submit` runs on Enter.",
@@ -144,7 +150,7 @@ export const components = {
     props: s.object({ value: s.any(), label: s.string().optional(), placeholder: s.string().optional() }),
     bind: ["value"],
     events: ["submit"],
-    example: { node: { type: "Input", props: { label: "Your answer", placeholder: "Type and press Enter", value: { $bindState: "/answers/q2" } } }, state: { answers: {} } },
+    example: { node: { type: "Input", props: { label: "Branch name", placeholder: "feat/...", value: { $bindState: "/setup/branch" } } }, state: { setup: {} } },
   },
   Button: {
     description: "A button; `on.press` runs its actions.",
@@ -152,13 +158,13 @@ export const components = {
     props: s.object({ label: s.string(), variant: s.string({ enum: ["primary", "secondary", "ghost"] }).optional(), disabled: s.boolean().optional() }),
     events: ["press"],
     example: { node: { type: "Stack", props: { direction: "horizontal", gap: "sm" }, children: [
-      { type: "Button", props: { label: "Submit answer" }, on: { press: { action: "sendMessage", params: { text: { $template: "My answer: ${/answers/q1}" } } } } },
-      { type: "Button", props: { label: "Pick B", variant: "secondary" }, on: { press: { action: "setState", params: { statePath: "/answers/q1", value: "b" } } } },
-      { type: "Badge", props: { text: { $template: "Picked: ${/answers/q1}" } } },
-    ] }, state: { answers: { q1: "a" } } },
+      { type: "Button", props: { label: "Approve plan" }, on: { press: { action: "sendMessage", params: { text: { $template: "Approved, go with ${/plan/approach}." } } } } },
+      { type: "Button", props: { label: "Use a cache instead", variant: "secondary" }, on: { press: { action: "setState", params: { statePath: "/plan/approach", value: "cache" } } } },
+      { type: "Badge", props: { text: { $template: "Approach: ${/plan/approach}" } } },
+    ] }, state: { plan: { approach: "index" } } },
   },
   Tabs: {
-    description: "Tabs: one child per tab, one shown at a time. `value` ($bindState, optional) holds the open tab's index.",
+    description: "Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index.",
     children: true,
     props: s.object({ tabs: s.array(s.string(), { minItems: 1 }), value: s.any().optional() }),
     bind: ["value"],
@@ -169,20 +175,21 @@ export const components = {
   },
   Stepper: {
     description:
-      "Steps shown one at a time with Back/Next, e.g. the questions of a test: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step.",
+      "Steps shown one at a time with Back/Next, e.g. a setup, a review of findings, or a quiz: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step.",
     children: true,
     props: s.object({ steps: s.array(s.string(), { minItems: 1 }), value: s.any().optional() }),
     bind: ["value"],
     events: ["finish"],
     example: { node: {
       type: "Stepper",
-      props: { steps: ["Question 1", "Question 2"] },
-      on: { finish: { action: "sendMessage", params: { text: "I finished the test." } } },
+      props: { steps: ["Target", "Branch", "Confirm"] },
+      on: { finish: { action: "sendMessage", params: { text: { $template: "Set it up: ${/setup/target}, branch ${/setup/branch}." } } } },
       children: [
-        { type: "Choice", props: { value: { $bindState: "/t/q1" }, result: { $bindState: "/t/r/q1" }, answer: "b", options: [{ value: "a", label: "Box<T>" }, { value: "b", label: "Option<T>" }] } },
-        { type: "Choice", props: { value: { $bindState: "/t/q2" }, result: { $bindState: "/t/r/q2" }, answer: "a", options: [{ value: "a", label: "One &mut or many &" }, { value: "b", label: "Many &mut" }] } },
+        { type: "Choice", props: { value: { $bindState: "/setup/target" }, options: [{ value: "staging", label: "Staging" }, { value: "production", label: "Production" }] } },
+        { type: "Input", props: { label: "Branch name", placeholder: "feat/...", value: { $bindState: "/setup/branch" } } },
+        { type: "Markdown", props: { text: { $template: "Deploy `${/setup/branch}` to **${/setup/target}**. Press Finish to start." } } },
       ],
-    }, state: { t: {} } },
+    }, state: { setup: { target: "staging", branch: "main" } } },
   },
 } as const satisfies Record<string, Entry>;
 
@@ -249,7 +256,7 @@ const renderUiJson = {
   ],
   $defs: {
     expr: {
-      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Score: ${/quiz/score}"}, or {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}.',
+      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Done: ${/checks/done}"}, or {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}.',
       oneOf: [
         { type: "object", properties: { $state: { type: "string" } }, required: ["$state"], additionalProperties: false },
         { type: "object", properties: { $template: { type: "string" } }, required: ["$template"], additionalProperties: false },
@@ -335,14 +342,14 @@ export const frontendTools = [
       'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Card, Tabs and Stepper take children.\n' +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
-      'Session State: any prop can be {"$state": "/path"}, {"$template": "Score: ${/quiz/score}"} or {"$computed": "count", "args": {"values": {"$state": "/quiz/results"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
-      'Choice and Input write the user\'s answer with {"$bindState": "/path"}. ' +
-      'on.press/change/submit run actions: {"action": "setState"|"pushState", "params": {"statePath", "value"}}, {"action": "removeState", "params": {"statePath", "index"?}}, ' +
+      'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
+      'Choice and Input write the user\'s input with {"$bindState": "/path"}. ' +
+      'on.press/change/submit/finish run actions: {"action": "setState"|"pushState", "params": {"statePath", "value"}}, {"action": "removeState", "params": {"statePath", "index"?}}, ' +
       '{"action": "sendMessage", "params": {"text"}} (sends the text to you as the user\'s next message; text can be a $template). ' +
-      '"visible" shows a node only when the state says so, e.g. {"$state": "/quiz/answers/q1"} (answered) or {"$state": "/quiz/step", "eq": 2}. ' +
+      '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
-      "For a test or quiz: one right tab (or inline card) with a Stepper of questions (its Next button moves on); each Choice with `answer`, `result` and `explanation` grades itself and explains, and a Stat with $computed count shows the score.\n" +
-      "Use it for results, status, comparisons, screenshots or interactive tasks, instead of a long plain message. Components:\n" +
+      "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
+      "Use it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message. Components:\n" +
       catalogText(),
     schema: renderUiJson,
   },
