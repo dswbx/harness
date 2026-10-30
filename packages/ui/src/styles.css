@@ -128,11 +128,11 @@
 
 /* Trace: running step title shimmers; collapsible height animates (Radix sets the height var). */
 @utility shimmer {
-  background: linear-gradient(90deg, var(--muted-foreground) 40%, var(--foreground) 50%, var(--muted-foreground) 60%) 0 0 / 250% 100%;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--muted-foreground) 55%, transparent) 30%, var(--foreground) 50%, color-mix(in oklch, var(--muted-foreground) 55%, transparent) 70%) 0 0 / 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 2s linear infinite;
+  animation: shimmer 1.6s linear infinite;
   @media (prefers-reduced-motion: reduce) { animation: none; color: inherit; background: none; }
 }
 @theme {
