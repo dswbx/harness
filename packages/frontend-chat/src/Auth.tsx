@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { KeyRound } from "lucide-react";
 import type { SessionApi } from "@harness/api";
-import { Button, Card, CardContent, CardHeader, CardTitle } from "@harness/ui";
+import { Button, Card, CardContent, CardHeader, CardTitle, Tooltip } from "@harness/ui";
 import type { Item } from "./reducer";
 
 type Auth = Extract<Item, { type: "auth" }>;
@@ -41,9 +41,11 @@ export function AuthCard({ item, api }: { item: Auth; api: SessionApi }) {
           <>
             <div className="flex flex-wrap gap-2">
               {item.methods.map((m) => (
-                <Button key={m.id} size="sm" disabled={busy !== null} title={m.description ?? undefined} onClick={() => void run(m)}>
-                  {m.kind === "terminal" ? `Open Terminal: ${m.name}` : m.name}
-                </Button>
+                <Tooltip key={m.id} content={m.description}>
+                  <Button size="sm" disabled={busy !== null} onClick={() => void run(m)}>
+                    {m.kind === "terminal" ? `Open Terminal: ${m.name}` : m.name}
+                  </Button>
+                </Tooltip>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">After signing in, send your message again.</p>

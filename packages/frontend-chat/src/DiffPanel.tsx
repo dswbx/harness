@@ -3,7 +3,7 @@ import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw, X } from "luc
 import { openWindow, type Diff, type FileChange, type GitStatus, type SessionApi, type WorkspaceInfo } from "@harness/api";
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
-  DropdownMenuTrigger, cn,
+  DropdownMenuTrigger, Tooltip, cn,
 } from "@harness/ui";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { splitPatch, type FilePatch } from "./diff";
@@ -148,13 +148,17 @@ export function DiffPanel({
           </span>
         )}
         <div className="flex-1" />
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Open diff in window" title="Open in window" disabled={noRepo}
-          onClick={() => void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), { title: `Diff: ${scope.label}` })}>
-          <Maximize2 />
-        </Button>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Refresh diff" title="Refresh" disabled={noRepo} onClick={() => void load()}>
-          <RefreshCw />
-        </Button>
+        <Tooltip content="Open in window" side="bottom">
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Open diff in window" disabled={noRepo}
+            onClick={() => void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), { title: `Diff: ${scope.label}` })}>
+            <Maximize2 />
+          </Button>
+        </Tooltip>
+        <Tooltip content="Refresh" side="bottom">
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Refresh diff" disabled={noRepo} onClick={() => void load()}>
+            <RefreshCw />
+          </Button>
+        </Tooltip>
         <Button size="icon" variant="ghost" className="size-7" aria-label="Close diff panel" onClick={onClose}>
           <X />
         </Button>

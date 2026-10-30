@@ -23,21 +23,26 @@ export function MessageFooter({ text, ts, durationMs, align = "start" }: { text:
         align === "end" && "flex-row-reverse",
       )}
     >
-      <button
-        type="button"
-        aria-label={copied ? "Copied" : "Copy message"}
-        title={copied ? "Copied" : "Copy"}
-        onClick={copy}
-        className="grid size-6 place-items-center rounded hover:bg-accent hover:text-foreground"
-      >
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </button>
-      <Tooltip content={fullMessageTime(ts)} align={align} fast>
+      <Tooltip content={copied ? "Copied" : "Copy"} delay={100}>
+        <button
+          type="button"
+          aria-label={copied ? "Copied" : "Copy message"}
+          onClick={copy}
+          className="grid size-6 place-items-center rounded hover:bg-accent hover:text-foreground"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
+      </Tooltip>
+      <Tooltip content={fullMessageTime(ts)} align={align} delay={100}>
         <time dateTime={new Date(ts).toISOString()} className="px-1">
           {formatRelativeTime(ts, now)}
         </time>
       </Tooltip>
-      {durationMs !== undefined && <span className="px-1 tabular-nums" title="Turn duration">· {formatDuration(durationMs)}</span>}
+      {durationMs !== undefined && (
+        <Tooltip content="Turn duration" delay={100}>
+          <span className="px-1 tabular-nums">· {formatDuration(durationMs)}</span>
+        </Tooltip>
+      )}
     </div>
   );
 }

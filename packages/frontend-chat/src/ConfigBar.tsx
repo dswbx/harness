@@ -12,7 +12,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSwitchItem,
   DropdownMenuTrigger,
-  HoverTip,
+  Tooltip,
   cn,
 } from "@harness/ui";
 import { chipLabel, fastOn, groupConfigOptions, isToggle, toggleKind, valueName } from "./configGroups";
@@ -65,9 +65,11 @@ export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onCh
       )}
       {g.more.length > 0 && (
         <DropdownMenu>
-          <DropdownMenuTrigger className={trigger} aria-label="More options" title="More options">
-            <MoreHorizontal className="size-4" />
-          </DropdownMenuTrigger>
+          <Tooltip content="More options">
+            <DropdownMenuTrigger className={trigger} aria-label="More options">
+              <MoreHorizontal className="size-4" />
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent side="top" align="start" className="w-64">
             {g.more.map((o) => (
               <OptionRow key={o.id} o={o} onChange={onChange} />
@@ -85,11 +87,11 @@ function OptionHeader({ o, name }: { o: ConfigOption; name?: string }) {
     <DropdownMenuLabel className="flex items-center gap-1.5">
       <span>{name ?? o.name}</span>
       {o.description && (
-        <HoverTip content={o.description} side="top" align="start">
+        <Tooltip content={o.description} side="top" align="start">
           <span role="img" aria-label={o.description} className="text-muted-foreground/70 hover:text-foreground">
             <Info className="size-3.5" />
           </span>
-        </HoverTip>
+        </Tooltip>
       )}
     </DropdownMenuLabel>
   );
@@ -100,11 +102,11 @@ function Values({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
   return (
     <DropdownMenuRadioGroup value={o.currentValue} onValueChange={(v) => v !== o.currentValue && onChange(o.id, v)}>
       {o.options.map((v) => (
-        <HoverTip key={v.value} content={v.description}>
+        <Tooltip key={v.value} content={v.description} side="right">
           <DropdownMenuRadioItem value={v.value} aria-description={v.description ?? undefined}>
             <span className="truncate">{v.name}</span>
           </DropdownMenuRadioItem>
-        </HoverTip>
+        </Tooltip>
       ))}
     </DropdownMenuRadioGroup>
   );
@@ -116,7 +118,7 @@ function OptionRow({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
   if (!t) return <OptionSub o={o} onChange={onChange} />;
   const kind = toggleKind(o);
   return (
-    <HoverTip content={o.description}>
+    <Tooltip content={o.description} side="right">
       <DropdownMenuSwitchItem
         checked={o.currentValue === t.on}
         onCheckedChange={(c) => onChange(o.id, c ? t.on : t.off)}
@@ -127,7 +129,7 @@ function OptionRow({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
         {kind === "think" && <Brain className="size-4 text-muted-foreground" />}
         <span className="truncate">{o.name}</span>
       </DropdownMenuSwitchItem>
-    </HoverTip>
+    </Tooltip>
   );
 }
 

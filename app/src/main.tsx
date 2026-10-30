@@ -9,6 +9,7 @@ import "@fontsource-variable/montserrat";
 import "@fontsource-variable/jetbrains-mono";
 import "@fontsource-variable/geist-mono";
 import "./index.css";
+import { TooltipProvider } from "@harness/ui";
 import { App } from "./App";
 import { initAppearance } from "./appearance/appearance";
 
@@ -17,6 +18,8 @@ initAppearance();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <TooltipProvider>
+      <App />
+    </TooltipProvider>
   </StrictMode>,
 );

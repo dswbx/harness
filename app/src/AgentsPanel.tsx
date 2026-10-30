@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import type { AgentInfo, HarnessClient, RegistryAgent } from "@harness/api";
 import {
-  Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Textarea, cn,
+  Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Textarea, Tooltip, cn,
 } from "@harness/ui";
 import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
@@ -172,9 +172,11 @@ export function AgentsPanel({
           <div className="flex items-center gap-2">
             <h3 className={heading}>ACP Registry</h3>
             <div className="flex-1" />
-            <Button size="sm" variant="ghost" aria-label="Refresh registry" title="Refresh registry" disabled={refreshing} onClick={() => void refresh()}>
-              <RefreshCw className={cn(refreshing && "animate-spin")} />
-            </Button>
+            <Tooltip content="Refresh registry">
+              <Button size="sm" variant="ghost" aria-label="Refresh registry" disabled={refreshing} onClick={() => void refresh()}>
+                <RefreshCw className={cn(refreshing && "animate-spin")} />
+              </Button>
+            </Tooltip>
           </div>
           <ul className="divide-y rounded-md border">
             {shown.length === 0 && <li className="p-3 text-xs text-muted-foreground">No matching Agents.</li>}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Commit, SessionApi } from "@harness/api";
-import { HoverTip, cn } from "@harness/ui";
+import { Tooltip, cn } from "@harness/ui";
 import { ALL, WIP, toggleSelection } from "./scope";
 import { formatRelativeTime, fullMessageTime } from "./time";
 
@@ -142,9 +142,9 @@ export function CommitsPane({
             </button>
           );
           return it.commit ? (
-            <HoverTip key={it.id} side={tipSide} align="start" delay={400} className="max-w-[28rem]" content={<CommitInfo commit={it.commit} />}>
+            <Tooltip key={it.id} side={tipSide} align="start" delay={400} className="max-w-[28rem]" content={<CommitInfo commit={it.commit} />}>
               {row}
-            </HoverTip>
+            </Tooltip>
           ) : row;
         })}
       </div>

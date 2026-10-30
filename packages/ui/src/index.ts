@@ -11,5 +11,4 @@ export * from "./components/dialog";
 export * from "./components/virtual-list";
 export * from "./components/tooltip";
 export * from "./components/dropdown-menu";
-export * from "./components/hover-tip";
 export * from "./components/portal";

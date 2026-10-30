@@ -3,7 +3,7 @@ import { MessageSquare, X } from "lucide-react";
 import { DiffModeEnum, DiffView, SplitSide } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view-pure.css";
 import "./diffView.css";
-import { Button, Textarea, cn } from "@harness/ui";
+import { Button, Textarea, Tooltip, cn } from "@harness/ui";
 import { hunkLines, langOf, type FilePatch } from "./diff";
 import { addReviewComment, removeReviewComment, type ReviewComment } from "./reviewComments";
 
@@ -65,14 +65,15 @@ function CommentList({ sessionId, comments }: { sessionId: string; comments: Rev
         <div key={c.id} className="flex items-start gap-1.5 text-xs">
           <MessageSquare className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{c.text}</span>
-          <button
-            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Remove comment"
-            title="Remove comment"
-            onClick={() => removeReviewComment(sessionId, c.id)}
-          >
-            <X className="size-3" />
-          </button>
+          <Tooltip content="Remove comment">
+            <button
+              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label="Remove comment"
+              onClick={() => removeReviewComment(sessionId, c.id)}
+            >
+              <X className="size-3" />
+            </button>
+          </Tooltip>
         </div>
       ))}
     </div>

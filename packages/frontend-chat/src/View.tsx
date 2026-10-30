@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, GitCompare, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import type { SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
-import { Badge, Button, Portal, VirtualList, cn } from "@harness/ui";
+import { Badge, Button, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
@@ -45,9 +45,11 @@ function ChangesRow({ item, onOpen }: { item: Extract<Item, { type: "changes" }>
         <button className="p-2" aria-label={open ? "Hide files" : "Show files"} aria-expanded={open} onClick={() => setOpen(!open)}>
           <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} />
         </button>
-        <button className="flex-1 py-2 pr-3 text-left hover:underline" title="Open diff for this turn" onClick={onOpen}>
-          Changed {n} {n === 1 ? "file" : "files"}
-        </button>
+        <Tooltip content="Open diff for this turn">
+          <button className="flex-1 py-2 pr-3 text-left hover:underline" onClick={onOpen}>
+            Changed {n} {n === 1 ? "file" : "files"}
+          </button>
+        </Tooltip>
       </div>
       {open && (
         <ul className="space-y-1 border-t px-3 py-2">
@@ -220,22 +222,25 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
   const actions = (
     <>
       {proc && proc.state !== "ready" && (
-        <Badge variant={proc.state === "failed" ? "destructive" : "secondary"} title={proc.message ?? undefined}>
-          Agent {proc.state}
-        </Badge>
+        <Tooltip content={proc.message} side="bottom">
+          <Badge variant={proc.state === "failed" ? "destructive" : "secondary"}>
+            Agent {proc.state}
+          </Badge>
+        </Tooltip>
       )}
       {git && (
-        <Button
-          size="icon"
-          variant="ghost"
-          className={cn("size-7 text-muted-foreground hover:text-foreground", panel && "bg-accent text-foreground")}
-          aria-label="Changes"
-          title="Changes"
-          aria-pressed={panel}
-          onClick={() => setPanel(!panel)}
-        >
-          <GitCompare />
-        </Button>
+        <Tooltip content="Changes" side="bottom">
+          <Button
+            size="icon"
+            variant="ghost"
+            className={cn("size-7 text-muted-foreground hover:text-foreground", panel && "bg-accent text-foreground")}
+            aria-label="Changes"
+            aria-pressed={panel}
+            onClick={() => setPanel(!panel)}
+          >
+            <GitCompare />
+          </Button>
+        </Tooltip>
       )}
     </>
   );

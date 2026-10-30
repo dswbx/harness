@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { AppWindow, Copy, FolderOpen, GitBranch, Info, MoreHorizontal } from "lucide-react";
 import type { SessionStatus, SessionSummary } from "@harness/api";
 import { inTauri } from "@harness/api";
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, cn } from "@harness/ui";
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip, cn } from "@harness/ui";
 import { useReportError } from "./toast";
 
 /** Room for the macOS traffic lights (overlay title bar, `trafficLightPosition` in tauri.conf.json: y centers them in the 52px header). */
@@ -79,9 +79,11 @@ export function SessionHeader({
       <h1 data-tauri-drag-region className="mr-1 min-w-0 truncate text-sm font-semibold">{session.title}</h1>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon" variant="ghost" className={iconBtn} aria-label="Session info" title="Session info">
-            <Info />
-          </Button>
+          <Tooltip content="Session info" side="bottom">
+            <Button size="icon" variant="ghost" className={iconBtn} aria-label="Session info">
+              <Info />
+            </Button>
+          </Tooltip>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-96 p-4 text-sm" onCloseAutoFocus={(e) => e.preventDefault()}>
           <SessionDetails s={session} />
@@ -89,9 +91,11 @@ export function SessionHeader({
       </DropdownMenu>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon" variant="ghost" className={iconBtn} aria-label="Session actions" title="Session actions">
-            <MoreHorizontal />
-          </Button>
+          <Tooltip content="Session actions" side="bottom">
+            <Button size="icon" variant="ghost" className={iconBtn} aria-label="Session actions">
+              <MoreHorizontal />
+            </Button>
+          </Tooltip>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56" onCloseAutoFocus={(e) => e.preventDefault()}>
           {onOpenWindow && (
@@ -106,10 +110,12 @@ export function SessionHeader({
       </DropdownMenu>
       <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
       {branch && (
-        <span className="flex min-w-0 max-w-64 items-center gap-1.5 px-1 text-xs text-muted-foreground" title={`Branch ${branch}`}>
-          <GitBranch className="size-3.5 shrink-0" />
-          <span className="truncate font-mono">{branch}</span>
-        </span>
+        <Tooltip content={`Branch ${branch}`} side="bottom">
+          <span className="flex min-w-0 max-w-64 items-center gap-1.5 px-1 text-xs text-muted-foreground">
+            <GitBranch className="size-3.5 shrink-0" />
+            <span className="truncate font-mono">{branch}</span>
+          </span>
+        </Tooltip>
       )}
       <div ref={toolbarRef} className="flex items-center gap-1" />
     </header>

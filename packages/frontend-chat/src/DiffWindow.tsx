@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Columns2, FileMinus, FilePen, FilePlus, Folder, List, ListTree, MessageSquare, Rows2, WrapText } from "lucide-react";
 import type { Diff, SessionApi } from "@harness/api";
-import { Button, HoverTip, cn } from "@harness/ui";
+import { Button, Tooltip, cn } from "@harness/ui";
 import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
 import { splitPatch, type FilePatch } from "./diff";
 import { DiffViewer, type FileContents } from "./DiffViewer";
@@ -271,7 +271,11 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
         <s.Icon className={cn("size-4 shrink-0", s.className)} aria-label={s.label} />
         <span className="truncate">{f.path.slice(slash + 1)}</span>
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{view === "list" && slash > 0 ? f.path.slice(0, slash) : ""}</span>
-        {n > 0 && <span className="flex items-center gap-0.5 text-xs text-muted-foreground" title={`${n} comments`}><MessageSquare className="size-3" />{n}</span>}
+        {n > 0 && (
+          <Tooltip content={`${n} comments`}>
+            <span className="flex items-center gap-0.5 text-xs text-muted-foreground"><MessageSquare className="size-3" />{n}</span>
+          </Tooltip>
+        )}
       </li>
     );
   };
@@ -279,20 +283,28 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b px-2 py-1.5 text-xs">
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Previous change" title="Previous change (Alt+↑)" onClick={() => goChange(-1)}><ArrowUp /></Button>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Next change" title="Next change (Alt+↓)" onClick={() => goChange(1)}><ArrowDown /></Button>
+        <Tooltip content="Previous change" shortcut={["⌥", "↑"]} side="bottom">
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Previous change" onClick={() => goChange(-1)}><ArrowUp /></Button>
+        </Tooltip>
+        <Tooltip content="Next change" shortcut={["⌥", "↓"]} side="bottom">
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Next change" onClick={() => goChange(1)}><ArrowDown /></Button>
+        </Tooltip>
         <div className="mx-1 h-4 w-px bg-border" />
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Previous file" title="Previous file (Alt+←)" disabled={idx <= 0} onClick={() => goFile(idx - 1)}><ArrowLeft /></Button>
+        <Tooltip content="Previous file" shortcut={["⌥", "←"]} side="bottom">
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Previous file" disabled={idx <= 0} onClick={() => goFile(idx - 1)}><ArrowLeft /></Button>
+        </Tooltip>
         <span className="tabular-nums text-muted-foreground">{idx + 1}/{order.length} files</span>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Next file" title="Next file (Alt+→)" disabled={idx >= order.length - 1} onClick={() => goFile(idx + 1)}><ArrowRight /></Button>
-        <HoverTip
+        <Tooltip content="Next file" shortcut={["⌥", "→"]} side="bottom">
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Next file" disabled={idx >= order.length - 1} onClick={() => goFile(idx + 1)}><ArrowRight /></Button>
+        </Tooltip>
+        <Tooltip
           side="bottom"
           align="start"
           className="max-h-[70vh] max-w-[28rem] overflow-auto"
           content={selectedCommits.length ? <div className="space-y-3 divide-y">{selectedCommits.map((c) => <div key={c.sha} className="pt-3 first:pt-0"><CommitInfo commit={c} /></div>)}</div> : null}
         >
           <span className="ml-2 max-w-64 shrink-0 truncate rounded-full bg-muted px-2 py-0.5">{scope.label}</span>
-        </HoverTip>
+        </Tooltip>
         <span className="ml-2 min-w-0 flex-1 truncate font-mono text-muted-foreground">{file?.path}</span>
         {file && (
           <span className="flex gap-1.5 font-mono tabular-nums">
@@ -300,10 +312,16 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
             <span className="text-red-500">−{file.deletions}</span>
           </span>
         )}
-        <Button size="icon" variant={wrap ? "secondary" : "ghost"} className="ml-2 size-7" aria-label="Soft wrap" aria-pressed={wrap} title="Soft wrap" onClick={toggleWrap}><WrapText /></Button>
+        <Tooltip content="Soft wrap" side="bottom">
+          <Button size="icon" variant={wrap ? "secondary" : "ghost"} className="ml-2 size-7" aria-label="Soft wrap" aria-pressed={wrap} onClick={toggleWrap}><WrapText /></Button>
+        </Tooltip>
         <div className="ml-2 flex rounded-md border">
-          <Button size="icon" variant={mode === "split" ? "secondary" : "ghost"} className="size-7 rounded-r-none" aria-label="Side by side" aria-pressed={mode === "split"} title="Side by side" onClick={() => setMode("split")}><Columns2 /></Button>
-          <Button size="icon" variant={mode === "unified" ? "secondary" : "ghost"} className="size-7 rounded-l-none" aria-label="Unified" aria-pressed={mode === "unified"} title="Unified" onClick={() => setMode("unified")}><Rows2 /></Button>
+          <Tooltip content="Side by side" side="bottom">
+            <Button size="icon" variant={mode === "split" ? "secondary" : "ghost"} className="size-7 rounded-r-none" aria-label="Side by side" aria-pressed={mode === "split"} onClick={() => setMode("split")}><Columns2 /></Button>
+          </Tooltip>
+          <Tooltip content="Unified" side="bottom">
+            <Button size="icon" variant={mode === "unified" ? "secondary" : "ghost"} className="size-7 rounded-l-none" aria-label="Unified" aria-pressed={mode === "unified"} onClick={() => setMode("unified")}><Rows2 /></Button>
+          </Tooltip>
         </div>
       </div>
       <div className="flex min-h-0 flex-1">
@@ -314,8 +332,12 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
             <span className="font-mono text-emerald-500">+{sum("additions")}</span>
             <span className="font-mono text-red-500">−{sum("deletions")}</span>
             <div className="ml-auto flex rounded-md border" role="group" aria-label="File view">
-              <Button size="icon" variant={view === "list" ? "secondary" : "ghost"} className="size-6 rounded-r-none" aria-label="List" aria-pressed={view === "list"} title="List" onClick={() => changeView("list")}><List /></Button>
-              <Button size="icon" variant={view === "tree" ? "secondary" : "ghost"} className="size-6 rounded-l-none" aria-label="Tree" aria-pressed={view === "tree"} title="Tree" onClick={() => changeView("tree")}><ListTree /></Button>
+              <Tooltip content="List" side="bottom">
+                <Button size="icon" variant={view === "list" ? "secondary" : "ghost"} className="size-6 rounded-r-none" aria-label="List" aria-pressed={view === "list"} onClick={() => changeView("list")}><List /></Button>
+              </Tooltip>
+              <Tooltip content="Tree" side="bottom">
+                <Button size="icon" variant={view === "tree" ? "secondary" : "ghost"} className="size-6 rounded-l-none" aria-label="Tree" aria-pressed={view === "tree"} onClick={() => changeView("tree")}><ListTree /></Button>
+              </Tooltip>
             </div>
           </div>
           <ul

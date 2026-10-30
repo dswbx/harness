@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { ArrowUp, MessageSquare, Square, X } from "lucide-react";
 import type { SessionApi, SlashCommand } from "@harness/api";
-import { Button, HoverTip, cn } from "@harness/ui";
+import { Button, Tooltip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { lineCount } from "./promptMarkdown";
@@ -15,14 +15,20 @@ function CommentChips({ sessionId, comments }: { sessionId: string; comments: Re
   return (
     <div className="flex flex-wrap gap-1 pb-1.5" aria-label="Review comments">
       {comments.map((c) => (
-        <span key={c.id} className="flex max-w-full items-center gap-1 rounded-md border bg-muted py-0.5 pl-1.5 pr-0.5 text-xs" title={`${c.path}:${c.line} (${c.side})\n${c.code}\n\n${c.text}`}>
-          <MessageSquare className="size-3 shrink-0 text-muted-foreground" />
-          <span className="shrink-0 font-mono text-muted-foreground">{c.path.split("/").pop()}:{c.line}</span>
-          <span className="min-w-0 max-w-64 truncate">{c.text}</span>
-          <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={`Remove comment on ${c.path}:${c.line}`} onClick={() => removeReviewComment(sessionId, c.id)}>
-            <X className="size-3" />
-          </button>
-        </span>
+        <Tooltip
+          key={c.id}
+          className="max-w-96 whitespace-pre-wrap"
+          content={<><div className="font-mono text-muted-foreground">{c.path}:{c.line} ({c.side})</div><pre className="my-1 overflow-hidden font-mono">{c.code}</pre><div>{c.text}</div></>}
+        >
+          <span className="flex max-w-full items-center gap-1 rounded-md border bg-muted py-0.5 pl-1.5 pr-0.5 text-xs">
+            <MessageSquare className="size-3 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 font-mono text-muted-foreground">{c.path.split("/").pop()}:{c.line}</span>
+            <span className="min-w-0 max-w-64 truncate">{c.text}</span>
+            <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={`Remove comment on ${c.path}:${c.line}`} onClick={() => removeReviewComment(sessionId, c.id)}>
+              <X className="size-3" />
+            </button>
+          </span>
+        </Tooltip>
       ))}
     </div>
   );
@@ -34,7 +40,7 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
   const c = 2 * Math.PI * r;
   const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
   return (
-    <HoverTip
+    <Tooltip
       side="top"
       align="end"
       className="w-56 max-w-56 p-3"
@@ -57,7 +63,7 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
           <circle cx="10" cy="10" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${(c * pct) / 100} ${c}`} className={pct > 85 ? "stroke-destructive" : "stroke-muted-foreground"} />
         </svg>
       </button>
-    </HoverTip>
+    </Tooltip>
   );
 }
 
@@ -110,7 +116,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
       {matches.length > 0 && (
         <div className="absolute bottom-full left-6 mb-1 max-h-72 w-72 max-w-[calc(100%-3rem)] overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox" aria-label="Commands">
           {matches.map((c, i) => (
-            <HoverTip key={c.name} content={c.description} open={i === sel && !!c.description}>
+            <Tooltip key={c.name} content={c.description} side="right" open={i === sel && !!c.description}>
               <button
                 ref={i === sel ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                 role="option"
@@ -123,7 +129,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
                 <span className="truncate">/{c.name}</span>
                 {c.hint && <span className="shrink-0 truncate text-xs text-muted-foreground">{c.hint}</span>}
               </button>
-            </HoverTip>
+            </Tooltip>
           ))}
         </div>
       )}
@@ -169,9 +175,11 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           {overflow && <span className="text-xs tabular-nums text-muted-foreground">{lines} lines</span>}
           {pct != null && <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />}
           {running ? (
-            <Button size="icon" className="size-8 rounded-full" onClick={() => { setError(null); api.cancel().catch((err) => setError(errorMessage(err))); }} aria-label="Stop Agent" title="Stop Agent">
-              <Square className="size-3 fill-current" />
-            </Button>
+            <Tooltip content="Stop Agent">
+              <Button size="icon" className="size-8 rounded-full" onClick={() => { setError(null); api.cancel().catch((err) => setError(errorMessage(err))); }} aria-label="Stop Agent">
+                <Square className="size-3 fill-current" />
+              </Button>
+            </Tooltip>
           ) : (
             <Button size="icon" className="size-8 rounded-full" disabled={(!text.trim() && comments.length === 0) || readOnly} onClick={send} aria-label="Send">
               <ArrowUp />

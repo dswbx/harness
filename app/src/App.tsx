@@ -3,7 +3,7 @@ import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus,
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import {
-  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, HoverTip, ScrollArea, Separator, cn,
+  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ScrollArea, Tooltip, Separator, cn,
 } from "@harness/ui";
 import { ComposerDialog } from "./ComposerDialog";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
@@ -81,7 +81,7 @@ function SessionRow({
   const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent";
   return (
     <li className="group relative" onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
-      <HoverTip side="right" align="start" delay={700} className="w-80 max-w-80 p-3 text-xs" content={<><div className="mb-2 text-sm font-semibold">{s.title}</div><SessionDetails s={s} /></>}>
+      <Tooltip side="right" align="start" delay={700} className="w-80 max-w-80 p-3 text-xs" content={<><div className="mb-2 text-sm font-semibold">{s.title}</div><SessionDetails s={s} /></>}>
         <button
           onClick={onSelect}
           aria-current={selected || undefined}
@@ -90,15 +90,16 @@ function SessionRow({
           <span className="min-w-0 flex-1 truncate">{s.title}</span>
           <StatusDot status={s.status} className="group-hover:hidden" />
         </button>
-      </HoverTip>
-      <button
-        aria-label="Session menu"
-        title="Session menu"
-        className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"
-        onClick={() => setMenu(!menu)}
-      >
-        <MoreHorizontal className="size-4" />
-      </button>
+      </Tooltip>
+      <Tooltip content="Session menu">
+        <button
+          aria-label="Session menu"
+          className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"
+          onClick={() => setMenu(!menu)}
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </Tooltip>
       {menu && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} onContextMenu={(e) => { e.preventDefault(); setMenu(false); }} />
@@ -122,12 +123,16 @@ function WindowControls({ sidebarOpen, onToggleSidebar, onNew }: { sidebarOpen: 
   const btn = "size-7 text-muted-foreground hover:text-foreground";
   return (
     <div className="flex items-center gap-0.5">
-      <Button size="icon" variant="ghost" className={btn} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} title={sidebarOpen ? "Hide sidebar" : "Show sidebar"} onClick={onToggleSidebar}>
-        <PanelLeft />
-      </Button>
-      <Button size="icon" variant="ghost" className={btn} aria-label="New Session" title="New Session" onClick={onNew}>
-        <Plus />
-      </Button>
+      <Tooltip content={sidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
+        <Button size="icon" variant="ghost" className={btn} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} onClick={onToggleSidebar}>
+          <PanelLeft />
+        </Button>
+      </Tooltip>
+      <Tooltip content="New Session" side="bottom">
+        <Button size="icon" variant="ghost" className={btn} aria-label="New Session" onClick={onNew}>
+          <Plus />
+        </Button>
+      </Tooltip>
     </div>
   );
 }
@@ -326,15 +331,16 @@ function Shell({ transport }: { transport: Transport }) {
     <div className="flex h-full">
       {sidebarOpen && (
         <aside className="relative flex shrink-0 flex-col border-r bg-muted/30" style={{ width: sidebar.width }}>
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            title="Drag to resize, double-click to reset"
-            className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors hover:after:bg-ring"
-            onPointerDown={sidebar.onPointerDown}
-            onDoubleClick={sidebar.reset}
-          />
+          <Tooltip content="Drag to resize, double-click to reset" side="right" delay={700}>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors hover:after:bg-ring"
+              onPointerDown={sidebar.onPointerDown}
+              onDoubleClick={sidebar.reset}
+            />
+          </Tooltip>
           <div data-tauri-drag-region className={cn("flex h-13 shrink-0 items-center gap-1 pr-2", trafficLights ? "pl-[76px]" : "pl-3")}>
             <div data-tauri-drag-region className="h-full flex-1" />
             {controls}

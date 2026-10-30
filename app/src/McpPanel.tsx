@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Lock, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { HarnessClient, McpServerDef } from "@harness/api";
-import { Badge, Button, Input, Select } from "@harness/ui";
+import { Badge, Button, Input, Select, Tooltip } from "@harness/ui";
 import { SectionHeader } from "./SectionHeader";
 import { filterServers, fromForm, summary, type Form, type Row } from "./settings";
 
@@ -144,10 +144,12 @@ export function McpPanel({
                   placeholder={r.secret ? (r.stored ? "stored in Keychain" : "value (goes to Keychain)") : "value"}
                   autoComplete="off"
                 />
-                <label className="flex shrink-0 items-center gap-1 text-xs" title="Store the value in the Keychain">
-                  <input type="checkbox" checked={r.secret} onChange={(e) => patchRow(i, { secret: e.target.checked, stored: false })} />
-                  <Lock className="size-3" /> secret
-                </label>
+                <Tooltip content="Store the value in the Keychain">
+                  <label className="flex shrink-0 items-center gap-1 text-xs">
+                    <input type="checkbox" checked={r.secret} onChange={(e) => patchRow(i, { secret: e.target.checked, stored: false })} />
+                    <Lock className="size-3" /> secret
+                  </label>
+                </Tooltip>
                 <Button size="sm" variant="ghost" aria-label="Remove row" onClick={() => patch({ rows: form.rows.filter((_, j) => j !== i) })}>
                   <X />
                 </Button>

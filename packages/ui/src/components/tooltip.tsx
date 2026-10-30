@@ -1,40 +1,76 @@
 import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cn } from "../lib/utils";
 
 /**
- * Hover/focus tooltip in pure CSS (no portal): shown above the trigger after a short delay.
- * Native `title` is unreliable in WebKit on form controls, so use this for anything that needs
- * explaining.
+ * One per React root. Shares open state across tooltips: after one has shown, moving to another
+ * shows it at once (within `skipDelayDuration`), e.g. scanning sidebar rows.
+ */
+function TooltipProvider({ children, delay = 300 }: { children: React.ReactNode; delay?: number }) {
+  return (
+    <TooltipPrimitive.Provider delayDuration={delay} skipDelayDuration={400}>
+      {children}
+    </TooltipPrimitive.Provider>
+  );
+}
+
+/**
+ * Portal tooltip (Radix) on hover and keyboard focus. The child must accept a ref (it becomes the
+ * trigger); a disabled button gets no pointer events, so its tooltip won't show.
+ * Use instead of `title` on controls: native titles are slow, unstyled and unreliable in WebKit.
  */
 function Tooltip({
   content,
   children,
+  side = "top",
+  align = "center",
+  sideOffset = 6,
+  delay,
+  shortcut,
+  open,
   className,
-  align = "start",
-  fast = false,
 }: {
   content: React.ReactNode;
-  children: React.ReactNode;
+  children: React.ReactElement;
+  side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
+  sideOffset?: number;
+  /** ms before showing; defaults to the provider's. */
+  delay?: number;
+  /** Keys shown after the content, e.g. `["⌥", "↓"]`. */
+  shortcut?: string[];
+  /** Controlled: shown while true (e.g. the keyboard-highlighted item of a list), no hover handling. */
+  open?: boolean;
   className?: string;
-  /** Which trigger edge the tooltip lines up with. */
-  align?: "start" | "end";
-  /** Show after 100ms instead of 300ms. */
-  fast?: boolean;
 }) {
+  if (!content) return children;
   return (
-    <span className={cn("group/tooltip relative inline-flex", className)}>
-      {children}
-      <span
-        role="tooltip"
-        className={cn(
-          "pointer-events-none absolute bottom-full z-50 mb-1.5 w-max max-w-72 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-focus-within/tooltip:opacity-100 group-hover/tooltip:opacity-100",
-          align === "end" ? "right-0" : "left-0",
-          fast ? "group-hover/tooltip:delay-100" : "group-hover/tooltip:delay-300",
-        )}
-      >
-        {content}
-      </span>
-    </span>
+    <TooltipPrimitive.Root delayDuration={delay} {...(open !== undefined && { open })}>
+      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Content
+          side={side}
+          align={align}
+          sideOffset={sideOffset}
+          collisionPadding={8}
+          className={cn(
+            "z-50 max-w-72 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md",
+            shortcut && "flex items-center gap-2",
+            className,
+          )}
+        >
+          {content}
+          {shortcut && (
+            <span className="flex shrink-0 gap-0.5">
+              {shortcut.map((k) => (
+                <kbd key={k} className="min-w-5 rounded border bg-muted px-1 text-center font-sans text-[0.7rem] text-muted-foreground">{k}</kbd>
+              ))}
+            </span>
+          )}
+        </TooltipPrimitive.Content>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
   );
 }
-export { Tooltip };
+
+export { Tooltip, TooltipProvider };
