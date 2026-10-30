@@ -19,6 +19,15 @@ const image = s.object({
   caption: s.string().optional(),
 });
 
+/** Icons components may show (lucide icons, by these names). */
+export const ICONS = [
+  "check", "x", "alert", "info", "help", "file", "folder", "code", "terminal", "bug", "test", "package",
+  "git-branch", "git-commit", "git-pull-request", "git-merge", "rocket", "server", "database", "globe", "lock", "key",
+  "user", "users", "clock", "calendar", "search", "link", "settings", "star", "zap", "list", "message", "chart",
+] as const;
+const icon = s.string({ enum: ICONS, description: "Icon name." });
+const tooltip = s.string({ description: "Shown on hover." });
+
 type Example = { node: unknown; state?: unknown };
 type Entry = {
   description: string;
@@ -53,7 +62,7 @@ export const components = {
   Card: {
     description: "A bordered box with an optional title and tone; holds children.",
     children: true,
-    props: s.object({ title: s.string().optional(), tone: tone.optional() }),
+    props: s.object({ title: s.string().optional(), tone: tone.optional(), icon: icon.optional() }),
     example: { node: { type: "Card", props: { title: "Build finished", tone: "success" }, children: [{ type: "Markdown", props: { text: "All **3** checks passed." } }] } },
   },
   Markdown: {
@@ -69,17 +78,17 @@ export const components = {
     example: { node: { type: "KeyValue", props: { items: [{ label: "Duration", value: "12s" }, { label: "Branch", value: "main" }] } } },
   },
   Table: {
-    description: "A table: column headings and rows of cell text.",
+    description: "A table: column headings and rows of cell text. `sortable` sorts by a clicked column; `filter` adds a search box.",
     children: false,
-    props: s.object({ columns: s.array(s.string()), rows: s.array(s.array(s.string())) }),
-    example: { node: { type: "Table", props: { columns: ["Page", "Before", "After"], rows: [["Home", "1.8s", "0.9s"], ["Settings", "1.2s", "0.7s"]] } } },
+    props: s.object({ columns: s.array(s.string()), rows: s.array(s.array(s.string())), sortable: s.boolean().optional(), filter: s.boolean().optional() }),
+    example: { node: { type: "Table", props: { sortable: true, filter: true, columns: ["Page", "Before", "After"], rows: [["Home", "1.8s", "0.9s"], ["Settings", "1.2s", "0.7s"], ["Search", "2.4s", "1.1s"]] } } },
   },
   Badge: {
     description: "A short label, e.g. a status.",
     children: false,
-    props: s.object({ text: s.string(), tone: tone.optional() }),
+    props: s.object({ text: s.string(), tone: tone.optional(), icon: icon.optional(), tooltip: tooltip.optional() }),
     example: { node: { type: "Stack", props: { direction: "horizontal", gap: "sm" }, children: [
-      { type: "Badge", props: { text: "passing", tone: "success" } },
+      { type: "Badge", props: { text: "passing", tone: "success", icon: "check", tooltip: "48 of 48 tests" } },
       { type: "Badge", props: { text: "1 flaky", tone: "warning" } },
       { type: "Badge", props: { text: "draft" } },
     ] } },
@@ -105,7 +114,7 @@ export const components = {
   Stat: {
     description: "One number or short value with a label, e.g. a count, a total or a status.",
     children: false,
-    props: s.object({ label: s.string(), value: s.anyOf([s.string(), s.number()]), hint: s.string().optional(), tone: tone.optional() }),
+    props: s.object({ label: s.string(), value: s.anyOf([s.string(), s.number()]), hint: s.string().optional(), tone: tone.optional(), tooltip: tooltip.optional() }),
     example: { node: { type: "Stat", props: { label: "Tests passing", value: { $template: "${/tests/passed} / ${/tests/total}" }, hint: "2 failing in api/" } }, state: { tests: { passed: 46, total: 48 } } },
   },
   Progress: {
@@ -125,13 +134,14 @@ export const components = {
       result: s.any().optional(),
       explanation: s.string({ description: "Markdown shown after a checked pick: why the expected value is right." }).optional(),
       columns: s.number({ enum: [1, 2] }).optional(),
+      variant: s.string({ enum: ["list", "buttons", "select"], description: "list (default): rows; buttons: a segmented row; select: a dropdown." }).optional(),
     }),
     bind: ["value", "result"],
     events: ["change"],
     example: { node: { type: "Stack", children: [
       { type: "Markdown", props: { text: "Where should the preview deploy go?" } },
       { type: "Choice", props: {
-        value: { $bindState: "/deploy/target" }, columns: 2,
+        value: { $bindState: "/deploy/target" }, variant: "buttons",
         options: [{ value: "staging", label: "Staging" }, { value: "preview", label: "Per-branch preview" }],
       } },
       { type: "Badge", props: { text: { $template: "Next: deploy to ${/deploy/target}" }, tone: "info" }, visible: { $state: "/deploy/target" } },
@@ -145,9 +155,9 @@ export const components = {
     ] }, state: { deploy: {}, checks: { picks: {}, results: {} } } },
   },
   Input: {
-    description: "A text field; writes its text to its $bindState path. `on.submit` runs on Enter.",
+    description: "A text field; writes its text to its $bindState path. `multiline` for longer text. `on.submit` runs on Enter (Cmd/Ctrl+Enter when multiline).",
     children: false,
-    props: s.object({ value: s.any(), label: s.string().optional(), placeholder: s.string().optional() }),
+    props: s.object({ value: s.any(), label: s.string().optional(), placeholder: s.string().optional(), multiline: s.boolean().optional() }),
     bind: ["value"],
     events: ["submit"],
     example: { node: { type: "Input", props: { label: "Branch name", placeholder: "feat/...", value: { $bindState: "/setup/branch" } } }, state: { setup: {} } },
@@ -155,10 +165,10 @@ export const components = {
   Button: {
     description: "A button; `on.press` runs its actions.",
     children: false,
-    props: s.object({ label: s.string(), variant: s.string({ enum: ["primary", "secondary", "ghost"] }).optional(), disabled: s.boolean().optional() }),
+    props: s.object({ label: s.string(), variant: s.string({ enum: ["primary", "secondary", "ghost"] }).optional(), disabled: s.boolean().optional(), icon: icon.optional(), tooltip: tooltip.optional() }),
     events: ["press"],
     example: { node: { type: "Stack", props: { direction: "horizontal", gap: "sm" }, children: [
-      { type: "Button", props: { label: "Approve plan" }, on: { press: { action: "sendMessage", params: { text: { $template: "Approved, go with ${/plan/approach}." } } } } },
+      { type: "Button", props: { label: "Approve plan", icon: "check" }, on: { press: { action: "sendMessage", params: { text: { $template: "Approved, go with ${/plan/approach}." } } } } },
       { type: "Button", props: { label: "Use a cache instead", variant: "secondary" }, on: { press: { action: "setState", params: { statePath: "/plan/approach", value: "cache" } } } },
       { type: "Badge", props: { text: { $template: "Approach: ${/plan/approach}" } } },
     ] }, state: { plan: { approach: "index" } } },
@@ -190,6 +200,95 @@ export const components = {
         { type: "Markdown", props: { text: { $template: "Deploy `${/setup/branch}` to **${/setup/target}**. Press Finish to start." } } },
       ],
     }, state: { setup: { target: "staging", branch: "main" } } },
+  },
+  Diff: {
+    description: "A code diff, highlighted. Give `patch` (a unified git diff; several files are fine) or `path` with `old` and `new` text.",
+    children: false,
+    props: s.object({ patch: s.string().optional(), path: s.string().optional(), old: s.string().optional(), new: s.string().optional() }),
+    example: { node: { type: "Diff", props: { path: "src/config.ts", old: "export const retries = 3;\nexport const timeoutMs = 1000;\n", new: "export const retries = 5;\nexport const timeoutMs = 1000;\nexport const backoff = true;\n" } } },
+  },
+  List: {
+    description:
+      "Rich rows: title, description, meta text, icon, badge. With `check` ($bindState to an object), each row gets a checkbox that writes `{ [id]: true|false }` there, e.g. a todo list; `on.change` runs after a toggle.",
+    children: false,
+    props: s.object({
+      items: s.array(s.object({
+        id: s.string(),
+        title: s.string(),
+        description: s.string().optional(),
+        meta: s.string({ description: "Short text on the right, e.g. a time or a size." }).optional(),
+        icon: icon.optional(),
+        badge: s.string().optional(),
+        tone: tone.optional(),
+      }), { minItems: 1 }),
+      check: s.any().optional(),
+    }),
+    bind: ["check"],
+    events: ["change"],
+    example: { node: { type: "List", props: { check: { $bindState: "/todos" }, items: [
+      { id: "schema", title: "Add the migration", description: "users.email gets a unique index", icon: "database", meta: "5 min" },
+      { id: "api", title: "Update the signup handler", description: "Return 409 on a duplicate email", icon: "code", badge: "next", tone: "info" },
+      { id: "tests", title: "Cover the duplicate case", icon: "test" },
+    ] } }, state: { todos: { schema: true } } },
+  },
+  Checkbox: {
+    description: "One checkbox; writes true/false to `value` ($bindState). `on.change` runs after a toggle.",
+    children: false,
+    props: s.object({ label: s.string(), description: s.string().optional(), value: s.any() }),
+    bind: ["value"],
+    events: ["change"],
+    example: { node: { type: "Checkbox", props: { label: "Also update the docs", description: "README and the API reference", value: { $bindState: "/opts/docs" } } }, state: { opts: {} } },
+  },
+  Switch: {
+    description: "An on/off switch; writes true/false to `value` ($bindState). `on.change` runs after a toggle.",
+    children: false,
+    props: s.object({ label: s.string(), description: s.string().optional(), value: s.any() }),
+    bind: ["value"],
+    events: ["change"],
+    example: { node: { type: "Switch", props: { label: "Run the slow tests", value: { $bindState: "/opts/slow" } } }, state: { opts: { slow: true } } },
+  },
+  Accordion: {
+    description: "Collapsible sections: one child per item, titled by `items`. `multiple` lets several stay open; `open` lists indexes open at first.",
+    children: true,
+    props: s.object({ items: s.array(s.string(), { minItems: 1 }), multiple: s.boolean().optional(), open: s.array(s.number()).optional() }),
+    example: { node: { type: "Accordion", props: { items: ["2 errors", "5 warnings"], open: [0] }, children: [
+      { type: "Markdown", props: { text: "- `api/users.ts:42` type mismatch\n- `api/auth.ts:7` unused import" } },
+      { type: "Markdown", props: { text: "Mostly unused variables in tests." } },
+    ] } },
+  },
+  Timeline: {
+    description: "Events in order: title, description, time, tone, icon. E.g. a deploy history or the steps of an investigation.",
+    children: false,
+    props: s.object({ items: s.array(s.object({
+      title: s.string(),
+      description: s.string().optional(),
+      time: s.string().optional(),
+      tone: tone.optional(),
+      icon: icon.optional(),
+    }), { minItems: 1 }) }),
+    example: { node: { type: "Timeline", props: { items: [
+      { title: "Reproduced the bug", description: "Fails on an empty cart", time: "10:02", icon: "bug", tone: "error" },
+      { title: "Found the cause", description: "`total()` divides by the item count", time: "10:14", icon: "search" },
+      { title: "Fix merged", time: "10:31", icon: "git-merge", tone: "success" },
+    ] } } },
+  },
+  Chart: {
+    description:
+      "A chart of `data` (rows of objects; bindable). `x` names the label key, `series` the numeric keys to plot. type: bar, line, area or pie (pie uses the first series).",
+    children: false,
+    props: s.object({
+      type: s.string({ enum: ["bar", "line", "area", "pie"] }),
+      data: s.array(s.object({})),
+      x: s.string(),
+      series: s.array(s.object({ key: s.string(), label: s.string().optional() }), { minItems: 1 }),
+      stacked: s.boolean().optional(),
+      height: s.number().optional(),
+    }),
+    example: { node: { type: "Chart", props: { type: "bar", x: "route", series: [{ key: "before", label: "Before (ms)" }, { key: "after", label: "After (ms)" }], data: [
+      { route: "/", before: 180, after: 95 },
+      { route: "/search", before: 420, after: 160 },
+      { route: "/settings", before: 140, after: 120 },
+    ] } } },
   },
 } as const satisfies Record<string, Entry>;
 
@@ -294,7 +393,7 @@ const renderUiJson = {
       properties: {
         type: { type: "string", enum: names },
         props: { type: "object" },
-        children: { type: "array", items: { $ref: node }, description: "Only for Stack, Card, Tabs and Stepper." },
+        children: { type: "array", items: { $ref: node }, description: "Only for Stack, Card, Tabs, Stepper and Accordion." },
         on: { type: "object", properties: { press: actionList, change: actionList, submit: actionList, finish: actionList }, additionalProperties: false },
         visible: { $ref: "#/$defs/visible" },
       },
@@ -324,7 +423,7 @@ function catalogText(): string {
       const c: Entry = components[n];
       const p = json(c.props) as { properties?: Record<string, { enum?: unknown[] }>; required?: string[] };
       const props = Object.entries(p.properties ?? {})
-        .map(([k, v]) => `${k}${p.required?.includes(k) ? "" : "?"}${c.bind?.includes(k) ? ": $bindState" : v.enum ? `: ${v.enum.join("|")}` : ""}`)
+        .map(([k, v]) => `${k}${p.required?.includes(k) ? "" : "?"}${c.bind?.includes(k) ? ": $bindState" : v.enum && v.enum.length <= 6 ? `: ${v.enum.join("|")}` : ""}`)
         .join(", ");
       const events = c.events ? ` on: ${c.events.join(", ")}.` : "";
       return `- ${n}(${props})${c.children ? " + children" : ""}: ${c.description}${events}`;
@@ -338,8 +437,8 @@ export const frontendTools = [
   {
     name: RENDER_UI,
     description:
-      "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, tabs, steppers, choices, inputs, buttons. " +
-      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Card, Tabs and Stepper take children.\n' +
+      "Show rich, optionally interactive content to the user: cards, lists, tables, charts, diffs, timelines, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
+      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Card, Tabs, Stepper and Accordion take children.\n' +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
@@ -349,7 +448,8 @@ export const frontendTools = [
       '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
       "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
-      "Use it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message. Components:\n" +
+      "Use it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message.\n" +
+      `Icons (the icon prop): ${ICONS.join(", ")}.\nComponents:\n` +
       catalogText(),
     schema: renderUiJson,
   },

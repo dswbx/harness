@@ -1,9 +1,16 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Info, XCircle } from "lucide-react";
+import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Info, Search, XCircle } from "lucide-react";
 import { getAt, type StatePatchOp } from "@harness/api";
-import { Button, Input, cn } from "@harness/ui";
+import { Button, Input, Select, Textarea, Tooltip, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { Markdown } from "./Markdown";
+import { splitPatch } from "./diff";
+import { DiffViewer } from "./DiffViewer";
+import { Diff as FileDiff } from "./ToolCard";
+import { uiIcons } from "./uiIcons";
+
+/** recharts is large: loaded the first time a Chart shows. */
+const UiChart = lazy(() => import("./UiChart"));
 import { components, type RawNode, type UiAction, type UiNode, type Visible } from "./tools";
 
 type Tone = "neutral" | "info" | "success" | "warning" | "error";
@@ -244,9 +251,43 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
     return <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">Choice options need distinct values.</div>;
   }
   const right = graded && picked === answer;
+  const verdictOf = (v: string) => (!graded ? null : v === answer ? "right" : picked === v ? "wrong" : null);
+  const variant = node.props.variant ?? "list";
+  const body =
+    variant === "select" ? (
+      <div className="flex items-center gap-2">
+        <Select className="w-auto min-w-48" value={picked == null ? "" : String(picked)} disabled={graded} onChange={(e) => void pick(e.target.value)}>
+          <option value="" disabled>Choose…</option>
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+        {graded && (right ? <CheckCircle2 className="size-4 text-emerald-500" aria-label="correct" /> : <XCircle className="size-4 text-destructive" aria-label="wrong" />)}
+      </div>
+    ) : variant === "buttons" ? (
+      <div role="radiogroup" className="inline-flex w-fit max-w-full flex-wrap rounded-md border p-0.5">
+        {options.map((o) => {
+          const on = picked === o.value;
+          const verdict = verdictOf(o.value);
+          return (
+            <button
+              key={o.value}
+              role="radio"
+              aria-checked={on}
+              disabled={graded && !on}
+              onClick={() => void pick(o.value)}
+              className={cn(
+                "rounded px-3 py-1 text-sm transition-colors disabled:cursor-default",
+                verdict === "right" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : verdict === "wrong" ? "bg-destructive/15 text-destructive" : on ? "bg-accent font-medium" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
   return (
     <div className="grid grid-cols-1 gap-2">
-    <div role="radiogroup" className={cn("grid grid-cols-1 gap-1.5", node.props.columns === 2 && "sm:grid-cols-2")}>
+    {body ?? <div role="radiogroup" className={cn("grid grid-cols-1 gap-1.5", node.props.columns === 2 && "sm:grid-cols-2")}>
       {options.map((o) => {
         const on = picked === o.value;
         const verdict = !graded ? null : o.value === answer ? "right" : on ? "wrong" : null;
@@ -271,7 +312,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
           </button>
         );
       })}
-    </div>
+    </div>}
     {graded && node.props.explanation && (
       <div role="note" className={cn("rounded-md border px-3 py-2", right ? tones.success.box : tones.error.box)}>
         <div className={cn("mb-1 text-xs font-medium", right ? tones.success.fg : tones.error.fg)}>{right ? "Correct" : "Not quite"}</div>
@@ -370,14 +411,239 @@ function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
   return (
     <label className="grid grid-cols-1 gap-1.5">
       {node.props.label && <span className="text-xs text-muted-foreground">{node.props.label}</span>}
-      <Input
-        value={text}
-        placeholder={node.props.placeholder}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => void commit(false)}
-        onKeyDown={(e) => e.key === "Enter" && void commit(true)}
-      />
+      {node.props.multiline ? (
+        <Textarea
+          value={text}
+          rows={4}
+          placeholder={node.props.placeholder}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => void commit(false)}
+          onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void commit(true)}
+        />
+      ) : (
+        <Input
+          value={text}
+          placeholder={node.props.placeholder}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => void commit(false)}
+          onKeyDown={(e) => e.key === "Enter" && void commit(true)}
+        />
+      )}
     </label>
+  );
+}
+
+const tip = (text: string | undefined, el: React.ReactElement) => (text ? <Tooltip content={text}>{el}</Tooltip> : el);
+const IconOf = ({ name, className }: { name?: string; className?: string }) => {
+  const I = name ? uiIcons[name as keyof typeof uiIcons] : undefined;
+  return I ? <I className={cn("size-4 shrink-0", className)} /> : null;
+};
+
+/** A boolean bound to state; writes it, then runs `on.change` with the new state. */
+function useToggle(node: { props: { value?: unknown }; bindings: Record<string, string>; on?: RawNode["on"] }) {
+  const env = useEnv();
+  const on = node.props.value === true;
+  const toggle = async () => {
+    const path = node.bindings.value;
+    if (!path) return;
+    await env.patch([{ op: "replace", path, value: !on }]);
+    await runActions(node.on?.change, { ...env, state: structuredCloneSet(env.state, path, !on) });
+  };
+  return [on, toggle] as const;
+}
+
+function CheckBox({ on, label }: { on: boolean; label?: string }) {
+  return (
+    <span role="checkbox" aria-checked={on} aria-label={label} className={cn("grid size-4 shrink-0 place-items-center rounded border border-muted-foreground/50", on && "border-primary bg-primary text-primary-foreground")}>
+      {on && <Check className="size-3" strokeWidth={3} />}
+    </span>
+  );
+}
+
+function Toggle({ node, kind }: { node: Extract<UiNode, { type: "Checkbox" | "Switch" }>; kind: "checkbox" | "switch" }) {
+  const [on, toggle] = useToggle(node);
+  return (
+    <button type="button" onClick={() => void toggle()} className="flex w-fit max-w-full items-start gap-2.5 text-left">
+      {kind === "checkbox" ? (
+        <span className="mt-0.5"><CheckBox on={on} /></span>
+      ) : (
+        <span role="switch" aria-checked={on} className={cn("mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}>
+          <span className={cn("size-3 rounded-full bg-background transition-transform", on && "translate-x-3")} />
+        </span>
+      )}
+      <span className="min-w-0">
+        <span className="block text-sm">{node.props.label}</span>
+        {node.props.description && <span className="block text-xs text-muted-foreground">{node.props.description}</span>}
+      </span>
+    </button>
+  );
+}
+
+function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
+  const env = useEnv();
+  const path = node.bindings.check;
+  const checked = (node.props.check ?? {}) as Record<string, unknown>;
+  const toggle = async (id: string) => {
+    if (!path) return;
+    const value = checked[id] !== true;
+    const ops: StatePatchOp[] = typeof node.props.check === "object" && node.props.check !== null ? [] : [{ op: "replace", path, value: {} }];
+    ops.push({ op: "replace", path: `${path}/${id.replace(/~/g, "~0").replace(/\//g, "~1")}`, value });
+    await env.patch(ops);
+    await runActions(node.on?.change, { ...env, state: structuredCloneSet(env.state, path, { ...checked, [id]: value }) });
+  };
+  return (
+    <ul className="divide-y rounded-lg border">
+      {node.props.items.map((it) => {
+        const done = checked[it.id] === true;
+        const t = tones[it.tone ?? "neutral"];
+        const row = (
+          <>
+            {path && <span className="mt-0.5"><CheckBox on={done} label={it.title} /></span>}
+            {it.icon && <IconOf name={it.icon} className={cn("mt-0.5 text-muted-foreground", it.tone && it.tone !== "neutral" && t.fg)} />}
+            <span className="min-w-0 flex-1">
+              <span className={cn("block text-sm", done && "text-muted-foreground line-through")}>{it.title}</span>
+              {it.description && <span className="block text-xs text-muted-foreground">{it.description}</span>}
+            </span>
+            {it.badge && <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-xs", t.box, t.fg)}>{it.badge}</span>}
+            {it.meta && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{it.meta}</span>}
+          </>
+        );
+        return (
+          <li key={it.id}>
+            {path ? (
+              <button type="button" onClick={() => void toggle(it.id)} className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-accent/50">{row}</button>
+            ) : (
+              <div className="flex items-start gap-2.5 px-3 py-2">{row}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function Accordion({ node, kids }: { node: Extract<UiNode, { type: "Accordion" }>; kids: ReactNode[] }) {
+  const [open, setOpen] = useState<number[]>(() => node.props.open ?? []);
+  const flip = (i: number) => setOpen(open.includes(i) ? open.filter((x) => x !== i) : node.props.multiple ? [...open, i] : [i]);
+  return (
+    <div className="divide-y rounded-lg border">
+      {node.props.items.map((title, i) => (
+        <div key={i}>
+          <button type="button" aria-expanded={open.includes(i)} onClick={() => flip(i)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium hover:bg-accent/50">
+            <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open.includes(i) && "rotate-90")} />
+            <span className="min-w-0 flex-1 truncate">{title}</span>
+          </button>
+          {open.includes(i) && <div className="px-3 pb-3 pl-9">{kids[i]}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Timeline({ node }: { node: Extract<UiNode, { type: "Timeline" }> }) {
+  return (
+    <ol className="grid grid-cols-1">
+      {node.props.items.map((it, i) => {
+        const t = tones[it.tone ?? "neutral"];
+        const last = i === node.props.items.length - 1;
+        return (
+          <li key={i} className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <span className={cn("grid size-6 shrink-0 place-items-center rounded-full border bg-background", it.tone && it.tone !== "neutral" ? t.fg : "text-muted-foreground")}>
+                {it.icon ? <IconOf name={it.icon} className="size-3.5" /> : <span className="size-1.5 rounded-full bg-current" />}
+              </span>
+              {!last && <span className="w-px flex-1 bg-border" />}
+            </div>
+            <div className={cn("min-w-0 flex-1", !last && "pb-4")}>
+              <div className="flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 text-sm font-medium">{it.title}</span>
+                {it.time && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{it.time}</span>}
+              </div>
+              {it.description && <Markdown className="text-xs text-muted-foreground">{it.description}</Markdown>}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
+  const [sort, setSort] = useState<{ col: number; desc: boolean } | null>(null);
+  const [q, setQ] = useState("");
+  const columns = node.props.columns ?? [];
+  const rows = useMemo(() => {
+    let out = node.props.rows ?? [];
+    const needle = q.trim().toLowerCase();
+    if (needle) out = out.filter((r) => r.some((c) => String(c).toLowerCase().includes(needle)));
+    if (sort) {
+      const num = (x: string) => Number.parseFloat(x.replace(/[^\d.-]/g, ""));
+      out = [...out].sort((a, b) => {
+        const x = String(a[sort.col] ?? ""), y = String(b[sort.col] ?? "");
+        const nx = num(x), ny = num(y);
+        const c = Number.isNaN(nx) || Number.isNaN(ny) ? x.localeCompare(y, undefined, { numeric: true }) : nx - ny;
+        return sort.desc ? -c : c;
+      });
+    }
+    return out;
+  }, [node.props.rows, q, sort]);
+  const click = (col: number) => setSort(sort?.col === col ? (sort.desc ? null : { col, desc: true }) : { col, desc: false });
+  return (
+    <div className="grid grid-cols-1 gap-2">
+      {node.props.filter && (
+        <div className="relative w-full max-w-64">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-8 pl-7 text-xs" placeholder="Filter rows" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50 text-left">
+            <tr>
+              {columns.map((c, i) => (
+                <th key={i} className="px-2 py-1.5 font-medium" aria-sort={sort?.col === i ? (sort.desc ? "descending" : "ascending") : undefined}>
+                  {node.props.sortable ? (
+                    <button type="button" onClick={() => click(i)} className="inline-flex items-center gap-1 hover:text-foreground">
+                      {c}
+                      {sort?.col === i && (sort.desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
+                    </button>
+                  ) : c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-t">
+                {r.map((c, j) => <td key={j} className="px-2 py-1.5 align-top">{c}</td>)}
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={columns.length} className="px-2 py-3 text-center text-muted-foreground">No rows</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
+  const p = node.props;
+  const files = useMemo(() => (p.patch ? splitPatch(p.patch) : []), [p.patch]);
+  if (!p.patch) return p.path && p.new != null ? <FileDiff path={p.path} oldText={p.old ?? null} newText={p.new} /> : null;
+  return (
+    <div className="grid grid-cols-1 gap-2">
+      {files.map((f) => (
+        <div key={f.path} className="overflow-hidden rounded border">
+          <div className="flex gap-2 border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+            <span className="min-w-0 flex-1 truncate">{f.path}</span>
+            <span className="text-emerald-600 dark:text-emerald-400">+{f.additions}</span>
+            <span className="text-destructive">-{f.deletions}</span>
+          </div>
+          <DiffViewer file={f} mode="unified" fontSize={11} wrap />
+        </div>
+      ))}
+      {files.length === 0 && <Markdown>{"```diff\n" + p.patch + "\n```"}</Markdown>}
+    </div>
   );
 }
 
@@ -397,7 +663,7 @@ function Node({ raw }: { raw: RawNode }) {
       return (
         <div className={cn("flex min-w-0 flex-row flex-wrap items-center", gap)}>
           {shown.map(([c, i]) =>
-            c.type === "Badge" || c.type === "Button" ? (
+            c.type === "Badge" || c.type === "Button" || c.type === "Checkbox" || c.type === "Switch" ? (
               <Node key={i} raw={c} />
             ) : (
               <div key={i} className="flex min-w-48 flex-1 basis-0 flex-col self-stretch [&>*]:flex-1">
@@ -410,12 +676,12 @@ function Node({ raw }: { raw: RawNode }) {
     }
     case "Card": {
       const t = tones[node.props?.tone ?? "neutral"];
-      const Icon = t.icon;
+      const Icon = (node.props?.icon && uiIcons[node.props.icon]) || t.icon;
       return (
         <div className={cn("min-w-0 space-y-2 rounded-lg border p-3", t.box)}>
           {node.props?.title && (
             <div className="flex items-center gap-2 font-medium">
-              {Icon && <Icon className={cn("size-4 shrink-0", t.fg)} />}
+              {Icon && <Icon className={cn("size-4 shrink-0", node.props.tone && node.props.tone !== "neutral" ? t.fg : "text-muted-foreground")} />}
               {node.props.title}
             </div>
           )}
@@ -437,25 +703,16 @@ function Node({ raw }: { raw: RawNode }) {
         </dl>
       );
     case "Table":
-      return (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/50 text-left">
-              <tr>{(node.props.columns ?? []).map((c, i) => <th key={i} className="px-2 py-1.5 font-medium">{c}</th>)}</tr>
-            </thead>
-            <tbody>
-              {(node.props.rows ?? []).map((r, i) => (
-                <tr key={i} className="border-t">
-                  {r.map((c, j) => <td key={j} className="px-2 py-1.5 align-top">{c}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <DataTable node={node} />;
     case "Badge": {
       const t = tones[node.props.tone ?? "neutral"];
-      return <span className={cn("inline-flex w-fit rounded-full border px-2 py-0.5 text-xs font-medium", t.box, t.fg)}>{String(node.props.text ?? "")}</span>;
+      return tip(
+        node.props.tooltip,
+        <span className={cn("inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium", t.box, t.fg)}>
+          {node.props.icon && <IconOf name={node.props.icon} className="size-3" />}
+          {String(node.props.text ?? "")}
+        </span>,
+      );
     }
     case "Code":
       return <Markdown>{"```" + (node.props.language ?? "") + "\n" + String(node.props.code ?? "") + "\n```"}</Markdown>;
@@ -465,12 +722,13 @@ function Node({ raw }: { raw: RawNode }) {
       return (node.props.images ?? []).length ? <Carousel images={node.props.images} /> : null;
     case "Stat": {
       const t = tones[node.props.tone ?? "neutral"];
-      return (
+      return tip(
+        node.props.tooltip,
         <div className="min-w-0">
           <div className="text-xs text-muted-foreground">{node.props.label}</div>
           <div className={cn("text-2xl font-semibold tabular-nums", node.props.tone && node.props.tone !== "neutral" && t.fg)}>{String(node.props.value ?? "")}</div>
           {node.props.hint && <div className="text-xs text-muted-foreground">{node.props.hint}</div>}
-        </div>
+        </div>,
       );
     }
     case "Progress": {
@@ -494,7 +752,8 @@ function Node({ raw }: { raw: RawNode }) {
     case "Stepper":
       return <Stepper node={node} kids={kids ?? []} />;
     case "Button":
-      return (
+      return tip(
+        node.props.tooltip,
         <Button
           size="sm"
           variant={node.props.variant === "secondary" ? "secondary" : node.props.variant === "ghost" ? "ghost" : "default"}
@@ -502,9 +761,30 @@ function Node({ raw }: { raw: RawNode }) {
           className="w-fit"
           onClick={() => void runActions(node.on?.press, env)}
         >
+          {node.props.icon && <IconOf name={node.props.icon} />}
           {String(node.props.label ?? "")}
-        </Button>
+        </Button>,
       );
+    case "Diff":
+      return <DiffBlock node={node} />;
+    case "List":
+      return <List node={node} />;
+    case "Checkbox":
+      return <Toggle node={node} kind="checkbox" />;
+    case "Switch":
+      return <Toggle node={node} kind="switch" />;
+    case "Accordion":
+      return <Accordion node={node} kids={kids ?? []} />;
+    case "Timeline":
+      return <Timeline node={node} />;
+    case "Chart": {
+      const data = Array.isArray(node.props.data) ? (node.props.data as Record<string, unknown>[]) : [];
+      return (
+        <Suspense fallback={<div className="h-56 animate-pulse rounded-md bg-muted" />}>
+          <UiChart type={node.props.type as "bar"} data={data} x={node.props.x} series={node.props.series} stacked={node.props.stacked} height={node.props.height} />
+        </Suspense>
+      );
+    }
   }
 }
 

@@ -5,7 +5,7 @@
   "frontend_tools": [
     {
       "name": "render_ui",
-      "description": "Show rich, optionally interactive content to the user: cards, tables, images, a carousel, stats, tabs, steppers, choices, inputs, buttons. Input: {\"root\": node, \"placement\"?, \"id\"?, \"title\"?}. A node is {\"type\", \"props\", \"children\"?, \"on\"?, \"visible\"?}; only Stack, Card, Tabs and Stepper take children.\nPlacement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). A call with the same id replaces that item; {\"id\", \"remove\": true} removes it.\nSession State: any prop can be {\"$state\": \"/path\"}, {\"$template\": \"Branch: ${/setup/branch}\"} or {\"$computed\": \"count\", \"args\": {\"values\": {\"$state\": \"/checks\"}, \"eq\": true}} (also \"length\" and \"sum\") and updates when the state changes (change it with state_patch). Choice and Input write the user's input with {\"$bindState\": \"/path\"}. on.press/change/submit/finish run actions: {\"action\": \"setState\"|\"pushState\", \"params\": {\"statePath\", \"value\"}}, {\"action\": \"removeState\", \"params\": {\"statePath\", \"index\"?}}, {\"action\": \"sendMessage\", \"params\": {\"text\"}} (sends the text to you as the user's next message; text can be a $template). \"visible\" shows a node only when the state says so, e.g. {\"$state\": \"/setup/target\"} (picked) or {\"$state\": \"/setup/step\", \"eq\": 2}. The user's state changes do not reach you by themselves: add a sendMessage when you must react.\nKeep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\nUse it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message. Components:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row; children in a row share the width.\n- Card(title?, tone?: neutral|info|success|warning|error) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows): A table: column headings and rows of cell text.\n- Badge(text, tone?: neutral|info|success|warning|error): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.\n- Stat(label, value, hint?, tone?: neutral|info|success|warning|error): One number or short value with a label, e.g. a count, a total or a status.\n- Progress(value, max?, label?): A progress bar from 0 to max (default 100).\n- Choice(options, value: $bindState, answer?, result?: $bindState, explanation?, columns?: 1|2): Options to pick one from (distinct values); writes the picked value to `value` ($bindState). When a pick can be checked, set `answer` to the expected value: after a pick it shows right/wrong, locks, writes true/false to `result` ($bindState) and shows `explanation`. `on.change` runs after a pick. on: change.\n- Input(value: $bindState, label?, placeholder?): A text field; writes its text to its $bindState path. `on.submit` runs on Enter. on: submit.\n- Button(label, variant?: primary|secondary|ghost, disabled?): A button; `on.press` runs its actions. on: press.\n- Tabs(tabs, value?: $bindState) + children: Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index.\n- Stepper(steps, value?: $bindState) + children: Steps shown one at a time with Back/Next, e.g. a setup, a review of findings, or a quiz: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step. on: finish.",
+      "description": "Show rich, optionally interactive content to the user: cards, lists, tables, charts, diffs, timelines, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. Input: {\"root\": node, \"placement\"?, \"id\"?, \"title\"?}. A node is {\"type\", \"props\", \"children\"?, \"on\"?, \"visible\"?}; only Stack, Card, Tabs, Stepper and Accordion take children.\nPlacement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). A call with the same id replaces that item; {\"id\", \"remove\": true} removes it.\nSession State: any prop can be {\"$state\": \"/path\"}, {\"$template\": \"Branch: ${/setup/branch}\"} or {\"$computed\": \"count\", \"args\": {\"values\": {\"$state\": \"/checks\"}, \"eq\": true}} (also \"length\" and \"sum\") and updates when the state changes (change it with state_patch). Choice and Input write the user's input with {\"$bindState\": \"/path\"}. on.press/change/submit/finish run actions: {\"action\": \"setState\"|\"pushState\", \"params\": {\"statePath\", \"value\"}}, {\"action\": \"removeState\", \"params\": {\"statePath\", \"index\"?}}, {\"action\": \"sendMessage\", \"params\": {\"text\"}} (sends the text to you as the user's next message; text can be a $template). \"visible\" shows a node only when the state says so, e.g. {\"$state\": \"/setup/target\"} (picked) or {\"$state\": \"/setup/step\", \"eq\": 2}. The user's state changes do not reach you by themselves: add a sendMessage when you must react.\nKeep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\nUse it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message.\nIcons (the icon prop): check, x, alert, info, help, file, folder, code, terminal, bug, test, package, git-branch, git-commit, git-pull-request, git-merge, rocket, server, database, globe, lock, key, user, users, clock, calendar, search, link, settings, star, zap, list, message, chart.\nComponents:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row; children in a row share the width.\n- Card(title?, tone?: neutral|info|success|warning|error, icon?) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows, sortable?, filter?): A table: column headings and rows of cell text. `sortable` sorts by a clicked column; `filter` adds a search box.\n- Badge(text, tone?: neutral|info|success|warning|error, icon?, tooltip?): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.\n- Stat(label, value, hint?, tone?: neutral|info|success|warning|error, tooltip?): One number or short value with a label, e.g. a count, a total or a status.\n- Progress(value, max?, label?): A progress bar from 0 to max (default 100).\n- Choice(options, value: $bindState, answer?, result?: $bindState, explanation?, columns?: 1|2, variant?: list|buttons|select): Options to pick one from (distinct values); writes the picked value to `value` ($bindState). When a pick can be checked, set `answer` to the expected value: after a pick it shows right/wrong, locks, writes true/false to `result` ($bindState) and shows `explanation`. `on.change` runs after a pick. on: change.\n- Input(value: $bindState, label?, placeholder?, multiline?): A text field; writes its text to its $bindState path. `multiline` for longer text. `on.submit` runs on Enter (Cmd/Ctrl+Enter when multiline). on: submit.\n- Button(label, variant?: primary|secondary|ghost, disabled?, icon?, tooltip?): A button; `on.press` runs its actions. on: press.\n- Tabs(tabs, value?: $bindState) + children: Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index.\n- Stepper(steps, value?: $bindState) + children: Steps shown one at a time with Back/Next, e.g. a setup, a review of findings, or a quiz: one child per step. `value` ($bindState, optional) holds the step index. `on.finish` runs when the user presses Finish on the last step. on: finish.\n- Diff(patch?, path?, old?, new?): A code diff, highlighted. Give `patch` (a unified git diff; several files are fine) or `path` with `old` and `new` text.\n- List(items, check?: $bindState): Rich rows: title, description, meta text, icon, badge. With `check` ($bindState to an object), each row gets a checkbox that writes `{ [id]: true|false }` there, e.g. a todo list; `on.change` runs after a toggle. on: change.\n- Checkbox(label, description?, value: $bindState): One checkbox; writes true/false to `value` ($bindState). `on.change` runs after a toggle. on: change.\n- Switch(label, description?, value: $bindState): An on/off switch; writes true/false to `value` ($bindState). `on.change` runs after a toggle. on: change.\n- Accordion(items, multiple?, open?) + children: Collapsible sections: one child per item, titled by `items`. `multiple` lets several stay open; `open` lists indexes open at first.\n- Timeline(items): Events in order: title, description, time, tone, icon. E.g. a deploy history or the steps of an investigation.\n- Chart(type: bar|line|area|pie, data, x, series, stacked?, height?): A chart of `data` (rows of objects; bindable). `x` names the label key, `series` the numeric keys to plot. type: bar, line, area or pie (pie uses the first series).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -343,7 +343,14 @@
                   "Input",
                   "Button",
                   "Tabs",
-                  "Stepper"
+                  "Stepper",
+                  "Diff",
+                  "List",
+                  "Checkbox",
+                  "Switch",
+                  "Accordion",
+                  "Timeline",
+                  "Chart"
                 ]
               },
               "props": {
@@ -354,7 +361,7 @@
                 "items": {
                   "$ref": "#/$defs/node"
                 },
-                "description": "Only for Stack, Card, Tabs and Stepper."
+                "description": "Only for Stack, Card, Tabs, Stepper and Accordion."
               },
               "on": {
                 "type": "object",
@@ -511,6 +518,53 @@
                               "$ref": "#/$defs/expr"
                             }
                           ]
+                        },
+                        "icon": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Icon name.",
+                              "enum": [
+                                "check",
+                                "x",
+                                "alert",
+                                "info",
+                                "help",
+                                "file",
+                                "folder",
+                                "code",
+                                "terminal",
+                                "bug",
+                                "test",
+                                "package",
+                                "git-branch",
+                                "git-commit",
+                                "git-pull-request",
+                                "git-merge",
+                                "rocket",
+                                "server",
+                                "database",
+                                "globe",
+                                "lock",
+                                "key",
+                                "user",
+                                "users",
+                                "clock",
+                                "calendar",
+                                "search",
+                                "link",
+                                "settings",
+                                "star",
+                                "zap",
+                                "list",
+                                "message",
+                                "chart"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "additionalProperties": false
@@ -650,6 +704,26 @@
                               "$ref": "#/$defs/expr"
                             }
                           ]
+                        },
+                        "sortable": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "filter": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -702,6 +776,64 @@
                                 "warning",
                                 "error"
                               ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "icon": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Icon name.",
+                              "enum": [
+                                "check",
+                                "x",
+                                "alert",
+                                "info",
+                                "help",
+                                "file",
+                                "folder",
+                                "code",
+                                "terminal",
+                                "bug",
+                                "test",
+                                "package",
+                                "git-branch",
+                                "git-commit",
+                                "git-pull-request",
+                                "git-merge",
+                                "rocket",
+                                "server",
+                                "database",
+                                "globe",
+                                "lock",
+                                "key",
+                                "user",
+                                "users",
+                                "clock",
+                                "calendar",
+                                "search",
+                                "link",
+                                "settings",
+                                "star",
+                                "zap",
+                                "list",
+                                "message",
+                                "chart"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "tooltip": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Shown on hover."
                             },
                             {
                               "$ref": "#/$defs/expr"
@@ -960,6 +1092,17 @@
                               "$ref": "#/$defs/expr"
                             }
                           ]
+                        },
+                        "tooltip": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Shown on hover."
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -1114,6 +1257,22 @@
                               "$ref": "#/$defs/expr"
                             }
                           ]
+                        },
+                        "variant": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "list (default): rows; buttons: a segmented row; select: a dropdown.",
+                              "enum": [
+                                "list",
+                                "buttons",
+                                "select"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -1161,6 +1320,16 @@
                           "anyOf": [
                             {
                               "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "multiline": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
                             },
                             {
                               "$ref": "#/$defs/expr"
@@ -1224,6 +1393,64 @@
                           "anyOf": [
                             {
                               "type": "boolean"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "icon": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Icon name.",
+                              "enum": [
+                                "check",
+                                "x",
+                                "alert",
+                                "info",
+                                "help",
+                                "file",
+                                "folder",
+                                "code",
+                                "terminal",
+                                "bug",
+                                "test",
+                                "package",
+                                "git-branch",
+                                "git-commit",
+                                "git-pull-request",
+                                "git-merge",
+                                "rocket",
+                                "server",
+                                "database",
+                                "globe",
+                                "lock",
+                                "key",
+                                "user",
+                                "users",
+                                "clock",
+                                "calendar",
+                                "search",
+                                "link",
+                                "settings",
+                                "star",
+                                "zap",
+                                "list",
+                                "message",
+                                "chart"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "tooltip": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "Shown on hover."
                             },
                             {
                               "$ref": "#/$defs/expr"
@@ -1322,6 +1549,575 @@
                         "steps"
                       ],
                       "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Diff"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "patch": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "path": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "old": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "new": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "List"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "description": {
+                                    "type": "string"
+                                  },
+                                  "meta": {
+                                    "type": "string",
+                                    "description": "Short text on the right, e.g. a time or a size."
+                                  },
+                                  "icon": {
+                                    "type": "string",
+                                    "description": "Icon name.",
+                                    "enum": [
+                                      "check",
+                                      "x",
+                                      "alert",
+                                      "info",
+                                      "help",
+                                      "file",
+                                      "folder",
+                                      "code",
+                                      "terminal",
+                                      "bug",
+                                      "test",
+                                      "package",
+                                      "git-branch",
+                                      "git-commit",
+                                      "git-pull-request",
+                                      "git-merge",
+                                      "rocket",
+                                      "server",
+                                      "database",
+                                      "globe",
+                                      "lock",
+                                      "key",
+                                      "user",
+                                      "users",
+                                      "clock",
+                                      "calendar",
+                                      "search",
+                                      "link",
+                                      "settings",
+                                      "star",
+                                      "zap",
+                                      "list",
+                                      "message",
+                                      "chart"
+                                    ]
+                                  },
+                                  "badge": {
+                                    "type": "string"
+                                  },
+                                  "tone": {
+                                    "type": "string",
+                                    "description": "Accent. Default neutral.",
+                                    "enum": [
+                                      "neutral",
+                                      "info",
+                                      "success",
+                                      "warning",
+                                      "error"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "title"
+                                ]
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "check": {
+                          "$ref": "#/$defs/bind"
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Checkbox"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "value": {
+                          "$ref": "#/$defs/bind"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Switch"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "value": {
+                          "$ref": "#/$defs/bind"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Accordion"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "multiple": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "open": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "number"
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Timeline"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "description": {
+                                    "type": "string"
+                                  },
+                                  "time": {
+                                    "type": "string"
+                                  },
+                                  "tone": {
+                                    "type": "string",
+                                    "description": "Accent. Default neutral.",
+                                    "enum": [
+                                      "neutral",
+                                      "info",
+                                      "success",
+                                      "warning",
+                                      "error"
+                                    ]
+                                  },
+                                  "icon": {
+                                    "type": "string",
+                                    "description": "Icon name.",
+                                    "enum": [
+                                      "check",
+                                      "x",
+                                      "alert",
+                                      "info",
+                                      "help",
+                                      "file",
+                                      "folder",
+                                      "code",
+                                      "terminal",
+                                      "bug",
+                                      "test",
+                                      "package",
+                                      "git-branch",
+                                      "git-commit",
+                                      "git-pull-request",
+                                      "git-merge",
+                                      "rocket",
+                                      "server",
+                                      "database",
+                                      "globe",
+                                      "lock",
+                                      "key",
+                                      "user",
+                                      "users",
+                                      "clock",
+                                      "calendar",
+                                      "search",
+                                      "link",
+                                      "settings",
+                                      "star",
+                                      "zap",
+                                      "list",
+                                      "message",
+                                      "chart"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "title"
+                                ]
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Chart"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "bar",
+                                "line",
+                                "area",
+                                "pie"
+                              ]
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "data": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {}
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "x": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "series": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "key"
+                                ]
+                              }
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "stacked": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        },
+                        "height": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "$ref": "#/$defs/expr"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "data",
+                        "x",
+                        "series"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
                     }
                   },
                   "required": [
