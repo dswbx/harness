@@ -9,7 +9,7 @@
 //! stream token by token would otherwise write one event per token.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -92,9 +92,11 @@ impl SessionLog {
                 }
             }
         }
-        let mut file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
+        let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
         file.set_len(valid_len)?;
-        file.seek(SeekFrom::End(0))?;
+        // Append mode: every write lands at the current end, so a second writer on the same file
+        // (another Harness on the same data dir) can't leave a gap of zero bytes or overwrite lines.
+        let file = OpenOptions::new().append(true).open(path)?;
         Ok(Self {
             session_id,
             path: path.to_owned(),
@@ -185,15 +187,19 @@ impl Drop for SessionLog {
     }
 }
 
+/// Complete lines only: a line another writer is still writing (no trailing newline) is skipped.
 fn read_events(path: &Path) -> anyhow::Result<Vec<Event>> {
-    let reader = BufReader::new(File::open(path)?);
+    let mut reader = BufReader::new(File::open(path)?);
     let mut out = Vec::new();
-    for line in reader.lines() {
-        let line = line?;
-        if line.is_empty() {
-            continue;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 || !line.ends_with('\n') {
+            break;
         }
-        out.push(serde_json::from_str(&line)?);
+        if !line.trim().is_empty() {
+            out.push(serde_json::from_str(&line)?);
+        }
     }
     Ok(out)
 }
@@ -250,6 +256,23 @@ mod tests {
         let ev = log.append(None, msg("c")).unwrap();
         assert_eq!(ev.seq, 2);
         assert_eq!(log.events().unwrap().len(), 3);
+    }
+
+    /// Two logs on one file (a second Harness on the same data dir): the second one trims a torn
+    /// line while the first keeps writing. No zero-byte gap, no overwritten line.
+    #[test]
+    fn a_second_writer_never_corrupts_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let first = SessionLog::open("s".into(), &path).unwrap();
+        first.append(None, msg("a")).unwrap();
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"{\"v\":1,\"se").unwrap();
+        let second = SessionLog::open("s".into(), &path).unwrap();
+        first.append(None, msg("b")).unwrap();
+        second.append(None, msg("c")).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes.contains(&0), "no zero-byte gap");
+        assert_eq!(second.events().unwrap().len(), 3);
     }
 
     #[tokio::test]

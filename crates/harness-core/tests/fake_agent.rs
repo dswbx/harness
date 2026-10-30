@@ -1,6 +1,7 @@
 //! Drives the Harness against the scripted `fake-agent` binary.
 
-use std::path::PathBuf;
+mod common;
+use common::fake_agent_bin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,16 +11,6 @@ use harness_core::api::{
 };
 use harness_core::Harness;
 
-fn fake_agent_bin() -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-q", "-p", "fake-agent"])
-        .current_dir(&root)
-        .status()
-        .unwrap();
-    assert!(status.success());
-    root.join("target/debug/fake-agent").canonicalize().unwrap()
-}
 
 async fn setup() -> (Arc<Harness>, String, tempfile::TempDir) {
     setup_with(&[], Duration::from_secs(900)).await

@@ -1,5 +1,7 @@
 //! ACP Registry installs, Custom Agents and Agent auth, offline (file:// registry and archives).
 
+mod common;
+use common::fake_agent_bin;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,12 +11,6 @@ use harness_core::host::Options;
 use harness_core::Harness;
 use sha2::{Digest, Sha256};
 
-fn fake_agent_bin() -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let status = std::process::Command::new(env!("CARGO")).args(["build", "-q", "-p", "fake-agent"]).current_dir(&root).status().unwrap();
-    assert!(status.success());
-    root.join("target/debug/fake-agent").canonicalize().unwrap()
-}
 
 fn harness(data: &Path, registry: &Path, fixed: Vec<AgentInfo>) -> Arc<Harness> {
     let options = Options { registry_url: format!("file://{}", registry.display()), ..Default::default() };

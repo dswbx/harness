@@ -130,6 +130,24 @@ impl AgentSlot {
         }
     }
 
+    /// Registers a pending permission request, then runs `announce` (logs the request), then logs
+    /// the status change. Registered first so whoever sees the request can answer it at once;
+    /// the status follows the request in the log.
+    fn add_pending(&self, session: &Session, request_id: String, pending: Pending, announce: impl FnOnce()) {
+        let before = {
+            let mut s = self.state.lock().unwrap();
+            let before = Self::status_of(&s);
+            s.pending.insert(request_id, pending);
+            s.last_active = Some(Instant::now());
+            before
+        };
+        announce();
+        let after = self.status();
+        if before != after {
+            session.set_status(after);
+        }
+    }
+
     fn conn(&self) -> Option<Arc<AgentConn>> {
         self.state.lock().unwrap().conn.clone()
     }
@@ -948,13 +966,13 @@ fn on_permission(
         Decision::Ask => None,
     };
 
-    let _ = session.log().append(thread.clone(), EventKind::PermissionRequested {
-        request_id: request_id.clone(),
-        tool_call,
-        options: options.clone(),
-        harness_tool,
-    });
     if let Some(option_id) = auto {
+        let _ = session.log().append(thread.clone(), EventKind::PermissionRequested {
+            request_id: request_id.clone(),
+            tool_call,
+            options: options.clone(),
+            harness_tool,
+        });
         let _ = session.log().append(thread.clone(), EventKind::PermissionResolved {
             request_id,
             option_id: Some(option_id.clone()),
@@ -967,8 +985,9 @@ fn on_permission(
         )));
         return;
     }
-    slot.update(session, |s| {
-        s.pending.insert(request_id, Pending { thread, responder: Answer::Acp(responder), options, facts });
+    let pending = Pending { thread: thread.clone(), responder: Answer::Acp(responder), options: options.clone(), facts };
+    slot.add_pending(session, request_id.clone(), pending, || {
+        let _ = session.log().append(thread, EventKind::PermissionRequested { request_id, tool_call, options, harness_tool });
     });
     let _ = session.log().sync();
 }
@@ -1004,13 +1023,14 @@ pub async fn authorize(
         PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into() },
         PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into() },
     ];
-    session.log().append(Some(thread.clone()), EventKind::PermissionRequested {
+    let requested = EventKind::PermissionRequested {
         request_id: request_id.clone(),
         tool_call,
         options: options.clone(),
         harness_tool: Some(tool.to_owned()),
-    })?;
+    };
     if verdict.decision == Decision::Deny {
+        session.log().append(Some(thread.clone()), requested)?;
         session.log().append(Some(thread.clone()), EventKind::PermissionResolved {
             request_id,
             option_id: Some("reject".into()),
@@ -1020,9 +1040,12 @@ pub async fn authorize(
         anyhow::bail!("denied by the Harness Permission Policy");
     }
     let (tx, rx) = oneshot::channel();
-    session.agent_slot().update(session, |s| {
-        s.pending.insert(request_id, Pending { thread: Some(thread.clone()), responder: Answer::Local(tx), options, facts });
+    let pending = Pending { thread: Some(thread.clone()), responder: Answer::Local(tx), options, facts };
+    let mut logged = Ok(());
+    session.agent_slot().add_pending(session, request_id, pending, || {
+        logged = session.log().append(Some(thread.clone()), requested).map(drop);
     });
+    logged?;
     session.log().sync()?;
     match rx.await {
         Ok(Some(o)) if o != "reject" => Ok(()),

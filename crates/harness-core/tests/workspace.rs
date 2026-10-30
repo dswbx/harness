@@ -1,5 +1,7 @@
 //! Workspaces and git Primitives against temp repositories and the scripted `fake-agent`.
 
+mod common;
+use common::fake_agent_bin;
 use std::path::{Path, PathBuf};
 use std::process::Command as Proc;
 use std::sync::{Arc, Mutex};
@@ -8,12 +10,6 @@ use std::time::Duration;
 use harness_core::api::{AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
 use harness_core::Harness;
 
-fn fake_agent_bin() -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let status = Proc::new(env!("CARGO")).args(["build", "-q", "-p", "fake-agent"]).current_dir(&root).status().unwrap();
-    assert!(status.success());
-    root.join("target/debug/fake-agent").canonicalize().unwrap()
-}
 
 fn harness(data: &Path) -> Arc<Harness> {
     let args = vec!["--resume".to_owned()];
