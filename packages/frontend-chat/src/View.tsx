@@ -239,7 +239,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         getKey={(i) => rows[i]!.id}
         estimateSize={72}
         gap={24}
-        innerClassName="mx-auto max-w-3xl px-8 pb-8 pt-4"
+        innerClassName="mx-auto max-w-3xl px-10 pb-8 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
         renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} />}
         footer={
