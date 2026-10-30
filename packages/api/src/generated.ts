@@ -52,13 +52,26 @@ export type AuthMethodInfo = {
 
 export type Boundary = "initial" | "resumed" | "loaded" | "reseeded" | "agent_switched" | "continued_with_summary";
 
+export type BranchInfo = {
+	name: string,
+	/**  Unix seconds of the last commit. */
+	time: number,
+	/**  Commits ahead of / behind its upstream (0 without one). */
+	ahead: number,
+	behind: number,
+	/**  Checked out in another Worktree (it can't be checked out again). */
+	worktree: boolean,
+};
+
 export type Branches = {
 	/**  `None` when the folder is not in a git repository. */
 	repo_root: string | null,
 	/**  `None` when HEAD is detached. */
 	current: string | null,
 	/**  Local branches, most recently committed first. */
-	branches: string[],
+	branches: BranchInfo[],
+	/**  Remote branches with no local branch of the same name (`origin/x`), most recent first. */
+	remote: BranchInfo[],
 };
 
 export type Command = { type: "ListAgents" } | 
@@ -87,6 +100,16 @@ folder: string; agent_id: string; frontend_id: string; title: string | null;
 branch?: string | null; 
 /**  Work in a new Worktree on its own `harness/...` branch. */
 worktree?: boolean; 
+/**
+ *  Create this branch from `branch` (default: the current one) and work on it; with
+ *  `worktree`, it becomes the Worktree's branch instead of a `harness/...` one.
+ */
+new_branch?: string | null; 
+/**
+ *  Start from this pull request (needs `gh`): always a new Worktree on the PR's head
+ *  branch. `branch`, `new_branch` and `worktree` are ignored.
+ */
+pr?: number | null; 
 /**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
 mcp_servers?: string[] } | { type: "ListMcpServers" } | 
 /**
@@ -100,6 +123,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "FrontendList"; session_id: string; dir?: string } | 
 /**  Branches of the repository containing `folder`. */
 { type: "ListBranches"; folder: string } | 
+/**
+ *  Open pull requests of the GitHub repository containing `folder` (via `gh`). Fails when
+ *  `gh` is missing, not signed in, or the folder has no GitHub remote.
+ */
+{ type: "ListPullRequests"; folder: string; filter?: PrFilter } | 
 /**  Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept. */
 { type: "ArchiveSession"; session_id: string } | 
 /**  Restores an archived Session's Worktree. */
@@ -153,7 +181,7 @@ option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermi
  */
 { type: "ReadImageFile"; path: string };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
+export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
 { type: "Attachment"; mime: string; data: string };
 
@@ -297,9 +325,27 @@ export type PermissionRule = {
 	decision: Decision,
 };
 
+export type PrChecks = "passing" | "failing" | "pending" | "none";
+
+export type PrFilter = "open" | "mine" | "review_requested";
+
 export type ProcessState = "starting" | "ready" | 
 /**  Stopped by the Harness (idle); restarted on the next prompt. */
 "stopped" | "exited" | "failed";
+
+export type PullRequest = {
+	number: number,
+	title: string,
+	author: string,
+	/**  Head branch name (on the fork when `fork`). */
+	head: string,
+	base: string,
+	draft: boolean,
+	fork: boolean,
+	checks: PrChecks,
+	/**  RFC 3339. */
+	updated_at: string,
+};
 
 export type RegistryAgent = {
 	id: string,

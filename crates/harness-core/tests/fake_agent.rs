@@ -52,7 +52,7 @@ async fn setup_with(flags: &[&str], idle: Duration) -> (Arc<Harness>, String, te
     let h = harness(&dir.path().join("data"), flags, idle);
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
         .await
         .unwrap()
     else { panic!() };
@@ -400,7 +400,7 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
 
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id: second } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
         .await
         .unwrap()
     else { panic!() };
@@ -413,7 +413,7 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
     let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id: third } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
         .await
         .unwrap()
     else { panic!() };
@@ -434,6 +434,8 @@ async fn agent_that_fails_to_start_reports_its_stderr() {
         title: None,
         branch: None,
         worktree: false,
+        new_branch: None,
+        pr: None,
         mcp_servers: vec![],
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
@@ -460,6 +462,8 @@ async fn app_events_announce_list_changes_and_attention() {
         title: None,
         branch: None,
         worktree: false,
+        new_branch: None,
+        pr: None,
         mcp_servers: vec![],
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };

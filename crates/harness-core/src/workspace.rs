@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{Branches, Commit, Diff, FileChange, GitStatus};
+use crate::api::{BranchInfo, Branches, Commit, Diff, FileChange, GitStatus};
 
 pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     git_env(dir, args, &[]).await
@@ -41,14 +41,41 @@ pub async fn current_branch(dir: &Path) -> anyhow::Result<Option<String>> {
 
 pub async fn list_branches(folder: &Path) -> anyhow::Result<Branches> {
     let Some(root) = repo_root(folder).await else {
-        return Ok(Branches { repo_root: None, current: None, branches: vec![] });
+        return Ok(Branches { repo_root: None, current: None, branches: vec![], remote: vec![] });
     };
-    let refs = git(&root, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]).await?;
-    Ok(Branches {
-        repo_root: Some(root.display().to_string()),
-        current: current_branch(&root).await?,
-        branches: refs.lines().map(str::to_owned).collect(),
-    })
+    let current = current_branch(&root).await?;
+    let fmt = "--format=%(refname:short)%00%(committerdate:unix)%00%(upstream:track,nobracket)%00%(worktreepath)";
+    let local: Vec<BranchInfo> = git(&root, &["for-each-ref", "--sort=-committerdate", fmt, "refs/heads"])
+        .await?
+        .lines()
+        .filter_map(|l| parse_branch(l, &root))
+        .collect();
+    let remote = git(&root, &["for-each-ref", "--sort=-committerdate", fmt, "refs/remotes"])
+        .await?
+        .lines()
+        .filter_map(|l| parse_branch(l, &root))
+        // `origin/HEAD` shows as just `origin`; skip it and remote branches that have a local one.
+        .filter(|b| b.name.split_once('/').is_some_and(|(_, n)| n != "HEAD" && !local.iter().any(|l| l.name == n)))
+        .collect();
+    Ok(Branches { repo_root: Some(root.display().to_string()), current, branches: local, remote })
+}
+
+/// One `for-each-ref` line: name, commit time, upstream track ("ahead 3, behind 1"), worktree path.
+fn parse_branch(line: &str, root: &Path) -> Option<BranchInfo> {
+    let mut f = line.split('\0');
+    let name = f.next().filter(|n| !n.is_empty())?.to_owned();
+    let time = f.next().and_then(|t| t.parse().ok()).unwrap_or(0);
+    let (mut ahead, mut behind) = (0, 0);
+    for part in f.next().unwrap_or("").split(", ") {
+        match part.split_once(' ') {
+            Some(("ahead", n)) => ahead = n.parse().unwrap_or(0),
+            Some(("behind", n)) => behind = n.parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    let wt = f.next().unwrap_or("");
+    let worktree = !wt.is_empty() && Path::new(wt) != root;
+    Some(BranchInfo { name, time, ahead, behind, worktree })
 }
 
 /// A Worktree the Harness created for one Session.
@@ -61,10 +88,12 @@ pub struct WorktreeMeta {
     pub base: String,
 }
 
-/// Creates `harness/<slug>-<short id>` from `base` (default: the current branch) at `path`.
+/// Creates `branch` (default `harness/<slug>-<short id>`) from `base` (default: the current
+/// branch) at `path`.
 pub async fn create_worktree(
     repo_root: &Path,
     base: Option<String>,
+    branch: Option<String>,
     path: &Path,
     slug: &str,
     short_id: &str,
@@ -73,13 +102,23 @@ pub async fn create_worktree(
         Some(b) => b,
         None => current_branch(repo_root).await?.ok_or_else(|| anyhow::anyhow!("HEAD is detached; pick a base branch"))?,
     };
-    let branch = format!("harness/{slug}-{short_id}");
+    let branch = branch.unwrap_or_else(|| format!("harness/{slug}-{short_id}"));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let p = path.display().to_string();
     git(repo_root, &["worktree", "add", "-b", &branch, &p, &base]).await?;
     Ok(WorktreeMeta { repo_root: repo_root.to_owned(), path: path.to_owned(), branch, base })
+}
+
+/// Creates `branch` from `base` (default: HEAD) and switches the folder to it; uncommitted
+/// changes come along.
+pub async fn create_branch(dir: &Path, branch: &str, base: Option<&str>) -> anyhow::Result<()> {
+    git(dir, &["check-ref-format", "--branch", branch]).await.map_err(|_| anyhow::anyhow!("{branch:?} is not a valid branch name"))?;
+    let mut args = vec!["switch", "-c", branch];
+    args.extend(base);
+    git(dir, &args).await?;
+    Ok(())
 }
 
 /// Switches a plain folder to `branch`; refuses when the working tree has changes.

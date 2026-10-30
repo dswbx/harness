@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(id) => id,
         Err(_) => {
             let CommandResult::SessionCreated { session_id } = h
-                .execute(Command::CreateSession { folder, agent_id, frontend_id: frontend_id.clone(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+                .execute(Command::CreateSession { folder, agent_id, frontend_id: frontend_id.clone(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
                 .await
                 .map_err(anyhow::Error::msg)?
             else { unreachable!() };

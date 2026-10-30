@@ -64,6 +64,14 @@ pub enum Command {
         /// Work in a new Worktree on its own `harness/...` branch.
         #[serde(default)]
         worktree: bool,
+        /// Create this branch from `branch` (default: the current one) and work on it; with
+        /// `worktree`, it becomes the Worktree's branch instead of a `harness/...` one.
+        #[serde(default)]
+        new_branch: Option<String>,
+        /// Start from this pull request (needs `gh`): always a new Worktree on the PR's head
+        /// branch. `branch`, `new_branch` and `worktree` are ignored.
+        #[serde(default)]
+        pr: Option<u32>,
         /// MCP Library servers (ids) to give the Agent, besides the Harness MCP.
         #[serde(default)]
         mcp_servers: Vec<String>,
@@ -98,6 +106,13 @@ pub enum Command {
     /// Branches of the repository containing `folder`.
     ListBranches {
         folder: String,
+    },
+    /// Open pull requests of the GitHub repository containing `folder` (via `gh`). Fails when
+    /// `gh` is missing, not signed in, or the folder has no GitHub remote.
+    ListPullRequests {
+        folder: String,
+        #[serde(default)]
+        filter: PrFilter,
     },
     /// Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept.
     ArchiveSession {
@@ -251,6 +266,7 @@ pub enum CommandResult {
     SessionCreated { session_id: SessionId },
     ThreadStarted { thread_id: ThreadId },
     Branches { branches: Branches },
+    PullRequests { prs: Vec<PullRequest> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
     Diff { diff: Diff },
@@ -403,7 +419,55 @@ pub struct Branches {
     /// `None` when HEAD is detached.
     pub current: Option<String>,
     /// Local branches, most recently committed first.
-    pub branches: Vec<String>,
+    pub branches: Vec<BranchInfo>,
+    /// Remote branches with no local branch of the same name (`origin/x`), most recent first.
+    pub remote: Vec<BranchInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct BranchInfo {
+    pub name: String,
+    /// Unix seconds of the last commit.
+    #[specta(type = specta_typescript::Number)]
+    pub time: i64,
+    /// Commits ahead of / behind its upstream (0 without one).
+    pub ahead: u32,
+    pub behind: u32,
+    /// Checked out in another Worktree (it can't be checked out again).
+    pub worktree: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PrFilter {
+    #[default]
+    Open,
+    Mine,
+    ReviewRequested,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PullRequest {
+    pub number: u32,
+    pub title: String,
+    pub author: String,
+    /// Head branch name (on the fork when `fork`).
+    pub head: String,
+    pub base: String,
+    pub draft: bool,
+    pub fork: bool,
+    pub checks: PrChecks,
+    /// RFC 3339.
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PrChecks {
+    Passing,
+    Failing,
+    Pending,
+    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

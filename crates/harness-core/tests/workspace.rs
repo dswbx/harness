@@ -46,6 +46,7 @@ fn repo() -> (tempfile::TempDir, PathBuf, PathBuf) {
     sh(&repo, &["init", "-q", "-b", "main"]);
     sh(&repo, &["config", "user.email", "t@example.com"]);
     sh(&repo, &["config", "user.name", "T"]);
+    sh(&repo, &["config", "commit.gpgsign", "false"]);
     std::fs::write(repo.join("README.md"), "hi\n").unwrap();
     sh(&repo, &["add", "."]);
     sh(&repo, &["commit", "-q", "-m", "init"]);
@@ -62,6 +63,8 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
             title: Some("Fix the parser!".into()),
             branch: branch.map(Into::into),
             worktree,
+            new_branch: None,
+            pr: None,
             mcp_servers: vec![],
         })
         .await?
@@ -107,7 +110,8 @@ async fn worktree_session_lifecycle() {
     let CommandResult::Branches { branches } =
         h.execute(Command::ListBranches { folder: repo.display().to_string() }).await.unwrap()
     else { panic!() };
-    assert_eq!((branches.current.as_deref(), branches.branches.clone()), (Some("main"), vec!["main".to_owned()]));
+    let names = branches.branches.iter().map(|b| b.name.as_str()).collect::<Vec<_>>();
+    assert_eq!((branches.current.as_deref(), names), (Some("main"), vec!["main"]));
 
     let sid = create(&h, &repo, None, true).await.unwrap();
     let s = summary(&h, &sid).await.unwrap();
@@ -256,4 +260,73 @@ async fn git_log_without_worktree() {
     sh(&repo, &["branch", "-q", "-u", "origin/main"]);
     commit("d");
     assert_eq!(log(h.clone(), sid.clone()).await, ["d"]);
+}
+
+async fn branches(h: &Harness, folder: &Path) -> harness_core::api::Branches {
+    let CommandResult::Branches { branches } =
+        h.execute(Command::ListBranches { folder: folder.display().to_string() }).await.unwrap()
+    else { panic!() };
+    branches
+}
+
+async fn create_new_branch(h: &Harness, folder: &Path, base: Option<&str>, new_branch: &str, worktree: bool) -> Result<String, String> {
+    match h
+        .execute(Command::CreateSession {
+            folder: folder.display().to_string(),
+            agent_id: "fake".into(),
+            frontend_id: "chat".into(),
+            title: None,
+            branch: base.map(Into::into),
+            worktree,
+            new_branch: Some(new_branch.into()),
+            pr: None,
+            mcp_servers: vec![],
+        })
+        .await?
+    {
+        CommandResult::SessionCreated { session_id } => Ok(session_id),
+        r => panic!("{r:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn branch_list_has_tracking_worktree_and_remote_only_branches() {
+    let (dir, repo, data) = repo();
+    let remote = dir.path().join("remote.git");
+    sh(dir.path(), &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    sh(&repo, &["push", "-q", "origin", "main:only-remote"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-q", "-m", "local"]);
+
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, true).await.unwrap();
+    let wt_branch = summary(&h, &sid).await.unwrap().workspace.worktree_branch.unwrap();
+
+    let b = branches(&h, &repo).await;
+    let main = b.branches.iter().find(|x| x.name == "main").unwrap();
+    assert_eq!((main.ahead, main.behind, main.worktree), (1, 0, false));
+    assert!(main.time > 0);
+    assert!(b.branches.iter().find(|x| x.name == wt_branch).unwrap().worktree, "checked out in the Session's Worktree");
+    assert_eq!(b.remote.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["origin/only-remote"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn new_branch_in_the_folder_or_as_the_worktree_branch() {
+    let (_dir, repo, data) = repo();
+    let h = harness(&data);
+
+    let sid = create_new_branch(&h, &repo, None, "feat/wt", true).await.unwrap();
+    let s = summary(&h, &sid).await.unwrap();
+    assert_eq!((s.workspace.worktree_branch.as_deref(), s.workspace.base_branch.as_deref()), (Some("feat/wt"), Some("main")));
+    assert_eq!(sh(Path::new(&s.folder), &["branch", "--show-current"]), "feat/wt");
+
+    create_new_branch(&h, &repo, Some("main"), "feat/here", false).await.unwrap();
+    assert_eq!(sh(&repo, &["branch", "--show-current"]), "feat/here");
+
+    let err = create_new_branch(&h, &repo, None, "bad name", false).await.unwrap_err();
+    assert!(err.contains("not a valid branch name"), "{err}");
 }

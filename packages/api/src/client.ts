@@ -1,5 +1,5 @@
 import type {
-  AgentInfo, AppEvent, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule,
+  AgentInfo, AppEvent, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
   SessionSummary, WorkspaceInfo,
 } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
@@ -146,9 +146,13 @@ export class HarnessClient {
     agentId: string;
     frontendId: string;
     title?: string | null;
-    /** Base branch (worktree) or branch to check out; null = current. */
+    /** Base branch (worktree, new branch) or branch to check out; null = current. */
     branch?: string | null;
     worktree?: boolean;
+    /** Create this branch from `branch` and work on it. */
+    newBranch?: string | null;
+    /** Start from this pull request: always a new Worktree on its head branch. */
+    pr?: number | null;
     /** MCP Library server ids to give the Agent. */
     mcpServers?: string[];
   }): Promise<string> {
@@ -160,6 +164,8 @@ export class HarnessClient {
       title: args.title || null,
       branch: args.branch ?? null,
       worktree: args.worktree ?? false,
+      new_branch: args.newBranch ?? null,
+      pr: args.pr ?? null,
       mcp_servers: args.mcpServers ?? [],
     });
     if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
@@ -169,6 +175,12 @@ export class HarnessClient {
     const r = await this.transport.execute({ type: "ListBranches", folder });
     if (r.type !== "Branches") throw new Error("unexpected result: " + r.type);
     return r.branches;
+  }
+  /** Open PRs of the folder's GitHub repository (needs `gh`); throws when unavailable. */
+  async listPullRequests(folder: string, filter: PrFilter = "open"): Promise<PullRequest[]> {
+    const r = await this.transport.execute({ type: "ListPullRequests", folder, filter });
+    if (r.type !== "PullRequests") throw new Error("unexpected result: " + r.type);
+    return r.prs;
   }
   async archiveSession(sessionId: string): Promise<void> {
     await this.transport.execute({ type: "ArchiveSession", session_id: sessionId });

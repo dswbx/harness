@@ -78,6 +78,8 @@ async fn create(h: &Harness, folder: &Path, mcp_servers: Vec<String>) -> String 
         title: None,
         branch: None,
         worktree: false,
+        new_branch: None,
+        pr: None,
         mcp_servers,
     };
     match h.execute(cmd).await {
@@ -232,6 +234,8 @@ async fn library_servers_are_given_to_the_agent_with_secrets() {
         title: None,
         branch: None,
         worktree: false,
+        new_branch: None,
+        pr: None,
         mcp_servers: vec!["nope".into()],
     };
     assert!(h.execute(bad).await.is_err());

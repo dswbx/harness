@@ -11,6 +11,7 @@ use crate::api::{
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared, WorkspaceMeta};
+use crate::workspace::WorktreeMeta;
 
 /// Default for `Shared::idle_timeout`.
 pub const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
@@ -151,7 +152,7 @@ impl Harness {
                 sessions.sort_by_key(|s| std::cmp::Reverse(s.created_ms));
                 CommandResult::Sessions { sessions }
             }
-            Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, mcp_servers } => {
+            Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
                 let agent = self.agent(&agent_id)?;
                 anyhow::ensure!(
                     self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id),
@@ -159,8 +160,15 @@ impl Harness {
                 );
                 let id = uuid::Uuid::now_v7().to_string();
                 let dir = self.data_dir.join("sessions").join(&id);
-                let title = title.unwrap_or_else(|| folder_name(&folder));
-                let (folder, workspace) = self.prepare_workspace(&id, &title, folder, branch, worktree).await?;
+                let start = match pr {
+                    Some(n) => Start::Pr(crate::github::view_pr(Path::new(&folder), n).await?),
+                    None => Start::Branch { base: branch, new_branch, worktree },
+                };
+                let title = title.unwrap_or_else(|| match &start {
+                    Start::Pr(p) => format!("#{} {}", p.number, p.title),
+                    Start::Branch { .. } => folder_name(&folder),
+                });
+                let (folder, workspace) = self.prepare_workspace(&id, &title, folder, start).await?;
                 for m in &mcp_servers {
                     self.shared.library.resolve(m)?;
                 }
@@ -225,6 +233,9 @@ impl Harness {
             }
             Command::ListBranches { folder } => {
                 CommandResult::Branches { branches: crate::workspace::list_branches(Path::new(&folder)).await? }
+            }
+            Command::ListPullRequests { folder, filter } => {
+                CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? }
             }
             Command::ArchiveSession { session_id } => {
                 self.session(&session_id)?.archive().await?;
@@ -307,35 +318,53 @@ impl Harness {
     }
 
     /// Resolves the Workspace Folder: a new Worktree, a checkout, or the folder as is.
-    async fn prepare_workspace(
-        &self,
-        id: &str,
-        title: &str,
-        folder: String,
-        branch: Option<String>,
-        worktree: bool,
-    ) -> anyhow::Result<(String, WorkspaceMeta)> {
+    async fn prepare_workspace(&self, id: &str, title: &str, folder: String, start: Start) -> anyhow::Result<(String, WorkspaceMeta)> {
         let folder = std::fs::canonicalize(&folder).map_err(|e| anyhow::anyhow!("{folder}: {e}"))?;
         let repo_root = crate::workspace::repo_root(&folder).await;
         let Some(root) = repo_root.clone() else {
-            anyhow::ensure!(!worktree && branch.is_none(), "{} is not in a git repository", folder.display());
+            anyhow::ensure!(
+                matches!(start, Start::Branch { base: None, new_branch: None, worktree: false }),
+                "{} is not in a git repository",
+                folder.display()
+            );
             return Ok((folder.display().to_string(), WorkspaceMeta::default()));
         };
-        if worktree {
-            let repo_name = root.file_name().map(|n| n.to_owned()).unwrap_or_else(|| "repo".into());
-            let dest = self.data_dir.join("worktrees").join(id).join(repo_name);
-            let short = &id[id.len() - 6..];
-            let wt = crate::workspace::create_worktree(&root, branch, &dest, &crate::workspace::slug(title), short).await?;
-            let rel = folder.strip_prefix(&root).unwrap_or(Path::new(""));
-            let work = dest.join(rel);
-            return Ok((work.display().to_string(), WorkspaceMeta { repo_root: Some(dest), worktree: Some(wt) }));
+        let repo_name = root.file_name().map(|n| n.to_owned()).unwrap_or_else(|| "repo".into());
+        let dest = self.data_dir.join("worktrees").join(id).join(repo_name);
+        let short = &id[id.len() - 6..];
+        let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
+        let in_worktree = |wt: WorktreeMeta| (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt) });
+        match start {
+            Start::Pr(pr) => {
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                crate::workspace::git(&root, &["worktree", "add", "--detach", &dest.display().to_string()]).await?;
+                let fallback = format!("harness/pr-{}-{short}", pr.number);
+                let branch = match crate::github::checkout_pr(&dest, pr.number, &fallback).await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        let _ = crate::workspace::git(&root, &["worktree", "remove", "--force", &dest.display().to_string()]).await;
+                        return Err(e);
+                    }
+                };
+                Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }))
+            }
+            Start::Branch { base, new_branch, worktree: true } => {
+                let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
+                Ok(in_worktree(wt))
+            }
+            Start::Branch { base, new_branch, worktree: false } => {
+                if let Some(nb) = new_branch {
+                    crate::workspace::create_branch(&root, &nb, base.as_deref()).await?;
+                } else if let Some(b) = base
+                    && crate::workspace::current_branch(&root).await?.as_deref() != Some(b.as_str())
+                {
+                    crate::workspace::checkout(&root, &b).await?;
+                }
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None }))
+            }
         }
-        if let Some(b) = branch
-            && crate::workspace::current_branch(&root).await?.as_deref() != Some(b.as_str())
-        {
-            crate::workspace::checkout(&root, &b).await?;
-        }
-        Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None }))
     }
 
     fn session(&self, id: &str) -> anyhow::Result<Arc<Session>> {
@@ -357,4 +386,10 @@ fn folder_name(folder: &str) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| folder.to_owned())
+}
+
+/// Where a new Session's work starts.
+enum Start {
+    Pr(crate::api::PullRequest),
+    Branch { base: Option<String>, new_branch: Option<String>, worktree: bool },
 }

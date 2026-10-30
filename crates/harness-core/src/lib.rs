@@ -5,6 +5,7 @@ pub mod agents;
 pub mod api;
 mod attachments;
 mod env;
+mod github;
 pub mod host;
 pub mod library;
 pub mod log;

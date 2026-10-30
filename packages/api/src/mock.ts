@@ -1,4 +1,4 @@
-import type { AppEvent, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
+import type { AppEvent, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, BranchInfo, PullRequest, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 
@@ -6,6 +6,19 @@ import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
  * Browser-only Transport for development without Tauri. Sessions start with `fixture`
  * replayed as their log; prompts get a canned streamed answer.
  */
+const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
+const MOCK_BRANCHES: BranchInfo[] = [
+  { name: "main", time: ago(0.1), ahead: 0, behind: 0, worktree: false },
+  { name: "feature/login", time: ago(4), ahead: 3, behind: 1, worktree: false },
+  { name: "feature/compact-header", time: ago(50), ahead: 0, behind: 0, worktree: true },
+];
+const MOCK_REMOTE: BranchInfo[] = [{ name: "origin/feature/completions", time: ago(170), ahead: 0, behind: 0, worktree: false }];
+const MOCK_PRS: PullRequest[] = [
+  { number: 142, title: "Prompt attachments: images and files", author: "you", head: "feat/attachments", base: "main", draft: false, fork: false, checks: "passing", updated_at: new Date(Date.now() - 2 * 3600e3).toISOString() },
+  { number: 139, title: "Side threads keep their own config", author: "you", head: "side-thread-config", base: "main", draft: true, fork: false, checks: "pending", updated_at: new Date(Date.now() - 26 * 3600e3).toISOString() },
+  { number: 137, title: "Fix diff panel scroll on large files", author: "contributor", head: "fix/diff-scroll", base: "main", draft: false, fork: true, checks: "failing", updated_at: new Date(Date.now() - 72 * 3600e3).toISOString() },
+];
+
 export class MockTransport implements Transport {
   private logs = new Map<string, Event[]>();
   private sessions: SessionSummary[] = [];
@@ -143,15 +156,18 @@ export class MockTransport implements Transport {
         const id = `mock-${++this.n + 1}`;
         const isRepo = !cmd.folder.includes("norepo");
         if (!isRepo && (cmd.worktree || cmd.branch)) throw new Error("not a git repository: worktree and branch are not available");
-        if (!cmd.worktree && cmd.branch && cmd.branch !== "main")
+        const pr = cmd.pr != null ? MOCK_PRS.find((p) => p.number === cmd.pr) : undefined;
+        if (cmd.pr != null && !pr) throw new Error(`no pull request #${cmd.pr}`);
+        if (!pr && !cmd.worktree && !cmd.new_branch && cmd.branch && cmd.branch !== "main")
           throw new Error("cannot check out branch: the folder has uncommitted changes");
-        const base = cmd.branch ?? "main";
+        const worktree = !!pr || cmd.worktree;
         const workspace: WorkspaceInfo = {
           repo_root: isRepo ? cmd.folder : null,
-          worktree_branch: cmd.worktree ? `harness/${id}` : null,
-          base_branch: cmd.worktree ? base : null,
+          worktree_branch: pr ? pr.head : worktree ? (cmd.new_branch ?? `harness/${id}`) : null,
+          base_branch: pr ? pr.base : worktree ? (cmd.branch ?? "main") : null,
         };
-        this.addSession(id, cmd.title ?? cmd.folder.split("/").pop() ?? id, cmd.frontend_id, false, cmd.folder, workspace);
+        const title = cmd.title ?? (pr ? `#${pr.number} ${pr.title}` : (cmd.folder.split("/").pop() ?? id));
+        this.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
         this.emitApp({ type: "SessionsChanged" });
         return { type: "SessionCreated", session_id: id };
       }
@@ -159,9 +175,14 @@ export class MockTransport implements Transport {
         return {
           type: "Branches",
           branches: cmd.folder.includes("norepo")
-            ? { repo_root: null, current: null, branches: [] }
-            : { repo_root: cmd.folder, current: "main", branches: ["main", "feature/login"] },
+            ? { repo_root: null, current: null, branches: [], remote: [] }
+            : { repo_root: cmd.folder, current: "main", branches: MOCK_BRANCHES, remote: MOCK_REMOTE },
         };
+      case "ListPullRequests": {
+        if (cmd.folder.includes("norepo") || cmd.folder.includes("nogh")) throw new Error("gh: no GitHub remote");
+        const prs = cmd.filter === "mine" ? MOCK_PRS.filter((p) => p.author === "you") : cmd.filter === "review_requested" ? MOCK_PRS.slice(1, 2) : MOCK_PRS;
+        return { type: "PullRequests", prs };
+      }
       case "ArchiveSession":
       case "UnarchiveSession": {
         const archived = cmd.type === "ArchiveSession";
