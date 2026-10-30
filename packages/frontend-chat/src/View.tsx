@@ -236,7 +236,7 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
       return (
         <div className="group flex flex-col items-end">
           {item.attachments.length > 0 && <UserAttachments api={api} items={item.attachments} />}
-          {item.text && <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2 text-secondary-foreground">{item.text}</Markdown>}
+          {item.text && <Markdown breaks className="max-w-[80%] rounded-2xl border bg-card px-3.5 py-2 text-card-foreground">{item.text}</Markdown>}
           <MessageFooter text={item.text} ts={item.ts} align="end">
             {item.context && <HarnessContext text={item.context} />}
           </MessageFooter>
