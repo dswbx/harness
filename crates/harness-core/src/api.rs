@@ -634,7 +634,9 @@ pub enum EventKind {
         parent_tool_call_id: Option<String>,
         /// This call hands the subagent's final report to its parent: the text.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        report: Option<String>,
+        report: Option<String>,        /// The Harness MCP tool this calls (`git_status`), when it is one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_tool: Option<String>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -655,7 +657,9 @@ pub enum EventKind {
         /// The call finished but its work goes on in the background (a background subagent,
         /// done when its report arrives).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        background: bool,
+        background: bool,        /// Set when the update changes the title to a Harness MCP tool.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_tool: Option<String>,
     },
     TaskListUpdated {
         entries: Vec<TaskEntry>,
@@ -683,6 +687,9 @@ pub enum EventKind {
         #[specta(type = specta_typescript::Unknown)]
         tool_call: Json,
         options: Vec<PermissionOption>,
+        /// The Harness MCP tool the request is for, when it is one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_tool: Option<String>,
     },
     PermissionResolved {
         request_id: String,

@@ -4,12 +4,12 @@ import { cn } from "@harness/ui";
 import { Markdown } from "./Markdown";
 import type { Item } from "./reducer";
 import { ToolCard } from "./ToolCard";
-import { subagentState, type Subagent } from "./subagents";
+import { subagentState, type Subagent } from "@harness/api";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
 /** A Task call that started a subagent: its tool calls (collapsed) and its report. */
-export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagent }) {
+export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagent<Tool> }) {
   const [open, setOpen] = useState(false);
   const state = subagentState(task, subagent);
   const prompt = (task.rawInput as { prompt?: unknown } | null)?.prompt;

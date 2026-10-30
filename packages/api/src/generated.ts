@@ -237,16 +237,22 @@ stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "A
 /**  The tool call that started the subagent which made this call. */
 parent_tool_call_id?: string | null; 
 /**  This call hands the subagent's final report to its parent: the text. */
-report?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+report?: string | null; 
+/**  The Harness MCP tool this calls (`git_status`), when it is one. */
+harness_tool?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
 raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null; 
 /**
  *  The call finished but its work goes on in the background (a background subagent,
  *  done when its report arrives).
  */
-background?: boolean } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+background?: boolean; 
+/**  Set when the update changes the title to a Harness MCP tool. */
+harness_tool?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
-{ type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[] } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
+{ type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
+/**  The Harness MCP tool the request is for, when it is one. */
+harness_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */
 rule_id?: string | null } | 
 /**  The user's "always" answer was remembered as a Session-scoped rule. */

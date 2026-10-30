@@ -17,7 +17,9 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - Views render only from the Session Log (ADR 0003). Frontend state is a pure reducer over Events.
 - After changing `api.rs`, run `bun run gen-ts` (or `cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts`).
 - Agents come from the ACP Registry (`agents.rs`) on the pinned toolchain (`toolchain.rs`: Node, uv; bump pins with their sha256), or are Custom Agents. No built-in Agents, no system npx.
-- Agents inherit a stripped env (`acp.rs` `stripped_env`: host `CLAUDE*` vars and `ANTHROPIC_BASE_URL`) plus the login-shell PATH.
+- Agents inherit a stripped env (`agent_quirks.rs` `stripped_env`: host `CLAUDE*` vars and `ANTHROPIC_BASE_URL`) plus the login-shell PATH.
+- Agent-specific ACP handling lives only in `crates/harness-core/src/agent_quirks.rs`, only for vital fixes, mapped to generic Event fields (ADR 0008 addendum). Never in Frontends.
+- Before adding logic that reads Events, ask: would a second Frontend have to copy this to show the same truth? Core Event field if it needs core/Agent knowledge, `@harness/api` helper if it is a pure derivation, else the Frontend (ADR 0012).
 
 ## Commands
 

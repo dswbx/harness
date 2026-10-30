@@ -74,6 +74,7 @@ mod tests {
             raw_input: Some(raw_input),
             parent_tool_call_id: None,
             report: None,
+            harness_tool: None,
         }
     }
 
@@ -103,6 +104,7 @@ mod tests {
             raw_output: None,
             parent_tool_call_id: None,
             background: false,
+            harness_tool: None,
         };
         adjust(&json!({}), &mut k);
         assert!(matches!(k, EventKind::ToolCallUpdate { background: true, .. }));

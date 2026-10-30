@@ -4,21 +4,21 @@ import type { SessionApi } from "@harness/api";
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@harness/ui";
 import { errorMessage } from "./errors";
 import { Markdown } from "./Markdown";
-import { harnessToolName, permissionTitle, planOf, type Item } from "./reducer";
+import { permissionTitle, planOf, type Item } from "./reducer";
 
 type Perm = Extract<Item, { type: "permission" }>;
 
 /** Inline permission prompt. A switch_mode request carrying a plan renders as a Plan card (Plan Mode approval). */
 export function PermissionCard({ item, api }: { item: Perm; api: SessionApi }) {
   const plan = planOf(item.toolCall);
-  const friendly = permissionTitle(item.toolCall);
+  const friendly = permissionTitle(item.toolCall, item.harnessTool);
   const title = friendly ?? item.toolCall.title ?? "Permission requested";
   const [error, setError] = useState<string | null>(null);
   const answer = (optionId: string | null) => {
     setError(null);
     api.resolvePermission(item.requestId, optionId).catch((e) => setError(errorMessage(e)));
   };
-  const harness = harnessToolName(item.toolCall.title);
+  const harness = item.harnessTool;
   return (
     <Card className={plan ? "border-primary/40" : "border-amber-500/40"}>
       <CardHeader>

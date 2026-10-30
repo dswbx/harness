@@ -3,7 +3,7 @@ import { CheckCircle2, ChevronRight, CircleDashed, Loader2, XCircle } from "luci
 import { splitPatch, unifiedPatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
 import { Badge, cn } from "@harness/ui";
-import { blockText, harnessToolName, type ContentBlock, type Item } from "./reducer";
+import { blockText, type ContentBlock, type Item } from "./reducer";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
@@ -43,7 +43,7 @@ const present = (v: unknown) => v != null && !(typeof v === "object" && Object.k
 export function ToolCard({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
   const hasBody = tool.content.length > 0 || present(tool.rawInput) || present(tool.rawOutput);
-  const harness = harnessToolName(tool.title);
+  const harness = tool.harnessTool;
   const diffs = tool.content.filter((b) => b.type === "diff");
   return (
     <div className="rounded-lg border bg-card text-card-foreground">

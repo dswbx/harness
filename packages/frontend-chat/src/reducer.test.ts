@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Event, EventKind } from "@harness/api";
-import { harnessToolName, initialState, permissionTitle, planOf, reduce, type ChatState } from "./reducer";
+import { initialState, permissionTitle, planOf, reduce, type ChatState } from "./reducer";
 import { diffLines } from "./diff";
 
 const fold = (events: Event[]): ChatState => events.reduce(reduce, initialState());
@@ -363,16 +363,15 @@ describe("Frontend Tools", () => {
 });
 
 describe("Harness tool helpers", () => {
-  it("detects Claude and Codex titles", () => {
-    expect(harnessToolName("mcp__harness__git_status")).toBe("git_status");
-    expect(harnessToolName("mcp.harness.git_status")).toBe("git_status");
-    expect(harnessToolName("mcp__other__x")).toBeNull();
-    expect(harnessToolName("Run ls")).toBeNull();
+  it("takes the Harness tool from the core", () => {
+    const s = fold([ev({ type: "ToolCall", tool_call_id: "h", title: "mcp__harness__git_status", kind: null, status: null, content: [], locations: [], raw_input: null, harness_tool: "git_status" })]);
+    expect(s.items[0]).toMatchObject({ type: "tool", harnessTool: "git_status" });
   });
   it("titles Harness permission requests", () => {
     expect(permissionTitle({ kind: "git_push" })).toBe("Push branch to origin?");
     expect(permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } })).toBe('Commit all changes: "fix"?');
     expect(permissionTitle({ kind: "frontend_tool", title: "Frontend tool: json_render" })).toBe("Let the Agent use Frontend tool json_render?");
+    expect(permissionTitle({ kind: "frontend_tool", title: "mcp__harness__json_render" }, "json_render")).toBe("Let the Agent use Frontend tool json_render?");
     expect(permissionTitle({ kind: "execute" })).toBeNull();
   });
 });

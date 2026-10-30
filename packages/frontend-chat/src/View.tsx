@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
+import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
@@ -14,9 +14,10 @@ import { PermissionCard } from "./Permission";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { ToolCard } from "./ToolCard";
 import { SubagentCard } from "./SubagentCard";
-import { groupSubagents, type Subagent } from "./subagents";
 import { splitDetails } from "./errors";
 import { initialState, reduce, reduceBatch, type Item, type ChatState } from "./reducer";
+
+type Tool = Extract<Item, { type: "tool" }>;
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
   if (entries.length === 0) return null;
@@ -191,7 +192,7 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
 }
 
 const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
-  item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent;
+  item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent<Tool>;
   /** The last row while a Turn runs: an agent message is still coming in. */
   streaming?: boolean;
 }) {
@@ -278,7 +279,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
   // Resolved permission cards render nothing; keep them out of the virtual list.
   // Subagent tool calls go inside their Task call's card.
   const { rows, subagents } = useMemo(
-    () => groupSubagents(state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved))),
+    () => groupSubagents(state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved)), (i) => (i.type === "tool" ? i : null)),
     [state.items],
   );
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);

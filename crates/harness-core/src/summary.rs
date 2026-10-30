@@ -93,6 +93,7 @@ mod tests {
                 raw_input: None,
                 parent_tool_call_id: None,
                 report: None,
+                harness_tool: None,
             }),
             ev("t", EventKind::AgentMessageChunk { text: "done.".into() }),
             ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![] }),

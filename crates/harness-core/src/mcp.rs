@@ -3,6 +3,13 @@
 //! naming its Session and Thread; requests with an `Origin` header are refused. Agents without
 //! HTTP MCP reach it through `run_shim` (stdio).
 
+/// The Harness MCP tool a tool call title names: `mcp__harness__git_status` (Claude) or
+/// `mcp.harness.git_status` (Codex) -> `git_status`. Agents name MCP tools their own way; this
+/// knows only how they name ours.
+pub fn harness_tool_name(title: &str) -> Option<&str> {
+    ["mcp__harness__", "mcp.harness."].iter().find_map(|p| title.strip_prefix(p)).filter(|n| !n.is_empty())
+}
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
@@ -279,4 +286,13 @@ pub async fn run_shim() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod harness_tool_tests {
+    #[test]
+    fn names_harness_tools_in_each_agent_format() {
+        use super::harness_tool_name as n;
+        assert_eq!([n("mcp__harness__git_status"), n("mcp.harness.git_commit"), n("mcp__other__x"), n("mcp__harness__")], [Some("git_status"), Some("git_commit"), None, None]);
+    }
 }

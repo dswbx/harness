@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Event, EventKind } from "@harness/api";
+import { groupSubagents, subagentState, type Event, type EventKind } from "@harness/api";
 import { initialState, reduce } from "./reducer";
-import { groupSubagents, subagentState } from "./subagents";
 
 let seq = 0;
 const ev = (kind: EventKind): Event => ({ v: 1, seq: seq++, session_id: "s", thread_id: "main", ts_ms: 0, kind });
@@ -9,7 +8,7 @@ const call = (id: string, title: string, parent?: string, report?: string): Even
   ev({ type: "ToolCall", tool_call_id: id, title, kind: null, status: null, content: [], locations: [], raw_input: {}, parent_tool_call_id: parent ?? null, report: report ?? null });
 const done = (id: string, background = false): Event =>
   ev({ type: "ToolCallUpdate", tool_call_id: id, title: null, kind: null, status: "completed", content: [], locations: null, raw_input: null, raw_output: null, background });
-const fold = (events: Event[]) => groupSubagents(events.reduce(reduce, initialState()).items);
+const fold = (events: Event[]) => groupSubagents(events.reduce(reduce, initialState()).items, (i) => (i.type === "tool" ? i : null));
 
 describe("subagents", () => {
   it("moves a background subagent's calls under its Task call; its report ends it", () => {

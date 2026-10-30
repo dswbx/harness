@@ -837,6 +837,7 @@ fn normalize(u: &Value) -> EventKind {
             raw_input: u.get("rawInput").cloned(),
             parent_tool_call_id: None,
             report: None,
+            harness_tool: s("title").as_deref().and_then(crate::mcp::harness_tool_name).map(str::to_owned),
         },
         Some("tool_call_update") => EventKind::ToolCallUpdate {
             tool_call_id: s("toolCallId").unwrap_or_default(),
@@ -849,6 +850,7 @@ fn normalize(u: &Value) -> EventKind {
             raw_output: u.get("rawOutput").cloned(),
             parent_tool_call_id: None,
             background: false,
+            harness_tool: s("title").as_deref().and_then(crate::mcp::harness_tool_name).map(str::to_owned),
         },
         Some("notice") => EventKind::AgentNotice {
             severity: s("severity").unwrap_or_else(|| "info".into()),
@@ -926,8 +928,8 @@ fn on_permission(
     let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
     // Calls to the Harness MCP pass the Policy inside the Harness MCP itself; don't ask twice.
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default();
-    let harness_tool = title.starts_with("mcp__harness__") || title.starts_with("mcp.harness.");
-    let verdict = if harness_tool {
+    let harness_tool = crate::mcp::harness_tool_name(title).map(str::to_owned);
+    let verdict = if harness_tool.is_some() {
         crate::permissions::Verdict { decision: Decision::Allow, rule_id: None }
     } else {
         session.policy().evaluate(&cx, &facts)
@@ -942,6 +944,7 @@ fn on_permission(
         request_id: request_id.clone(),
         tool_call,
         options: options.clone(),
+        harness_tool,
     });
     if let Some(option_id) = auto {
         let _ = session.log().append(thread.clone(), EventKind::PermissionResolved {
@@ -997,6 +1000,7 @@ pub async fn authorize(
         request_id: request_id.clone(),
         tool_call,
         options: options.clone(),
+        harness_tool: Some(tool.to_owned()),
     })?;
     if verdict.decision == Decision::Deny {
         session.log().append(Some(thread.clone()), EventKind::PermissionResolved {

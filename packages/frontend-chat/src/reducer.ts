@@ -37,12 +37,16 @@ export type Item =
       background: boolean;
       /** This call hands its subagent's final report to the parent: the text. */
       report: string | null;
+      /** The Harness MCP tool this calls (`git_status`), when it is one. */
+      harnessTool: string | null;
     }
   | {
       type: "permission";
       id: string;
       requestId: string;
       toolCall: ToolCallRef;
+      /** The Harness MCP tool the request is for, when it is one. */
+      harnessTool: string | null;
       options: PermissionOption[];
       resolved: boolean;
       /** Set when the core answered via the Permission Policy (no actionable card). */
@@ -244,6 +248,7 @@ function apply(c: Ctx, e: Event) {
         parent: k.parent_tool_call_id ?? (existing !== undefined ? (d.items[existing] as Tool).parent : null),
         background: existing !== undefined ? (d.items[existing] as Tool).background : false,
         report: k.report ?? null,
+        harnessTool: k.harness_tool ?? null,
       };
       if (existing !== undefined) own(c)[existing] = item;
       else {
@@ -258,7 +263,7 @@ function apply(c: Ctx, e: Event) {
       const prev = at !== undefined ? (d.items[at] as Tool) : null;
       const base: Tool = prev ?? {
         type: "tool", id: k.tool_call_id, title: "Tool call", kind: null, status: null,
-        content: [], locations: null, rawInput: null, rawOutput: null, parent: null, background: false, report: null,
+        content: [], locations: null, rawInput: null, rawOutput: null, parent: null, background: false, report: null, harnessTool: null,
       };
       const next: Tool = {
         ...base,
@@ -271,6 +276,7 @@ function apply(c: Ctx, e: Event) {
         rawOutput: k.raw_output ?? base.rawOutput,
         parent: k.parent_tool_call_id ?? base.parent,
         background: k.background || base.background,
+        harnessTool: k.harness_tool ?? base.harnessTool,
       };
       if (at === undefined) {
         idx.set(next.id, own(c).length);
@@ -358,7 +364,7 @@ function apply(c: Ctx, e: Event) {
     case "PermissionRequested": {
       const idx = permIndex(c);
       idx.set(k.request_id, own(c).length);
-      push(c, { type: "permission", id, requestId: k.request_id, toolCall: (k.tool_call ?? {}) as ToolCallRef, options: k.options, resolved: false });
+      push(c, { type: "permission", id, requestId: k.request_id, toolCall: (k.tool_call ?? {}) as ToolCallRef, harnessTool: k.harness_tool ?? null, options: k.options, resolved: false });
       return;
     }
     case "PermissionResolved": {
@@ -408,14 +414,8 @@ export function describeRule(r: PermissionRule): string {
   return `${r.decision} ${target}`;
 }
 
-/** `mcp__harness__git_status` (Claude) or `mcp.harness.git_status` (Codex) -> "git_status". */
-export function harnessToolName(title: string | undefined | null): string | null {
-  const m = /^mcp(?:__|\.)harness(?:__|\.)(.+)$/.exec(title ?? "");
-  return m ? m[1]! : null;
-}
-
 /** Readable title for Harness MCP permission requests; null for other requests. */
-export function permissionTitle(toolCall: ToolCallRef): string | null {
+export function permissionTitle(toolCall: ToolCallRef, harnessTool: string | null = null): string | null {
   const input = toolCall.rawInput ?? {};
   switch (toolCall.kind) {
     case "git_push":
@@ -426,7 +426,7 @@ export function permissionTitle(toolCall: ToolCallRef): string | null {
     }
     case "frontend_tool": {
       // The core titles these "Frontend tool: <name>".
-      const name = /^Frontend tool:\s*(.+)$/.exec(toolCall.title ?? "")?.[1] ?? harnessToolName(toolCall.title);
+      const name = /^Frontend tool:\s*(.+)$/.exec(toolCall.title ?? "")?.[1] ?? harnessTool;
       return name ? `Let the Agent use Frontend tool ${name}?` : "Let the Agent use a Frontend tool?";
     }
     default:
