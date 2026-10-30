@@ -629,10 +629,12 @@ pub enum EventKind {
         locations: Json,
         #[specta(type = Option<specta_typescript::Unknown>)]
         raw_input: Option<Json>,
-        /// The subagent's Task tool call when a subagent made this call (Claude:
-        /// `_meta.claudeCode.parentToolUseId`).
+        /// The tool call that started the subagent which made this call.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent_tool_call_id: Option<String>,
+        /// This call hands the subagent's final report to its parent: the text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        report: Option<String>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -650,6 +652,10 @@ pub enum EventKind {
         raw_output: Option<Json>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent_tool_call_id: Option<String>,
+        /// The call finished but its work goes on in the background (a background subagent,
+        /// done when its report arrives).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        background: bool,
     },
     TaskListUpdated {
         entries: Vec<TaskEntry>,

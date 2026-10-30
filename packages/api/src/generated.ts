@@ -234,13 +234,17 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
 { type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[] } | { type: "TurnEnded"; turn_id: string; 
 /**  ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
 stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null; 
-/**
- *  The subagent's Task tool call when a subagent made this call (Claude:
- *  `_meta.claudeCode.parentToolUseId`).
- */
-parent_tool_call_id?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+/**  The tool call that started the subagent which made this call. */
+parent_tool_call_id?: string | null; 
+/**  This call hands the subagent's final report to its parent: the text. */
+report?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
-raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null; 
+/**
+ *  The call finished but its work goes on in the background (a background subagent,
+ *  done when its report arrives).
+ */
+background?: boolean } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[] } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */

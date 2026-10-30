@@ -31,8 +31,12 @@ export type Item =
       locations: unknown;
       rawInput: unknown;
       rawOutput: unknown;
-      /** The subagent's Task tool call when a subagent made this call. */
+      /** The tool call that started the subagent which made this call. */
       parent: string | null;
+      /** Finished, but its work goes on in the background (a background subagent). */
+      background: boolean;
+      /** This call hands its subagent's final report to the parent: the text. */
+      report: string | null;
     }
   | {
       type: "permission";
@@ -238,6 +242,8 @@ function apply(c: Ctx, e: Event) {
         rawInput: k.raw_input,
         rawOutput: null,
         parent: k.parent_tool_call_id ?? (existing !== undefined ? (d.items[existing] as Tool).parent : null),
+        background: existing !== undefined ? (d.items[existing] as Tool).background : false,
+        report: k.report ?? null,
       };
       if (existing !== undefined) own(c)[existing] = item;
       else {
@@ -252,7 +258,7 @@ function apply(c: Ctx, e: Event) {
       const prev = at !== undefined ? (d.items[at] as Tool) : null;
       const base: Tool = prev ?? {
         type: "tool", id: k.tool_call_id, title: "Tool call", kind: null, status: null,
-        content: [], locations: null, rawInput: null, rawOutput: null, parent: null,
+        content: [], locations: null, rawInput: null, rawOutput: null, parent: null, background: false, report: null,
       };
       const next: Tool = {
         ...base,
@@ -264,6 +270,7 @@ function apply(c: Ctx, e: Event) {
         rawInput: k.raw_input ?? base.rawInput,
         rawOutput: k.raw_output ?? base.rawOutput,
         parent: k.parent_tool_call_id ?? base.parent,
+        background: k.background || base.background,
       };
       if (at === undefined) {
         idx.set(next.id, own(c).length);

@@ -18,17 +18,6 @@ use crate::api::{
 };
 use crate::session::Session;
 
-/// Host env that must not leak into Agents. When the Harness itself runs under another agent app
-/// (e.g. launched from a Claude desktop terminal), `CLAUDE*` vars make a spawned Claude Code use
-/// the host's auth and IPC instead of the user's own login.
-fn stripped_env() -> Vec<String> {
-    const KEEP: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"];
-    std::env::vars_os()
-        .filter_map(|(k, _)| k.into_string().ok())
-        .filter(|k| (k.starts_with("CLAUDE") && !KEEP.contains(&k.as_str())) || k == "ANTHROPIC_BASE_URL")
-        .collect()
-}
-
 /// Agent stderr lines kept for error reports.
 const STDERR_TAIL: usize = 30;
 
@@ -612,7 +601,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let spec = session.agents().get(&meta.agent.id).unwrap_or(meta.agent.clone());
     // `env -u` strips leaked host vars; PATH puts the managed toolchain before the login-shell PATH.
     let mut args: Vec<String> = Vec::new();
-    for var in stripped_env() {
+    for var in crate::agent_quirks::stripped_env() {
         args.push("-u".into());
         args.push(var);
     }
@@ -806,7 +795,8 @@ fn on_update(session: &Session, n: &acp::SessionNotification) {
     let thread = thread_of(session, &n.session_id);
     let update = serde_json::to_value(&n.update).unwrap_or(Value::Null);
     track_tool_call(session, &update);
-    let kind = normalize(update);
+    let mut kind = normalize(&update);
+    crate::agent_quirks::adjust(&update, &mut kind);
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
         session.set_agent_title(thread.as_ref(), t);
     }
@@ -831,10 +821,9 @@ fn merge(base: &mut Value, update: &Value) {
 }
 
 /// Maps an ACP `session/update` (as JSON, camelCase) to a Harness event.
-fn normalize(u: Value) -> EventKind {
+fn normalize(u: &Value) -> EventKind {
     let s = |k: &str| u.get(k).and_then(Value::as_str).map(str::to_owned);
     let text = || u.pointer("/content/text").and_then(Value::as_str).map(str::to_owned);
-    let parent = || u.pointer("/_meta/claudeCode/parentToolUseId").and_then(Value::as_str).map(str::to_owned);
     match s("sessionUpdate").as_deref() {
         Some("agent_message_chunk") if text().is_some() => EventKind::AgentMessageChunk { text: text().unwrap() },
         Some("agent_thought_chunk") if text().is_some() => EventKind::AgentThoughtChunk { text: text().unwrap() },
@@ -846,7 +835,8 @@ fn normalize(u: Value) -> EventKind {
             content: u.get("content").cloned().unwrap_or(Value::Array(vec![])),
             locations: u.get("locations").cloned().unwrap_or(Value::Array(vec![])),
             raw_input: u.get("rawInput").cloned(),
-            parent_tool_call_id: parent(),
+            parent_tool_call_id: None,
+            report: None,
         },
         Some("tool_call_update") => EventKind::ToolCallUpdate {
             tool_call_id: s("toolCallId").unwrap_or_default(),
@@ -857,7 +847,8 @@ fn normalize(u: Value) -> EventKind {
             locations: u.get("locations").cloned(),
             raw_input: u.get("rawInput").cloned(),
             raw_output: u.get("rawOutput").cloned(),
-            parent_tool_call_id: parent(),
+            parent_tool_call_id: None,
+            background: false,
         },
         Some("notice") => EventKind::AgentNotice {
             severity: s("severity").unwrap_or_else(|| "info".into()),
@@ -898,9 +889,9 @@ fn normalize(u: Value) -> EventKind {
                 })
                 .unwrap_or_default(),
         },
-        Some("usage_update") => EventKind::UsageUpdated { usage: u },
+        Some("usage_update") => EventKind::UsageUpdated { usage: u.clone() },
         Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title") },
-        _ => EventKind::AgentUpdate { update: u },
+        _ => EventKind::AgentUpdate { update: u.clone() },
     }
 }
 
@@ -1063,19 +1054,3 @@ fn enum_str<T: serde::Serialize>(v: &T) -> String {
 }
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn tool_calls_keep_the_subagent_parent() {
-        let call = normalize(json!({
-            "sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Search",
-            "_meta": { "claudeCode": { "parentToolUseId": "task1" } }
-        }));
-        assert!(matches!(call, EventKind::ToolCall { parent_tool_call_id: Some(p), .. } if p == "task1"));
-        let update = normalize(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed" }));
-        assert!(matches!(update, EventKind::ToolCallUpdate { parent_tool_call_id: None, .. }));
-    }
-}

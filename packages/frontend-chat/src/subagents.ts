@@ -2,8 +2,8 @@ import type { Item } from "./reducer";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
-/** The tool calls a subagent made. */
-export type Subagent = { calls: Tool[] };
+/** What a subagent did: its tool calls, and the report it handed back (when it has). */
+export type Subagent = { calls: Tool[]; report: string | null };
 
 /**
  * Moves tool calls made by a subagent under its Task call. Calls whose Task call is not in the
@@ -19,18 +19,18 @@ export function groupSubagents(items: Item[]): { rows: Item[]; subagents: Map<st
       continue;
     }
     let s = subagents.get(i.parent);
-    if (!s) subagents.set(i.parent, (s = { calls: [] }));
-    s.calls.push(i);
+    if (!s) subagents.set(i.parent, (s = { calls: [], report: null }));
+    if (i.report != null) s.report = i.report;
+    else s.calls.push(i);
   }
   return { rows, subagents };
 }
 
 export type SubagentState = "running" | "done" | "failed";
 
-const finished = (t: Tool) => t.status === "completed" || t.status === "failed";
-
-/** From the calls alone (no Agent-specific signals): running while any call is unfinished. */
+/** A background subagent is done when its report arrives; any other when its Task call ends. */
 export function subagentState(task: Tool, s: Subagent): SubagentState {
   if (task.status === "failed") return "failed";
-  return s.calls.every(finished) ? "done" : "running";
+  if (s.report != null) return "done";
+  return task.status === "completed" && !task.background ? "done" : "running";
 }
