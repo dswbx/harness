@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { CheckCircle2, ChevronRight, CircleDashed, Loader2, XCircle } from "lucide-react";
 import { splitPatch, unifiedPatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
@@ -24,7 +24,7 @@ export function Diff({ path, oldText, newText }: { path: string; oldText?: strin
   );
 }
 
-function Block({ b }: { b: ContentBlock }) {
+export function Block({ b }: { b: ContentBlock }) {
   if (b.type === "diff") {
     return <Diff path={String(b.path)} oldText={b.oldText as string | null} newText={String(b.newText ?? "")} />;
   }
@@ -36,11 +36,11 @@ function Block({ b }: { b: ContentBlock }) {
   return <pre className="overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(b, null, 2)}</pre>;
 }
 
-const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
+export const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
 /** null, `{}` and `[]` carry nothing worth showing. */
-const present = (v: unknown) => v != null && !(typeof v === "object" && Object.keys(v).length === 0);
+export const present = (v: unknown) => v != null && !(typeof v === "object" && Object.keys(v).length === 0);
 
-export function ToolCard({ tool }: { tool: Tool }) {
+export const ToolCard = memo(function ToolCard({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
   const hasBody = tool.content.length > 0 || present(tool.rawInput) || present(tool.rawOutput);
   const harness = tool.harnessTool;
@@ -92,4 +92,4 @@ export function ToolCard({ tool }: { tool: Tool }) {
       )}
     </div>
   );
-}
+});

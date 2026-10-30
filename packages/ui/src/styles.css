@@ -125,3 +125,20 @@
 @utility text-ui { font-size: var(--chat-font-size, 14px); }
 @utility text-ui-sm { font-size: calc(var(--chat-font-size, 14px) * 0.857); }
 @utility text-ui-xl { font-size: calc(var(--chat-font-size, 14px) * 1.714); line-height: 1.2; }
+
+/* Trace: running step title shimmers; collapsible height animates (Radix sets the height var). */
+@utility shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 40%, var(--foreground) 50%, var(--muted-foreground) 60%) 0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s linear infinite;
+  @media (prefers-reduced-motion: reduce) { animation: none; color: inherit; background: none; }
+}
+@theme {
+  --animate-trace-down: trace-down 200ms ease-out;
+  --animate-trace-up: trace-up 200ms ease-out;
+  @keyframes trace-down { from { height: 0; } to { height: var(--radix-collapsible-content-height); } }
+  @keyframes trace-up { from { height: var(--radix-collapsible-content-height); } to { height: 0; } }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+}

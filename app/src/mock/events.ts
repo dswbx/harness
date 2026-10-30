@@ -19,10 +19,13 @@ export function mockEvents(): Event[] {
     ] }),
     ev({ type: "ToolCall", tool_call_id: "mock-edit", title: "Editing files", kind: "edit", status: "completed",
       content: [{ type: "diff", path: "hello.txt", oldText: "hi\nthere", newText: "hello\nthere\nworld" }], locations: [], raw_input: { path: "hello.txt" } }),
+    ev({ type: "ToolCall", tool_call_id: "mock-read", title: "Read src/index.ts", kind: "read", status: "completed", content: [{ type: "content", content: { type: "text", text: "export const x = 1;" } }], locations: [], raw_input: { path: "src/index.ts" } }),
+    ev({ type: "ToolCall", tool_call_id: "mock-search", title: "grep -rn TODO src", kind: "search", status: "failed", content: [], locations: [], raw_input: { pattern: "TODO" } }),
     ev({ type: "ToolCall", tool_call_id: "mock-harness", title: "mcp__harness__git_status", kind: "other", status: "completed", content: [], locations: [], raw_input: {} }),
     ev({ type: "FrontendToolOutput", tool: "render_ui", call_id: "mock-card", path: "tools/render_ui/mock-card.json",
       input: mockRenderUi([0, 1, 2].map((i) => `data:image/svg+xml;base64,${btoa(mockImage(`Screenshot ${i + 1}`, 200 + i * 60))}`)) }),
     ev({ type: "AgentMessageChunk", text: "Renamed. Here is a **plan** next." }),
+    ev({ type: "ToolCall", tool_call_id: "mock-run", title: "bun test", kind: "execute", status: "in_progress", content: [{ type: "content", content: { type: "text", text: "✓ reducer.test.ts (42 tests)" } }], locations: [], raw_input: { command: "bun test" } }),
     ev({ type: "PermissionRequested", request_id: "mock-push",
       tool_call: { toolCallId: "push:1", kind: "git_push", title: "mcp__harness__git_push", rawInput: {} },
       options: [

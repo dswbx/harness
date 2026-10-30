@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
+import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, ListTree, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
-import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
+import { Badge, Button, Dialog, DialogContent, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
@@ -15,8 +15,7 @@ import { FrontendToolRow } from "./FrontendToolCard";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { splitRenderUi, type Slot } from "./slots";
 import type { RawNode } from "./tools";
-import { ToolCard } from "./ToolCard";
-import { SubagentCard } from "./SubagentCard";
+import { groupTools, setToolDisplay, toolDisplays, useToolDisplay, type ToolGroup } from "./toolDisplay";
 import { splitDetails } from "./errors";
 import { initialState, reduce, reduceBatch, type Item, type ChatState } from "./reducer";
 
@@ -216,9 +215,9 @@ function HarnessContext({ text }: { text: string }) {
   );
 }
 
-const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagent, streaming }: {
-  item: Item; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
-  onOpenDiff: (s: DiffScope) => void; subagent?: Subagent<Tool>;
+const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, streaming }: {
+  item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
+  onOpenDiff: (s: DiffScope) => void; subagents: Map<string, Subagent<Tool>>;
   /** The last row while a Turn runs: an agent message is still coming in. */
   streaming?: boolean;
 }) {
@@ -258,8 +257,10 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagent, stre
       );
     case "frontend_tool":
       return <FrontendToolRow item={item} env={env} view={view ?? undefined} />;
+    case "tools":
+      return <ToolGroupRow calls={item.calls} subagents={subagents} />;
     case "tool":
-      return subagent ? <SubagentCard task={item} subagent={subagent} /> : <ToolCard tool={item} />;
+      return <ToolGroupRow calls={[item]} subagents={subagents} />;
     case "permission":
       if (item.auto) {
         return (
@@ -281,6 +282,31 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagent, stre
       return <AgentNotice item={item} />;
   }
 });
+
+function ToolGroupRow(props: { calls: Tool[]; subagents: Map<string, Subagent<Tool>> }) {
+  const { Group } = useToolDisplay();
+  return <Group {...props} />;
+}
+
+function ToolDisplayMenu() {
+  const current = useToolDisplay();
+  return (
+    <DropdownMenu>
+      <Tooltip content="Tool call display" side="bottom">
+        <DropdownMenuTrigger asChild>
+          <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-foreground" aria-label="Tool call display">
+            <ListTree />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={current.id} onValueChange={setToolDisplay}>
+          {toolDisplays.map((d) => <DropdownMenuRadioItem key={d.id} value={d.id}>{d.label}</DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 const slotKey = (x: Slot) => JSON.stringify(x.root);
 
@@ -387,13 +413,13 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
   // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
   // calls that moved to a slot or were replaced by a later call with their id.
   // Subagent tool calls go inside their Task call's card.
-  const { rows, subagents } = useMemo(
-    () => groupSubagents(
+  const { rows, subagents } = useMemo(() => {
+    const g = groupSubagents(
       state.items.filter((i) => !(i.type === "permission" && !i.auto && i.resolved) && ui.inline.get(i.id) !== null),
       (i) => (i.type === "tool" ? i : null),
-    ),
-    [state.items, ui],
-  );
+    );
+    return { rows: groupTools(g.rows), subagents: g.subagents };
+  }, [state.items, ui]);
   const rightSlot = ui.slots.right.find((x) => x.id === panel) ?? null;
   // A right item the Agent adds or changes while the Session is open shows at once (not replayed ones).
   const [openedAt] = useState(() => Date.now());
@@ -419,6 +445,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
       ))}
+      <ToolDisplayMenu />
       {git && (
         <Tooltip content="Changes" side="bottom">
           <Button
@@ -459,7 +486,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         gap={24}
         innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
-        renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagent={subagents.get(rows[i]!.id)} streaming={running && i === rows.length - 1} />}
+        renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagents={subagents} streaming={running && i === rows.length - 1} />}
         footer={<Working since={state.turnStartedAt} />}
       />
       <Slots slots={ui.slots.bottom} env={env} className="pt-1" />
