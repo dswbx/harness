@@ -81,6 +81,7 @@ mod tests {
                     path: "/s/attachments/x-shot.png".into(),
                     kind: AttachmentKind::Image,
                 }],
+                context: None,
             }),
             ev("t", EventKind::AgentMessageChunk { text: "Sure, ".into() }),
             ev("t", EventKind::ToolCall {
@@ -96,7 +97,7 @@ mod tests {
                 harness_tool: None,
             }),
             ev("t", EventKind::AgentMessageChunk { text: "done.".into() }),
-            ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![] }),
+            ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![], context: None }),
         ];
         let s = summarize(&events, &"t".to_owned());
         assert!(s.ends_with("User: add a README\n[image: shot.png]\nAgent: Sure,\n(tool: Write README.md)\nAgent: done.\n"), "{s}");

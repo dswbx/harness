@@ -25,6 +25,8 @@ pub struct Shared {
     /// `HARNESS_MCP_URL` and `HARNESS_MCP_TOKEN`).
     pub mcp_shim: Option<(String, Vec<String>)>,
     pub app_events: AppEvents,
+    /// Optional overrides of the `<harness_context>` texts (`harness.md`, `<frontend id>.md`).
+    pub prompts_dir: PathBuf,
 }
 
 type AppSink = Box<dyn Fn(&crate::api::AppEvent) -> bool + Send + Sync>;
@@ -74,6 +76,9 @@ pub struct SessionMeta {
     /// Context Seeds waiting to be sent with a Thread's next prompt.
     #[serde(default)]
     pub seeds: HashMap<ThreadId, String>,
+    /// Threads whose next prompt starts with `<harness_context>` (a new Agent Session).
+    #[serde(default)]
+    pub context_pending: HashSet<ThreadId>,
     #[serde(default)]
     pub workspace: WorkspaceMeta,
     #[serde(default)]
@@ -127,6 +132,7 @@ impl Session {
             agent_sessions: Default::default(),
             read_only_threads: Default::default(),
             seeds: Default::default(),
+            context_pending: Default::default(),
             workspace,
             archived: false,
             mcp_servers,
@@ -194,6 +200,12 @@ impl Session {
 
     pub fn shared(&self) -> &Shared {
         &self.shared
+    }
+
+    /// The Session's Frontend.
+    pub fn frontend(&self) -> Option<crate::api::FrontendManifest> {
+        let id = self.meta.lock().unwrap().frontend_id.clone();
+        self.shared.frontends.read().unwrap().iter().find(|f| f.id == id).cloned()
     }
 
     /// Frontend Tools of the Session's Frontend.

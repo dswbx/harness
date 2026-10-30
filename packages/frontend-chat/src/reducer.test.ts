@@ -55,6 +55,10 @@ describe("golden: codex-basic (recorded with Codex)", () => {
 });
 
 describe("turns", () => {
+  it("keeps the Harness context sent with a prompt (null without one)", () => {
+    const s = fold([started(), ev({ type: "TurnStarted", turn_id: "t1", text: "hi", context: "<harness_context>\nx\n</harness_context>" }), ev({ type: "TurnStarted", turn_id: "t2", text: "again" })]);
+    expect(s.items.map((i) => i.type === "user" && i.context)).toEqual(["<harness_context>\nx\n</harness_context>", null]);
+  });
   it("tracks a running turn and shows non-end_turn stop reasons", () => {
     let s = fold([started(), ev({ type: "TurnStarted", turn_id: "t1", text: "hi" })]);
     expect(s.turnId).toBe("t1");

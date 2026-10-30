@@ -8,6 +8,7 @@ mod attachments;
 mod env;
 mod frontend_files;
 mod github;
+mod harness_context;
 pub mod host;
 pub mod library;
 pub mod log;

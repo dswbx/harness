@@ -288,16 +288,21 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
     let attachments = crate::attachments::resolve(session.dir(), &folder, &meta.agent.name, caps, attachments)?;
     crate::attachments::store(&attachments)?;
     let seed = session.update_meta(|m| m.seeds.remove(&thread))?;
+    let context = session.update_meta(|m| m.context_pending.remove(&thread))?.then(|| crate::harness_context::build(&session));
     let turn_id = uuid::Uuid::now_v7().to_string();
     session.log().append(Some(thread.clone()), EventKind::TurnStarted {
         turn_id: turn_id.clone(),
         text: text.clone(),
         attachments: attachments.iter().map(|a| a.attachment.clone()).collect(),
+        context: context.clone(),
     })?;
     let slot = session.agent_slot();
     slot.update(&session, |s| *s.turns.entry(thread.clone()).or_default() += 1);
     tokio::spawn(async move {
         let mut blocks = Vec::new();
+        if let Some(context) = context {
+            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(context)));
+        }
         if let Some(seed) = seed {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!("<context>\n{seed}\n</context>"))));
         }
@@ -580,7 +585,10 @@ async fn new_agent_session(
     }
     let id = r.session_id;
     conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
-    session.update_meta(|m| m.agent_sessions.insert(thread.clone(), id.to_string()))?;
+    session.update_meta(|m| {
+        m.agent_sessions.insert(thread.clone(), id.to_string());
+        m.context_pending.insert(thread.clone());
+    })?;
     session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
         acp_session_id: id.to_string(),
         boundary,

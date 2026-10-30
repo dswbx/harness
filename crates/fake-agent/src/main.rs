@@ -8,6 +8,8 @@
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
 //! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
+//! - a `<harness_context>` block is not part of the prompt text; "show-context" answers
+//!   "context: <the block>" (or "context: none")
 //! - a prompt with non-text blocks first answers "blocks: <kinds>" (e.g. `text,image,resource_link`)
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
@@ -190,16 +192,24 @@ async fn main() -> agent_client_protocol::Result<()> {
                 cx.spawn(async move {
                     let cx = cx2;
                     let sid = req.session_id.clone();
+                    let harness_context = req.prompt.iter().find_map(|b| match b {
+                        ContentBlock::Text(t) if t.text.starts_with("<harness_context>") => Some(t.text.clone()),
+                        _ => None,
+                    });
                     let prompt = req
                         .prompt
                         .iter()
-                        .filter_map(|b| match b { ContentBlock::Text(t) => Some(t.text.clone()), _ => None })
+                        .filter_map(|b| match b {
+                            ContentBlock::Text(t) if !t.text.starts_with("<harness_context>") => Some(t.text.clone()),
+                            _ => None,
+                        })
                         .collect::<Vec<_>>()
                         .join(" ");
                     if req.prompt.iter().any(|b| !matches!(b, ContentBlock::Text(_))) {
                         let kinds: Vec<&str> = req
                             .prompt
                             .iter()
+                            .filter(|b| !matches!(b, ContentBlock::Text(t) if t.text.starts_with("<harness_context>")))
                             .map(|b| match b {
                                 ContentBlock::Text(_) => "text",
                                 ContentBlock::Image(_) => "image",
@@ -212,6 +222,9 @@ async fn main() -> agent_client_protocol::Result<()> {
                     }
                     if prompt.contains("<context>") {
                         update(&cx, &sid, text("seeded"))?;
+                    }
+                    if prompt.contains("show-context") {
+                        update(&cx, &sid, text(&format!("context: {}", harness_context.as_deref().unwrap_or("none"))))?;
                     }
                     if prompt.starts_with("mcp-servers") {
                         let servers = MCP.lock().unwrap().iter().rev().find(|(s, _)| *s == sid.to_string()).map(|(_, m)| m.clone()).unwrap_or_default();

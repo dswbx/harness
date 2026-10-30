@@ -39,6 +39,7 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
         id: "chat".into(),
         name: "Chat".into(),
         version: "0".into(),
+        instructions: Some("Use json_render for results.".into()),
         frontend_tools: vec![FrontendToolDecl {
             name: "json_render".into(),
             description: "Render a card".into(),
@@ -205,6 +206,42 @@ async fn frontend_tool_is_validated_and_stored() {
     h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "state/view.json".into(), content: "{}".into() }).await.unwrap();
     assert!(h.execute(Command::FrontendRead { session_id: sid.clone(), path: "../session.json".into() }).await.is_err());
     assert!(h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "/tmp/x".into(), content: "".into() }).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn harness_context_starts_each_agent_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let data = dir.path().join("data");
+    let h = harness(&data, &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // The fake Agent always adds "Working on it. Done." after its answer.
+    let shown = |a: String| a.split_once("Working on it.").map(|(c, _)| c.to_owned()).unwrap_or(a);
+    let first = shown(ask(&h, &sid, "show-context", None).await);
+    assert!(first.starts_with("context: <harness_context>\nYou run inside Harness"), "{first}");
+    assert!(first.contains("## Frontend: Chat\n\nUse json_render for results."), "{first}");
+    assert!(first.contains(&format!("- Repository: {}", repo.display())) && first.contains("- Worktree: no"), "{first}");
+    assert!(first.ends_with("</harness_context>"), "{first}");
+    let logged: Vec<Option<String>> = events(&h, &sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::TurnStarted { context, .. } => Some(context),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(logged[0].as_deref(), first.strip_prefix("context: "), "the log records what was sent");
+
+    assert_eq!(shown(ask(&h, &sid, "show-context", None).await), "context: none", "only the first prompt");
+
+    // A new Agent Session (continue with a summary) gets it again; the data dir file overrides.
+    std::fs::create_dir_all(data.join("prompts")).unwrap();
+    std::fs::write(data.join("prompts/harness.md"), "Custom core text.").unwrap();
+    std::fs::write(data.join("prompts/chat.md"), "Custom chat text.").unwrap();
+    h.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None }).await.unwrap();
+    let again = shown(ask(&h, &sid, "show-context", None).await);
+    assert!(again.starts_with("seededcontext: <harness_context>\nCustom core text.\n\n## Frontend: Chat\n\nCustom chat text."), "{again}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

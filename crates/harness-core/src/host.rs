@@ -66,6 +66,7 @@ impl Harness {
             library: crate::library::Library::open(data_dir.join("mcp.json"), options.secrets)?,
             mcp_shim: options.mcp_shim,
             app_events: Default::default(),
+            prompts_dir: data_dir.join("prompts"),
         });
         let mut sessions = HashMap::new();
         for entry in std::fs::read_dir(&sessions_dir)? {

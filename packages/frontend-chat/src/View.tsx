@@ -191,6 +191,28 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
   );
 }
 
+/** What the core sent the Agent before this message (`<harness_context>`), on request. */
+function HarnessContext({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const body = text.replace(/^<harness_context>\n?/, "").replace(/\n?<\/harness_context>$/, "");
+  return (
+    <>
+      <Tooltip content="Context the Harness sent the Agent with this message" delay={100}>
+        <button type="button" onClick={() => setOpen(true)} className="flex h-6 items-center gap-1 rounded px-1.5 hover:bg-accent hover:text-foreground">
+          <Info className="size-3.5" /> Harness context
+        </button>
+      </Tooltip>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>Harness context</DialogTitle>
+          <p className="text-xs text-muted-foreground">Sent to the Agent before this message, inside a {"<harness_context>"} block.</p>
+          <Markdown className="max-h-[60vh] overflow-y-auto rounded-md bg-muted p-3 text-sm">{body}</Markdown>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
   item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void; subagent?: Subagent<Tool>;
   /** The last row while a Turn runs: an agent message is still coming in. */
@@ -209,7 +231,9 @@ const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
         <div className="group flex flex-col items-end">
           {item.attachments.length > 0 && <UserAttachments api={api} items={item.attachments} />}
           {item.text && <Markdown breaks className="max-w-[80%] rounded-2xl bg-secondary px-3.5 py-2">{item.text}</Markdown>}
-          <MessageFooter text={item.text} ts={item.ts} align="end" />
+          <MessageFooter text={item.text} ts={item.ts} align="end">
+            {item.context && <HarnessContext text={item.context} />}
+          </MessageFooter>
         </div>
       );
     case "agent":

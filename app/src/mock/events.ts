@@ -10,7 +10,8 @@ export function mockEvents(): Event[] {
   const ev = (kind: EventKind): Event => ({ v: 1, seq: seq++, session_id: "mock", thread_id: thread, ts_ms: t0 + seq * 100, kind });
   return [
     ...recorded,
-    ev({ type: "TurnStarted", turn_id: "mock-t2", text: "Now rename it and plan a refactor (synthetic)." }),
+    ev({ type: "TurnStarted", turn_id: "mock-t2", text: "Now rename it and plan a refactor (synthetic).",
+      context: "<harness_context>\nYou run inside Harness, a desktop app that hosts coding agents. (mock)\n\n## Frontend: Chat\n\nUse `render_ui` for structured results.\n\n## This Session\n- Workspace folder: /mock/project\n- Worktree: no\n</harness_context>" }),
     ev({ type: "TaskListUpdated", entries: [
       { content: "Rename hello.txt", priority: "medium", status: "completed" },
       { content: "Draft refactor plan", priority: "medium", status: "in_progress" },

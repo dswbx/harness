@@ -17,7 +17,8 @@ export type ConfigOption = {
 
 export type Item =
   /** `ts`: ms epoch of the message's first Event. */
-  | { type: "user"; id: string; text: string; ts: number; attachments: Attachment[] }
+  /** `context`: the `<harness_context>` the core sent before this text (first prompt of an Agent Session). */
+  | { type: "user"; id: string; text: string; ts: number; attachments: Attachment[]; context: string | null }
   /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
   | { type: "agent"; id: string; text: string; ts: number; durationMs?: number }
   | { type: "thought"; id: string; text: string; ts: number }
@@ -216,7 +217,7 @@ function apply(c: Ctx, e: Event) {
       d.turnId = k.turn_id;
       d.turnStartedAt = e.ts_ms;
       d.lastTurnErrored = false;
-      push(c, { type: "user", id, text: k.text, ts: e.ts_ms, attachments: k.attachments ?? [] });
+      push(c, { type: "user", id, text: k.text, ts: e.ts_ms, attachments: k.attachments ?? [], context: k.context ?? null });
       return;
     case "AgentCapabilities":
       d.promptCaps = { image: k.image, embeddedContext: k.embedded_context };

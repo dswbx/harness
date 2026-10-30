@@ -233,7 +233,9 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
 /**  A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary. */
 { type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
 /**  What the Agent accepts in prompts, from its `initialize` answer. */
-{ type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[] } | { type: "TurnEnded"; turn_id: string; 
+{ type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[]; 
+/**  The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session. */
+context?: string | null } | { type: "TurnEnded"; turn_id: string; 
 /**  ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
 stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null; 
 /**  The tool call that started the subagent which made this call. */
@@ -291,6 +293,8 @@ export type FrontendManifest = {
 	id: string,
 	name: string,
 	version: string,
+	/**  Guidance for the Agent about this Frontend (its `instructions.md`), sent in `<harness_context>`. */
+	instructions?: string | null,
 	frontend_tools?: FrontendToolDecl[],
 };
 

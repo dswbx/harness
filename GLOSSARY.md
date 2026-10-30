@@ -60,6 +60,10 @@ _Avoid_: main chat, root thread
 A secondary Thread in a Session (e.g. sidechat, btw window, comment thread) that never feeds the Main Thread's Agent context unless the user explicitly says so.
 _Avoid_: subthread, branch, sidechat (as the general term)
 
+**Harness Context**:
+What the Harness tells the Agent about itself, its Frontend and the Session, sent as a `<harness_context>` block before the first prompt of each Agent Session (ADR 0014).
+_Avoid_: system prompt
+
 **Context Seed**:
 What a Thread starts with from elsewhere in the Session: nothing, a summary of the Main Thread, or a selected excerpt.
 _Avoid_: initial context, prefill

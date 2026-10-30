@@ -376,6 +376,9 @@ pub struct FrontendManifest {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// Guidance for the Agent about this Frontend (its `instructions.md`), sent in `<harness_context>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
     #[serde(default)]
     pub frontend_tools: Vec<FrontendToolDecl>,
 }
@@ -611,6 +614,9 @@ pub enum EventKind {
         text: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<Attachment>,
+        /// The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
     },
     TurnEnded {
         turn_id: TurnId,

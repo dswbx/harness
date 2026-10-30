@@ -19,7 +19,7 @@ fn fake_agent_bin() -> PathBuf {
 fn harness(data: &Path, registry: &Path, fixed: Vec<AgentInfo>) -> Arc<Harness> {
     let options = Options { registry_url: format!("file://{}", registry.display()), ..Default::default() };
     let h = Harness::with_options(data.to_owned(), fixed, options).unwrap();
-    h.register_frontend(FrontendManifest { id: "chat".into(), name: "C".into(), version: "0".into(), frontend_tools: vec![] });
+    h.register_frontend(FrontendManifest { id: "chat".into(), name: "C".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     h
 }
 

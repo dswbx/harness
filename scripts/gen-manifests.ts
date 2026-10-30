@@ -1,4 +1,5 @@
-// Writes each Frontend's manifest.json from its TS tool definitions (jsonv-ts schemas -> JSON Schema).
+// Writes each Frontend's manifest.json from its TS tool definitions (jsonv-ts schemas -> JSON Schema)
+// and its instructions.md (sent to the Agent in <harness_context>).
 // `--check` fails when a committed manifest.json is out of date.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -14,9 +15,12 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
   const tools: { name: string; description: string; schema: unknown }[] = existsSync(toolsPath)
     ? (await import(toolsPath)).frontendTools
     : [];
+  const instructionsPath = join(dir, "instructions.md");
+  const instructions = existsSync(instructionsPath) ? readFileSync(instructionsPath, "utf8").trim() : undefined;
   const current = JSON.parse(readFileSync(manifestPath, "utf8"));
   const next = {
     ...current,
+    instructions,
     frontend_tools: tools.map((t) => ({
       name: t.name,
       description: t.description,

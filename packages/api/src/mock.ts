@@ -402,7 +402,11 @@ export class MockTransport implements Transport {
         const turn = `t${this.logs.get(sid)!.length}`;
         this.setStatus(sid, "working");
         const attachments = (cmd.attachments ?? []).map((a) => this.storeAttachment(a));
-        this.emit(sid, { type: "TurnStarted", turn_id: turn, text: cmd.text, attachments });
+        const first = !this.logs.get(sid)!.some((e) => e.kind.type === "TurnStarted");
+        const context = first
+          ? "<harness_context>\nYou run inside Harness, a desktop app that hosts coding agents. (mock)\n\n## Frontend: Chat\n\nUse `render_ui` for structured results.\n\n## This Session\n- Workspace folder: /mock/project\n- Worktree: no\n</harness_context>"
+          : null;
+        this.emit(sid, { type: "TurnStarted", turn_id: turn, text: cmd.text, attachments, context });
         const words = `You said: **${cmd.text}**. This is a mock reply.\n\n- streamed\n- in chunks`.split(/(?<= )/);
         words.forEach((w, i) => setTimeout(() => this.emit(sid, { type: "AgentMessageChunk", text: w }), 60 * (i + 1)));
         const end = 60 * (words.length + 1);

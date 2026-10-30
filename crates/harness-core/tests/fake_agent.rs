@@ -43,7 +43,7 @@ fn harness(data: &std::path::Path, flags: &[&str], idle: Duration) -> Arc<Harnes
     let agent = AgentInfo { args, ..fake_info() };
     let options = harness_core::host::Options { idle_timeout: idle, ..Default::default() };
     let h = Harness::with_options(data.to_owned(), vec![agent], options).unwrap();
-    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), frontend_tools: vec![] });
+    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     h
 }
 
@@ -426,7 +426,7 @@ async fn agent_that_fails_to_start_reports_its_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let broken = AgentInfo { command: "/bin/sh".into(), args: vec!["-c".into(), "echo 'config missing: API_KEY' >&2; exit 3".into()], ..fake_info() };
     let h = Harness::with_agents(dir.path().join("data"), vec![broken]).unwrap();
-    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), frontend_tools: vec![] });
+    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     let cmd = Command::CreateSession {
         folder: dir.path().display().to_string(),
         agent_id: "fake".into(),

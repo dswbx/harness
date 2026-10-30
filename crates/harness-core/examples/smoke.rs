@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     let prompt = args.next().unwrap_or_else(|| "Say hi in five words.".into());
     let data = std::env::var("SMOKE_DATA").map(Into::into).unwrap_or_else(|_| tempfile_dir());
     let h = harness_core::Harness::new(data.clone())?;
-    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "Inspector".into(), version: "0".into(), frontend_tools: vec![] });
+    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "Inspector".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     // The chat Frontend (with its Frontend Tools), used when `SMOKE_FRONTEND=chat`.
     h.register_frontend(serde_json::from_str(include_str!("../../../packages/frontend-chat/manifest.json"))?);
     let frontend_id = std::env::var("SMOKE_FRONTEND").unwrap_or_else(|_| "inspector".into());

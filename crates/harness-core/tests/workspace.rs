@@ -28,7 +28,7 @@ fn harness(data: &Path) -> Arc<Harness> {
         icon: None,
     };
     let h = Harness::with_agents(data.to_owned(), vec![agent]).unwrap();
-    h.register_frontend(FrontendManifest { id: "chat".into(), name: "C".into(), version: "0".into(), frontend_tools: vec![] });
+    h.register_frontend(FrontendManifest { id: "chat".into(), name: "C".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     h
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 import { Tooltip, cn } from "@harness/ui";
 import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "./time";
@@ -6,8 +6,9 @@ import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "./t
 /**
  * Actions under a message. Shown while the message is hovered or has focus (parent needs `group`).
  * `hidden` (a message still streaming in) keeps its space so the layout doesn't shift when it ends.
+ * `children`: extra actions after the time.
  */
-export function MessageFooter({ text, ts, durationMs, align = "start", hidden }: { text: string; ts: number; durationMs?: number; align?: "start" | "end"; hidden?: boolean }) {
+export function MessageFooter({ text, ts, durationMs, align = "start", hidden, children }: { text: string; ts: number; durationMs?: number; align?: "start" | "end"; hidden?: boolean; children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
   const now = useNow();
 
@@ -48,6 +49,7 @@ export function MessageFooter({ text, ts, durationMs, align = "start", hidden }:
           <span className="px-1 tabular-nums">· {formatDuration(durationMs)}</span>
         </Tooltip>
       )}
+      {children}
     </div>
   );
 }
