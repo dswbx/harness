@@ -450,7 +450,7 @@ export function ComposerDialog({
                         placeholder="Pick a branch"
                         title={target && (
                           <span className="flex items-center gap-2">
-                            <span className="truncate font-mono text-[13px] font-normal">{target.name}</span>
+                            <span className="min-w-0 truncate font-mono text-[13px] font-normal">{target.name}</span>
                             {target.kind === "local" && target.name === branches?.current && <Pill>current</Pill>}
                             {target.kind === "new" && <Pill>new from {branches?.current ?? "HEAD"}</Pill>}
                             {target.kind === "remote" && <Pill>remote</Pill>}

@@ -132,8 +132,8 @@ export function FieldButton({
     >
       <span className="flex shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span>
       <span className="flex min-w-0 flex-1 items-baseline gap-2">
-        {title ? <span className="min-w-0 shrink-0 truncate">{title}</span> : <span className="text-muted-foreground">{placeholder}</span>}
-        {subtitle && <span className="min-w-0 truncate text-xs text-muted-foreground">{subtitle}</span>}
+        {title ? <span className="min-w-0 truncate">{title}</span> : <span className="text-muted-foreground">{placeholder}</span>}
+        {subtitle && <span className="min-w-0 shrink-[10] truncate text-xs text-muted-foreground">{subtitle}</span>}
       </span>
       <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
     </button>
