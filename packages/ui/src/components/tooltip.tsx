@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { Slot } from "@radix-ui/react-slot";
 import { cn } from "../lib/utils";
 
 /**
@@ -16,7 +17,9 @@ function TooltipProvider({ children, delay = 300 }: { children: React.ReactNode;
 
 /**
  * Portal tooltip (Radix) on hover and keyboard focus. The child must accept a ref (it becomes the
- * trigger); a disabled button gets no pointer events, so its tooltip won't show.
+ * trigger); a disabled button gets no pointer events, so its tooltip won't show. Other props (and
+ * the ref) go to the trigger, so it can sit inside another `asChild` trigger, e.g.
+ * `<DropdownMenuTrigger asChild><Tooltip …><Button /></Tooltip></DropdownMenuTrigger>`.
  * Use instead of `title` on controls: native titles are slow, unstyled and unreliable in WebKit.
  */
 function Tooltip({
@@ -29,6 +32,7 @@ function Tooltip({
   shortcut,
   open,
   className,
+  ...trigger
 }: {
   content: React.ReactNode;
   children: React.ReactElement;
@@ -42,11 +46,11 @@ function Tooltip({
   /** Controlled: shown while true (e.g. the keyboard-highlighted item of a list), no hover handling. */
   open?: boolean;
   className?: string;
-}) {
-  if (!content) return children;
+} & Omit<React.ComponentProps<typeof TooltipPrimitive.Trigger>, "content" | "children" | "className">) {
+  if (!content) return <Slot {...trigger}>{children}</Slot>;
   return (
     <TooltipPrimitive.Root delayDuration={delay} {...(open !== undefined && { open })}>
-      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Trigger asChild {...trigger}>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           side={side}
