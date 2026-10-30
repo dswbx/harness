@@ -215,6 +215,14 @@ function HarnessContext({ text }: { text: string }) {
   );
 }
 
+/** Reading width of chat text (the column's old width), centered in the wide column. */
+const READING = "mx-auto max-w-[43rem]";
+
+/** Breaks out of the reading width to the whole wide column (render_ui). */
+function Wide({ children }: { children: React.ReactNode }) {
+  return <div className="ml-[calc(50%-50cqw)] w-[100cqw]">{children}</div>;
+}
+
 const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, active, streaming }: {
   item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
   onOpenDiff: (s: DiffScope) => void; subagents: Map<string, Subagent<Tool>>;
@@ -244,7 +252,7 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
     case "agent":
       return (
         <div className="group">
-          <Markdown>{item.text}</Markdown>
+          <Markdown wideTables>{item.text}</Markdown>
           {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}
           {(item.durationMs !== undefined || streaming) && <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />}
         </div>
@@ -259,7 +267,7 @@ const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, act
         </details>
       );
     case "frontend_tool":
-      return <FrontendToolRow item={item} env={env} view={view ?? undefined} />;
+      return <Wide><FrontendToolRow item={item} env={env} view={view ?? undefined} /></Wide>;
     case "tools":
       return <ToolGroupRow calls={item.calls} subagents={subagents} active={active} />;
     case "tool":
@@ -300,7 +308,7 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
   if (shown.length === 0) return null;
   return (
     <div className={cn("shrink-0", className)}>
-      <div className="mx-auto grid max-w-3xl gap-2 px-10 pb-3">
+      <div className="mx-auto grid max-w-6xl gap-2 px-10 pb-3">
         {shown.map((x) => (
           <div key={x.id} className="group/slot relative rounded-lg border bg-card p-3">
             <button
@@ -466,10 +474,15 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         getKey={(i) => rows[i]!.id}
         estimateSize={72}
         gap={24}
-        innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
+        // Wide column (a container for breakouts); text rows keep the reading width.
+        innerClassName="@container mx-auto max-w-6xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
-        renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagents={subagents} active={running} streaming={running && i === rows.length - 1} />}
-        footer={<Working since={state.turnStartedAt} />}
+        renderRow={(i) => (
+          <div className={READING}>
+            <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={openDiff} subagents={subagents} active={running} streaming={running && i === rows.length - 1} />
+          </div>
+        )}
+        footer={<div className={READING}><Working since={state.turnStartedAt} /></div>}
       />
       <Slots slots={ui.slots.bottom} env={env} className="pt-1" />
       {state.archived ? (

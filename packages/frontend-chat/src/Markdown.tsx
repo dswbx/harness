@@ -29,16 +29,31 @@ const components: import("react-markdown").Components = {
     return <pre {...props}>{children}</pre>;
   },
 };
+
+/**
+ * Tables may grow past the text, up to the chat's wide column (`@container`), centered on it;
+ * wider still, their cells wrap, then they scroll.
+ */
+const wideComponents: import("react-markdown").Components = {
+  ...components,
+  table({ node: _, ...props }) {
+    return (
+      <div className="relative left-1/2 w-max min-w-full max-w-[100cqw] -translate-x-1/2 overflow-x-auto">
+        <table {...props} />
+      </div>
+    );
+  },
+};
 import { cn } from "@harness/ui";
 
 /** Code blocks with a language get highlight.js tokens, colored by the shared code theme (`@harness/ui`). */
 const highlight: import("react-markdown").Options["rehypePlugins"] = [[rehypeHighlight, { detect: false, plainText: ["mermaid", "ansi"] }]];
 
-/** `breaks`: single newlines become line breaks (user prompts are typed that way). */
-export function Markdown({ children, className, breaks }: { children: string; className?: string; breaks?: boolean }) {
+/** `breaks`: single newlines become line breaks (user prompts are typed that way). `wideTables`: see `wideComponents`. */
+export function Markdown({ children, className, breaks, wideTables }: { children: string; className?: string; breaks?: boolean; wideTables?: boolean }) {
   return (
     <div className={cn("typeset typeset-chat", className)}>
-      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]} rehypePlugins={highlight} components={components}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]} rehypePlugins={highlight} components={wideTables ? wideComponents : components}>{children}</ReactMarkdown>
     </div>
   );
 }
