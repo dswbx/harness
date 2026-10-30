@@ -21,6 +21,7 @@
     "jsonv-ts": "^0.11.1",
     "lexical": "^0.53.0",
     "lucide-react": "^1.0.0",
+    "mermaid": "^11.17.2",
     "react-markdown": "^10.0.0",
     "recharts": "^3.10.1",
     "rehype-highlight": "^7.0.2",

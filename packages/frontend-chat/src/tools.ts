@@ -66,10 +66,10 @@ export const components = {
     example: { node: { type: "Card", props: { title: "Build finished", tone: "success" }, children: [{ type: "Markdown", props: { text: "All **3** checks passed." } }] } },
   },
   Markdown: {
-    description: "Markdown text.",
+    description: "Markdown text. A ```mermaid fence draws a diagram; a ```ansi fence shows terminal colors.",
     children: false,
     props: s.object({ text: s.string() }),
-    example: { node: { type: "Markdown", props: { text: "**Bold**, `code` and a [link](https://example.com)." } } },
+    example: { node: { type: "Markdown", props: { text: "**Bold**, `code` and a [link](https://example.com).\n\n```mermaid\nflowchart LR\n  Client --> API --> DB[(Postgres)]\n  API --> Cache\n```" } } },
   },
   KeyValue: {
     description: "Label/value rows.",
@@ -290,6 +290,45 @@ export const components = {
       { route: "/settings", before: 140, after: 120 },
     ] } } },
   },
+  Grid: {
+    description: "Children in up to `columns` equal columns (default 3); fewer when the area is narrow. E.g. a row of Stats.",
+    children: true,
+    props: s.object({ columns: s.number({ enum: [2, 3, 4] }).optional() }),
+    example: { node: { type: "Grid", props: { columns: 3 }, children: [
+      { type: "Stat", props: { label: "Tests", value: "48", hint: "2 skipped" } },
+      { type: "Stat", props: { label: "Coverage", value: "81%", tone: "success" } },
+      { type: "Stat", props: { label: "Build", value: "42s", tone: "warning", hint: "+6s" } },
+    ] } },
+  },
+  Log: {
+    description: "Terminal or log output with its ANSI colors, in a scrolling box that starts at the end. `title` names it, e.g. the command.",
+    children: false,
+    props: s.object({ text: s.string(), title: s.string().optional() }),
+    example: { node: { type: "Log", props: { title: "bun test", text: "\u001b[1mbun test\u001b[0m v1.3\n\u001b[32m✓\u001b[0m users > creates a user \u001b[2m[3ms]\u001b[0m\n\u001b[31m✗\u001b[0m users > rejects a duplicate email\n  \u001b[31mexpected 409, got 500\u001b[0m\n\n \u001b[32m1 pass\u001b[0m\n \u001b[31m1 fail\u001b[0m" } } },
+  },
+  Trace: {
+    description:
+      "A trace waterfall: spans with `start` and `duration` (same unit, e.g. ms) and an optional `parent` id, drawn as bars on one time axis. E.g. a request's steps or a build's phases.",
+    children: false,
+    props: s.object({
+      spans: s.array(s.object({
+        id: s.string(),
+        name: s.string(),
+        start: s.number(),
+        duration: s.number(),
+        parent: s.string().optional(),
+        tone: tone.optional(),
+        meta: s.string({ description: "Shown on hover." }).optional(),
+      }), { minItems: 1 }),
+      unit: s.string({ description: "Default ms." }).optional(),
+    }),
+    example: { node: { type: "Trace", props: { spans: [
+      { id: "req", name: "GET /search", start: 0, duration: 420 },
+      { id: "auth", name: "auth", start: 5, duration: 30, parent: "req" },
+      { id: "db", name: "db.query", start: 40, duration: 310, parent: "req", tone: "warning", meta: "full table scan on items" },
+      { id: "render", name: "render", start: 355, duration: 60, parent: "req" },
+    ] } } },
+  },
 } as const satisfies Record<string, Entry>;
 
 type Components = typeof components;
@@ -393,7 +432,7 @@ const renderUiJson = {
       properties: {
         type: { type: "string", enum: names },
         props: { type: "object" },
-        children: { type: "array", items: { $ref: node }, description: "Only for Stack, Card, Tabs, Stepper and Accordion." },
+        children: { type: "array", items: { $ref: node }, description: "Only for Stack, Grid, Card, Tabs, Stepper and Accordion." },
         on: { type: "object", properties: { press: actionList, change: actionList, submit: actionList, finish: actionList }, additionalProperties: false },
         visible: { $ref: "#/$defs/visible" },
       },
@@ -437,8 +476,8 @@ export const frontendTools = [
   {
     name: RENDER_UI,
     description:
-      "Show rich, optionally interactive content to the user: cards, lists, tables, charts, diffs, timelines, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
-      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Card, Tabs, Stepper and Accordion take children.\n' +
+      "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
+      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Grid, Card, Tabs, Stepper and Accordion take children.\n' +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +

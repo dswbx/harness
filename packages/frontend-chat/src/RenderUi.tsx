@@ -8,6 +8,7 @@ import { splitPatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
 import { Diff as FileDiff } from "./ToolCard";
 import { uiIcons } from "./uiIcons";
+import { AnsiText } from "./AnsiText";
 
 /** recharts is large: loaded the first time a Chart shows. */
 const UiChart = lazy(() => import("./UiChart"));
@@ -647,6 +648,80 @@ function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
   );
 }
 
+function LogBox({ node }: { node: Extract<UiNode, { type: "Log" }> }) {
+  const [el, setEl] = useState<HTMLPreElement | null>(null);
+  const text = String(node.props.text ?? "");
+  // Starts at the end, like a terminal.
+  useEffect(() => {
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [el, text]);
+  return (
+    <div className="overflow-hidden rounded-md border">
+      {node.props.title && <div className="border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">{node.props.title}</div>}
+      <pre ref={setEl} className="max-h-72 overflow-auto bg-muted/40 p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
+        <AnsiText text={text} />
+      </pre>
+    </div>
+  );
+}
+
+/** Solid fills for bars; the card tones are too light for thin shapes. */
+const barTone: Record<Tone, string> = {
+  neutral: "bg-primary/35",
+  info: "bg-sky-500/70",
+  success: "bg-emerald-500/70",
+  warning: "bg-amber-500/70",
+  error: "bg-destructive/70",
+};
+
+function Trace({ node }: { node: Extract<UiNode, { type: "Trace" }> }) {
+  const spans = node.props.spans;
+  const unit = node.props.unit ?? "ms";
+  // Tree order: children under their parent, by start.
+  const rows = useMemo(() => {
+    const ids = new Set(spans.map((x) => x.id));
+    const kids = new Map<string | undefined, typeof spans>();
+    for (const x of spans) {
+      const p = x.parent && ids.has(x.parent) ? x.parent : undefined;
+      kids.set(p, [...(kids.get(p) ?? []), x]);
+    }
+    const out: { span: (typeof spans)[number]; depth: number }[] = [];
+    const walk = (p: string | undefined, depth: number) => {
+      for (const x of [...(kids.get(p) ?? [])].sort((a, b) => a.start - b.start)) {
+        out.push({ span: x, depth });
+        if (depth < 20) walk(x.id, depth + 1);
+      }
+    };
+    walk(undefined, 0);
+    return out;
+  }, [spans]);
+  const t0 = Math.min(...spans.map((x) => x.start));
+  const total = Math.max(...spans.map((x) => x.start + x.duration)) - t0 || 1;
+  const fmt = (n: number) => `${Math.round(n * 10) / 10}${unit}`;
+  return (
+    <div className="grid grid-cols-1 gap-1 text-xs">
+      {rows.map(({ span: x, depth }) => {
+        const t = tones[x.tone ?? "neutral"];
+        const bar = (
+          <div className="relative h-5 min-w-0 flex-1 rounded bg-muted/40">
+            <div
+              className={cn("absolute inset-y-0.5 rounded-sm", barTone[x.tone ?? "neutral"])}
+              style={{ left: `${((x.start - t0) / total) * 100}%`, width: `max(2px, ${(x.duration / total) * 100}%)` }}
+            />
+          </div>
+        );
+        return (
+          <div key={x.id} className="flex items-center gap-2">
+            <span className="w-40 shrink-0 truncate font-mono" style={{ paddingLeft: depth * 12 }} title={x.name}>{x.name}</span>
+            {tip(x.meta, bar)}
+            <span className={cn("w-16 shrink-0 text-right tabular-nums text-muted-foreground", x.tone && x.tone !== "neutral" && t.fg)}>{fmt(x.duration)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Node({ raw }: { raw: RawNode }) {
   const env = useEnv();
   if (!isVisible(raw.visible, env.state)) return null;
@@ -777,6 +852,19 @@ function Node({ raw }: { raw: RawNode }) {
       return <Accordion node={node} kids={kids ?? []} />;
     case "Timeline":
       return <Timeline node={node} />;
+    case "Grid": {
+      const n = node.props.columns ?? 3;
+      const shown = (raw.children ?? []).map((c, i) => [c, i] as const).filter(([c]) => isVisible(c.visible, env.state));
+      return (
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(max(10rem, calc((100% - ${n - 1} * 0.75rem) / ${n})), 1fr))` }}>
+          {shown.map(([c, i]) => <Node key={i} raw={c} />)}
+        </div>
+      );
+    }
+    case "Log":
+      return <LogBox node={node} />;
+    case "Trace":
+      return <Trace node={node} />;
     case "Chart": {
       const data = Array.isArray(node.props.data) ? (node.props.data as Record<string, unknown>[]) : [];
       return (
