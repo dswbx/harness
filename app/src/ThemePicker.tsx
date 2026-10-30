@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@harness/ui";
-import { THEMES, filterThemes, stepIndex, swatch } from "./appearance/appearance";
+import { filterThemes, getThemes, onThemesChange, stepIndex, swatch } from "./appearance/appearance";
 
 function Dots({ theme, isDark }: { theme: string; isDark: boolean }) {
   return (
@@ -34,8 +34,9 @@ export function ThemePicker({ value, isDark, onPreview, onCommit, onRevert }: {
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const id = useId();
-  const items = filterThemes(THEMES, filter);
-  const current = THEMES.find((t) => t.id === value) ?? THEMES[0]!;
+  const themes = useSyncExternalStore(onThemesChange, getThemes);
+  const items = filterThemes(themes, filter);
+  const current = themes.find((t) => t.id === value) ?? themes[0]!;
   const optId = (i: number) => `${id}-opt-${i}`;
 
   const close = (revert: boolean, refocus = true) => {
@@ -68,14 +69,14 @@ export function ThemePicker({ value, isDark, onPreview, onCommit, onRevert }: {
   const toggle = () => {
     if (open) return close(true);
     setFilter("");
-    setHi(THEMES.findIndex((t) => t.id === value));
+    setHi(themes.findIndex((t) => t.id === value));
     setOpen(true);
   };
 
   const onTriggerKey = (e: React.KeyboardEvent) => {
     if (open || !NAV_KEYS.has(e.key)) return;
     e.preventDefault();
-    const t = THEMES[stepIndex(THEMES.findIndex((t) => t.id === value), e.key, THEMES.length)];
+    const t = themes[stepIndex(themes.findIndex((t) => t.id === value), e.key, themes.length)];
     if (t && t.id !== value) onCommit(t.id);
   };
 
@@ -124,7 +125,7 @@ export function ThemePicker({ value, isDark, onPreview, onCommit, onRevert }: {
             value={filter}
             onChange={(e) => {
               setFilter(e.target.value);
-              const next = filterThemes(THEMES, e.target.value);
+              const next = filterThemes(themes, e.target.value);
               setHi(Math.max(0, next.findIndex((t) => t.id === value)));
             }}
             onKeyDown={onFilterKey}
@@ -145,6 +146,7 @@ export function ThemePicker({ value, isDark, onPreview, onCommit, onRevert }: {
               >
                 <Dots theme={t.id} isDark={isDark} />
                 <span className="min-w-0 flex-1 truncate">{t.label}</span>
+                {t.imported && <span className="shrink-0 text-[10px] text-muted-foreground">Imported</span>}
                 {t.id === value && <Check className="size-3.5 shrink-0" />}
               </div>
             ))}

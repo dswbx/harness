@@ -93,6 +93,20 @@ pub enum Command {
         session_id: SessionId,
         path: String,
     },
+    /// An app setting (appearance, imported themes): JSON the app owns, null until saved.
+    GetAppSetting {
+        key: AppSettingKey,
+    },
+    /// Saves an app setting; null removes it.
+    SetAppSetting {
+        key: AppSettingKey,
+        #[specta(type = Option<specta_typescript::Unknown>)]
+        value: Option<Json>,
+    },
+    /// Reads the JSON at an https URL, e.g. a theme's shadcn registry item (tweakcn), for the app to import.
+    FetchJson {
+        url: String,
+    },
     /// The user's editor for "Open in editor" (None until chosen).
     GetEditor,
     SetEditor {
@@ -255,6 +269,14 @@ pub enum Command {
     },
 }
 
+/// App settings kept as JSON files in the data dir (`app_settings.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AppSettingKey {
+    Appearance,
+    Themes,
+}
+
 /// The editor "Open in editor" uses: a known editor's URL scheme, a custom URL template
 /// (`{path}`, `{line}`), or the system default app (no line).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -352,6 +374,11 @@ pub enum CommandResult {
         state: Json,
     },
     Editor { editor: Option<Editor> },
+    /// An app setting's value, or fetched JSON (`FetchJson`).
+    Json {
+        #[specta(type = Option<specta_typescript::Unknown>)]
+        value: Option<Json>,
+    },
     Files { files: Vec<String> },
     PermissionRules { rules: Vec<PermissionRule> },
     PermissionRuleAdded { rule: PermissionRule },

@@ -75,6 +75,7 @@ export class MockTransport implements Transport {
   private cardN = 0;
   private states = new Map<string, unknown>();
   private editor: Editor | null = null;
+  private appSettings: Record<string, unknown> = {};
   /** What "Open in editor" was asked to open (tests). */
   opened: { path: string | null; line: number | null }[] = [];
   /** Stored attachment path -> pasted bytes (path inputs have no bytes in the browser). */
@@ -320,6 +321,15 @@ export class MockTransport implements Transport {
         if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
         return { type: "FileContent", content: c };
       }
+      case "GetAppSetting":
+        return { type: "Json", value: this.appSettings[cmd.key] ?? null };
+      case "SetAppSetting":
+        this.appSettings[cmd.key] = cmd.value;
+        return { type: "Ok" };
+      case "FetchJson":
+        // No network in the mock: any tweakcn theme URL gets a small sample registry item.
+        if (!/tweakcn\.com\/r\/themes\//.test(cmd.url)) throw new Error(`fetch ${cmd.url}: The requested URL returned error: 404`);
+        return { type: "Json", value: MOCK_THEME };
       case "GetEditor":
         return { type: "Editor", editor: this.editor };
       case "SetEditor":
@@ -535,3 +545,13 @@ const MOCK_FILES: FileChange[] = [
   { path: "src/legacy.ts", status: "D", additions: 0, deletions: 5 },
   { path: "src/server/router.ts", status: "M", additions: 6, deletions: 4 },
 ];
+
+const MOCK_THEME = {
+  $schema: "https://ui.shadcn.com/schema/registry-item.json",
+  name: "Zen Inspired Theme",
+  cssVars: {
+    theme: { "font-sans": "\"Inter\", sans-serif", "font-mono": "\"JetBrains Mono\", monospace", radius: "0.5rem" },
+    light: { background: "oklch(0.9195 0.0169 88.0030)", foreground: "oklch(0.2350 0 0)", card: "oklch(0.9530 0.0156 86.4257)", primary: "oklch(0.3012 0 0)", "primary-foreground": "oklch(0.9169 0.0175 99.6160)", secondary: "oklch(0.8647 0.0201 87.5232)", muted: "oklch(0.8340 0.0232 87.1630)", "muted-foreground": "oklch(0.4688 0.0136 84.5932)", accent: "oklch(0.9169 0.0175 99.6160)", border: "oklch(0.8340 0.0232 87.1630)" },
+    dark: { background: "oklch(0.2178 0 0)", foreground: "oklch(0.9169 0.0175 99.6160)", card: "oklch(0.2520 0 0)", primary: "oklch(0.9169 0.0175 99.6160)", "primary-foreground": "oklch(0.2350 0 0)", secondary: "oklch(0.3012 0 0)", muted: "oklch(0.2850 0 0)", "muted-foreground": "oklch(0.7200 0.0136 84.5932)", accent: "oklch(0.3200 0 0)", border: "oklch(0.3200 0 0)" },
+  },
+};

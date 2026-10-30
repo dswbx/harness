@@ -1,10 +1,12 @@
+import type { HarnessClient } from "@harness/api";
 import { PRESETS, type ThemePreset } from "./presets";
+import type { ImportedTheme } from "./importTheme";
 
 export const MODES = ["light", "dark", "system"] as const;
 export type Mode = (typeof MODES)[number];
 
 export type Appearance = {
-  /** "default" or a preset id. */
+  /** "default", a preset id or an imported theme's id (`user-…`). */
   theme: string;
   mode: Mode;
   /** "theme" (the theme's font), "system", "custom" or a bundled font id. */
@@ -42,6 +44,9 @@ export const CUSTOM_FONT_MAX = 200;
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 18;
 export const STORAGE_KEY = "harness.appearance";
+/** Imported themes, cached here so the first paint has them; the core's `themes.json` is the truth. */
+export const THEMES_KEY = "harness.themes";
+const USER_ID = /^user-[a-z0-9-]{1,60}$/;
 
 export type FontOption = { id: string; label: string; family: string };
 
@@ -101,7 +106,8 @@ export function normalize(raw: unknown): Appearance {
   const pick = (v: unknown, ok: (s: string) => boolean, def: string) => (typeof v === "string" && ok(v) ? v : def);
   const fontOk = (list: FontOption[]) => (s: string) => s === "theme" || s === "system" || s === "custom" || list.some((f) => f.id === s);
   return {
-    theme: pick(r.theme, (s) => s === "default" || Object.hasOwn(PRESETS, s), d.theme),
+    // An imported theme id stays even before the themes load; an unknown one looks like default.
+    theme: pick(r.theme, (s) => s === "default" || Object.hasOwn(PRESETS, s) || USER_ID.test(s), d.theme),
     mode: pick(r.mode, (s) => (MODES as readonly string[]).includes(s), d.mode) as Mode,
     font: pick(r.font, fontOk(SANS_FONTS), d.font),
     mono: pick(r.mono, fontOk(MONO_FONTS), d.mono),
@@ -139,7 +145,7 @@ function fontVar(choice: string, custom: string, list: FontOption[], system: str
 /** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size, chat text. */
 export function resolveVars(a: Appearance, isDark: boolean): Record<string, string> {
   const vars: Record<string, string> = {};
-  const p = PRESETS[a.theme];
+  const p = themeById(a.theme);
   if (p) {
     for (const [k, v] of Object.entries(modeVars(p, isDark))) {
       if (!SKIP.has(k)) vars[`--${k}`] = k.startsWith("font-") ? mapFontStack(v) : v;
@@ -164,13 +170,46 @@ const DEFAULT_SWATCH = {
 
 /** Primary, secondary, accent and background of a theme for the mode. */
 export function swatch(theme: string, isDark: boolean): string[] {
-  const p = PRESETS[theme];
+  const p = themeById(theme);
   const v: Record<string, string | undefined> = p ? modeVars(p, isDark) : DEFAULT_SWATCH[isDark ? "dark" : "light"];
   return ["primary", "secondary", "accent", "background"].map((k) => v[k] ?? "transparent");
 }
 
-export type ThemeOption = { id: string; label: string };
+export type ThemeOption = { id: string; label: string; imported?: boolean };
 export const THEMES: ThemeOption[] = [{ id: "default", label: "Default" }, ...Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label }))];
+
+let imported: Record<string, ImportedTheme> = {};
+let themeList: ThemeOption[] = THEMES;
+const themeListeners = new Set<() => void>();
+
+const themeById = (id: string): ThemePreset | undefined => (Object.hasOwn(imported, id) ? imported[id] : Object.hasOwn(PRESETS, id) ? PRESETS[id] : undefined);
+
+/** Imported themes by id. */
+export const getImportedThemes = () => imported;
+/** Imported themes first, then default and the presets. */
+export const getThemes = () => themeList;
+export function onThemesChange(fn: () => void) {
+  themeListeners.add(fn);
+  return () => void themeListeners.delete(fn);
+}
+
+/** Keeps the entries that look like themes (the file is the user's to edit). */
+export function normalizeThemes(raw: unknown): Record<string, ImportedTheme> {
+  const out: Record<string, ImportedTheme> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [id, t] of Object.entries(raw as Record<string, Partial<ImportedTheme>>)) {
+    if (!USER_ID.test(id) || !t || typeof t.label !== "string" || typeof t.light !== "object" || typeof t.dark !== "object" || !t.light || !t.dark) continue;
+    out[id] = { label: t.label, light: t.light, dark: t.dark, ...(typeof t.source === "string" ? { source: t.source } : {}) };
+  }
+  return out;
+}
+
+function loadThemes(next: Record<string, ImportedTheme>) {
+  imported = next;
+  const mine = Object.entries(next).map(([id, t]) => ({ id, label: t.label, imported: true })).sort((x, y) => x.label.localeCompare(y.label));
+  themeList = [...mine, ...THEMES];
+  for (const l of themeListeners) l();
+}
 
 export function filterThemes(themes: ThemeOption[], query: string): ThemeOption[] {
   const q = query.trim().toLowerCase();
@@ -209,6 +248,13 @@ export function applyAppearance(a: Appearance, doc: Doc = document) {
 }
 
 let current = DEFAULT_APPEARANCE;
+let client: HarnessClient | null = null;
+
+function cache(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* the core keeps the truth */ }
+}
 
 export const getAppearance = () => current;
 
@@ -216,6 +262,34 @@ export const getAppearance = () => current;
 export function setAppearance(a: Appearance) {
   current = normalize(a);
   saveAppearance(localStorage, current);
+  applyAppearance(current);
+  void client?.setAppSetting("appearance", current);
+}
+
+/** Saves the imported themes (all windows follow), then applies: the current theme may have changed. */
+export async function setImportedThemes(next: Record<string, ImportedTheme>) {
+  loadThemes(normalizeThemes(next));
+  cache(THEMES_KEY, imported);
+  applyAppearance(current);
+  await client?.setAppSetting("themes", imported);
+}
+
+/**
+ * Loads appearance and imported themes from the core (`appearance.json`, `themes.json` in the
+ * data dir) once the window has a client; the local copies only paint the first frame. Settings
+ * from before the core kept them move there.
+ */
+export async function syncAppearance(c: HarnessClient) {
+  client = c;
+  const [a, t] = await Promise.all([c.getAppSetting("appearance"), c.getAppSetting("themes")]);
+  if (t != null) {
+    loadThemes(normalizeThemes(t));
+    cache(THEMES_KEY, imported);
+  } else if (Object.keys(imported).length) await c.setAppSetting("themes", imported);
+  if (a != null) {
+    current = normalize(a);
+    saveAppearance(localStorage, current);
+  } else await c.setAppSetting("appearance", current);
   applyAppearance(current);
 }
 
@@ -231,11 +305,19 @@ export function revertPreview() {
 
 /** Call once per window before the first render. */
 export function initAppearance() {
+  try {
+    loadThemes(normalizeThemes(JSON.parse(localStorage.getItem(THEMES_KEY) ?? "null")));
+  } catch { /* none cached */ }
   current = loadAppearance(localStorage);
   applyAppearance(current);
   window.matchMedia(DARK_QUERY).addEventListener("change", () => current.mode === "system" && applyAppearance(current));
   window.addEventListener("storage", (e) => {
-    if (e.key !== STORAGE_KEY && e.key !== null) return;
+    if (e.key === THEMES_KEY || e.key === null) {
+      try {
+        loadThemes(normalizeThemes(JSON.parse(localStorage.getItem(THEMES_KEY) ?? "null")));
+      } catch { /* keep */ }
+    }
+    if (e.key !== STORAGE_KEY && e.key !== THEMES_KEY && e.key !== null) return;
     current = loadAppearance(localStorage);
     applyAppearance(current);
   });

@@ -70,7 +70,7 @@ export function SettingsDialog({
             <p className="px-2.5 py-1 text-xs text-muted-foreground">Changes save right away.</p>
           </nav>
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
-            {section === "appearance" && <AppearancePanel />}
+            {section === "appearance" && <AppearancePanel client={client} />}
             {section === "editor" && <EditorPanel client={client} />}
             {section === "permissions" && <PermissionsPanel client={client} sessionId={sessionId} agentsVersion={agentsVersion} />}
             {section === "agents" && <AgentsPanel client={client} version={agentsVersion} onChanged={onAgentsChanged} />}

@@ -225,6 +225,12 @@ impl Harness {
             Command::FrontendRead { session_id, path } => {
                 CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? }
             }
+            Command::GetAppSetting { key } => CommandResult::Json { value: crate::app_settings::load(&self.data_dir, key) },
+            Command::SetAppSetting { key, value } => {
+                crate::app_settings::save(&self.data_dir, key, value.as_ref())?;
+                CommandResult::Ok
+            }
+            Command::FetchJson { url } => CommandResult::Json { value: Some(crate::app_settings::fetch_json(&url).await?) },
             Command::GetEditor => CommandResult::Editor { editor: crate::editor::load(&self.data_dir) },
             Command::SetEditor { editor } => {
                 crate::editor::save(&self.data_dir, editor.as_ref())?;

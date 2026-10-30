@@ -2,6 +2,7 @@
 
 mod acp;
 mod agent_quirks;
+mod app_settings;
 pub mod agents;
 pub mod api;
 mod attachments;

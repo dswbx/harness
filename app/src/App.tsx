@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, Settings, Trash2 } from "lucide-react";
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
+import { syncAppearance } from "./appearance/appearance";
 import {
   Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, ScrollArea, Tooltip, Separator, cn, useResizableWidth,
 } from "@harness/ui";
@@ -18,7 +19,11 @@ const params = new URLSearchParams(window.location.search);
 function useTransport() {
   const [t, setT] = useState<Transport | null>(null);
   useEffect(() => {
-    void makeTransport().then(setT);
+    void makeTransport().then((t) => {
+      // Appearance and imported themes live in the core; the local copy painted the first frame.
+      void syncAppearance(new Client(t)).catch(() => {});
+      setT(t);
+    });
   }, []);
   return t;
 }

@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
-import { Minus, Plus } from "lucide-react";
-import { Button, Input, Select, cn } from "@harness/ui";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Minus, Plus, X } from "lucide-react";
+import type { HarnessClient } from "@harness/api";
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Select, Textarea, cn } from "@harness/ui";
 import { setToolDisplay, toolDisplays, useToolDisplay } from "@harness/frontend-chat";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
 import {
   CUSTOM_FONT_MAX, DEFAULT_APPEARANCE, FLOWS, FONT_SIZE_MAX, FONT_SIZE_MIN, LEADINGS, MODES, MONO_FONTS, SANS_FONTS, clampFontSize, cleanFont,
-  getAppearance, isDarkMode, previewAppearance, revertPreview, setAppearance, type Appearance, type FontOption, type RhythmOption,
+  getAppearance, getImportedThemes, getThemes, isDarkMode, onThemesChange, previewAppearance, revertPreview, setAppearance, setImportedThemes,
+  type Appearance, type FontOption, type RhythmOption,
 } from "./appearance/appearance";
+import { fromCss, fromRegistryItem, registryUrl, themeId } from "./appearance/importTheme";
 
 const TWEAKCN = "https://github.com/jnsahaj/tweakcn";
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
@@ -127,8 +130,100 @@ function SizeField({ id, label, value, fallback, onChange }: {
   );
 }
 
+/** Paste a tweakcn link (fetched by the core) or theme CSS; the theme is stored and selected. */
+function ImportTheme({ client, onImported }: { client: HarnessClient; onImported: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  let url: string | null = null;
+  try {
+    url = registryUrl(text);
+  } catch { /* shown on import */ }
+  const isCss = !!text.trim() && !/^\s*https?:/i.test(text);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const u = registryUrl(text);
+      const theme = u ? fromRegistryItem(await client.fetchJson(u), u) : fromCss(text, name);
+      const all = getImportedThemes();
+      const id = themeId(theme.label, (x) => Object.hasOwn(all, x));
+      await setImportedThemes({ ...all, [id]: theme });
+      onImported(id);
+      setOpen(false);
+      setText("");
+      setName("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { setError(null); setOpen(true); }}>Import…</Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg" data-keep-escape>
+          <DialogHeader>
+            <DialogTitle>Import theme</DialogTitle>
+            <DialogDescription>
+              Paste a tweakcn theme link (from Share, or the <code className="font-mono">shadcn add</code> URL in Code), or the theme's CSS (<code className="font-mono">:root</code> and <code className="font-mono">.dark</code>).
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            autoFocus
+            aria-label="Theme link or CSS"
+            placeholder={"https://tweakcn.com/themes/…\n\nor\n\n:root {\n  --background: oklch(…);\n  …\n}"}
+            value={text}
+            spellCheck={false}
+            onChange={(e) => setText(e.target.value)}
+            className="max-h-72 min-h-32 font-mono text-xs"
+          />
+          {isCss && <Input aria-label="Theme name" placeholder="Theme name" value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-xs" />}
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button size="sm" disabled={busy || !text.trim() || (isCss && !name.trim())} onClick={() => void submit()}>
+              {busy ? "Importing…" : url ? "Fetch and import" : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** Imported themes, each removable (the current one falls back to Default). */
+function ImportedThemes({ current, onRemoved }: { current: string; onRemoved: () => void }) {
+  const themes = useSyncExternalStore(onThemesChange, getThemes).filter((t) => t.imported);
+  if (!themes.length) return null;
+  const remove = (id: string) => {
+    const { [id]: _, ...rest } = getImportedThemes();
+    void setImportedThemes(rest);
+    if (id === current) onRemoved();
+  };
+  return (
+    <Row label="Imported">
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+        {themes.map((t) => (
+          <span key={t.id} className="inline-flex h-7 items-center gap-1 rounded-md border pl-2 pr-0.5 text-xs">
+            {t.label}
+            <Button size="icon" variant="ghost" className="size-6 text-muted-foreground" aria-label={`Remove ${t.label}`} onClick={() => remove(t.id)}>
+              <X />
+            </Button>
+          </span>
+        ))}
+      </div>
+    </Row>
+  );
+}
+
 /** Theme preset, color mode, fonts and text size. Changes apply and save right away. */
-export function AppearancePanel() {
+export function AppearancePanel({ client }: { client: HarnessClient }) {
   const [a, setA] = useState<Appearance>(getAppearance);
   const update = (patch: Partial<Appearance>) => {
     const next = { ...a, ...patch };
@@ -169,7 +264,9 @@ export function AppearancePanel() {
           <a href={TWEAKCN} target="_blank" rel="noreferrer" onClick={(e) => openExternal(e, TWEAKCN)} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
             Themes from tweakcn
           </a>
+          <ImportTheme client={client} onImported={(theme) => update({ theme })} />
         </Row>
+        <ImportedThemes current={a.theme} onRemoved={() => update({ theme: "default" })} />
         <FontRow
           label="Font" id="font-sans" value={a.font} custom={a.customFont} placeholder="Avenir Next, sans-serif" fonts={SANS_FONTS}
           onChange={({ choice, custom }) => update(custom === undefined ? { font: choice } : { customFont: custom })}

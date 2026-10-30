@@ -1,5 +1,5 @@
 import type {
-  AgentInfo, AppEvent, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
+  AgentInfo, AppEvent, AppSettingKey, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
   Editor, SessionSummary, StatePatchOp, WorkspaceInfo,
 } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
@@ -148,6 +148,20 @@ export class HarnessClient {
     const r = await this.transport.execute({ type: "AddCustomAgent", ...args });
     if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
     return r.agent;
+  }
+  /** An app setting (appearance, imported themes): JSON the app owns; null until saved. */
+  async getAppSetting(key: AppSettingKey): Promise<unknown> {
+    const r = await this.transport.execute({ type: "GetAppSetting", key });
+    return r.type === "Json" ? r.value : null;
+  }
+  async setAppSetting(key: AppSettingKey, value: unknown): Promise<void> {
+    await this.transport.execute({ type: "SetAppSetting", key, value: value ?? null });
+  }
+  /** The JSON at an https URL (read by the core), e.g. a theme's registry item. */
+  async fetchJson(url: string): Promise<unknown> {
+    const r = await this.transport.execute({ type: "FetchJson", url });
+    if (r.type !== "Json") throw new Error("unexpected result: " + r.type);
+    return r.value;
   }
   /** The editor for "Open in editor"; null until chosen. */
   async getEditor(): Promise<Editor | null> {
