@@ -137,7 +137,7 @@ export function DiffPanel({
   const sum = (k: "additions" | "deletions") => files.reduce((s, f) => s + f[k], 0);
 
   return (
-    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l bg-background" aria-label="Diff panel">
+    <aside className="flex h-full w-full flex-col border-l bg-background" aria-label="Diff panel">
       <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
         <span className="min-w-0 truncate text-sm font-medium" title={scope.label}>{scope.label}</span>
         {diff && (

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
-import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, Tooltip, VirtualList, cn } from "@harness/ui";
+import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, ResizeHandle, Tooltip, VirtualList, cn, useResizableWidth } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
@@ -343,7 +343,7 @@ function SlotTab({ slot, open, onClick }: { slot: Slot; open: boolean; onClick: 
 
 function SlotPanel({ slot, env, onClose }: { slot: Slot; env: UiEnv; onClose: () => void }) {
   return (
-    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l bg-background" aria-label={slot.title ?? slot.id}>
+    <aside className="flex h-full w-full flex-col border-l bg-background" aria-label={slot.title ?? slot.id}>
       <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{slot.title ?? slot.id}</span>
         <Button size="icon" variant="ghost" className="size-7" aria-label="Close panel" onClick={onClose}>
@@ -371,6 +371,8 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
   const [panel, setPanelId] = useState<string | null>(null);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  /** Right panel (diff or a render_ui slot), dragged from its left edge. */
+  const right = useResizableWidth({ storageKey: "harness.chat.rightPanelWidth", initial: 420, min: 320, max: 1000, edge: "left" });
   // Changes need git; hidden until the Workspace is known to be a repository.
   const [git, setGit] = useState(false);
   useEffect(() => {
@@ -490,8 +492,13 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         <PromptBox api={api} state={state} />
       )}
     </div>
-    {panel === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanelId(null)} refreshKey={refreshKey} />}
-    {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => setPanelId(null)} />}
+    {(panel === "changes" || rightSlot) && (
+      <div className="relative h-full shrink-0" style={{ width: right.width }}>
+        <ResizeHandle label="Resize panel" {...right.handle} />
+        {panel === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanelId(null)} refreshKey={refreshKey} />}
+        {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => setPanelId(null)} />}
+      </div>
+    )}
     </div>
   );
 }

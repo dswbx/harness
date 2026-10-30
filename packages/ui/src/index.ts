@@ -14,3 +14,4 @@ export * from "./components/dropdown-menu";
 export * from "./components/portal";
 export * from "./components/popover";
 export * from "./components/trace";
+export * from "./components/resizable";

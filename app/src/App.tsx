@@ -3,7 +3,7 @@ import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus,
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import {
-  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ScrollArea, Tooltip, Separator, cn,
+  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, ScrollArea, Tooltip, Separator, cn, useResizableWidth,
 } from "@harness/ui";
 import { ComposerDialog } from "./ComposerDialog";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
@@ -158,52 +158,8 @@ function useSidebarOpen() {
   return [open, toggle] as const;
 }
 
-const WIDTH_KEY = "harness.sidebarWidth";
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
-
 /** Sidebar width, dragged from its right edge (double-click resets). */
-function useSidebarWidth() {
-  const [width, setWidth] = useState(() => {
-    try {
-      const w = Number(localStorage.getItem(WIDTH_KEY));
-      return w >= MIN_WIDTH && w <= MAX_WIDTH ? w : 256;
-    } catch {
-      return 256;
-    }
-  });
-  const save = (w: number) => {
-    try {
-      localStorage.setItem(WIDTH_KEY, String(w));
-    } catch { /* per-window convenience only */ }
-  };
-  const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const start = width;
-    let last = start;
-    const move = (ev: PointerEvent) => {
-      last = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, start + ev.clientX - startX));
-      setWidth(last);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
-      save(last);
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  const reset = () => {
-    setWidth(256);
-    save(256);
-  };
-  return { width, onPointerDown, reset };
-}
+const useSidebarWidth = () => useResizableWidth({ storageKey: "harness.sidebarWidth", initial: 256, min: 200, max: 480, edge: "right" });
 
 /** The Session's current branch, when its folder is a git repository (refreshed as its status changes). */
 function useBranch(client: HarnessClient, s: SessionSummary | null) {
@@ -331,16 +287,7 @@ function Shell({ transport }: { transport: Transport }) {
     <div className="flex h-full">
       {sidebarOpen && (
         <aside className="relative flex shrink-0 flex-col border-r bg-muted/30" style={{ width: sidebar.width }}>
-          <Tooltip content="Drag to resize, double-click to reset" side="right" delay={700}>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize sidebar"
-              className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors hover:after:bg-ring"
-              onPointerDown={sidebar.onPointerDown}
-              onDoubleClick={sidebar.reset}
-            />
-          </Tooltip>
+          <ResizeHandle label="Resize sidebar" {...sidebar.handle} />
           <div data-tauri-drag-region className={cn("flex h-13 shrink-0 items-center gap-1 pr-2", trafficLights ? "pl-[76px]" : "pl-3")}>
             <div data-tauri-drag-region className="h-full flex-1" />
             {controls}
