@@ -13,7 +13,8 @@ import {
 } from "./appearance/appearance";
 import { fromCss, fromRegistryItem, registryUrl, themeId } from "./appearance/importTheme";
 
-const TWEAKCN = "https://github.com/jnsahaj/tweakcn";
+/** Where themes come from: browse, make your own, then copy the link. */
+const TWEAKCN = "https://tweakcn.com/editor/theme";
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 function Row({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
@@ -171,7 +172,10 @@ function ImportTheme({ client, onImported }: { client: HarnessClient; onImported
           <DialogHeader>
             <DialogTitle>Import theme</DialogTitle>
             <DialogDescription>
-              Paste a tweakcn theme link (from Share, or the <code className="font-mono">shadcn add</code> URL in Code), or the theme's CSS (<code className="font-mono">:root</code> and <code className="font-mono">.dark</code>).
+              Paste a tweakcn theme link (from Share, or the <code className="font-mono">shadcn add</code> URL in Code), or the theme's CSS (<code className="font-mono">:root</code> and <code className="font-mono">.dark</code>).{" "}
+              <a href={TWEAKCN} target="_blank" rel="noreferrer" onClick={(e) => openExternal(e, TWEAKCN)} className="underline underline-offset-2 hover:text-foreground">
+                Find or make themes on tweakcn
+              </a>
             </DialogDescription>
           </DialogHeader>
           <Textarea
@@ -261,9 +265,6 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
             onCommit={(theme) => update({ theme })}
             onRevert={revertPreview}
           />
-          <a href={TWEAKCN} target="_blank" rel="noreferrer" onClick={(e) => openExternal(e, TWEAKCN)} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-            Themes from tweakcn
-          </a>
           <ImportTheme client={client} onImported={(theme) => update({ theme })} />
         </Row>
         <ImportedThemes current={a.theme} onRemoved={() => update({ theme: "default" })} />
