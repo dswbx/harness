@@ -143,3 +143,8 @@
   /* One whole 200% tile per loop: the gradient repeats, so the band leaves right as the next comes in from the left. */
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0% 0; } }
 }
+
+/* Chat: the quoted text stays looking selected while its comment box has focus (CSS Custom Highlight). */
+::highlight(quote-comment) {
+  background-color: color-mix(in oklch, Highlight 70%, transparent);
+}
