@@ -341,14 +341,15 @@ function Tabs({ node, kids }: { node: Extract<UiNode, { type: "Tabs" }>; kids: R
   const [i, setI] = useIndex(node, node.props.tabs.length);
   return (
     <div className="grid grid-cols-1 gap-3">
-      <div role="tablist" className="flex gap-1 overflow-x-auto border-b">
+      {/* Scrolls sideways only; the bottom line is drawn inside, so the active underline doesn't overflow. */}
+      <div role="tablist" className="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--border)]">
         {node.props.tabs.map((t, j) => (
           <button
             key={j}
             role="tab"
             aria-selected={i === j}
             onClick={() => setI(j)}
-            className={cn("-mb-px shrink-0 border-b-2 px-3 py-1.5 text-sm", i === j ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}
+            className={cn("shrink-0 border-b-2 px-3 py-1.5 text-sm", i === j ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}
           >
             {t}
           </button>
@@ -596,15 +597,15 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
       {node.props.filter && (
         <div className="relative w-full max-w-64">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-8 pl-7 text-xs" placeholder="Filter rows" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-8 pl-7 text-sm" placeholder="Filter rows" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       )}
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>
               {columns.map((c, i) => (
-                <th key={i} className="px-2 py-1.5 font-medium" aria-sort={sort?.col === i ? (sort.desc ? "descending" : "ascending") : undefined}>
+                <th key={i} className="px-3 py-2 font-medium" aria-sort={sort?.col === i ? (sort.desc ? "descending" : "ascending") : undefined}>
                   {node.props.sortable ? (
                     <button type="button" onClick={() => click(i)} className="inline-flex items-center gap-1 hover:text-foreground">
                       {c}
@@ -618,10 +619,10 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className="border-t">
-                {r.map((c, j) => <td key={j} className="px-2 py-1.5 align-top">{c}</td>)}
+                {r.map((c, j) => <td key={j} className="px-3 py-2 align-top">{c}</td>)}
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={columns.length} className="px-2 py-3 text-center text-muted-foreground">No rows</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={columns.length} className="px-3 py-3 text-center text-muted-foreground">No rows</td></tr>}
           </tbody>
         </table>
       </div>
