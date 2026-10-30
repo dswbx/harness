@@ -348,9 +348,19 @@ impl Session {
         }
     }
 
-    pub async fn prompt(self: &Arc<Self>, thread_id: Option<ThreadId>, text: String) -> anyhow::Result<()> {
+    pub async fn prompt(
+        self: &Arc<Self>,
+        thread_id: Option<ThreadId>,
+        text: String,
+        attachments: Vec<crate::api::AttachmentInput>,
+    ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
-        crate::acp::prompt(self.clone(), thread, text).await
+        crate::acp::prompt(self.clone(), thread, text, attachments).await
+    }
+
+    /// A stored attachment as `(mime, base64)`.
+    pub fn read_attachment(&self, path: &str) -> anyhow::Result<(String, String)> {
+        crate::attachments::read(&self.dir, path)
     }
 
     pub async fn continue_with_summary(
@@ -361,7 +371,7 @@ impl Session {
         let thread = self.thread(thread_id)?;
         crate::acp::continue_with_summary(self.clone(), thread.clone()).await?;
         if let Some(text) = text {
-            crate::acp::prompt(self.clone(), thread, text).await?;
+            crate::acp::prompt(self.clone(), thread, text, Vec::new()).await?;
         }
         Ok(())
     }

@@ -24,6 +24,24 @@ export type AppEvent =
 /**  Agents were installed, updated or removed. */
 { type: "AgentsChanged" };
 
+/**  An attachment as sent with a Turn. */
+export type Attachment = {
+	name: string,
+	mime: string,
+	/**  Absolute path: the stored copy in `attachments/`, or the original file. */
+	path: string,
+	kind: AttachmentKind,
+};
+
+/**  A file given with a prompt. */
+export type AttachmentInput = 
+/**  A file on disk. Images are copied into the Session; other files are referenced in place. */
+{ type: "path"; path: string } | 
+/**  Pasted bytes, stored in the Session. `data` is base64 (standard alphabet, no `data:` prefix). */
+{ type: "data"; name: string; mime: string; data: string };
+
+export type AttachmentKind = "image" | "file";
+
 export type AuthMethodInfo = {
 	id: string,
 	name: string,
@@ -108,7 +126,9 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  Start a Turn in a Thread (Main Thread when `thread_id` is absent). Returns immediately;
  *  progress arrives as Events.
  */
-{ type: "Prompt"; session_id: string; thread_id: string | null; text: string } | { type: "Cancel"; session_id: string; thread_id: string | null } | 
+{ type: "Prompt"; session_id: string; thread_id: string | null; text: string; 
+/**  Sent after `text`, in order. `text` may be empty when there are attachments. */
+attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread_id: string | null } | 
 /**
  *  Starts the Agent and the Main Thread's Agent Session in the background, so its config
  *  options (models, modes) arrive before the first prompt. Returns at once; failures show up
@@ -124,9 +144,13 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first prompt. */
 { type: "StartSideThread"; session_id: string; seed: string | null } | { type: "ResolvePermission"; session_id: string; request_id: string; 
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
-option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string };
+option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string } | 
+/**  Reads a stored attachment (base64). Only files in the Session Directory's `attachments/`. */
+{ type: "ReadAttachment"; session_id: string; path: string };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule };
+export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
+/**  `data` is base64. */
+{ type: "Attachment"; mime: string; data: string };
 
 export type Commit = {
 	sha: string,
@@ -171,7 +195,9 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
  */
 { type: "ThreadReadOnly"; reason: string } | 
 /**  A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary. */
-{ type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | { type: "TurnStarted"; turn_id: string; text: string } | { type: "TurnEnded"; turn_id: string; 
+{ type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
+/**  What the Agent accepts in prompts, from its `initialize` answer. */
+{ type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[] } | { type: "TurnEnded"; turn_id: string; 
 /**  ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
 stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */

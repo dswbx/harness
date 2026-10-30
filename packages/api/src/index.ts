@@ -4,4 +4,5 @@ export * from "./client";
 export * from "./frontend";
 export * from "./hooks";
 export * from "./window";
+export * from "./files";
 export { MockTransport } from "./mock";

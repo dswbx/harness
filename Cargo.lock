@@ -1691,6 +1691,7 @@ dependencies = [
  "agent-client-protocol",
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "futures-util",
  "globset",
  "http",

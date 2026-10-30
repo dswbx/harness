@@ -392,3 +392,17 @@ describe("turn duration", () => {
     expect(s.turnStartedAt).toBeNull();
   });
 });
+
+describe("attachments and prompt capabilities", () => {
+  it("keeps a Turn's attachments on the user item and records what the Agent accepts", () => {
+    const img = { name: "s.png", mime: "image/png", path: "/s/attachments/1-s.png", kind: "image" as const };
+    const s = fold([
+      started(),
+      ev({ type: "AgentCapabilities", image: true, embedded_context: false }, null),
+      ev({ type: "TurnStarted", turn_id: "t", text: "", attachments: [img] }),
+      ev({ type: "TurnStarted", turn_id: "u", text: "old log" } as EventKind),
+    ]);
+    expect(s.promptCaps).toEqual({ image: true, embeddedContext: false });
+    expect(s.items.map((i) => i.type === "user" && i.attachments)).toEqual([[img], []]);
+  });
+});

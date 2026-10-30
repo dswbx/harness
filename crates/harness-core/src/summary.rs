@@ -1,6 +1,6 @@
 //! Deterministic Thread summary used as the Context Seed for "continue with summary".
 
-use crate::api::{Event, EventKind, ThreadId};
+use crate::api::{AttachmentKind, Event, EventKind, ThreadId};
 
 /// Upper bound for the summary; older Turns are dropped first.
 const MAX_CHARS: usize = 24_000;
@@ -19,9 +19,16 @@ pub fn summarize(events: &[Event], thread: &ThreadId) -> String {
     };
     for e in events.iter().filter(|e| e.thread_id.as_ref() == Some(thread)) {
         match &e.kind {
-            EventKind::TurnStarted { text, .. } => {
+            EventKind::TurnStarted { text, attachments, .. } => {
                 flush(&mut turns, &mut reply);
-                turns.push(format!("User: {}\n", text.trim()));
+                let mut t = format!("User: {}\n", text.trim());
+                for a in attachments {
+                    match a.kind {
+                        AttachmentKind::Image => t.push_str(&format!("[image: {}]\n", a.name)),
+                        AttachmentKind::File => t.push_str(&format!("[file: {}]\n", a.path)),
+                    }
+                }
+                turns.push(t);
             }
             EventKind::AgentMessageChunk { text } => reply.push_str(text),
             EventKind::ToolCall { title, .. } if !turns.is_empty() => {
@@ -65,7 +72,16 @@ mod tests {
     #[test]
     fn renders_turns_of_one_thread() {
         let events = vec![
-            ev("t", EventKind::TurnStarted { turn_id: "1".into(), text: "add a README".into() }),
+            ev("t", EventKind::TurnStarted {
+                turn_id: "1".into(),
+                text: "add a README".into(),
+                attachments: vec![crate::api::Attachment {
+                    name: "shot.png".into(),
+                    mime: "image/png".into(),
+                    path: "/s/attachments/x-shot.png".into(),
+                    kind: AttachmentKind::Image,
+                }],
+            }),
             ev("t", EventKind::AgentMessageChunk { text: "Sure, ".into() }),
             ev("t", EventKind::ToolCall {
                 tool_call_id: "c".into(),
@@ -77,10 +93,10 @@ mod tests {
                 raw_input: None,
             }),
             ev("t", EventKind::AgentMessageChunk { text: "done.".into() }),
-            ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into() }),
+            ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![] }),
         ];
         let s = summarize(&events, &"t".to_owned());
-        assert!(s.ends_with("User: add a README\nAgent: Sure,\n(tool: Write README.md)\nAgent: done.\n"), "{s}");
+        assert!(s.ends_with("User: add a README\n[image: shot.png]\nAgent: Sure,\n(tool: Write README.md)\nAgent: done.\n"), "{s}");
         assert!(!s.contains("elsewhere"));
     }
 }

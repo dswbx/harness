@@ -1,4 +1,4 @@
-import type { AppEvent, Commit, McpServerDef, AgentInfo, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
+import type { AppEvent, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 
@@ -18,6 +18,18 @@ export class MockTransport implements Transport {
   /** Per-session Frontend state files. */
   private frontendFiles = new Map<string, Map<string, string>>();
   private cardN = 0;
+  /** Stored attachment path -> pasted bytes (path inputs have no bytes in the browser). */
+  private attachments = new Map<string, { mime: string; data: string }>();
+
+  private storeAttachment(a: AttachmentInput): Attachment {
+    if (a.type === "path") {
+      const name = a.path.split("/").pop() ?? a.path;
+      return { name, mime: "application/octet-stream", path: a.path, kind: "file" };
+    }
+    const path = `/mock/attachments/${this.attachments.size}-${a.name}`;
+    this.attachments.set(path, { mime: a.mime, data: a.data });
+    return { name: a.name, mime: a.mime, path, kind: a.mime.startsWith("image/") ? "image" : "file" };
+  }
   /** Registry id -> installed version. */
   private installedVersions = new Map<string, string>();
 
@@ -273,8 +285,13 @@ export class MockTransport implements Transport {
         const sid = cmd.session_id;
         this.readOnly.delete(sid);
         this.emit(sid, { type: "AgentSessionStarted", acp_session_id: `acp-cont-${this.logs.get(sid)!.length}`, boundary: "continued_with_summary" });
-        if (cmd.text) return this.execute({ type: "Prompt", session_id: sid, thread_id: null, text: cmd.text });
+        if (cmd.text) return this.execute({ type: "Prompt", session_id: sid, thread_id: null, text: cmd.text, attachments: [] });
         return { type: "Ok" };
+      }
+      case "ReadAttachment": {
+        const a = this.attachments.get(cmd.path);
+        if (!a) throw new Error("not an attachment of this Session");
+        return { type: "Attachment", mime: a.mime, data: a.data };
       }
       case "Prompt": {
         const sid = cmd.session_id;
@@ -315,7 +332,8 @@ export class MockTransport implements Transport {
         }
         const turn = `t${this.logs.get(sid)!.length}`;
         this.setStatus(sid, "working");
-        this.emit(sid, { type: "TurnStarted", turn_id: turn, text: cmd.text });
+        const attachments = (cmd.attachments ?? []).map((a) => this.storeAttachment(a));
+        this.emit(sid, { type: "TurnStarted", turn_id: turn, text: cmd.text, attachments });
         const words = `You said: **${cmd.text}**. This is a mock reply.\n\n- streamed\n- in chunks`.split(/(?<= )/);
         words.forEach((w, i) => setTimeout(() => this.emit(sid, { type: "AgentMessageChunk", text: w }), 60 * (i + 1)));
         const end = 60 * (words.length + 1);

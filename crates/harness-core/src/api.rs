@@ -149,6 +149,9 @@ pub enum Command {
         session_id: SessionId,
         thread_id: Option<ThreadId>,
         text: String,
+        /// Sent after `text`, in order. `text` may be empty when there are attachments.
+        #[serde(default)]
+        attachments: Vec<AttachmentInput>,
     },
     Cancel {
         session_id: SessionId,
@@ -197,6 +200,38 @@ pub enum Command {
         thread_id: Option<ThreadId>,
         mode_id: String,
     },
+    /// Reads a stored attachment (base64). Only files in the Session Directory's `attachments/`.
+    ReadAttachment {
+        session_id: SessionId,
+        path: String,
+    },
+}
+
+/// A file given with a prompt.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AttachmentInput {
+    /// A file on disk. Images are copied into the Session; other files are referenced in place.
+    Path { path: String },
+    /// Pasted bytes, stored in the Session. `data` is base64 (standard alphabet, no `data:` prefix).
+    Data { name: String, mime: String, data: String },
+}
+
+/// An attachment as sent with a Turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Attachment {
+    pub name: String,
+    pub mime: String,
+    /// Absolute path: the stored copy in `attachments/`, or the original file.
+    pub path: String,
+    pub kind: AttachmentKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentKind {
+    Image,
+    File,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -221,6 +256,8 @@ pub enum CommandResult {
     Files { files: Vec<String> },
     PermissionRules { rules: Vec<PermissionRule> },
     PermissionRuleAdded { rule: PermissionRule },
+    /// `data` is base64.
+    Attachment { mime: String, data: String },
 }
 
 /// A Permission Policy rule. The narrowest matching scope wins, then the more specific rule
@@ -489,9 +526,16 @@ pub enum EventKind {
         state: ProcessState,
         message: Option<String>,
     },
+    /// What the Agent accepts in prompts, from its `initialize` answer.
+    AgentCapabilities {
+        image: bool,
+        embedded_context: bool,
+    },
     TurnStarted {
         turn_id: TurnId,
         text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<Attachment>,
     },
     TurnEnded {
         turn_id: TurnId,

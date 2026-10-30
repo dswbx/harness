@@ -101,7 +101,7 @@ fn events(h: &Harness, sid: &str) -> Vec<Event> {
 /// Sends `text`, answering permission prompts with `answer`, and returns the Agent's reply.
 async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.unwrap();
     let mut answered = std::collections::HashSet::new();
     for _ in 0..800 {
         let evs = events(h, sid);

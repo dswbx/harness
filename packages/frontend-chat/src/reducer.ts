@@ -1,5 +1,5 @@
 import { jsonRenderSchema, JSON_RENDER, type JsonRenderInput } from "./tools";
-import type { AuthMethodInfo, Event, FileChange, PermissionOption, PermissionRule, SlashCommand, TaskEntry } from "@harness/api";
+import type { Attachment, AuthMethodInfo, Event, FileChange, PermissionOption, PermissionRule, SlashCommand, TaskEntry } from "@harness/api";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
 
@@ -17,7 +17,7 @@ export type ConfigOption = {
 
 export type Item =
   /** `ts`: ms epoch of the message's first Event. */
-  | { type: "user"; id: string; text: string; ts: number }
+  | { type: "user"; id: string; text: string; ts: number; attachments: Attachment[] }
   /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
   | { type: "agent"; id: string; text: string; ts: number; durationMs?: number }
   | { type: "thought"; id: string; text: string; ts: number }
@@ -90,6 +90,8 @@ export type ChatState = {
   lastTurnErrored: boolean;
   /** The Session is archived: prompting is disabled until it is unarchived. */
   archived: boolean;
+  /** What the Agent accepts in a prompt; null until its process has started. */
+  promptCaps: { image: boolean; embeddedContext: boolean } | null;
 };
 
 export const initialState = (): ChatState => ({
@@ -106,6 +108,7 @@ export const initialState = (): ChatState => ({
   readOnly: false,
   lastTurnErrored: false,
   archived: false,
+  promptCaps: null,
 });
 
 /** Plan Mode approval: a permission request for a `switch_mode` tool call carrying a plan. */
@@ -201,7 +204,10 @@ function apply(c: Ctx, e: Event) {
       d.turnId = k.turn_id;
       d.turnStartedAt = e.ts_ms;
       d.lastTurnErrored = false;
-      push(c, { type: "user", id, text: k.text, ts: e.ts_ms });
+      push(c, { type: "user", id, text: k.text, ts: e.ts_ms, attachments: k.attachments ?? [] });
+      return;
+    case "AgentCapabilities":
+      d.promptCaps = { image: k.image, embeddedContext: k.embedded_context };
       return;
     case "TurnEnded":
       if (d.turnStartedAt !== null) stampDuration(c, e.ts_ms - d.turnStartedAt);

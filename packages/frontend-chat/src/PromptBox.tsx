@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import { ArrowUp, MessageSquare, Square, X } from "lucide-react";
-import type { SessionApi, SlashCommand } from "@harness/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, FileText, MessageSquare, Paperclip, Square, X } from "lucide-react";
+import { onFileDrop, pickFiles, type SessionApi, type SlashCommand } from "@harness/api";
 import { Button, Tooltip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
@@ -8,7 +8,37 @@ import { lineCount } from "./promptMarkdown";
 import { matchCommands } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
+import { fromFile, fromPath, type PendingAttachment } from "./attachments";
 import { getReviewComments, removeReviewComment, setReviewComments, useReviewComments, withReviewComments, type ReviewComment } from "./reviewComments";
+
+/** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
+function AttachmentChips({ items, onRemove }: { items: PendingAttachment[]; onRemove: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pb-2" aria-label="Attachments">
+      {items.map((a) => (
+        <Tooltip key={a.id} content={a.input.type === "path" ? a.input.path : a.name}>
+          <span className="group/att relative flex max-w-56 items-center gap-1.5 rounded-md border bg-muted text-xs">
+            {a.preview ? (
+              <img src={a.preview} alt={a.name} className="size-12 rounded-md object-cover" />
+            ) : (
+              <span className="flex min-w-0 items-center gap-1.5 py-1 pl-1.5 pr-6">
+                <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{a.name}</span>
+              </span>
+            )}
+            <button
+              className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/att:opacity-100"
+              aria-label={`Remove ${a.name}`}
+              onClick={() => onRemove(a.id)}
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
 
 /** Review comments from the diff views, sent with the next prompt. */
 function CommentChips({ sessionId, comments }: { sessionId: string; comments: ReviewComment[] }) {
@@ -80,20 +110,58 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const [error, setError] = useState<string | null>(null);
   const readOnly = state.readOnly;
   const comments = useReviewComments(api.sessionId);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const caps = state.promptCaps;
+
+  const addAttachments = (items: PendingAttachment[]) => {
+    if (caps && !caps.image && items.some((a) => a.kind === "image")) {
+      setError("This Agent does not accept images.");
+      items = items.filter((a) => a.kind !== "image");
+    }
+    if (items.length) setAttachments((cur) => [...cur, ...items]);
+  };
+  const addFiles = (files: File[]) => {
+    Promise.all(files.map(fromFile)).then(addAttachments, (err) => setError(errorMessage(err)));
+  };
+  const attach = async () => {
+    const paths = await pickFiles();
+    if (paths === null) fileInput.current?.click();
+    else addAttachments(paths.map(fromPath));
+  };
+  // Tauri delivers file drops as paths to the window (no HTML5 drop); any drop on this window lands here.
+  const addRef = useRef(addAttachments);
+  addRef.current = addAttachments;
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let gone = false;
+    void onFileDrop((e) => {
+      setDragging(e.type === "over");
+      if (e.type === "drop") addRef.current(e.paths.map(fromPath));
+    }).then((u) => (gone ? u?.() : (off = u)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  }, []);
 
   // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
   const send = () => {
     const ed = ref.current;
     const t = ed?.getMarkdown().trim() ?? "";
     const sent = getReviewComments(api.sessionId);
-    if (!ed || (!t && sent.length === 0) || readOnly) return;
+    const files = attachments;
+    if (!ed || (!t && sent.length === 0 && files.length === 0) || readOnly) return;
     const snap = ed.snapshot();
     ed.clear();
     setReviewComments(api.sessionId, []);
+    setAttachments([]);
     setError(null);
-    api.prompt(withReviewComments(t, sent)).catch((err) => {
+    api.prompt(withReviewComments(t, sent), files.map((a) => a.input)).catch((err) => {
       setError(errorMessage(err));
       ref.current?.restore(snap);
+      setAttachments((cur) => [...files, ...cur]);
       // Put them back ahead of any added since.
       setReviewComments(api.sessionId, [...sent, ...getReviewComments(api.sessionId)]);
     });
@@ -144,7 +212,30 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           {error}
         </div>
       )}
-      <div className="rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm">
+      <div
+        className={cn("rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm transition-colors", dragging && "border-ring bg-accent/40")}
+        onPasteCapture={(e) => {
+          const files = [...e.clipboardData.files];
+          if (!files.length) return;
+          e.preventDefault();
+          e.stopPropagation();
+          addFiles(files);
+        }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          setDragging(false);
+          addFiles([...e.dataTransfer.files]);
+        }}
+      >
+        <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles([...(e.target.files ?? [])]); e.target.value = ""; }} />
+        {attachments.length > 0 && <AttachmentChips items={attachments} onRemove={(id) => setAttachments((cur) => cur.filter((a) => a.id !== id))} />}
         {comments.length > 0 && <CommentChips sessionId={api.sessionId} comments={comments} />}
         <PromptEditor
           ref={ref}
@@ -164,6 +255,17 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           onOverflowChange={setOverflow}
         />
         <div className="flex flex-wrap items-center gap-1 pt-1">
+          <Tooltip content="Attach files or images">
+            <button
+              type="button"
+              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              aria-label="Attach files or images"
+              disabled={readOnly}
+              onClick={() => void attach().catch((err) => setError(errorMessage(err)))}
+            >
+              <Paperclip className="size-4" />
+            </button>
+          </Tooltip>
           <ConfigBar
             options={state.configOptions}
             onChange={(id, value) => {
@@ -181,7 +283,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
               </Button>
             </Tooltip>
           ) : (
-            <Button size="icon" className="size-8 rounded-full" disabled={(!text.trim() && comments.length === 0) || readOnly} onClick={send} aria-label="Send">
+            <Button size="icon" className="size-8 rounded-full" disabled={(!text.trim() && comments.length === 0 && attachments.length === 0) || readOnly} onClick={send} aria-label="Send">
               <ArrowUp />
             </Button>
           )}

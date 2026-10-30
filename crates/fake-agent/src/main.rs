@@ -8,12 +8,14 @@
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
 //! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
+//! - a prompt with non-text blocks first answers "blocks: <kinds>" (e.g. `text,image,resource_link`)
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
 //! replays one message chunk ("replayed") before answering. `--no-http-mcp` makes the Harness
 //! use the stdio shim. `--auth` advertises an agent auth
 //! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
-//! `auth_required` until `authenticate(login)` succeeds.
+//! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
+//! embedded-context prompt capabilities.
 
 use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::schema::ProtocolVersion;
@@ -103,6 +105,7 @@ async fn main() -> agent_client_protocol::Result<()> {
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");
     let no_http_mcp = args.iter().any(|a| a == "--no-http-mcp");
+    let images = args.iter().any(|a| a == "--images");
     let authed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!auth));
     let authed_new = authed.clone();
     // Ids stay unique across processes so a restarted agent never reuses one.
@@ -115,7 +118,8 @@ async fn main() -> agent_client_protocol::Result<()> {
                 let _ = ProtocolVersion::V1;
                 let mut caps = AgentCapabilities::new()
                     .load_session(load)
-                    .mcp_capabilities(McpCapabilities::new().http(!no_http_mcp));
+                    .mcp_capabilities(McpCapabilities::new().http(!no_http_mcp))
+                    .prompt_capabilities(PromptCapabilities::new().image(images).embedded_context(images));
                 if resume {
                     caps = caps.session_capabilities(SessionCapabilities::new().resume(SessionResumeCapabilities::new()));
                 }
@@ -192,6 +196,20 @@ async fn main() -> agent_client_protocol::Result<()> {
                         .filter_map(|b| match b { ContentBlock::Text(t) => Some(t.text.clone()), _ => None })
                         .collect::<Vec<_>>()
                         .join(" ");
+                    if req.prompt.iter().any(|b| !matches!(b, ContentBlock::Text(_))) {
+                        let kinds: Vec<&str> = req
+                            .prompt
+                            .iter()
+                            .map(|b| match b {
+                                ContentBlock::Text(_) => "text",
+                                ContentBlock::Image(_) => "image",
+                                ContentBlock::ResourceLink(_) => "resource_link",
+                                ContentBlock::Resource(_) => "resource",
+                                _ => "other",
+                            })
+                            .collect();
+                        update(&cx, &sid, text(&format!("blocks: {}\n", kinds.join(","))))?;
+                    }
                     if prompt.contains("<context>") {
                         update(&cx, &sid, text("seeded"))?;
                     }

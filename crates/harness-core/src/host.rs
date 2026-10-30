@@ -178,9 +178,13 @@ impl Harness {
                 self.sessions.write().unwrap().insert(id.clone(), Arc::new(session));
                 CommandResult::SessionCreated { session_id: id }
             }
-            Command::Prompt { session_id, thread_id, text } => {
-                self.session(&session_id)?.prompt(thread_id, text).await?;
+            Command::Prompt { session_id, thread_id, text, attachments } => {
+                self.session(&session_id)?.prompt(thread_id, text, attachments).await?;
                 CommandResult::Ok
+            }
+            Command::ReadAttachment { session_id, path } => {
+                let (mime, data) = self.session(&session_id)?.read_attachment(&path)?;
+                CommandResult::Attachment { mime, data }
             }
             Command::Cancel { session_id, thread_id } => {
                 self.session(&session_id)?.cancel(thread_id).await?;

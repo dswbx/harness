@@ -3,6 +3,7 @@
 mod acp;
 pub mod agents;
 pub mod api;
+mod attachments;
 mod env;
 pub mod host;
 pub mod library;

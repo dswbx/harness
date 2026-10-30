@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use crate::api::{
-    Boundary, Decision, EventKind, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
+    AttachmentInput, Boundary, Decision, EventKind, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
     SessionStatus, SlashCommand, TaskEntry, ThreadId,
 };
 use crate::session::Session;
@@ -268,8 +268,9 @@ impl AgentConn {
 }
 
 /// Starts a Turn: ensures the Agent process and the Thread's Agent Session, then sends the prompt
-/// in the background. Returns once the Turn has started.
-pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String) -> anyhow::Result<()> {
+/// in the background. Returns once the Turn has started. Attachments are checked first: a rejected
+/// one fails the prompt before any Turn is logged.
+pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attachments: Vec<AttachmentInput>) -> anyhow::Result<()> {
     let meta = session.meta();
     anyhow::ensure!(!meta.archived, "this Session is archived; unarchive it first");
     anyhow::ensure!(
@@ -294,11 +295,15 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String) -> an
         session.log().sync()?;
         anyhow::bail!("{reason} The Thread is read-only; continue it with a summary.");
     };
+    let caps = &conn.init.agent_capabilities.prompt_capabilities;
+    let attachments = crate::attachments::resolve(session.dir(), &folder, &meta.agent.name, caps, attachments)?;
+    crate::attachments::store(&attachments)?;
     let seed = session.update_meta(|m| m.seeds.remove(&thread))?;
     let turn_id = uuid::Uuid::now_v7().to_string();
     session.log().append(Some(thread.clone()), EventKind::TurnStarted {
         turn_id: turn_id.clone(),
         text: text.clone(),
+        attachments: attachments.iter().map(|a| a.attachment.clone()).collect(),
     })?;
     let slot = session.agent_slot();
     slot.update(&session, |s| *s.turns.entry(thread.clone()).or_default() += 1);
@@ -307,7 +312,10 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String) -> an
         if let Some(seed) = seed {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!("<context>\n{seed}\n</context>"))));
         }
-        blocks.push(acp::ContentBlock::Text(acp::TextContent::new(text)));
+        if !text.is_empty() || attachments.is_empty() {
+            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(text)));
+        }
+        blocks.extend(attachments.into_iter().map(|a| a.block));
         let request = acp::PromptRequest::new(acp_session, blocks);
         let stop_reason = match conn.cx.send_request(request).block_task().await {
             Ok(r) => enum_str(&r.stop_reason),
@@ -712,6 +720,8 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
         }
     };
     log(EventKind::AgentProcessState { state: ProcessState::Ready, message: None });
+    let prompt_caps = &init.agent_capabilities.prompt_capabilities;
+    log(EventKind::AgentCapabilities { image: prompt_caps.image, embedded_context: prompt_caps.embedded_context });
     let methods = init.auth_methods.iter().filter_map(|m| serde_json::to_value(m).ok()).collect();
     session.agent_slot().state.lock().unwrap().auth_methods = methods;
     Ok(Arc::new(AgentConn {

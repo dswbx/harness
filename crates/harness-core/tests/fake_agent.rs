@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_core::api::{
-    AgentInfo, Boundary, Command, CommandResult, Decision, Event, EventKind, FrontendManifest, NewPermissionRule, Resolver, RuleScope,
+    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, FrontendManifest, NewPermissionRule, Resolver, RuleScope,
     ProcessState, SessionStatus,
 };
 use harness_core::Harness;
@@ -89,7 +89,7 @@ fn kinds(events: &[Event]) -> Vec<String> {
 async fn turn_streams_into_session_log() {
     let (h, sid, _dir) = setup().await;
     let (all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "use a tool".into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "use a tool".into(), attachments: vec![] }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     let k = kinds(&all.lock().unwrap());
     for expected in ["SessionCreated", "ThreadStarted", "AgentSessionStarted", "TurnStarted", "AgentMessageChunk", "TaskListUpdated", "ToolCall", "ToolCallUpdate", "TurnEnded"] {
@@ -108,7 +108,7 @@ async fn title_of(h: &Harness) -> String {
 async fn agent_title_becomes_session_title() {
     let (h, sid, dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![] }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     assert_eq!(title_of(&h).await, "Fake title");
     drop(h);
@@ -127,7 +127,7 @@ async fn agent_title_becomes_session_title() {
 async fn permission_first_answer_wins_and_late_view_replays() {
     let (h, sid, _dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     assert_eq!(status_of(&h).await, SessionStatus::NeedsAttention);
@@ -163,7 +163,7 @@ fn rule(scope: RuleScope, pattern: &str, decision: Decision) -> Command {
 async fn permission_turn(h: &Harness, sid: &str) -> (Resolver, Option<String>, String) {
     let (_all, mut rx) = collect(h, sid);
     let start = _all.lock().unwrap().len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
     // Skip the replayed history of earlier Turns.
     for _ in 0..start {
         rx.recv().await.unwrap();
@@ -196,7 +196,7 @@ async fn policy_rules_answer_without_a_view() {
 async fn always_allow_is_remembered_for_the_session() {
     let (h, sid, _dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()) }).await.unwrap();
@@ -229,8 +229,12 @@ fn events(h: &Harness, sid: &str) -> Vec<Event> {
 
 /// Prompts and waits for the Turn's end; returns its stop reason.
 async fn turn(h: &Harness, sid: &str, thread_id: Option<String>, text: &str) -> String {
+    turn_with(h, sid, thread_id, text, vec![]).await
+}
+
+async fn turn_with(h: &Harness, sid: &str, thread_id: Option<String>, text: &str, attachments: Vec<AttachmentInput>) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into(), attachments }).await.unwrap();
     for _ in 0..400 {
         let evs = events(h, sid);
         if let Some(EventKind::TurnEnded { stop_reason, .. }) =
@@ -287,7 +291,7 @@ async fn no_continuation_makes_the_thread_read_only_until_continued_with_summary
     let (h, sid, dir) = setup().await;
     turn(&h, &sid, None, "remember the word banana").await;
     let h2 = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
-    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into() };
+    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![] };
     assert!(h2.execute(prompt("again")).await.is_err());
     assert!(h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { .. })));
     assert!(h2.execute(prompt("still?")).await.is_err(), "stays read-only");
@@ -433,7 +437,7 @@ async fn agent_that_fails_to_start_reports_its_stderr() {
         mcp_servers: vec![],
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
-    let err = h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "hi".into() }).await.unwrap_err();
+    let err = h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.unwrap_err();
     assert!(err.contains("exited during startup") && err.contains("config missing: API_KEY"), "{err}");
     assert!(h_events(&h, &session_id).iter().any(|k| matches!(k,
         EventKind::AgentProcessState { state: ProcessState::Failed, message: Some(m) } if m.contains("config missing"))));
@@ -460,7 +464,7 @@ async fn app_events_announce_list_changes_and_attention() {
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
     let (_all, mut rx) = collect(&h, &session_id);
-    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "needs permission".into() }).await.unwrap();
+    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     until(&mut rx, |k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })).await;
@@ -513,10 +517,90 @@ async fn warm_up_racing_the_first_prompt_opens_one_agent_session() {
     let (h, sid, _dir) = setup().await;
     let (a, b) = tokio::join!(
         h.execute(Command::WarmUp { session_id: sid.clone() }),
-        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into() })
+        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] })
     );
     a.unwrap();
     b.unwrap();
     assert_eq!(turn(&h, &sid, None, "again").await, "end_turn");
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
+}
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn turn_attachments(h: &Harness, sid: &str) -> Vec<Attachment> {
+    h_events(h, sid)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::TurnStarted { attachments, .. } => Some(attachments),
+            _ => None,
+        })
+        .next_back()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pasted_image_is_stored_and_sent() {
+    let (h, sid, dir) = setup_with(&["--images"], Duration::from_secs(900)).await;
+    let png = b"\x89PNG fake".to_vec();
+    let image = AttachmentInput::Data { name: "my shot.png".into(), mime: "image/png".into(), data: b64(&png) };
+    assert_eq!(turn_with(&h, &sid, None, "look", vec![image]).await, "end_turn");
+    assert!(h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentCapabilities { image: true, embedded_context: true })));
+
+    let [a] = &turn_attachments(&h, &sid)[..] else { panic!() };
+    assert_eq!((a.name.as_str(), a.mime.as_str(), a.kind), ("my shot.png", "image/png", AttachmentKind::Image));
+    let stored = std::path::Path::new(&a.path);
+    let attachments_dir = dir.path().join("data/sessions").join(&sid).join("attachments").canonicalize().unwrap();
+    assert_eq!(stored.parent().unwrap(), attachments_dir);
+    assert!(a.path.ends_with("-my_shot.png"), "{}", a.path);
+    assert_eq!(std::fs::read(stored).unwrap(), png);
+    assert!(texts(&h, &sid).iter().any(|t| t.starts_with("blocks: text,image")), "{:?}", texts(&h, &sid));
+
+    let read = |path: String| h.execute(Command::ReadAttachment { session_id: sid.clone(), path });
+    let CommandResult::Attachment { mime, data } = read(a.path.clone()).await.unwrap() else { panic!() };
+    assert_eq!((mime.as_str(), data), ("image/png", b64(&png)));
+    std::fs::write(dir.path().join("secret.txt"), "x").unwrap();
+    assert!(read(dir.path().join("secret.txt").display().to_string()).await.is_err());
+    assert!(read(format!("{}/../session.json", attachments_dir.display())).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn image_is_refused_when_the_agent_does_not_accept_images() {
+    let (h, sid, dir) = setup().await;
+    let image = AttachmentInput::Data { name: "a.png".into(), mime: "image/png".into(), data: b64(b"png") };
+    let err = h
+        .execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "look".into(), attachments: vec![image] })
+        .await
+        .unwrap_err();
+    assert!(err.contains("Fake does not accept images."), "{err}");
+    assert!(!h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::TurnStarted { .. })));
+    assert!(!dir.path().join("data/sessions").join(&sid).join("attachments").exists());
+    assert!(h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentCapabilities { image: false, .. })));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_are_linked_inside_the_folder_and_embedded_outside() {
+    let (h, sid, dir) = setup_with(&["--images"], Duration::from_secs(900)).await;
+    let inside = dir.path().join("notes.md");
+    std::fs::write(&inside, "# notes").unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let outside = other.path().join("ext.txt");
+    std::fs::write(&outside, "outside").unwrap();
+    let inputs = [&inside, &outside].map(|p| AttachmentInput::Path { path: p.display().to_string() }).to_vec();
+    assert_eq!(turn_with(&h, &sid, None, "", inputs).await, "end_turn");
+    assert!(texts(&h, &sid).iter().any(|t| t.starts_with("blocks: resource_link,resource")), "{:?}", texts(&h, &sid));
+    let got = turn_attachments(&h, &sid);
+    let paths: Vec<String> = [&inside, &outside].map(|p| p.canonicalize().unwrap().display().to_string()).to_vec();
+    assert_eq!(got.iter().map(|a| a.path.clone()).collect::<Vec<_>>(), paths, "files are not copied");
+    assert!(got.iter().all(|a| a.kind == AttachmentKind::File));
+    assert_eq!(got[0].mime, "text/markdown");
+
+    let missing = AttachmentInput::Path { path: dir.path().join("nope.txt").display().to_string() };
+    let err = h
+        .execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "x".into(), attachments: vec![missing] })
+        .await
+        .unwrap_err();
+    assert!(err.contains("nope.txt"), "{err}");
 }

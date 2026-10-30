@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     let from_seq = count.load(std::sync::atomic::Ordering::SeqCst);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
     h.subscribe_session(&session_id, from_seq, Box::new(move |e: &Event| tx.send(e.clone()).is_ok())).map_err(anyhow::Error::msg)?;
-    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: prompt }).await.map_err(anyhow::Error::msg)?;
+    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: prompt, attachments: vec![] }).await.map_err(anyhow::Error::msg)?;
     loop {
         let Ok(Some(e)) = tokio::time::timeout(Duration::from_secs(180), rx.recv()).await else { break };
         let line = serde_json::to_string(&e.kind)?;

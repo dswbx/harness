@@ -1,5 +1,5 @@
 import type {
-  AgentInfo, AppEvent, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule,
+  AgentInfo, AppEvent, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule,
   SessionSummary, WorkspaceInfo,
 } from "./generated";
 import type { Transport, Unsubscribe } from "./transport";
@@ -9,7 +9,10 @@ export interface SessionApi {
   sessionId: string;
   /** Replays from `fromSeq`, then live. Returns an unsubscribe function. */
   subscribe(onEvent: (e: Event) => void, fromSeq?: number): Promise<Unsubscribe>;
-  prompt(text: string): Promise<void>;
+  /** `attachments`: files by path (picker, drop) or pasted bytes (base64). */
+  prompt(text: string, attachments?: AttachmentInput[]): Promise<void>;
+  /** A stored attachment (`attachments/` in the Session Directory) as base64. */
+  readAttachment(path: string): Promise<{ mime: string; data: string }>;
   cancel(): Promise<void>;
   /** Starts the Agent in the background so its models and modes show before the first prompt. */
   warmUp(): Promise<void>;
@@ -58,7 +61,11 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
   return {
     sessionId,
     subscribe: (onEvent, fromSeq = 0) => transport.subscribe(sessionId, fromSeq, onEvent),
-    prompt: (text) => run({ type: "Prompt", session_id: sessionId, thread_id: null, text }),
+    prompt: (text, attachments = []) => run({ type: "Prompt", session_id: sessionId, thread_id: null, text, attachments }),
+    readAttachment: async (path) => {
+      const r = await expect({ type: "ReadAttachment", session_id: sessionId, path }, "Attachment");
+      return { mime: r.mime, data: r.data };
+    },
     continueWithSummary: (text) => run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: null, text }),
     cancel: () => run({ type: "Cancel", session_id: sessionId, thread_id: null }),
     warmUp: () => run({ type: "WarmUp", session_id: sessionId }),
