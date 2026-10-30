@@ -44,7 +44,11 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
             description: "Render a card".into(),
             input_schema: serde_json::json!({
                 "type": "object",
-                "properties": { "title": { "type": "string" }, "items": { "type": "array", "items": { "type": "string" } } },
+                "properties": {
+                    "title": { "type": "string" },
+                    "items": { "type": "array", "items": { "type": "string" } },
+                    "image": { "type": "string", "format": "harness-image" }
+                },
                 "required": ["title"],
                 "additionalProperties": false
             }),
@@ -168,17 +172,28 @@ async fn frontend_tool_is_validated_and_stored() {
     assert!(bad.starts_with("mcp error: invalid input for json_render"), "{bad}");
     assert!(bad.contains("title"), "names the missing property: {bad}");
 
-    let ok = ask(&h, &sid, r#"mcp json_render {"title":"Hi","items":["x"]}"#, None).await;
+    let missing = ask(&h, &sid, r#"mcp json_render {"title":"Hi","image":"nope.png"}"#, None).await;
+    assert!(missing.starts_with("mcp error: nope.png"), "{missing}");
+
+    std::fs::write(dir.path().join("shot.png"), b"png").unwrap();
+    let ok = ask(&h, &sid, r#"mcp json_render {"title":"Hi","items":["x"],"image":"shot.png"}"#, None).await;
     assert!(ok.starts_with("mcp: Done."), "{ok}");
-    let (path, input) = events(&h, &sid)
+    let (path, input, files) = events(&h, &sid)
         .into_iter()
         .find_map(|e| match e.kind {
-            EventKind::FrontendToolOutput { path, input, .. } => Some((path, input)),
+            EventKind::FrontendToolOutput { path, input, files, .. } => Some((path, input, files)),
             _ => None,
         })
         .expect("FrontendToolOutput");
     assert_eq!(input["title"], "Hi");
+    assert_eq!(input["image"], "shot.png", "the input stays as the Agent sent it");
     assert!(path.starts_with("tools/json_render/") && path.ends_with(".json"));
+    let copy = files.get("shot.png").expect("copied image").clone();
+    let CommandResult::Attachment { mime, data } =
+        h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: copy.clone() }).await.unwrap()
+    else { panic!() };
+    assert_eq!((mime.as_str(), data.as_str()), ("image/png", "cG5n"));
+    assert!(h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: path.clone() }).await.is_err(), "not an image");
 
     let CommandResult::FileContent { content } =
         h.execute(Command::FrontendRead { session_id: sid.clone(), path: path.clone() }).await.unwrap()
@@ -186,7 +201,7 @@ async fn frontend_tool_is_validated_and_stored() {
     assert_eq!(serde_json::from_str::<serde_json::Value>(&content).unwrap()["title"], "Hi");
     let CommandResult::Files { files } = h.execute(Command::FrontendList { session_id: sid.clone(), dir: String::new() }).await.unwrap()
     else { panic!() };
-    assert_eq!(files, vec![path]);
+    assert_eq!(files, vec![copy, path]);
     h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "state/view.json".into(), content: "{}".into() }).await.unwrap();
     assert!(h.execute(Command::FrontendRead { session_id: sid.clone(), path: "../session.json".into() }).await.is_err());
     assert!(h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "/tmp/x".into(), content: "".into() }).await.is_err());
@@ -260,14 +275,26 @@ async fn server_refuses_missing_tokens_and_browser_origins() {
     assert_eq!(code(&["-H", "Origin: http://evil.example"]), "403");
 }
 
-/// The chat Frontend's manifest is generated from jsonv-ts; the core's validator must accept it.
+/// The chat Frontend's manifest is generated from jsonv-ts; the core's validator must accept it and
+/// its errors must tell an Agent what to fix.
 #[test]
 fn generated_chat_manifest_validates_in_core() {
+    use serde_json::json;
     let manifest: FrontendManifest =
         serde_json::from_str(include_str!("../../../packages/frontend-chat/manifest.json")).unwrap();
-    let tool = manifest.frontend_tools.iter().find(|t| t.name == "json_render").expect("json_render");
-    let v = jsonschema::validator_for(&tool.input_schema).unwrap();
-    assert!(v.is_valid(&serde_json::json!({ "title": "Done", "tone": "success", "items": [{ "label": "Files", "value": "3" }] })));
-    assert!(!v.is_valid(&serde_json::json!({ "body": "no title" })));
-    assert!(!v.is_valid(&serde_json::json!({ "title": "x", "tone": "loud" })));
+    let tool = manifest.frontend_tools.iter().find(|t| t.name == "render_ui").expect("render_ui");
+    let v = jsonschema::options().with_format("harness-image", |_: &str| true).should_validate_formats(true).build(&tool.input_schema).unwrap();
+    let errors = |i: serde_json::Value| v.iter_errors(&i).map(|e| format!("{}: {e}", e.instance_path)).collect::<Vec<_>>().join("\n");
+    assert_eq!(errors(json!({ "root": { "type": "Stack", "children": [
+        { "type": "Card", "props": { "title": "Done", "tone": "success" }, "children": [{ "type": "Markdown", "props": { "text": "ok" } }] },
+        { "type": "Carousel", "props": { "images": [{ "src": "a.png", "alt": "A" }] } }
+    ] } })), "");
+    let e = errors(json!({ "root": { "type": "Stack", "children": [{ "type": "Image", "props": { "alt": "x" } }] } }));
+    assert!(e.contains("/root/children/0/props") && e.contains("\"src\" is a required property"), "{e}");
+    let e = errors(json!({ "root": { "type": "Badge", "props": { "text": "x", "tone": "loud" } } }));
+    assert!(e.contains("/root/props/tone"), "{e}");
+    let e = errors(json!({ "root": { "type": "Nope" } }));
+    assert!(e.contains("/root/type"), "{e}");
+    let e = errors(json!({ "root": { "type": "Markdown", "props": { "text": "x" }, "children": [{ "type": "Markdown", "props": { "text": "y" } }] } }));
+    assert!(e.contains("/root/children"), "{e}");
 }

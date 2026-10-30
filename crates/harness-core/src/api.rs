@@ -93,6 +93,11 @@ pub enum Command {
         session_id: SessionId,
         path: String,
     },
+    /// An image in `frontend/` (base64), e.g. one a Frontend Tool call named.
+    FrontendReadImage {
+        session_id: SessionId,
+        path: String,
+    },
     FrontendWrite {
         session_id: SessionId,
         path: String,
@@ -718,6 +723,10 @@ pub enum EventKind {
         path: String,
         #[specta(type = specta_typescript::Unknown)]
         input: Json,
+        /// Local images the input names (`"format": "harness-image"`): src as given -> the copy,
+        /// relative to `frontend/`. Read them with `FrontendReadImage`.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        files: std::collections::BTreeMap<String, String>,
     },
     GitCommitted {
         commit: String,

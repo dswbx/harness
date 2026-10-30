@@ -229,7 +229,7 @@ const Row = memo(function Row({ item, api, onOpenDiff, subagent, streaming }: {
         </details>
       );
     case "frontend_tool":
-      return <FrontendToolRow item={item} />;
+      return <FrontendToolRow item={item} api={api} />;
     case "tool":
       return subagent ? <SubagentCard task={item} subagent={subagent} /> : <ToolCard tool={item} />;
     case "permission":

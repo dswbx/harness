@@ -10,7 +10,7 @@ Vocabulary: [GLOSSARY.md](GLOSSARY.md). Decisions: [docs/adr/](docs/adr/). Plan 
 - **Sessions with Workspaces.** Pick a folder, optionally a branch and a new Worktree (`harness/<slug>-<id>`). The Session tracks per-Turn file changes and has a diff panel with commit and push. Archiving a Worktree Session commits its WIP and removes the Worktree; deleting refuses unmerged work unless forced.
 - **Durable Session Log.** Every Session is an append-only JSONL log. Any number of Views (windows) replay and follow it live and render identically. Agent processes stop when idle, resume after restarts and crashes, and continue with a summary when an Agent can't resume.
 - **Permission Policy.** Rules by scope (global, Agent, Session), tool kind, and command prefix or path glob. "Always allow" becomes a Session rule. Plan approvals always ask.
-- **Harness MCP.** Agents get the git Primitives and their Frontend's tools (e.g. `json_render`) over a loopback MCP server with per-session tokens. Agents without HTTP MCP use a stdio shim (`harness mcp-shim`). Your own MCP servers live in the MCP Library, with secrets in the Keychain.
+- **Harness MCP.** Agents get the git Primitives and their Frontend's tools (e.g. `render_ui`) over a loopback MCP server with per-session tokens. Agents without HTTP MCP use a stdio shim (`harness mcp-shim`). Your own MCP servers live in the MCP Library, with secrets in the Keychain.
 - **macOS niceties.** A dock badge and notifications when a Session needs you, and Sessions open in separate windows.
 
 ## Run

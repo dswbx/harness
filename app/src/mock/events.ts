@@ -1,4 +1,4 @@
-import type { Event, EventKind } from "@harness/api";
+import { mockImage, mockRenderUi, type Event, type EventKind } from "@harness/api";
 import codexLog from "../../../packages/frontend-chat/src/fixtures/codex-basic.jsonl?raw";
 
 /** Recorded Codex log plus a synthetic tail (task list, diff, plan approval) so the whole chat UI is exercisable. */
@@ -19,8 +19,8 @@ export function mockEvents(): Event[] {
     ev({ type: "ToolCall", tool_call_id: "mock-edit", title: "Editing files", kind: "edit", status: "completed",
       content: [{ type: "diff", path: "hello.txt", oldText: "hi\nthere", newText: "hello\nthere\nworld" }], locations: [], raw_input: { path: "hello.txt" } }),
     ev({ type: "ToolCall", tool_call_id: "mock-harness", title: "mcp__harness__git_status", kind: "other", status: "completed", content: [], locations: [], raw_input: {} }),
-    ev({ type: "FrontendToolOutput", tool: "json_render", call_id: "mock-card", path: "json_render/mock-card.json",
-      input: { title: "Rename done", body: "`hello.txt` is now **hello**.", items: [{ label: "Files", value: "1" }], tone: "success" } }),
+    ev({ type: "FrontendToolOutput", tool: "render_ui", call_id: "mock-card", path: "tools/render_ui/mock-card.json",
+      input: mockRenderUi([0, 1, 2].map((i) => `data:image/svg+xml;base64,${btoa(mockImage(`Screenshot ${i + 1}`, 200 + i * 60))}`)) }),
     ev({ type: "AgentMessageChunk", text: "Renamed. Here is a **plan** next." }),
     ev({ type: "PermissionRequested", request_id: "mock-push",
       tool_call: { toolCallId: "push:1", kind: "git_push", title: "mcp__harness__git_push", rawInput: {} },

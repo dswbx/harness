@@ -1,0 +1,11 @@
+# render_ui: our own component catalog, not json-render or HTML
+
+Agents show rich content (cards, tables, images, carousels) with one chat Frontend Tool, `render_ui`. Its input is a tree of nodes `{ type, props, children? }` from a fixed component catalog (`packages/frontend-chat/src/tools.ts`). We add components when a real case needs them.
+
+**Why a catalog and not agent HTML (`render_html`):** the app renders each component, so theme, dark mode and sizes match the rest of the app. The core can validate the input and give the Agent exact errors. The log stores data, so better components also improve old Sessions, and a non-web Frontend could render the same tree. It costs fewer tokens, and no Agent script runs in the app. `render_html` (sandboxed iframe) stays a later option, only for content the catalog cannot show.
+
+**Why not the json-render library:** its value is the catalog idea, which we keep, in its node shape. The library also brings state, actions, visibility rules and a streaming patch format (about 1.8 MB of zod-based code). We need none of these: a tool call arrives complete, and our schemas are jsonv-ts and JSON Schema in the core. Revisit if we need interactive components (buttons that act, forms).
+
+**Schema shape:** one recursive node in `$defs`; `type` picks the props schema with `if`/`then`, so core errors name the wrong prop (`/root/children/0/props: "src" is a required property`). The tool description also lists the catalog as text, because some Agents drop parts of a JSON Schema.
+
+**Images:** a Frontend marks a string `"format": "harness-image"`. The core (`frontend_files.rs`, ADR 0012 level 1) checks each local image before it asks for permission, copies it into `frontend/files/`, and records `src -> copy` in the event's `files`. The input stays as the Agent sent it, and the image still shows after the Workspace is gone. `https:` and `data:image/` URLs are not copied; the webview loads them directly.

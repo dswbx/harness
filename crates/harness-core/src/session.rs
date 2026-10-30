@@ -204,7 +204,13 @@ impl Session {
 
     /// Stores a validated Frontend Tool call under `frontend/tools/<tool>/<call id>.json` and
     /// logs it. Returns the path relative to `frontend/`.
-    pub fn write_frontend_tool_output(&self, thread: &ThreadId, tool: &str, input: serde_json::Value) -> anyhow::Result<String> {
+    pub fn write_frontend_tool_output(
+        &self,
+        thread: &ThreadId,
+        tool: &str,
+        input: serde_json::Value,
+        files: std::collections::BTreeMap<String, String>,
+    ) -> anyhow::Result<String> {
         let call_id = uuid::Uuid::now_v7().to_string();
         let rel = format!("tools/{tool}/{call_id}.json");
         let path = self.dir.join("frontend").join(&rel);
@@ -215,6 +221,7 @@ impl Session {
             call_id,
             path: rel.clone(),
             input,
+            files,
         })?;
         Ok(rel)
     }
@@ -231,6 +238,18 @@ impl Session {
 
     pub fn frontend_read(&self, rel: &str) -> anyhow::Result<String> {
         Ok(std::fs::read_to_string(self.frontend_path(rel)?)?)
+    }
+
+    pub fn frontend_dir(&self) -> PathBuf {
+        self.dir.join("frontend")
+    }
+
+    pub fn frontend_read_image(&self, rel: &str) -> anyhow::Result<(String, String)> {
+        use base64::Engine;
+        let p = self.frontend_path(rel)?;
+        let mime = crate::attachments::guess_mime(&p);
+        anyhow::ensure!(crate::attachments::is_image(mime), "{rel} is not an image");
+        Ok((mime.to_owned(), base64::engine::general_purpose::STANDARD.encode(std::fs::read(&p)?)))
     }
 
     pub fn frontend_write(&self, rel: &str, content: &str) -> anyhow::Result<()> {

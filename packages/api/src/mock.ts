@@ -19,6 +19,37 @@ const MOCK_PRS: PullRequest[] = [
   { number: 137, title: "Fix diff panel scroll on large files", author: "contributor", head: "fix/diff-scroll", base: "main", draft: false, fork: true, checks: "failing", updated_at: new Date(Date.now() - 72 * 3600e3).toISOString() },
 ];
 
+/** A placeholder screenshot (SVG source) for the mock. */
+export function mockImage(label: string, hue: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 70% 55%)"/><stop offset="1" stop-color="hsl(${hue + 40} 70% 35%)"/></linearGradient></defs><rect width="1280" height="800" fill="url(#g)"/><text x="640" y="420" font-family="sans-serif" font-size="56" fill="white" text-anchor="middle">${label}</text></svg>`;
+}
+
+/** A `render_ui` input showing most components; `srcs` are the carousel's images. */
+export function mockRenderUi(srcs: string[]) {
+  return {
+    root: {
+      type: "Stack",
+      children: [
+        {
+          type: "Card",
+          props: { title: "Build finished", tone: "success" },
+          children: [
+            { type: "Markdown", props: { text: "All **3** checks passed." } },
+            { type: "KeyValue", props: { items: [{ label: "Duration", value: "12s" }, { label: "Branch", value: "main" }] } },
+            { type: "Stack", props: { direction: "horizontal", gap: "sm" }, children: [
+              { type: "Badge", props: { text: "lint", tone: "success" } },
+              { type: "Badge", props: { text: "types", tone: "success" } },
+              { type: "Badge", props: { text: "1 flaky test", tone: "warning" } },
+            ] },
+          ],
+        },
+        { type: "Table", props: { columns: ["Page", "Before", "After"], rows: [["Home", "1.8s", "0.9s"], ["Settings", "1.2s", "0.7s"]] } },
+        { type: "Carousel", props: { images: srcs.map((src, i) => ({ src, alt: `Screenshot ${i + 1}`, caption: `Screenshot ${i + 1} of ${srcs.length}` })) } },
+      ],
+    },
+  };
+}
+
 export class MockTransport implements Transport {
   private logs = new Map<string, Event[]>();
   private sessions: SessionSummary[] = [];
@@ -274,6 +305,11 @@ export class MockTransport implements Transport {
         if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
         return { type: "FileContent", content: c };
       }
+      case "FrontendReadImage": {
+        const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);
+        if (c === undefined) throw new Error(`no such image: ${cmd.path}`);
+        return { type: "Attachment", mime: "image/svg+xml", data: btoa(c) };
+      }
       case "FrontendWrite": {
         this.session(cmd.session_id);
         const m = this.frontendFiles.get(cmd.session_id) ?? new Map();
@@ -337,20 +373,20 @@ export class MockTransport implements Transport {
           });
           throw new Error("The Agent needs you to sign in first.");
         }
-        // Typing "/card" simulates an Agent calling the json_render Frontend Tool.
+        // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.
         if (cmd.text.trim() === "/card") {
           const n = ++this.cardN;
-          const input = {
-            title: "Build finished",
-            body: "All **3** checks passed.\n\n- lint\n- types\n- tests",
-            items: [{ label: "Duration", value: "12s" }, { label: "Branch", value: "main" }],
-            tone: "success",
-          };
-          const path = `json_render/mock-card-${n}.json`;
+          const input = mockRenderUi(["shots/home.png", "shots/settings.png", "shots/dark.png"]);
+          const path = `tools/render_ui/mock-card-${n}.json`;
           const m = this.frontendFiles.get(sid) ?? new Map();
           m.set(path, JSON.stringify(input));
+          const files: Record<string, string> = {};
+          ["shots/home.png", "shots/settings.png", "shots/dark.png"].forEach((src, i) => {
+            files[src] = `files/mock-${n}-${i}.svg`;
+            m.set(files[src], mockImage(src, 200 + i * 60));
+          });
           this.frontendFiles.set(sid, m);
-          this.emit(sid, { type: "FrontendToolOutput", tool: "json_render", call_id: `mock-card-${n}`, path, input });
+          this.emit(sid, { type: "FrontendToolOutput", tool: "render_ui", call_id: `mock-card-${n}`, path, input, files });
           return { type: "Ok" };
         }
         const turn = `t${this.logs.get(sid)!.length}`;

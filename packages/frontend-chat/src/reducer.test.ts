@@ -345,16 +345,23 @@ describe("AuthRequired", () => {
 });
 
 describe("Frontend Tools", () => {
-  const out = (tool: string, input: unknown) =>
-    fold([started(), ev({ type: "FrontendToolOutput", tool, call_id: "c1", path: `${tool}/c1.json`, input })]).items[0]!;
+  const out = (tool: string, input: unknown, files?: Record<string, string>) =>
+    fold([started(), ev({ type: "FrontendToolOutput", tool, call_id: "c1", path: `${tool}/c1.json`, input, files })]).items[0]!;
 
-  it("validates json_render input", () => {
-    const it = out("json_render", { title: "Done", items: [{ label: "a", value: "b" }], tone: "success" });
-    expect(it).toMatchObject({ type: "frontend_tool", tool: "json_render", render: { ok: true } });
+  it("validates render_ui input and keeps the core's image copies", () => {
+    const input = { root: { type: "Card", props: { title: "Done", tone: "success" }, children: [
+      { type: "KeyValue", props: { items: [{ label: "a", value: "b" }] } },
+      { type: "Carousel", props: { images: [{ src: "a.png", alt: "A" }] } },
+    ] } };
+    const it = out("render_ui", input, { "a.png": "files/x-a.png" });
+    expect(it).toMatchObject({ type: "frontend_tool", tool: "render_ui", render: { ok: true }, files: { "a.png": "files/x-a.png" } });
   });
-  it("flags invalid json_render input and keeps raw input", () => {
-    const it = out("json_render", { body: "no title", tone: "loud" });
-    expect(it).toMatchObject({ type: "frontend_tool", render: { ok: false }, input: { tone: "loud" } });
+  it("flags invalid render_ui input and keeps raw input", () => {
+    for (const root of [{ type: "Nope" }, { type: "Image", props: { alt: "no src" } }, { type: "Badge", props: { text: "x" }, children: [{ type: "Markdown", props: { text: "y" } }] }]) {
+      const it = out("render_ui", { root });
+      expect(it).toMatchObject({ type: "frontend_tool", render: { ok: false }, input: { root } });
+    }
+    const it = out("render_ui", { root: { type: "Nope" } });
     expect(it.type === "frontend_tool" && it.render && !it.render.ok && it.render.errors.length).toBeGreaterThan(0);
   });
   it("leaves unknown tools unrendered", () => {
@@ -370,8 +377,8 @@ describe("Harness tool helpers", () => {
   it("titles Harness permission requests", () => {
     expect(permissionTitle({ kind: "git_push" })).toBe("Push branch to origin?");
     expect(permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } })).toBe('Commit all changes: "fix"?');
-    expect(permissionTitle({ kind: "frontend_tool", title: "Frontend tool: json_render" })).toBe("Let the Agent use Frontend tool json_render?");
-    expect(permissionTitle({ kind: "frontend_tool", title: "mcp__harness__json_render" }, "json_render")).toBe("Let the Agent use Frontend tool json_render?");
+    expect(permissionTitle({ kind: "frontend_tool", title: "Frontend tool: render_ui" })).toBe("Let the Agent use Frontend tool render_ui?");
+    expect(permissionTitle({ kind: "frontend_tool", title: "mcp__harness__render_ui" }, "render_ui")).toBe("Let the Agent use Frontend tool render_ui?");
     expect(permissionTitle({ kind: "execute" })).toBeNull();
   });
 });

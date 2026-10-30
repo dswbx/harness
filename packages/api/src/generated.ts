@@ -119,7 +119,9 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  */
 { type: "SaveMcpServer"; server: McpServerDef; secrets?: { [key in string]: string } } | { type: "RemoveMcpServer"; server_id: string } | 
 /**  Reads a file of the Session's Frontend state (`frontend/` in the Session Directory). */
-{ type: "FrontendRead"; session_id: string; path: string } | { type: "FrontendWrite"; session_id: string; path: string; content: string } | 
+{ type: "FrontendRead"; session_id: string; path: string } | 
+/**  An image in `frontend/` (base64), e.g. one a Frontend Tool call named. */
+{ type: "FrontendReadImage"; session_id: string; path: string } | { type: "FrontendWrite"; session_id: string; path: string; content: string } | 
 /**  Files under `dir` (recursive, relative to `frontend/`). */
 { type: "FrontendList"; session_id: string; dir?: string } | 
 /**  Branches of the repository containing `folder`. */
@@ -263,7 +265,12 @@ rule_id?: string | null } |
  *  An Agent called a Frontend Tool; its validated input is stored at `path` (relative to the
  *  Session's `frontend/` directory).
  */
-{ type: "FrontendToolOutput"; tool: string; call_id: string; path: string; input: unknown } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
+{ type: "FrontendToolOutput"; tool: string; call_id: string; path: string; input: unknown; 
+/**
+ *  Local images the input names (`"format": "harness-image"`): src as given -> the copy,
+ *  relative to `frontend/`. Read them with `FrontendReadImage`.
+ */
+files?: { [key in string]: string } } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
 /**
  *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
  *  output). `severity` is `info`, `warning`, `error` or a custom value.

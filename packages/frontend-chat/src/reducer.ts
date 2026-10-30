@@ -1,4 +1,4 @@
-import { jsonRenderSchema, JSON_RENDER, type JsonRenderInput } from "./tools";
+import { renderUiSchema, RENDER_UI, type RenderUiInput } from "./tools";
 import type { Attachment, AuthMethodInfo, Event, FileChange, PermissionOption, PermissionRule, SlashCommand, TaskEntry } from "@harness/api";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
@@ -57,7 +57,7 @@ export type Item =
   | { type: "notice"; id: string; level: "boundary" | "error" | "info"; text: string }
   /** An Agent's session notice (e.g. hook output): shown apart from its reply. */
   | { type: "agent_notice"; id: string; severity: string; title: string; description: string | null }
-  /** An Agent called a Frontend Tool. `json_render` input is re-validated on the client. */
+  /** An Agent called a Frontend Tool. `render_ui` input is re-validated on the client. */
   | {
       type: "frontend_tool";
       id: string;
@@ -65,8 +65,10 @@ export type Item =
       callId: string;
       path: string;
       input: unknown;
+      /** Local images the input names: src -> the core's copy (relative to `frontend/`). */
+      files: Record<string, string>;
       /** Set for known tools: the validated input, or why it failed. Unknown tools: null. */
-      render: { ok: true; value: JsonRenderInput } | { ok: false; errors: string[] } | null;
+      render: { ok: true; value: RenderUiInput } | { ok: false; errors: string[] } | null;
     }
   /** Files the Agent changed during a Turn; opens the diff scoped to that Turn. */
   | { type: "changes"; id: string; turnId: string; fromTree: string; toTree: string; files: FileChange[] };
@@ -333,13 +335,13 @@ function apply(c: Ctx, e: Event) {
       return;
     case "FrontendToolOutput": {
       let render: Extract<Item, { type: "frontend_tool" }>["render"] = null;
-      if (k.tool === JSON_RENDER) {
-        const r = jsonRenderSchema.validate(k.input);
+      if (k.tool === RENDER_UI) {
+        const r = renderUiSchema.validate(k.input);
         render = r.valid
-          ? { ok: true, value: k.input as JsonRenderInput }
+          ? { ok: true, value: k.input as RenderUiInput }
           : { ok: false, errors: r.errors.map((x) => `${x.instanceLocation} ${x.error}`) };
       }
-      push(c, { type: "frontend_tool", id, tool: k.tool, callId: k.call_id, path: k.path, input: k.input, render });
+      push(c, { type: "frontend_tool", id, tool: k.tool, callId: k.call_id, path: k.path, input: k.input, files: k.files ?? {}, render });
       return;
     }
     case "AgentNotice":

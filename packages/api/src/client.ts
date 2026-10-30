@@ -42,6 +42,8 @@ export interface SessionApi {
   gitPush(): Promise<void>;
   /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
   frontendRead(path: string): Promise<string>;
+  /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
+  frontendReadImage(path: string): Promise<{ mime: string; data: string }>;
   frontendWrite(path: string, content: string): Promise<void>;
   /** Files under `dir` (recursive, relative to `frontend/`). */
   frontendList(dir?: string): Promise<string[]>;
@@ -98,6 +100,10 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     gitPush: () => run({ type: "GitPush", session_id: sessionId }),
     frontendRead: async (path) =>
       (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent")).content,
+    frontendReadImage: async (path) => {
+      const r = await expect({ type: "FrontendReadImage", session_id: sessionId, path }, "Attachment");
+      return { mime: r.mime, data: r.data };
+    },
     frontendWrite: (path, content) => run({ type: "FrontendWrite", session_id: sessionId, path, content }),
     frontendList: async (dir) =>
       (await expect({ type: "FrontendList", session_id: sessionId, dir }, "Files")).files,

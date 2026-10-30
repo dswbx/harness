@@ -4,53 +4,414 @@
   "version": "0.1.0",
   "frontend_tools": [
     {
-      "name": "json_render",
-      "description": "Show a small structured card in the chat for the user: a title, optional markdown body, optional label/value rows and a tone (info, success, warning, error). Use it for summaries, results or status the user should notice, instead of a long plain message.",
+      "name": "render_ui",
+      "description": "Show rich content to the user in the chat: cards, tables, images, an image carousel, and more. Input: {\"root\": node}. A node is {\"type\", \"props\", \"children\"?}; only Stack and Card take children. Use it for results, status, comparisons or screenshots the user should see, instead of a long plain message. Components:\n- Stack(direction?: vertical|horizontal, gap?: sm|md|lg) + children: Lays out children vertically (default) or in a row.\n- Card(title?, tone?: neutral|info|success|warning|error) + children: A bordered box with an optional title and tone; holds children.\n- Markdown(text): Markdown text.\n- KeyValue(items): Label/value rows.\n- Table(columns, rows): A table: column headings and rows of cell text.\n- Badge(text, tone?: neutral|info|success|warning|error): A short label, e.g. a status.\n- Code(code, language?): A code block.\n- Image(src, alt, caption?): One image; the user can open it full size.\n- Carousel(images): Several images, one at a time, with previous/next.",
       "input_schema": {
         "type": "object",
         "properties": {
-          "title": {
-            "type": "string",
-            "description": "Card heading, short."
-          },
-          "body": {
-            "type": "string",
-            "description": "Markdown text shown under the title."
-          },
-          "items": {
-            "type": "array",
-            "description": "Label/value rows, shown as a list under the body.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string",
-                  "description": "Row label, e.g. a field name."
-                },
-                "value": {
-                  "type": "string",
-                  "description": "Row value."
-                }
-              },
-              "required": [
-                "label"
-              ]
-            }
-          },
-          "tone": {
-            "type": "string",
-            "description": "Accent of the card. Default info.",
-            "enum": [
-              "info",
-              "success",
-              "warning",
-              "error"
-            ]
+          "root": {
+            "$ref": "#/$defs/node"
           }
         },
         "required": [
-          "title"
-        ]
+          "root"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "node": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Stack",
+                  "Card",
+                  "Markdown",
+                  "KeyValue",
+                  "Table",
+                  "Badge",
+                  "Code",
+                  "Image",
+                  "Carousel"
+                ]
+              },
+              "props": {
+                "type": "object"
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/node"
+                },
+                "description": "Only for Stack and Card."
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Stack"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "vertical",
+                            "horizontal"
+                          ]
+                        },
+                        "gap": {
+                          "type": "string",
+                          "enum": [
+                            "sm",
+                            "md",
+                            "lg"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Card"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "tone": {
+                          "type": "string",
+                          "description": "Accent. Default neutral.",
+                          "enum": [
+                            "neutral",
+                            "info",
+                            "success",
+                            "warning",
+                            "error"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Markdown"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "KeyValue"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "value"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Table"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "columns": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "rows": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "columns",
+                        "rows"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Badge"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "tone": {
+                          "type": "string",
+                          "description": "Accent. Default neutral.",
+                          "enum": [
+                            "neutral",
+                            "info",
+                            "success",
+                            "warning",
+                            "error"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Code"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "language": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Image"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "src": {
+                          "type": "string",
+                          "description": "Image file path (relative to the workspace, or absolute) or an https URL.",
+                          "format": "harness-image"
+                        },
+                        "alt": {
+                          "type": "string",
+                          "description": "What the image shows."
+                        },
+                        "caption": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "src",
+                        "alt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "Carousel"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "props": {
+                      "type": "object",
+                      "properties": {
+                        "images": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "src": {
+                                "type": "string",
+                                "description": "Image file path (relative to the workspace, or absolute) or an https URL.",
+                                "format": "harness-image"
+                              },
+                              "alt": {
+                                "type": "string",
+                                "description": "What the image shows."
+                              },
+                              "caption": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "src",
+                              "alt"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "images"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "children": {
+                      "maxItems": 0
+                    }
+                  },
+                  "required": [
+                    "props"
+                  ]
+                }
+              }
+            ]
+          }
+        }
       }
     }
   ]

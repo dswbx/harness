@@ -223,12 +223,15 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
         .into_iter()
         .find(|t| t.name == name)
         .ok_or_else(|| anyhow::anyhow!("unknown tool {name}"))?;
-    let validator = jsonschema::validator_for(&tool.input_schema)
+    let (validator, images) = crate::frontend_files::validator(&tool.input_schema)
         .map_err(|e| anyhow::anyhow!("the Frontend's schema for {name} is invalid: {e}"))?;
     let errors: Vec<String> = validator.iter_errors(&args).map(|e| format!("{}: {e}", e.instance_path)).collect();
     anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{}", errors.join("\n"));
+    let images = images.lock().unwrap().clone();
+    let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
     crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
-    let path = session.write_frontend_tool_output(thread, name, args)?;
+    let files = crate::frontend_files::store(&session.frontend_dir(), planned)?;
+    let path = session.write_frontend_tool_output(thread, name, args, files)?;
     Ok(format!("Done. The Frontend received it ({path})."))
 }
 

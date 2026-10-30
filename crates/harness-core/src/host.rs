@@ -224,6 +224,10 @@ impl Harness {
             Command::FrontendRead { session_id, path } => {
                 CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? }
             }
+            Command::FrontendReadImage { session_id, path } => {
+                let (mime, data) = self.session(&session_id)?.frontend_read_image(&path)?;
+                CommandResult::Attachment { mime, data }
+            }
             Command::FrontendWrite { session_id, path, content } => {
                 self.session(&session_id)?.frontend_write(&path, &content)?;
                 CommandResult::Ok

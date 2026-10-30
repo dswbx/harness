@@ -137,12 +137,12 @@ fn attachment(name: String, mime: String, path: &Path, kind: AttachmentKind) -> 
 }
 
 /// Images an Agent can view; SVG is sent as a file.
-fn is_image(mime: &str) -> bool {
+pub(crate) fn is_image(mime: &str) -> bool {
     mime.starts_with("image/") && mime != "image/svg+xml"
 }
 
 /// `<uuid v7>-<name>`, with the name reduced to safe characters.
-fn stored_name(name: &str) -> String {
+pub(crate) fn stored_name(name: &str) -> String {
     let safe: String = name
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
@@ -165,7 +165,7 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
-fn guess_mime(path: &Path) -> &'static str {
+pub(crate) fn guess_mime(path: &Path) -> &'static str {
     let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     match ext.as_str() {
         "png" => "image/png",

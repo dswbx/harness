@@ -5,5 +5,5 @@ export * from "./frontend";
 export * from "./hooks";
 export * from "./window";
 export * from "./files";
-export { MockTransport } from "./mock";
+export { MockTransport, mockImage, mockRenderUi } from "./mock";
 export * from "./subagents";

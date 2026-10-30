@@ -45,7 +45,7 @@ Run on a clean machine or user account: no system Node, no prior `~/Library/Appl
 ## Harness MCP and Frontend Tools
 
 - [ ] Ask Claude and Codex to "use the harness git_status tool": the tool card shows "Harness · git_status" with no double permission prompt.
-- [ ] Ask for a `json_render` card: it renders in chat, and invalid input is rejected back to the Agent.
+- [ ] Ask for a `render_ui` card with a screenshot carousel: it renders in chat, local images still show after the worktree is removed, and invalid input is rejected back to the Agent.
 - [ ] An agent-initiated `git_push` asks first.
 - [ ] MCP Library: add a stdio server with a secret env var, select it in the Composer, and the Agent can use it. The secret is not in `mcp.json`.
 
