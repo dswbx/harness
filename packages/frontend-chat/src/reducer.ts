@@ -18,7 +18,8 @@ export type ConfigOption = {
 export type Item =
   /** `ts`: ms epoch of the message's first Event. */
   | { type: "user"; id: string; text: string; ts: number }
-  | { type: "agent"; id: string; text: string; ts: number }
+  /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
+  | { type: "agent"; id: string; text: string; ts: number; durationMs?: number }
   | { type: "thought"; id: string; text: string; ts: number }
   | {
       type: "tool";
@@ -74,6 +75,8 @@ export type ChatState = {
   items: Item[];
   /** The running Turn, if any. */
   turnId: string | null;
+  /** ms epoch the running Turn started. */
+  turnStartedAt: number | null;
   mainThreadId: string | null;
   taskList: TaskEntry[];
   configOptions: ConfigOption[];
@@ -92,6 +95,7 @@ export type ChatState = {
 export const initialState = (): ChatState => ({
   items: [],
   turnId: null,
+  turnStartedAt: null,
   mainThreadId: null,
   taskList: [],
   configOptions: [],
@@ -154,6 +158,19 @@ function appendText(c: Ctx, type: "agent" | "thought", text: string, id: string,
   else items.push({ type, id, text, ts });
 }
 
+/** Puts the Turn's duration on its last agent message (none if the Turn produced no text). */
+function stampDuration(c: Ctx, durationMs: number) {
+  const items = c.d.items;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]!;
+    if (it.type === "user") return;
+    if (it.type === "agent") {
+      own(c)[i] = { ...it, durationMs };
+      return;
+    }
+  }
+}
+
 /** Folds one Event. Pure from the caller's view: never mutates `state`. */
 export function reduce(state: ChatState, e: Event): ChatState {
   return reduceBatch(state, [e]);
@@ -182,11 +199,14 @@ function apply(c: Ctx, e: Event) {
   switch (k.type) {
     case "TurnStarted":
       d.turnId = k.turn_id;
+      d.turnStartedAt = e.ts_ms;
       d.lastTurnErrored = false;
       push(c, { type: "user", id, text: k.text, ts: e.ts_ms });
       return;
     case "TurnEnded":
+      if (d.turnStartedAt !== null) stampDuration(c, e.ts_ms - d.turnStartedAt);
       d.turnId = null;
+      d.turnStartedAt = null;
       d.lastTurnErrored = k.stop_reason === "error";
       if (k.stop_reason !== "end_turn") notice(k.stop_reason === "error" ? "error" : "info", `Turn stopped: ${k.stop_reason}`);
       return;

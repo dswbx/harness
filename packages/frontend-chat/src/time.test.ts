@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRelativeTime } from "./time";
+import { formatDuration, formatRelativeTime } from "./time";
 
 const at = (y: number, mo: number, d: number, h = 14, mi = 32) => new Date(y, mo - 1, d, h, mi).getTime();
 const now = at(2026, 10, 29, 18, 0);
@@ -28,5 +28,13 @@ describe("formatRelativeTime", () => {
   it("a week or older: date, year only when not this year", () => {
     expect(formatRelativeTime(at(2026, 10, 12), now, "en-GB")).toBe("12 Oct");
     expect(formatRelativeTime(at(2025, 10, 12), now, "en-GB")).toBe("12 Oct 2025");
+  });
+});
+
+describe("formatDuration", () => {
+  it("seconds, then minutes, then hours", () => {
+    expect(formatDuration(8_400)).toBe("8s");
+    expect(formatDuration(245_000)).toBe("4m 05s");
+    expect(formatDuration(3_720_000)).toBe("1h 02m");
   });
 });

@@ -12,8 +12,8 @@ const load = (name: string): Event[] =>
     .map((l) => JSON.parse(l) as Event);
 
 let seq = 0;
-const ev = (kind: EventKind, thread_id: string | null = "main"): Event => ({
-  v: 1, seq: seq++, session_id: "s", thread_id, ts_ms: 0, kind,
+const ev = (kind: EventKind, thread_id: string | null = "main", ts_ms = 0): Event => ({
+  v: 1, seq: seq++, session_id: "s", thread_id, ts_ms, kind,
 });
 const started = () => ev({ type: "ThreadStarted", agent_id: "a", main: true });
 
@@ -374,5 +374,21 @@ describe("Harness tool helpers", () => {
     expect(permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } })).toBe('Commit all changes: "fix"?');
     expect(permissionTitle({ kind: "frontend_tool", title: "Frontend tool: json_render" })).toBe("Let the Agent use Frontend tool json_render?");
     expect(permissionTitle({ kind: "execute" })).toBeNull();
+  });
+});
+
+describe("turn duration", () => {
+  it("puts the Turn's duration on its last agent message only", () => {
+    const s = fold([
+      started(),
+      ev({ type: "TurnStarted", turn_id: "t", text: "hi" }, "main", 1_000),
+      ev({ type: "AgentMessageChunk", text: "a" }, "main", 2_000),
+      ev({ type: "ToolCall", tool_call_id: "x", title: "ls", kind: "execute", status: "pending", content: [], locations: [], raw_input: {} }, "main", 3_000),
+      ev({ type: "AgentMessageChunk", text: "b" }, "main", 4_000),
+      ev({ type: "TurnEnded", turn_id: "t", stop_reason: "end_turn" }, "main", 13_500),
+    ]);
+    const agents = s.items.filter((i) => i.type === "agent");
+    expect(agents.map((a) => a.type === "agent" && a.durationMs)).toEqual([undefined, 12_500]);
+    expect(s.turnStartedAt).toBeNull();
   });
 });

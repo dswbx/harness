@@ -22,6 +22,15 @@ export function formatRelativeTime(ts: number, now: number = Date.now(), locale?
   });
 }
 
+/** Elapsed time: "8s", "4m 05s", "1h 02m". */
+export function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${pad(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`;
+}
+
 /** Full date and time for the tooltip. */
 export const fullMessageTime = (ts: number, locale?: string) =>
   new Date(ts).toLocaleString(locale, { dateStyle: "full", timeStyle: "medium" });

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Tooltip, cn } from "@harness/ui";
-import { formatRelativeTime, fullMessageTime, useNow } from "./time";
+import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "./time";
 
 /** Actions under a message. Shown while the message is hovered or has focus (parent needs `group`). */
-export function MessageFooter({ text, ts, align = "start" }: { text: string; ts: number; align?: "start" | "end" }) {
+export function MessageFooter({ text, ts, durationMs, align = "start" }: { text: string; ts: number; durationMs?: number; align?: "start" | "end" }) {
   const [copied, setCopied] = useState(false);
   const now = useNow();
 
@@ -37,6 +37,7 @@ export function MessageFooter({ text, ts, align = "start" }: { text: string; ts:
           {formatRelativeTime(ts, now)}
         </time>
       </Tooltip>
+      {durationMs !== undefined && <span className="px-1 tabular-nums" title="Turn duration">· {formatDuration(durationMs)}</span>}
     </div>
   );
 }

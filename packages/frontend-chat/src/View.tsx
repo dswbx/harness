@@ -8,6 +8,7 @@ import { PromptBox } from "./PromptBox";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
+import { formatDuration } from "./time";
 import { AuthCard } from "./Auth";
 import { PermissionCard } from "./Permission";
 import { FrontendToolRow } from "./FrontendToolCard";
@@ -108,6 +109,26 @@ function AgentNotice({ item }: { item: Extract<Item, { type: "agent_notice" }> }
   );
 }
 
+/** Always takes its height, so the layout doesn't shift as Turns start and end. */
+function Working({ since }: { since: number | null }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (since === null) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  return (
+    <div className="flex h-5 items-center gap-2 text-sm text-muted-foreground" role="status">
+      {since !== null && (
+        <>
+          <Loader2 className="size-4 animate-spin" /> Working... <span className="tabular-nums">{formatDuration(now - since)}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: SessionApi; onOpenDiff: (s: DiffScope) => void }) {
   switch (item.type) {
     case "changes":
@@ -128,7 +149,7 @@ const Row = memo(function Row({ item, api, onOpenDiff }: { item: Item; api: Sess
       return (
         <div className="group">
           <Markdown>{item.text}</Markdown>
-          <MessageFooter text={item.text} ts={item.ts} />
+          <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} />
         </div>
       );
     case "thought":
@@ -239,16 +260,10 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         getKey={(i) => rows[i]!.id}
         estimateSize={72}
         gap={24}
-        innerClassName="mx-auto max-w-3xl px-10 pb-8 pt-4"
+        innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
         empty={<p className="py-16 text-center text-sm text-muted-foreground">Send a message to start.</p>}
         renderRow={(i) => <Row item={rows[i]!} api={api} onOpenDiff={openDiff} />}
-        footer={
-          running ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-              <Loader2 className="size-4 animate-spin" /> Working...
-            </div>
-          ) : null
-        }
+        footer={<Working since={state.turnStartedAt} />}
       />
       {state.archived ? (
         <div role="alert" className="border-t p-3">
