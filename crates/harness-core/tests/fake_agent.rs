@@ -452,6 +452,23 @@ async fn warm_up_delivers_config_options_before_the_first_prompt() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn warm_up_does_not_resume_a_stopped_agent() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_millis(200)).await;
+    turn(&h, &sid, None, "hi").await;
+    for _ in 0..100 {
+        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    h.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
+    assert_eq!(turn(&h, &sid, None, "back").await, "end_turn");
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn warm_up_racing_the_first_prompt_opens_one_agent_session() {
     let (h, sid, _dir) = setup().await;
     let (a, b) = tokio::join!(

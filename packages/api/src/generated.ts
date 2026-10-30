@@ -112,7 +112,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**
  *  Starts the Agent and the Main Thread's Agent Session in the background, so its config
  *  options (models, modes) arrive before the first prompt. Returns at once; failures show up
- *  as events. Views send it when they open a Session.
+ *  as events. Views send it when they open a Session. A no-op once the Main Thread has had an
+ *  Agent Session: a stopped Agent is resumed by the next prompt, not by opening a View.
  */
 { type: "WarmUp"; session_id: string } | 
 /**

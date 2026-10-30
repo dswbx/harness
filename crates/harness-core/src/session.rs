@@ -367,9 +367,10 @@ impl Session {
     }
 
     /// Starts the Agent and the Main Thread's Agent Session in the background (see `Command::WarmUp`).
+    /// Only for a Thread that never had one: resuming waits for the next prompt.
     pub fn warm_up(self: &Arc<Self>) {
         let m = self.meta();
-        if m.archived || m.read_only_threads.contains(&m.main_thread_id) {
+        if m.archived || m.read_only_threads.contains(&m.main_thread_id) || m.agent_sessions.contains_key(&m.main_thread_id) {
             return;
         }
         let session = self.clone();
