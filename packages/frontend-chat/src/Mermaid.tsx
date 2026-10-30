@@ -9,26 +9,47 @@ function svgSize(svg: string): { width: number; height: number } | null {
   return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
 }
 
+type Out = { svg: string } | { error: string };
+
+/**
+ * Drawn diagrams by theme and source. The chat's virtual list remounts rows as they scroll back
+ * in; drawing again would start from the placeholder and change the row's height under the reader.
+ */
+const drawn = new Map<string, Out>();
+const remember = (key: string, out: Out) => {
+  if (drawn.size >= 100) drawn.delete(drawn.keys().next().value!);
+  drawn.set(key, out);
+};
+
 /** A ```mermaid fence: the diagram, drawn by mermaid (loaded on first use, strict security). */
 export function Mermaid({ source }: { source: string }) {
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const dark = useIsDark();
-  const [out, setOut] = useState<{ svg: string } | { error: string } | null>(null);
+  const key = `${dark}:${source}`;
+  const [out, setOut] = useState<Out | null>(() => drawn.get(key) ?? null);
   useEffect(() => {
+    const known = drawn.get(key);
+    if (known) {
+      setOut(known);
+      return;
+    }
     let live = true;
     void import("mermaid").then(async ({ default: mermaid }) => {
       mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default", fontFamily: "inherit" });
       try {
         const { svg } = await mermaid.render(`mermaid-${id}`, source);
+        remember(key, { svg });
         if (live) setOut({ svg });
       } catch (e) {
-        if (live) setOut({ error: e instanceof Error ? e.message : String(e) });
+        const error = { error: e instanceof Error ? e.message : String(e) };
+        remember(key, error);
+        if (live) setOut(error);
       }
     });
     return () => {
       live = false;
     };
-  }, [source, dark, id]);
+  }, [key, source, dark, id]);
   if (out && "error" in out) {
     return (
       <div className="grid grid-cols-1 gap-1">
