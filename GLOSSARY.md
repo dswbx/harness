@@ -64,6 +64,10 @@ _Avoid_: subthread, branch, sidechat (as the general term)
 What the Harness tells the Agent about itself, its Frontend and the Session, sent as a `<harness_context>` block before the first prompt of each Agent Session (ADR 0014).
 _Avoid_: system prompt
 
+**Session State**:
+One free JSON document per Session that the Agent and the Frontends share and change with patches; kept in the Session Directory and logged as `StateChanged` (ADR 0015).
+_Avoid_: store, app state
+
 **Context Seed**:
 What a Thread starts with from elsewhere in the Session: nothing, a summary of the Main Thread, or a selected excerpt.
 _Avoid_: initial context, prefill

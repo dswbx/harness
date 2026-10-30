@@ -1,0 +1,13 @@
+# Session State and render_ui placements
+
+Agents build interactive Sessions, for example a practice test: a score that stays visible, questions the user answers, and the agent reacting to the answers.
+
+**Session State (core).** One free JSON document per Session, in `state.json` in the Session Directory. The Agent changes it with the MCP tools `state_get` and `state_patch`; Frontends change it with `PatchState` (as the user). Every change is logged as `StateChanged { ops, by }`, so any Frontend rebuilds the state from the log (`applyStatePatch` in `@harness/api` matches `state.rs`). It is a free JSON document and not tied to `render_ui` or json-render, so other Frontends can use it too. Not SQLite: Agents and json-render think in JSON, and the data is small; a database can become its own Primitive later. Patches are JSON Patch (`add`, `replace`, `remove`, `test`) with lenient parents; a patch applies whole or not at all. The last write wins on a path; `test` guards a write where that matters. Changing it does not ask for permission (kind `state`).
+
+**Data binding follows json-render.** Props can be `{"$state": "/path"}` or `{"$template": "Score: ${/quiz/score}"}`; Choice and Input write with `{"$bindState": "/path"}`; `on.press/change/submit` run `setState`, `pushState`, `removeState` and our `sendMessage`. With the same syntax, we can adopt the json-render library later (its external `StateStore` maps onto the core document) without changing what Agents write.
+
+**State is data, a message is the trigger.** A user's answer changes the state at once, even during a Turn. ACP gives no way to tell the Agent about it except a prompt, so components add a `sendMessage` action where the Agent must react. Only that message waits for a running Turn.
+
+**Placements.** `render_ui` takes `placement` (`inline`, `top`, `bottom`, `right`) and an `id`. A call with an id replaces earlier calls with that id; `{"id", "remove": true}` removes it. Inline items stay in the chat history (updated in place); top and bottom are live areas in the chat's column, and right items are tabs in the toolbar next to Changes, sharing the right panel with the diff. The core treats any Frontend Tool input with an `id` as a live item (`harness_info`, and the tool result lists them), so Agents can find their items again after compaction.
+
+**One catalog.** Slot components (Stat, Progress) and interactive ones (Choice, Input, Button) join the same catalog and use the app's UI components and tokens. Each component has an example; Settings > UI components shows them all, live.

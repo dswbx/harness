@@ -393,6 +393,25 @@ export class MockTransport implements Transport {
           });
           throw new Error("The Agent needs you to sign in first.");
         }
+        // Typing "/quiz" simulates an Agent building a practice test with Session State and slots.
+        if (cmd.text.trim() === "/quiz") {
+          const ops = [{ op: "add" as const, path: "/quiz", value: { score: 0, done: 0, total: 3, answers: {} } }];
+          this.states.set(sid, applyStatePatch(this.states.get(sid) ?? {}, ops));
+          this.emit(sid, { type: "StateChanged", ops, by: "agent" });
+          const ui = (call: string, input: unknown) =>
+            this.emit(sid, { type: "FrontendToolOutput", tool: "render_ui", call_id: call, path: `tools/render_ui/${call}.json`, input });
+          ui("quiz-score", { id: "score", placement: "bottom", root: { type: "Stack", props: { direction: "horizontal" }, children: [
+            { type: "Stat", props: { label: "Score", value: { $template: "${/quiz/score} / ${/quiz/total}" } } },
+            { type: "Progress", props: { label: "Progress", value: { $state: "/quiz/done" }, max: 3 } },
+          ] } });
+          ui("quiz-q1", { id: "question", placement: "right", title: "Question 1", root: { type: "Card", props: { title: "Question 1 of 3" }, children: [
+            { type: "Markdown", props: { text: "Which feature lets Rust free memory **without** a garbage collector?" } },
+            { type: "Choice", props: { value: { $bindState: "/quiz/answers/q1" }, options: [{ value: "a", label: "A. Ownership" }, { value: "b", label: "B. A garbage collector" }, { value: "c", label: "C. Reference counting only" }] },
+              on: { change: { action: "sendMessage", params: { text: { $template: "Answer to Q1: ${/quiz/answers/q1}" } } } } },
+          ] } });
+          this.emit(sid, { type: "AgentMessageChunk", text: "The practice test has started: the question is on the right, your score is at the bottom." });
+          return { type: "Ok" };
+        }
         // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.
         if (cmd.text.trim() === "/card") {
           const n = ++this.cardN;
