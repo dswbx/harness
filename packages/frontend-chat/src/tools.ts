@@ -60,10 +60,10 @@ export const components = {
     ] } },
   },
   Card: {
-    description: "A bordered box with an optional title and tone; holds children.",
+    description: "A bordered box with an optional header (title, description, icon) and tone; holds children.",
     children: true,
-    props: s.object({ title: s.string().optional(), tone: tone.optional(), icon: icon.optional() }),
-    example: { node: { type: "Card", props: { title: "Build finished", tone: "success" }, children: [{ type: "Markdown", props: { text: "All **3** checks passed." } }] } },
+    props: s.object({ title: s.string().optional(), description: s.string().optional(), tone: tone.optional(), icon: icon.optional() }),
+    example: { node: { type: "Card", props: { title: "Build finished", description: "main · 42s", tone: "success" }, children: [{ type: "Markdown", props: { text: "All **3** checks passed." } }] } },
   },
   Markdown: {
     description: "Markdown text. A ```mermaid fence draws a diagram; a ```ansi fence shows terminal colors.",

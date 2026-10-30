@@ -146,7 +146,7 @@ function Picture({ img, className, imgClassName = "size-full object-contain", on
   const [broken, setBroken] = useState(false);
   if (failed || broken) {
     return (
-      <div className={cn("flex items-center justify-center gap-2 bg-muted text-xs text-muted-foreground", className)}>
+      <div className={cn("flex items-center justify-center gap-2 bg-muted text-ui-sm text-muted-foreground", className)}>
         <ImageOff className="size-4" /> {img.alt}
       </div>
     );
@@ -180,7 +180,7 @@ function Lightbox({ images, index, onIndex, onClose }: { images: Img[]; index: n
               <Picture key={img.src} img={img} className="min-h-40 min-w-60 overflow-hidden rounded" imgClassName="block max-h-[80vh] max-w-[85vw] object-contain" />
               {images.length > 1 && <Arrows onStep={step} label={`${index! + 1} / ${images.length}`} />}
             </div>
-            {img.caption && <figcaption className="mt-2 text-center text-xs text-muted-foreground">{img.caption}</figcaption>}
+            {img.caption && <figcaption className="mt-2 text-center text-ui-sm text-muted-foreground">{img.caption}</figcaption>}
           </figure>
         )}
       </DialogContent>
@@ -198,7 +198,7 @@ function Arrows({ onStep, label }: { onStep: (d: number) => void; label: string 
       <button className={cn(btn, "right-2")} onClick={() => onStep(1)} aria-label="Next image">
         <ChevronRight className="size-4" />
       </button>
-      <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-background/80 px-2 py-0.5 text-xs tabular-nums">{label}</span>
+      <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-background/80 px-2 py-0.5 text-ui-sm tabular-nums">{label}</span>
     </>
   );
 }
@@ -208,7 +208,7 @@ function ImageView({ img }: { img: Img }) {
   return (
     <figure>
       <Picture img={img} className="max-h-80 min-h-24 w-full overflow-hidden rounded-md border" onOpen={() => setOpen(0)} />
-      {img.caption && <figcaption className="mt-1 break-words text-xs text-muted-foreground">{img.caption}</figcaption>}
+      {img.caption && <figcaption className="mt-1 break-words text-ui-sm text-muted-foreground">{img.caption}</figcaption>}
       <Lightbox images={[img]} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />
     </figure>
   );
@@ -225,7 +225,7 @@ function Carousel({ images }: { images: Img[] }) {
         <Picture key={img.src} img={img} className="h-64 w-full overflow-hidden rounded-md border" onOpen={() => setOpen(i)} />
         {images.length > 1 && <Arrows onStep={step} label={`${i + 1} / ${images.length}`} />}
       </div>
-      {img.caption && <figcaption className="mt-1 break-words text-xs text-muted-foreground">{img.caption}</figcaption>}
+      {img.caption && <figcaption className="mt-1 break-words text-ui-sm text-muted-foreground">{img.caption}</figcaption>}
       <Lightbox images={images} index={open} onIndex={(n) => (setOpen(n), setI(n))} onClose={() => setOpen(null)} />
     </figure>
   );
@@ -251,7 +251,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   };
   // Picked by value: duplicate values would pick several options at once.
   if (new Set(options.map((o) => o.value)).size !== options.length) {
-    return <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">Choice options need distinct values.</div>;
+    return <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-ui-sm text-destructive">Choice options need distinct values.</div>;
   }
   const right = graded && picked === answer;
   const verdictOf = (v: string) => (!graded ? null : v === answer ? "right" : picked === v ? "wrong" : null);
@@ -278,7 +278,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
               disabled={graded && !on}
               onClick={() => void pick(o.value)}
               className={cn(
-                "rounded px-3 py-1 text-sm transition-colors disabled:cursor-default",
+                "rounded px-3 py-1 text-ui transition-colors disabled:cursor-default",
                 verdict === "right" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : verdict === "wrong" ? "bg-destructive/15 text-destructive" : on ? "bg-accent font-medium" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -302,7 +302,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
             disabled={graded && !on}
             onClick={() => void pick(o.value)}
             className={cn(
-              "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-default",
+              "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-ui transition-colors disabled:cursor-default",
               verdict === "right" ? "border-emerald-500/60 bg-emerald-500/10" : verdict === "wrong" ? "border-destructive/60 bg-destructive/10" : on ? "border-primary bg-primary/10 font-medium" : !graded && "hover:bg-accent",
             )}
           >
@@ -318,7 +318,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
     </div>}
     {graded && node.props.explanation && (
       <div role="note" className={cn("rounded-md border px-3 py-2", right ? tones.success.box : tones.error.box)}>
-        <div className={cn("mb-1 text-xs font-medium", right ? tones.success.fg : tones.error.fg)}>{right ? "Correct" : "Not quite"}</div>
+        <div className={cn("mb-1 text-ui-sm font-medium", right ? tones.success.fg : tones.error.fg)}>{right ? "Correct" : "Not quite"}</div>
         <Markdown>{node.props.explanation}</Markdown>
       </div>
     )}
@@ -349,7 +349,7 @@ function Tabs({ node, kids }: { node: Extract<UiNode, { type: "Tabs" }>; kids: R
             role="tab"
             aria-selected={i === j}
             onClick={() => setI(j)}
-            className={cn("shrink-0 border-b-2 px-3 py-1.5 text-sm", i === j ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}
+            className={cn("shrink-0 border-b-2 px-3 py-1.5 text-ui", i === j ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}
           >
             {t}
           </button>
@@ -367,7 +367,7 @@ function Stepper({ node, kids }: { node: Extract<UiNode, { type: "Stepper" }>; k
   const last = i === steps.length - 1;
   return (
     <div className="grid grid-cols-1 gap-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-ui-sm text-muted-foreground">
         <span className="tabular-nums">Step {i + 1} of {steps.length}</span>
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{steps[i]}</span>
         <div className="flex gap-1">
@@ -414,7 +414,7 @@ function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
   };
   return (
     <label className="grid grid-cols-1 gap-1.5">
-      {node.props.label && <span className="text-xs text-muted-foreground">{node.props.label}</span>}
+      {node.props.label && <span className="text-ui-sm text-muted-foreground">{node.props.label}</span>}
       {node.props.multiline ? (
         <Textarea
           value={text}
@@ -476,8 +476,8 @@ function Toggle({ node, kind }: { node: Extract<UiNode, { type: "Checkbox" | "Sw
         </span>
       )}
       <span className="min-w-0">
-        <span className="block text-sm">{node.props.label}</span>
-        {node.props.description && <span className="block text-xs text-muted-foreground">{node.props.description}</span>}
+        <span className="block text-ui">{node.props.label}</span>
+        {node.props.description && <span className="block text-ui-sm text-muted-foreground">{node.props.description}</span>}
       </span>
     </button>
   );
@@ -505,11 +505,11 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
             {path && <span className="mt-0.5"><CheckBox on={done} label={it.title} /></span>}
             {it.icon && <IconOf name={it.icon} className={cn("mt-0.5 text-muted-foreground", it.tone && it.tone !== "neutral" && t.fg)} />}
             <span className="min-w-0 flex-1">
-              <span className={cn("block text-sm", done && "text-muted-foreground line-through")}>{it.title}</span>
-              {it.description && <span className="block text-xs text-muted-foreground">{it.description}</span>}
+              <span className={cn("block text-ui", done && "text-muted-foreground line-through")}>{it.title}</span>
+              {it.description && <span className="block text-ui-sm text-muted-foreground">{it.description}</span>}
             </span>
-            {it.badge && <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-xs", t.box, t.fg)}>{it.badge}</span>}
-            {it.meta && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{it.meta}</span>}
+            {it.badge && <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-ui-sm", t.box, t.fg)}>{it.badge}</span>}
+            {it.meta && <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">{it.meta}</span>}
           </>
         );
         return (
@@ -533,7 +533,7 @@ function Accordion({ node, kids }: { node: Extract<UiNode, { type: "Accordion" }
     <div className="divide-y rounded-lg border">
       {node.props.items.map((title, i) => (
         <div key={i}>
-          <button type="button" aria-expanded={open.includes(i)} onClick={() => flip(i)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium hover:bg-accent/50">
+          <button type="button" aria-expanded={open.includes(i)} onClick={() => flip(i)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-ui font-medium hover:bg-accent/50">
             <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open.includes(i) && "rotate-90")} />
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </button>
@@ -560,10 +560,10 @@ function Timeline({ node }: { node: Extract<UiNode, { type: "Timeline" }> }) {
             </div>
             <div className={cn("min-w-0 flex-1", !last && "pb-4")}>
               <div className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 text-sm font-medium">{it.title}</span>
-                {it.time && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{it.time}</span>}
+                <span className="min-w-0 flex-1 text-ui font-medium">{it.title}</span>
+                {it.time && <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">{it.time}</span>}
               </div>
-              {it.description && <Markdown className="text-xs text-muted-foreground">{it.description}</Markdown>}
+              {it.description && <Markdown className="text-ui-sm text-muted-foreground">{it.description}</Markdown>}
             </div>
           </li>
         );
@@ -597,11 +597,11 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
       {node.props.filter && (
         <div className="relative w-full max-w-64">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-8 pl-7 text-sm" placeholder="Filter rows" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-8 pl-7 text-ui" placeholder="Filter rows" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       )}
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
+        <table className="w-full text-ui">
           <thead className="bg-muted/50 text-left">
             <tr>
               {columns.map((c, i) => (
@@ -655,7 +655,7 @@ function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
   if (!p.patch) {
     return p.path && p.new != null ? (
       <div className="grid grid-cols-1 gap-1">
-        <OpenFile path={p.path} className="w-fit text-xs" />
+        <OpenFile path={p.path} className="w-fit text-ui-sm" />
         <FileDiff path={p.path} oldText={p.old ?? null} newText={p.new} />
       </div>
     ) : null;
@@ -664,7 +664,7 @@ function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
     <div className="grid grid-cols-1 gap-2">
       {files.map((f) => (
         <div key={f.path} className="overflow-hidden rounded border">
-          <div className="flex gap-2 border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+          <div className="flex gap-2 border-b bg-muted px-2 py-1 font-mono text-ui-sm text-muted-foreground">
             <span className="flex min-w-0 flex-1"><OpenFile path={f.path} /></span>
             <span className="text-emerald-600 dark:text-emerald-400">+{f.additions}</span>
             <span className="text-destructive">-{f.deletions}</span>
@@ -686,8 +686,8 @@ function LogBox({ node }: { node: Extract<UiNode, { type: "Log" }> }) {
   }, [el, text]);
   return (
     <div className="overflow-hidden rounded-md border">
-      {node.props.title && <div className="border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">{node.props.title}</div>}
-      <pre ref={setEl} className="max-h-72 overflow-auto bg-muted/40 p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
+      {node.props.title && <div className="border-b bg-muted px-2 py-1 font-mono text-ui-sm text-muted-foreground">{node.props.title}</div>}
+      <pre ref={setEl} className="max-h-72 overflow-auto bg-muted/40 p-2 font-mono text-ui-sm leading-relaxed whitespace-pre-wrap break-words">
         <AnsiText text={text} />
       </pre>
     </div>
@@ -728,7 +728,7 @@ function Trace({ node }: { node: Extract<UiNode, { type: "Trace" }> }) {
   const total = Math.max(...spans.map((x) => x.start + x.duration)) - t0 || 1;
   const fmt = (n: number) => `${Math.round(n * 10) / 10}${unit}`;
   return (
-    <div className="grid grid-cols-1 gap-1 text-xs">
+    <div className="grid grid-cols-1 gap-1 text-ui-sm">
       {rows.map(({ span: x, depth }) => {
         const t = tones[x.tone ?? "neutral"];
         const bar = (
@@ -782,14 +782,17 @@ function Node({ raw }: { raw: RawNode }) {
       const t = tones[node.props?.tone ?? "neutral"];
       const Icon = (node.props?.icon && uiIcons[node.props.icon]) || t.icon;
       return (
-        <div className={cn("min-w-0 space-y-2 rounded-lg border p-3", t.box)}>
+        <div className={cn("min-w-0 overflow-hidden rounded-lg border", t.box)}>
           {node.props?.title && (
-            <div className="flex items-center gap-2 font-medium">
-              {Icon && <Icon className={cn("size-4 shrink-0", node.props.tone && node.props.tone !== "neutral" ? t.fg : "text-muted-foreground")} />}
-              {node.props.title}
+            <div className="border-b bg-muted/40 px-3 py-2.5">
+              <div className="flex items-center gap-2 font-semibold text-foreground">
+                {Icon && <Icon className={cn("size-4 shrink-0", node.props.tone && node.props.tone !== "neutral" ? t.fg : "text-muted-foreground")} />}
+                <span className="min-w-0">{node.props.title}</span>
+              </div>
+              {node.props.description && <div className="mt-0.5 text-ui-sm text-muted-foreground">{node.props.description}</div>}
             </div>
           )}
-          {kids}
+          {(kids?.length ?? 0) > 0 && <div className="space-y-2 p-3">{kids}</div>}
         </div>
       );
     }
@@ -812,7 +815,7 @@ function Node({ raw }: { raw: RawNode }) {
       const t = tones[node.props.tone ?? "neutral"];
       return tip(
         node.props.tooltip,
-        <span className={cn("inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium", t.box, t.fg)}>
+        <span className={cn("inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-ui-sm font-medium", t.box, t.fg)}>
           {node.props.icon && <IconOf name={node.props.icon} className="size-3" />}
           {String(node.props.text ?? "")}
         </span>,
@@ -829,9 +832,9 @@ function Node({ raw }: { raw: RawNode }) {
       return tip(
         node.props.tooltip,
         <div className="min-w-0">
-          <div className="text-xs text-muted-foreground">{node.props.label}</div>
-          <div className={cn("text-2xl font-semibold tabular-nums", node.props.tone && node.props.tone !== "neutral" && t.fg)}>{String(node.props.value ?? "")}</div>
-          {node.props.hint && <div className="text-xs text-muted-foreground">{node.props.hint}</div>}
+          <div className="text-ui-sm text-muted-foreground">{node.props.label}</div>
+          <div className={cn("text-ui-xl font-semibold tabular-nums", node.props.tone && node.props.tone !== "neutral" && t.fg)}>{String(node.props.value ?? "")}</div>
+          {node.props.hint && <div className="text-ui-sm text-muted-foreground">{node.props.hint}</div>}
         </div>,
       );
     }
@@ -840,7 +843,7 @@ function Node({ raw }: { raw: RawNode }) {
       const pct = Math.max(0, Math.min(100, (Number(node.props.value ?? 0) / max) * 100));
       return (
         <div className="grid grid-cols-1 gap-1.5">
-          {node.props.label && <div className="flex justify-between text-xs text-muted-foreground"><span>{node.props.label}</span><span className="tabular-nums">{Math.round(pct)}%</span></div>}
+          {node.props.label && <div className="flex justify-between text-ui-sm text-muted-foreground"><span>{node.props.label}</span><span className="tabular-nums">{Math.round(pct)}%</span></div>}
           <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Number(node.props.value ?? 0)} aria-valuemax={max}>
             <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
           </div>
@@ -894,7 +897,7 @@ function Node({ raw }: { raw: RawNode }) {
       return <LogBox node={node} />;
     case "FileLink":
       return (
-        <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-sm">
+        <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-ui">
           <FileCode className="size-4 shrink-0 text-muted-foreground" />
           <OpenFile path={node.props.path} line={node.props.line} label={node.props.label} />
         </span>
@@ -916,7 +919,8 @@ function Node({ raw }: { raw: RawNode }) {
 export function RenderUi({ root, env }: { root: RawNode; env: UiEnv }) {
   return (
     <Env.Provider value={env}>
-      <div className="min-w-0 text-sm">
+      {/* Sizes (text-ui*) follow the chat font size, like Markdown in messages. */}
+      <div className="min-w-0 text-ui">
         <Node raw={root} />
       </div>
     </Env.Provider>
