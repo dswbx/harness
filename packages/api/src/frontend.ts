@@ -5,6 +5,9 @@ import type { SessionApi } from "./client";
 /** What a Frontend package exports: its Manifest and the View that renders a Session. */
 export interface Frontend {
   manifest: FrontendManifest;
-  /** `toolbar`: the host's Session header slot; a View may portal its own actions into it (else it shows its own header). */
-  View: ComponentType<{ api: SessionApi; toolbar?: HTMLElement | null }>;
+  /**
+   * Host Session header slots a View may portal into (else it shows its own header): `toolbar` for actions (right),
+   * `status` for state badges (left, after the title).
+   */
+  View: ComponentType<{ api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }>;
 }

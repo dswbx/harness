@@ -59,10 +59,11 @@ const iconBtn = "size-7 text-muted-foreground hover:text-foreground data-[state=
 
 /**
  * The one header above a Session's View: title, info popover, actions menu, and a slot the Frontend
- * fills with its own actions (`toolbarRef`). `leading` sits left of the title (traffic lights, sidebar toggle).
+ * fills with its own actions (`toolbarRef`), and one after the title for its state badges (`statusRef`). `leading` sits
+ * left of the title (traffic lights, sidebar toggle).
  */
 export function SessionHeader({
-  client, session, branch, leading, onOpenWindow, onChooseEditor, toolbarRef,
+  client, session, branch, leading, onOpenWindow, onChooseEditor, toolbarRef, statusRef,
 }: {
   client: HarnessClient;
   session: SessionSummary;
@@ -73,6 +74,7 @@ export function SessionHeader({
   /** Opens Settings at the editor choice (no editor chosen yet). */
   onChooseEditor?: () => void;
   toolbarRef: (el: HTMLDivElement | null) => void;
+  statusRef?: (el: HTMLDivElement | null) => void;
 }) {
   const report = useReportError();
   const reveal = () =>
@@ -126,6 +128,7 @@ export function SessionHeader({
           {inTauri() && <DropdownMenuItem onSelect={() => void reveal()}><FolderOpen /> Reveal in Finder</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>
+      <div ref={statusRef} className="flex min-w-0 items-center gap-1 empty:hidden" />
       <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
       {branch && (
         <Tooltip content={`Branch ${branch}`} side="bottom">

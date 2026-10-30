@@ -361,11 +361,11 @@ function SlotPanel({ slot, env, onClose }: { slot: Slot; env: UiEnv; onClose: ()
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 
 /** Claude Code desktop-like chat. Pure fold of the Session Log (see reducer.ts). */
-export function View({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | null }) {
-  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} toolbar={toolbar} />;
+export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
+  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} toolbar={toolbar} status={status} />;
 }
 
-function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | null }) {
+function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
   /** The right panel: "changes" (the diff) or the id of a right-placed render_ui slot. */
   const [panel, setPanelId] = useState<string | null>(null);
@@ -418,15 +418,17 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
   const proc = state.process;
   const refreshKey = `${changeCount}:${running}`;
   // In the host's Session header when it gives a slot, else in a header of our own.
+  // After the Session title (host's status slot, else in our own header).
+  const badge = proc && proc.state !== "ready" && (
+    <Tooltip content={proc.message} side="bottom">
+      <Badge variant={proc.state === "failed" ? "destructive" : "secondary"}>
+        Agent {proc.state}
+      </Badge>
+    </Tooltip>
+  );
   const actions = (
     <>
-      {proc && proc.state !== "ready" && (
-        <Tooltip content={proc.message} side="bottom">
-          <Badge variant={proc.state === "failed" ? "destructive" : "secondary"}>
-            Agent {proc.state}
-          </Badge>
-        </Tooltip>
-      )}
+      {!status && toolbar && badge}
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
       ))}
@@ -454,6 +456,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
         fallback={
           <div className="flex h-13 shrink-0 items-center gap-2 border-b px-5">
             <span className="truncate text-sm font-semibold">{state.title ?? "New Session"}</span>
+            {badge}
             <div className="flex-1" />
             {actions}
           </div>
@@ -461,6 +464,7 @@ function ChatView({ api, toolbar }: { api: SessionApi; toolbar?: HTMLElement | n
       >
         {actions}
       </Portal>
+      {toolbar && <Portal container={status}>{badge}</Portal>}
       <TaskListPanel entries={state.taskList} />
       <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
       <VirtualList
