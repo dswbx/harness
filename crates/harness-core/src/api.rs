@@ -205,6 +205,11 @@ pub enum Command {
         session_id: SessionId,
         path: String,
     },
+    /// Reads an image file picked or dropped in the prompt box (base64), for its preview and
+    /// scaling. Only image files by extension.
+    ReadImageFile {
+        path: String,
+    },
 }
 
 /// A file given with a prompt.

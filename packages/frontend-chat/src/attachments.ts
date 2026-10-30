@@ -50,6 +50,23 @@ async function downscale(file: File, dataUrl: string): Promise<string> {
   return canvas.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.9);
 }
 
+/**
+ * A picked or dropped file path. Images are read (via `read`) and handled like pasted ones, so
+ * they get a preview and are scaled down; if reading fails they are sent by path.
+ */
+export async function fromPickedPath(path: string, read: (path: string) => Promise<{ mime: string; data: string }>): Promise<PendingAttachment> {
+  if (!isImageName(path)) return fromPath(path);
+  try {
+    const { mime, data } = await read(path);
+    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    return await fromFile(new File([bytes], baseName(path), { type: mime }));
+  } catch (err) {
+    // Too large after scaling is a real error; anything else (e.g. no file access) falls back to the path.
+    if (err instanceof Error && err.message.includes("too large")) throw err;
+    return fromPath(path);
+  }
+}
+
 /** Bytes from paste, an `<input type="file">` or an HTML5 drop. Throws a user-facing message when too large. */
 export async function fromFile(file: File): Promise<PendingAttachment> {
   const name = file.name || (file.type.startsWith("image/") ? `pasted.${file.type.split("/")[1] ?? "png"}` : "pasted");

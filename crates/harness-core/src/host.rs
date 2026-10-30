@@ -186,6 +186,10 @@ impl Harness {
                 let (mime, data) = self.session(&session_id)?.read_attachment(&path)?;
                 CommandResult::Attachment { mime, data }
             }
+            Command::ReadImageFile { path } => {
+                let (mime, data) = crate::attachments::read_image(&path)?;
+                CommandResult::Attachment { mime, data }
+            }
             Command::Cancel { session_id, thread_id } => {
                 self.session(&session_id)?.cancel(thread_id).await?;
                 CommandResult::Ok

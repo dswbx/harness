@@ -288,6 +288,8 @@ export class MockTransport implements Transport {
         if (cmd.text) return this.execute({ type: "Prompt", session_id: sid, thread_id: null, text: cmd.text, attachments: [] });
         return { type: "Ok" };
       }
+      case "ReadImageFile":
+        throw new Error("no file access in the browser mock");
       case "ReadAttachment": {
         const a = this.attachments.get(cmd.path);
         if (!a) throw new Error("not an attachment of this Session");

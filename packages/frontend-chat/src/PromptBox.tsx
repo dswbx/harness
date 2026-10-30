@@ -8,7 +8,7 @@ import { lineCount } from "./promptMarkdown";
 import { matchCommands } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
-import { fromFile, fromPath, type PendingAttachment } from "./attachments";
+import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { getReviewComments, removeReviewComment, setReviewComments, useReviewComments, withReviewComments, type ReviewComment } from "./reviewComments";
 
 /** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
@@ -125,20 +125,23 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const addFiles = (files: File[]) => {
     Promise.all(files.map(fromFile)).then(addAttachments, (err) => setError(errorMessage(err)));
   };
+  const addPaths = (paths: string[]) => {
+    Promise.all(paths.map((p) => fromPickedPath(p, api.readImageFile))).then(addAttachments, (err) => setError(errorMessage(err)));
+  };
   const attach = async () => {
     const paths = await pickFiles();
     if (paths === null) fileInput.current?.click();
-    else addAttachments(paths.map(fromPath));
+    else addPaths(paths);
   };
   // Tauri delivers file drops as paths to the window (no HTML5 drop); any drop on this window lands here.
-  const addRef = useRef(addAttachments);
-  addRef.current = addAttachments;
+  const addRef = useRef(addPaths);
+  addRef.current = addPaths;
   useEffect(() => {
     let off: (() => void) | null = null;
     let gone = false;
     void onFileDrop((e) => {
       setDragging(e.type === "over");
-      if (e.type === "drop") addRef.current(e.paths.map(fromPath));
+      if (e.type === "drop") addRef.current(e.paths);
     }).then((u) => (gone ? u?.() : (off = u)));
     return () => {
       gone = true;

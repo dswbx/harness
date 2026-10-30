@@ -11,6 +11,8 @@ use crate::api::{Attachment, AttachmentInput, AttachmentKind};
 
 /// Largest image sent to an Agent.
 const MAX_IMAGE: usize = 5 * 1024 * 1024;
+/// Largest image file read for the prompt box preview; it is scaled down there before sending.
+const MAX_IMAGE_READ: u64 = 25 * 1024 * 1024;
 /// Largest text file embedded in a prompt; bigger files are linked instead.
 const MAX_EMBED: usize = 1024 * 1024;
 
@@ -119,6 +121,17 @@ pub fn read(session_dir: &Path, path: &str) -> anyhow::Result<(String, String)> 
     Ok((guess_mime(&p).to_owned(), B64.encode(std::fs::read(&p)?)))
 }
 
+/// An image file picked or dropped in the prompt box, as `(mime, base64)`, so the box can preview
+/// and scale it like a pasted one. Refuses anything that isn't an image by extension.
+pub fn read_image(path: &str) -> anyhow::Result<(String, String)> {
+    let p = Path::new(path);
+    let mime = guess_mime(p);
+    anyhow::ensure!(is_image(mime), "{path} is not an image");
+    let len = std::fs::metadata(p).map_err(|e| anyhow::anyhow!("{path}: {e}"))?.len();
+    anyhow::ensure!(len <= MAX_IMAGE_READ, "{path} is too large ({} MB max)", MAX_IMAGE_READ / 1024 / 1024);
+    Ok((mime.to_owned(), B64.encode(std::fs::read(p)?)))
+}
+
 fn attachment(name: String, mime: String, path: &Path, kind: AttachmentKind) -> Attachment {
     Attachment { name, mime, path: path.display().to_string(), kind }
 }
@@ -180,6 +193,17 @@ mod tests {
         let n = stored_name("../my shot.png");
         assert!(n.ends_with("-_my_shot.png"), "{n}");
         assert!(stored_name("...").ends_with("-attachment"));
+    }
+
+    #[test]
+    fn read_image_only_reads_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("a.PNG");
+        std::fs::write(&png, b"png").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"secret").unwrap();
+        assert_eq!(read_image(png.to_str().unwrap()).unwrap(), ("image/png".into(), B64.encode(b"png")));
+        assert!(read_image(dir.path().join("b.txt").to_str().unwrap()).is_err());
+        assert!(read_image(dir.path().join("missing.png").to_str().unwrap()).is_err());
     }
 
     #[test]

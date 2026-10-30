@@ -13,6 +13,8 @@ export interface SessionApi {
   prompt(text: string, attachments?: AttachmentInput[]): Promise<void>;
   /** A stored attachment (`attachments/` in the Session Directory) as base64. */
   readAttachment(path: string): Promise<{ mime: string; data: string }>;
+  /** An image file picked or dropped in the prompt box as base64 (image files only). */
+  readImageFile(path: string): Promise<{ mime: string; data: string }>;
   cancel(): Promise<void>;
   /** Starts the Agent in the background so its models and modes show before the first prompt. */
   warmUp(): Promise<void>;
@@ -64,6 +66,10 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     prompt: (text, attachments = []) => run({ type: "Prompt", session_id: sessionId, thread_id: null, text, attachments }),
     readAttachment: async (path) => {
       const r = await expect({ type: "ReadAttachment", session_id: sessionId, path }, "Attachment");
+      return { mime: r.mime, data: r.data };
+    },
+    readImageFile: async (path) => {
+      const r = await expect({ type: "ReadImageFile", path }, "Attachment");
       return { mime: r.mime, data: r.data };
     },
     continueWithSummary: (text) => run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: null, text }),
