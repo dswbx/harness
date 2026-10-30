@@ -68,8 +68,9 @@ pub enum Command {
         /// `worktree`, it becomes the Worktree's branch instead of a `harness/...` one.
         #[serde(default)]
         new_branch: Option<String>,
-        /// Start from this pull request (needs `gh`): always a new Worktree on the PR's head
-        /// branch. `branch`, `new_branch` and `worktree` are ignored.
+        /// Start from this pull request (needs `gh`), on the PR's head branch: in a new Worktree
+        /// with `worktree`, else checked out in the folder (refused when it has changes).
+        /// `branch` and `new_branch` are ignored.
         #[serde(default)]
         pr: Option<u32>,
         /// MCP Library servers (ids) to give the Agent, besides the Harness MCP.

@@ -161,11 +161,11 @@ impl Harness {
                 let id = uuid::Uuid::now_v7().to_string();
                 let dir = self.data_dir.join("sessions").join(&id);
                 let start = match pr {
-                    Some(n) => Start::Pr(crate::github::view_pr(Path::new(&folder), n).await?),
+                    Some(n) => Start::Pr { pr: crate::github::view_pr(Path::new(&folder), n).await?, worktree },
                     None => Start::Branch { base: branch, new_branch, worktree },
                 };
                 let title = title.unwrap_or_else(|| match &start {
-                    Start::Pr(p) => format!("#{} {}", p.number, p.title),
+                    Start::Pr { pr: p, .. } => format!("#{} {}", p.number, p.title),
                     Start::Branch { .. } => folder_name(&folder),
                 });
                 let (folder, workspace) = self.prepare_workspace(&id, &title, folder, start).await?;
@@ -335,7 +335,7 @@ impl Harness {
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
         let in_worktree = |wt: WorktreeMeta| (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt) });
         match start {
-            Start::Pr(pr) => {
+            Start::Pr { pr, worktree: true } => {
                 if let Some(parent) = dest.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
@@ -349,6 +349,14 @@ impl Harness {
                     }
                 };
                 Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }))
+            }
+            Start::Pr { pr, worktree: false } => {
+                anyhow::ensure!(
+                    !crate::workspace::is_dirty(&root).await?,
+                    "the folder has uncommitted changes; commit or stash them, or use a Worktree"
+                );
+                crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None }))
             }
             Start::Branch { base, new_branch, worktree: true } => {
                 let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
@@ -390,6 +398,6 @@ fn folder_name(folder: &str) -> String {
 
 /// Where a new Session's work starts.
 enum Start {
-    Pr(crate::api::PullRequest),
+    Pr { pr: crate::api::PullRequest, worktree: bool },
     Branch { base: Option<String>, new_branch: Option<String>, worktree: bool },
 }

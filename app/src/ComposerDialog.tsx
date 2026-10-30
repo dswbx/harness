@@ -97,6 +97,8 @@ export function ComposerDialog({
   const [mode, setMode] = useState<"branch" | "pr">("branch");
   const [target, setTarget] = useState<Target | null>(null);
   const [worktree, setWorktree] = useState(false);
+  /** A PR opens in a Worktree unless turned off (then it is checked out in the folder). */
+  const [prWorktree, setPrWorktree] = useState(true);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
   const [prs, setPrs] = useState<PullRequest[] | null>(null);
@@ -194,6 +196,12 @@ export function ComposerDialog({
   /** Another branch than the folder's, checked out elsewhere, or remote-only: needs a Worktree. */
   const mustWorktree = target?.kind === "remote" || (target?.kind === "local" && !!targetInfo?.worktree);
 
+  const wtLocked = mode === "branch" && mustWorktree;
+  const wtOn = mode === "pr" ? prWorktree : worktree || mustWorktree;
+  const wtNote = wtLocked
+    ? target?.kind === "remote" ? "needed for a remote branch" : "the branch is checked out elsewhere"
+    : wtOn ? "keeps this folder untouched" : "switches this folder's branch";
+
   const pickTarget = (t: Target) => {
     setTarget(t);
     setBranchOpen(false);
@@ -222,7 +230,7 @@ export function ComposerDialog({
       const repoArgs = !isRepo
         ? {}
         : mode === "pr" && pr
-          ? { pr: pr.number }
+          ? { pr: pr.number, worktree: prWorktree }
           : target?.kind === "new"
             ? { newBranch: target.name, worktree }
             : target?.kind === "remote"
@@ -436,7 +444,6 @@ export function ComposerDialog({
                 Start from
               </Label>
               {mode === "branch" ? (
-                <>
                   <Picker
                     label="Branches"
                     open={branchOpen}
@@ -461,23 +468,6 @@ export function ComposerDialog({
                       />
                     }
                   />
-                  <label className={cn("flex items-center gap-2", mustWorktree && "opacity-60")}>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={worktree || mustWorktree}
-                      disabled={mustWorktree}
-                      onClick={() => setWorktree((w) => !w)}
-                      className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", worktree || mustWorktree ? "bg-primary" : "bg-muted-foreground/30")}
-                    >
-                      <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", worktree || mustWorktree ? "left-3.5" : "left-0.5")} />
-                    </button>
-                    <span>Work in a new worktree</span>
-                    <span className="text-xs text-muted-foreground">
-                      {mustWorktree ? (target?.kind === "remote" ? "needed for a remote branch" : "the branch is checked out elsewhere") : "keeps this folder untouched"}
-                    </span>
-                  </label>
-                </>
               ) : (
                 <Picker
                   label="Pull requests"
@@ -500,7 +490,7 @@ export function ComposerDialog({
                   }
                   items={prItems}
                   empty={prs === null ? "Loading pull requests…" : "No pull requests"}
-                  hint="A PR always opens in a new worktree on its head branch."
+                  hint="Opens on the PR's head branch, checked out with gh."
                   trigger={
                     <FieldButton
                       icon={<PrIcon pr={pr} />}
@@ -510,6 +500,20 @@ export function ComposerDialog({
                   }
                 />
               )}
+              <label className={cn("flex items-center gap-2", wtLocked && "opacity-60")}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={wtOn}
+                  disabled={wtLocked}
+                  onClick={() => (mode === "pr" ? setPrWorktree((w) => !w) : setWorktree((w) => !w))}
+                  className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", wtOn ? "bg-primary" : "bg-muted-foreground/30")}
+                >
+                  <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", wtOn ? "left-3.5" : "left-0.5")} />
+                </button>
+                <span>Work in a new worktree</span>
+                <span className="truncate text-xs text-muted-foreground">{wtNote}</span>
+              </label>
             </div>
           )}
 

@@ -151,7 +151,7 @@ export class HarnessClient {
     worktree?: boolean;
     /** Create this branch from `branch` and work on it. */
     newBranch?: string | null;
-    /** Start from this pull request: always a new Worktree on its head branch. */
+    /** Start from this pull request, on its head branch: in a new Worktree with `worktree`, else in the folder. */
     pr?: number | null;
     /** MCP Library server ids to give the Agent. */
     mcpServers?: string[];

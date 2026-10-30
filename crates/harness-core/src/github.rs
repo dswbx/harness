@@ -92,14 +92,14 @@ pub async fn view_pr(folder: &Path, number: u32) -> anyhow::Result<PullRequest> 
     Ok(into_pr(serde_json::from_str(&gh(folder, &["pr", "view", &n, "--json", FIELDS]).await?)?))
 }
 
-/// Checks the PR out in `worktree` (already created, detached): on its head branch name when
-/// that is free, else on `fallback`. Returns the branch.
-pub async fn checkout_pr(worktree: &Path, number: u32, fallback: &str) -> anyhow::Result<String> {
+/// Checks the PR out in `dir` (a fresh detached Worktree, or a clean folder): on its head branch
+/// name when that is free, else on `fallback`. Returns the branch.
+pub async fn checkout_pr(dir: &Path, number: u32, fallback: &str) -> anyhow::Result<String> {
     let n = number.to_string();
-    if gh(worktree, &["pr", "checkout", &n]).await.is_err() {
-        gh(worktree, &["pr", "checkout", &n, "--branch", fallback]).await?;
+    if gh(dir, &["pr", "checkout", &n]).await.is_err() {
+        gh(dir, &["pr", "checkout", &n, "--branch", fallback]).await?;
     }
-    crate::workspace::current_branch(worktree).await?.ok_or_else(|| anyhow::anyhow!("PR #{number} checkout left HEAD detached"))
+    crate::workspace::current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("PR #{number} checkout left HEAD detached"))
 }
 
 #[cfg(test)]

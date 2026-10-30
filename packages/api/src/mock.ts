@@ -160,11 +160,11 @@ export class MockTransport implements Transport {
         if (cmd.pr != null && !pr) throw new Error(`no pull request #${cmd.pr}`);
         if (!pr && !cmd.worktree && !cmd.new_branch && cmd.branch && cmd.branch !== "main")
           throw new Error("cannot check out branch: the folder has uncommitted changes");
-        const worktree = !!pr || cmd.worktree;
+        const worktree = cmd.worktree;
         const workspace: WorkspaceInfo = {
           repo_root: isRepo ? cmd.folder : null,
-          worktree_branch: pr ? pr.head : worktree ? (cmd.new_branch ?? `harness/${id}`) : null,
-          base_branch: pr ? pr.base : worktree ? (cmd.branch ?? "main") : null,
+          worktree_branch: worktree ? (pr ? pr.head : (cmd.new_branch ?? `harness/${id}`)) : null,
+          base_branch: worktree ? (pr ? pr.base : (cmd.branch ?? "main")) : null,
         };
         const title = cmd.title ?? (pr ? `#${pr.number} ${pr.title}` : (cmd.folder.split("/").pop() ?? id));
         this.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
