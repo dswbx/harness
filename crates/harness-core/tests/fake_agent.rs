@@ -378,6 +378,46 @@ async fn config_change_starts_the_agent_and_logs_the_answer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
+    let (h, first, dir) = setup().await;
+    let models = |h: &Harness, sid: &str| -> Vec<String> {
+        h_events(h, sid)
+            .into_iter()
+            .filter_map(|k| match k {
+                EventKind::ConfigOptionsChanged { options } => options[0]["currentValue"].as_str().map(str::to_owned),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(turn(&h, &first, None, "hi").await, "end_turn");
+    h.execute(Command::SetConfigOption { session_id: first.clone(), thread_id: None, config_id: "model".into(), value: "b".into() })
+        .await
+        .unwrap();
+
+    let folder = dir.path().display().to_string();
+    let CommandResult::SessionCreated { session_id: second } = h
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else { panic!() };
+    assert_eq!(turn(&h, &second, None, "hi").await, "end_turn");
+    assert_eq!(models(&h, &second), vec!["b"], "starts with the remembered model, logged once");
+    assert_eq!(models(&h, &first), vec!["a", "b"], "the first Session is unchanged");
+
+    // Remembered across restarts.
+    drop(h);
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let folder = dir.path().display().to_string();
+    let CommandResult::SessionCreated { session_id: third } = h
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else { panic!() };
+    assert_eq!(turn(&h, &third, None, "hi").await, "end_turn");
+    assert_eq!(models(&h, &third), vec!["b"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_that_fails_to_start_reports_its_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let broken = AgentInfo { command: "/bin/sh".into(), args: vec!["-c".into(), "echo 'config missing: API_KEY' >&2; exit 3".into()], ..fake_info() };

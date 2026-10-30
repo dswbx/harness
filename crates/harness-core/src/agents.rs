@@ -1,6 +1,7 @@
 //! Agents: installed from the ACP Registry onto the managed toolchain (ADR 0007), or added by
 //! hand as Custom Agents. Installed Agents are recorded in `agents.json`; files live in
-//! `agents/<id>/<version>/`.
+//! `agents/<id>/<version>/`. The config option values last picked per Agent are in
+//! `agent-config.json` and given to each new Session's Agent.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -82,6 +83,8 @@ pub struct Agents {
     /// Agents given by the embedder (tests, dev); not persisted.
     fixed: Vec<AgentInfo>,
     installed: RwLock<Vec<AgentInfo>>,
+    /// Agent id -> config option id -> value last picked.
+    config: RwLock<BTreeMap<String, BTreeMap<String, String>>>,
     pub toolchain: Toolchain,
     install_lock: tokio::sync::Mutex<()>,
 }
@@ -93,11 +96,20 @@ impl Agents {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e.into()),
         };
+        let config = match std::fs::read(data_dir.join("agent-config.json")) {
+            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
+                tracing::warn!("agent-config.json unreadable, starting empty: {e}");
+                BTreeMap::new()
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(e) => return Err(e.into()),
+        };
         Ok(Self {
             data_dir: data_dir.to_owned(),
             registry_url,
             fixed,
             installed: RwLock::new(installed),
+            config: RwLock::new(config),
             toolchain: Toolchain::new(data_dir),
             install_lock: Default::default(),
         })
@@ -117,6 +129,22 @@ impl Agents {
         let path = self.data_dir.join("agents.json");
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(agents)?)?;
+        std::fs::rename(tmp, path)?;
+        Ok(())
+    }
+
+    /// Config option values last picked for the Agent (id -> value).
+    pub fn remembered_config(&self, agent_id: &str) -> BTreeMap<String, String> {
+        self.config.read().unwrap().get(agent_id).cloned().unwrap_or_default()
+    }
+
+    /// Records a picked config option value, so new Sessions with this Agent start with it.
+    pub fn remember_config(&self, agent_id: &str, config_id: &str, value: &str) -> anyhow::Result<()> {
+        let mut all = self.config.write().unwrap();
+        all.entry(agent_id.to_owned()).or_default().insert(config_id.to_owned(), value.to_owned());
+        let path = self.data_dir.join("agent-config.json");
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&*all)?)?;
         std::fs::rename(tmp, path)?;
         Ok(())
     }

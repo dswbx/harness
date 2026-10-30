@@ -422,8 +422,11 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
     let (conn, id) = live_agent_session(&session, &thread).await?;
-    let r = conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id, config_id, value.as_str())).block_task().await?;
+    let r = conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id, config_id.clone(), value.as_str())).block_task().await?;
     session.log().append(Some(thread), EventKind::ConfigOptionsChanged { options: serde_json::to_value(&r.config_options)? })?;
+    if let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
+        tracing::warn!("could not remember config option: {e:#}");
+    }
     Ok(())
 }
 
@@ -529,6 +532,34 @@ async fn ensure_agent_session(
     Ok(Some(prev_id))
 }
 
+/// Sets the config option values last picked for this Agent on a brand-new Agent Session, in the
+/// Agent's own option order (e.g. model before effort, whose choices can depend on it). Skips values
+/// already current and any the Agent rejects. Returns the resulting options.
+async fn apply_remembered_config(session: &Arc<Session>, conn: &Arc<AgentConn>, id: &acp::SessionId, mut options: Value) -> Value {
+    let remembered = session.shared().agents.remembered_config(&session.meta().agent.id);
+    if remembered.is_empty() {
+        return options;
+    }
+    let ids: Vec<String> = options.as_array().into_iter().flatten().filter_map(|o| o["id"].as_str().map(str::to_owned)).collect();
+    for config_id in ids {
+        let Some(value) = remembered.get(&config_id) else { continue };
+        let current = options.as_array().and_then(|a| a.iter().find(|o| o["id"] == config_id.as_str())).map(|o| o["currentValue"].clone());
+        match current {
+            None => continue,
+            Some(c) if c == value.as_str() => continue,
+            _ => {}
+        }
+        match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.clone(), value.as_str())).block_task().await {
+            Ok(r) => match serde_json::to_value(&r.config_options) {
+                Ok(o) => options = o,
+                Err(e) => tracing::warn!("config options: {e}"),
+            },
+            Err(e) => tracing::warn!("remembered {config_id}={value} rejected: {e}"),
+        }
+    }
+    options
+}
+
 async fn new_agent_session(
     session: &Arc<Session>,
     conn: &Arc<AgentConn>,
@@ -538,10 +569,12 @@ async fn new_agent_session(
     let cwd = std::path::PathBuf::from(session.meta().folder);
     let servers = mcp_servers(session, conn, thread).await?;
     let r = conn.cx.send_request(acp::NewSessionRequest::new(cwd).mcp_servers(servers)).block_task().await?;
-    if let Some(options) = &r.config_options {
-        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged {
-            options: serde_json::to_value(options)?,
-        })?;
+    let mut options = r.config_options.map(serde_json::to_value).transpose()?;
+    if boundary == Boundary::Initial && let Some(o) = options.take() {
+        options = Some(apply_remembered_config(session, conn, &r.session_id, o).await);
+    }
+    if let Some(options) = options {
+        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options })?;
     }
     if let Some(modes) = &r.modes {
         session.log().append(Some(thread.clone()), EventKind::ModeChanged {
