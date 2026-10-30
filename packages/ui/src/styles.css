@@ -132,7 +132,7 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 1.6s linear infinite;
+  animation: shimmer 2.4s linear infinite;
   @media (prefers-reduced-motion: reduce) { animation: none; color: inherit; background: none; }
 }
 @theme {
@@ -140,5 +140,6 @@
   --animate-trace-up: trace-up 200ms ease-out;
   @keyframes trace-down { from { height: 0; } to { height: var(--radix-collapsible-content-height); } }
   @keyframes trace-up { from { height: var(--radix-collapsible-content-height); } to { height: 0; } }
-  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+  /* One whole 200% tile per loop: the gradient repeats, so the band leaves right as the next comes in from the left. */
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0% 0; } }
 }
