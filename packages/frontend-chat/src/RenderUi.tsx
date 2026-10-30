@@ -245,8 +245,8 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   }
   const right = graded && picked === answer;
   return (
-    <div className="grid gap-2">
-    <div role="radiogroup" className={cn("grid gap-1.5", node.props.columns === 2 && "sm:grid-cols-2")}>
+    <div className="grid grid-cols-1 gap-2">
+    <div role="radiogroup" className={cn("grid grid-cols-1 gap-1.5", node.props.columns === 2 && "sm:grid-cols-2")}>
       {options.map((o) => {
         const on = picked === o.value;
         const verdict = !graded ? null : o.value === answer ? "right" : on ? "wrong" : null;
@@ -296,7 +296,7 @@ function useIndex(node: { props: { value?: unknown }; bindings: Record<string, s
 function Tabs({ node, kids }: { node: Extract<UiNode, { type: "Tabs" }>; kids: React.ReactNode[] }) {
   const [i, setI] = useIndex(node, node.props.tabs.length);
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-1 gap-3">
       <div role="tablist" className="flex gap-1 overflow-x-auto border-b">
         {node.props.tabs.map((t, j) => (
           <button
@@ -321,7 +321,7 @@ function Stepper({ node, kids }: { node: Extract<UiNode, { type: "Stepper" }>; k
   const [i, setI] = useIndex(node, steps.length);
   const last = i === steps.length - 1;
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-1 gap-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="tabular-nums">Step {i + 1} of {steps.length}</span>
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{steps[i]}</span>
@@ -368,7 +368,7 @@ function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
     if (submit) await runActions(node.on?.submit, { ...env, state: path ? structuredCloneSet(env.state, path, text) : env.state });
   };
   return (
-    <label className="grid gap-1.5">
+    <label className="grid grid-cols-1 gap-1.5">
       {node.props.label && <span className="text-xs text-muted-foreground">{node.props.label}</span>}
       <Input
         value={text}
@@ -477,7 +477,7 @@ function Node({ raw }: { raw: RawNode }) {
       const max = Number(node.props.max ?? 100) || 100;
       const pct = Math.max(0, Math.min(100, (Number(node.props.value ?? 0) / max) * 100));
       return (
-        <div className="grid gap-1.5">
+        <div className="grid grid-cols-1 gap-1.5">
           {node.props.label && <div className="flex justify-between text-xs text-muted-foreground"><span>{node.props.label}</span><span className="tabular-nums">{Math.round(pct)}%</span></div>}
           <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Number(node.props.value ?? 0)} aria-valuemax={max}>
             <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />

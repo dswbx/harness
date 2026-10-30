@@ -11,7 +11,7 @@ export function RenderUiGallery({ query = "" }: { query?: string }) {
     (n) => !q || n.toLowerCase().includes(q) || components[n].description.toLowerCase().includes(q),
   );
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <p className="text-sm text-muted-foreground">
         What Agents can show with <code className="rounded bg-muted px-1 font-mono text-xs">render_ui</code>: inline in the chat, or in a live area (top, bottom, a tab on the right). Examples are interactive; their state stays on this page.
       </p>
@@ -49,7 +49,7 @@ function Entry({ name }: { name: ComponentType }) {
         <RenderUi root={c.example.node as RawNode} env={env} />
       </div>
       {(json || stateful || sent) && (
-        <div className="grid gap-2 border-t bg-muted/30 px-4 py-2.5 text-xs">
+        <div className="grid grid-cols-1 gap-2 border-t bg-muted/30 px-4 py-2.5 text-xs">
           {sent && <div><span className="text-muted-foreground">sendMessage: </span>{sent}</div>}
           {stateful && (
             <div className="flex items-center gap-2">
