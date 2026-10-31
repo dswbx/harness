@@ -16,3 +16,8 @@ test("{:lang} names the language and is stripped", () => {
   expect(inlineLanguage("{:plain}f(x)")).toEqual({ lang: null, code: "f(x)" });
   expect(inlineLanguage("{:nope}f(x)")).toEqual({ lang: null, code: "f(x)" });
 });
+
+test("without guessing only {:lang} highlights", () => {
+  expect(inlineLanguage("f(x)", false)).toEqual({ lang: null, code: "f(x)" });
+  expect(inlineLanguage("{:ts}f(x)", false)).toEqual({ lang: "ts", code: "f(x)" });
+});

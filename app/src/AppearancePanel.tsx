@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import type { HarnessClient } from "@harness/api";
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Select, Textarea, cn } from "@harness/ui";
-import { setToolDisplay, toolDisplays, useToolDisplay } from "@harness/frontend-chat";
+import { setGuessInlineCode, setToolDisplay, toolDisplays, useGuessInlineCode, useToolDisplay } from "@harness/frontend-chat";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
@@ -90,6 +90,29 @@ function ToolDisplayRow() {
       <Select id="tool-display" className="h-8 w-44 shrink-0 text-xs" value={current.id} onChange={(e) => setToolDisplay(e.target.value)}>
         {toolDisplays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
       </Select>
+    </Row>
+  );
+}
+
+/** Chat Frontend: highlight unmarked code-like inline code as TypeScript (stored by the Frontend itself). */
+function GuessInlineCodeRow() {
+  const on = useGuessInlineCode();
+  return (
+    <Row label="Inline code" htmlFor="guess-inline-code">
+      <label className="flex items-center gap-2 text-xs">
+        <button
+          id="guess-inline-code"
+          type="button"
+          role="switch"
+          aria-checked={on}
+          onClick={() => setGuessInlineCode(!on)}
+          className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
+        >
+          <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
+        </button>
+        <span>Guess the language</span>
+        <span className="truncate text-muted-foreground">TypeScript when it looks like code</span>
+      </label>
     </Row>
   );
 }
@@ -303,6 +326,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
           <RhythmRow label="Leading" id="chat-leading" value={a.leading} options={LEADINGS} onChange={(leading) => update({ leading })} />
           <RhythmRow label="Flow" id="chat-flow" value={a.flow} options={FLOWS} onChange={(flow) => update({ flow })} />
           <ToolDisplayRow />
+          <GuessInlineCodeRow />
         </Group>
         <Group title="Terminal">
           <FontRow
