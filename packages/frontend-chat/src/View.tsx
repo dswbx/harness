@@ -1,10 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, CheckCircle2, CircleDashed, GitCompare, GitFork, Loader2, MessagesSquare, PanelRight, SquareTerminal, X } from "lucide-react";
+import { Archive, CheckCircle2, CircleDashed, GitCompare, Loader2, MessagesSquare, PanelRight, Plus, SquareTerminal, X } from "lucide-react";
 import type { AttachmentInput, SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
-  Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger,
-  Portal, ResizeHandle, Tooltip, cn, useResizableWidth,
+  Badge, Button, Portal, ResizeHandle, Tooltip, cn, useResizableWidth,
 } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
@@ -12,13 +11,13 @@ import { PromptBox } from "./PromptBox";
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { MessageList, useRows } from "./Messages";
-import { ThreadView, startText } from "./ThreadView";
+import { ThreadView } from "./ThreadView";
 import { SelectionComment } from "./SelectionComment";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Slot } from "./slots";
 import { errorMessage } from "./errors";
 import { addReviewComment, composerKey } from "./reviewComments";
-import { closeTab, loadPanel, openTab, sameTab, savePanel, tabKey, toggleTab, type PanelState, type PanelTab } from "./panelTabs";
+import { closeThread, loadPanel, openThread, savePanel, selectThread, showView, toggleView, type PanelState, type PanelView } from "./panelTabs";
 import { initialState, reduce, reduceBatch, type ChatState } from "./reducer";
 
 
@@ -117,18 +116,19 @@ export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTML
   return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} toolbar={toolbar} status={status} />;
 }
 
-const CHANGES: PanelTab = { kind: "changes" };
-const TERMINAL: PanelTab = { kind: "terminal" };
+const CHANGES: PanelView = { kind: "changes" };
+const TERMINAL: PanelView = { kind: "terminal" };
+const SIDE: PanelView = { kind: "side" };
 
 function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  /** The right panel: open tabs (Changes, Terminal, right render_ui items, Side Threads) and the shown one. Kept per Session. */
+  /** The right panel: the view shown (side chats, Changes, Terminal or a right render_ui item) and the open side chats. Kept per Session. */
   const [panel, setPanel] = useState<PanelState>(() => loadPanel(api.sessionId));
   useEffect(() => savePanel(api.sessionId, panel), [api.sessionId, panel]);
-  const active = panel.active;
-  const show = useCallback((t: PanelTab) => setPanel((p) => openTab(p, t)), []);
-  const toggle = useCallback((t: PanelTab) => setPanel((p) => toggleTab(p, t)), []);
-  const close = useCallback((t: PanelTab) => setPanel((p) => closeTab(p, t)), []);
+  const active = panel.view;
+  const show = useCallback((v: PanelView) => setPanel((p) => showView(p, v)), []);
+  const toggle = useCallback((v: PanelView) => setPanel((p) => toggleView(p, v)), []);
+  const closePanel = useCallback(() => setPanel((p) => ({ ...p, view: null })), []);
   /** The Terminal stays mounted (hidden) once opened, so its screen survives switching panels. */
   const [terminalOpened, setTerminalOpened] = useState(false);
   const toggleTerminal = useCallback(() => {
@@ -136,16 +136,16 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
     toggle(TERMINAL);
   }, [toggle]);
 
-  // Side Threads: a prompt box takes focus in the tab that was just created.
+  // Side chats: a prompt box takes focus in the chat that was just created.
   const [focus, setFocus] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   const [sideError, setSideError] = useState<string | null>(null);
-  /** Opens a Side Thread (forked from Main when the Agent can), shows its tab, and returns its id. */
+  /** Opens a Side Thread (forked from Main when the Agent can), shows it, and returns its id. */
   const newSideThread = useCallback(
     async () => {
       setSideError(null);
       try {
         const { thread_id } = await api.startSideThread();
-        show({ kind: "thread", id: thread_id });
+        setPanel((p) => openThread(p, thread_id));
         setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
         return thread_id;
       } catch (e) {
@@ -153,7 +153,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         return null;
       }
     },
-    [api, show],
+    [api],
   );
   /** "Ask in side thread": a new Side Thread with the selected text as a quote chip in its prompt box. */
   const askSideThread = useCallback(
@@ -227,18 +227,19 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);
 
   const sideThreads = useMemo(() => state.threadList.filter((t) => !t.main), [state.threadList]);
-  // Tabs that have something to show (slots and Side Threads arrive with the replay).
-  const tabs = panel.tabs.filter((t) => t.kind === "slot" ? ui.slots.right.some((x) => x.id === t.id) : t.kind === "thread" ? !!state.threads[t.id] : true);
-  const tabLabel = (t: PanelTab) => {
-    switch (t.kind) {
-      case "changes": return "Changes";
-      case "terminal": return "Terminal";
-      case "slot": { const x = ui.slots.right.find((s) => s.id === t.id); return x?.title ?? x?.id ?? t.id; }
-      case "thread": return sideThreads.find((x) => x.id === t.id)?.title ?? "Side thread";
-    }
+  // Open side chats that have something to show (they arrive with the replay).
+  const openThreads = panel.threads.filter((id) => !!state.threads[id]);
+  const activeThread = panel.thread && openThreads.includes(panel.thread) ? panel.thread : (openThreads.at(-1) ?? null);
+  const sideShown = active?.kind === "side" && activeThread !== null;
+  const activeShown = sideShown || (!!active && active.kind !== "side" && (active.kind !== "slot" || !!rightSlot));
+  const threadTitle = (id: string) => sideThreads.find((x) => x.id === id)?.title ?? "Side chat";
+  /** The toolbar button: hides the side chats, else shows the last active one, else starts a new one. */
+  const toggleSide = () => {
+    if (active?.kind === "side") closePanel();
+    else if (activeThread) setPanel((p) => ({ ...selectThread(p, activeThread), view: SIDE }));
+    else void newSideThread();
   };
-  const activeShown = !!active && tabs.some((t) => sameTab(t, active));
-  const showStrip = activeShown && (tabs.length > 1 || active?.kind === "thread");
+  const closeSide = (id: string) => setPanel((p) => closeThread(p, id));
 
   const running = state.turnId !== null;
   const proc = state.process;
@@ -259,39 +260,18 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={active?.kind === "slot" && active.id === x.id} onClick={() => toggle({ kind: "slot", id: x.id })} />
       ))}
-      <Tooltip content="New side thread (Cmd/Ctrl+Shift+B)" side="bottom">
-        <Button size="icon" variant="ghost" className={toolbarButton} aria-label="New side thread" onClick={() => void newSideThread()}>
-          <GitFork />
+      <Tooltip content="Side chats (Cmd/Ctrl+Shift+B for a new one)" side="bottom">
+        <Button
+          size="icon"
+          variant="ghost"
+          className={cn(toolbarButton, active?.kind === "side" && "bg-accent text-accent-foreground")}
+          aria-label="Side chats"
+          aria-pressed={active?.kind === "side"}
+          onClick={toggleSide}
+        >
+          <MessagesSquare />
         </Button>
       </Tooltip>
-      {sideThreads.length > 0 && (
-        <DropdownMenu>
-          <Tooltip content="Side threads" side="bottom">
-            <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" className={cn(toolbarButton, active?.kind === "thread" && "bg-accent text-accent-foreground")} aria-label="Side threads">
-                <MessagesSquare />
-              </Button>
-            </DropdownMenuTrigger>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-72">
-            <DropdownMenuLabel>Side threads</DropdownMenuLabel>
-            {sideThreads.map((t) => {
-              const tab: PanelTab = { kind: "thread", id: t.id };
-              const st = state.threads[t.id];
-              return (
-                <DropdownMenuItem key={t.id} className="flex-col items-start gap-0" onSelect={() => show(tab)}>
-                  <span className={cn("w-full truncate", panel.tabs.some((x) => sameTab(x, tab)) && "font-medium")}>{t.title ?? "Empty side thread"}</span>
-                  <span className="text-xs text-muted-foreground">{st ? startText(st) : "Side thread"} · {t.turns} {t.turns === 1 ? "turn" : "turns"}</span>
-                </DropdownMenuItem>
-              );
-            })}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void newSideThread()}>
-              New side thread <DropdownMenuShortcut>⇧⌘B</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
       <Tooltip content="Terminal (Ctrl+`)" side="bottom">
         <Button
           size="icon"
@@ -375,46 +355,43 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
     {(activeShown || terminalOpened) && (
       <div className={cn("relative flex h-full shrink-0 flex-col", !activeShown && "hidden")} style={{ width: right.width }}>
         <ResizeHandle label="Resize panel" {...right.handle} />
-        {showStrip && (
-          <div role="tablist" aria-label="Panel" className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-l bg-background px-1.5 pt-1.5">
-            {tabs.map((t) => {
-              const on = sameTab(t, active);
+        {sideShown && (
+          <div role="tablist" aria-label="Side chats" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-l bg-background px-2.5 py-2">
+            {openThreads.map((id) => {
+              const on = id === activeThread;
+              const title = threadTitle(id);
               return (
-                <div key={tabKey(t)} className={cn("flex min-w-0 max-w-48 items-center rounded-t-md border border-b-0 text-xs", on ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}>
-                  <button role="tab" aria-selected={on} className="min-w-0 truncate py-1.5 pl-2.5 pr-2" onClick={() => show(t)}>
-                    {t.kind === "thread" && <GitFork className="mr-1 inline size-3 align-[-1px]" />}
-                    {tabLabel(t)}
+                <div key={id} className={cn("flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs", on ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}>
+                  <button role="tab" aria-selected={on} className="min-w-0 truncate" onClick={() => setPanel((p) => selectThread(p, id))}>{title}</button>
+                  <button className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground" aria-label={`Close ${title}`} onClick={() => closeSide(id)}>
+                    <X className="size-3" />
                   </button>
-                  {t.kind === "thread" && (
-                    <button className="mr-1 rounded p-0.5 hover:bg-background/60" aria-label={`Close ${tabLabel(t)}`} onClick={() => close(t)}>
-                      <X className="size-3" />
-                    </button>
-                  )}
                 </div>
               );
             })}
+            <Tooltip content="New side chat" side="bottom">
+              <Button size="icon" variant="ghost" className="size-[26px] shrink-0 text-muted-foreground hover:text-accent-foreground" aria-label="New side chat" onClick={() => void newSideThread()}>
+                <Plus />
+              </Button>
+            </Tooltip>
           </div>
         )}
         <div className="relative min-h-0 flex-1">
-          {active?.kind === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => close(CHANGES)} refreshKey={refreshKey} />}
-          {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => close({ kind: "slot", id: rightSlot.id })} />}
+          {active?.kind === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={closePanel} refreshKey={refreshKey} />}
+          {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={closePanel} />}
           {terminalOpened && (
             <div className={cn("h-full", active?.kind !== "terminal" && "hidden")}>
               <Suspense fallback={null}>
-                <TerminalPanel api={api} active={active?.kind === "terminal"} onClose={() => close(TERMINAL)} />
+                <TerminalPanel api={api} active={active?.kind === "terminal"} onClose={closePanel} />
               </Suspense>
             </div>
           )}
-          {/* Open Side Threads stay mounted (hidden) so a half-typed prompt survives switching tabs. */}
-          {tabs.map((t) => {
-            const st = t.kind === "thread" ? state.threads[t.id] : null;
-            if (t.kind !== "thread" || !st) return null;
-            return (
-              <div key={t.id} className={cn("h-full", !sameTab(t, active) && "hidden")}>
-                <ThreadView api={api} thread={st} threadId={t.id} env={env} onOpenDiff={openDiff} focusKey={focus.id === t.id ? focus.n : 0} />
-              </div>
-            );
-          })}
+          {/* Open side chats stay mounted (hidden) so a half-typed prompt survives switching chats and views. */}
+          {openThreads.map((id) => (
+            <div key={id} className={cn("h-full", !(sideShown && id === activeThread) && "hidden")}>
+              <ThreadView api={api} thread={state.threads[id]!} threadId={id} env={env} onOpenDiff={openDiff} focusKey={focus.id === id ? focus.n : 0} />
+            </div>
+          ))}
         </div>
       </div>
     )}

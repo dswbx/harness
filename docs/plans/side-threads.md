@@ -75,3 +75,4 @@ Subsessions (child Sessions, orchestrated, can write) may come later. Keep the s
 - No excerpt in core: selected text goes into the Side Thread's prompt box as a quote chip.
 - No read-only layer or toggle (section 3 dropped): a Side Thread starts in the Agent's asking mode, has its own mode picker, and follows the Main Thread's other config (model, effort). See ADR 0018.
 - Prompt box folds its options into one dropdown when narrow.
+- Side panel (design D): one Side chats toggle in the toolbar; text pills for open side chats only, each with a close button, and "+" for a new one; Changes, Terminal and Agent panels are plain toolbar toggles again. "Forked from main at turn N" is an inline divider; Copy and Send to main (plain, or with a comment) sit under each side reply.

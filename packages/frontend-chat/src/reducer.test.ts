@@ -127,13 +127,27 @@ describe("turns", () => {
     const side = s.threads.side!;
     expect(s.items).toHaveLength(1);
     expect(s.turnId).toBeNull();
-    expect(side.items.map((i) => i.type)).toEqual(["user", "agent"]);
-    expect(side.items[1]).toMatchObject({ text: "because" });
+    expect(side.items.map((i) => i.type)).toEqual(["notice", "user", "agent"]);
+    expect(side.items[2]).toMatchObject({ text: "because" });
     expect(side.turnId).toBe("t");
     expect(side.forkedFrom).toMatchObject({ turn: 2 });
     expect(side.startBoundary).toBe("forked");
+    expect(side.items[0]).toMatchObject({ type: "notice", level: "boundary", text: "Forked from main at turn 2" });
     expect(threadState(s, "side")).toBe(side);
     expect(threadState(s, "main")).toBe(s);
+  });
+
+  it("a fresh Side Thread opens with a summary divider, once; nothing before its Agent Session starts", () => {
+    const pending = fold([started(), ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side")]);
+    expect(pending.threads.side!.items).toEqual([]);
+    const s = fold([
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "initial" }, "side"),
+      ev({ type: "AgentSessionStarted", acp_session_id: "g", boundary: "resumed" }, "side"),
+    ]);
+    expect(s.threads.side!.items.map((i) => i.type === "notice" && i.text)).toEqual(["Started with a summary of main", "Agent session resumed"]);
+    expect(s.items).toHaveLength(0);
   });
 
   it("Side Thread: permission requests pend as cards, config options are its own, Main untouched", () => {

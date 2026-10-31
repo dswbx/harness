@@ -1,38 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { closeTab, emptyPanel, openTab, toggleTab, type PanelTab } from "./panelTabs";
+import { closeThread, emptyPanel, openThread, selectThread, showView, toggleView, type PanelView } from "./panelTabs";
 
-const changes: PanelTab = { kind: "changes" };
-const term: PanelTab = { kind: "terminal" };
-const t1: PanelTab = { kind: "thread", id: "a" };
-const t2: PanelTab = { kind: "thread", id: "b" };
+const changes: PanelView = { kind: "changes" };
+const term: PanelView = { kind: "terminal" };
 
-describe("panel tabs", () => {
-  it("toggle opens, then closes the shown tab (as the single panel did)", () => {
-    const open = toggleTab(emptyPanel, changes);
-    expect(open).toEqual({ tabs: [changes], active: changes });
-    expect(toggleTab(open, changes)).toEqual(emptyPanel);
+describe("panel", () => {
+  it("toggle shows the view, then closes the panel when it is the shown one", () => {
+    const open = toggleView(emptyPanel, changes);
+    expect(open.view).toEqual(changes);
+    expect(toggleView(open, changes)).toEqual(emptyPanel);
   });
-  it("opening an open tab only shows it", () => {
-    const s = openTab(openTab(openTab(emptyPanel, changes), t1), changes);
-    expect(s.tabs).toEqual([changes, t1]);
-    expect(s.active).toEqual(changes);
+  it("toggling another view switches to it", () => {
+    expect(toggleView(toggleView(emptyPanel, changes), term).view).toEqual(term);
   });
-  it("closing the shown tab shows its left neighbour, else right, else none", () => {
-    let s = [changes, t1, t2].reduce(openTab, emptyPanel);
-    s = closeTab(s, t2);
-    expect(s.active).toEqual(t1);
-    s = openTab(openTab(s, term), t2);
-    expect(closeTab(s, t2).active).toEqual(term);
-    expect(closeTab(closeTab(openTab(emptyPanel, t1), t2), t1)).toEqual(emptyPanel);
-    expect(closeTab(openTab(openTab(emptyPanel, t1), t2), t1).active).toEqual(t2);
+  it("opening a thread appends it, activates it and shows the side view", () => {
+    const s = openThread(openThread(showView(emptyPanel, changes), "a"), "b");
+    expect(s).toEqual({ threads: ["a", "b"], thread: "b", view: { kind: "side" } });
+    expect(openThread(s, "a")).toEqual({ threads: ["a", "b"], thread: "a", view: { kind: "side" } });
   });
-  it("closing a background tab keeps the shown one", () => {
-    const s = closeTab([changes, t1].reduce(openTab, emptyPanel), changes);
-    expect(s).toEqual({ tabs: [t1], active: t1 });
+  it("toggling the side view off keeps the open threads", () => {
+    const s = toggleView(openThread(emptyPanel, "a"), { kind: "side" });
+    expect(s).toEqual({ threads: ["a"], thread: "a", view: null });
   });
-  it("toggling a tab that is open but not shown shows it", () => {
-    const s = toggleTab([term, t1].reduce(openTab, emptyPanel), term);
-    expect(s.active).toEqual(term);
-    expect(s.tabs).toHaveLength(2);
+  it("selecting only works for open threads", () => {
+    const s = openThread(openThread(emptyPanel, "a"), "b");
+    expect(selectThread(s, "a").thread).toBe("a");
+    expect(selectThread(s, "zzz")).toBe(s);
+  });
+  it("closing the active thread shows its left neighbour, else right", () => {
+    let s = ["a", "b", "c"].reduce(openThread, emptyPanel);
+    s = closeThread(s, "c");
+    expect(s.thread).toBe("b");
+    s = selectThread(s, "a");
+    expect(closeThread(s, "a").thread).toBe("b");
+  });
+  it("closing a background thread keeps the active one", () => {
+    const s = closeThread(["a", "b"].reduce(openThread, emptyPanel), "a");
+    expect(s).toEqual({ threads: ["b"], thread: "b", view: { kind: "side" } });
+  });
+  it("closing the last thread closes the panel", () => {
+    expect(closeThread(openThread(emptyPanel, "a"), "a")).toEqual(emptyPanel);
+  });
+  it("closing the last thread leaves another shown view alone", () => {
+    const s = showView(openThread(emptyPanel, "a"), term);
+    expect(closeThread(s, "a").view).toEqual(term);
   });
 });

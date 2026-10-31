@@ -1,50 +1,61 @@
-/** The right panel: open tabs and the one shown. Pure, so the toggle rules are testable. */
-export type PanelTab =
+/** The right panel: which view is shown, plus the open Side Threads. Pure, so the toggle rules are testable. */
+export type PanelView =
+  | { kind: "side" }
   | { kind: "changes" }
   | { kind: "terminal" }
   /** A right-placed `render_ui` item. */
-  | { kind: "slot"; id: string }
-  /** A Side Thread (ADR 0018). Closing only hides it; it stays in the Session Log. */
-  | { kind: "thread"; id: string };
+  | { kind: "slot"; id: string };
 
-export type PanelState = { tabs: PanelTab[]; active: PanelTab | null };
+export type PanelState = {
+  /** Open Side Threads, in tab order. Closing only hides one; it stays in the Session Log (ADR 0018). */
+  threads: string[];
+  /** The Side Thread shown in the side view. */
+  thread: string | null;
+  /** The view shown; null: the panel is closed. */
+  view: PanelView | null;
+};
 
-export const emptyPanel: PanelState = { tabs: [], active: null };
+export const emptyPanel: PanelState = { threads: [], thread: null, view: null };
 
-export const tabKey = (t: PanelTab) => (t.kind === "slot" || t.kind === "thread" ? `${t.kind}:${t.id}` : t.kind);
-export const sameTab = (a: PanelTab | null, b: PanelTab | null) => !!a && !!b && tabKey(a) === tabKey(b);
+export const viewKey = (v: PanelView) => (v.kind === "slot" ? `slot:${v.id}` : v.kind);
+export const sameView = (a: PanelView | null, b: PanelView | null) => !!a && !!b && viewKey(a) === viewKey(b);
 
-/** Opens `tab` (appended when new) and shows it. */
-export function openTab(s: PanelState, tab: PanelTab): PanelState {
-  const known = s.tabs.find((t) => sameTab(t, tab));
-  return { tabs: known ? s.tabs : [...s.tabs, tab], active: known ?? tab };
+/** Shows `view`. */
+export const showView = (s: PanelState, view: PanelView): PanelState => ({ ...s, view });
+
+/** A toolbar button: shows the view, or closes the panel when it is the one shown. */
+export const toggleView = (s: PanelState, view: PanelView): PanelState => (sameView(s.view, view) ? { ...s, view: null } : showView(s, view));
+
+/** Opens a Side Thread (appended when new), makes it the active one and shows the side view. */
+export function openThread(s: PanelState, id: string): PanelState {
+  return { threads: s.threads.includes(id) ? s.threads : [...s.threads, id], thread: id, view: { kind: "side" } };
 }
 
-/** Closes `tab`; if it was shown, the neighbour on its left (else right) takes over. */
-export function closeTab(s: PanelState, tab: PanelTab): PanelState {
-  const at = s.tabs.findIndex((t) => sameTab(t, tab));
+/** Selects an open Side Thread. */
+export const selectThread = (s: PanelState, id: string): PanelState => (s.threads.includes(id) ? { ...s, thread: id } : s);
+
+/** Closes a Side Thread; if it was active the neighbour on its left (else right) takes over. The last one closes the panel. */
+export function closeThread(s: PanelState, id: string): PanelState {
+  const at = s.threads.indexOf(id);
   if (at < 0) return s;
-  const tabs = s.tabs.filter((_, i) => i !== at);
-  const active = sameTab(s.active, tab) ? (tabs[at - 1] ?? tabs[at] ?? null) : s.active;
-  return { tabs, active };
+  const threads = s.threads.filter((t) => t !== id);
+  const thread = s.thread === id ? (threads[at - 1] ?? threads[at] ?? null) : s.thread;
+  const view = threads.length === 0 && s.view?.kind === "side" ? null : s.view;
+  return { threads, thread, view };
 }
 
-/** A toolbar button: shows the tab, or closes it when it is the one shown. */
-export const toggleTab = (s: PanelState, tab: PanelTab): PanelState => (sameTab(s.active, tab) ? closeTab(s, tab) : openTab(s, tab));
-
-const key = (sessionId: string) => `harness.chat.panelTabs.${sessionId}`;
+const key = (sessionId: string) => `harness.chat.panel.${sessionId}`;
 
 /** Per Session, so switching Sessions (and restarting the app) keeps it. The Terminal is not restored: it would start a shell. */
 export function loadPanel(sessionId: string): PanelState {
   try {
-    const v = JSON.parse(localStorage.getItem(key(sessionId)) ?? "null") as { tabs?: unknown; active?: unknown } | null;
-    const ok = (t: unknown): t is PanelTab => {
-      const x = t as Record<string, unknown> | null;
-      return !!x && (x.kind === "changes" || ((x.kind === "slot" || x.kind === "thread") && typeof x.id === "string"));
-    };
-    const tabs = Array.isArray(v?.tabs) ? v.tabs.filter(ok) : [];
-    const active = ok(v?.active) ? tabs.find((t) => sameTab(t, v.active as PanelTab)) ?? null : null;
-    return { tabs, active };
+    const v = JSON.parse(localStorage.getItem(key(sessionId)) ?? "null") as { threads?: unknown; thread?: unknown; view?: unknown } | null;
+    const threads = Array.isArray(v?.threads) ? v.threads.filter((t): t is string => typeof t === "string") : [];
+    const thread = typeof v?.thread === "string" && threads.includes(v.thread) ? v.thread : (threads.at(-1) ?? null);
+    const x = v?.view as Record<string, unknown> | null | undefined;
+    const view: PanelView | null =
+      x?.kind === "side" || x?.kind === "changes" ? { kind: x.kind } : x?.kind === "slot" && typeof x.id === "string" ? { kind: "slot", id: x.id } : null;
+    return { threads, thread, view };
   } catch {
     return emptyPanel;
   }
@@ -52,8 +63,8 @@ export function loadPanel(sessionId: string): PanelState {
 
 export function savePanel(sessionId: string, s: PanelState) {
   try {
-    const tabs = s.tabs.filter((t) => t.kind !== "terminal");
-    if (tabs.length) localStorage.setItem(key(sessionId), JSON.stringify({ tabs, active: s.active?.kind === "terminal" ? null : s.active }));
+    const view = s.view?.kind === "terminal" ? null : s.view;
+    if (s.threads.length || view) localStorage.setItem(key(sessionId), JSON.stringify({ threads: s.threads, thread: s.thread, view }));
     else localStorage.removeItem(key(sessionId));
   } catch { /* not kept */ }
 }

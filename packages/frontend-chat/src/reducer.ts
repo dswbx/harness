@@ -119,7 +119,8 @@ export type ChatState = {
   threadList: readonly ThreadInfo[];
   /** Side Threads: where in the Main Thread this one forked (null: fresh, or the Main Thread). */
   forkedFrom: ForkPoint | null;
-  /** Side Threads: the Agent may write (starts false). */
+  /** This is a Side Thread's state. */
+  side: boolean;
   /** How the Thread's first Agent Session started; null until it has (it starts with the first prompt). */
   startBoundary: Boundary | null;
 };
@@ -143,6 +144,7 @@ export const initialState = (): ChatState => ({
   threads: {},
   threadList: [],
   forkedFrom: null,
+  side: false,
   startBoundary: null,
 });
 
@@ -395,14 +397,24 @@ function applyThread(c: Ctx, e: Event) {
       return;
     }
     case "ThreadStarted":
-      if (!k.main) d.forkedFrom = k.forked_from ?? null;
+      if (!k.main) {
+        d.side = true;
+        d.forkedFrom = k.forked_from ?? null;
+      }
       return;
     case "ThreadReadOnly":
       d.readOnly = true;
       return;
     case "AgentSessionStarted":
+      if (d.side && d.startBoundary === null) {
+        // A Side Thread's list opens with how it started.
+        d.startBoundary = k.boundary;
+        if (k.boundary === "forked") notice("boundary", d.forkedFrom ? `Forked from main at turn ${d.forkedFrom.turn}` : "Forked from main");
+        else if (k.boundary === "initial") notice("boundary", "Started with a summary of main");
+        else notice("boundary", boundaryText(k.boundary));
+        return;
+      }
       d.startBoundary ??= k.boundary;
-      // The Side Thread header says how it started; `initial` is no boundary.
       if (k.boundary === "initial" || k.boundary === "forked") return;
       if (k.boundary === "continued_with_summary") d.readOnly = false;
       notice("boundary", boundaryText(k.boundary));

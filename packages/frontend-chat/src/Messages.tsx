@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle, Tooltip, VirtualList, cn } from "@h
 import { FileStat, type DiffScope } from "./DiffPanel";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
+import { SideReplyFooter } from "./SideReplyFooter";
 import { formatDuration } from "./time";
 import { AuthCard } from "./Auth";
 import { PermissionCard } from "./Permission";
@@ -229,7 +230,8 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
             <Markdown>{item.text}</Markdown>
           </div>
           {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}
-          {(item.durationMs !== undefined || streaming) && <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />}
+          {(item.durationMs !== undefined || streaming) && !side && <MessageFooter text={item.text} ts={item.ts} durationMs={item.durationMs} hidden={streaming} />}
+          {side && item.durationMs !== undefined && !streaming && <SideReplyFooter sessionId={api.sessionId} text={item.text} />}
         </div>
       );
     case "thought":
