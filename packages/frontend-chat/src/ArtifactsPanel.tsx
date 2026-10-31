@@ -162,7 +162,7 @@ function Row({ a, selected, onOpen }: { a: Artifact; selected: boolean; onOpen: 
       role="option"
       aria-selected={selected}
       onClick={onOpen}
-      className={cn("flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-accent/60", selected && "bg-accent ring-1 ring-border ring-inset hover:bg-accent")}
+      className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-accent/60", selected && "bg-accent ring-1 ring-border ring-inset hover:bg-accent")}
     >
       <span className={cn("grid size-8 shrink-0 place-items-center rounded-md bg-muted text-foreground/80 [&_svg]:size-4", selected && "bg-background")}>
         <KindIcon a={a} />
