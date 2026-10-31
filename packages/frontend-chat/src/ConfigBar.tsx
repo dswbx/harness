@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Brain, ChevronDown, Info, MoreHorizontal, Shield, Zap } from "lucide-react";
+import { Brain, ChevronDown, Info, MoreHorizontal, Shield, SlidersHorizontal, Zap } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +15,7 @@ import {
   Tooltip,
   cn,
 } from "@harness/ui";
-import { chipLabel, fastOn, groupConfigOptions, isToggle, toggleKind, valueName } from "./configGroups";
+import { chipLabel, fastOn, type ConfigGroups, groupConfigOptions, isToggle, toggleKind, valueName } from "./configGroups";
 import type { ConfigOption } from "./reducer";
 
 type OnChange = (id: string, value: string) => void;
@@ -24,24 +24,21 @@ const trigger =
   "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
 
 /** Footer controls for the Agent's config options: Mode, Model chip, and a "More options" menu. */
-export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onChange: OnChange }) {
+export function ConfigBar({ options, onChange, compact = false, modeOnly = false }: {
+  options: ConfigOption[];
+  onChange: OnChange;
+  /** Narrow prompt box: everything in one "Options" menu. */
+  compact?: boolean;
+  /** Only the Mode picker (Side Threads own just their mode). */
+  modeOnly?: boolean;
+}) {
   const g = useMemo(() => groupConfigOptions(options), [options]);
   const label = chipLabel(g);
+  if (modeOnly) return g.mode ? <ModePicker o={g.mode} onChange={onChange} compact={compact} /> : null;
+  if (compact) return <CompactBar g={g} label={label} onChange={onChange} />;
   return (
     <>
-      {g.mode && (
-        <DropdownMenu>
-          <DropdownMenuTrigger className={trigger} aria-label={`${g.mode.name}: ${valueName(g.mode)}`}>
-            <Shield className="size-3.5 shrink-0" />
-            <span className="truncate">{valueName(g.mode)}</span>
-            <ChevronDown className="size-3 shrink-0 opacity-60" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-72">
-            <OptionHeader o={g.mode} />
-            <Values o={g.mode} onChange={onChange} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      {g.mode && <ModePicker o={g.mode} onChange={onChange} />}
       {g.model && label && (
         <DropdownMenu>
           <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`}>
@@ -78,6 +75,55 @@ export function ConfigBar({ options, onChange }: { options: ConfigOption[]; onCh
         </DropdownMenu>
       )}
     </>
+  );
+}
+
+/** The Mode chip with its values menu. */
+function ModePicker({ o, onChange, compact = false }: { o: ConfigOption; onChange: OnChange; compact?: boolean }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className={cn(trigger, compact && "max-w-32 min-w-0")} aria-label={`${o.name}: ${valueName(o)}`}>
+        <Shield className="size-3.5 shrink-0" />
+        <span className="truncate">{valueName(o)}</span>
+        <ChevronDown className="size-3 shrink-0 opacity-60" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-72">
+        <OptionHeader o={o} />
+        <Values o={o} onChange={onChange} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** One menu with all options as rows: Mode, Model (+ Effort), the model's own options, then the rest. */
+function CompactBar({ g, label, onChange }: { g: ConfigGroups; label: string | null; onChange: OnChange }) {
+  if (!g.mode && !g.model && g.more.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <Tooltip content="Options">
+        <DropdownMenuTrigger className={cn(trigger, "max-w-40 min-w-0")} aria-label={label ? `Options: ${label}` : "Options"}>
+          <SlidersHorizontal className="size-3.5 shrink-0" />
+          {label && <span className="truncate">{label}</span>}
+          {fastOn(g) && <Zap className="size-3.5 shrink-0 fill-yellow-400 text-yellow-400" aria-label="Fast mode on" />}
+          <ChevronDown className="size-3 shrink-0 opacity-60" />
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent side="top" align="start" className="w-64">
+        {g.mode && <OptionSub o={g.mode} onChange={onChange} />}
+        {g.model && <OptionSub o={g.model} onChange={onChange} />}
+        {g.effort && <OptionSub o={g.effort} label="Effort" onChange={onChange} />}
+        {g.chipSubmenus.map((o) => (
+          <OptionSub key={o.id} o={o} onChange={onChange} />
+        ))}
+        {g.chipToggles.map((o) => (
+          <OptionRow key={o.id} o={o} onChange={onChange} />
+        ))}
+        {g.more.length > 0 && (g.mode || g.model) && <DropdownMenuSeparator />}
+        {g.more.map((o) => (
+          <OptionRow key={o.id} o={o} onChange={onChange} />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -13,8 +13,8 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use crate::api::{
-    AttachmentInput, Boundary, Decision, EventKind, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
-    SessionStatus, SlashCommand, TaskEntry, ThreadId,
+    AttachmentInput, Boundary, Decision, EventKind, ForkPoint, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
+    SessionStatus, SlashCommand, TaskEntry, ThreadId, ThreadStart,
 };
 use crate::session::Session;
 
@@ -96,6 +96,9 @@ struct AgentConn {
     acp_sessions: Mutex<HashMap<ThreadId, acp::SessionId>>,
     /// Drop notifications while `session/load` replays history (the Session Log already has it).
     replaying: Arc<AtomicBool>,
+    /// Drop notifications for Agent Sessions not yet mapped to a Thread while `session/fork` runs
+    /// (a fork may replay the source's history under its new id).
+    forking: Arc<AtomicBool>,
     /// Why the Harness stopped the process, when it did so on purpose.
     stop_reason: Arc<Mutex<Option<String>>>,
     shutdown: Mutex<Option<oneshot::Sender<()>>>,
@@ -302,11 +305,20 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         session.log().sync()?;
         anyhow::bail!("{reason} The Thread is read-only; continue it with a summary.");
     };
+    if thread != meta.main_thread_id {
+        follow_main_config(&session, &conn, &thread, &acp_session).await;
+    }
     let caps = &conn.init.agent_capabilities.prompt_capabilities;
     let attachments = crate::attachments::resolve(session.dir(), &folder, &meta.agent.name, caps, attachments)?;
     crate::attachments::store(&attachments)?;
-    let seed = session.update_meta(|m| m.seeds.remove(&thread))?;
-    let context = session.update_meta(|m| m.context_pending.remove(&thread))?.then(|| crate::harness_context::build(&session));
+    let (seed, full_context, fork_note) = session.update_meta(|m| {
+        (m.seeds.remove(&thread), m.context_pending.remove(&thread), m.fork_note_pending.remove(&thread))
+    })?;
+    let context = if full_context {
+        Some(crate::harness_context::build(&session, &thread))
+    } else {
+        fork_note.then(|| crate::harness_context::fork_note(&session, &thread))
+    };
     let turn_id = uuid::Uuid::now_v7().to_string();
     session.log().append(Some(thread.clone()), EventKind::TurnStarted {
         turn_id: turn_id.clone(),
@@ -441,13 +453,96 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// Sets a config option. Agents answer with the full option list and may not also send an
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
+    let mode = session.is_main(Some(&thread)) || {
+        let events = session.log().events()?;
+        events.iter().rev().find_map(|e| match &e.kind {
+            EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(&thread) => options.as_array().cloned(),
+            _ => None,
+        }).is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
+    };
+    anyhow::ensure!(mode, "Side Threads follow the Main Thread's config, except for the mode");
     let (conn, id) = live_agent_session(&session, &thread).await?;
     let r = conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id, config_id.clone(), value.as_str())).block_task().await?;
+    let main = session.is_main(Some(&thread));
     session.log().append(Some(thread), EventKind::ConfigOptionsChanged { options: serde_json::to_value(&r.config_options)? })?;
-    if let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
+    // A Side Thread's mode is a detour, not the user's choice for new Sessions.
+    if main && let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
         tracing::warn!("could not remember config option: {e:#}");
     }
     Ok(())
+}
+
+/// A config option that is the Agent's mode (ACP category `mode`).
+fn is_mode(option: &Value) -> bool {
+    option["category"] == "mode" || option["id"] == "mode"
+}
+
+/// The legacy mode after config options were applied: the mode option's value when it names one of
+/// the legacy modes (Agents keep both in step), else the mode the Agent answered with.
+fn current_mode(options: Option<&Value>, modes: &acp::SessionModeState) -> String {
+    let set = options.and_then(Value::as_array).and_then(|a| a.iter().find(|o| is_mode(o))).and_then(|o| o["currentValue"].as_str());
+    match set {
+        Some(v) if modes.available_modes.iter().any(|m| m.id.to_string() == v) => v.to_owned(),
+        _ => modes.current_mode_id.to_string(),
+    }
+}
+
+/// Puts a new Side Thread Agent Session in the Agent's mode that asks before writes (a fork inherits
+/// the Main Thread's mode, which may auto-approve). Returns the options to log.
+async fn start_asking(conn: &Arc<AgentConn>, id: &acp::SessionId, options: Value) -> Value {
+    let Some(mode) = options.as_array().and_then(|a| a.iter().find(|o| is_mode(o))).cloned() else { return options };
+    let values: Vec<&str> = mode["options"].as_array().into_iter().flatten().filter_map(|o| o["value"].as_str()).collect();
+    let (Some(config_id), Some(asking)) = (mode["id"].as_str(), crate::agent_quirks::asking_mode(&values)) else { return options };
+    if mode["currentValue"] == asking {
+        return options;
+    }
+    match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.to_owned(), asking)).block_task().await {
+        Ok(r) => serde_json::to_value(&r.config_options).unwrap_or(options),
+        Err(e) => {
+            tracing::warn!("asking mode for Side Thread: {e}");
+            options
+        }
+    }
+}
+
+/// Gives a Side Thread the Main Thread's current config option values (model, effort, ...): Side
+/// Threads follow the Main Thread, except for the mode, which is their own. Skips values the Side
+/// Thread's Agent Session does not offer.
+async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
+    let Ok(events) = session.log().events() else { return };
+    let main = session.meta().main_thread_id;
+    let latest = |t: &ThreadId| {
+        events.iter().rev().find_map(|e| match &e.kind {
+            EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(t) => options.as_array().cloned(),
+            _ => None,
+        })
+    };
+    let (Some(wanted), Some(mut current)) = (latest(&main), latest(thread)) else { return };
+    let mut changed = None;
+    for w in &wanted {
+        let (Some(config_id), Some(value)) = (w["id"].as_str(), w["currentValue"].as_str()) else { continue };
+        let Some(c) = current.iter().find(|c| c["id"] == config_id) else { continue };
+        if is_mode(c) {
+            continue;
+        }
+        let offered = c["options"].as_array().into_iter().flatten().any(|o| o["value"] == value);
+        if c["currentValue"] == value || !offered {
+            continue;
+        }
+        match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.to_owned(), value)).block_task().await {
+            Ok(r) => match serde_json::to_value(&r.config_options) {
+                Ok(o) => {
+                    current = o.as_array().cloned().unwrap_or_default();
+                    changed = Some(o);
+                }
+                Err(e) => tracing::warn!("config options: {e}"),
+            },
+            Err(e) => tracing::warn!("Side Thread {config_id}={value} rejected: {e}"),
+        }
+    }
+    if let Some(options) = changed {
+        let _ = session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options });
+    }
 }
 
 /// Sets the legacy session mode; its answer carries no state, so the change is logged here.
@@ -502,7 +597,8 @@ fn spawn_watchdog(session: Weak<Session>, generation: u64) {
 }
 
 /// The Thread's Agent Session: the live one, else the previous one resumed or loaded, else a new
-/// one if the Thread never had one. `None` when a previous Agent Session cannot be continued.
+/// one (a fork of the Main Thread's for a Side Thread, if it can) if the Thread never had one.
+/// `None` when a previous Agent Session cannot be continued.
 async fn ensure_agent_session(
     session: &Arc<Session>,
     conn: &Arc<AgentConn>,
@@ -513,9 +609,38 @@ async fn ensure_agent_session(
         return Ok(Some(id.clone()));
     }
     let meta = session.meta();
-    let Some(prev) = meta.agent_sessions.get(thread).cloned() else {
-        return Ok(Some(new_agent_session(session, conn, thread, Boundary::Initial).await?));
-    };
+    if let Some(prev) = meta.agent_sessions.get(thread) {
+        return continue_previous(session, conn, thread, prev.clone()).await;
+    }
+    if let Some(origin) = meta.origins.get(thread) {
+        if origin.source == ThreadStart::Fork
+            && let Some(id) = fork_agent_session(session, conn, thread, &origin.point).await?
+        {
+            return Ok(Some(id));
+        }
+        // No fork: the Main Thread's transcript up to the fork point is the Context Seed.
+        let events = session.log().events()?;
+        if let Some(transcript) = crate::summary::side_thread_seed(&events, &origin.point.thread_id, origin.point.seq) {
+            session.update_meta(|m| {
+                let seed = match m.seeds.remove(thread) {
+                    Some(own) => format!("{transcript}\n\n{own}"),
+                    None => transcript,
+                };
+                m.seeds.insert(thread.clone(), seed);
+            })?;
+        }
+    }
+    Ok(Some(new_agent_session(session, conn, thread, Boundary::Initial).await?))
+}
+
+/// Resumes (else loads) the Thread's previous Agent Session. `None` when the Agent can do neither.
+async fn continue_previous(
+    session: &Arc<Session>,
+    conn: &Arc<AgentConn>,
+    thread: &ThreadId,
+    prev: String,
+) -> anyhow::Result<Option<acp::SessionId>> {
+    let meta = session.meta();
     let cwd = std::path::PathBuf::from(&meta.folder);
     let caps = &conn.init.agent_capabilities;
     let prev_id = acp::SessionId::new(prev);
@@ -550,6 +675,75 @@ async fn ensure_agent_session(
         boundary,
     })?;
     Ok(Some(prev_id))
+}
+
+/// Forks the Main Thread's Agent Session for a Side Thread. `None` (so: seed instead) when the
+/// Agent cannot fork, the Main Thread has no Agent Session that can be continued or is mid-Turn
+/// (the fork would catch a half-finished Turn), or the fork fails.
+async fn fork_agent_session(
+    session: &Arc<Session>,
+    conn: &Arc<AgentConn>,
+    thread: &ThreadId,
+    point: &ForkPoint,
+) -> anyhow::Result<Option<acp::SessionId>> {
+    let main = &point.thread_id;
+    if conn.init.agent_capabilities.session_capabilities.fork.is_none() {
+        return Ok(None);
+    }
+    if session.agent_slot().state.lock().unwrap().turns.get(main).is_some_and(|n| *n > 0) {
+        return Ok(None);
+    }
+    let live = conn.acp_sessions.lock().unwrap().get(main).cloned();
+    let source = match live {
+        Some(id) => id,
+        None => {
+            let Some(prev) = session.meta().agent_sessions.get(main).cloned() else { return Ok(None) };
+            match continue_previous(session, conn, main, prev).await {
+                Ok(Some(id)) => id,
+                Ok(None) => return Ok(None),
+                Err(e) if is_auth_required(&e) => return Err(e),
+                Err(e) => {
+                    tracing::warn!("fork source: {e:#}");
+                    return Ok(None);
+                }
+            }
+        }
+    };
+    let cwd = std::path::PathBuf::from(session.meta().folder);
+    let servers = mcp_servers(session, conn, thread).await?;
+    // No `system_prompt`: the fork keeps the source's, which keeps the prompt cache warm.
+    conn.forking.store(true, Ordering::SeqCst);
+    let r = conn.cx.send_request(acp::ForkSessionRequest::new(source, cwd).mcp_servers(servers)).block_task().await;
+    conn.forking.store(false, Ordering::SeqCst);
+    let r = match r {
+        Ok(r) => r,
+        Err(e) if e.code == agent_client_protocol::ErrorCode::AuthRequired => return Err(e.into()),
+        Err(e) => {
+            tracing::warn!("fork failed: {e}");
+            return Ok(None);
+        }
+    };
+    let mut options = r.config_options.map(serde_json::to_value).transpose()?;
+    if let Some(o) = options.take() {
+        options = Some(start_asking(conn, &r.session_id, o).await);
+    }
+    if let Some(options) = &options {
+        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options: options.clone() })?;
+    }
+    if let Some(modes) = &r.modes {
+        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
+    }
+    let id = r.session_id;
+    conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
+    session.update_meta(|m| {
+        m.agent_sessions.insert(thread.clone(), id.to_string());
+        m.fork_note_pending.insert(thread.clone());
+    })?;
+    session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
+        acp_session_id: id.to_string(),
+        boundary: Boundary::Forked,
+    })?;
+    Ok(Some(id))
 }
 
 /// Sets the config option values last picked for this Agent on a brand-new Agent Session, in the
@@ -593,13 +787,14 @@ async fn new_agent_session(
     if boundary == Boundary::Initial && let Some(o) = options.take() {
         options = Some(apply_remembered_config(session, conn, &r.session_id, o).await);
     }
-    if let Some(options) = options {
-        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options })?;
+    if !session.is_main(Some(thread)) && let Some(o) = options.take() {
+        options = Some(start_asking(conn, &r.session_id, o).await);
+    }
+    if let Some(options) = &options {
+        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options: options.clone() })?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), EventKind::ModeChanged {
-            mode_id: modes.current_mode_id.to_string(),
-        })?;
+        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
@@ -654,6 +849,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
 
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
     let replaying = Arc::new(AtomicBool::new(false));
+    let forking = Arc::new(AtomicBool::new(false));
     let stop_reason = Arc::new(Mutex::new(None::<String>));
     let (ready_tx, ready_rx) = oneshot::channel::<Result<(ConnectionTo<Agent>, acp::InitializeResponse), String>>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -662,6 +858,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let s_perm = session.clone();
     let s_exit = session.clone();
     let replaying_n = replaying.clone();
+    let forking_n = forking.clone();
     let stop_reason_exit = stop_reason.clone();
     let stderr_exit = stderr.clone();
     tokio::spawn(async move {
@@ -670,7 +867,8 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
             .name("harness")
             .on_receive_notification(
                 async move |n: acp::SessionNotification, _cx| {
-                    if !replaying_n.load(Ordering::SeqCst) {
+                    let fork_replay = forking_n.load(Ordering::SeqCst) && thread_of(&s_notify, &n.session_id).is_none();
+                    if !replaying_n.load(Ordering::SeqCst) && !fork_replay {
                         on_update(&s_notify, &n);
                     }
                     Ok(())
@@ -745,6 +943,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
         init,
         acp_sessions: Mutex::new(HashMap::new()),
         replaying,
+        forking,
         stop_reason,
         shutdown: Mutex::new(Some(shutdown_tx)),
     }))

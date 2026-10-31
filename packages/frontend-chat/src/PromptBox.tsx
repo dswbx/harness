@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { ArrowUp, FileText, MessageSquare, Paperclip, Square, X } from "lucide-react";
-import { onFileDrop, pickFiles, type SessionApi, type SlashCommand } from "@harness/api";
+import { onFileDrop, pickFiles, type AttachmentInput, type SessionApi, type SlashCommand } from "@harness/api";
 import { Button, Tooltip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { lineCount } from "./promptMarkdown";
-import { matchCommands } from "./commands";
+import { btwQuestion, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
-import { getReviewComments, removeReviewComment, setReviewComments, useReviewComments, withReviewComments, type ReviewComment } from "./reviewComments";
+import { composerKey, getReviewComments, removeReviewComment, setReviewComments, useReviewComments, withReviewComments, type ReviewComment } from "./reviewComments";
 
 /** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
 function AttachmentChips({ items, onRemove }: { items: PendingAttachment[]; onRemove: (id: string) => void }) {
@@ -103,22 +103,50 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
   );
 }
 
-export function PromptBox({ api, state }: { api: SessionApi; state: ChatState }) {
+/** Box content width (px) under which the footer's option pickers collapse into one menu. */
+const NARROW_BOX = 460;
+
+export type PromptBoxHandle = { focus(): void };
+
+/**
+ * The prompt box of the Main Thread, or of a Side Thread (`threadId`). Comments and quotes waiting in it are
+ * kept per Thread. In the Main Thread, `/btw <question>` goes to `onSideThread` instead of being sent.
+ */
+export function PromptBox({ api, state, threadId = null, onSideThread, ref: handle }: {
+  api: SessionApi;
+  state: ChatState;
+  threadId?: string | null;
+  /** Starts a Side Thread and sends it `text` (Main Thread only). */
+  onSideThread?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
+  ref?: Ref<PromptBoxHandle>;
+}) {
   const [text, setText] = useState("");
   const [lines, setLines] = useState(0);
   const [overflow, setOverflow] = useState(false);
   const [sel, setSel] = useState(0);
   const ref = useRef<PromptEditorHandle>(null);
+  useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
+  const key = composerKey(api.sessionId, threadId);
   const running = state.turnId !== null;
-  const matches = useMemo(() => matchCommands(state.commands, text), [state.commands, text]);
+  const matches = useMemo(() => matchCommands(threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands), text), [state.commands, text, threadId, onSideThread]);
   const pct = state.usage ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100)) : null;
 
   const [error, setError] = useState<string | null>(null);
   const readOnly = state.readOnly;
-  const comments = useReviewComments(api.sessionId);
+  const comments = useReviewComments(key);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Width of the box itself (not the window): a side panel or narrow column collapses the option pickers.
+  const [narrow, setNarrow] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => e && setNarrow(e.contentRect.width < NARROW_BOX));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const caps = state.promptCaps;
 
   const addAttachments = (items: PendingAttachment[]) => {
@@ -159,20 +187,23 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
   const send = () => {
     const ed = ref.current;
     const t = ed?.getMarkdown().trim() ?? "";
-    const sent = getReviewComments(api.sessionId);
+    const sent = getReviewComments(key);
     const files = attachments;
     if (!ed || (!t && sent.length === 0 && files.length === 0) || readOnly) return;
     const snap = ed.snapshot();
     ed.clear();
-    setReviewComments(api.sessionId, []);
+    setReviewComments(key, []);
     setAttachments([]);
     setError(null);
-    api.prompt(withReviewComments(t, sent), files.map((a) => a.input)).catch((err) => {
+    // Our `/btw <question>` wins over an Agent command of the same name (Claude Code has one).
+    const btw = threadId || !onSideThread ? null : btwQuestion(t);
+    const inputs = files.map((a) => a.input);
+    (btw && onSideThread ? onSideThread(withReviewComments(btw, sent), inputs) : api.prompt(withReviewComments(t, sent), inputs, threadId)).catch((err) => {
       setError(errorMessage(err));
       ref.current?.restore(snap);
       setAttachments((cur) => [...files, ...cur]);
       // Put them back ahead of any added since.
-      setReviewComments(api.sessionId, [...sent, ...getReviewComments(api.sessionId)]);
+      setReviewComments(key, [...sent, ...getReviewComments(key)]);
     });
   };
   const continueWithSummary = () => {
@@ -181,7 +212,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
     const snap = ed?.snapshot();
     ed?.clear();
     setError(null);
-    api.continueWithSummary(t || null).catch((err) => {
+    api.continueWithSummary(t || null, threadId).catch((err) => {
       setError(errorMessage(err));
       if (t && snap) ref.current?.restore(snap);
     });
@@ -222,6 +253,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
         </div>
       )}
       <div
+        ref={boxRef}
         className={cn("rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm transition-colors", dragging && "border-ring bg-accent/40")}
         onPasteCapture={(e) => {
           const files = [...e.clipboardData.files];
@@ -245,10 +277,10 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
       >
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles([...(e.target.files ?? [])]); e.target.value = ""; }} />
         {attachments.length > 0 && <AttachmentChips items={attachments} onRemove={(id) => setAttachments((cur) => cur.filter((a) => a.id !== id))} />}
-        {comments.length > 0 && <CommentChips sessionId={api.sessionId} comments={comments} />}
+        {comments.length > 0 && <CommentChips sessionId={key} comments={comments} />}
         <PromptEditor
           ref={ref}
-          placeholder={running ? "Agent is working... (you can still queue a prompt)" : "Message the Agent. Type / for commands."}
+          placeholder={running ? "Agent is working... (you can still queue a prompt)" : threadId ? "Ask in this side thread" : "Message the Agent. Type / for commands."}
           menuOpen={matches.length > 0}
           onMenuKey={(k) => {
             if (k === "down") setSel((sel + 1) % matches.length);
@@ -275,11 +307,14 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
               <Paperclip className="size-4" />
             </button>
           </Tooltip>
+          {/* Side Threads follow Main's config except the mode, which they own: only the mode picker there. */}
           <ConfigBar
+            compact={narrow}
+            modeOnly={!!threadId}
             options={state.configOptions}
             onChange={(id, value) => {
               setError(null);
-              api.setConfigOption(id, value).catch((err) => setError(errorMessage(err)));
+              api.setConfigOption(id, value, threadId).catch((err) => setError(errorMessage(err)));
             }}
           />
           <div className="flex-1" />
@@ -287,7 +322,7 @@ export function PromptBox({ api, state }: { api: SessionApi; state: ChatState })
           {pct != null && <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />}
           {running ? (
             <Tooltip content="Stop Agent">
-              <Button size="icon" className="size-8 rounded-full" onClick={() => { setError(null); api.cancel().catch((err) => setError(errorMessage(err))); }} aria-label="Stop Agent">
+              <Button size="icon" className="size-8 rounded-full" onClick={() => { setError(null); api.cancel(threadId).catch((err) => setError(errorMessage(err))); }} aria-label="Stop Agent">
                 <Square className="size-3 fill-current" />
               </Button>
             </Tooltip>

@@ -1,6 +1,6 @@
 import type {
   AgentInfo, AppEvent, AppSettingKey, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
-  Editor, SessionSummary, StatePatchOp, WorkspaceInfo,
+  Editor, SessionSummary, StatePatchOp, ThreadStart, WorkspaceInfo,
 } from "./generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 
@@ -9,21 +9,29 @@ export interface SessionApi {
   sessionId: string;
   /** Replays from `fromSeq`, then live. Returns an unsubscribe function. */
   subscribe(onEvent: (e: Event) => void, fromSeq?: number): Promise<Unsubscribe>;
-  /** `attachments`: files by path (picker, drop) or pasted bytes (base64). */
-  prompt(text: string, attachments?: AttachmentInput[]): Promise<void>;
+  /**
+   * `attachments`: files by path (picker, drop) or pasted bytes (base64). `threadId`: a Side Thread
+   * (default: the Main Thread). Same for `cancel`, `setConfigOption`, `setMode`, `continueWithSummary`.
+   */
+  prompt(text: string, attachments?: AttachmentInput[], threadId?: string | null): Promise<void>;
   /** A stored attachment (`attachments/` in the Session Directory) as base64. */
   readAttachment(path: string): Promise<{ mime: string; data: string }>;
   /** An image file picked or dropped in the prompt box as base64 (image files only). */
   readImageFile(path: string): Promise<{ mime: string; data: string }>;
-  cancel(): Promise<void>;
+  cancel(threadId?: string | null): Promise<void>;
   /** Starts the Agent in the background so its models and modes show before the first prompt. */
   warmUp(): Promise<void>;
   /** Starts a new Agent Session seeded with a summary; prompts `text` right away when given. */
-  continueWithSummary(text: string | null): Promise<void>;
+  continueWithSummary(text: string | null, threadId?: string | null): Promise<void>;
+  /**
+   * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
+   * Starts in the Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
+   */
+  startSideThread(args?: { seed?: string | null; source?: ThreadStart }): Promise<{ thread_id: string; forked: boolean }>;
   /** `null` answers "cancelled". */
   resolvePermission(requestId: string, optionId: string | null): Promise<void>;
-  setConfigOption(id: string, value: string): Promise<void>;
-  setMode(id: string): Promise<void>;
+  setConfigOption(id: string, value: string, threadId?: string | null): Promise<void>;
+  setMode(id: string, threadId?: string | null): Promise<void>;
   /** This Session's Workspace (repo_root null: not a git repository), via a ListSessions lookup. */
   workspace(): Promise<WorkspaceInfo | null>;
   archive(): Promise<void>;
@@ -78,7 +86,7 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
   return {
     sessionId,
     subscribe: (onEvent, fromSeq = 0) => transport.subscribe(sessionId, fromSeq, onEvent),
-    prompt: (text, attachments = []) => run({ type: "Prompt", session_id: sessionId, thread_id: null, text, attachments }),
+    prompt: (text, attachments = [], threadId = null) => run({ type: "Prompt", session_id: sessionId, thread_id: threadId, text, attachments }),
     readAttachment: async (path) => {
       const r = await expect({ type: "ReadAttachment", session_id: sessionId, path }, "Attachment");
       return { mime: r.mime, data: r.data };
@@ -87,14 +95,18 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       const r = await expect({ type: "ReadImageFile", path }, "Attachment");
       return { mime: r.mime, data: r.data };
     },
-    continueWithSummary: (text) => run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: null, text }),
-    cancel: () => run({ type: "Cancel", session_id: sessionId, thread_id: null }),
+    continueWithSummary: (text, threadId = null) => run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: threadId, text }),
+    startSideThread: async ({ seed = null, source } = {}) => {
+      const r = await expect({ type: "StartSideThread", session_id: sessionId, seed, source }, "ThreadStarted");
+      return { thread_id: r.thread_id, forked: r.forked };
+    },
+    cancel: (threadId = null) => run({ type: "Cancel", session_id: sessionId, thread_id: threadId }),
     warmUp: () => run({ type: "WarmUp", session_id: sessionId }),
     resolvePermission: (request_id, option_id) =>
       run({ type: "ResolvePermission", session_id: sessionId, request_id, option_id }),
-    setConfigOption: (config_id, value) =>
-      run({ type: "SetConfigOption", session_id: sessionId, thread_id: null, config_id, value }),
-    setMode: (mode_id) => run({ type: "SetMode", session_id: sessionId, thread_id: null, mode_id }),
+    setConfigOption: (config_id, value, threadId = null) =>
+      run({ type: "SetConfigOption", session_id: sessionId, thread_id: threadId, config_id, value }),
+    setMode: (mode_id, threadId = null) => run({ type: "SetMode", session_id: sessionId, thread_id: threadId, mode_id }),
     workspace: async () => {
       const r = await transport.execute({ type: "ListSessions" });
       return r.type === "Sessions" ? (r.sessions.find((s) => s.id === sessionId)?.workspace ?? null) : null;
@@ -268,12 +280,6 @@ export class HarnessClient {
   }
   async removePermissionRule(ruleId: string): Promise<void> {
     await this.transport.execute({ type: "RemovePermissionRule", rule_id: ruleId });
-  }
-  /** Core-only in v1 (no UI): opens a Side Thread and returns its id. */
-  async startSideThread(sessionId: string, seed: string | null = null): Promise<string> {
-    const r = await this.transport.execute({ type: "StartSideThread", session_id: sessionId, seed });
-    if (r.type !== "ThreadStarted") throw new Error("unexpected result: " + r.type);
-    return r.thread_id;
   }
   /** Sessions list / status / Agents changes pushed by the core. Live only. */
   subscribeApp(onEvent: (e: AppEvent) => void): Promise<Unsubscribe> {

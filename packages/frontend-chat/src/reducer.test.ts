@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Event, EventKind } from "@harness/api";
-import { initialState, permissionTitle, planOf, reduce, type ChatState } from "./reducer";
+import { initialState, permissionTitle, planOf, reduce, reduceBatch, threadState, type ChatState } from "./reducer";
 import { diffLines } from "./diff";
 
 const fold = (events: Event[]): ChatState => events.reduce(reduce, initialState());
@@ -104,7 +104,7 @@ describe("turns", () => {
     expect(s.items[1]).toMatchObject({ level: "error", text: "boom" });
   });
 
-  it("ignores Side Thread events", () => {
+  it("main ignores Side Thread events", () => {
     const s = fold([
       started(),
       ev({ type: "AgentMessageChunk", text: "side" }, "other"),
@@ -112,6 +112,67 @@ describe("turns", () => {
     ]);
     expect(s.items).toHaveLength(1);
     expect(s.items[0]).toMatchObject({ text: "main" });
+    expect(s.threads.other!.items[0]).toMatchObject({ text: "side" });
+  });
+
+  it("keeps Side Thread events apart from the Main Thread", () => {
+    const s = fold([
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false, forked_from: { thread_id: "main", turn: 2, seq: 7 } }, "side"),
+      ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "forked" }, "side"),
+      ev({ type: "TurnStarted", turn_id: "t", text: "why?" }, "side"),
+      ev({ type: "AgentMessageChunk", text: "because" }, "side"),
+      ev({ type: "AgentMessageChunk", text: " main" }),
+    ]);
+    const side = s.threads.side!;
+    expect(s.items).toHaveLength(1);
+    expect(s.turnId).toBeNull();
+    expect(side.items.map((i) => i.type)).toEqual(["notice", "user", "agent"]);
+    expect(side.items[2]).toMatchObject({ text: "because" });
+    expect(side.turnId).toBe("t");
+    expect(side.forkedFrom).toMatchObject({ turn: 2 });
+    expect(side.startBoundary).toBe("forked");
+    expect(side.items[0]).toMatchObject({ type: "notice", level: "boundary", text: "Forked from main at turn 2" });
+    expect(threadState(s, "side")).toBe(side);
+    expect(threadState(s, "main")).toBe(s);
+  });
+
+  it("a fresh Side Thread opens with a summary divider, once; nothing before its Agent Session starts", () => {
+    const pending = fold([started(), ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side")]);
+    expect(pending.threads.side!.items).toEqual([]);
+    const s = fold([
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "initial" }, "side"),
+      ev({ type: "AgentSessionStarted", acp_session_id: "g", boundary: "resumed" }, "side"),
+    ]);
+    expect(s.threads.side!.items.map((i) => i.type === "notice" && i.text)).toEqual(["Started with a summary of main", "Agent session resumed"]);
+    expect(s.items).toHaveLength(0);
+  });
+
+  it("Side Thread: permission requests pend as cards, config options are its own, Main untouched", () => {
+    const opts = [{ option_id: "allow", name: "Allow", kind: "allow_once" }];
+    const s = fold([
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "ConfigOptionsChanged", options: [{ id: "mode", name: "Mode", category: "mode", currentValue: "read-only", options: [] }] }, "side"),
+      ev({ type: "PermissionRequested", request_id: "r", tool_call: { title: "Edit" }, options: opts }, "side"),
+    ]);
+    expect(s.threads.side!.items[0]).toMatchObject({ type: "permission", resolved: false });
+    expect(s.threads.side!.configOptions[0]).toMatchObject({ currentValue: "read-only" });
+    expect(s.items).toHaveLength(0);
+    expect(s.configOptions).toHaveLength(0);
+  });
+
+  it("batching Side Thread events equals folding one by one", () => {
+    const events = [
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "AgentMessageChunk", text: "a" }, "side"),
+      ev({ type: "AgentMessageChunk", text: "b" }, "side"),
+      ev({ type: "AgentMessageChunk", text: "c" }),
+    ];
+    expect(reduceBatch(initialState(), events)).toEqual(fold(events));
   });
 
   it("ignores events of a Side Thread started later, keeps session-level events", () => {

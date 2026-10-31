@@ -247,10 +247,15 @@ pub enum Command {
         thread_id: Option<ThreadId>,
         text: Option<String>,
     },
-    /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first prompt.
+    /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
+    /// prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
+    /// text seed of the Main Thread's transcript).
     StartSideThread {
         session_id: SessionId,
+        #[serde(default)]
         seed: Option<String>,
+        #[serde(default)]
+        source: ThreadStart,
     },
     ResolvePermission {
         session_id: SessionId,
@@ -378,7 +383,9 @@ pub enum CommandResult {
     Frontends { frontends: Vec<FrontendManifest> },
     Sessions { sessions: Vec<SessionSummary> },
     SessionCreated { session_id: SessionId },
-    ThreadStarted { thread_id: ThreadId },
+    /// `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
+    /// `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
+    ThreadStarted { thread_id: ThreadId, forked: bool },
     Branches { branches: Branches },
     PullRequests { prs: Vec<PullRequest> },
     GitStatus { status: GitStatus },
@@ -702,6 +709,9 @@ pub enum EventKind {
     ThreadStarted {
         agent_id: String,
         main: bool,
+        /// Side Threads: the Main Thread's last finished Turn when this one started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        forked_from: Option<ForkPoint>,
     },
     /// The Agent needs the user to sign in before it can work.
     AuthRequired {
@@ -894,6 +904,27 @@ pub enum Boundary {
     Reseeded,
     AgentSwitched,
     ContinuedWithSummary,
+    /// A Side Thread's Agent Session forked from the Main Thread's.
+    Forked,
+}
+
+/// How a Side Thread's Agent Session starts. `Fork` falls back to `Seed` when the Agent cannot
+/// fork, the Main Thread has no Agent Session or is mid-Turn, or the fork fails.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadStart {
+    #[default]
+    Fork,
+    Seed,
+}
+
+/// A place in a Thread: after its `turn`-th finished Turn (1-based, 0 = none), at log `seq`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ForkPoint {
+    pub thread_id: ThreadId,
+    pub turn: u32,
+    #[specta(type = specta_typescript::Number)]
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

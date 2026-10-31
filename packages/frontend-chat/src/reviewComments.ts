@@ -14,7 +14,15 @@ export type DiffComment = {
 };
 
 /** A comment on text selected in a chat message, waiting in the prompt box until the next send. */
-export type QuoteComment = { id: string; kind: "quote"; quote: string; text: string };
+export type QuoteComment = {
+  id: string;
+  kind: "quote";
+  quote: string;
+  /** May be empty for a quote sent without a comment. */
+  text: string;
+  /** "side_thread": text taken from a Side Thread ("Send to main"), not a comment on the Main Thread. */
+  source?: "side_thread";
+};
 
 export type ReviewComment = DiffComment | QuoteComment;
 export type NewComment = Omit<DiffComment, "id"> | Omit<QuoteComment, "id">;
@@ -35,10 +43,14 @@ export function formatReviewComments(comments: ReviewComment[]): string {
     const f = fence(c.code);
     return `${c.path}:${c.line} (${c.side})\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
   });
-  const quotes = comments.flatMap((c) => (c.kind === "quote" ? [`${quoted(c.quote)}\n\n${c.text.trim()}`] : []));
+  const quotesOf = (side: boolean) =>
+    comments.flatMap((c) => (c.kind === "quote" && (c.source === "side_thread") === side ? [[quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n")] : []));
+  const quotes = quotesOf(false);
+  const fromSide = quotesOf(true);
   return [
     ...(diffs.length ? [["Review comments:", ...diffs].join("\n\n")] : []),
     ...(quotes.length ? [["Comments on the conversation:", ...quotes].join("\n\n")] : []),
+    ...(fromSide.length ? [["From a side thread:", ...fromSide].join("\n\n")] : []),
   ].join("\n\n");
 }
 
@@ -86,6 +98,12 @@ export function setReviewComments(sessionId: string, list: ReviewComment[]) {
   }
   for (const l of listeners) l();
 }
+
+/**
+ * Whose composer holds the comments: the Main Thread's (the Session id, as the diff views use it) or a
+ * Side Thread's own (its quotes are not sent to Main).
+ */
+export const composerKey = (sessionId: string, sideThreadId: string | null) => (sideThreadId ? `${sessionId}#${sideThreadId}` : sessionId);
 
 export const addReviewComment = (sessionId: string, c: NewComment) =>
   setReviewComments(sessionId, [...getReviewComments(sessionId), { ...c, id: crypto.randomUUID() } as ReviewComment]);

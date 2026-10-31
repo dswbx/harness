@@ -143,7 +143,7 @@ async fn primitives_over_http() {
     let sid = create(&h, &repo, vec![]).await;
 
     let tools = ask(&h, &sid, "mcp-list", None).await;
-    assert_eq!(tools, "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,json_render");
+    assert_eq!(tools, "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,threads_list,transcript_outline,transcript_read,transcript_search,json_render");
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
     let status = ask(&h, &sid, "mcp git_status {}", None).await;
@@ -281,7 +281,7 @@ async fn harness_context_starts_each_agent_session() {
     let first = shown(ask(&h, &sid, "show-context", None).await);
     assert!(first.starts_with("context: <harness_context>\nYou run inside Harness"), "{first}");
     assert!(first.contains("## Frontend: Chat\n\nUse json_render for results."), "{first}");
-    assert!(first.contains(&format!("- Repository: {}", repo.display())) && first.contains("- Worktree: no"), "{first}");
+    assert!(first.contains(&format!("- Repository: {}", repo.canonicalize().unwrap().display())) && first.contains("- Worktree: no"), "{first}");
     assert!(first.ends_with("</harness_context>"), "{first}");
     let logged: Vec<Option<String>> = events(&h, &sid)
         .into_iter()

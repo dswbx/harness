@@ -230,8 +230,19 @@ impl Harness {
                 self.session(&session_id)?.continue_with_summary(thread_id, text).await?;
                 CommandResult::Ok
             }
-            Command::StartSideThread { session_id, seed } => {
-                CommandResult::ThreadStarted { thread_id: self.session(&session_id)?.start_side_thread(seed)? }
+            Command::StartSideThread { session_id, seed, source } => {
+                let session = self.session(&session_id)?;
+                let (thread_id, forked) = session.start_side_thread(seed, source)?;
+                if forked {
+                    // Fork now, so the Side Thread sees the Main Thread as it was when opened.
+                    let thread = thread_id.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = crate::acp::warm_up(session, thread).await {
+                            tracing::debug!("side thread warm-up: {e:#}");
+                        }
+                    });
+                }
+                CommandResult::ThreadStarted { thread_id, forked }
             }
             Command::ListMcpServers => CommandResult::McpServers { servers: self.shared.library.list() },
             Command::SaveMcpServer { server, secrets } => {

@@ -69,7 +69,7 @@ One free JSON document per Session that the Agent and the Frontends share and ch
 _Avoid_: store, app state
 
 **Context Seed**:
-What a Thread starts with from elsewhere in the Session: nothing, a summary of the Main Thread, or a selected excerpt.
+What a Thread starts with from elsewhere in the Session: nothing, a fork of the Main Thread's Agent Session, a summary of the Main Thread (ADR 0018).
 _Avoid_: initial context, prefill
 
 **Agent Session**:

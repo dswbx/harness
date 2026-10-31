@@ -79,6 +79,13 @@ pub struct SessionMeta {
     /// Threads whose next prompt starts with `<harness_context>` (a new Agent Session).
     #[serde(default)]
     pub context_pending: HashSet<ThreadId>,
+    /// Forked Threads whose next prompt starts with the short Side Thread note instead (the fork
+    /// already has the full `<harness_context>`).
+    #[serde(default)]
+    pub fork_note_pending: HashSet<ThreadId>,
+    /// Side Threads: where they came from (Main Thread Turn) and how their Agent Session starts.
+    #[serde(default)]
+    pub origins: HashMap<ThreadId, SideOrigin>,
     #[serde(default)]
     pub workspace: WorkspaceMeta,
     #[serde(default)]
@@ -89,6 +96,13 @@ pub struct SessionMeta {
     /// The title was taken from the log's `SessionInfoUpdated` events once (Sessions from before titles were kept here).
     #[serde(default)]
     pub title_backfilled: bool,
+}
+
+/// How a Side Thread starts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SideOrigin {
+    pub point: crate::api::ForkPoint,
+    pub source: crate::api::ThreadStart,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -138,6 +152,8 @@ impl Session {
             read_only_threads: Default::default(),
             seeds: Default::default(),
             context_pending: Default::default(),
+            fork_note_pending: Default::default(),
+            origins: Default::default(),
             workspace,
             archived: false,
             mcp_servers,
@@ -154,6 +170,7 @@ impl Session {
         log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted {
             agent_id: agent.id,
             main: true,
+            forked_from: None,
         })?;
         log.sync()?;
         Ok(Self::from_parts(dir, meta, log, shared))
@@ -178,7 +195,7 @@ impl Session {
         Ok(session)
     }
 
-    fn is_main(&self, thread: Option<&ThreadId>) -> bool {
+    pub(crate) fn is_main(&self, thread: Option<&ThreadId>) -> bool {
         thread.is_none_or(|t| *t == self.meta.lock().unwrap().main_thread_id)
     }
 
@@ -468,18 +485,31 @@ impl Session {
         });
     }
 
-    /// Opens a Side Thread; its Agent Session starts with the first prompt.
-    pub fn start_side_thread(&self, seed: Option<String>) -> anyhow::Result<ThreadId> {
+    /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
+    /// whether that will be a fork of the Main Thread's Agent Session.
+    pub fn start_side_thread(
+        &self,
+        seed: Option<String>,
+        source: crate::api::ThreadStart,
+    ) -> anyhow::Result<(ThreadId, bool)> {
         let thread = uuid::Uuid::now_v7().to_string();
+        let main = self.meta().main_thread_id;
+        let point = crate::summary::last_finished_turn(&self.log.events()?, &main);
+        let forked = source == crate::api::ThreadStart::Fork && self.meta().agent_sessions.contains_key(&main);
         let agent_id = self.update_meta(|m| {
             m.side_threads.push(thread.clone());
             if let Some(seed) = seed {
                 m.seeds.insert(thread.clone(), seed);
             }
+            m.origins.insert(thread.clone(), SideOrigin { point: point.clone(), source });
             m.agent.id.clone()
         })?;
-        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false })?;
-        Ok(thread)
+        self.log.append(Some(thread.clone()), EventKind::ThreadStarted {
+            agent_id,
+            main: false,
+            forked_from: Some(point),
+        })?;
+        Ok((thread, forked))
     }
 
     pub async fn cancel(&self, thread_id: Option<ThreadId>) -> anyhow::Result<()> {
