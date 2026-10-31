@@ -15,3 +15,4 @@ export * from "./components/portal";
 export * from "./components/popover";
 export * from "./components/trace";
 export * from "./components/resizable";
+export * from "./components/event-log";

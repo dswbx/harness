@@ -12,9 +12,11 @@ const lowlightCommon: Plugin = {
   },
 };
 
-// Tauri expects a fixed port (devUrl in crates/harness-tauri/tauri.conf.json).
+// Under `bun run dev` (scripts/dev.ts) Tauri's devUrl points at HARNESS_DEV_PORT, so it must be exactly that.
+// Alone (browser + mock transport) any free port from 1420 will do.
+const tauriPort = process.env.HARNESS_DEV_PORT;
 export default defineConfig({
   plugins: [react(), tailwindcss(), lowlightCommon],
   clearScreen: false,
-  server: { port: 1420, strictPort: true, host: "127.0.0.1" },
+  server: { port: tauriPort ? Number(tauriPort) : 1420, strictPort: !!tauriPort, host: "127.0.0.1" },
 });
