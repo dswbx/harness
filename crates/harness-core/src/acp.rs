@@ -13,8 +13,8 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use crate::api::{
-    AttachmentInput, Boundary, Decision, EventKind, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
-    SessionStatus, SlashCommand, TaskEntry, ThreadId,
+    AttachmentInput, Boundary, Decision, EventKind, ForkPoint, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
+    SessionStatus, SlashCommand, TaskEntry, ThreadId, ThreadStart,
 };
 use crate::session::Session;
 
@@ -96,6 +96,9 @@ struct AgentConn {
     acp_sessions: Mutex<HashMap<ThreadId, acp::SessionId>>,
     /// Drop notifications while `session/load` replays history (the Session Log already has it).
     replaying: Arc<AtomicBool>,
+    /// Drop notifications for Agent Sessions not yet mapped to a Thread while `session/fork` runs
+    /// (a fork may replay the source's history under its new id).
+    forking: Arc<AtomicBool>,
     /// Why the Harness stopped the process, when it did so on purpose.
     stop_reason: Arc<Mutex<Option<String>>>,
     shutdown: Mutex<Option<oneshot::Sender<()>>>,
@@ -305,8 +308,14 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
     let caps = &conn.init.agent_capabilities.prompt_capabilities;
     let attachments = crate::attachments::resolve(session.dir(), &folder, &meta.agent.name, caps, attachments)?;
     crate::attachments::store(&attachments)?;
-    let seed = session.update_meta(|m| m.seeds.remove(&thread))?;
-    let context = session.update_meta(|m| m.context_pending.remove(&thread))?.then(|| crate::harness_context::build(&session));
+    let (seed, excerpt, full_context, fork_note) = session.update_meta(|m| {
+        (m.seeds.remove(&thread), m.excerpts.remove(&thread), m.context_pending.remove(&thread), m.fork_note_pending.remove(&thread))
+    })?;
+    let context = if full_context {
+        Some(crate::harness_context::build(&session, &thread))
+    } else {
+        fork_note.then(|| crate::harness_context::fork_note(&session, &thread))
+    };
     let turn_id = uuid::Uuid::now_v7().to_string();
     session.log().append(Some(thread.clone()), EventKind::TurnStarted {
         turn_id: turn_id.clone(),
@@ -323,6 +332,12 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         }
         if let Some(seed) = seed {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!("<context>\n{seed}\n</context>"))));
+        }
+        if let Some(e) = excerpt {
+            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!(
+                "<excerpt thread_id=\"{}\" seq=\"{}\">\n{}\n</excerpt>",
+                e.thread_id, e.seq, e.text
+            ))));
         }
         if !text.is_empty() || attachments.is_empty() {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(text)));
@@ -502,7 +517,8 @@ fn spawn_watchdog(session: Weak<Session>, generation: u64) {
 }
 
 /// The Thread's Agent Session: the live one, else the previous one resumed or loaded, else a new
-/// one if the Thread never had one. `None` when a previous Agent Session cannot be continued.
+/// one (a fork of the Main Thread's for a Side Thread, if it can) if the Thread never had one.
+/// `None` when a previous Agent Session cannot be continued.
 async fn ensure_agent_session(
     session: &Arc<Session>,
     conn: &Arc<AgentConn>,
@@ -513,9 +529,38 @@ async fn ensure_agent_session(
         return Ok(Some(id.clone()));
     }
     let meta = session.meta();
-    let Some(prev) = meta.agent_sessions.get(thread).cloned() else {
-        return Ok(Some(new_agent_session(session, conn, thread, Boundary::Initial).await?));
-    };
+    if let Some(prev) = meta.agent_sessions.get(thread) {
+        return continue_previous(session, conn, thread, prev.clone()).await;
+    }
+    if let Some(origin) = meta.origins.get(thread) {
+        if origin.source == ThreadStart::Fork
+            && let Some(id) = fork_agent_session(session, conn, thread, &origin.point).await?
+        {
+            return Ok(Some(id));
+        }
+        // No fork: the Main Thread's transcript up to the fork point is the Context Seed.
+        let events = session.log().events()?;
+        if let Some(transcript) = crate::summary::side_thread_seed(&events, &origin.point.thread_id, origin.point.seq) {
+            session.update_meta(|m| {
+                let seed = match m.seeds.remove(thread) {
+                    Some(own) => format!("{transcript}\n\n{own}"),
+                    None => transcript,
+                };
+                m.seeds.insert(thread.clone(), seed);
+            })?;
+        }
+    }
+    Ok(Some(new_agent_session(session, conn, thread, Boundary::Initial).await?))
+}
+
+/// Resumes (else loads) the Thread's previous Agent Session. `None` when the Agent can do neither.
+async fn continue_previous(
+    session: &Arc<Session>,
+    conn: &Arc<AgentConn>,
+    thread: &ThreadId,
+    prev: String,
+) -> anyhow::Result<Option<acp::SessionId>> {
+    let meta = session.meta();
     let cwd = std::path::PathBuf::from(&meta.folder);
     let caps = &conn.init.agent_capabilities;
     let prev_id = acp::SessionId::new(prev);
@@ -550,6 +595,71 @@ async fn ensure_agent_session(
         boundary,
     })?;
     Ok(Some(prev_id))
+}
+
+/// Forks the Main Thread's Agent Session for a Side Thread. `None` (so: seed instead) when the
+/// Agent cannot fork, the Main Thread has no Agent Session that can be continued or is mid-Turn
+/// (the fork would catch a half-finished Turn), or the fork fails.
+async fn fork_agent_session(
+    session: &Arc<Session>,
+    conn: &Arc<AgentConn>,
+    thread: &ThreadId,
+    point: &ForkPoint,
+) -> anyhow::Result<Option<acp::SessionId>> {
+    let main = &point.thread_id;
+    if conn.init.agent_capabilities.session_capabilities.fork.is_none() {
+        return Ok(None);
+    }
+    if session.agent_slot().state.lock().unwrap().turns.get(main).is_some_and(|n| *n > 0) {
+        return Ok(None);
+    }
+    let live = conn.acp_sessions.lock().unwrap().get(main).cloned();
+    let source = match live {
+        Some(id) => id,
+        None => {
+            let Some(prev) = session.meta().agent_sessions.get(main).cloned() else { return Ok(None) };
+            match continue_previous(session, conn, main, prev).await {
+                Ok(Some(id)) => id,
+                Ok(None) => return Ok(None),
+                Err(e) if is_auth_required(&e) => return Err(e),
+                Err(e) => {
+                    tracing::warn!("fork source: {e:#}");
+                    return Ok(None);
+                }
+            }
+        }
+    };
+    let cwd = std::path::PathBuf::from(session.meta().folder);
+    let servers = mcp_servers(session, conn, thread).await?;
+    // No `system_prompt`: the fork keeps the source's, which keeps the prompt cache warm.
+    conn.forking.store(true, Ordering::SeqCst);
+    let r = conn.cx.send_request(acp::ForkSessionRequest::new(source, cwd).mcp_servers(servers)).block_task().await;
+    conn.forking.store(false, Ordering::SeqCst);
+    let r = match r {
+        Ok(r) => r,
+        Err(e) if e.code == agent_client_protocol::ErrorCode::AuthRequired => return Err(e.into()),
+        Err(e) => {
+            tracing::warn!("fork failed: {e}");
+            return Ok(None);
+        }
+    };
+    if let Some(options) = r.config_options.map(serde_json::to_value).transpose()? {
+        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options })?;
+    }
+    if let Some(modes) = &r.modes {
+        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: modes.current_mode_id.to_string() })?;
+    }
+    let id = r.session_id;
+    conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
+    session.update_meta(|m| {
+        m.agent_sessions.insert(thread.clone(), id.to_string());
+        m.fork_note_pending.insert(thread.clone());
+    })?;
+    session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
+        acp_session_id: id.to_string(),
+        boundary: Boundary::Forked,
+    })?;
+    Ok(Some(id))
 }
 
 /// Sets the config option values last picked for this Agent on a brand-new Agent Session, in the
@@ -654,6 +764,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
 
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
     let replaying = Arc::new(AtomicBool::new(false));
+    let forking = Arc::new(AtomicBool::new(false));
     let stop_reason = Arc::new(Mutex::new(None::<String>));
     let (ready_tx, ready_rx) = oneshot::channel::<Result<(ConnectionTo<Agent>, acp::InitializeResponse), String>>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -662,6 +773,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let s_perm = session.clone();
     let s_exit = session.clone();
     let replaying_n = replaying.clone();
+    let forking_n = forking.clone();
     let stop_reason_exit = stop_reason.clone();
     let stderr_exit = stderr.clone();
     tokio::spawn(async move {
@@ -670,7 +782,8 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
             .name("harness")
             .on_receive_notification(
                 async move |n: acp::SessionNotification, _cx| {
-                    if !replaying_n.load(Ordering::SeqCst) {
+                    let fork_replay = forking_n.load(Ordering::SeqCst) && thread_of(&s_notify, &n.session_id).is_none();
+                    if !replaying_n.load(Ordering::SeqCst) && !fork_replay {
                         on_update(&s_notify, &n);
                     }
                     Ok(())
@@ -745,6 +858,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
         init,
         acp_sessions: Mutex::new(HashMap::new()),
         replaying,
+        forking,
         stop_reason,
         shutdown: Mutex::new(Some(shutdown_tx)),
     }))
@@ -951,12 +1065,13 @@ fn on_permission(
     let meta = session.meta();
     let folder = std::path::PathBuf::from(&meta.folder);
     let facts = crate::permissions::facts_of(&tool_call, &folder);
-    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
+    let thread_writable = thread.as_ref().is_none_or(|t| meta.is_writable(t));
+    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder, thread_writable };
     // Calls to the Harness MCP pass the Policy inside the Harness MCP itself; don't ask twice.
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default();
     let harness_tool = crate::mcp::harness_tool_name(title).map(str::to_owned);
     let verdict = if harness_tool.is_some() {
-        crate::permissions::Verdict { decision: Decision::Allow, rule_id: None }
+        crate::permissions::Verdict { decision: Decision::Allow, rule_id: None, read_only: false }
     } else {
         session.policy().evaluate(&cx, &facts)
     };
@@ -976,7 +1091,7 @@ fn on_permission(
         let _ = session.log().append(thread.clone(), EventKind::PermissionResolved {
             request_id,
             option_id: Some(option_id.clone()),
-            by: Resolver::Policy,
+            by: if verdict.read_only { Resolver::ReadOnlyThread } else { Resolver::Policy },
             rule_id: verdict.rule_id,
         });
         let _ = session.log().sync();
@@ -1012,7 +1127,12 @@ pub async fn authorize(
         "_meta": { "harnessTool": tool },
     });
     let facts = crate::permissions::facts_of(&tool_call, &folder);
-    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
+    let cx = crate::permissions::Context {
+        session_id: &meta.id,
+        agent_id: &meta.agent.id,
+        folder: &folder,
+        thread_writable: meta.is_writable(thread),
+    };
     let verdict = session.policy().evaluate(&cx, &facts);
     if verdict.decision == Decision::Allow {
         return Ok(());
@@ -1034,9 +1154,12 @@ pub async fn authorize(
         session.log().append(Some(thread.clone()), EventKind::PermissionResolved {
             request_id,
             option_id: Some("reject".into()),
-            by: Resolver::Policy,
+            by: if verdict.read_only { Resolver::ReadOnlyThread } else { Resolver::Policy },
             rule_id: verdict.rule_id,
         })?;
+        if verdict.read_only {
+            anyhow::bail!("this Side Thread is read-only; the user can allow writes for it in the app");
+        }
         anyhow::bail!("denied by the Harness Permission Policy");
     }
     let (tx, rx) = oneshot::channel();

@@ -6,11 +6,13 @@
 
 use std::path::Path;
 
+use crate::api::ThreadId;
 use crate::session::Session;
 
 const HARNESS: &str = include_str!("../prompts/harness.md");
 
-pub fn build(session: &Session) -> String {
+/// The full block for a new Agent Session of `thread` (plus the Side Thread note, if it is one).
+pub fn build(session: &Session, thread: &ThreadId) -> String {
     let dir = &session.shared().prompts_dir;
     let frontend = session.frontend();
     let mut parts = vec![read(dir, "harness").unwrap_or_else(|| HARNESS.trim().to_owned())];
@@ -20,7 +22,28 @@ pub fn build(session: &Session) -> String {
         parts.push(format!("## Frontend: {}\n\n{text}", f.name));
     }
     parts.push(facts(session));
+    parts.extend(side_note(session, thread, false));
     format!("<harness_context>\n{}\n</harness_context>", parts.join("\n\n"))
+}
+
+/// What a forked Side Thread's Agent is told: it already has the Main Thread's full block.
+pub fn fork_note(session: &Session, thread: &ThreadId) -> String {
+    let note = side_note(session, thread, true).unwrap_or_default();
+    format!("<harness_context>\n{note}\n</harness_context>")
+}
+
+/// Where a Side Thread comes from and what it may do; `None` for the Main Thread.
+fn side_note(session: &Session, thread: &ThreadId, forked: bool) -> Option<String> {
+    let meta = session.meta();
+    let turn = meta.origins.get(thread)?.point.turn;
+    let start = if forked {
+        format!("You are in a Side Thread, forked from the Main Thread after its Turn {turn}. Everything above is the Main Thread's conversation up to then.")
+    } else {
+        format!("You are in a Side Thread, a detour from the Main Thread. The Main Thread's transcript up to its Turn {turn} may be given as context.")
+    };
+    Some(format!(
+        "## Side Thread\n\n{start} What you say here does not enter the Main Thread. You are read-only (no edits, commands, commits or pushes) unless the user allows writes for this Side Thread. `transcript_read` and the other transcript tools read the Main Thread, including its later Turns."
+    ))
 }
 
 fn read(dir: &Path, name: &str) -> Option<String> {

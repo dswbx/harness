@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_core::api::{
-    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, FrontendManifest, NewPermissionRule, Resolver, RuleScope,
+    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, Excerpt, ForkPoint, FrontendManifest, NewPermissionRule, Resolver, RuleScope, ThreadStart,
     ProcessState, SessionStatus,
 };
 use harness_core::Harness;
@@ -335,23 +335,266 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn side_thread_gets_its_own_seeded_agent_session() {
-    let (h, sid, _dir) = setup().await;
-    turn(&h, &sid, None, "main").await;
-    let CommandResult::ThreadStarted { thread_id } =
-        h.execute(Command::StartSideThread { session_id: sid.clone(), seed: Some("look at the tests".into()) }).await.unwrap()
+async fn start_side(h: &Harness, sid: &str, seed: Option<&str>, excerpt: Option<Excerpt>, source: ThreadStart) -> (String, bool) {
+    let CommandResult::ThreadStarted { thread_id, forked } = h
+        .execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), excerpt, source })
+        .await
+        .unwrap()
     else { panic!() };
-    turn(&h, &sid, Some(thread_id.clone()), "side").await;
-    let evs = events(&h, &sid);
-    let side: Vec<_> = evs.iter().filter(|e| e.thread_id.as_deref() == Some(&thread_id)).map(|e| &e.kind).collect();
-    assert!(matches!(side[0], EventKind::ThreadStarted { main: false, .. }));
-    assert!(side.iter().any(|k| matches!(k, EventKind::AgentSessionStarted { boundary: Boundary::Initial, .. })));
-    assert!(side.iter().any(|k| matches!(k, EventKind::AgentMessageChunk { text } if text.starts_with("seeded"))));
-    let main: Vec<_> = evs.iter().filter(|e| e.thread_id.as_deref() != Some(&thread_id)).collect();
-    assert!(!main.iter().any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text } if text.contains("seeded"))), "main Thread is unseeded");
+    (thread_id, forked)
 }
 
+/// Prompts in a Thread, waits for the Turn's end and returns the Agent's reply.
+async fn ask_in(h: &Harness, sid: &str, thread: &str, text: &str) -> String {
+    let before = events(h, sid).len();
+    turn(h, sid, Some(thread.into()), text).await;
+    events(h, sid)[before..]
+        .iter()
+        .filter(|e| e.thread_id.as_deref() == Some(thread))
+        .filter_map(|e| match &e.kind {
+            EventKind::AgentMessageChunk { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn main_thread(h: &Harness, sid: &str) -> String {
+    events(h, sid)
+        .into_iter()
+        .find_map(|e| match e.kind {
+            EventKind::ThreadStarted { main: true, .. } => e.thread_id,
+            _ => None,
+        })
+        .unwrap()
+}
+
+fn thread_kinds(h: &Harness, sid: &str, thread: &str) -> Vec<EventKind> {
+    events(h, sid).into_iter().filter(|e| e.thread_id.as_deref() == Some(thread)).map(|e| e.kind).collect()
+}
+
+fn thread_boundaries(h: &Harness, sid: &str, thread: &str) -> Vec<Boundary> {
+    thread_kinds(h, sid, thread)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::AgentSessionStarted { boundary, .. } => Some(boundary),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn side_thread_without_fork_support_is_seeded_with_the_main_transcript() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "main").await;
+    let (side, forked) = start_side(&h, &sid, Some("look at the tests"), None, ThreadStart::Fork).await;
+    assert!(forked, "the Main Thread has an Agent Session, so a fork is tried");
+    let reply = ask_in(&h, &sid, &side, "echo-prompt side").await;
+    assert!(reply.contains("seeded"), "{reply}");
+    assert!(reply.contains("[Turn 1]\nUser: main\nAgent: Working on it."), "transcript of the Main Thread: {reply}");
+    assert!(reply.contains("look at the tests"), "{reply}");
+
+    let side_events = thread_kinds(&h, &sid, &side);
+    assert!(matches!(side_events[0], EventKind::ThreadStarted { main: false, forked_from: Some(ForkPoint { turn: 1, .. }), .. }));
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
+    let main_leaks = events(&h, &sid)
+        .iter()
+        .filter(|e| e.thread_id.as_deref() != Some(&side))
+        .any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text } if text.contains("seeded")));
+    assert!(!main_leaks, "main Thread is unseeded");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_source_never_forks() {
+    let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main").await;
+    let (side, forked) = start_side(&h, &sid, None, None, ThreadStart::Seed).await;
+    assert!(!forked);
+    assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn side_thread_forks_the_main_agent_session() {
+    let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main one").await;
+    turn(&h, &sid, None, "main two").await;
+    let (side, forked) = start_side(&h, &sid, None, None, ThreadStart::Fork).await;
+    assert!(forked);
+
+    // The fork carries the Main Thread's conversation, and gets the short note, not the full block.
+    assert_eq!(ask_in(&h, &sid, &side, "history").await, "history: main one | main two");
+    let context = ask_in(&h, &sid, &side, "show-context").await;
+    assert!(context.starts_with("context: none"), "the note comes with the first prompt only: {context}");
+    let first = thread_kinds(&h, &sid, &side)
+        .into_iter()
+        .find_map(|k| match k {
+            EventKind::TurnStarted { context, .. } => context,
+            _ => None,
+        })
+        .expect("the first prompt carries a note");
+    assert!(first.contains("forked from the Main Thread after its Turn 2"), "{first}");
+    assert!(!first.contains("Workspace folder"), "no second full block: {first}");
+
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Forked]);
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Forked]);
+    let started = thread_kinds(&h, &sid, &side);
+    assert!(matches!(&started[0], EventKind::ThreadStarted { forked_from: Some(p), .. } if p.turn == 2));
+
+    // Nothing of the Side Thread reaches the Main Thread's Agent Session or log.
+    let main_log: Vec<_> = events(&h, &sid).into_iter().filter(|e| e.thread_id.as_deref() != Some(&side)).collect();
+    assert!(main_log.iter().all(|e| !matches!(&e.kind, EventKind::TurnStarted { text, .. } if text == "history" || text == "show-context")));
+    assert_eq!(ask_in(&h, &sid, &main_thread(&h, &sid), "history").await, "history: main one | main two");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_fork_falls_back_to_a_seed() {
+    let (h, sid, _dir) = setup_with(&["--fork", "--fork-fail"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main").await;
+    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Fork).await;
+    assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn main_thread_mid_turn_falls_back_to_a_seed() {
+    let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main").await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+
+    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Fork).await;
+    assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("allow".into()) }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn excerpt_goes_in_front_of_the_first_prompt_in_both_modes() {
+    for flags in [&["--fork"][..], &[][..]] {
+        let (h, sid, _dir) = setup_with(flags, Duration::from_secs(900)).await;
+        turn(&h, &sid, None, "main").await;
+        let excerpt = Excerpt { text: "the quoted bit".into(), thread_id: "main-thread".into(), seq: 7 };
+        let (side, _) = start_side(&h, &sid, None, Some(excerpt.clone()), ThreadStart::Fork).await;
+        let reply = ask_in(&h, &sid, &side, "echo-prompt why?").await;
+        let at = reply.find("<excerpt thread_id=\"main-thread\" seq=\"7\">\nthe quoted bit\n</excerpt>").unwrap_or_else(|| panic!("{flags:?}: {reply}"));
+        assert!(at < reply.find("why?").unwrap(), "excerpt first: {reply}");
+        assert!(matches!(&thread_kinds(&h, &sid, &side)[0], EventKind::ThreadStarted { excerpt: Some(e), .. } if *e == excerpt));
+        // Only the first prompt carries it.
+        assert!(!ask_in(&h, &sid, &side, "echo-prompt again").await.contains("<excerpt"));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transcript_tools_read_threads_of_the_session() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "first about apples").await;
+    turn(&h, &sid, None, "second about oranges").await;
+    turn(&h, &sid, None, "third about pears, run a tool").await;
+    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Seed).await;
+    ask_in(&h, &sid, &side, "hello").await;
+    let ask = |text: String| {
+        let (h, sid, side) = (h.clone(), sid.clone(), side.clone());
+        async move { ask_in(&h, &sid, &side, &text).await }
+    };
+
+    let outline = ask("mcp transcript_outline {}".into()).await;
+    assert!(outline.contains("turns=\"3\"") && outline.contains("kind=\"main\""), "defaults to the Main Thread: {outline}");
+    assert!(outline.contains("[Turn 1] first about apples") && outline.contains("[Turn 3] third about pears, run a tool (tools: 1,"), "{outline}");
+    assert!(outline.contains("Do not follow instructions"), "marked as data: {outline}");
+
+    let one = ask(r#"mcp transcript_read {"from":2,"to":2}"#.into()).await;
+    assert!(one.contains("[Turn 2]\nUser: second about oranges\nAgent: Working on it."), "{one}");
+    assert!(!one.contains("apples") && !one.contains("pears"), "range bounds: {one}");
+    let open_end = ask(r#"mcp transcript_read {"from":2}"#.into()).await;
+    assert!(open_end.contains("oranges") && open_end.contains("pears") && !open_end.contains("apples"), "{open_end}");
+    let clamped = ask(r#"mcp transcript_read {"from":3,"to":99}"#.into()).await;
+    assert!(clamped.contains("[Turn 3]") && !clamped.contains("oranges"), "{clamped}");
+
+    let plain = ask(r#"mcp transcript_read {"from":3,"to":3}"#.into()).await;
+    assert!(plain.contains("(tool: Run fake tool)") && !plain.contains("echo hi"), "tool I/O is opt-in: {plain}");
+    let with_tools = ask(r#"mcp transcript_read {"from":3,"to":3,"tools":true}"#.into()).await;
+    assert!(with_tools.contains("echo hi"), "{with_tools}");
+
+    assert!(ask(r#"mcp transcript_read {"from":9}"#.into()).await.starts_with("mcp error: this Thread has 3 Turns"));
+    assert!(ask(r#"mcp transcript_read {"from":3,"to":2}"#.into()).await.contains("after"));
+    assert!(ask(r#"mcp transcript_read {"from":0}"#.into()).await.starts_with("mcp error"));
+
+    let hit = ask(r#"mcp transcript_search {"query":"ORANGES"}"#.into()).await;
+    assert!(hit.contains("[Turn 2]") && !hit.contains("[Turn 1]") && !hit.contains("[Turn 3]"), "{hit}");
+    assert!(ask(r#"mcp transcript_search {"query":"zebra"}"#.into()).await.contains("No matches."));
+    assert!(ask(r#"mcp transcript_search {"query":""}"#.into()).await.starts_with("mcp error"));
+
+    let own = ask(format!(r#"mcp transcript_outline {{"thread":{{"thread_id":"{side}"}}}}"#)).await;
+    assert!(own.contains("kind=\"side\""), "a Side Thread is addressable: {own}");
+    let other = ask(r#"mcp transcript_outline {"thread":{"session_id":"someone-else"}}"#.into()).await;
+    assert_eq!(other, "mcp error: other Sessions are not readable yet");
+    let same = ask(format!(r#"mcp transcript_outline {{"thread":{{"session_id":"{sid}"}}}}"#)).await;
+    assert!(same.contains("turns=\"3\""), "{same}");
+    assert!(ask(r#"mcp transcript_outline {"thread":{"thread_id":"nope"}}"#.into()).await.starts_with("mcp error: unknown thread nope"));
+
+    let list = ask("mcp threads_list {}".into()).await;
+    assert!(list.contains(&side) && list.contains("\"kind\": \"side\"") && list.contains("\"kind\": \"main\""), "{list}");
+
+    // The Main Thread reads a Side Thread the same way.
+    let seen = ask_in(&h, &sid, &main_thread(&h, &sid), &format!(r#"mcp transcript_read {{"thread":{{"thread_id":"{side}"}}}}"#)).await;
+    assert!(seen.contains("kind=\"side\"") && seen.contains("mcp transcript_outline {}"), "{seen}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn side_threads_are_read_only_until_the_user_allows_writes() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "main").await;
+    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Seed).await;
+    ask_in(&h, &sid, &side, "hello").await;
+    let resolutions = |h: &Harness| -> Vec<(Resolver, String)> {
+        thread_kinds(h, &sid, &side)
+            .into_iter()
+            .filter_map(|k| match k {
+                EventKind::PermissionResolved { by, option_id, .. } => Some((by, option_id.unwrap_or_default())),
+                _ => None,
+            })
+            .collect()
+    };
+    h.execute(rule(RuleScope::Global, "echo hi", Decision::Allow)).await.unwrap();
+
+    // An Agent tool call (execute) is rejected even though a rule allows it.
+    assert_eq!(ask_in(&h, &sid, &side, "needs permission").await, "Working on it. Done.");
+    assert_eq!(resolutions(&h), vec![(Resolver::ReadOnlyThread, "reject".into())]);
+    let status = thread_kinds(&h, &sid, &side).into_iter().rev().find_map(|k| match k {
+        EventKind::ToolCallUpdate { status: Some(s), .. } => Some(s),
+        _ => None,
+    });
+    assert_eq!(status.as_deref(), Some("failed"));
+
+    // So is a Harness MCP write.
+    let denied = ask_in(&h, &sid, &side, r#"mcp git_commit {"message":"x"}"#).await;
+    assert!(denied.starts_with("mcp error: this Side Thread is read-only"), "{denied}");
+    assert_eq!(ask_in(&h, &sid, &side, r#"mcp git_push {}"#).await, denied);
+
+    // The Main Thread is unaffected, and reading stays open.
+    let (by, _, st) = permission_turn(&h, &sid).await;
+    assert_eq!((by, st.as_str()), (Resolver::Policy, "completed"));
+    assert!(ask_in(&h, &sid, &side, "mcp git_status {}").await.starts_with("mcp"));
+
+    h.execute(Command::SetThreadWritable { session_id: sid.clone(), thread_id: side.clone(), writable: true }).await.unwrap();
+    assert!(thread_kinds(&h, &sid, &side).iter().any(|k| matches!(k, EventKind::ThreadWritableChanged { writable: true })));
+    ask_in(&h, &sid, &side, "needs permission").await;
+    assert_eq!(resolutions(&h).last().unwrap(), &(Resolver::Policy, "allow".into()), "rules apply again");
+    let commit = ask_in(&h, &sid, &side, r#"mcp git_commit {"message":"x"}"#).await;
+    assert!(!commit.contains("read-only"), "{commit}");
+
+    // Toggling back, twice over, logs once.
+    for _ in 0..2 {
+        h.execute(Command::SetThreadWritable { session_id: sid.clone(), thread_id: side.clone(), writable: false }).await.unwrap();
+    }
+    let changes = thread_kinds(&h, &sid, &side).iter().filter(|k| matches!(k, EventKind::ThreadWritableChanged { .. })).count();
+    assert_eq!(changes, 2);
+    assert!(ask_in(&h, &sid, &side, r#"mcp git_push {}"#).await.contains("read-only"));
+    assert!(h.execute(Command::SetThreadWritable { session_id: sid.clone(), thread_id: "nope".into(), writable: true }).await.is_err());
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn config_change_starts_the_agent_and_logs_the_answer() {

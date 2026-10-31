@@ -166,7 +166,39 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         (
             "harness_info",
             "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title) and the top-level keys of the Session State.",
+            empty.clone(),
+            "read",
+        ),
+        (
+            "threads_list",
+            "The Threads of this Session: the Main Thread and any Side Threads (id, kind, title from the first prompt, Turn count).",
             empty,
+            "read",
+        ),
+        (
+            "transcript_outline",
+            "Outline of a Thread's transcript: one line per Turn (number, short prompt, tool count, size). Read-only.",
+            json!({ "type": "object", "properties": { "thread": crate::transcript::thread_schema() } }),
+            "read",
+        ),
+        (
+            "transcript_read",
+            "Read Turns `from` to `to` (1-based, inclusive) of a Thread's transcript: prompts, replies and tool titles. Tool input and output only with `tools`. Read-only.",
+            json!({ "type": "object", "properties": {
+                "thread": crate::transcript::thread_schema(),
+                "from": { "type": "integer", "minimum": 1, "description": "First Turn (default 1)" },
+                "to": { "type": "integer", "minimum": 1, "description": "Last Turn (default: the last)" },
+                "tools": { "type": "boolean", "description": "Include tool input and output (default false)" }
+            } }),
+            "read",
+        ),
+        (
+            "transcript_search",
+            "Find Turns of a Thread's transcript containing `query` (case-insensitive): Turn numbers with snippets. Read-only.",
+            json!({ "type": "object", "properties": {
+                "thread": crate::transcript::thread_schema(),
+                "query": { "type": "string" }
+            }, "required": ["query"] }),
             "read",
         ),
     ]
@@ -256,6 +288,10 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
                 serde_json::to_string_pretty(&state)?
             }
             "harness_info" => serde_json::to_string_pretty(&info(session)?)?,
+            "threads_list" => crate::transcript::threads_list(session)?,
+            "transcript_outline" => crate::transcript::outline(session, &args)?,
+            "transcript_read" => crate::transcript::read(session, &args)?,
+            "transcript_search" => crate::transcript::search(session, &args)?,
             _ => unreachable!(),
         });
     }

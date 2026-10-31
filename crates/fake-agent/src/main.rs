@@ -10,6 +10,8 @@
 //! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
 //! - a `<harness_context>` block is not part of the prompt text; "show-context" answers
 //!   "context: <the block>" (or "context: none")
+//! - "history" answers "history: <earlier prompts of this Agent Session, joined by ' | '>" (a fork
+//!   starts with a copy of its source's); "echo-prompt" answers "prompt: <this prompt's text>"
 //! - a prompt with non-text blocks first answers "blocks: <kinds>" (e.g. `text,image,resource_link`)
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
@@ -17,7 +19,8 @@
 //! use the stdio shim. `--auth` advertises an agent auth
 //! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
 //! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
-//! embedded-context prompt capabilities.
+//! embedded-context prompt capabilities. `--fork` advertises `session/fork` (new id, copy of the
+//! source's history); with `--fork-fail` the request is refused.
 
 use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::schema::ProtocolVersion;
@@ -86,6 +89,21 @@ async fn harness_mcp(id: &SessionId, tool: Option<&str>, args: serde_json::Value
     out
 }
 
+/// Prompts per Agent Session.
+static HISTORY: std::sync::Mutex<Vec<(String, Vec<String>)>> = std::sync::Mutex::new(Vec::new());
+
+fn history_of(id: &SessionId) -> Vec<String> {
+    HISTORY.lock().unwrap().iter().find(|(s, _)| *s == id.to_string()).map(|(_, h)| h.clone()).unwrap_or_default()
+}
+
+fn remember_prompt(id: &SessionId, prompt: &str) {
+    let mut all = HISTORY.lock().unwrap();
+    match all.iter_mut().find(|(s, _)| *s == id.to_string()) {
+        Some((_, h)) => h.push(prompt.to_owned()),
+        None => all.push((id.to_string(), vec![prompt.to_owned()])),
+    }
+}
+
 fn cwd_of(id: &SessionId) -> Option<std::path::PathBuf> {
     CWDS.lock().unwrap().iter().rev().find(|(s, _)| *s == id.to_string()).map(|(_, p)| p.clone())
 }
@@ -108,10 +126,13 @@ async fn main() -> agent_client_protocol::Result<()> {
     let auth = args.iter().any(|a| a == "--auth");
     let no_http_mcp = args.iter().any(|a| a == "--no-http-mcp");
     let images = args.iter().any(|a| a == "--images");
+    let fork = args.iter().any(|a| a == "--fork");
+    let fork_fail = args.iter().any(|a| a == "--fork-fail");
     let authed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!auth));
     let authed_new = authed.clone();
     // Ids stay unique across processes so a restarted agent never reuses one.
-    let next = std::sync::atomic::AtomicU64::new(std::process::id() as u64 * 1000);
+    let next = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(std::process::id() as u64 * 1000));
+    let next_fork = next.clone();
     Agent
         .builder()
         .name("fake-agent")
@@ -122,8 +143,15 @@ async fn main() -> agent_client_protocol::Result<()> {
                     .load_session(load)
                     .mcp_capabilities(McpCapabilities::new().http(!no_http_mcp))
                     .prompt_capabilities(PromptCapabilities::new().image(images).embedded_context(images));
+                let mut session_caps = SessionCapabilities::new();
                 if resume {
-                    caps = caps.session_capabilities(SessionCapabilities::new().resume(SessionResumeCapabilities::new()));
+                    session_caps = session_caps.resume(SessionResumeCapabilities::new());
+                }
+                if fork {
+                    session_caps = session_caps.fork(SessionForkCapabilities::new());
+                }
+                if resume || fork {
+                    caps = caps.session_capabilities(session_caps);
                 }
                 let mut resp = InitializeResponse::new(req.protocol_version).agent_capabilities(caps);
                 if auth {
@@ -157,6 +185,21 @@ async fn main() -> agent_client_protocol::Result<()> {
                 remember_cwd(&id, &req.cwd);
                 remember_mcp(&id, &req.mcp_servers);
                 responder.respond(NewSessionResponse::new(id).config_options(model_option("a")))
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: ForkSessionRequest, responder, _cx| {
+                if fork_fail {
+                    return responder.respond_with_error(Error::internal_error());
+                }
+                let n = next_fork.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let id = SessionId::new(format!("fake-{n}"));
+                remember_cwd(&id, &req.cwd);
+                remember_mcp(&id, &req.mcp_servers);
+                let copied = history_of(&req.session_id);
+                HISTORY.lock().unwrap().push((id.to_string(), copied));
+                responder.respond(ForkSessionResponse::new(id).config_options(model_option("a")))
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -205,6 +248,16 @@ async fn main() -> agent_client_protocol::Result<()> {
                         })
                         .collect::<Vec<_>>()
                         .join(" ");
+                    // The user's own text: the last text block (seeds and excerpts come before it).
+                    let command = req
+                        .prompt
+                        .iter()
+                        .rev()
+                        .find_map(|b| match b {
+                            ContentBlock::Text(t) => Some(t.text.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
                     if req.prompt.iter().any(|b| !matches!(b, ContentBlock::Text(_))) {
                         let kinds: Vec<&str> = req
                             .prompt
@@ -220,13 +273,22 @@ async fn main() -> agent_client_protocol::Result<()> {
                             .collect();
                         update(&cx, &sid, text(&format!("blocks: {}\n", kinds.join(","))))?;
                     }
+                    let earlier = history_of(&sid);
+                    remember_prompt(&sid, &prompt);
+                    if prompt.contains("echo-prompt") {
+                        update(&cx, &sid, text(&format!("prompt: {prompt}")))?;
+                    }
+                    if command.starts_with("history") {
+                        update(&cx, &sid, text(&format!("history: {}", earlier.join(" | "))))?;
+                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    }
                     if prompt.contains("<context>") {
                         update(&cx, &sid, text("seeded"))?;
                     }
                     if prompt.contains("show-context") {
                         update(&cx, &sid, text(&format!("context: {}", harness_context.as_deref().unwrap_or("none"))))?;
                     }
-                    if prompt.starts_with("mcp-servers") {
+                    if command.starts_with("mcp-servers") {
                         let servers = MCP.lock().unwrap().iter().rev().find(|(s, _)| *s == sid.to_string()).map(|(_, m)| m.clone()).unwrap_or_default();
                         let desc: Vec<String> = servers
                             .iter()
@@ -243,13 +305,13 @@ async fn main() -> agent_client_protocol::Result<()> {
                         update(&cx, &sid, text(&format!("servers: {}", desc.join(" "))))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
-                    if let Some(rest) = prompt.strip_prefix("mcp-list") {
+                    if let Some(rest) = command.strip_prefix("mcp-list") {
                         let _ = rest;
                         let r = harness_mcp(&sid, None, serde_json::Value::Null).await;
                         update(&cx, &sid, text(&format!("tools: {}", r.unwrap_or_else(|e| e))))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
-                    if let Some(rest) = prompt.strip_prefix("mcp ") {
+                    if let Some(rest) = command.strip_prefix("mcp ") {
                         let (tool, args) = rest.split_once(' ').unwrap_or((rest, "{}"));
                         let args = serde_json::from_str(args).unwrap_or(serde_json::Value::Null);
                         let reply = match harness_mcp(&sid, Some(tool), args).await {

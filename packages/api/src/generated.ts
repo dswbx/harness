@@ -53,7 +53,9 @@ export type AuthMethodInfo = {
 	kind: string,
 };
 
-export type Boundary = "initial" | "resumed" | "loaded" | "reseeded" | "agent_switched" | "continued_with_summary";
+export type Boundary = "initial" | "resumed" | "loaded" | "reseeded" | "agent_switched" | "continued_with_summary" | 
+/**  A Side Thread's Agent Session forked from the Main Thread's. */
+"forked";
 
 export type BranchInfo = {
 	name: string,
@@ -195,8 +197,17 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
  *  way out of a read-only Thread. `text`, when given, is prompted right away.
  */
 { type: "ContinueWithSummary"; session_id: string; thread_id: string | null; text: string | null } | 
-/**  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first prompt. */
-{ type: "StartSideThread"; session_id: string; seed: string | null } | { type: "ResolvePermission"; session_id: string; request_id: string; 
+/**
+ *  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
+ *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
+ *  text seed of the Main Thread's transcript); `excerpt` goes in front of its first prompt.
+ */
+{ type: "StartSideThread"; session_id: string; seed?: string | null; excerpt?: Excerpt | null; source?: ThreadStart } | 
+/**
+ *  Lets a Side Thread's Agent edit, delete, move, run commands, commit and push (or not
+ *  again). Side Threads start read-only; the Main Thread is always writable.
+ */
+{ type: "SetThreadWritable"; session_id: string; thread_id: string; writable: boolean } | { type: "ResolvePermission"; session_id: string; request_id: string; 
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
 option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string } | 
 /**  Reads a stored attachment (base64). Only files in the Session Directory's `attachments/`. */
@@ -207,7 +218,12 @@ option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermi
  */
 { type: "ReadImageFile"; path: string };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | { type: "ThreadStarted"; thread_id: string } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | 
+/**
+ *  `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
+ *  `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
+ */
+{ type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
@@ -253,7 +269,16 @@ export type Event = {
 	kind: EventKind,
 };
 
-export type EventKind = { type: "SessionCreated"; title: string; frontend_id: string; agent_id: string; folder: string } | { type: "SessionStatusChanged"; status: SessionStatus } | { type: "ThreadStarted"; agent_id: string; main: boolean } | 
+export type EventKind = { type: "SessionCreated"; title: string; frontend_id: string; agent_id: string; folder: string } | { type: "SessionStatusChanged"; status: SessionStatus } | { type: "ThreadStarted"; agent_id: string; main: boolean; 
+/**  Side Threads: the Main Thread's last finished Turn when this one started. */
+forked_from?: ForkPoint | null; 
+/**  Side Threads: the excerpt the user asked about. */
+excerpt?: Excerpt | null } | 
+/**
+ *  A Side Thread's Agent may (or may not any more) edit, delete, move, run commands, commit
+ *  and push.
+ */
+{ type: "ThreadWritableChanged"; writable: boolean } | 
 /**  The Agent needs the user to sign in before it can work. */
 { type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
 /**
@@ -317,12 +342,26 @@ files?: { [key in string]: string } } |
 /**  An ACP update the Harness does not normalize yet; kept so nothing is lost. */
 { type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string };
 
+/**  Text the user selected in a Thread, given to a Side Thread with its first prompt. */
+export type Excerpt = {
+	text: string,
+	thread_id: string,
+	seq: number,
+};
+
 export type FileChange = {
 	path: string,
 	/**  git status letter: M, A, D, R, T, U, or ? (untracked). */
 	status: string,
 	additions: number | null,
 	deletions: number | null,
+};
+
+/**  A place in a Thread: after its `turn`-th finished Turn (1-based, 0 = none), at log `seq`. */
+export type ForkPoint = {
+	thread_id: string,
+	turn: number,
+	seq: number,
 };
 
 export type FrontendManifest = {
@@ -422,7 +461,9 @@ export type RegistryAgent = {
 	installed_version: string | null,
 };
 
-export type Resolver = "policy" | "view" | "cancelled";
+export type Resolver = "policy" | 
+/**  Denied because the Thread is a read-only Side Thread. */
+"read_only_thread" | "view" | "cancelled";
 
 export type RuleScope = { type: "global" } | { type: "agent"; agent_id: string } | { type: "session"; session_id: string };
 
@@ -457,6 +498,12 @@ export type TaskEntry = {
 	priority: string,
 	status: string,
 };
+
+/**
+ *  How a Side Thread's Agent Session starts. `Fork` falls back to `Seed` when the Agent cannot
+ *  fork, the Main Thread has no Agent Session or is mid-Turn, or the fork fails.
+ */
+export type ThreadStart = "fork" | "seed";
 
 export type WorkspaceInfo = {
 	repo_root: string | null,

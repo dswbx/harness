@@ -247,10 +247,24 @@ pub enum Command {
         thread_id: Option<ThreadId>,
         text: Option<String>,
     },
-    /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first prompt.
+    /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
+    /// prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
+    /// text seed of the Main Thread's transcript); `excerpt` goes in front of its first prompt.
     StartSideThread {
         session_id: SessionId,
+        #[serde(default)]
         seed: Option<String>,
+        #[serde(default)]
+        excerpt: Option<Excerpt>,
+        #[serde(default)]
+        source: ThreadStart,
+    },
+    /// Lets a Side Thread's Agent edit, delete, move, run commands, commit and push (or not
+    /// again). Side Threads start read-only; the Main Thread is always writable.
+    SetThreadWritable {
+        session_id: SessionId,
+        thread_id: ThreadId,
+        writable: bool,
     },
     ResolvePermission {
         session_id: SessionId,
@@ -378,7 +392,9 @@ pub enum CommandResult {
     Frontends { frontends: Vec<FrontendManifest> },
     Sessions { sessions: Vec<SessionSummary> },
     SessionCreated { session_id: SessionId },
-    ThreadStarted { thread_id: ThreadId },
+    /// `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
+    /// `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
+    ThreadStarted { thread_id: ThreadId, forked: bool },
     Branches { branches: Branches },
     PullRequests { prs: Vec<PullRequest> },
     GitStatus { status: GitStatus },
@@ -702,6 +718,17 @@ pub enum EventKind {
     ThreadStarted {
         agent_id: String,
         main: bool,
+        /// Side Threads: the Main Thread's last finished Turn when this one started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        forked_from: Option<ForkPoint>,
+        /// Side Threads: the excerpt the user asked about.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        excerpt: Option<Excerpt>,
+    },
+    /// A Side Thread's Agent may (or may not any more) edit, delete, move, run commands, commit
+    /// and push.
+    ThreadWritableChanged {
+        writable: bool,
     },
     /// The Agent needs the user to sign in before it can work.
     AuthRequired {
@@ -894,6 +921,36 @@ pub enum Boundary {
     Reseeded,
     AgentSwitched,
     ContinuedWithSummary,
+    /// A Side Thread's Agent Session forked from the Main Thread's.
+    Forked,
+}
+
+/// How a Side Thread's Agent Session starts. `Fork` falls back to `Seed` when the Agent cannot
+/// fork, the Main Thread has no Agent Session or is mid-Turn, or the fork fails.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadStart {
+    #[default]
+    Fork,
+    Seed,
+}
+
+/// A place in a Thread: after its `turn`-th finished Turn (1-based, 0 = none), at log `seq`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ForkPoint {
+    pub thread_id: ThreadId,
+    pub turn: u32,
+    #[specta(type = specta_typescript::Number)]
+    pub seq: u64,
+}
+
+/// Text the user selected in a Thread, given to a Side Thread with its first prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Excerpt {
+    pub text: String,
+    pub thread_id: ThreadId,
+    #[specta(type = specta_typescript::Number)]
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -911,6 +968,8 @@ pub enum ProcessState {
 #[serde(rename_all = "snake_case")]
 pub enum Resolver {
     Policy,
+    /// Denied because the Thread is a read-only Side Thread.
+    ReadOnlyThread,
     View,
     Cancelled,
 }

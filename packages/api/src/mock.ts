@@ -389,7 +389,7 @@ export class MockTransport implements Transport {
         const thread_id = `side-${++this.sideN}`;
         this.emit(cmd.session_id, { type: "ThreadStarted", agent_id: "codex", main: false }, thread_id);
         this.emit(cmd.session_id, { type: "AgentSessionStarted", acp_session_id: `acp-${thread_id}`, boundary: "initial" }, thread_id);
-        return { type: "ThreadStarted", thread_id };
+        return { type: "ThreadStarted", thread_id, forked: false };
       }
       case "ContinueWithSummary": {
         const sid = cmd.session_id;
