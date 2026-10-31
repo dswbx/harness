@@ -200,6 +200,19 @@ function Shell({ transport }: { transport: Transport }) {
 
   const report = useReportError();
 
+  // Cmd+, opens Settings (macOS convention). Capture phase, so the terminal or an editor never eats it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ",") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSettingsSection((s) => s ?? "appearance");
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
   // Push-driven: SessionsChanged reloads, SessionStatus patches one row. The slow poll is a safety net.
   useEffect(() => {
     let stop = false;
