@@ -1,5 +1,5 @@
 import type { AppEvent, Editor, Attachment, AttachmentInput, Commit, McpServerDef, AgentInfo, BranchInfo, PullRequest, RegistryAgent, Command, CommandResult, Event, EventKind, FileChange, FrontendToolDecl, PermissionRule, SessionSummary, WorkspaceInfo } from "./generated";
-import type { Transport, Unsubscribe } from "./transport";
+import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 import { applyStatePatch } from "./state";
 
@@ -286,6 +286,16 @@ export class MockTransport implements Transport {
       case "GitLog":
         if (!this.session(cmd.session_id).workspace.repo_root) throw new Error("not a git repository");
         return { type: "GitLog", commits: [...MOCK_COMMITS] };
+      case "TerminalInput":
+        this.terminalInput(cmd.session_id, cmd.data);
+        return { type: "Ok" };
+      case "TerminalResize":
+      case "TerminalAck":
+        return { type: "Ok" };
+      case "TerminalKill":
+        this.terminals.get(cmd.session_id)?.forEach((f) => f({ exit: null }));
+        this.terminals.delete(cmd.session_id);
+        return { type: "Ok" };
       case "GitShowFile":
         // Old side: "base" and any "<sha>^"; everything else falls back to the new contents.
         return { type: "FileContent", content: (cmd.rev === "base" || cmd.rev.endsWith("^") ? MOCK_OLD : MOCK_NEW)[cmd.path] ?? "" };
@@ -504,6 +514,46 @@ export class MockTransport implements Transport {
   async subscribeApp(onEvent: (e: AppEvent) => void): Promise<Unsubscribe> {
     this.appSubs.add(onEvent);
     return () => this.appSubs.delete(onEvent);
+  }
+
+  /** A pretend shell: echoes input, `exit` ends it. */
+  private terminals = new Map<string, Set<(o: TerminalOutput) => void>>();
+  private terminalLine = new Map<string, string>();
+  private terminalOut(sessionId: string, text: string) {
+    const bytes = new TextEncoder().encode(text);
+    this.terminals.get(sessionId)?.forEach((f) => f(bytes));
+  }
+  private terminalInput(sessionId: string, data: string) {
+    let line = this.terminalLine.get(sessionId) ?? "";
+    for (const ch of data) {
+      if (ch === "\r") {
+        if (line.trim() === "exit") {
+          this.terminals.get(sessionId)?.forEach((f) => f({ exit: 0 }));
+          this.terminals.delete(sessionId);
+          this.terminalLine.delete(sessionId);
+          return;
+        }
+        this.terminalOut(sessionId, `\r\n${line ? `mock: ${line}\r\n` : ""}\x1b[32m~\x1b[0m $ `);
+        line = "";
+      } else if (ch === "\x7f") {
+        if (line) this.terminalOut(sessionId, "\b \b");
+        line = line.slice(0, -1);
+      } else if (ch >= " ") {
+        line += ch;
+        this.terminalOut(sessionId, ch);
+      }
+    }
+    this.terminalLine.set(sessionId, line);
+  }
+
+  async attachTerminal(sessionId: string, _cols: number, _rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe> {
+    let set = this.terminals.get(sessionId);
+    if (!set) {
+      this.terminals.set(sessionId, (set = new Set()));
+      queueMicrotask(() => this.terminalOut(sessionId, "Mock terminal (browser). Type `exit` to end.\r\n\x1b[32m~\x1b[0m $ "));
+    }
+    set.add(onOutput);
+    return () => set.delete(onOutput);
   }
 
   async subscribe(sessionId: string, fromSeq: number, onEvent: (e: Event) => void): Promise<Unsubscribe> {

@@ -3,13 +3,18 @@ import type { AppEvent, Command, CommandResult, Event } from "./generated";
 
 export type Unsubscribe = () => void;
 
-/** Boundary between the UI and the Rust core (ADR 0001): three operations only. */
+/** Terminal output: raw bytes, or the shell's end (ADR 0017). */
+export type TerminalOutput = Uint8Array | { exit: number | null };
+
+/** Boundary between the UI and the Rust core (ADR 0001): Commands, Session Logs, AppEvents, and the Terminal byte stream. */
 export interface Transport {
   execute(cmd: Command): Promise<CommandResult>;
   /** Replays the Session Log from `fromSeq`, then streams live. */
   subscribe(sessionId: string, fromSeq: number, onEvent: (e: Event) => void): Promise<Unsubscribe>;
   /** Harness-wide notifications (session list, attention, agents). Live only, no replay. */
   subscribeApp(onEvent: (e: AppEvent) => void): Promise<Unsubscribe>;
+  /** The Session's Terminal (started if none runs): its replay buffer, then live output. Input, resize and acks are Commands. */
+  attachTerminal(sessionId: string, cols: number, rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe>;
 }
 
 export function inTauri(): boolean {
@@ -34,6 +39,17 @@ export const tauriTransport: Transport = {
     // The core has no explicit unsubscribe (dropped with the webview): just stop delivering.
     return () => {
       live = false;
+    };
+  },
+  async attachTerminal(sessionId, cols, rows, onOutput) {
+    // Raw bytes arrive as an ArrayBuffer, the exit as JSON.
+    const channel = new Channel<ArrayBuffer | { exit: number | null }>();
+    let live = true;
+    channel.onmessage = (m) => live && onOutput(m instanceof ArrayBuffer ? new Uint8Array(m) : m);
+    const id = await invoke<number>("terminal_attach", { sessionId, cols, rows, channel });
+    return () => {
+      live = false;
+      void invoke("terminal_detach", { sessionId, id }).catch(() => {});
     };
   },
 };

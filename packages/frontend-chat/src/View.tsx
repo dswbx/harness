@@ -1,10 +1,12 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, X } from "lucide-react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, SquareTerminal, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, ResizeHandle, Tooltip, VirtualList, cn, useResizableWidth } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
+// xterm.js stays out of the main chunk until the Terminal is first opened.
+const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
@@ -370,8 +372,26 @@ export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTML
 
 function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  /** The right panel: "changes" (the diff) or the id of a right-placed render_ui slot. */
+  /** The right panel: "changes" (the diff), "terminal", or the id of a right-placed render_ui slot. */
   const [panel, setPanelId] = useState<string | null>(null);
+  /** The Terminal stays mounted (hidden) once opened, so its screen survives switching panels. */
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  const toggleTerminal = useCallback(() => {
+    setTerminalOpened(true);
+    setPanelId((p) => (p === "terminal" ? null : "terminal"));
+  }, []);
+  // Ctrl+` toggles the Terminal, as in VS Code. Capture phase, so xterm never sees it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.code === "Backquote" || e.key === "`")) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleTerminal();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [toggleTerminal]);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   /** Right panel (diff or a render_ui slot), dragged from its left edge. */
@@ -435,6 +455,18 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
       ))}
+      <Tooltip content="Terminal (Ctrl+`)" side="bottom">
+        <Button
+          size="icon"
+          variant="ghost"
+          className={cn("size-7 text-muted-foreground hover:text-accent-foreground", panel === "terminal" && "bg-accent text-accent-foreground")}
+          aria-label="Terminal"
+          aria-pressed={panel === "terminal"}
+          onClick={toggleTerminal}
+        >
+          <SquareTerminal />
+        </Button>
+      </Tooltip>
       {git && (
         <Tooltip content="Changes" side="bottom">
           <Button
@@ -500,11 +532,21 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         <PromptBox api={api} state={state} />
       )}
     </div>
-    {(panel === "changes" || rightSlot) && (
-      <div className="relative h-full shrink-0" style={{ width: right.width }}>
+    {(panel === "changes" || panel === "terminal" || rightSlot || terminalOpened) && (
+      <div
+        className={cn("relative h-full shrink-0", !(panel === "changes" || panel === "terminal" || rightSlot) && "hidden")}
+        style={{ width: right.width }}
+      >
         <ResizeHandle label="Resize panel" {...right.handle} />
         {panel === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanelId(null)} refreshKey={refreshKey} />}
         {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => setPanelId(null)} />}
+        {terminalOpened && (
+          <div className={cn("h-full", panel !== "terminal" && "hidden")}>
+            <Suspense fallback={null}>
+              <TerminalPanel api={api} active={panel === "terminal"} onClose={() => setPanelId(null)} />
+            </Suspense>
+          </div>
+        )}
       </div>
     )}
     </div>

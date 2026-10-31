@@ -40,6 +40,7 @@ pub struct Harness {
     data_dir: PathBuf,
     shared: Arc<Shared>,
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
+    terminals: crate::terminal::Terminals,
 }
 
 impl Harness {
@@ -82,6 +83,7 @@ impl Harness {
             data_dir,
             shared,
             sessions: RwLock::new(sessions),
+            terminals: Default::default(),
         }))
     }
 
@@ -118,6 +120,23 @@ impl Harness {
 
     pub fn unsubscribe_app(&self, id: u64) {
         self.shared.app_events.unsubscribe(id);
+    }
+
+    /// Attaches to the Session's Terminal (a shell in its Workspace Folder, started if none runs):
+    /// the replay buffer, then live output until the sink returns `false` or `terminal_detach`.
+    pub fn terminal_attach(
+        &self,
+        session_id: &str,
+        cols: u16,
+        rows: u16,
+        sink: crate::terminal::TerminalSink,
+    ) -> anyhow::Result<u64> {
+        let folder = PathBuf::from(self.session(session_id)?.meta().folder);
+        self.terminals.attach(session_id, &folder, cols, rows, sink)
+    }
+
+    pub fn terminal_detach(&self, session_id: &str, id: u64) {
+        self.terminals.detach(session_id, id);
     }
 
     async fn execute_inner(&self, cmd: Command) -> anyhow::Result<CommandResult> {
@@ -267,6 +286,7 @@ impl Harness {
                 CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? }
             }
             Command::ArchiveSession { session_id } => {
+                self.terminals.kill(&session_id);
                 self.session(&session_id)?.archive().await?;
                 CommandResult::Ok
             }
@@ -276,6 +296,7 @@ impl Harness {
             }
             Command::DeleteSession { session_id, force } => {
                 let session = self.session(&session_id)?;
+                self.terminals.kill(&session_id);
                 session.delete_workspace(force).await?;
                 self.sessions.write().unwrap().remove(&session_id);
                 std::fs::remove_dir_all(session.dir())?;
@@ -290,6 +311,22 @@ impl Harness {
             }
             Command::GitLog { session_id } => {
                 CommandResult::GitLog { commits: self.session(&session_id)?.git_log().await? }
+            }
+            Command::TerminalInput { session_id, data } => {
+                self.terminals.input(&session_id, data.as_bytes())?;
+                CommandResult::Ok
+            }
+            Command::TerminalResize { session_id, cols, rows } => {
+                self.terminals.resize(&session_id, cols, rows)?;
+                CommandResult::Ok
+            }
+            Command::TerminalAck { session_id, bytes } => {
+                self.terminals.ack(&session_id, bytes as usize);
+                CommandResult::Ok
+            }
+            Command::TerminalKill { session_id } => {
+                self.terminals.kill(&session_id);
+                CommandResult::Ok
             }
             Command::GitShowFile { session_id, rev, path } => {
                 CommandResult::FileContent { content: self.session(&session_id)?.git_show_file(&rev, &path).await? }

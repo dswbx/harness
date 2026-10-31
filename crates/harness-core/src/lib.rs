@@ -19,6 +19,7 @@ pub mod permissions;
 pub mod session;
 mod state;
 mod summary;
+pub mod terminal;
 pub mod toolchain;
 pub mod workspace;
 

@@ -170,6 +170,12 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GitCommit"; session_id: string; message: string } | 
 /**  Pushes the current branch to `origin`, setting upstream. */
 { type: "GitPush"; session_id: string } | 
+/**  Keystrokes or pasted text for the Session's Terminal (attach first, ADR 0017). */
+{ type: "TerminalInput"; session_id: string; data: string } | { type: "TerminalResize"; session_id: string; cols: number; rows: number } | 
+/**  The Frontend has drawn `bytes` of Terminal output (flow control). */
+{ type: "TerminalAck"; session_id: string; bytes: number } | 
+/**  Ends the Session's shell; the next attach starts a new one. */
+{ type: "TerminalKill"; session_id: string } | 
 /**
  *  Start a Turn in a Thread (Main Thread when `thread_id` is absent). Returns immediately;
  *  progress arrives as Events.
