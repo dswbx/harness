@@ -24,7 +24,7 @@ export function ThreadView({ api, thread, threadId, env, onOpenDiff, focusKey }:
   }, [focusKey]);
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col bg-background" aria-label="Side chat">
+    <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background" aria-label="Side chat">
       <MessageList
         api={api}
         state={thread}
