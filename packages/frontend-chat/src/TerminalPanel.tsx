@@ -33,6 +33,14 @@ function themeFrom(el: HTMLElement): ITheme {
   };
 }
 
+/** Font from the host's Appearance (`--terminal-font`, else `--font-mono`; `--terminal-font-size`). */
+function fontFrom(el: HTMLElement): { fontFamily: string; fontSize: number } {
+  const css = getComputedStyle(el);
+  const family = css.getPropertyValue("--terminal-font").trim() || css.getPropertyValue("--font-mono").trim() || "ui-monospace, monospace";
+  const size = parseFloat(css.getPropertyValue("--terminal-font-size"));
+  return { fontFamily: family, fontSize: Number.isFinite(size) && size > 0 ? size : 12 };
+}
+
 /** The Session's Terminal in the right panel. Stays mounted while hidden so the shell's screen is kept. */
 export default function TerminalPanel({ api, active, onClose }: { api: SessionApi; active: boolean; onClose: () => void }) {
   const host = useRef<HTMLDivElement>(null);
@@ -40,10 +48,11 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
 
   useEffect(() => {
     const el = host.current!;
-    const css = getComputedStyle(el);
+    // xterm measures the font once per change: start on the system mono until a web font has loaded (`restyle`).
+    const initial = fontFrom(el);
     const t = new Terminal({
-      fontFamily: css.getPropertyValue("--font-mono").trim() || "ui-monospace, monospace",
-      fontSize: 12,
+      fontSize: initial.fontSize,
+      fontFamily: document.fonts.check(`${initial.fontSize}px ${initial.fontFamily}`) ? initial.fontFamily : "ui-monospace, monospace",
       lineHeight: 1.2,
       cursorBlink: true,
       scrollback: 10000,
@@ -144,8 +153,20 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
       frame = requestAnimationFrame(fit);
     });
     ro.observe(el);
-    // Theme switches change the tokens on <html>.
-    const mo = new MutationObserver(() => (t.options.theme = themeFrom(el)));
+    // Appearance changes set tokens on <html>. A web font is measured only once loaded, so wait for it.
+    const restyle = () => {
+      t.options.theme = themeFrom(el);
+      const font = fontFrom(el);
+      if (font.fontFamily === t.options.fontFamily && font.fontSize === t.options.fontSize) return;
+      void document.fonts.load(`${font.fontSize}px ${font.fontFamily}`).catch(() => {}).then(() => {
+        if (disposed) return;
+        t.options.fontFamily = font.fontFamily;
+        t.options.fontSize = font.fontSize;
+        fit();
+      });
+    };
+    restyle();
+    const mo = new MutationObserver(restyle);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
 
     return () => {

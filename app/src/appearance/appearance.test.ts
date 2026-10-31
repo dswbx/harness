@@ -43,9 +43,25 @@ describe("load / save", () => {
   });
 });
 
+describe("terminal", () => {
+  it("normalizes font and clamps size to its own range", () => {
+    expect(normalize({ terminalFont: "inter", terminalFontSize: 40 })).toEqual(a({ terminalFontSize: 24 }));
+    expect(normalize({ terminalFont: "geist-mono", terminalFontSize: 9 })).toEqual(a({ terminalFont: "geist-mono", terminalFontSize: 9 }));
+    expect(normalize({ terminalFont: "custom", customTerminalFont: " Iosevka; " })).toEqual(a({ terminalFont: "custom", customTerminalFont: "Iosevka" }));
+  });
+
+  it("sets --terminal-font only when it differs from the Mono font", () => {
+    expect(resolveVars(DEFAULT_APPEARANCE, false)["--terminal-font"]).toBeUndefined();
+    expect(resolveVars(a({ terminalFont: "jetbrains-mono", terminalFontSize: 14 }), false)).toMatchObject({
+      "--terminal-font": '"JetBrains Mono Variable", ui-monospace, monospace',
+      "--terminal-font-size": "14px",
+    });
+  });
+});
+
 describe("resolveVars", () => {
   it("default theme sets only sizes and chat rhythm", () => {
-    const chat = { "--chat-font-size": "14px", "--chat-leading": "1.6", "--chat-flow": "1.25em" };
+    const chat = { "--chat-font-size": "14px", "--chat-leading": "1.6", "--chat-flow": "1.25em", "--terminal-font-size": "12px" };
     expect(resolveVars(DEFAULT_APPEARANCE, false)).toEqual({ "--app-font-size": "14px", ...chat });
     expect(resolveVars(a({ font: "geist", mono: "system", fontSize: 13 }), true)).toEqual({
       "--font-sans": '"Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif',
@@ -151,6 +167,6 @@ describe("applyAppearance", () => {
     expect(d.props.get("--background")).toBe(PRESETS.claude!.dark.background);
     applyAppearance(a({ mode: "light" }), d);
     expect(d.classes.has("dark")).toBe(false);
-    expect([...d.props.keys()]).toEqual(["--app-font-size", "--chat-font-size", "--chat-leading", "--chat-flow"]);
+    expect([...d.props.keys()]).toEqual(["--app-font-size", "--chat-font-size", "--chat-leading", "--chat-flow", "--terminal-font-size"]);
   });
 });
