@@ -1,6 +1,6 @@
 import type {
   AgentInfo, AppEvent, AppSettingKey, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
-  Editor, Excerpt, SessionSummary, StatePatchOp, ThreadStart, WorkspaceInfo,
+  Editor, SessionSummary, StatePatchOp, ThreadStart, WorkspaceInfo,
 } from "./generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 
@@ -25,9 +25,9 @@ export interface SessionApi {
   continueWithSummary(text: string | null, threadId?: string | null): Promise<void>;
   /**
    * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
-   * `excerpt` (selected text and where it sits) goes in front of its first prompt. Read-only by default.
+   * Read-only by default. Quoted text goes in its prompt box as a quote chip, not here.
    */
-  startSideThread(args?: { seed?: string | null; excerpt?: Excerpt | null; source?: ThreadStart }): Promise<{ thread_id: string; forked: boolean }>;
+  startSideThread(args?: { seed?: string | null; source?: ThreadStart }): Promise<{ thread_id: string; forked: boolean }>;
   /** Lets a Side Thread's Agent write (or not again). */
   setThreadWritable(threadId: string, writable: boolean): Promise<void>;
   /** `null` answers "cancelled". */
@@ -98,8 +98,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       return { mime: r.mime, data: r.data };
     },
     continueWithSummary: (text, threadId = null) => run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: threadId, text }),
-    startSideThread: async ({ seed = null, excerpt = null, source } = {}) => {
-      const r = await expect({ type: "StartSideThread", session_id: sessionId, seed, excerpt, source }, "ThreadStarted");
+    startSideThread: async ({ seed = null, source } = {}) => {
+      const r = await expect({ type: "StartSideThread", session_id: sessionId, seed, source }, "ThreadStarted");
       return { thread_id: r.thread_id, forked: r.forked };
     },
     setThreadWritable: (thread_id, writable) => run({ type: "SetThreadWritable", session_id: sessionId, thread_id, writable }),

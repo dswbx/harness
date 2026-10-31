@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, CheckCircle2, CircleDashed, GitCompare, GitFork, Loader2, MessagesSquare, PanelRight, SquareTerminal, X } from "lucide-react";
-import type { AttachmentInput, Excerpt, SessionApi } from "@harness/api";
+import type { AttachmentInput, SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
   Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger,
@@ -17,6 +17,7 @@ import { SelectionComment } from "./SelectionComment";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Slot } from "./slots";
 import { errorMessage } from "./errors";
+import { addReviewComment, composerKey } from "./reviewComments";
 import { closeTab, loadPanel, openTab, sameTab, savePanel, tabKey, toggleTab, type PanelState, type PanelTab } from "./panelTabs";
 import { initialState, reduce, reduceBatch, type ChatState } from "./reducer";
 
@@ -140,10 +141,10 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
   const [sideError, setSideError] = useState<string | null>(null);
   /** Opens a Side Thread (forked from Main when the Agent can), shows its tab, and returns its id. */
   const newSideThread = useCallback(
-    async (excerpt: Excerpt | null = null) => {
+    async () => {
       setSideError(null);
       try {
-        const { thread_id } = await api.startSideThread({ excerpt });
+        const { thread_id } = await api.startSideThread();
         show({ kind: "thread", id: thread_id });
         setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
         return thread_id;
@@ -153,6 +154,14 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       }
     },
     [api, show],
+  );
+  /** "Ask in side thread": a new Side Thread with the selected text as a quote chip in its prompt box. */
+  const askSideThread = useCallback(
+    async (quote: string) => {
+      const id = await newSideThread();
+      if (id) addReviewComment(composerKey(api.sessionId, id), { kind: "quote", quote, text: "" });
+    },
+    [api, newSideThread],
   );
   /** `/btw <text>` in the Main prompt box: a Side Thread whose first prompt is `text`. */
   const btw = useCallback(
@@ -328,7 +337,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         {actions}
       </Portal>
       {toolbar && <Portal container={status}>{badge}</Portal>}
-      <SelectionComment sessionId={api.sessionId} onAskSideThread={(excerpt) => void newSideThread(excerpt)} />
+      <SelectionComment sessionId={api.sessionId} onAskSideThread={(quote) => void askSideThread(quote)} />
       <TaskListPanel entries={state.taskList} />
       <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
       <MessageList

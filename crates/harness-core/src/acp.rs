@@ -305,14 +305,14 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         session.log().sync()?;
         anyhow::bail!("{reason} The Thread is read-only; continue it with a summary.");
     };
-    if !meta.is_writable(&thread) {
-        keep_asking(&session, &conn, &thread, &acp_session).await;
+    if thread != meta.main_thread_id {
+        follow_main_config(&session, &conn, &thread, &acp_session).await;
     }
     let caps = &conn.init.agent_capabilities.prompt_capabilities;
     let attachments = crate::attachments::resolve(session.dir(), &folder, &meta.agent.name, caps, attachments)?;
     crate::attachments::store(&attachments)?;
-    let (seed, excerpt, full_context, fork_note) = session.update_meta(|m| {
-        (m.seeds.remove(&thread), m.excerpts.remove(&thread), m.context_pending.remove(&thread), m.fork_note_pending.remove(&thread))
+    let (seed, full_context, fork_note) = session.update_meta(|m| {
+        (m.seeds.remove(&thread), m.context_pending.remove(&thread), m.fork_note_pending.remove(&thread))
     })?;
     let context = if full_context {
         Some(crate::harness_context::build(&session, &thread))
@@ -335,12 +335,6 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         }
         if let Some(seed) = seed {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!("<context>\n{seed}\n</context>"))));
-        }
-        if let Some(e) = excerpt {
-            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!(
-                "<excerpt thread_id=\"{}\" seq=\"{}\">\n{}\n</excerpt>",
-                e.thread_id, e.seq, e.text
-            ))));
         }
         if !text.is_empty() || attachments.is_empty() {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(text)));
@@ -459,6 +453,7 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// Sets a config option. Agents answer with the full option list and may not also send an
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
+    anyhow::ensure!(session.is_main(Some(&thread)), "Side Threads follow the Main Thread's config");
     let (conn, id) = live_agent_session(&session, &thread).await?;
     let r = conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id, config_id.clone(), value.as_str())).block_task().await?;
     session.log().append(Some(thread), EventKind::ConfigOptionsChanged { options: serde_json::to_value(&r.config_options)? })?;
@@ -468,35 +463,46 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
     Ok(())
 }
 
-/// Puts a read-only Thread's Agent in its mode that asks before every write (a fork inherits the
-/// Main Thread's mode, which may auto-approve), so writes reach the Policy and are denied there.
-async fn keep_asking(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
+/// Gives a Side Thread the Main Thread's current config option values (mode, model, effort, ...):
+/// Side Threads follow the Main Thread and have none of their own. Skips values the Side Thread's
+/// Agent Session does not offer.
+async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
     let Ok(events) = session.log().events() else { return };
-    let Some(options) = events.iter().rev().find_map(|e| match &e.kind {
-        EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(thread) => Some(options.clone()),
-        _ => None,
-    }) else {
-        return;
+    let main = session.meta().main_thread_id;
+    let latest = |t: &ThreadId| {
+        events.iter().rev().find_map(|e| match &e.kind {
+            EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(t) => options.as_array().cloned(),
+            _ => None,
+        })
     };
-    let Some(mode) = options.as_array().and_then(|a| a.iter().find(|o| o["id"] == "mode")) else { return };
-    let values: Vec<&str> = mode["options"].as_array().into_iter().flatten().filter_map(|o| o["value"].as_str()).collect();
-    let Some(asking) = crate::agent_quirks::asking_mode(&values) else { return };
-    if mode["currentValue"] == asking {
-        return;
+    let (Some(wanted), Some(mut current)) = (latest(&main), latest(thread)) else { return };
+    let mut changed = None;
+    for w in &wanted {
+        let (Some(config_id), Some(value)) = (w["id"].as_str(), w["currentValue"].as_str()) else { continue };
+        let Some(c) = current.iter().find(|c| c["id"] == config_id) else { continue };
+        let offered = c["options"].as_array().into_iter().flatten().any(|o| o["value"] == value);
+        if c["currentValue"] == value || !offered {
+            continue;
+        }
+        match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.to_owned(), value)).block_task().await {
+            Ok(r) => match serde_json::to_value(&r.config_options) {
+                Ok(o) => {
+                    current = o.as_array().cloned().unwrap_or_default();
+                    changed = Some(o);
+                }
+                Err(e) => tracing::warn!("config options: {e}"),
+            },
+            Err(e) => tracing::warn!("Side Thread {config_id}={value} rejected: {e}"),
+        }
     }
-    match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), "mode", asking)).block_task().await {
-        Ok(r) => match serde_json::to_value(&r.config_options) {
-            Ok(options) => {
-                let _ = session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options });
-            }
-            Err(e) => tracing::warn!("config options: {e}"),
-        },
-        Err(e) => tracing::warn!("asking mode for read-only Thread: {e}"),
+    if let Some(options) = changed {
+        let _ = session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options });
     }
 }
 
 /// Sets the legacy session mode; its answer carries no state, so the change is logged here.
 pub async fn set_mode(session: Arc<Session>, thread: ThreadId, mode_id: String) -> anyhow::Result<()> {
+    anyhow::ensure!(session.is_main(Some(&thread)), "Side Threads follow the Main Thread's mode");
     let (conn, id) = live_agent_session(&session, &thread).await?;
     conn.cx.send_request(acp::SetSessionModeRequest::new(id, mode_id.clone())).block_task().await?;
     session.log().append(Some(thread), EventKind::ModeChanged { mode_id })?;

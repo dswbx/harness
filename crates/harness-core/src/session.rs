@@ -86,9 +86,6 @@ pub struct SessionMeta {
     /// Side Threads: where they came from (Main Thread Turn) and how their Agent Session starts.
     #[serde(default)]
     pub origins: HashMap<ThreadId, SideOrigin>,
-    /// Excerpts waiting to be sent in front of a Side Thread's first prompt.
-    #[serde(default)]
-    pub excerpts: HashMap<ThreadId, crate::api::Excerpt>,
     /// Side Threads whose Agent may write (the Main Thread always may).
     #[serde(default)]
     pub thread_writes: HashSet<ThreadId>,
@@ -167,7 +164,6 @@ impl Session {
             context_pending: Default::default(),
             fork_note_pending: Default::default(),
             origins: Default::default(),
-            excerpts: Default::default(),
             thread_writes: Default::default(),
             workspace,
             archived: false,
@@ -186,7 +182,6 @@ impl Session {
             agent_id: agent.id,
             main: true,
             forked_from: None,
-            excerpt: None,
         })?;
         log.sync()?;
         Ok(Self::from_parts(dir, meta, log, shared))
@@ -211,7 +206,7 @@ impl Session {
         Ok(session)
     }
 
-    fn is_main(&self, thread: Option<&ThreadId>) -> bool {
+    pub(crate) fn is_main(&self, thread: Option<&ThreadId>) -> bool {
         thread.is_none_or(|t| *t == self.meta.lock().unwrap().main_thread_id)
     }
 
@@ -506,7 +501,6 @@ impl Session {
     pub fn start_side_thread(
         &self,
         seed: Option<String>,
-        excerpt: Option<crate::api::Excerpt>,
         source: crate::api::ThreadStart,
     ) -> anyhow::Result<(ThreadId, bool)> {
         let thread = uuid::Uuid::now_v7().to_string();
@@ -518,9 +512,6 @@ impl Session {
             if let Some(seed) = seed {
                 m.seeds.insert(thread.clone(), seed);
             }
-            if let Some(e) = &excerpt {
-                m.excerpts.insert(thread.clone(), e.clone());
-            }
             m.origins.insert(thread.clone(), SideOrigin { point: point.clone(), source });
             m.agent.id.clone()
         })?;
@@ -528,7 +519,6 @@ impl Session {
             agent_id,
             main: false,
             forked_from: Some(point),
-            excerpt,
         })?;
         Ok((thread, forked))
     }

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_core::api::{
-    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, Excerpt, ForkPoint, FrontendManifest, NewPermissionRule, Resolver, RuleScope, ThreadStart,
+    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, ForkPoint, FrontendManifest, NewPermissionRule, Resolver, RuleScope, ThreadStart,
     ProcessState, SessionStatus,
 };
 use harness_core::Harness;
@@ -335,9 +335,9 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
 }
 
-async fn start_side(h: &Harness, sid: &str, seed: Option<&str>, excerpt: Option<Excerpt>, source: ThreadStart) -> (String, bool) {
+async fn start_side(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart) -> (String, bool) {
     let CommandResult::ThreadStarted { thread_id, forked } = h
-        .execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), excerpt, source })
+        .execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source })
         .await
         .unwrap()
     else { panic!() };
@@ -386,7 +386,7 @@ fn thread_boundaries(h: &Harness, sid: &str, thread: &str) -> Vec<Boundary> {
 async fn side_thread_without_fork_support_is_seeded_with_the_main_transcript() {
     let (h, sid, _dir) = setup().await;
     turn(&h, &sid, None, "main").await;
-    let (side, forked) = start_side(&h, &sid, Some("look at the tests"), None, ThreadStart::Fork).await;
+    let (side, forked) = start_side(&h, &sid, Some("look at the tests"), ThreadStart::Fork).await;
     assert!(forked, "the Main Thread has an Agent Session, so a fork is tried");
     let reply = ask_in(&h, &sid, &side, "echo-prompt side").await;
     assert!(reply.contains("seeded"), "{reply}");
@@ -407,7 +407,7 @@ async fn side_thread_without_fork_support_is_seeded_with_the_main_transcript() {
 async fn seed_source_never_forks() {
     let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "main").await;
-    let (side, forked) = start_side(&h, &sid, None, None, ThreadStart::Seed).await;
+    let (side, forked) = start_side(&h, &sid, None, ThreadStart::Seed).await;
     assert!(!forked);
     assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
     assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
@@ -418,7 +418,7 @@ async fn side_thread_forks_the_main_agent_session() {
     let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "main one").await;
     turn(&h, &sid, None, "main two").await;
-    let (side, forked) = start_side(&h, &sid, None, None, ThreadStart::Fork).await;
+    let (side, forked) = start_side(&h, &sid, None, ThreadStart::Fork).await;
     assert!(forked);
 
     // The fork carries the Main Thread's conversation, and gets the short note, not the full block.
@@ -450,7 +450,7 @@ async fn side_thread_forks_the_main_agent_session() {
 async fn failed_fork_falls_back_to_a_seed() {
     let (h, sid, _dir) = setup_with(&["--fork", "--fork-fail"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "main").await;
-    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Fork).await;
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fork).await;
     assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
     assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
 }
@@ -464,7 +464,7 @@ async fn main_thread_mid_turn_falls_back_to_a_seed() {
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
 
-    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Fork).await;
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fork).await;
     assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
     assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
     h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("allow".into()) }).await.unwrap();
@@ -472,18 +472,26 @@ async fn main_thread_mid_turn_falls_back_to_a_seed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn excerpt_goes_in_front_of_the_first_prompt_in_both_modes() {
+async fn side_threads_follow_the_main_threads_config() {
     for flags in [&["--fork"][..], &[][..]] {
         let (h, sid, _dir) = setup_with(flags, Duration::from_secs(900)).await;
         turn(&h, &sid, None, "main").await;
-        let excerpt = Excerpt { text: "the quoted bit".into(), thread_id: "main-thread".into(), seq: 7 };
-        let (side, _) = start_side(&h, &sid, None, Some(excerpt.clone()), ThreadStart::Fork).await;
-        let reply = ask_in(&h, &sid, &side, "echo-prompt why?").await;
-        let at = reply.find("<excerpt thread_id=\"main-thread\" seq=\"7\">\nthe quoted bit\n</excerpt>").unwrap_or_else(|| panic!("{flags:?}: {reply}"));
-        assert!(at < reply.find("why?").unwrap(), "excerpt first: {reply}");
-        assert!(matches!(&thread_kinds(&h, &sid, &side)[0], EventKind::ThreadStarted { excerpt: Some(e), .. } if *e == excerpt));
-        // Only the first prompt carries it.
-        assert!(!ask_in(&h, &sid, &side, "echo-prompt again").await.contains("<excerpt"));
+        h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "b".into() }).await.unwrap();
+        let (side, _) = start_side(&h, &sid, None, ThreadStart::Fork).await;
+        ask_in(&h, &sid, &side, "hi").await;
+        let model = |h: &Harness| {
+            thread_kinds(h, &sid, &side).into_iter().rev().find_map(|k| match k {
+                EventKind::ConfigOptionsChanged { options } => options[0]["currentValue"].as_str().map(str::to_owned),
+                _ => None,
+            })
+        };
+        assert_eq!(model(&h).as_deref(), Some("b"), "{flags:?}");
+        // Changes on the Main Thread reach the Side Thread with its next prompt.
+        h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "a".into() }).await.unwrap();
+        ask_in(&h, &sid, &side, "again").await;
+        assert_eq!(model(&h).as_deref(), Some("a"), "{flags:?}");
+        let own = h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: Some(side.clone()), config_id: "model".into(), value: "b".into() }).await;
+        assert!(own.is_err(), "{flags:?}: Side Threads have no config of their own");
     }
 }
 
@@ -493,7 +501,7 @@ async fn transcript_tools_read_threads_of_the_session() {
     turn(&h, &sid, None, "first about apples").await;
     turn(&h, &sid, None, "second about oranges").await;
     turn(&h, &sid, None, "third about pears, run a tool").await;
-    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Seed).await;
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Seed).await;
     ask_in(&h, &sid, &side, "hello").await;
     let ask = |text: String| {
         let (h, sid, side) = (h.clone(), sid.clone(), side.clone());
@@ -547,7 +555,7 @@ async fn transcript_tools_read_threads_of_the_session() {
 async fn side_threads_are_read_only_until_the_user_allows_writes() {
     let (h, sid, _dir) = setup().await;
     turn(&h, &sid, None, "main").await;
-    let (side, _) = start_side(&h, &sid, None, None, ThreadStart::Seed).await;
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Seed).await;
     ask_in(&h, &sid, &side, "hello").await;
     let resolutions = |h: &Harness| -> Vec<(Resolver, String)> {
         thread_kinds(h, &sid, &side)

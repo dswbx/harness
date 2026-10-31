@@ -249,13 +249,11 @@ pub enum Command {
     },
     /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
     /// prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
-    /// text seed of the Main Thread's transcript); `excerpt` goes in front of its first prompt.
+    /// text seed of the Main Thread's transcript).
     StartSideThread {
         session_id: SessionId,
         #[serde(default)]
         seed: Option<String>,
-        #[serde(default)]
-        excerpt: Option<Excerpt>,
         #[serde(default)]
         source: ThreadStart,
     },
@@ -721,9 +719,6 @@ pub enum EventKind {
         /// Side Threads: the Main Thread's last finished Turn when this one started.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         forked_from: Option<ForkPoint>,
-        /// Side Threads: the excerpt the user asked about.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        excerpt: Option<Excerpt>,
     },
     /// A Side Thread's Agent may (or may not any more) edit, delete, move, run commands, commit
     /// and push.
@@ -940,15 +935,6 @@ pub enum ThreadStart {
 pub struct ForkPoint {
     pub thread_id: ThreadId,
     pub turn: u32,
-    #[specta(type = specta_typescript::Number)]
-    pub seq: u64,
-}
-
-/// Text the user selected in a Thread, given to a Side Thread with its first prompt.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub struct Excerpt {
-    pub text: String,
-    pub thread_id: ThreadId,
     #[specta(type = specta_typescript::Number)]
     pub seq: u64,
 }

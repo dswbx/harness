@@ -6,13 +6,12 @@ import { addReviewComment, composerKey } from "./reviewComments";
 /** Elements whose selected text can be commented on (chat messages). */
 export const QUOTABLE = "data-quotable";
 
-/** Marks a message of a Thread as quotable; its place (`seq` of its first Event) rides along for "Ask in side thread". */
-export function quotableAttrs(itemId: string, threadId: string, side: boolean) {
-  return { [QUOTABLE]: "", "data-thread-id": threadId, "data-side": side ? "1" : "0", "data-seq": itemId.replace(/^e/, "") };
+/** Marks a message of a Thread as quotable (`data-side`: its quote goes to that Side Thread's prompt box). */
+export function quotableAttrs(threadId: string, side: boolean) {
+  return { [QUOTABLE]: "", "data-thread-id": threadId, "data-side": side ? "1" : "0" };
 }
 
-type Spot = { quote: string; range: Range; x: number; top: number; bottom: number; where: Where | null; side: boolean; threadId: string | null };
-type Where = { thread_id: string; seq: number };
+type Spot = { quote: string; range: Range; x: number; top: number; bottom: number; side: boolean; threadId: string | null };
 
 /** CSS Custom Highlight that keeps the quote looking selected while the comment box has focus (styles.css). */
 const HIGHLIGHT = "quote-comment";
@@ -32,16 +31,14 @@ function selectedSpot(): Spot | null {
   const range = sel.getRangeAt(0).cloneRange();
   const r = range.getBoundingClientRect();
   const threadId = host.getAttribute("data-thread-id");
-  const seq = Number(host.getAttribute("data-seq"));
-  const where = threadId && Number.isFinite(seq) ? { thread_id: threadId, seq } : null;
-  return { quote, range, x: r.left + r.width / 2, top: r.top, bottom: r.bottom, where, side: host.getAttribute("data-side") === "1", threadId };
+  return { quote, range, x: r.left + r.width / 2, top: r.top, bottom: r.bottom, side: host.getAttribute("data-side") === "1", threadId };
 }
 
 /**
  * Select text in a chat message, then "Add comment": the quote and a comment go to the prompt box (like diff line
  * comments) and are sent with the next prompt.
  */
-export function SelectionComment({ sessionId, onAskSideThread }: { sessionId: string; onAskSideThread?: (excerpt: { text: string; thread_id: string; seq: number }) => void }) {
+export function SelectionComment({ sessionId, onAskSideThread }: { sessionId: string; onAskSideThread?: (quote: string) => void }) {
   const [spot, setSpot] = useState<Spot | null>(null);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -99,8 +96,8 @@ export function SelectionComment({ sessionId, onAskSideThread }: { sessionId: st
   };
 
   const ask = () => {
-    if (!spot?.where || !onAskSideThread) return;
-    onAskSideThread({ text: spot.quote, ...spot.where });
+    if (!spot || !onAskSideThread) return;
+    onAskSideThread(spot.quote);
     window.getSelection()?.removeAllRanges();
     close();
   };
@@ -158,7 +155,7 @@ export function SelectionComment({ sessionId, onAskSideThread }: { sessionId: st
           <Button size="sm" variant="ghost" className="h-8 rounded-lg" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(true)}>
             Add comment
           </Button>
-          {onAskSideThread && spot.where && (
+          {onAskSideThread && (
             <Button size="sm" variant="ghost" className="h-8 rounded-lg" onMouseDown={(e) => e.preventDefault()} onClick={ask}>
               Ask in side thread
             </Button>

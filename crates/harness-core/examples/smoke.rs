@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(question) = std::env::var("SMOKE_SIDE") {
         let CommandResult::ThreadStarted { thread_id, forked } = h
-            .execute(Command::StartSideThread { session_id: session_id.clone(), seed: None, excerpt: None, source: Default::default() })
+            .execute(Command::StartSideThread { session_id: session_id.clone(), seed: None, source: Default::default() })
             .await
             .map_err(anyhow::Error::msg)?
         else { unreachable!() };

@@ -140,6 +140,17 @@ export class MockTransport implements Transport {
   private sideForked = new Map<string, boolean>();
   private sideWritable = new Map<string, boolean>();
 
+  /** The Main Thread's latest config options (what Side Threads mirror). */
+  private mainOptions(sid: string): unknown[] | null {
+    const log = this.logs.get(sid)!;
+    const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main)?.thread_id;
+    for (let i = log.length - 1; i >= 0; i--) {
+      const k = log[i]!.kind;
+      if (k.type === "ConfigOptionsChanged" && log[i]!.thread_id === main && Array.isArray(k.options)) return k.options;
+    }
+    return null;
+  }
+
   /** Defaults to the session's Main Thread (fixture logs carry real ids). */
   private emit(sessionId: string, kind: EventKind, thread_id?: string | null) {
     const log = this.logs.get(sessionId)!;
@@ -400,9 +411,24 @@ export class MockTransport implements Transport {
         this.emit(sid, {
           type: "ThreadStarted", agent_id: "codex", main: false,
           forked_from: forked ? { thread_id: main?.thread_id ?? "main", turn: mainTurns, seq: log.length - 1 } : null,
-          excerpt: cmd.excerpt ?? null,
         }, thread_id);
+        // Side Threads follow the Main Thread's config options.
+        const opts = this.mainOptions(sid);
+        if (opts) this.emit(sid, { type: "ConfigOptionsChanged", options: opts }, thread_id);
         return { type: "ThreadStarted", thread_id, forked };
+      }
+      case "SetConfigOption":
+      case "SetMode": {
+        if (cmd.thread_id) throw new Error("Side threads follow the Main Thread's config options; change them in the Main Thread");
+        const sid = cmd.session_id;
+        const opts = this.mainOptions(sid) as { id: string; category?: string; currentValue: string }[] | null;
+        const id = cmd.type === "SetMode" ? opts?.find((o) => o.category === "mode")?.id : cmd.config_id;
+        const value = cmd.type === "SetMode" ? cmd.mode_id : cmd.value;
+        if (!opts || !id) return { type: "Ok" };
+        const next = opts.map((o) => (o.id === id ? { ...o, currentValue: value } : o));
+        const threads = new Set(this.logs.get(sid)!.map((e) => e.thread_id));
+        for (const t of threads) this.emit(sid, { type: "ConfigOptionsChanged", options: next }, t);
+        return { type: "Ok" };
       }
       case "ResolvePermission": {
         const req = this.logs.get(cmd.session_id)?.find((e) => e.kind.type === "PermissionRequested" && e.kind.request_id === cmd.request_id);

@@ -118,7 +118,7 @@ describe("turns", () => {
   it("keeps Side Thread events apart from the Main Thread", () => {
     const s = fold([
       started(),
-      ev({ type: "ThreadStarted", agent_id: "a", main: false, forked_from: { thread_id: "main", turn: 2, seq: 7 }, excerpt: { text: "x", thread_id: "main", seq: 7 } }, "side"),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false, forked_from: { thread_id: "main", turn: 2, seq: 7 } }, "side"),
       ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "forked" }, "side"),
       ev({ type: "TurnStarted", turn_id: "t", text: "why?" }, "side"),
       ev({ type: "AgentMessageChunk", text: "because" }, "side"),

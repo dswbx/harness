@@ -1,13 +1,12 @@
-import type { Excerpt, Event, ForkPoint } from "./generated";
+import type { Event, ForkPoint } from "./generated";
 
 /** A Thread of a Session as the Views list it: the Main Thread and its Side Threads. */
 export type ThreadInfo = {
   id: string;
   main: boolean;
-  /** First prompt (truncated), else the excerpt, else null (nothing asked yet). */
+  /** First prompt (truncated), else null (nothing asked yet). */
   title: string | null;
   forkedFrom: ForkPoint | null;
-  excerpt: Excerpt | null;
   /** Side Threads: may the Agent write (starts false). The Main Thread is always writable. */
   writable: boolean;
   /** Finished or running Turns started in this Thread. */
@@ -27,12 +26,11 @@ export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly Thr
   if (!e.thread_id || (k.type !== "ThreadStarted" && k.type !== "ThreadWritableChanged" && k.type !== "TurnStarted")) return list;
   const id = e.thread_id;
   const at = list.findIndex((t) => t.id === id);
-  const prev: ThreadInfo = at >= 0 ? list[at]! : { id, main: false, title: null, forkedFrom: null, excerpt: null, writable: false, turns: 0 };
+  const prev: ThreadInfo = at >= 0 ? list[at]! : { id, main: false, title: null, forkedFrom: null, writable: false, turns: 0 };
   let t = prev;
   switch (k.type) {
     case "ThreadStarted": {
-      const excerpt = k.excerpt ?? null;
-      t = { ...prev, main: k.main, writable: k.main, forkedFrom: k.forked_from ?? null, excerpt, title: prev.title ?? (excerpt ? cut(oneLine(excerpt.text)) : null) };
+      t = { ...prev, main: k.main, writable: k.main, forkedFrom: k.forked_from ?? null };
       break;
     }
     case "ThreadWritableChanged":
@@ -40,7 +38,6 @@ export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly Thr
       break;
     case "TurnStarted": {
       const text = oneLine(k.text);
-      // The first prompt wins over an excerpt title.
       t = { ...prev, turns: prev.turns + 1, title: prev.turns === 0 && text ? cut(text) : prev.title };
       break;
     }

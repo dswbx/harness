@@ -200,9 +200,9 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
 /**
  *  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
  *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
- *  text seed of the Main Thread's transcript); `excerpt` goes in front of its first prompt.
+ *  text seed of the Main Thread's transcript).
  */
-{ type: "StartSideThread"; session_id: string; seed?: string | null; excerpt?: Excerpt | null; source?: ThreadStart } | 
+{ type: "StartSideThread"; session_id: string; seed?: string | null; source?: ThreadStart } | 
 /**
  *  Lets a Side Thread's Agent edit, delete, move, run commands, commit and push (or not
  *  again). Side Threads start read-only; the Main Thread is always writable.
@@ -271,9 +271,7 @@ export type Event = {
 
 export type EventKind = { type: "SessionCreated"; title: string; frontend_id: string; agent_id: string; folder: string } | { type: "SessionStatusChanged"; status: SessionStatus } | { type: "ThreadStarted"; agent_id: string; main: boolean; 
 /**  Side Threads: the Main Thread's last finished Turn when this one started. */
-forked_from?: ForkPoint | null; 
-/**  Side Threads: the excerpt the user asked about. */
-excerpt?: Excerpt | null } | 
+forked_from?: ForkPoint | null } | 
 /**
  *  A Side Thread's Agent may (or may not any more) edit, delete, move, run commands, commit
  *  and push.
@@ -341,13 +339,6 @@ files?: { [key in string]: string } } |
 { type: "AgentNotice"; severity: string; title: string; description: string | null } | 
 /**  An ACP update the Harness does not normalize yet; kept so nothing is lost. */
 { type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string };
-
-/**  Text the user selected in a Thread, given to a Side Thread with its first prompt. */
-export type Excerpt = {
-	text: string,
-	thread_id: string,
-	seq: number,
-};
 
 export type FileChange = {
 	path: string,

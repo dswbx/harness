@@ -103,6 +103,9 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
   );
 }
 
+/** Box content width (px) under which the footer's option pickers collapse into one menu. */
+const NARROW_BOX = 460;
+
 export type PromptBoxHandle = { focus(): void };
 
 /**
@@ -134,6 +137,16 @@ export function PromptBox({ api, state, threadId = null, onSideThread, ref: hand
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Width of the box itself (not the window): a side panel or narrow column collapses the option pickers.
+  const [narrow, setNarrow] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => e && setNarrow(e.contentRect.width < NARROW_BOX));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const caps = state.promptCaps;
 
   const addAttachments = (items: PendingAttachment[]) => {
@@ -240,6 +253,7 @@ export function PromptBox({ api, state, threadId = null, onSideThread, ref: hand
         </div>
       )}
       <div
+        ref={boxRef}
         className={cn("rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm transition-colors", dragging && "border-ring bg-accent/40")}
         onPasteCapture={(e) => {
           const files = [...e.clipboardData.files];
@@ -293,13 +307,17 @@ export function PromptBox({ api, state, threadId = null, onSideThread, ref: hand
               <Paperclip className="size-4" />
             </button>
           </Tooltip>
-          <ConfigBar
-            options={state.configOptions}
-            onChange={(id, value) => {
-              setError(null);
-              api.setConfigOption(id, value, threadId).catch((err) => setError(errorMessage(err)));
-            }}
-          />
+          {/* Side Threads follow the Main Thread's config (core refuses changes), so no pickers there. */}
+          {!threadId && (
+            <ConfigBar
+              compact={narrow}
+              options={state.configOptions}
+              onChange={(id, value) => {
+                setError(null);
+                api.setConfigOption(id, value).catch((err) => setError(errorMessage(err)));
+              }}
+            />
+          )}
           <div className="flex-1" />
           {overflow && <span className="text-xs tabular-nums text-muted-foreground">{lines} lines</span>}
           {pct != null && <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />}

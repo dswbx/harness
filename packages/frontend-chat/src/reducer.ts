@@ -1,5 +1,5 @@
 import { renderUiSchema, RENDER_UI, type RenderUiInput } from "./tools";
-import { applyStatePatch, stepThreads, type ThreadInfo, type Attachment, type AuthMethodInfo, type Boundary, type Event, type Excerpt, type ForkPoint, type FileChange, type PermissionOption, type PermissionRule, type SlashCommand, type TaskEntry } from "@harness/api";
+import { applyStatePatch, stepThreads, type ThreadInfo, type Attachment, type AuthMethodInfo, type Boundary, type Event, type ForkPoint, type FileChange, type PermissionOption, type PermissionRule, type SlashCommand, type TaskEntry } from "@harness/api";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
 
@@ -119,8 +119,6 @@ export type ChatState = {
   threadList: readonly ThreadInfo[];
   /** Side Threads: where in the Main Thread this one forked (null: fresh, or the Main Thread). */
   forkedFrom: ForkPoint | null;
-  /** Side Threads: the text the user asked about. */
-  excerpt: Excerpt | null;
   /** Side Threads: the Agent may write (starts false). */
   writable: boolean;
   /** How the Thread's first Agent Session started; null until it has (it starts with the first prompt). */
@@ -146,7 +144,6 @@ export const initialState = (): ChatState => ({
   threads: {},
   threadList: [],
   forkedFrom: null,
-  excerpt: null,
   writable: true,
   startBoundary: null,
 });
@@ -400,10 +397,7 @@ function applyThread(c: Ctx, e: Event) {
       return;
     }
     case "ThreadStarted":
-      if (!k.main) {
-        d.forkedFrom = k.forked_from ?? null;
-        d.excerpt = k.excerpt ?? null;
-      }
+      if (!k.main) d.forkedFrom = k.forked_from ?? null;
       return;
     case "ThreadWritableChanged":
       d.writable = k.writable;

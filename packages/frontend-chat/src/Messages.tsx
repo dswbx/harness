@@ -225,7 +225,7 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
     case "agent":
       return (
         <div className="group">
-          <div {...quotableAttrs(item.id, threadId, side)}>
+          <div {...quotableAttrs(threadId, side)}>
             <Markdown>{item.text}</Markdown>
           </div>
           {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CornerUpLeft, Pencil, ShieldCheck } from "lucide-react";
 import type { SessionApi } from "@harness/api";
-import { Badge, Button, Tooltip, cn } from "@harness/ui";
+import { Badge, Button, Tooltip } from "@harness/ui";
 import type { DiffScope } from "./DiffPanel";
 import { MessageList, useRows } from "./Messages";
 import { PromptBox, type PromptBoxHandle } from "./PromptBox";
@@ -92,7 +92,6 @@ export function ThreadView({ api, thread, threadId, env, onOpenDiff, focusKey }:
             </Button>
           </Tooltip>
         </div>
-        {thread.excerpt && <div className={cn("line-clamp-3 border-l-2 pl-2 text-xs text-muted-foreground")}>{thread.excerpt.text}</div>}
         {error && <p role="alert" className="whitespace-pre-wrap text-xs text-destructive">{error}</p>}
       </div>
       <MessageList
