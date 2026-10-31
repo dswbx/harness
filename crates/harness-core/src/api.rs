@@ -257,13 +257,6 @@ pub enum Command {
         #[serde(default)]
         source: ThreadStart,
     },
-    /// Lets a Side Thread's Agent edit, delete, move, run commands, commit and push (or not
-    /// again). Side Threads start read-only; the Main Thread is always writable.
-    SetThreadWritable {
-        session_id: SessionId,
-        thread_id: ThreadId,
-        writable: bool,
-    },
     ResolvePermission {
         session_id: SessionId,
         request_id: String,
@@ -720,11 +713,6 @@ pub enum EventKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         forked_from: Option<ForkPoint>,
     },
-    /// A Side Thread's Agent may (or may not any more) edit, delete, move, run commands, commit
-    /// and push.
-    ThreadWritableChanged {
-        writable: bool,
-    },
     /// The Agent needs the user to sign in before it can work.
     AuthRequired {
         methods: Vec<AuthMethodInfo>,
@@ -954,8 +942,6 @@ pub enum ProcessState {
 #[serde(rename_all = "snake_case")]
 pub enum Resolver {
     Policy,
-    /// Denied because the Thread is a read-only Side Thread.
-    ReadOnlyThread,
     View,
     Cancelled,
 }

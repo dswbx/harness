@@ -244,10 +244,6 @@ impl Harness {
                 }
                 CommandResult::ThreadStarted { thread_id, forked }
             }
-            Command::SetThreadWritable { session_id, thread_id, writable } => {
-                self.session(&session_id)?.set_thread_writable(thread_id, writable)?;
-                CommandResult::Ok
-            }
             Command::ListMcpServers => CommandResult::McpServers { servers: self.shared.library.list() },
             Command::SaveMcpServer { server, secrets } => {
                 CommandResult::McpServerSaved { server: self.shared.library.save(server, secrets)? }

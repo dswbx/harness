@@ -25,11 +25,9 @@ export interface SessionApi {
   continueWithSummary(text: string | null, threadId?: string | null): Promise<void>;
   /**
    * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
-   * Read-only by default. Quoted text goes in its prompt box as a quote chip, not here.
+   * Starts in the Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
    */
   startSideThread(args?: { seed?: string | null; source?: ThreadStart }): Promise<{ thread_id: string; forked: boolean }>;
-  /** Lets a Side Thread's Agent write (or not again). */
-  setThreadWritable(threadId: string, writable: boolean): Promise<void>;
   /** `null` answers "cancelled". */
   resolvePermission(requestId: string, optionId: string | null): Promise<void>;
   setConfigOption(id: string, value: string, threadId?: string | null): Promise<void>;
@@ -102,7 +100,6 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       const r = await expect({ type: "StartSideThread", session_id: sessionId, seed, source }, "ThreadStarted");
       return { thread_id: r.thread_id, forked: r.forked };
     },
-    setThreadWritable: (thread_id, writable) => run({ type: "SetThreadWritable", session_id: sessionId, thread_id, writable }),
     cancel: (threadId = null) => run({ type: "Cancel", session_id: sessionId, thread_id: threadId }),
     warmUp: () => run({ type: "WarmUp", session_id: sessionId }),
     resolvePermission: (request_id, option_id) =>

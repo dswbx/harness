@@ -7,6 +7,9 @@ import { applyStatePatch } from "./state";
  * Browser-only Transport for development without Tauri. Sessions start with `fixture`
  * replayed as their log; prompts get a canned streamed answer.
  */
+/** The mock Agent's asking mode (Codex "Read-only"): where Side Threads start. */
+const ASKING_MODE = "read-only";
+const isModeOption = (o: { id: string; category?: string }) => o.category === "mode" || o.id === "mode";
 const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
 const MOCK_BRANCHES: BranchInfo[] = [
   { name: "main", time: ago(0.1), ahead: 0, behind: 0, worktree: false },
@@ -138,7 +141,6 @@ export class MockTransport implements Transport {
   private readOnly = new Set<string>();
   private sideN = 0;
   private sideForked = new Map<string, boolean>();
-  private sideWritable = new Map<string, boolean>();
 
   /** The Main Thread's latest config options (what Side Threads mirror). */
   private mainOptions(sid: string): unknown[] | null {
@@ -407,27 +409,53 @@ export class MockTransport implements Transport {
         // Like the core: a fork needs a Main Thread that has run; else a text seed.
         const forked = cmd.source !== "seed" && mainTurns > 0;
         this.sideForked.set(thread_id, forked);
-        this.sideWritable.set(thread_id, false);
         this.emit(sid, {
           type: "ThreadStarted", agent_id: "codex", main: false,
           forked_from: forked ? { thread_id: main?.thread_id ?? "main", turn: mainTurns, seq: log.length - 1 } : null,
         }, thread_id);
-        // Side Threads follow the Main Thread's config options.
-        const opts = this.mainOptions(sid);
-        if (opts) this.emit(sid, { type: "ConfigOptionsChanged", options: opts }, thread_id);
+        // Side Threads follow the Main Thread's config options, but start in the asking mode and own their mode.
+        const opts = this.mainOptions(sid) as { id: string; category?: string; currentValue: string; options?: { value: string }[] }[] | null;
+        if (opts) {
+          const side = opts.map((o) => (isModeOption(o) && o.options?.some((v) => v.value === ASKING_MODE) ? { ...o, currentValue: ASKING_MODE } : o));
+          this.emit(sid, { type: "ConfigOptionsChanged", options: side }, thread_id);
+        }
         return { type: "ThreadStarted", thread_id, forked };
       }
       case "SetConfigOption":
       case "SetMode": {
-        if (cmd.thread_id) throw new Error("Side threads follow the Main Thread's config options; change them in the Main Thread");
         const sid = cmd.session_id;
-        const opts = this.mainOptions(sid) as { id: string; category?: string; currentValue: string }[] | null;
-        const id = cmd.type === "SetMode" ? opts?.find((o) => o.category === "mode")?.id : cmd.config_id;
+        const log = this.logs.get(sid)!;
+        const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main)?.thread_id;
+        type Opt = { id: string; category?: string; currentValue: string };
+        const latest = (t: string | null | undefined) => {
+          for (let i = log.length - 1; i >= 0; i--) {
+            const k = log[i]!.kind;
+            if (k.type === "ConfigOptionsChanged" && log[i]!.thread_id === t && Array.isArray(k.options)) return k.options as Opt[];
+          }
+          return null;
+        };
+        const mainOpts = latest(main);
+        const id = cmd.type === "SetMode" ? mainOpts?.find(isModeOption)?.id : cmd.config_id;
         const value = cmd.type === "SetMode" ? cmd.mode_id : cmd.value;
-        if (!opts || !id) return { type: "Ok" };
-        const next = opts.map((o) => (o.id === id ? { ...o, currentValue: value } : o));
-        const threads = new Set(this.logs.get(sid)!.map((e) => e.thread_id));
-        for (const t of threads) this.emit(sid, { type: "ConfigOptionsChanged", options: next }, t);
+        if (!mainOpts || !id) return { type: "Ok" };
+        const apply = (opts: Opt[]) => opts.map((o) => (o.id === id ? { ...o, currentValue: value } : o));
+        if (cmd.thread_id && cmd.thread_id !== main) {
+          // A Side Thread owns only its mode; everything else follows Main.
+          const mine = latest(cmd.thread_id);
+          const target = mine?.find((o) => o.id === id);
+          if (!mine || !target || !isModeOption(target)) throw new Error("Side threads follow the Main Thread's config options; only the mode can be changed here");
+          this.emit(sid, { type: "ConfigOptionsChanged", options: apply(mine) }, cmd.thread_id);
+          return { type: "Ok" };
+        }
+        const mode = mainOpts.find((o) => o.id === id);
+        // Main's mode stays in Main; other options reach every Side Thread (which keeps its own mode).
+        this.emit(sid, { type: "ConfigOptionsChanged", options: apply(mainOpts) }, main);
+        if (mode && isModeOption(mode)) return { type: "Ok" };
+        for (const t of new Set(log.map((e) => e.thread_id))) {
+          if (t === main) continue;
+          const mine = latest(t);
+          if (mine) this.emit(sid, { type: "ConfigOptionsChanged", options: apply(mine) }, t);
+        }
         return { type: "Ok" };
       }
       case "ResolvePermission": {
@@ -435,10 +463,6 @@ export class MockTransport implements Transport {
         if (req) this.emit(cmd.session_id, { type: "PermissionResolved", request_id: cmd.request_id, option_id: cmd.option_id, by: "view" }, req.thread_id);
         return { type: "Ok" };
       }
-      case "SetThreadWritable":
-        this.sideWritable.set(cmd.thread_id, cmd.writable);
-        this.emit(cmd.session_id, { type: "ThreadWritableChanged", writable: cmd.writable }, cmd.thread_id);
-        return { type: "Ok" };
       case "ContinueWithSummary": {
         const sid = cmd.session_id;
         this.readOnly.delete(sid);
@@ -559,14 +583,12 @@ export class MockTransport implements Transport {
     const turn = `${thread}-t${mine.filter((e) => e.kind.type === "TurnStarted").length + 1}`;
     this.emit(sid, { type: "TurnStarted", turn_id: turn, text, attachments: [], context: null }, thread);
     if (/\bedit\b/i.test(text)) {
-      const writable = this.sideWritable.get(thread) ?? false;
       const request_id = `${turn}-perm`;
       const tool_call = { toolCallId: `${turn}-edit`, title: "Edit src/hello.ts", kind: "edit" };
       const options = [{ option_id: "allow", name: "Allow", kind: "allow_once" }, { option_id: "reject", name: "Reject", kind: "reject_once" }];
       this.emit(sid, { type: "PermissionRequested", request_id, tool_call, options }, thread);
-      if (!writable) this.emit(sid, { type: "PermissionResolved", request_id, option_id: "reject", by: "read_only_thread" }, thread);
     }
-    const words = `Side answer to **${text}**. This is a mock reply from a ${this.sideForked.get(thread) ? "forked" : "fresh"} Side Thread.\n\n- read-only unless you allow writes`.split(/(?<= )/);
+    const words = `Side answer to **${text}**. This is a mock reply from a ${this.sideForked.get(thread) ? "forked" : "fresh"} Side Thread.`.split(/(?<= )/);
     words.forEach((w, i) => setTimeout(() => this.emit(sid, { type: "AgentMessageChunk", text: w }, thread), 60 * (i + 1)));
     setTimeout(() => this.emit(sid, { type: "TurnEnded", turn_id: turn, stop_reason: "end_turn" }, thread), 60 * (words.length + 1));
     return { type: "Ok" };

@@ -453,19 +453,61 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// Sets a config option. Agents answer with the full option list and may not also send an
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
-    anyhow::ensure!(session.is_main(Some(&thread)), "Side Threads follow the Main Thread's config");
+    let mode = session.is_main(Some(&thread)) || {
+        let events = session.log().events()?;
+        events.iter().rev().find_map(|e| match &e.kind {
+            EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(&thread) => options.as_array().cloned(),
+            _ => None,
+        }).is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
+    };
+    anyhow::ensure!(mode, "Side Threads follow the Main Thread's config, except for the mode");
     let (conn, id) = live_agent_session(&session, &thread).await?;
     let r = conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id, config_id.clone(), value.as_str())).block_task().await?;
+    let main = session.is_main(Some(&thread));
     session.log().append(Some(thread), EventKind::ConfigOptionsChanged { options: serde_json::to_value(&r.config_options)? })?;
-    if let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
+    // A Side Thread's mode is a detour, not the user's choice for new Sessions.
+    if main && let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
         tracing::warn!("could not remember config option: {e:#}");
     }
     Ok(())
 }
 
-/// Gives a Side Thread the Main Thread's current config option values (mode, model, effort, ...):
-/// Side Threads follow the Main Thread and have none of their own. Skips values the Side Thread's
-/// Agent Session does not offer.
+/// A config option that is the Agent's mode (ACP category `mode`).
+fn is_mode(option: &Value) -> bool {
+    option["category"] == "mode" || option["id"] == "mode"
+}
+
+/// The legacy mode after config options were applied: the mode option's value when it names one of
+/// the legacy modes (Agents keep both in step), else the mode the Agent answered with.
+fn current_mode(options: Option<&Value>, modes: &acp::SessionModeState) -> String {
+    let set = options.and_then(Value::as_array).and_then(|a| a.iter().find(|o| is_mode(o))).and_then(|o| o["currentValue"].as_str());
+    match set {
+        Some(v) if modes.available_modes.iter().any(|m| m.id.to_string() == v) => v.to_owned(),
+        _ => modes.current_mode_id.to_string(),
+    }
+}
+
+/// Puts a new Side Thread Agent Session in the Agent's mode that asks before writes (a fork inherits
+/// the Main Thread's mode, which may auto-approve). Returns the options to log.
+async fn start_asking(conn: &Arc<AgentConn>, id: &acp::SessionId, options: Value) -> Value {
+    let Some(mode) = options.as_array().and_then(|a| a.iter().find(|o| is_mode(o))).cloned() else { return options };
+    let values: Vec<&str> = mode["options"].as_array().into_iter().flatten().filter_map(|o| o["value"].as_str()).collect();
+    let (Some(config_id), Some(asking)) = (mode["id"].as_str(), crate::agent_quirks::asking_mode(&values)) else { return options };
+    if mode["currentValue"] == asking {
+        return options;
+    }
+    match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.to_owned(), asking)).block_task().await {
+        Ok(r) => serde_json::to_value(&r.config_options).unwrap_or(options),
+        Err(e) => {
+            tracing::warn!("asking mode for Side Thread: {e}");
+            options
+        }
+    }
+}
+
+/// Gives a Side Thread the Main Thread's current config option values (model, effort, ...): Side
+/// Threads follow the Main Thread, except for the mode, which is their own. Skips values the Side
+/// Thread's Agent Session does not offer.
 async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
     let Ok(events) = session.log().events() else { return };
     let main = session.meta().main_thread_id;
@@ -480,6 +522,9 @@ async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, threa
     for w in &wanted {
         let (Some(config_id), Some(value)) = (w["id"].as_str(), w["currentValue"].as_str()) else { continue };
         let Some(c) = current.iter().find(|c| c["id"] == config_id) else { continue };
+        if is_mode(c) {
+            continue;
+        }
         let offered = c["options"].as_array().into_iter().flatten().any(|o| o["value"] == value);
         if c["currentValue"] == value || !offered {
             continue;
@@ -502,7 +547,6 @@ async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, threa
 
 /// Sets the legacy session mode; its answer carries no state, so the change is logged here.
 pub async fn set_mode(session: Arc<Session>, thread: ThreadId, mode_id: String) -> anyhow::Result<()> {
-    anyhow::ensure!(session.is_main(Some(&thread)), "Side Threads follow the Main Thread's mode");
     let (conn, id) = live_agent_session(&session, &thread).await?;
     conn.cx.send_request(acp::SetSessionModeRequest::new(id, mode_id.clone())).block_task().await?;
     session.log().append(Some(thread), EventKind::ModeChanged { mode_id })?;
@@ -679,11 +723,15 @@ async fn fork_agent_session(
             return Ok(None);
         }
     };
-    if let Some(options) = r.config_options.map(serde_json::to_value).transpose()? {
-        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options })?;
+    let mut options = r.config_options.map(serde_json::to_value).transpose()?;
+    if let Some(o) = options.take() {
+        options = Some(start_asking(conn, &r.session_id, o).await);
+    }
+    if let Some(options) = &options {
+        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options: options.clone() })?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: modes.current_mode_id.to_string() })?;
+        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
@@ -739,13 +787,14 @@ async fn new_agent_session(
     if boundary == Boundary::Initial && let Some(o) = options.take() {
         options = Some(apply_remembered_config(session, conn, &r.session_id, o).await);
     }
-    if let Some(options) = options {
-        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options })?;
+    if !session.is_main(Some(thread)) && let Some(o) = options.take() {
+        options = Some(start_asking(conn, &r.session_id, o).await);
+    }
+    if let Some(options) = &options {
+        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options: options.clone() })?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), EventKind::ModeChanged {
-            mode_id: modes.current_mode_id.to_string(),
-        })?;
+        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
@@ -1101,13 +1150,12 @@ fn on_permission(
     let meta = session.meta();
     let folder = std::path::PathBuf::from(&meta.folder);
     let facts = crate::permissions::facts_of(&tool_call, &folder);
-    let thread_writable = thread.as_ref().is_none_or(|t| meta.is_writable(t));
-    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder, thread_writable };
+    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
     // Calls to the Harness MCP pass the Policy inside the Harness MCP itself; don't ask twice.
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default();
     let harness_tool = crate::mcp::harness_tool_name(title).map(str::to_owned);
     let verdict = if harness_tool.is_some() {
-        crate::permissions::Verdict { decision: Decision::Allow, rule_id: None, read_only: false }
+        crate::permissions::Verdict { decision: Decision::Allow, rule_id: None }
     } else {
         session.policy().evaluate(&cx, &facts)
     };
@@ -1127,7 +1175,7 @@ fn on_permission(
         let _ = session.log().append(thread.clone(), EventKind::PermissionResolved {
             request_id,
             option_id: Some(option_id.clone()),
-            by: if verdict.read_only { Resolver::ReadOnlyThread } else { Resolver::Policy },
+            by: Resolver::Policy,
             rule_id: verdict.rule_id,
         });
         let _ = session.log().sync();
@@ -1163,12 +1211,7 @@ pub async fn authorize(
         "_meta": { "harnessTool": tool },
     });
     let facts = crate::permissions::facts_of(&tool_call, &folder);
-    let cx = crate::permissions::Context {
-        session_id: &meta.id,
-        agent_id: &meta.agent.id,
-        folder: &folder,
-        thread_writable: meta.is_writable(thread),
-    };
+    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
     let verdict = session.policy().evaluate(&cx, &facts);
     if verdict.decision == Decision::Allow {
         return Ok(());
@@ -1190,12 +1233,9 @@ pub async fn authorize(
         session.log().append(Some(thread.clone()), EventKind::PermissionResolved {
             request_id,
             option_id: Some("reject".into()),
-            by: if verdict.read_only { Resolver::ReadOnlyThread } else { Resolver::Policy },
+            by: Resolver::Policy,
             rule_id: verdict.rule_id,
         })?;
-        if verdict.read_only {
-            anyhow::bail!("this Side Thread is read-only; the user can allow writes for it in the app");
-        }
         anyhow::bail!("denied by the Harness Permission Policy");
     }
     let (tx, rx) = oneshot::channel();

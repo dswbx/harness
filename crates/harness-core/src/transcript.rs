@@ -134,7 +134,6 @@ pub fn threads_list(session: &Session) -> anyhow::Result<String> {
             });
             if let Some(o) = meta.origins.get(id) {
                 v["forked_at_turn"] = json!(o.point.turn);
-                v["writable"] = json!(meta.is_writable(id));
             }
             v
         })

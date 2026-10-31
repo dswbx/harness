@@ -51,7 +51,7 @@ export type Item =
       options: PermissionOption[];
       resolved: boolean;
       /** Set when the core answered via the Permission Policy (no actionable card). */
-      auto?: { allowed: boolean; ruleId: string | null; /** Denied because the Side Thread is read-only. */ readOnlyThread?: boolean };
+      auto?: { allowed: boolean; ruleId: string | null; };
     }
   /** The Agent refuses to start a session until the user signs in. */
   | { type: "auth"; id: string; message: string; methods: AuthMethodInfo[] }
@@ -120,7 +120,6 @@ export type ChatState = {
   /** Side Threads: where in the Main Thread this one forked (null: fresh, or the Main Thread). */
   forkedFrom: ForkPoint | null;
   /** Side Threads: the Agent may write (starts false). */
-  writable: boolean;
   /** How the Thread's first Agent Session started; null until it has (it starts with the first prompt). */
   startBoundary: Boundary | null;
 };
@@ -144,7 +143,6 @@ export const initialState = (): ChatState => ({
   threads: {},
   threadList: [],
   forkedFrom: null,
-  writable: true,
   startBoundary: null,
 });
 
@@ -268,7 +266,7 @@ function applySide(c: Ctx, threadId: string, e: Event) {
   c.sides ??= new Map();
   let sc = c.sides.get(threadId);
   if (!sc) {
-    sc = newCtx({ ...(c.d.threads[threadId] ?? { ...initialState(), writable: false }) });
+    sc = newCtx({ ...(c.d.threads[threadId] ?? initialState()) });
     c.sides.set(threadId, sc);
   }
   applyThread(sc, e);
@@ -399,9 +397,6 @@ function applyThread(c: Ctx, e: Event) {
     case "ThreadStarted":
       if (!k.main) d.forkedFrom = k.forked_from ?? null;
       return;
-    case "ThreadWritableChanged":
-      d.writable = k.writable;
-      return;
     case "ThreadReadOnly":
       d.readOnly = true;
       return;
@@ -456,10 +451,10 @@ function applyThread(c: Ctx, e: Event) {
       const at = permIndex(c).get(k.request_id);
       const i = at !== undefined ? d.items[at] : undefined;
       if (!i || i.type !== "permission") return;
-      if (k.by !== "policy" && k.by !== "read_only_thread") own(c)[at!] = { ...i, resolved: true };
+      if (k.by !== "policy") own(c)[at!] = { ...i, resolved: true };
       else {
         const kind = i.options.find((o) => o.option_id === k.option_id)?.kind ?? "";
-        own(c)[at!] = { ...i, resolved: true, auto: { allowed: kind.startsWith("allow"), ruleId: k.rule_id ?? null, ...(k.by === "read_only_thread" && { readOnlyThread: true }) } };
+        own(c)[at!] = { ...i, resolved: true, auto: { allowed: kind.startsWith("allow"), ruleId: k.rule_id ?? null } };
       }
       return;
     }

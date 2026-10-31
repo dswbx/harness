@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CornerUpLeft, Pencil, ShieldCheck } from "lucide-react";
+import { Check, CornerUpLeft } from "lucide-react";
 import type { SessionApi } from "@harness/api";
-import { Badge, Button, Tooltip } from "@harness/ui";
+import { Button, Tooltip } from "@harness/ui";
 import type { DiffScope } from "./DiffPanel";
 import { MessageList, useRows } from "./Messages";
 import { PromptBox, type PromptBoxHandle } from "./PromptBox";
-import { errorMessage } from "./errors";
 import { addReviewComment } from "./reviewComments";
 import type { ChatState } from "./reducer";
 import type { UiEnv } from "./RenderUi";
@@ -43,12 +42,6 @@ export function ThreadView({ api, thread, threadId, env, onOpenDiff, focusKey }:
     if (focusKey) prompt.current?.focus();
   }, [focusKey]);
 
-  const [error, setError] = useState<string | null>(null);
-  const toggleWrite = () => {
-    setError(null);
-    api.setThreadWritable(threadId, !thread.writable).catch((e) => setError(errorMessage(e)));
-  };
-
   // "Send to main": the selection inside this Thread, else its last Agent reply, as a quote chip in the Main composer.
   const lastReply = useMemo(() => [...thread.items].reverse().find((i) => i.type === "agent"), [thread.items]);
   const [sent, setSent] = useState(false);
@@ -70,14 +63,6 @@ export function ThreadView({ api, thread, threadId, env, onOpenDiff, focusKey }:
       <div className="space-y-2 border-b px-3 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{startText(thread)}</span>
-          <Tooltip content={thread.writable ? "The Agent may edit files and run commands here. Click to make it read-only." : "The Agent cannot edit files or run commands here. Click to allow writes."} side="bottom">
-            <button type="button" onClick={toggleWrite} aria-pressed={thread.writable} aria-label={thread.writable ? "Writes allowed. Make read-only" : "Read-only. Allow writes"}>
-              <Badge variant={thread.writable ? "destructive" : "secondary"} className="cursor-pointer gap-1">
-                {thread.writable ? <Pencil className="size-3" /> : <ShieldCheck className="size-3" />}
-                {thread.writable ? "Can write" : "Read-only"}
-              </Badge>
-            </button>
-          </Tooltip>
           <Tooltip content="Put the selection (else the last reply) in the Main prompt box as a quote" side="bottom">
             <Button
               size="sm"
@@ -92,7 +77,6 @@ export function ThreadView({ api, thread, threadId, env, onOpenDiff, focusKey }:
             </Button>
           </Tooltip>
         </div>
-        {error && <p role="alert" className="whitespace-pre-wrap text-xs text-destructive">{error}</p>}
       </div>
       <MessageList
         api={api}

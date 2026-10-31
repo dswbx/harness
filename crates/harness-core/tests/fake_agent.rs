@@ -472,26 +472,35 @@ async fn main_thread_mid_turn_falls_back_to_a_seed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn side_threads_follow_the_main_threads_config() {
+async fn side_threads_follow_the_main_threads_config_except_the_mode() {
     for flags in [&["--fork"][..], &[][..]] {
         let (h, sid, _dir) = setup_with(flags, Duration::from_secs(900)).await;
         turn(&h, &sid, None, "main").await;
-        h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "b".into() }).await.unwrap();
+        let set = |thread: Option<String>, config_id: &str, value: &str| {
+            h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: thread, config_id: config_id.into(), value: value.into() })
+        };
+        set(None, "model", "b").await.unwrap();
         let (side, _) = start_side(&h, &sid, None, ThreadStart::Fork).await;
         ask_in(&h, &sid, &side, "hi").await;
-        let model = |h: &Harness| {
+        let config = |h: &Harness, id: &str| {
             thread_kinds(h, &sid, &side).into_iter().rev().find_map(|k| match k {
-                EventKind::ConfigOptionsChanged { options } => options[0]["currentValue"].as_str().map(str::to_owned),
+                EventKind::ConfigOptionsChanged { options } => {
+                    options.as_array().unwrap().iter().find(|o| o["id"] == id).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
+                }
                 _ => None,
             })
         };
-        assert_eq!(model(&h).as_deref(), Some("b"), "{flags:?}");
-        // Changes on the Main Thread reach the Side Thread with its next prompt.
-        h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "a".into() }).await.unwrap();
+        assert_eq!(config(&h, "model").as_deref(), Some("b"), "{flags:?}");
+        // The Main Thread auto-approves; the Side Thread starts in the mode that asks.
+        assert_eq!(config(&h, "mode").as_deref(), Some("default"), "{flags:?}");
+        // Main Thread changes reach the Side Thread with its next prompt, except the mode.
+        set(None, "model", "a").await.unwrap();
+        set(None, "mode", "default").await.unwrap();
+        set(Some(side.clone()), "mode", "auto").await.unwrap();
         ask_in(&h, &sid, &side, "again").await;
-        assert_eq!(model(&h).as_deref(), Some("a"), "{flags:?}");
-        let own = h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: Some(side.clone()), config_id: "model".into(), value: "b".into() }).await;
-        assert!(own.is_err(), "{flags:?}: Side Threads have no config of their own");
+        assert_eq!(config(&h, "model").as_deref(), Some("a"), "{flags:?}");
+        assert_eq!(config(&h, "mode").as_deref(), Some("auto"), "{flags:?}: the Side Thread's own mode");
+        assert!(set(Some(side.clone()), "model", "b").await.is_err(), "{flags:?}: no model of its own");
     }
 }
 
@@ -549,59 +558,6 @@ async fn transcript_tools_read_threads_of_the_session() {
     // The Main Thread reads a Side Thread the same way.
     let seen = ask_in(&h, &sid, &main_thread(&h, &sid), &format!(r#"mcp transcript_read {{"thread":{{"thread_id":"{side}"}}}}"#)).await;
     assert!(seen.contains("kind=\"side\"") && seen.contains("mcp transcript_outline {}"), "{seen}");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn side_threads_are_read_only_until_the_user_allows_writes() {
-    let (h, sid, _dir) = setup().await;
-    turn(&h, &sid, None, "main").await;
-    let (side, _) = start_side(&h, &sid, None, ThreadStart::Seed).await;
-    ask_in(&h, &sid, &side, "hello").await;
-    let resolutions = |h: &Harness| -> Vec<(Resolver, String)> {
-        thread_kinds(h, &sid, &side)
-            .into_iter()
-            .filter_map(|k| match k {
-                EventKind::PermissionResolved { by, option_id, .. } => Some((by, option_id.unwrap_or_default())),
-                _ => None,
-            })
-            .collect()
-    };
-    h.execute(rule(RuleScope::Global, "echo hi", Decision::Allow)).await.unwrap();
-
-    // An Agent tool call (execute) is rejected even though a rule allows it.
-    assert_eq!(ask_in(&h, &sid, &side, "needs permission").await, "Working on it. Done.");
-    assert_eq!(resolutions(&h), vec![(Resolver::ReadOnlyThread, "reject".into())]);
-    let status = thread_kinds(&h, &sid, &side).into_iter().rev().find_map(|k| match k {
-        EventKind::ToolCallUpdate { status: Some(s), .. } => Some(s),
-        _ => None,
-    });
-    assert_eq!(status.as_deref(), Some("failed"));
-
-    // So is a Harness MCP write.
-    let denied = ask_in(&h, &sid, &side, r#"mcp git_commit {"message":"x"}"#).await;
-    assert!(denied.starts_with("mcp error: this Side Thread is read-only"), "{denied}");
-    assert_eq!(ask_in(&h, &sid, &side, r#"mcp git_push {}"#).await, denied);
-
-    // The Main Thread is unaffected, and reading stays open.
-    let (by, _, st) = permission_turn(&h, &sid).await;
-    assert_eq!((by, st.as_str()), (Resolver::Policy, "completed"));
-    assert!(ask_in(&h, &sid, &side, "mcp git_status {}").await.starts_with("mcp"));
-
-    h.execute(Command::SetThreadWritable { session_id: sid.clone(), thread_id: side.clone(), writable: true }).await.unwrap();
-    assert!(thread_kinds(&h, &sid, &side).iter().any(|k| matches!(k, EventKind::ThreadWritableChanged { writable: true })));
-    ask_in(&h, &sid, &side, "needs permission").await;
-    assert_eq!(resolutions(&h).last().unwrap(), &(Resolver::Policy, "allow".into()), "rules apply again");
-    let commit = ask_in(&h, &sid, &side, r#"mcp git_commit {"message":"x"}"#).await;
-    assert!(!commit.contains("read-only"), "{commit}");
-
-    // Toggling back, twice over, logs once.
-    for _ in 0..2 {
-        h.execute(Command::SetThreadWritable { session_id: sid.clone(), thread_id: side.clone(), writable: false }).await.unwrap();
-    }
-    let changes = thread_kinds(&h, &sid, &side).iter().filter(|k| matches!(k, EventKind::ThreadWritableChanged { .. })).count();
-    assert_eq!(changes, 2);
-    assert!(ask_in(&h, &sid, &side, r#"mcp git_push {}"#).await.contains("read-only"));
-    assert!(h.execute(Command::SetThreadWritable { session_id: sid.clone(), thread_id: "nope".into(), writable: true }).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]

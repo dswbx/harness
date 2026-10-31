@@ -253,9 +253,7 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {item.auto.allowed ? <ShieldCheck className="size-3.5 text-emerald-500" /> : <ShieldX className="size-3.5 text-destructive" />}
             <span>
-              {item.auto.readOnlyThread
-                ? "Denied: this Side Thread is read-only"
-                : <>{item.auto.allowed ? "Auto-allowed" : "Auto-denied"} {item.auto.ruleId ? "by rule" : "by default"}</>}
+              {item.auto.allowed ? "Auto-allowed" : "Auto-denied"} {item.auto.ruleId ? "by rule" : "by default"}
               {item.toolCall.title ? `: ${item.toolCall.title}` : ""}
             </span>
           </div>

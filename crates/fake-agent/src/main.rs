@@ -109,13 +109,37 @@ fn cwd_of(id: &SessionId) -> Option<std::path::PathBuf> {
 }
 
 /// A `model` select with values `a` and `b`.
-fn model_option(current: &str) -> Vec<SessionConfigOption> {
-    vec![SessionConfigOption::select(
-        "model",
-        "Model",
-        current.to_owned(),
-        vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")],
-    )]
+/// Config per Agent Session: (model, mode).
+static CONFIG: std::sync::Mutex<Vec<(String, (String, String))>> = std::sync::Mutex::new(Vec::new());
+
+fn config_of(id: &SessionId) -> (String, String) {
+    let all = CONFIG.lock().unwrap();
+    all.iter().rev().find(|(s, _)| *s == id.to_string()).map(|(_, c)| c.clone()).unwrap_or_else(|| ("a".into(), "auto".into()))
+}
+
+fn set_config(id: &SessionId, config: (String, String)) -> Vec<SessionConfigOption> {
+    let options = config_options(&config);
+    CONFIG.lock().unwrap().push((id.to_string(), config));
+    options
+}
+
+/// A model option, and a mode option whose "default" asks before writes and "auto" does not.
+fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> {
+    vec![
+        SessionConfigOption::select(
+            "model",
+            "Model",
+            model.clone(),
+            vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")],
+        ),
+        SessionConfigOption::select(
+            "mode",
+            "Mode",
+            mode.clone(),
+            vec![SessionConfigSelectOption::new("default", "Manual"), SessionConfigSelectOption::new("auto", "Auto")],
+        )
+        .category(SessionConfigOptionCategory::Mode),
+    ]
 }
 
 #[tokio::main]
@@ -184,7 +208,8 @@ async fn main() -> agent_client_protocol::Result<()> {
                 let id = SessionId::new(format!("fake-{n}"));
                 remember_cwd(&id, &req.cwd);
                 remember_mcp(&id, &req.mcp_servers);
-                responder.respond(NewSessionResponse::new(id).config_options(model_option("a")))
+                let options = set_config(&id, ("a".into(), "auto".into()));
+                responder.respond(NewSessionResponse::new(id).config_options(options))
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -199,7 +224,9 @@ async fn main() -> agent_client_protocol::Result<()> {
                 remember_mcp(&id, &req.mcp_servers);
                 let copied = history_of(&req.session_id);
                 HISTORY.lock().unwrap().push((id.to_string(), copied));
-                responder.respond(ForkSessionResponse::new(id).config_options(model_option("a")))
+                // Like Claude: the fork keeps the source's config.
+                let options = set_config(&id, config_of(&req.session_id));
+                responder.respond(ForkSessionResponse::new(id).config_options(options))
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -208,7 +235,9 @@ async fn main() -> agent_client_protocol::Result<()> {
             async move |req: SetSessionConfigOptionRequest, responder, _cx| {
                 let value = serde_json::to_value(&req.value).unwrap_or_default();
                 let value = value.get("value").and_then(|v| v.as_str()).unwrap_or("a").to_owned();
-                responder.respond(SetSessionConfigOptionResponse::new(model_option(&value)))
+                let (mut model, mut mode) = config_of(&req.session_id);
+                if req.config_id.to_string() == "mode" { mode = value } else { model = value }
+                responder.respond(SetSessionConfigOptionResponse::new(set_config(&req.session_id, (model, mode))))
             },
             agent_client_protocol::on_receive_request!(),
         )

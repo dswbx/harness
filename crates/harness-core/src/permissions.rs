@@ -22,20 +22,13 @@ pub struct Context<'a> {
     pub session_id: &'a str,
     pub agent_id: &'a str,
     pub folder: &'a Path,
-    /// The Thread's Agent may write; `false` for a read-only Side Thread.
-    pub thread_writable: bool,
 }
-
-/// Kinds a read-only Side Thread is denied, before any rule applies.
-const WRITE_KINDS: [&str; 6] = ["edit", "delete", "move", "execute", "git_commit", "git_push"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     pub decision: Decision,
     /// The rule that decided; `None` for a built-in default.
     pub rule_id: Option<String>,
-    /// Denied because the Thread is a read-only Side Thread.
-    pub read_only: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -105,10 +98,7 @@ impl Policy {
 
     pub fn evaluate(&self, cx: &Context, facts: &ToolFacts) -> Verdict {
         if facts.kind.as_deref() == Some("switch_mode") {
-            return Verdict { decision: Decision::Ask, rule_id: None, read_only: false };
-        }
-        if !cx.thread_writable && facts.kind.as_deref().is_some_and(|k| WRITE_KINDS.contains(&k)) {
-            return Verdict { decision: Decision::Deny, rule_id: None, read_only: true };
+            return Verdict { decision: Decision::Ask, rule_id: None };
         }
         let rules = self.rules.read().unwrap();
         let best = rules
@@ -116,8 +106,8 @@ impl Policy {
             .filter_map(|r| rank(r, cx, facts).map(|k| (k, r)))
             .max_by_key(|(k, _)| *k);
         match best {
-            Some((_, r)) => Verdict { decision: r.decision, rule_id: Some(r.id.clone()), read_only: false },
-            None => Verdict { decision: default_decision(cx, facts), rule_id: None, read_only: false },
+            Some((_, r)) => Verdict { decision: r.decision, rule_id: Some(r.id.clone()) },
+            None => Verdict { decision: default_decision(cx, facts), rule_id: None },
         }
     }
 }
@@ -236,7 +226,7 @@ mod tests {
     }
 
     fn cx() -> Context<'static> {
-        Context { session_id: "s1", agent_id: "claude", folder: Path::new("/work"), thread_writable: true }
+        Context { session_id: "s1", agent_id: "claude", folder: Path::new("/work") }
     }
 
     fn rule(scope: RuleScope, kind: Option<&str>, pattern: Option<&str>, decision: Decision) -> NewPermissionRule {
@@ -288,7 +278,7 @@ mod tests {
         let (p, _d) = policy();
         p.add(rule(RuleScope::Global, Some("execute"), None, Decision::Allow)).unwrap();
         let deny = p.add(rule(RuleScope::Session { session_id: "s1".into() }, Some("execute"), None, Decision::Deny)).unwrap();
-        assert_eq!(p.evaluate(&cx(), &exec("ls")), Verdict { decision: Decision::Deny, rule_id: Some(deny.id.clone()), read_only: false });
+        assert_eq!(p.evaluate(&cx(), &exec("ls")), Verdict { decision: Decision::Deny, rule_id: Some(deny.id.clone()) });
         let other = Context { session_id: "s2", ..cx() };
         assert_eq!(p.evaluate(&other, &exec("ls")).decision, Decision::Allow);
 
@@ -296,21 +286,6 @@ mod tests {
         assert_eq!(p.evaluate(&cx(), &exec("ls -la")).rule_id, Some(allow_ls.id));
         p.add(rule(RuleScope::Session { session_id: "s1".into() }, Some("execute"), Some("ls"), Decision::Ask)).unwrap();
         assert_eq!(p.evaluate(&cx(), &exec("ls")).decision, Decision::Ask);
-    }
-
-    #[test]
-    fn read_only_threads_are_denied_writes_before_rules() {
-        let (p, _d) = policy();
-        p.add(rule(RuleScope::Global, None, None, Decision::Allow)).unwrap();
-        let ro = Context { thread_writable: false, ..cx() };
-        let git = |kind: &str| facts_of(&json!({"kind": kind}), Path::new("/work"));
-        for facts in [edit("/work/a.rs"), exec("ls"), git("delete"), git("move"), git("git_commit"), git("git_push")] {
-            let v = p.evaluate(&ro, &facts);
-            assert_eq!((v.decision, v.read_only), (Decision::Deny, true), "{facts:?}");
-            assert_eq!(p.evaluate(&cx(), &facts).decision, Decision::Allow, "writable Threads follow the rules");
-        }
-        let read = facts_of(&json!({"kind": "read", "rawInput": {"file_path": "/work/a.rs"}}), Path::new("/work"));
-        assert_eq!(p.evaluate(&ro, &read).decision, Decision::Allow);
     }
 
     #[test]

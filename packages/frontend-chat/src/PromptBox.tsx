@@ -307,17 +307,16 @@ export function PromptBox({ api, state, threadId = null, onSideThread, ref: hand
               <Paperclip className="size-4" />
             </button>
           </Tooltip>
-          {/* Side Threads follow the Main Thread's config (core refuses changes), so no pickers there. */}
-          {!threadId && (
-            <ConfigBar
-              compact={narrow}
-              options={state.configOptions}
-              onChange={(id, value) => {
-                setError(null);
-                api.setConfigOption(id, value).catch((err) => setError(errorMessage(err)));
-              }}
-            />
-          )}
+          {/* Side Threads follow Main's config except the mode, which they own: only the mode picker there. */}
+          <ConfigBar
+            compact={narrow}
+            modeOnly={!!threadId}
+            options={state.configOptions}
+            onChange={(id, value) => {
+              setError(null);
+              api.setConfigOption(id, value, threadId).catch((err) => setError(errorMessage(err)));
+            }}
+          />
           <div className="flex-1" />
           {overflow && <span className="text-xs tabular-nums text-muted-foreground">{lines} lines</span>}
           {pct != null && <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />}

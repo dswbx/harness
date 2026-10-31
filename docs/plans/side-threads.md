@@ -69,3 +69,9 @@ Subsessions (child Sessions, orchestrated, can write) may come later. Keep the s
 4. Read-only toggle: per Side Thread only, or global setting too? Suggest: per Thread now.
 5. Include tool I/O in `transcript_read` by default? Suggest: no, opt-in flag.
 6. Restore open Side Thread tabs after app restart? Suggest: yes (sessionStorage → localStorage per Session).
+
+## Changed after review (2026-10-31)
+
+- No excerpt in core: selected text goes into the Side Thread's prompt box as a quote chip.
+- No read-only layer or toggle (section 3 dropped): a Side Thread starts in the Agent's asking mode, has its own mode picker, and follows the Main Thread's other config (model, effort). See ADR 0018.
+- Prompt box folds its options into one dropdown when narrow.

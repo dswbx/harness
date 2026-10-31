@@ -24,25 +24,21 @@ const trigger =
   "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
 
 /** Footer controls for the Agent's config options: Mode, Model chip, and a "More options" menu. */
-export function ConfigBar({ options, onChange, compact = false }: { options: ConfigOption[]; onChange: OnChange; /** Narrow prompt box: everything in one "Options" menu. */ compact?: boolean }) {
+export function ConfigBar({ options, onChange, compact = false, modeOnly = false }: {
+  options: ConfigOption[];
+  onChange: OnChange;
+  /** Narrow prompt box: everything in one "Options" menu. */
+  compact?: boolean;
+  /** Only the Mode picker (Side Threads own just their mode). */
+  modeOnly?: boolean;
+}) {
   const g = useMemo(() => groupConfigOptions(options), [options]);
   const label = chipLabel(g);
+  if (modeOnly) return g.mode ? <ModePicker o={g.mode} onChange={onChange} compact={compact} /> : null;
   if (compact) return <CompactBar g={g} label={label} onChange={onChange} />;
   return (
     <>
-      {g.mode && (
-        <DropdownMenu>
-          <DropdownMenuTrigger className={trigger} aria-label={`${g.mode.name}: ${valueName(g.mode)}`}>
-            <Shield className="size-3.5 shrink-0" />
-            <span className="truncate">{valueName(g.mode)}</span>
-            <ChevronDown className="size-3 shrink-0 opacity-60" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-72">
-            <OptionHeader o={g.mode} />
-            <Values o={g.mode} onChange={onChange} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      {g.mode && <ModePicker o={g.mode} onChange={onChange} />}
       {g.model && label && (
         <DropdownMenu>
           <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`}>
@@ -79,6 +75,23 @@ export function ConfigBar({ options, onChange, compact = false }: { options: Con
         </DropdownMenu>
       )}
     </>
+  );
+}
+
+/** The Mode chip with its values menu. */
+function ModePicker({ o, onChange, compact = false }: { o: ConfigOption; onChange: OnChange; compact?: boolean }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className={cn(trigger, compact && "max-w-32 min-w-0")} aria-label={`${o.name}: ${valueName(o)}`}>
+        <Shield className="size-3.5 shrink-0" />
+        <span className="truncate">{valueName(o)}</span>
+        <ChevronDown className="size-3 shrink-0 opacity-60" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-72">
+        <OptionHeader o={o} />
+        <Values o={o} onChange={onChange} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

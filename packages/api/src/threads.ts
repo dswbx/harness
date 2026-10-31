@@ -7,8 +7,6 @@ export type ThreadInfo = {
   /** First prompt (truncated), else null (nothing asked yet). */
   title: string | null;
   forkedFrom: ForkPoint | null;
-  /** Side Threads: may the Agent write (starts false). The Main Thread is always writable. */
-  writable: boolean;
   /** Finished or running Turns started in this Thread. */
   turns: number;
 };
@@ -23,19 +21,16 @@ const cut = (s: string) => (s.length > TITLE_MAX ? s.slice(0, TITLE_MAX - 1).tri
  */
 export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly ThreadInfo[] {
   const k = e.kind;
-  if (!e.thread_id || (k.type !== "ThreadStarted" && k.type !== "ThreadWritableChanged" && k.type !== "TurnStarted")) return list;
+  if (!e.thread_id || (k.type !== "ThreadStarted" && k.type !== "TurnStarted")) return list;
   const id = e.thread_id;
   const at = list.findIndex((t) => t.id === id);
-  const prev: ThreadInfo = at >= 0 ? list[at]! : { id, main: false, title: null, forkedFrom: null, writable: false, turns: 0 };
+  const prev: ThreadInfo = at >= 0 ? list[at]! : { id, main: false, title: null, forkedFrom: null, turns: 0 };
   let t = prev;
   switch (k.type) {
     case "ThreadStarted": {
-      t = { ...prev, main: k.main, writable: k.main, forkedFrom: k.forked_from ?? null };
+      t = { ...prev, main: k.main, forkedFrom: k.forked_from ?? null };
       break;
     }
-    case "ThreadWritableChanged":
-      t = { ...prev, writable: k.writable };
-      break;
     case "TurnStarted": {
       const text = oneLine(k.text);
       t = { ...prev, turns: prev.turns + 1, title: prev.turns === 0 && text ? cut(text) : prev.title };

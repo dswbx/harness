@@ -42,7 +42,7 @@ fn side_note(session: &Session, thread: &ThreadId, forked: bool) -> Option<Strin
         format!("You are in a Side Thread, a detour from the Main Thread. The Main Thread's transcript up to its Turn {turn} may be given as context.")
     };
     Some(format!(
-        "## Side Thread\n\n{start} What you say here does not enter the Main Thread. You are read-only (no edits, commands, commits or pushes) unless the user allows writes for this Side Thread. `transcript_read` and the other transcript tools read the Main Thread, including its later Turns."
+        "## Side Thread\n\n{start} What you say here does not enter the Main Thread. `transcript_read` and the other transcript tools read the Main Thread, including its later Turns."
     ))
 }
 

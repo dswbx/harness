@@ -132,24 +132,22 @@ describe("turns", () => {
     expect(side.turnId).toBe("t");
     expect(side.forkedFrom).toMatchObject({ turn: 2 });
     expect(side.startBoundary).toBe("forked");
-    expect(side.writable).toBe(false);
     expect(threadState(s, "side")).toBe(side);
     expect(threadState(s, "main")).toBe(s);
   });
 
-  it("Side Thread: writable toggles, read-only denials show as auto-denied, Main untouched", () => {
-    const opts = [{ option_id: "reject", name: "Reject", kind: "reject_once" }];
+  it("Side Thread: permission requests pend as cards, config options are its own, Main untouched", () => {
+    const opts = [{ option_id: "allow", name: "Allow", kind: "allow_once" }];
     const s = fold([
       started(),
       ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "ConfigOptionsChanged", options: [{ id: "mode", name: "Mode", category: "mode", currentValue: "read-only", options: [] }] }, "side"),
       ev({ type: "PermissionRequested", request_id: "r", tool_call: { title: "Edit" }, options: opts }, "side"),
-      ev({ type: "PermissionResolved", request_id: "r", option_id: "reject", by: "read_only_thread" }, "side"),
-      ev({ type: "ThreadWritableChanged", writable: true }, "side"),
     ]);
-    expect(s.threads.side!.writable).toBe(true);
-    expect(s.threads.side!.items[0]).toMatchObject({ type: "permission", resolved: true, auto: { allowed: false, readOnlyThread: true } });
+    expect(s.threads.side!.items[0]).toMatchObject({ type: "permission", resolved: false });
+    expect(s.threads.side!.configOptions[0]).toMatchObject({ currentValue: "read-only" });
     expect(s.items).toHaveLength(0);
-    expect(s.writable).toBe(true);
+    expect(s.configOptions).toHaveLength(0);
   });
 
   it("batching Side Thread events equals folding one by one", () => {

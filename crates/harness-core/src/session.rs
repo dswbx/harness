@@ -86,9 +86,6 @@ pub struct SessionMeta {
     /// Side Threads: where they came from (Main Thread Turn) and how their Agent Session starts.
     #[serde(default)]
     pub origins: HashMap<ThreadId, SideOrigin>,
-    /// Side Threads whose Agent may write (the Main Thread always may).
-    #[serde(default)]
-    pub thread_writes: HashSet<ThreadId>,
     #[serde(default)]
     pub workspace: WorkspaceMeta,
     #[serde(default)]
@@ -106,13 +103,6 @@ pub struct SessionMeta {
 pub struct SideOrigin {
     pub point: crate::api::ForkPoint,
     pub source: crate::api::ThreadStart,
-}
-
-impl SessionMeta {
-    /// Whether the Thread's Agent may edit, delete, move, run commands, commit and push.
-    pub fn is_writable(&self, thread: &ThreadId) -> bool {
-        *thread == self.main_thread_id || self.thread_writes.contains(thread)
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -164,7 +154,6 @@ impl Session {
             context_pending: Default::default(),
             fork_note_pending: Default::default(),
             origins: Default::default(),
-            thread_writes: Default::default(),
             workspace,
             archived: false,
             mcp_servers,
@@ -521,21 +510,6 @@ impl Session {
             forked_from: Some(point),
         })?;
         Ok((thread, forked))
-    }
-
-    /// Lets a Side Thread's Agent write, or stops it again.
-    pub fn set_thread_writable(&self, thread_id: ThreadId, writable: bool) -> anyhow::Result<()> {
-        let thread = self.thread(Some(thread_id))?;
-        if thread == self.meta().main_thread_id {
-            return Ok(());
-        }
-        let changed = self.update_meta(|m| {
-            if writable { m.thread_writes.insert(thread.clone()) } else { m.thread_writes.remove(&thread) }
-        })?;
-        if changed {
-            self.log.append(Some(thread), EventKind::ThreadWritableChanged { writable })?;
-        }
-        Ok(())
     }
 
     pub async fn cancel(&self, thread_id: Option<ThreadId>) -> anyhow::Result<()> {

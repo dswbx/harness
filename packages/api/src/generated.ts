@@ -202,12 +202,7 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
  *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
  *  text seed of the Main Thread's transcript).
  */
-{ type: "StartSideThread"; session_id: string; seed?: string | null; source?: ThreadStart } | 
-/**
- *  Lets a Side Thread's Agent edit, delete, move, run commands, commit and push (or not
- *  again). Side Threads start read-only; the Main Thread is always writable.
- */
-{ type: "SetThreadWritable"; session_id: string; thread_id: string; writable: boolean } | { type: "ResolvePermission"; session_id: string; request_id: string; 
+{ type: "StartSideThread"; session_id: string; seed?: string | null; source?: ThreadStart } | { type: "ResolvePermission"; session_id: string; request_id: string; 
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
 option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string } | 
 /**  Reads a stored attachment (base64). Only files in the Session Directory's `attachments/`. */
@@ -272,11 +267,6 @@ export type Event = {
 export type EventKind = { type: "SessionCreated"; title: string; frontend_id: string; agent_id: string; folder: string } | { type: "SessionStatusChanged"; status: SessionStatus } | { type: "ThreadStarted"; agent_id: string; main: boolean; 
 /**  Side Threads: the Main Thread's last finished Turn when this one started. */
 forked_from?: ForkPoint | null } | 
-/**
- *  A Side Thread's Agent may (or may not any more) edit, delete, move, run commands, commit
- *  and push.
- */
-{ type: "ThreadWritableChanged"; writable: boolean } | 
 /**  The Agent needs the user to sign in before it can work. */
 { type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
 /**
@@ -452,9 +442,7 @@ export type RegistryAgent = {
 	installed_version: string | null,
 };
 
-export type Resolver = "policy" | 
-/**  Denied because the Thread is a read-only Side Thread. */
-"read_only_thread" | "view" | "cancelled";
+export type Resolver = "policy" | "view" | "cancelled";
 
 export type RuleScope = { type: "global" } | { type: "agent"; agent_id: string } | { type: "session"; session_id: string };
 
