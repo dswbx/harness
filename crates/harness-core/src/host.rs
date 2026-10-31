@@ -399,7 +399,7 @@ impl Harness {
         let dest = self.data_dir.join("worktrees").join(id).join(repo_name);
         let short = &id[id.len() - 6..];
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
-        let in_worktree = |wt: WorktreeMeta| (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt) });
+        let in_worktree = |wt: WorktreeMeta| (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None });
         match start {
             Start::Pr { pr, worktree: true } => {
                 if let Some(parent) = dest.parent() {
@@ -422,7 +422,7 @@ impl Harness {
                     "the folder has uncommitted changes; commit or stash them, or use a Worktree"
                 );
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base) }))
             }
             Start::Branch { base, new_branch, worktree: true } => {
                 let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
@@ -436,7 +436,7 @@ impl Harness {
                 {
                     crate::workspace::checkout(&root, &b).await?;
                 }
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None }))
             }
         }
     }

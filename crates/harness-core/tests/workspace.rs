@@ -364,4 +364,19 @@ async fn diff_base_finds_a_prs_base_locally_or_on_origin() {
     sh(&repo, &["checkout", "-q", "-b", "feat"]);
     commit("feat");
     assert_eq!(base("main").await, local);
+
+    // Base on another remote, never fetched (a PR into a release branch): fetched, its fork point; not main's.
+    let up = repo.parent().unwrap().join("upstream");
+    sh(repo.parent().unwrap(), &["clone", "-q", repo.to_str().unwrap(), up.to_str().unwrap()]);
+    sh(&up, &["checkout", "-q", "-b", "release/1", &local]);
+    std::fs::write(up.join("r.txt"), "r").unwrap();
+    sh(&up, &["add", "."]);
+    sh(&up, &["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "-m", "release"]);
+    let release = sh(&up, &["rev-parse", "HEAD"]);
+    sh(&repo, &["remote", "add", "upstream", up.to_str().unwrap()]);
+    sh(&repo, &["fetch", "-q", "upstream", &release]);
+    sh(&repo, &["checkout", "-q", "-b", "pr3", &release]);
+    commit("pr3");
+    assert_eq!(base("release/1").await, release);
+    assert_eq!(sh(&repo, &["rev-parse", "refs/remotes/upstream/release/1"]), release);
 }

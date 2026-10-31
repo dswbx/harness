@@ -265,17 +265,18 @@ pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
         .collect())
 }
 
-/// Where a Session's changes start: the closest merge base with its Worktree's base branch, local or `origin/<base>`
-/// (a PR's base is often missing or stale locally). Without a Worktree, or when the base is gone: on a branch, where it
-/// forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default branch, its upstream, so only
-/// unpushed commits count; else HEAD (no commits, only uncommitted work).
+/// Where a Session's changes start: the closest merge base with its base branch (a Worktree's, or a PR's), local or on
+/// any remote; a base found nowhere (a PR into a branch never fetched) is fetched once. Without a base, or when it is
+/// gone: on a branch, where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default
+/// branch, its upstream, so only unpushed commits count; else HEAD (no commits, only uncommitted work).
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
     if let Some(base) = base {
-        let mut refs = vec![];
-        for r in [base.to_owned(), format!("refs/remotes/origin/{base}")] {
-            if git(dir, &["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]).await.is_ok() {
-                refs.push(r);
+        let mut refs = base_refs(dir, base).await;
+        if refs.is_empty() {
+            for remote in git(dir, &["remote"]).await.unwrap_or_default().lines() {
+                let _ = git(dir, &["fetch", "--quiet", "--no-tags", remote, &format!("refs/heads/{base}:refs/remotes/{remote}/{base}")]).await;
             }
+            refs = base_refs(dir, base).await;
         }
         // With several refs, git picks the best common ancestor of HEAD and any of them: the closest fork point.
         if !refs.is_empty()
@@ -292,6 +293,18 @@ pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String>
         return Ok(mb.trim().to_owned());
     }
     Ok(git(dir, &["rev-parse", "HEAD"]).await?.trim().to_owned())
+}
+
+/// `base` as a local branch (or any ref) and as `<remote>/<base>` on every remote, those that exist.
+async fn base_refs(dir: &Path, base: &str) -> Vec<String> {
+    let mut refs = vec![];
+    if !base.starts_with('-') && git(dir, &["rev-parse", "--verify", "--quiet", &format!("{base}^{{commit}}")]).await.is_ok() {
+        refs.push(base.to_owned());
+    }
+    let pattern = format!("refs/remotes/*/{base}");
+    let remote = git(dir, &["for-each-ref", "--format=%(refname)", &pattern]).await.unwrap_or_default();
+    refs.extend(remote.lines().filter(|r| !r.is_empty() && *r != base).map(str::to_owned));
+    refs
 }
 
 /// The repo's main line: `origin/HEAD`, else a local `main` or `master`.
