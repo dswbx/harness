@@ -22,7 +22,7 @@ bun install
 bun run dev
 ```
 
-The Vite dev server also runs in a plain browser at http://localhost:1420 with a mock transport (no core), which is handy for UI work.
+The Vite dev server uses port 1420, or the next free one if that is taken (so several checkouts can run at once). It also runs in a plain browser (`bun run --cwd app dev`) with a mock transport (no core), which is handy for UI work.
 
 First steps in the app: **Agents** → install Claude or Codex → **New Session** → pick a folder → chat. Sign in when the Agent asks.
 

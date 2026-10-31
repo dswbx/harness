@@ -4,7 +4,7 @@
   "type": "module",
   "workspaces": ["app", "packages/*"],
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "bun scripts/dev.ts",
     "bundle": "tauri build",
     "gen-ts": "cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts && bun run gen-manifests",
     "typecheck": "bun run --filter '*' typecheck && bun run check-boundaries",
