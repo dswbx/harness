@@ -94,7 +94,7 @@ function ToolDisplayRow() {
   );
 }
 
-/** Chat Frontend: highlight unmarked code-like inline code as TypeScript (stored by the Frontend itself). */
+/** Chat Frontend: highlight unmarked code-like inline code in the message's language (stored by the Frontend itself). */
 function GuessInlineCodeRow() {
   const on = useGuessInlineCode();
   return (
@@ -111,7 +111,7 @@ function GuessInlineCodeRow() {
           <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
         </button>
         <span>Guess the language</span>
-        <span className="truncate text-muted-foreground">TypeScript when it looks like code</span>
+        <span className="truncate text-muted-foreground">From the message's code blocks and file names, else TypeScript</span>
       </label>
     </Row>
   );
