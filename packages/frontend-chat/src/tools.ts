@@ -373,6 +373,35 @@ export const components = {
       { type: "FileLink", props: { path: "README.md", label: "Setup notes" } },
     ] } },
   },
+  PullRequest: {
+    description: "A GitHub pull request: state, title, branches, +/- stats, checks, review. variant: summary (default), card or compact.",
+    children: false,
+    props: s.object({
+      repo: s.string({ description: "owner/name" }),
+      number: s.number(),
+      title: s.string(),
+      state: s.string({ enum: ["open", "draft", "merged", "closed"] }),
+      url: s.string({ description: "Link to the PR." }).optional(),
+      head: s.string({ description: "Branch name." }).optional(),
+      base: s.string({ description: "Branch name." }).optional(),
+      author: s.string().optional(),
+      updated: s.string({ description: 'E.g. "2m ago".' }).optional(),
+      additions: s.number().optional(),
+      deletions: s.number().optional(),
+      files: s.number().optional(),
+      commits: s.number().optional(),
+      checks: s.object({ passed: s.number(), pending: s.number().optional(), failed: s.number().optional() }).optional(),
+      review: s.string({ enum: ["approved", "changes_requested", "required", "none"] }).optional(),
+      labels: s.array(s.string()).optional(),
+      note: s.string({ description: 'E.g. "Merged into main 2h ago".' }).optional(),
+      variant: s.string({ enum: ["summary", "card", "compact"], description: "Default summary." }).optional(),
+    }),
+    example: { node: { type: "Stack", props: { gap: "sm" }, children: [
+      { type: "PullRequest", props: { repo: "acme/shop", number: 482, title: "Fix empty cart total", state: "open", url: "https://github.com/acme/shop/pull/482", head: "fix/cart-total", base: "main", additions: 42, deletions: 7, files: 3, checks: { passed: 8, pending: 1 }, review: "required" } },
+      { type: "PullRequest", props: { repo: "acme/shop", number: 479, title: "Add order export", state: "merged", head: "feat/export", base: "main", additions: 310, deletions: 12, files: 9, checks: { passed: 9 }, review: "approved", variant: "card", author: "dswbx", updated: "2h ago", commits: 4, labels: ["feature"], url: "https://github.com/acme/shop/pull/479", note: "Merged into main 2h ago" } },
+      { type: "PullRequest", props: { repo: "acme/shop", number: 490, title: "WIP: new checkout", state: "draft", additions: 120, deletions: 30, checks: { passed: 5, failed: 1 }, variant: "compact" } },
+    ] } },
+  },
 } as const satisfies Record<string, Entry>;
 
 type Components = typeof components;

@@ -1,8 +1,8 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ScrollText, ShieldCheck, ShieldX, SquareTerminal, X } from "lucide-react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Layers, Loader2, PanelRight, ScrollText, ShieldCheck, ShieldX, SquareTerminal, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
-import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, ResizeHandle, Tooltip, VirtualList, cn, useResizableWidth } from "@harness/ui";
+import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, ResizeHandle, Tooltip, VirtualList, cn, useResizableWidth, type VirtualListHandle } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, FileStat, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
 // xterm.js stays out of the main chunk until the Terminal is first opened.
@@ -18,6 +18,8 @@ import { FrontendToolRow } from "./FrontendToolCard";
 import { QUOTABLE, SelectionComment } from "./SelectionComment";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { splitRenderUi, type Slot } from "./slots";
+import { collectArtifacts, type Artifact } from "./artifacts";
+import { ArtifactsPanel } from "./ArtifactsPanel";
 import type { RawNode } from "./tools";
 import { groupTools, useToolDisplay, type ToolGroup } from "./toolDisplay";
 import { splitDetails } from "./errors";
@@ -308,7 +310,7 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
     <div className={cn("shrink-0", className)}>
       <div className="mx-auto grid max-w-3xl gap-2 px-10 pb-3">
         {shown.map((x) => (
-          <div key={x.id} className="group/slot relative rounded-lg border bg-card p-3">
+          <div key={x.id} data-slot={x.id} className="group/slot relative rounded-lg border bg-card p-3">
             <button
               aria-label={`Hide ${x.title ?? x.id}`}
               onClick={() => setHidden({ ...hidden, [x.id]: slotKey(x) })}
@@ -380,6 +382,14 @@ function savePanel(sessionId: string, panel: string | null) {
   } catch { /* not kept */ }
 }
 
+/** Briefly rings an element the user jumped to. */
+function flash(el: Element) {
+  el.animate(
+    [{ outline: "2px solid var(--ring)", outlineOffset: "4px", borderRadius: "8px" }, { outline: "2px solid transparent", outlineOffset: "4px", borderRadius: "8px" }],
+    { duration: 1600, easing: "ease-in" },
+  );
+}
+
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 
@@ -390,7 +400,7 @@ export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTML
 
 function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  /** The right panel: "changes" (the diff), "terminal", "events" (the raw Session Log), or the id of a right-placed render_ui slot. Kept per Session while the window lives. */
+  /** The right panel: "changes" (the diff), "terminal", "events" (the raw Session Log), "artifacts", or the id of a right-placed render_ui slot. Kept per Session while the window lives. */
   const [panel, setPanelId] = useState<string | null>(() => loadPanel(api.sessionId));
   useEffect(() => savePanel(api.sessionId, panel), [api.sessionId, panel]);
   /** The Terminal stays mounted (hidden) once opened, so its screen survives switching panels. */
@@ -454,6 +464,28 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
   useEffect(() => {
     if (lastRight && lastRight.ts >= openedAt) setPanelId(lastRight.id);
   }, [lastRight?.id, lastRight?.ts, openedAt]);
+  const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
+  const list = useRef<VirtualListHandle>(null);
+  const jump = useCallback((a: Artifact) => {
+    if (a.placement === "right") return setPanelId(a.slotId);
+    if (!a.rowId) {
+      const el = document.querySelector(`[data-slot="${CSS.escape(a.slotId ?? "")}"]`);
+      if (el) flash(el);
+      return;
+    }
+    if (!list.current?.scrollToKey(a.rowId)) return;
+    // The row renders once the virtual list scrolls there; then the diagram or table inside it.
+    let tries = 0;
+    const find = () => {
+      const row = document.querySelector(`[data-key="${CSS.escape(a.rowId!)}"]`);
+      const el = row && (a.index !== null ? row.querySelectorAll(`[data-artifact="${a.kind}"]`)[a.index] : row.firstElementChild);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        flash(el);
+      } else if (tries++ < 30) requestAnimationFrame(find);
+    };
+    requestAnimationFrame(find);
+  }, []);
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);
 
   const running = state.turnId !== null;
@@ -474,6 +506,20 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
       ))}
+      {(artifacts.length > 0 || panel === "artifacts") && (
+        <Tooltip content={`Artifacts (${artifacts.length})`} side="bottom">
+          <Button
+            size="icon"
+            variant="ghost"
+            className={cn("size-7 text-muted-foreground hover:text-accent-foreground", panel === "artifacts" && "bg-accent text-accent-foreground")}
+            aria-label="Artifacts"
+            aria-pressed={panel === "artifacts"}
+            onClick={() => setPanelId(panel === "artifacts" ? null : "artifacts")}
+          >
+            <Layers />
+          </Button>
+        </Tooltip>
+      )}
       <Tooltip content="Events" side="bottom">
         <Button
           size="icon"
@@ -535,6 +581,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       <TaskListPanel entries={state.taskList} />
       <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
       <VirtualList
+        handle={list}
         count={rows.length}
         getKey={(i) => rows[i]!.id}
         estimateSize={72}
@@ -563,14 +610,15 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         <PromptBox api={api} state={state} />
       )}
     </div>
-    {(panel === "changes" || panel === "terminal" || panel === "events" || rightSlot || terminalOpened) && (
+    {(panel === "changes" || panel === "terminal" || panel === "artifacts" || panel === "events" || rightSlot || terminalOpened) && (
       <div
-        className={cn("relative h-full shrink-0", !(panel === "changes" || panel === "terminal" || panel === "events" || rightSlot) && "hidden")}
+        className={cn("relative h-full shrink-0", !(panel === "changes" || panel === "terminal" || panel === "artifacts" || panel === "events" || rightSlot) && "hidden")}
         style={{ width: right.width }}
       >
         <ResizeHandle label="Resize panel" {...right.handle} />
         {panel === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanelId(null)} refreshKey={refreshKey} />}
         {panel === "events" && <EventsPanel api={api} onClose={() => setPanelId(null)} />}
+        {panel === "artifacts" && <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} onClose={() => setPanelId(null)} />}
         {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => setPanelId(null)} />}
         {terminalOpened && (
           <div className={cn("h-full", panel !== "terminal" && "hidden")}>
