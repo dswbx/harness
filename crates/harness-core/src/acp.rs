@@ -305,6 +305,9 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         session.log().sync()?;
         anyhow::bail!("{reason} The Thread is read-only; continue it with a summary.");
     };
+    if !meta.is_writable(&thread) {
+        keep_asking(&session, &conn, &thread, &acp_session).await;
+    }
     let caps = &conn.init.agent_capabilities.prompt_capabilities;
     let attachments = crate::attachments::resolve(session.dir(), &folder, &meta.agent.name, caps, attachments)?;
     crate::attachments::store(&attachments)?;
@@ -463,6 +466,33 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
         tracing::warn!("could not remember config option: {e:#}");
     }
     Ok(())
+}
+
+/// Puts a read-only Thread's Agent in its mode that asks before every write (a fork inherits the
+/// Main Thread's mode, which may auto-approve), so writes reach the Policy and are denied there.
+async fn keep_asking(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
+    let Ok(events) = session.log().events() else { return };
+    let Some(options) = events.iter().rev().find_map(|e| match &e.kind {
+        EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(thread) => Some(options.clone()),
+        _ => None,
+    }) else {
+        return;
+    };
+    let Some(mode) = options.as_array().and_then(|a| a.iter().find(|o| o["id"] == "mode")) else { return };
+    let values: Vec<&str> = mode["options"].as_array().into_iter().flatten().filter_map(|o| o["value"].as_str()).collect();
+    let Some(asking) = crate::agent_quirks::asking_mode(&values) else { return };
+    if mode["currentValue"] == asking {
+        return;
+    }
+    match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), "mode", asking)).block_task().await {
+        Ok(r) => match serde_json::to_value(&r.config_options) {
+            Ok(options) => {
+                let _ = session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options });
+            }
+            Err(e) => tracing::warn!("config options: {e}"),
+        },
+        Err(e) => tracing::warn!("asking mode for read-only Thread: {e}"),
+    }
 }
 
 /// Sets the legacy session mode; its answer carries no state, so the change is logged here.

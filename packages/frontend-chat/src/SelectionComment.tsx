@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
 import { Button, Textarea } from "@harness/ui";
-import { addReviewComment } from "./reviewComments";
+import { addReviewComment, composerKey } from "./reviewComments";
 
 /** Elements whose selected text can be commented on (chat messages). */
 export const QUOTABLE = "data-quotable";
 
-type Spot = { quote: string; range: Range; x: number; top: number; bottom: number };
+/** Marks a message of a Thread as quotable; its place (`seq` of its first Event) rides along for "Ask in side thread". */
+export function quotableAttrs(itemId: string, threadId: string, side: boolean) {
+  return { [QUOTABLE]: "", "data-thread-id": threadId, "data-side": side ? "1" : "0", "data-seq": itemId.replace(/^e/, "") };
+}
+
+type Spot = { quote: string; range: Range; x: number; top: number; bottom: number; where: Where | null; side: boolean; threadId: string | null };
+type Where = { thread_id: string; seq: number };
 
 /** CSS Custom Highlight that keeps the quote looking selected while the comment box has focus (styles.css). */
 const HIGHLIGHT = "quote-comment";
@@ -25,14 +31,17 @@ function selectedSpot(): Spot | null {
   if (!quote) return null;
   const range = sel.getRangeAt(0).cloneRange();
   const r = range.getBoundingClientRect();
-  return { quote, range, x: r.left + r.width / 2, top: r.top, bottom: r.bottom };
+  const threadId = host.getAttribute("data-thread-id");
+  const seq = Number(host.getAttribute("data-seq"));
+  const where = threadId && Number.isFinite(seq) ? { thread_id: threadId, seq } : null;
+  return { quote, range, x: r.left + r.width / 2, top: r.top, bottom: r.bottom, where, side: host.getAttribute("data-side") === "1", threadId };
 }
 
 /**
  * Select text in a chat message, then "Add comment": the quote and a comment go to the prompt box (like diff line
  * comments) and are sent with the next prompt.
  */
-export function SelectionComment({ sessionId }: { sessionId: string }) {
+export function SelectionComment({ sessionId, onAskSideThread }: { sessionId: string; onAskSideThread?: (excerpt: { text: string; thread_id: string; seq: number }) => void }) {
   const [spot, setSpot] = useState<Spot | null>(null);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -84,7 +93,14 @@ export function SelectionComment({ sessionId }: { sessionId: string }) {
   };
   const submit = () => {
     if (!spot || !text.trim()) return;
-    addReviewComment(sessionId, { kind: "quote", quote: spot.quote, text: text.trim() });
+    addReviewComment(composerKey(sessionId, spot.side ? spot.threadId : null), { kind: "quote", quote: spot.quote, text: text.trim() });
+    window.getSelection()?.removeAllRanges();
+    close();
+  };
+
+  const ask = () => {
+    if (!spot?.where || !onAskSideThread) return;
+    onAskSideThread({ text: spot.quote, ...spot.where });
     window.getSelection()?.removeAllRanges();
     close();
   };
@@ -138,9 +154,16 @@ export function SelectionComment({ sessionId }: { sessionId: string }) {
           </div>
         </form>
       ) : (
-        <Button size="sm" variant="ghost" className="h-8 rounded-lg" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(true)}>
-          Add comment
-        </Button>
+        <div className="flex">
+          <Button size="sm" variant="ghost" className="h-8 rounded-lg" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(true)}>
+            Add comment
+          </Button>
+          {onAskSideThread && spot.where && (
+            <Button size="sm" variant="ghost" className="h-8 rounded-lg" onMouseDown={(e) => e.preventDefault()} onClick={ask}>
+              Ask in side thread
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

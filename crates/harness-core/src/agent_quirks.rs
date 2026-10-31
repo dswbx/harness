@@ -19,6 +19,14 @@ pub fn adjust(update: &Value, kind: &mut EventKind) {
     claude::adjust(update, kind);
 }
 
+/// The value of an Agent's `mode` config option that asks before every write, out of `values`.
+/// Read-only Side Threads (ADR 0018) need it: in modes that auto-approve (Codex "agent", Claude
+/// "acceptEdits"), writes never reach the Permission Policy. ACP has no standard for this.
+pub fn asking_mode<'a>(values: &[&'a str]) -> Option<&'a str> {
+    // Codex: "read-only" asks for edits and network; Claude: "default" ("Manual") always asks.
+    ["read-only", "default"].into_iter().find_map(|m| values.iter().find(|v| **v == m).copied())
+}
+
 /// Claude Agent (claude-agent-acp).
 mod claude {
     use super::*;

@@ -1,5 +1,5 @@
 import { renderUiSchema, RENDER_UI, type RenderUiInput } from "./tools";
-import { applyStatePatch, type Attachment, type AuthMethodInfo, type Event, type FileChange, type PermissionOption, type PermissionRule, type SlashCommand, type TaskEntry } from "@harness/api";
+import { applyStatePatch, stepThreads, type ThreadInfo, type Attachment, type AuthMethodInfo, type Boundary, type Event, type Excerpt, type ForkPoint, type FileChange, type PermissionOption, type PermissionRule, type SlashCommand, type TaskEntry } from "@harness/api";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
 
@@ -51,7 +51,7 @@ export type Item =
       options: PermissionOption[];
       resolved: boolean;
       /** Set when the core answered via the Permission Policy (no actionable card). */
-      auto?: { allowed: boolean; ruleId: string | null };
+      auto?: { allowed: boolean; ruleId: string | null; /** Denied because the Side Thread is read-only. */ readOnlyThread?: boolean };
     }
   /** The Agent refuses to start a session until the user signs in. */
   | { type: "auth"; id: string; message: string; methods: AuthMethodInfo[] }
@@ -109,6 +109,22 @@ export type ChatState = {
   promptCaps: { image: boolean; embeddedContext: boolean } | null;
   /** The Session State (ADR 0015), rebuilt from `StateChanged` (every Thread: it is per Session). */
   uiState: unknown;
+  /**
+   * Side Threads by id (ADR 0018). Each is a full ChatState of its own Thread (`threads` empty), so
+   * the message list and prompt box render it like the Main Thread. The Main Thread's state is this
+   * object itself; `threadState` reaches either.
+   */
+  threads: Record<string, ChatState>;
+  /** Main + Side Threads for menus and tab titles (`threadsOf`, folded). Main state only. */
+  threadList: readonly ThreadInfo[];
+  /** Side Threads: where in the Main Thread this one forked (null: fresh, or the Main Thread). */
+  forkedFrom: ForkPoint | null;
+  /** Side Threads: the text the user asked about. */
+  excerpt: Excerpt | null;
+  /** Side Threads: the Agent may write (starts false). */
+  writable: boolean;
+  /** How the Thread's first Agent Session started; null until it has (it starts with the first prompt). */
+  startBoundary: Boundary | null;
 };
 
 export const initialState = (): ChatState => ({
@@ -127,7 +143,19 @@ export const initialState = (): ChatState => ({
   archived: false,
   promptCaps: null,
   uiState: {},
+  threads: {},
+  threadList: [],
+  forkedFrom: null,
+  excerpt: null,
+  writable: true,
+  startBoundary: null,
 });
+
+/** The state of a Thread: the Main Thread is `state` itself. Null for an unknown id. */
+export function threadState(state: ChatState, threadId: string | null): ChatState | null {
+  if (threadId === null || threadId === state.mainThreadId) return state;
+  return state.threads[threadId] ?? null;
+}
 
 /** Plan Mode approval: a permission request for a `switch_mode` tool call carrying a plan. */
 export function planOf(toolCall: ToolCallRef): string | null {
@@ -142,7 +170,17 @@ type Tool = Extract<Item, { type: "tool" }>;
  * `items` is copied lazily, once. Lookup indexes are built on first use and kept in sync, so
  * a batch costs O(items + events) instead of O(items * events).
  */
-type Ctx = { d: ChatState; owned: boolean; tools: Map<string, number> | null; perms: Map<string, number> | null };
+type Ctx = {
+  d: ChatState;
+  owned: boolean;
+  tools: Map<string, number> | null;
+  perms: Map<string, number> | null;
+  /** Side Thread contexts touched in this batch (their `d` goes into `d.threads`). */
+  sides: Map<string, Ctx> | null;
+  threadsOwned: boolean;
+};
+
+const newCtx = (d: ChatState): Ctx => ({ d, owned: false, tools: null, perms: null, sides: null, threadsOwned: false });
 
 function own(c: Ctx): Item[] {
   if (!c.owned) {
@@ -203,7 +241,7 @@ export function reduce(state: ChatState, e: Event): ChatState {
  */
 export function reduceBatch(state: ChatState, events: readonly Event[]): ChatState {
   if (events.length === 0) return state;
-  const c: Ctx = { d: { ...state }, owned: false, tools: null, perms: null };
+  const c = newCtx({ ...state });
   for (const e of events) apply(c, e);
   return c.d;
 }
@@ -219,9 +257,35 @@ function apply(c: Ctx, e: Event) {
     }
     return;
   }
-  // Ignore Side Threads: the chat View renders the Main Thread only.
+  d.threadList = stepThreads(d.threadList, e);
   if (k.type === "ThreadStarted" && k.main && !d.mainThreadId) d.mainThreadId = e.thread_id;
-  if (e.thread_id && d.mainThreadId && e.thread_id !== d.mainThreadId) return;
+  // Side Threads fold into their own state; everything else (Main Thread, Session-level) into this one.
+  if (e.thread_id && d.mainThreadId && e.thread_id !== d.mainThreadId) {
+    applySide(c, e.thread_id, e);
+    return;
+  }
+  applyThread(c, e);
+}
+
+function applySide(c: Ctx, threadId: string, e: Event) {
+  c.sides ??= new Map();
+  let sc = c.sides.get(threadId);
+  if (!sc) {
+    sc = newCtx({ ...(c.d.threads[threadId] ?? { ...initialState(), writable: false }) });
+    c.sides.set(threadId, sc);
+  }
+  applyThread(sc, e);
+  if (!c.threadsOwned) {
+    c.d.threads = { ...c.d.threads };
+    c.threadsOwned = true;
+  }
+  c.d.threads[threadId] = sc.d;
+}
+
+/** Folds one Event into one Thread's state (`c.d`). */
+function applyThread(c: Ctx, e: Event) {
+  const d = c.d;
+  const k = e.kind;
 
   const id = `e${e.seq}`;
   const notice = (level: "boundary" | "error" | "info", text: string) => push(c, { type: "notice", id, level, text });
@@ -335,11 +399,22 @@ function apply(c: Ctx, e: Event) {
       }
       return;
     }
+    case "ThreadStarted":
+      if (!k.main) {
+        d.forkedFrom = k.forked_from ?? null;
+        d.excerpt = k.excerpt ?? null;
+      }
+      return;
+    case "ThreadWritableChanged":
+      d.writable = k.writable;
+      return;
     case "ThreadReadOnly":
       d.readOnly = true;
       return;
     case "AgentSessionStarted":
-      if (k.boundary === "initial") return;
+      d.startBoundary ??= k.boundary;
+      // The Side Thread header says how it started; `initial` is no boundary.
+      if (k.boundary === "initial" || k.boundary === "forked") return;
       if (k.boundary === "continued_with_summary") d.readOnly = false;
       notice("boundary", boundaryText(k.boundary));
       return;
@@ -387,10 +462,10 @@ function apply(c: Ctx, e: Event) {
       const at = permIndex(c).get(k.request_id);
       const i = at !== undefined ? d.items[at] : undefined;
       if (!i || i.type !== "permission") return;
-      if (k.by !== "policy") own(c)[at!] = { ...i, resolved: true };
+      if (k.by !== "policy" && k.by !== "read_only_thread") own(c)[at!] = { ...i, resolved: true };
       else {
         const kind = i.options.find((o) => o.option_id === k.option_id)?.kind ?? "";
-        own(c)[at!] = { ...i, resolved: true, auto: { allowed: kind.startsWith("allow"), ruleId: k.rule_id ?? null } };
+        own(c)[at!] = { ...i, resolved: true, auto: { allowed: kind.startsWith("allow"), ruleId: k.rule_id ?? null, ...(k.by === "read_only_thread" && { readOnlyThread: true }) } };
       }
       return;
     }

@@ -6,7 +6,7 @@ The user wants to ask about the conversation (or a selected excerpt of it) witho
 
 **Transcript tools, in both modes.** The Harness MCP gets read-only tools over the Session Log: `transcript_outline`, `transcript_read`, `transcript_search`, addressed by Thread. They are how a seeded Side Thread sees the Main Thread, how a forked one sees Turns after its fork point, and how the Main Thread reads a Side Thread when the user asks. Scope: Threads of the same Session; other Sessions stay off until the policy in the exploration note is built. Results are marked as data (prompt injection).
 
-**Read-only by default.** Forks share the Workspace. A Side Thread starts with a Permission Policy layer that denies edit, delete, move and execute kinds; the user can lift it per Side Thread. Agent-internal tools the Harness cannot mediate stay a known gap (ADR 0006).
+**Read-only by default.** Forks share the Workspace. A Side Thread starts with a Permission Policy layer that denies edit, delete, move and execute kinds; the user can lift it per Side Thread. Agents that auto-approve in some modes (Codex `agent`) never ask, so a read-only Side Thread is switched to the Agent's asking mode before each prompt (`agent_quirks::asking_mode`). Agent-internal tools the Harness cannot mediate stay a known gap (ADR 0006).
 
 **Nothing flows back on its own.** The Main Thread's context changes only through the user: "Send to main" puts a quote or the Side Thread's last reply into the Main Thread's composer; the user sends it. No Agent-initiated `post_to_main` for now.
 

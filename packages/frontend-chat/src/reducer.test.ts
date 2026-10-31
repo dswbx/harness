@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Event, EventKind } from "@harness/api";
-import { initialState, permissionTitle, planOf, reduce, type ChatState } from "./reducer";
+import { initialState, permissionTitle, planOf, reduce, reduceBatch, threadState, type ChatState } from "./reducer";
 import { diffLines } from "./diff";
 
 const fold = (events: Event[]): ChatState => events.reduce(reduce, initialState());
@@ -104,7 +104,7 @@ describe("turns", () => {
     expect(s.items[1]).toMatchObject({ level: "error", text: "boom" });
   });
 
-  it("ignores Side Thread events", () => {
+  it("main ignores Side Thread events", () => {
     const s = fold([
       started(),
       ev({ type: "AgentMessageChunk", text: "side" }, "other"),
@@ -112,6 +112,55 @@ describe("turns", () => {
     ]);
     expect(s.items).toHaveLength(1);
     expect(s.items[0]).toMatchObject({ text: "main" });
+    expect(s.threads.other!.items[0]).toMatchObject({ text: "side" });
+  });
+
+  it("keeps Side Thread events apart from the Main Thread", () => {
+    const s = fold([
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false, forked_from: { thread_id: "main", turn: 2, seq: 7 }, excerpt: { text: "x", thread_id: "main", seq: 7 } }, "side"),
+      ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "forked" }, "side"),
+      ev({ type: "TurnStarted", turn_id: "t", text: "why?" }, "side"),
+      ev({ type: "AgentMessageChunk", text: "because" }, "side"),
+      ev({ type: "AgentMessageChunk", text: " main" }),
+    ]);
+    const side = s.threads.side!;
+    expect(s.items).toHaveLength(1);
+    expect(s.turnId).toBeNull();
+    expect(side.items.map((i) => i.type)).toEqual(["user", "agent"]);
+    expect(side.items[1]).toMatchObject({ text: "because" });
+    expect(side.turnId).toBe("t");
+    expect(side.forkedFrom).toMatchObject({ turn: 2 });
+    expect(side.startBoundary).toBe("forked");
+    expect(side.writable).toBe(false);
+    expect(threadState(s, "side")).toBe(side);
+    expect(threadState(s, "main")).toBe(s);
+  });
+
+  it("Side Thread: writable toggles, read-only denials show as auto-denied, Main untouched", () => {
+    const opts = [{ option_id: "reject", name: "Reject", kind: "reject_once" }];
+    const s = fold([
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "PermissionRequested", request_id: "r", tool_call: { title: "Edit" }, options: opts }, "side"),
+      ev({ type: "PermissionResolved", request_id: "r", option_id: "reject", by: "read_only_thread" }, "side"),
+      ev({ type: "ThreadWritableChanged", writable: true }, "side"),
+    ]);
+    expect(s.threads.side!.writable).toBe(true);
+    expect(s.threads.side!.items[0]).toMatchObject({ type: "permission", resolved: true, auto: { allowed: false, readOnlyThread: true } });
+    expect(s.items).toHaveLength(0);
+    expect(s.writable).toBe(true);
+  });
+
+  it("batching Side Thread events equals folding one by one", () => {
+    const events = [
+      started(),
+      ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ev({ type: "AgentMessageChunk", text: "a" }, "side"),
+      ev({ type: "AgentMessageChunk", text: "b" }, "side"),
+      ev({ type: "AgentMessageChunk", text: "c" }),
+    ];
+    expect(reduceBatch(initialState(), events)).toEqual(fold(events));
   });
 
   it("ignores events of a Side Thread started later, keeps session-level events", () => {

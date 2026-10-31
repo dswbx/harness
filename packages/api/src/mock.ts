@@ -137,6 +137,8 @@ export class MockTransport implements Transport {
 
   private readOnly = new Set<string>();
   private sideN = 0;
+  private sideForked = new Map<string, boolean>();
+  private sideWritable = new Map<string, boolean>();
 
   /** Defaults to the session's Main Thread (fixture logs carry real ids). */
   private emit(sessionId: string, kind: EventKind, thread_id?: string | null) {
@@ -387,10 +389,30 @@ export class MockTransport implements Transport {
         return { type: "Ok" };
       case "StartSideThread": {
         const thread_id = `side-${++this.sideN}`;
-        this.emit(cmd.session_id, { type: "ThreadStarted", agent_id: "codex", main: false }, thread_id);
-        this.emit(cmd.session_id, { type: "AgentSessionStarted", acp_session_id: `acp-${thread_id}`, boundary: "initial" }, thread_id);
-        return { type: "ThreadStarted", thread_id, forked: false };
+        const sid = cmd.session_id;
+        const log = this.logs.get(sid)!;
+        const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main);
+        const mainTurns = log.filter((e) => e.thread_id === main?.thread_id && e.kind.type === "TurnEnded").length;
+        // Like the core: a fork needs a Main Thread that has run; else a text seed.
+        const forked = cmd.source !== "seed" && mainTurns > 0;
+        this.sideForked.set(thread_id, forked);
+        this.sideWritable.set(thread_id, false);
+        this.emit(sid, {
+          type: "ThreadStarted", agent_id: "codex", main: false,
+          forked_from: forked ? { thread_id: main?.thread_id ?? "main", turn: mainTurns, seq: log.length - 1 } : null,
+          excerpt: cmd.excerpt ?? null,
+        }, thread_id);
+        return { type: "ThreadStarted", thread_id, forked };
       }
+      case "ResolvePermission": {
+        const req = this.logs.get(cmd.session_id)?.find((e) => e.kind.type === "PermissionRequested" && e.kind.request_id === cmd.request_id);
+        if (req) this.emit(cmd.session_id, { type: "PermissionResolved", request_id: cmd.request_id, option_id: cmd.option_id, by: "view" }, req.thread_id);
+        return { type: "Ok" };
+      }
+      case "SetThreadWritable":
+        this.sideWritable.set(cmd.thread_id, cmd.writable);
+        this.emit(cmd.session_id, { type: "ThreadWritableChanged", writable: cmd.writable }, cmd.thread_id);
+        return { type: "Ok" };
       case "ContinueWithSummary": {
         const sid = cmd.session_id;
         this.readOnly.delete(sid);
@@ -407,6 +429,7 @@ export class MockTransport implements Transport {
       }
       case "Prompt": {
         const sid = cmd.session_id;
+        if (cmd.thread_id) return this.promptSide(sid, cmd.thread_id, cmd.text);
         if (this.readOnly.has(sid)) throw new Error("Thread is read-only: continue with a summary first");
         // Typing "/readonly" in the mock simulates an Agent that lost its session.
         if (cmd.text.trim() === "/readonly") {
@@ -498,6 +521,29 @@ export class MockTransport implements Transport {
       default:
         return { type: "Ok" };
     }
+  }
+
+  /** A Side Thread's Turn: the Agent Session starts on the first prompt; a reply streams in; "edit" asks to write. */
+  private promptSide(sid: string, thread: string, text: string): CommandResult {
+    const log = this.logs.get(sid)!;
+    const mine = log.filter((e) => e.thread_id === thread);
+    if (!mine.some((e) => e.kind.type === "AgentSessionStarted")) {
+      this.emit(sid, { type: "AgentSessionStarted", acp_session_id: `acp-${thread}`, boundary: this.sideForked.get(thread) ? "forked" : "initial" }, thread);
+    }
+    const turn = `${thread}-t${mine.filter((e) => e.kind.type === "TurnStarted").length + 1}`;
+    this.emit(sid, { type: "TurnStarted", turn_id: turn, text, attachments: [], context: null }, thread);
+    if (/\bedit\b/i.test(text)) {
+      const writable = this.sideWritable.get(thread) ?? false;
+      const request_id = `${turn}-perm`;
+      const tool_call = { toolCallId: `${turn}-edit`, title: "Edit src/hello.ts", kind: "edit" };
+      const options = [{ option_id: "allow", name: "Allow", kind: "allow_once" }, { option_id: "reject", name: "Reject", kind: "reject_once" }];
+      this.emit(sid, { type: "PermissionRequested", request_id, tool_call, options }, thread);
+      if (!writable) this.emit(sid, { type: "PermissionResolved", request_id, option_id: "reject", by: "read_only_thread" }, thread);
+    }
+    const words = `Side answer to **${text}**. This is a mock reply from a ${this.sideForked.get(thread) ? "forked" : "fresh"} Side Thread.\n\n- read-only unless you allow writes`.split(/(?<= )/);
+    words.forEach((w, i) => setTimeout(() => this.emit(sid, { type: "AgentMessageChunk", text: w }, thread), 60 * (i + 1)));
+    setTimeout(() => this.emit(sid, { type: "TurnEnded", turn_id: turn, stop_reason: "end_turn" }, thread), 60 * (words.length + 1));
+    return { type: "Ok" };
   }
 
   private setStatus(id: string, status: SessionSummary["status"]) {

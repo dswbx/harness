@@ -2,6 +2,7 @@
 //! Continue an earlier run (restart check) with `SMOKE_DATA=<data dir> SMOKE_SESSION=<id>`.
 //! `SMOKE_FRONTEND=chat` uses the chat Frontend (its Frontend Tools reach the Agent).
 //! `SMOKE_INSTALL=1` first installs `<agent_id>` from the ACP Registry (e.g. `claude-acp`).
+//! `SMOKE_SIDE="<question>"` then opens a Side Thread (fork if the Agent can) and asks it.
 
 use harness_core::api::{Command, CommandResult, Event, EventKind, FrontendManifest};
 use std::time::Duration;
@@ -58,6 +59,25 @@ async fn main() -> anyhow::Result<()> {
             let _ = h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id: request_id.clone(), option_id: opt }).await;
         }
         if matches!(e.kind, EventKind::TurnEnded { .. }) { break }
+    }
+    if let Ok(question) = std::env::var("SMOKE_SIDE") {
+        let CommandResult::ThreadStarted { thread_id, forked } = h
+            .execute(Command::StartSideThread { session_id: session_id.clone(), seed: None, excerpt: None, source: Default::default() })
+            .await
+            .map_err(anyhow::Error::msg)?
+        else { unreachable!() };
+        println!("side thread {thread_id} (fork tried: {forked})");
+        h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: Some(thread_id.clone()), text: question, attachments: vec![] }).await.map_err(anyhow::Error::msg)?;
+        loop {
+            let Ok(Some(e)) = tokio::time::timeout(Duration::from_secs(180), rx.recv()).await else { break };
+            let side = e.thread_id.as_ref() == Some(&thread_id);
+            let line = serde_json::to_string(&e.kind)?;
+            println!("{:>3} {} {}", e.seq, if side { "side" } else { "main" }, &line[..line.len().min(160)]);
+            if let EventKind::PermissionRequested { request_id, .. } = &e.kind {
+                let _ = h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id: request_id.clone(), option_id: None }).await;
+            }
+            if side && matches!(e.kind, EventKind::TurnEnded { .. }) { break }
+        }
     }
     println!("SMOKE_DATA={} SMOKE_SESSION={session_id}", data.display());
     Ok(())
