@@ -99,20 +99,23 @@ function GuessInlineCodeRow() {
   const on = useGuessInlineCode();
   return (
     <Row label="Inline code" htmlFor="guess-inline-code">
-      <label className="flex items-center gap-2 text-xs">
-        <button
-          id="guess-inline-code"
-          type="button"
-          role="switch"
-          aria-checked={on}
-          onClick={() => setGuessInlineCode(!on)}
-          className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
-        >
-          <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
-        </button>
-        <span>Guess the language</span>
-        <span className="truncate text-muted-foreground">From the message's code blocks and file names, else TypeScript</span>
-      </label>
+      <div className="grid gap-0.5 text-xs">
+        <label className="flex items-center gap-2">
+          <button
+            id="guess-inline-code"
+            type="button"
+            role="switch"
+            aria-checked={on}
+            onClick={() => setGuessInlineCode(!on)}
+            className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
+          >
+            <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
+          </button>
+          <span>Guess the language</span>
+        </label>
+        {/* Under the label text: past the switch (w-7) and gap (2). */}
+        <p className="pl-9 text-muted-foreground">From the message's code blocks and file names, else TypeScript</p>
+      </div>
     </Row>
   );
 }
