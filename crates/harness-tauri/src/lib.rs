@@ -83,8 +83,8 @@ fn subscribe_app(
     id
 }
 
-/// The Session's Terminal: output as raw bytes (an `ArrayBuffer` in JS, no JSON), then
-/// `{"exit": code}` when the shell ends.
+/// The Session's Terminal: the replay as raw bytes then `{"replayed": true}`, live output as raw
+/// bytes (an `ArrayBuffer` in JS, no JSON), then `{"exit": code}` when the shell ends.
 #[tauri::command]
 fn terminal_attach(
     webview: Webview,
@@ -101,6 +101,10 @@ fn terminal_attach(
             cols,
             rows,
             Box::new(move |o: TerminalOutput| match o {
+                TerminalOutput::Replay(d) => {
+                    (d.is_empty() || channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok())
+                        && channel.send(InvokeResponseBody::Json(r#"{"replayed":true}"#.into())).is_ok()
+                }
                 TerminalOutput::Data(d) => channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok(),
                 TerminalOutput::Exit(code) => {
                     let _ = channel.send(InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string()));

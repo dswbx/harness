@@ -3,8 +3,11 @@ import type { AppEvent, Command, CommandResult, Event } from "./generated";
 
 export type Unsubscribe = () => void;
 
-/** Terminal output: raw bytes, or the shell's end (ADR 0017). */
-export type TerminalOutput = Uint8Array | { exit: number | null };
+/**
+ * Terminal output (ADR 0017): first `replay` (once, may be empty: earlier output to redraw, whose
+ * terminal queries must not be answered), then live bytes, then the shell's end.
+ */
+export type TerminalOutput = Uint8Array | { replay: Uint8Array } | { exit: number | null };
 
 /** Boundary between the UI and the Rust core (ADR 0001): Commands, Session Logs, AppEvents, and the Terminal byte stream. */
 export interface Transport {
@@ -42,10 +45,20 @@ export const tauriTransport: Transport = {
     };
   },
   async attachTerminal(sessionId, cols, rows, onOutput) {
-    // Raw bytes arrive as an ArrayBuffer, the exit as JSON.
-    const channel = new Channel<ArrayBuffer | { exit: number | null }>();
+    // Raw bytes arrive as an ArrayBuffer, markers as JSON. Bytes before `replayed` are the replay.
+    const channel = new Channel<ArrayBuffer | { replayed: true } | { exit: number | null }>();
     let live = true;
-    channel.onmessage = (m) => live && onOutput(m instanceof ArrayBuffer ? new Uint8Array(m) : m);
+    let replay: Uint8Array | null = new Uint8Array();
+    channel.onmessage = (m) => {
+      if (!live) return;
+      if (m instanceof ArrayBuffer) {
+        if (replay) replay = new Uint8Array(m);
+        else onOutput(new Uint8Array(m));
+      } else if ("replayed" in m) {
+        onOutput({ replay: replay ?? new Uint8Array() });
+        replay = null;
+      } else onOutput(m);
+    };
     const id = await invoke<number>("terminal_attach", { sessionId, cols, rows, channel });
     return () => {
       live = false;

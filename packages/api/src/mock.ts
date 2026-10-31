@@ -552,6 +552,7 @@ export class MockTransport implements Transport {
       this.terminals.set(sessionId, (set = new Set()));
       queueMicrotask(() => this.terminalOut(sessionId, "Mock terminal (browser). Type `exit` to end.\r\n\x1b[32m~\x1b[0m $ "));
     }
+    onOutput({ replay: new Uint8Array() });
     set.add(onOutput);
     return () => set.delete(onOutput);
   }
