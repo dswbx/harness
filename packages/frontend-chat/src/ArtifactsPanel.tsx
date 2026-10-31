@@ -134,7 +134,7 @@ export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
         {groups.map((g) => (
           <div key={`${g.turn}:${g.items[0]!.key}`}>
             <div className="flex gap-1.5 px-1.5 pt-3 pb-1 text-[11px] text-muted-foreground">
-              <span className="font-medium tracking-wide uppercase">{g.turn ? `Turn ${g.turn}` : "Start"}</span>
+              <span className="shrink-0 font-medium tracking-wide whitespace-nowrap uppercase">{g.turn ? `Turn ${g.turn}` : "Start"}</span>
               <span className="truncate">{g.prompt}</span>
             </div>
             {g.items.map((a) => (
