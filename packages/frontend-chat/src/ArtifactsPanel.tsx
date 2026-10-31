@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowRight, ChartColumn, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Maximize2, Search, Table2, Workflow, X, GitPullRequest } from "lucide-react";
-import { Button, Tooltip, cn } from "@harness/ui";
+import { ArrowRight, ChartColumn, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Search, Table2, Workflow, X, GitPullRequest } from "lucide-react";
+import { Button, cn } from "@harness/ui";
 import { filterArtifacts, type Artifact, type ArtifactKind } from "./artifacts";
 import { Markdown } from "./Markdown";
 import { RenderUi, type UiEnv } from "./RenderUi";
@@ -40,7 +40,7 @@ function Preview({ a, env }: { a: Artifact; env: UiEnv }) {
 
 /**
  * The Artifacts panel (right): every render_ui item, Mermaid diagram and table of the Session,
- * by Turn, filterable. A row jumps to where it is in the chat or opens it here (inspect).
+ * by Turn, filterable. A click opens one here (inspect); from there, or with Enter, it jumps to the chat.
  */
 export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
   artifacts: Artifact[]; env: UiEnv; onJump: (a: Artifact) => void; onClose: () => void;
@@ -138,7 +138,7 @@ export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
               <span className="truncate">{g.prompt}</span>
             </div>
             {g.items.map((a) => (
-              <Row key={a.key} a={a} selected={a.key === selected} onSelect={() => setSelected(a.key)} onInspect={() => { setSelected(a.key); setInspecting(a.key); }} onJump={() => { setSelected(a.key); onJump(a); }} />
+              <Row key={a.key} a={a} selected={a.key === selected} onOpen={() => { setSelected(a.key); setInspecting(a.key); }} />
             ))}
           </div>
         ))}
@@ -152,7 +152,7 @@ export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
   );
 }
 
-function Row({ a, selected, onSelect, onInspect, onJump }: { a: Artifact; selected: boolean; onSelect: () => void; onInspect: () => void; onJump: () => void }) {
+function Row({ a, selected, onOpen }: { a: Artifact; selected: boolean; onOpen: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const now = useNow();
   useEffect(() => { if (selected) ref.current?.scrollIntoView({ block: "nearest" }); }, [selected]);
@@ -161,9 +161,8 @@ function Row({ a, selected, onSelect, onInspect, onJump }: { a: Artifact; select
       ref={ref}
       role="option"
       aria-selected={selected}
-      onClick={onSelect}
-      onDoubleClick={onInspect}
-      className={cn("group/art flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-accent/60", selected && "bg-accent ring-1 ring-border ring-inset hover:bg-accent")}
+      onClick={onOpen}
+      className={cn("flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-accent/60", selected && "bg-accent ring-1 ring-border ring-inset hover:bg-accent")}
     >
       <span className={cn("grid size-8 shrink-0 place-items-center rounded-md bg-muted text-foreground/80 [&_svg]:size-4", selected && "bg-background")}>
         <KindIcon a={a} />
@@ -175,19 +174,7 @@ function Row({ a, selected, onSelect, onInspect, onJump }: { a: Artifact; select
         </div>
         <div className="truncate text-xs text-muted-foreground">{a.sub}</div>
       </div>
-      <span className="text-xs text-muted-foreground group-hover/art:hidden">{age(a.ts, now)}</span>
-      <div className="hidden gap-0.5 group-hover/art:flex">
-        <Tooltip content="Inspect">
-          <Button size="icon" variant="ghost" className="size-7" aria-label="Inspect" onClick={(e) => { e.stopPropagation(); onInspect(); }}>
-            <Maximize2 />
-          </Button>
-        </Tooltip>
-        <Tooltip content="Jump to message">
-          <Button size="icon" variant="ghost" className="size-7" aria-label="Jump to message" onClick={(e) => { e.stopPropagation(); onJump(); }}>
-            <ArrowRight />
-          </Button>
-        </Tooltip>
-      </div>
+      <span className="text-xs text-muted-foreground">{age(a.ts, now)}</span>
     </div>
   );
 }
