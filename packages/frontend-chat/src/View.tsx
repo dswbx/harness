@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ShieldCheck, ShieldX, SquareTerminal, X } from "lucide-react";
+import { AlertTriangle, Archive, Brain, Info, CheckCircle2, ChevronRight, CircleDashed, FileText, GitCompare, Loader2, PanelRight, ScrollText, ShieldCheck, ShieldX, SquareTerminal, X } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, useSessionEvents, type Subagent } from "@harness/api";
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Portal, ResizeHandle, Tooltip, VirtualList, cn, useResizableWidth } from "@harness/ui";
@@ -8,6 +8,7 @@ import { PromptBox } from "./PromptBox";
 // xterm.js stays out of the main chunk until the Terminal is first opened.
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
+import { EventsPanel } from "./EventsPanel";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
 import { formatDuration } from "./time";
@@ -389,7 +390,7 @@ export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTML
 
 function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  /** The right panel: "changes" (the diff), "terminal", or the id of a right-placed render_ui slot. Kept per Session while the window lives. */
+  /** The right panel: "changes" (the diff), "terminal", "events" (the raw Session Log), or the id of a right-placed render_ui slot. Kept per Session while the window lives. */
   const [panel, setPanelId] = useState<string | null>(() => loadPanel(api.sessionId));
   useEffect(() => savePanel(api.sessionId, panel), [api.sessionId, panel]);
   /** The Terminal stays mounted (hidden) once opened, so its screen survives switching panels. */
@@ -473,6 +474,18 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       {ui.slots.right.map((x) => (
         <SlotTab key={x.id} slot={x} open={panel === x.id} onClick={() => setPanelId(panel === x.id ? null : x.id)} />
       ))}
+      <Tooltip content="Events" side="bottom">
+        <Button
+          size="icon"
+          variant="ghost"
+          className={cn("size-7 text-muted-foreground hover:text-accent-foreground", panel === "events" && "bg-accent text-accent-foreground")}
+          aria-label="Events"
+          aria-pressed={panel === "events"}
+          onClick={() => setPanelId(panel === "events" ? null : "events")}
+        >
+          <ScrollText />
+        </Button>
+      </Tooltip>
       <Tooltip content="Terminal (Ctrl+`)" side="bottom">
         <Button
           size="icon"
@@ -550,13 +563,14 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         <PromptBox api={api} state={state} />
       )}
     </div>
-    {(panel === "changes" || panel === "terminal" || rightSlot || terminalOpened) && (
+    {(panel === "changes" || panel === "terminal" || panel === "events" || rightSlot || terminalOpened) && (
       <div
-        className={cn("relative h-full shrink-0", !(panel === "changes" || panel === "terminal" || rightSlot) && "hidden")}
+        className={cn("relative h-full shrink-0", !(panel === "changes" || panel === "terminal" || panel === "events" || rightSlot) && "hidden")}
         style={{ width: right.width }}
       >
         <ResizeHandle label="Resize panel" {...right.handle} />
         {panel === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={() => setPanelId(null)} refreshKey={refreshKey} />}
+        {panel === "events" && <EventsPanel api={api} onClose={() => setPanelId(null)} />}
         {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={() => setPanelId(null)} />}
         {terminalOpened && (
           <div className={cn("h-full", panel !== "terminal" && "hidden")}>
