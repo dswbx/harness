@@ -22,11 +22,15 @@ type Props = {
   stickToBottom?: boolean;
   /** Rows rendered outside the viewport on each side. */
   overscan?: number;
+  /** Scrolls a row into view by key (it renders with `data-key`), e.g. to jump to a message. */
+  handle?: React.Ref<VirtualListHandle>;
 };
+
+export type VirtualListHandle = { scrollToKey: (key: React.Key) => boolean };
 
 /** Windowed list with dynamic row heights and stick-to-bottom while streaming. */
 export function VirtualList({
-  count, getKey, renderRow, estimateSize = 80, gap = 0, className, innerClassName, empty, footer, stickToBottom = true, overscan = 8,
+  count, getKey, renderRow, estimateSize = 80, gap = 0, className, innerClassName, empty, footer, stickToBottom = true, overscan = 8, handle,
 }: Props) {
   const scroller = React.useRef<HTMLDivElement>(null);
   const stick = React.useRef(stickToBottom);
@@ -39,6 +43,19 @@ export function VirtualList({
     paddingStart: 16,
   });
   const total = v.getTotalSize();
+
+  React.useImperativeHandle(handle, () => ({
+    scrollToKey(key) {
+      for (let i = 0; i < count; i++) {
+        if (getKey(i) !== key) continue;
+        // Jumping away from the bottom stops following it.
+        stick.current = false;
+        v.scrollToIndex(i, { align: "center" });
+        return true;
+      }
+      return false;
+    },
+  }), [count, getKey, v]);
 
   // Re-enabling follow mode jumps back to the bottom.
   React.useLayoutEffect(() => {
@@ -70,6 +87,7 @@ export function VirtualList({
               <div
                 key={row.key}
                 data-index={row.index}
+                data-key={String(row.key)}
                 ref={v.measureElement}
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${row.start}px)`, paddingBottom: gap }}
               >

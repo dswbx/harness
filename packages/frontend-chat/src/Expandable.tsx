@@ -6,10 +6,10 @@ import { Button, Dialog, DialogContent, DialogDescription, DialogTitle, Tooltip,
  * Content with an Expand button (on hover, in the chat column's right gutter) that opens it in a
  * near full-screen view. `expanded`: what that view shows; else `children` again, scrolling.
  */
-export function Expandable({ label, children, expanded, className }: { label: string; children: ReactNode; expanded?: ReactNode; className?: string }) {
+export function Expandable({ label, children, expanded, className, ...data }: { label: string; children: ReactNode; expanded?: ReactNode; className?: string; [data: `data-${string}`]: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className={cn("group/expand relative", className)}>
+    <div className={cn("group/expand relative", className)} {...data}>
       {children}
       <Tooltip content="Expand" side="right">
         <Button

@@ -14,6 +14,7 @@ import { jsReady, loadJs, onJsReady, runJs } from "./sandbox";
 
 /** recharts is large: loaded the first time a Chart shows. */
 const UiChart = lazy(() => import("./UiChart"));
+import { PullRequest } from "./UiPullRequest";
 import { components, type RawNode, type UiAction, type UiNode, type Visible } from "./tools";
 
 type Tone = "neutral" | "info" | "success" | "warning" | "error";
@@ -934,6 +935,8 @@ function Node({ raw }: { raw: RawNode }) {
       );
     case "Trace":
       return <Trace node={node} />;
+    case "PullRequest":
+      return <PullRequest node={node} />;
     case "Chart": {
       const data = Array.isArray(node.props.data) ? (node.props.data as Record<string, unknown>[]) : [];
       return (
