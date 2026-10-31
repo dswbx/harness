@@ -18,11 +18,16 @@ import { fromCss, fromRegistryItem, registryUrl, themeId } from "./appearance/im
 const TWEAKCN = "https://tweakcn.com/editor/theme";
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
-function Row({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
+/** A setting: label, control and optional help text under the control. The label sits on the control's first line
+ * (min-h-8, the height of inputs), so it stays readable when the control or help wraps. */
+function Row({ label, htmlFor, help, children }: { label: string; htmlFor?: string; help?: React.ReactNode; children: React.ReactNode }) {
   return (
     <>
-      <label htmlFor={htmlFor} className={heading}>{label}</label>
-      <div className="flex min-w-0 items-center gap-2">{children}</div>
+      <label htmlFor={htmlFor} className={cn(heading, "flex min-h-8 items-center self-start")}>{label}</label>
+      <div className="grid min-w-0 gap-1 self-start">
+        <div className="flex min-h-8 min-w-0 items-center gap-2">{children}</div>
+        {help && <p className="text-xs text-muted-foreground">{help}</p>}
+      </div>
     </>
   );
 }
@@ -98,24 +103,20 @@ function ToolDisplayRow() {
 function GuessInlineCodeRow() {
   const on = useGuessInlineCode();
   return (
-    <Row label="Inline code" htmlFor="guess-inline-code">
-      <div className="grid gap-0.5 text-xs">
-        <label className="flex items-center gap-2">
-          <button
-            id="guess-inline-code"
-            type="button"
-            role="switch"
-            aria-checked={on}
-            onClick={() => setGuessInlineCode(!on)}
-            className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
-          >
-            <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
-          </button>
-          <span>Guess the language</span>
-        </label>
-        {/* Under the label text: past the switch (w-7) and gap (2). */}
-        <p className="pl-9 text-muted-foreground">From the message's code blocks and file names, else TypeScript</p>
-      </div>
+    <Row label="Inline code" htmlFor="guess-inline-code" help="From the message's code blocks and file names, else TypeScript">
+      <label className="flex items-center gap-2 text-xs">
+        <button
+          id="guess-inline-code"
+          type="button"
+          role="switch"
+          aria-checked={on}
+          onClick={() => setGuessInlineCode(!on)}
+          className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
+        >
+          <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
+        </button>
+        <span>Guess the language</span>
+      </label>
     </Row>
   );
 }
