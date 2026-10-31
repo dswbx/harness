@@ -96,6 +96,9 @@ pub struct WorkspaceMeta {
     /// Repository containing the Workspace Folder, if any.
     pub repo_root: Option<PathBuf>,
     pub worktree: Option<crate::workspace::WorktreeMeta>,
+    /// Base branch without a Worktree (a PR checked out in the folder); diffs and commits compare against it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 pub struct Session {
@@ -498,6 +501,12 @@ impl Session {
         crate::acp::set_mode(self.clone(), thread, mode_id).await
     }
 
+    /// The branch diffs and commits compare against: the Worktree's base, else a PR's.
+    fn base(&self) -> Option<String> {
+        let w = self.meta().workspace;
+        w.worktree.map(|w| w.base).or(w.base)
+    }
+
     fn folder(&self) -> anyhow::Result<PathBuf> {
         let m = self.meta.lock().unwrap();
         anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
@@ -510,7 +519,7 @@ impl Session {
 
     pub async fn git_diff(&self, from: Option<String>, to: Option<String>) -> anyhow::Result<crate::api::Diff> {
         let folder = self.folder()?;
-        let base = self.meta().workspace.worktree.map(|w| w.base);
+        let base = self.base();
         let from = match from {
             Some(f) => f,
             None => crate::workspace::diff_base(&folder, base.as_deref()).await?,
@@ -524,7 +533,7 @@ impl Session {
 
     pub async fn git_log(&self) -> anyhow::Result<Vec<crate::api::Commit>> {
         let folder = self.folder()?;
-        let base = self.meta().workspace.worktree.map(|w| w.base);
+        let base = self.base();
         let base = crate::workspace::diff_base(&folder, base.as_deref()).await?;
         crate::workspace::log(&folder, &base).await
     }

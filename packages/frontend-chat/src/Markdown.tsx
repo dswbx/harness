@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import { lazy, Suspense } from "react";
 import { AnsiText } from "./AnsiText";
 import { Expandable } from "./Expandable";
+import { rehypeInlineCode, useGuessInlineCode } from "./inlineCode";
 
 /** mermaid is large: loaded with the first diagram. */
 const Mermaid = lazy(() => import("./Mermaid").then((m) => ({ default: m.Mermaid })));
@@ -49,14 +50,21 @@ const components: import("react-markdown").Components = {
 };
 import { cn } from "@harness/ui";
 
-/** Code blocks with a language get highlight.js tokens, colored by the shared code theme (`@harness/ui`). */
-const highlight: import("react-markdown").Options["rehypePlugins"] = [[rehypeHighlight, { detect: false, plainText: ["mermaid", "ansi"] }]];
+type Plugins = NonNullable<import("react-markdown").Options["rehypePlugins"]>;
+const block: Plugins[number] = [rehypeHighlight, { detect: false, plainText: ["mermaid", "ansi"] }];
+/** Code blocks with a language, and inline code (see `inlineCode.ts`; guessing per Settings), get highlight.js tokens,
+ * colored by the shared code theme (`@harness/ui`). */
+const highlight: Record<"guess" | "marked", Plugins> = {
+  guess: [block, [rehypeInlineCode, { guess: true }]],
+  marked: [block, [rehypeInlineCode, { guess: false }]],
+};
 
 /** `breaks`: single newlines become line breaks (user prompts are typed that way). */
 export function Markdown({ children, className, breaks }: { children: string; className?: string; breaks?: boolean }) {
+  const guess = useGuessInlineCode();
   return (
     <div className={cn("typeset typeset-chat", className)}>
-      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]} rehypePlugins={highlight} components={components}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]} rehypePlugins={highlight[guess ? "guess" : "marked"]} components={components}>{children}</ReactMarkdown>
     </div>
   );
 }

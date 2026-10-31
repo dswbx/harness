@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import type { HarnessClient } from "@harness/api";
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Select, Textarea, cn } from "@harness/ui";
-import { setToolDisplay, toolDisplays, useToolDisplay } from "@harness/frontend-chat";
+import { setGuessInlineCode, setToolDisplay, toolDisplays, useGuessInlineCode, useToolDisplay } from "@harness/frontend-chat";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
@@ -18,11 +18,16 @@ import { fromCss, fromRegistryItem, registryUrl, themeId } from "./appearance/im
 const TWEAKCN = "https://tweakcn.com/editor/theme";
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
-function Row({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
+/** A setting: label, control and optional help text under the control. The label sits on the control's first line
+ * (min-h-8, the height of inputs), so it stays readable when the control or help wraps. */
+function Row({ label, htmlFor, help, children }: { label: string; htmlFor?: string; help?: React.ReactNode; children: React.ReactNode }) {
   return (
     <>
-      <label htmlFor={htmlFor} className={heading}>{label}</label>
-      <div className="flex min-w-0 items-center gap-2">{children}</div>
+      <label htmlFor={htmlFor} className={cn(heading, "flex min-h-8 items-center self-start")}>{label}</label>
+      <div className="grid min-w-0 gap-1 self-start">
+        <div className="flex min-h-8 min-w-0 items-center gap-2">{children}</div>
+        {help && <p className="text-xs text-muted-foreground">{help}</p>}
+      </div>
     </>
   );
 }
@@ -90,6 +95,28 @@ function ToolDisplayRow() {
       <Select id="tool-display" className="h-8 w-44 shrink-0 text-xs" value={current.id} onChange={(e) => setToolDisplay(e.target.value)}>
         {toolDisplays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
       </Select>
+    </Row>
+  );
+}
+
+/** Chat Frontend: highlight unmarked code-like inline code in the message's language (stored by the Frontend itself). */
+function GuessInlineCodeRow() {
+  const on = useGuessInlineCode();
+  return (
+    <Row label="Inline code" htmlFor="guess-inline-code" help="From the message's code blocks and file names, else TypeScript">
+      <label className="flex items-center gap-2 text-xs">
+        <button
+          id="guess-inline-code"
+          type="button"
+          role="switch"
+          aria-checked={on}
+          onClick={() => setGuessInlineCode(!on)}
+          className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
+        >
+          <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
+        </button>
+        <span>Guess the language</span>
+      </label>
     </Row>
   );
 }
@@ -303,6 +330,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
           <RhythmRow label="Leading" id="chat-leading" value={a.leading} options={LEADINGS} onChange={(leading) => update({ leading })} />
           <RhythmRow label="Flow" id="chat-flow" value={a.flow} options={FLOWS} onChange={(flow) => update({ flow })} />
           <ToolDisplayRow />
+          <GuessInlineCodeRow />
         </Group>
         <Group title="Terminal">
           <FontRow

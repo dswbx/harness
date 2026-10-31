@@ -265,25 +265,46 @@ pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
         .collect())
 }
 
-/// Where a Session's changes start: the merge base with its Worktree's base branch. Without a Worktree: on a branch,
-/// where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default branch, its upstream,
-/// so only unpushed commits count; else HEAD (no commits, only uncommitted work).
+/// Where a Session's changes start: the closest merge base with its base branch (a Worktree's, or a PR's), local or on
+/// any remote; a base found nowhere (a PR into a branch never fetched) is fetched once. Without a base, or when it is
+/// gone: on a branch, where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default
+/// branch, its upstream, so only unpushed commits count; else HEAD (no commits, only uncommitted work).
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
-    if let Some(base) = base
-        && let Ok(mb) = git(dir, &["merge-base", "HEAD", base]).await
-    {
-        return Ok(mb.trim().to_owned());
-    }
-    if base.is_none() {
-        let default = default_branch(dir).await;
-        let current = current_branch(dir).await.ok().flatten();
-        let on_default = default.as_deref().is_some_and(|d| current.as_deref() == Some(d.split_once('/').map_or(d, |(_, b)| b)));
-        let fork = if on_default { "@{upstream}" } else { default.as_deref().unwrap_or("@{upstream}") };
-        if let Ok(mb) = git(dir, &["merge-base", "HEAD", fork]).await {
+    if let Some(base) = base {
+        let mut refs = base_refs(dir, base).await;
+        if refs.is_empty() {
+            for remote in git(dir, &["remote"]).await.unwrap_or_default().lines() {
+                let _ = git(dir, &["fetch", "--quiet", "--no-tags", remote, &format!("refs/heads/{base}:refs/remotes/{remote}/{base}")]).await;
+            }
+            refs = base_refs(dir, base).await;
+        }
+        // With several refs, git picks the best common ancestor of HEAD and any of them: the closest fork point.
+        if !refs.is_empty()
+            && let Ok(mb) = git(dir, &[&["merge-base", "HEAD"][..], &refs.iter().map(String::as_str).collect::<Vec<_>>()].concat()).await
+        {
             return Ok(mb.trim().to_owned());
         }
     }
+    let default = default_branch(dir).await;
+    let current = current_branch(dir).await.ok().flatten();
+    let on_default = default.as_deref().is_some_and(|d| current.as_deref() == Some(d.split_once('/').map_or(d, |(_, b)| b)));
+    let fork = if on_default { "@{upstream}" } else { default.as_deref().unwrap_or("@{upstream}") };
+    if let Ok(mb) = git(dir, &["merge-base", "HEAD", fork]).await {
+        return Ok(mb.trim().to_owned());
+    }
     Ok(git(dir, &["rev-parse", "HEAD"]).await?.trim().to_owned())
+}
+
+/// `base` as a local branch (or any ref) and as `<remote>/<base>` on every remote, those that exist.
+async fn base_refs(dir: &Path, base: &str) -> Vec<String> {
+    let mut refs = vec![];
+    if !base.starts_with('-') && git(dir, &["rev-parse", "--verify", "--quiet", &format!("{base}^{{commit}}")]).await.is_ok() {
+        refs.push(base.to_owned());
+    }
+    let pattern = format!("refs/remotes/*/{base}");
+    let remote = git(dir, &["for-each-ref", "--format=%(refname)", &pattern]).await.unwrap_or_default();
+    refs.extend(remote.lines().filter(|r| !r.is_empty() && *r != base).map(str::to_owned));
+    refs
 }
 
 /// The repo's main line: `origin/HEAD`, else a local `main` or `master`.

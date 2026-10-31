@@ -326,3 +326,57 @@ async fn new_branch_in_the_folder_or_as_the_worktree_branch() {
     let err = create_new_branch(&h, &repo, None, "bad name", false).await.unwrap_err();
     assert!(err.contains("not a valid branch name"), "{err}");
 }
+
+#[tokio::test]
+async fn diff_base_finds_a_prs_base_locally_or_on_origin() {
+    let (_dir, repo, _data) = repo();
+    let commit = |msg: &str| {
+        std::fs::write(repo.join("f.txt"), msg).unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", msg]);
+        sh(&repo, &["rev-parse", "HEAD"])
+    };
+    let base = |b: &'static str| {
+        let repo = repo.clone();
+        async move { harness_core::workspace::diff_base(&repo, Some(b)).await.unwrap() }
+    };
+    // Base only on origin (no local branch): its fork point, not HEAD.
+    let fork = commit("dev");
+    sh(&repo, &["update-ref", "refs/remotes/origin/dev", "HEAD"]);
+    sh(&repo, &["checkout", "-q", "-b", "pr"]);
+    commit("pr1");
+    assert_eq!(base("dev").await, fork);
+
+    // Local main stale, origin/main ahead and the PR forked from it: origin's fork point.
+    sh(&repo, &["checkout", "-q", "main"]);
+    let main0 = sh(&repo, &["rev-parse", "HEAD"]);
+    let fork = commit("upstream");
+    sh(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    sh(&repo, &["reset", "-q", "--hard", &main0]);
+    sh(&repo, &["checkout", "-q", "-b", "pr2", &fork]);
+    commit("pr2");
+    assert_eq!(base("main").await, fork);
+
+    // Local main ahead of origin (unpushed) and the branch forked from it: local fork point.
+    sh(&repo, &["checkout", "-q", "main"]);
+    sh(&repo, &["reset", "-q", "--hard", &fork]);
+    let local = commit("local");
+    sh(&repo, &["checkout", "-q", "-b", "feat"]);
+    commit("feat");
+    assert_eq!(base("main").await, local);
+
+    // Base on another remote, never fetched (a PR into a release branch): fetched, its fork point; not main's.
+    let up = repo.parent().unwrap().join("upstream");
+    sh(repo.parent().unwrap(), &["clone", "-q", repo.to_str().unwrap(), up.to_str().unwrap()]);
+    sh(&up, &["checkout", "-q", "-b", "release/1", &local]);
+    std::fs::write(up.join("r.txt"), "r").unwrap();
+    sh(&up, &["add", "."]);
+    sh(&up, &["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "-m", "release"]);
+    let release = sh(&up, &["rev-parse", "HEAD"]);
+    sh(&repo, &["remote", "add", "upstream", up.to_str().unwrap()]);
+    sh(&repo, &["fetch", "-q", "upstream", &release]);
+    sh(&repo, &["checkout", "-q", "-b", "pr3", &release]);
+    commit("pr3");
+    assert_eq!(base("release/1").await, release);
+    assert_eq!(sh(&repo, &["rev-parse", "refs/remotes/upstream/release/1"]), release);
+}
