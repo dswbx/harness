@@ -63,6 +63,12 @@ Example: level `same_agent`, mode ask. A Claude Side Thread asks to read a Claud
 - Privacy: other Sessions can hold secrets or other projects; hence off by default and the private flag.
 - Cost and speed: each read is a tool round trip and new input tokens. Probably cheaper than a fork that misses the cache, but slower per read.
 
+## Prior art (2026-10-31, from third-party blogs, not official docs)
+
+- **Claude Code `/btw`:** sees the full current conversation (fork-like), answer is not added to history, works while the main turn is still running, no tool use, one question per command.
+- **Codex `/side` (alias `/btw`, app has "Open Side Chat"):** in-memory fork that inherits the conversation as read-only reference, file edits blocked, closing returns to parent. Separate `/fork` makes a persistent branch with a new thread id.
+- Both fork rather than start fresh. Neither writes back to the main thread.
+
 ## Open questions
 
 - Where do the policy settings live: global settings, Permission Policy rules, or both?
