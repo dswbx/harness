@@ -200,6 +200,25 @@ pub enum Command {
     GitPush {
         session_id: SessionId,
     },
+    /// Keystrokes or pasted text for the Session's Terminal (attach first, ADR 0017).
+    TerminalInput {
+        session_id: SessionId,
+        data: String,
+    },
+    TerminalResize {
+        session_id: SessionId,
+        cols: u16,
+        rows: u16,
+    },
+    /// The Frontend has drawn `bytes` of Terminal output (flow control).
+    TerminalAck {
+        session_id: SessionId,
+        bytes: u32,
+    },
+    /// Ends the Session's shell; the next attach starts a new one.
+    TerminalKill {
+        session_id: SessionId,
+    },
     /// Start a Turn in a Thread (Main Thread when `thread_id` is absent). Returns immediately;
     /// progress arrives as Events.
     Prompt {

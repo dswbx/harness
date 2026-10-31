@@ -7,7 +7,8 @@ import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
 import {
-  CUSTOM_FONT_MAX, DEFAULT_APPEARANCE, FLOWS, FONT_SIZE_MAX, FONT_SIZE_MIN, LEADINGS, MODES, MONO_FONTS, SANS_FONTS, clampFontSize, cleanFont,
+  CUSTOM_FONT_MAX, DEFAULT_APPEARANCE, FLOWS, FONT_SIZE_MAX, FONT_SIZE_MIN, LEADINGS, MODES, MONO_FONTS, SANS_FONTS, TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN, clampFontSize, cleanFont,
   getAppearance, getImportedThemes, getThemes, isDarkMode, onThemesChange, previewAppearance, revertPreview, setAppearance, setImportedThemes,
   type Appearance, type FontOption, type RhythmOption,
 } from "./appearance/appearance";
@@ -26,14 +27,26 @@ function Row({ label, htmlFor, children }: { label: string; htmlFor?: string; ch
   );
 }
 
-function FontRow({ label, id, value, custom, placeholder, fonts, onChange }: {
+/** A titled block of rows. */
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section aria-label={title} className="border-t pt-5 first:border-t-0 first:pt-0">
+      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+      <div className="grid grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-3">{children}</div>
+    </section>
+  );
+}
+
+function FontRow({ label, id, value, custom, placeholder, fonts, onChange, defaultLabel = "Theme default" }: {
   label: string; id: string; value: string; custom: string; placeholder: string; fonts: FontOption[];
   onChange: (patch: { choice?: string; custom?: string }) => void;
+  /** Label of the "theme" choice. */
+  defaultLabel?: string;
 }) {
   return (
     <Row label={label} htmlFor={id}>
       <Select id={id} className="h-8 w-72 shrink-0 text-xs" value={value} onChange={(e) => onChange({ choice: e.target.value })}>
-        <option value="theme">Theme default</option>
+        <option value="theme">{defaultLabel}</option>
         <option value="system">System</option>
         {fonts.map((f) => (
           <option key={f.id} value={f.id}>{f.label}</option>
@@ -81,19 +94,19 @@ function ToolDisplayRow() {
   );
 }
 
-/** px stepper: typing, arrows, +/- buttons, clamped to FONT_SIZE_MIN..MAX, with Reset. */
-function SizeField({ id, label, value, fallback, onChange }: {
-  id: string; label: string; value: number; fallback: number; onChange: (n: number) => void;
+/** px stepper: typing, arrows, +/- buttons, clamped to min..max (FONT_SIZE_MIN..MAX by default), with Reset. */
+function SizeField({ id, label, value, fallback, onChange, min = FONT_SIZE_MIN, max = FONT_SIZE_MAX }: {
+  id: string; label: string; value: number; fallback: number; onChange: (n: number) => void; min?: number; max?: number;
 }) {
   const [text, setText] = useState<string | null>(null);
   const set = (n: number) => {
     setText(null);
-    if (Number.isFinite(n)) onChange(clampFontSize(n));
+    if (Number.isFinite(n)) onChange(clampFontSize(n, min, max));
   };
   return (
     <>
       <div className="flex items-center gap-1">
-        <Button size="icon" variant="outline" className="size-8" aria-label={`Decrease ${label}`} disabled={value <= FONT_SIZE_MIN} onClick={() => set(value - 1)}>
+        <Button size="icon" variant="outline" className="size-8" aria-label={`Decrease ${label}`} disabled={value <= min} onClick={() => set(value - 1)}>
           <Minus />
         </Button>
         <div className="relative">
@@ -106,7 +119,7 @@ function SizeField({ id, label, value, fallback, onChange }: {
               const v = e.target.value.replace(/[^\d]/g, "").slice(0, 2);
               setText(v);
               const n = Number(v);
-              if (v && n >= FONT_SIZE_MIN && n <= FONT_SIZE_MAX) onChange(n);
+              if (v && n >= min && n <= max) onChange(n);
             }}
             onBlur={() => text !== null && set(text ? Number(text) : value)}
             onKeyDown={(e) => {
@@ -120,7 +133,7 @@ function SizeField({ id, label, value, fallback, onChange }: {
           />
           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">px</span>
         </div>
-        <Button size="icon" variant="outline" className="size-8" aria-label={`Increase ${label}`} disabled={value >= FONT_SIZE_MAX} onClick={() => set(value + 1)}>
+        <Button size="icon" variant="outline" className="size-8" aria-label={`Increase ${label}`} disabled={value >= max} onClick={() => set(value + 1)}>
           <Plus />
         </Button>
       </div>
@@ -226,7 +239,7 @@ function ImportedThemes({ current, onRemoved }: { current: string; onRemoved: ()
   );
 }
 
-/** Theme preset, color mode, fonts and text size. Changes apply and save right away. */
+/** Theme, text, chat and terminal settings in groups. Changes apply and save right away. */
 export function AppearancePanel({ client }: { client: HarnessClient }) {
   const [a, setA] = useState<Appearance>(getAppearance);
   const update = (patch: Partial<Appearance>) => {
@@ -240,51 +253,70 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
 
   return (
     <div className="text-sm">
-      <SectionHeader title="Appearance" description="Theme, color mode, fonts and text sizes for all windows." />
+      <SectionHeader title="Appearance" description="Theme, fonts and text sizes for all windows." />
 
-      <div className="grid grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-3">
-        <Row label="Mode">
-          <div role="group" aria-label="Mode" className="inline-flex shrink-0 rounded-md border p-0.5">
-            {MODES.map((m) => (
-              <button
-                key={m}
-                aria-pressed={a.mode === m}
-                onClick={() => update({ mode: m })}
-                className={cn("rounded px-2.5 py-1 text-xs capitalize", a.mode === m ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-        </Row>
-        <Row label="Theme">
-          <ThemePicker
-            value={a.theme}
-            isDark={isDark}
-            onPreview={(theme) => previewAppearance({ ...a, theme })}
-            onCommit={(theme) => update({ theme })}
-            onRevert={revertPreview}
+      <div className="grid gap-5">
+        <Group title="Theme">
+          <Row label="Mode">
+            <div role="group" aria-label="Mode" className="inline-flex shrink-0 rounded-md border p-0.5">
+              {MODES.map((m) => (
+                <button
+                  key={m}
+                  aria-pressed={a.mode === m}
+                  onClick={() => update({ mode: m })}
+                  className={cn("rounded px-2.5 py-1 text-xs capitalize", a.mode === m ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </Row>
+          <Row label="Theme">
+            <ThemePicker
+              value={a.theme}
+              isDark={isDark}
+              onPreview={(theme) => previewAppearance({ ...a, theme })}
+              onCommit={(theme) => update({ theme })}
+              onRevert={revertPreview}
+            />
+            <ImportTheme client={client} onImported={(theme) => update({ theme })} />
+          </Row>
+          <ImportedThemes current={a.theme} onRemoved={() => update({ theme: "default" })} />
+        </Group>
+        <Group title="Text">
+          <FontRow
+            label="Font" id="font-sans" value={a.font} custom={a.customFont} placeholder="Avenir Next, sans-serif" fonts={SANS_FONTS}
+            onChange={({ choice, custom }) => update(custom === undefined ? { font: choice } : { customFont: custom })}
           />
-          <ImportTheme client={client} onImported={(theme) => update({ theme })} />
-        </Row>
-        <ImportedThemes current={a.theme} onRemoved={() => update({ theme: "default" })} />
-        <FontRow
-          label="Font" id="font-sans" value={a.font} custom={a.customFont} placeholder="Avenir Next, sans-serif" fonts={SANS_FONTS}
-          onChange={({ choice, custom }) => update(custom === undefined ? { font: choice } : { customFont: custom })}
-        />
-        <FontRow
-          label="Mono font" id="font-mono" value={a.mono} custom={a.customMono} placeholder="Berkeley Mono, monospace" fonts={MONO_FONTS}
-          onChange={({ choice, custom }) => update(custom === undefined ? { mono: choice } : { customMono: custom })}
-        />
-        <Row label="UI font size" htmlFor="font-size">
-          <SizeField id="font-size" label="UI font size" value={a.fontSize} fallback={DEFAULT_APPEARANCE.fontSize} onChange={(fontSize) => update({ fontSize })} />
-        </Row>
-        <Row label="Chat font size" htmlFor="chat-font-size">
-          <SizeField id="chat-font-size" label="chat font size" value={a.chatFontSize} fallback={DEFAULT_APPEARANCE.chatFontSize} onChange={(chatFontSize) => update({ chatFontSize })} />
-        </Row>
-        <RhythmRow label="Chat leading" id="chat-leading" value={a.leading} options={LEADINGS} onChange={(leading) => update({ leading })} />
-        <RhythmRow label="Chat flow" id="chat-flow" value={a.flow} options={FLOWS} onChange={(flow) => update({ flow })} />
-        <ToolDisplayRow />
+          <FontRow
+            label="Mono font" id="font-mono" value={a.mono} custom={a.customMono} placeholder="Berkeley Mono, monospace" fonts={MONO_FONTS}
+            onChange={({ choice, custom }) => update(custom === undefined ? { mono: choice } : { customMono: custom })}
+          />
+          <Row label="UI font size" htmlFor="font-size">
+            <SizeField id="font-size" label="UI font size" value={a.fontSize} fallback={DEFAULT_APPEARANCE.fontSize} onChange={(fontSize) => update({ fontSize })} />
+          </Row>
+        </Group>
+        <Group title="Chat">
+          <Row label="Font size" htmlFor="chat-font-size">
+            <SizeField id="chat-font-size" label="chat font size" value={a.chatFontSize} fallback={DEFAULT_APPEARANCE.chatFontSize} onChange={(chatFontSize) => update({ chatFontSize })} />
+          </Row>
+          <RhythmRow label="Leading" id="chat-leading" value={a.leading} options={LEADINGS} onChange={(leading) => update({ leading })} />
+          <RhythmRow label="Flow" id="chat-flow" value={a.flow} options={FLOWS} onChange={(flow) => update({ flow })} />
+          <ToolDisplayRow />
+        </Group>
+        <Group title="Terminal">
+          <FontRow
+            label="Font" id="terminal-font" value={a.terminalFont} custom={a.customTerminalFont} placeholder="Iosevka, monospace" fonts={MONO_FONTS}
+            defaultLabel="Mono font"
+            onChange={({ choice, custom }) => update(custom === undefined ? { terminalFont: choice } : { customTerminalFont: custom })}
+          />
+          <Row label="Font size" htmlFor="terminal-font-size">
+            <SizeField
+              id="terminal-font-size" label="terminal font size" value={a.terminalFontSize} fallback={DEFAULT_APPEARANCE.terminalFontSize}
+              min={TERMINAL_FONT_SIZE_MIN} max={TERMINAL_FONT_SIZE_MAX} onChange={(terminalFontSize) => update({ terminalFontSize })}
+            />
+          </Row>
+        </Group>
       </div>
     </div>
   );

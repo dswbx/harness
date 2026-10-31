@@ -110,6 +110,10 @@ _Avoid_: root, mount, directory
 A git checkout the Harness creates from a chosen starting point (e.g. a branch) for exactly one Session, and which belongs to that Session alone.
 _Avoid_: checkout, clone, sandbox
 
+**Terminal**:
+The user's shell for one Session, running in its primary Workspace Folder; a live byte stream outside the Session Log, kept while the Harness runs and ended when the Session is archived or deleted.
+_Avoid_: console, shell panel
+
 **Workspace Template**:
 A saved Workspace setup from which new Sessions can be composed; a convenience, never a prerequisite for creating a Session.
 _Avoid_: project, workspace (for the saved setup)

@@ -21,6 +21,10 @@ export type Appearance = {
   chatFontSize: number;
   leading: string;
   flow: string;
+  /** Terminal panel: "theme" (the Mono font), "system", "custom" or a bundled mono font id; size in px. */
+  terminalFont: string;
+  customTerminalFont: string;
+  terminalFontSize: number;
 };
 
 export type RhythmOption = { id: string; label: string; value: string };
@@ -38,11 +42,13 @@ export const FLOWS: RhythmOption[] = [
 
 export const DEFAULT_APPEARANCE: Appearance = {
   theme: "default", mode: "system", font: "theme", mono: "theme", customFont: "", customMono: "", fontSize: 14,
-  chatFontSize: 14, leading: "tight", flow: "regular",
+  chatFontSize: 14, leading: "tight", flow: "regular", terminalFont: "theme", customTerminalFont: "", terminalFontSize: 12,
 };
 export const CUSTOM_FONT_MAX = 200;
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 18;
+export const TERMINAL_FONT_SIZE_MIN = 9;
+export const TERMINAL_FONT_SIZE_MAX = 24;
 export const STORAGE_KEY = "harness.appearance";
 /** Imported themes, cached here so the first paint has them; the core's `themes.json` is the truth. */
 export const THEMES_KEY = "harness.themes";
@@ -95,7 +101,8 @@ export function modeVars(p: ThemePreset, isDark: boolean): Record<string, string
   return { ...shared, ...p.dark };
 }
 
-export const clampFontSize = (n: number) => Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(n)));
+export const clampFontSize = (n: number, min = FONT_SIZE_MIN, max = FONT_SIZE_MAX) => Math.min(max, Math.max(min, Math.round(n)));
+const size = (v: unknown, def: number, min?: number, max?: number) => (typeof v === "number" && Number.isFinite(v) ? clampFontSize(v, min, max) : def);
 
 /** Strips characters that could break out of a CSS value and limits length. Does not trim, so typing a space works. */
 export const cleanFont = (s: string) => s.replace(/[;{}]/g, "").slice(0, CUSTOM_FONT_MAX);
@@ -113,10 +120,13 @@ export function normalize(raw: unknown): Appearance {
     mono: pick(r.mono, fontOk(MONO_FONTS), d.mono),
     customFont: typeof r.customFont === "string" ? cleanFont(r.customFont).trim() : d.customFont,
     customMono: typeof r.customMono === "string" ? cleanFont(r.customMono).trim() : d.customMono,
-    fontSize: typeof r.fontSize === "number" && Number.isFinite(r.fontSize) ? clampFontSize(r.fontSize) : d.fontSize,
-    chatFontSize: typeof r.chatFontSize === "number" && Number.isFinite(r.chatFontSize) ? clampFontSize(r.chatFontSize) : d.chatFontSize,
+    fontSize: size(r.fontSize, d.fontSize),
+    chatFontSize: size(r.chatFontSize, d.chatFontSize),
     leading: pick(r.leading, (s) => LEADINGS.some((o) => o.id === s), d.leading),
     flow: pick(r.flow, (s) => FLOWS.some((o) => o.id === s), d.flow),
+    terminalFont: pick(r.terminalFont, fontOk(MONO_FONTS), d.terminalFont),
+    customTerminalFont: typeof r.customTerminalFont === "string" ? cleanFont(r.customTerminalFont).trim() : d.customTerminalFont,
+    terminalFontSize: size(r.terminalFontSize, d.terminalFontSize, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX),
   };
 }
 
@@ -142,7 +152,7 @@ function fontVar(choice: string, custom: string, list: FontOption[], system: str
   return f ? `"${f.family}", ${system}` : null;
 }
 
-/** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size, chat text. */
+/** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size, chat text, terminal text. */
 export function resolveVars(a: Appearance, isDark: boolean): Record<string, string> {
   const vars: Record<string, string> = {};
   const p = themeById(a.theme);
@@ -159,6 +169,10 @@ export function resolveVars(a: Appearance, isDark: boolean): Record<string, stri
   vars["--chat-font-size"] = `${a.chatFontSize}px`;
   vars["--chat-leading"] = (LEADINGS.find((o) => o.id === a.leading) ?? LEADINGS[0]!).value;
   vars["--chat-flow"] = (FLOWS.find((o) => o.id === a.flow) ?? FLOWS[1]!).value;
+  // Read by the Terminal panel (xterm); without --terminal-font it uses --font-mono.
+  const term = fontVar(a.terminalFont, a.customTerminalFont, MONO_FONTS, SYSTEM_MONO);
+  if (term) vars["--terminal-font"] = term;
+  vars["--terminal-font-size"] = `${a.terminalFontSize}px`;
   return vars;
 }
 

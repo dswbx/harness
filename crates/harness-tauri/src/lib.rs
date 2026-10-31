@@ -1,5 +1,5 @@
-//! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, plus
-//! macOS niceties (dock badge, notifications).
+//! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, the
+//! Terminal byte stream, plus macOS niceties (dock badge, notifications).
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use std::collections::HashMap;
@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
 use harness_core::Harness;
-use tauri::ipc::Channel;
+use harness_core::terminal::TerminalOutput;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
 /// Frontend Manifests of the built-in Frontends, registered with core at boot.
@@ -22,6 +23,8 @@ struct Subscriptions {
     by_webview: Mutex<HashMap<String, Vec<(String, u64)>>>,
     /// Webview label -> app subscription ids.
     app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
+    /// Webview label -> (session id, terminal attach id).
+    terminals_by_webview: Mutex<HashMap<String, Vec<(String, u64)>>>,
 }
 
 impl Subscriptions {
@@ -32,6 +35,9 @@ impl Subscriptions {
         }
         for id in self.app_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
             harness.unsubscribe_app(id);
+        }
+        for (session_id, id) in self.terminals_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
+            harness.terminal_detach(&session_id, id);
         }
     }
 }
@@ -75,6 +81,55 @@ fn subscribe_app(
     let id = harness.subscribe_app(Box::new(move |e: &AppEvent| channel.send(e.clone()).is_ok()));
     subs.app_by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push(id);
     id
+}
+
+/// The Session's Terminal: output as raw bytes (an `ArrayBuffer` in JS, no JSON), then
+/// `{"exit": code}` when the shell ends.
+#[tauri::command]
+fn terminal_attach(
+    webview: Webview,
+    harness: tauri::State<'_, Arc<Harness>>,
+    subs: tauri::State<'_, Subscriptions>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+    channel: Channel<InvokeResponseBody>,
+) -> Result<u64, String> {
+    let id = harness
+        .terminal_attach(
+            &session_id,
+            cols,
+            rows,
+            Box::new(move |o: TerminalOutput| match o {
+                TerminalOutput::Data(d) => channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok(),
+                TerminalOutput::Exit(code) => {
+                    let _ = channel.send(InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string()));
+                    false
+                }
+            }),
+        )
+        .map_err(|e| format!("{e:#}"))?;
+    subs.terminals_by_webview
+        .lock()
+        .unwrap()
+        .entry(webview.label().to_owned())
+        .or_default()
+        .push((session_id, id));
+    Ok(id)
+}
+
+#[tauri::command]
+fn terminal_detach(
+    webview: Webview,
+    harness: tauri::State<'_, Arc<Harness>>,
+    subs: tauri::State<'_, Subscriptions>,
+    session_id: String,
+    id: u64,
+) {
+    harness.terminal_detach(&session_id, id);
+    if let Some(list) = subs.terminals_by_webview.lock().unwrap().get_mut(webview.label()) {
+        list.retain(|(s, i)| !(s == &session_id && *i == id));
+    }
 }
 
 /// Dock badge with the number of Sessions waiting for the user, and notifications while no
@@ -181,7 +236,14 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![execute, subscribe, unsubscribe, subscribe_app])
+        .invoke_handler(tauri::generate_handler![
+            execute,
+            subscribe,
+            unsubscribe,
+            subscribe_app,
+            terminal_attach,
+            terminal_detach
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Harness");
 }
