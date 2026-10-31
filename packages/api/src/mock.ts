@@ -459,6 +459,15 @@ export class MockTransport implements Transport {
           this.emit(sid, { type: "AgentMessageChunk", text: "The practice test has started: the question is on the right, your score is at the bottom." });
           return { type: "Ok" };
         }
+        // Typing "/artifacts" simulates a reply with a diagram, a table and a pull request (the Artifacts panel).
+        if (cmd.text.trim() === "/artifacts") {
+          this.emit(sid, { type: "AgentMessageChunk", text: "The checkout flow:\n\n```mermaid\nflowchart LR\n  Cart --> Checkout --> Iframe[Payment iframe] --> Confirm\n```\n\nLast 20 CI runs:\n\n| Test | Fails | Median wait |\n| --- | --- | --- |\n| pays | 6 / 20 | 1.8 s |\n| refunds | 1 / 20 | 0.9 s |\n" });
+          this.emit(sid, { type: "FrontendToolOutput", tool: "render_ui", call_id: `mock-pr-${++this.cardN}`, path: `tools/render_ui/mock-pr-${this.cardN}.json`, input: { root: {
+            type: "PullRequest",
+            props: { repo: "dswbx/harness", number: 8, title: "Fix flaky checkout test: wait for payment iframe", state: "open", url: "https://github.com/", head: "fix-checkout-flake", base: "main", additions: 42, deletions: 9, files: 3, checks: { passed: 8, pending: 1 }, review: "required" },
+          } } });
+          return { type: "Ok" };
+        }
         // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.
         if (cmd.text.trim() === "/card") {
           const n = ++this.cardN;

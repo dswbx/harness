@@ -20,9 +20,11 @@ const components: import("react-markdown").Components = {
     const cls = Array.isArray(code?.properties?.className) ? (code.properties.className as string[]) : [];
     if (code && cls.includes("language-mermaid")) {
       return (
-        <Suspense fallback={<div className="h-24 animate-pulse rounded-md bg-muted" />}>
-          <Mermaid source={textOf(code).replace(/\n$/, "")} />
-        </Suspense>
+        <div data-artifact="diagram">
+          <Suspense fallback={<div className="h-24 animate-pulse rounded-md bg-muted" />}>
+            <Mermaid source={textOf(code).replace(/\n$/, "")} />
+          </Suspense>
+        </div>
       );
     }
     if (code && cls.includes("language-ansi")) {
@@ -39,7 +41,7 @@ const components: import("react-markdown").Components = {
       </div>
     );
     return (
-      <Expandable label="table" className="mt-(--typeset-flow)" expanded={<div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>}>
+      <Expandable label="table" className="mt-(--typeset-flow)" data-artifact="table" expanded={<div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>}>
         {table}
       </Expandable>
     );
