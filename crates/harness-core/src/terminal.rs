@@ -20,6 +20,10 @@ use crate::api::SessionId;
 
 /// What attached Frontends receive.
 pub enum TerminalOutput<'a> {
+    /// Sent once on attach (may be empty): earlier output for a new view to redraw. It contains
+    /// the shell's old terminal queries; a view must not answer them, or the answers reach the
+    /// shell as typed input.
+    Replay(&'a [u8]),
     Data(&'a [u8]),
     /// The shell ended; the next attach starts a new one.
     Exit(Option<u32>),
@@ -45,7 +49,7 @@ pub struct Terminals {
 
 impl Terminals {
     /// Attaches to the Session's Terminal, starting a shell in `folder` if none runs. The sink
-    /// first gets the replay buffer, then live output.
+    /// first gets `Replay`, then live output.
     pub fn attach(&self, session_id: &str, folder: &Path, cols: u16, rows: u16, sink: TerminalSink) -> anyhow::Result<u64> {
         let term = {
             let mut map = self.map.lock().unwrap();
@@ -192,7 +196,7 @@ impl Terminal {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let mut out = self.out.lock().unwrap();
-        if out.replay.is_empty() || sink(TerminalOutput::Data(&out.replay)) {
+        if sink(TerminalOutput::Replay(&out.replay)) {
             out.sinks.push((id, sink));
         }
         id
@@ -267,7 +271,7 @@ mod tests {
         let tx = Mutex::new(tx);
         t.attach(Box::new(move |o| {
             let msg = match o {
-                TerminalOutput::Data(d) => Ok(d.to_vec()),
+                TerminalOutput::Replay(d) | TerminalOutput::Data(d) => Ok(d.to_vec()),
                 TerminalOutput::Exit(c) => Err(c),
             };
             tx.lock().unwrap().send(msg).is_ok()
@@ -306,6 +310,32 @@ mod tests {
         let (text, code) = drain(rx);
         assert!(text.contains("got-abc"), "{text:?}");
         assert_eq!(code, Some(0));
+    }
+
+    #[test]
+    fn a_later_view_gets_earlier_output_as_replay_first() {
+        let terms = Terminals::default();
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "echo before-attach; read x"]);
+        let first = collect(&terms, "s4", cmd);
+        // The first view gets an empty replay, then the output.
+        let mut seen = Vec::new();
+        while !String::from_utf8_lossy(&seen).contains("before-attach") {
+            seen.extend(first.recv_timeout(Duration::from_secs(10)).unwrap().unwrap());
+        }
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        terms.get("s4").unwrap().attach(Box::new(move |o| {
+            let tag = match o {
+                TerminalOutput::Replay(d) => format!("replay:{}", String::from_utf8_lossy(d)),
+                TerminalOutput::Data(d) => format!("data:{}", String::from_utf8_lossy(d)),
+                TerminalOutput::Exit(_) => "exit".into(),
+            };
+            tx.lock().unwrap().send(tag).is_ok()
+        }));
+        let msg = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(msg.starts_with("replay:") && msg.contains("before-attach"), "{msg:?}");
+        terms.kill("s4");
     }
 
     #[test]

@@ -76,6 +76,8 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
     fit();
 
     let disposed = false;
+    /** Replays being written: xterm's answers to their queries are dropped. */
+    let replaying = 0;
     let unsubscribe: (() => void) | null = null;
     let exited = false;
 
@@ -125,6 +127,12 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
           if (gen !== generation) return;
           if (o instanceof Uint8Array) {
             t.write(o, () => drawn(o.length));
+          } else if ("replay" in o) {
+            // Old output holds the shell's old queries (cursor position, modes); xterm's answers
+            // would reach the shell as typed text, so they are dropped until the replay is drawn.
+            if (!o.replay.length) return;
+            replaying++;
+            t.write(o.replay, () => replaying--);
           } else {
             exited = true;
             unsubscribe = null;
@@ -144,7 +152,7 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
     attach();
 
     const subs = [
-      t.onData((d) => (exited ? restart() : send(d))),
+      t.onData((d) => (replaying ? undefined : exited ? restart() : send(d))),
       t.onResize(({ cols, rows }) => void api.terminalResize(cols, rows).catch(() => {})),
     ];
     let frame = 0;

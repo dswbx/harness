@@ -362,6 +362,23 @@ function SlotPanel({ slot, env, onClose }: { slot: Slot; env: UiEnv; onClose: ()
   );
 }
 
+// The right panel per Session, so switching Sessions keeps it. sessionStorage: this window only,
+// and an app restart does not start every Session's shell.
+const panelKey = (sessionId: string) => `harness.chat.panel.${sessionId}`;
+function loadPanel(sessionId: string): string | null {
+  try {
+    return sessionStorage.getItem(panelKey(sessionId));
+  } catch {
+    return null;
+  }
+}
+function savePanel(sessionId: string, panel: string | null) {
+  try {
+    if (panel) sessionStorage.setItem(panelKey(sessionId), panel);
+    else sessionStorage.removeItem(panelKey(sessionId));
+  } catch { /* not kept */ }
+}
+
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 
@@ -372,10 +389,11 @@ export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTML
 
 function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  /** The right panel: "changes" (the diff), "terminal", or the id of a right-placed render_ui slot. */
-  const [panel, setPanelId] = useState<string | null>(null);
+  /** The right panel: "changes" (the diff), "terminal", or the id of a right-placed render_ui slot. Kept per Session while the window lives. */
+  const [panel, setPanelId] = useState<string | null>(() => loadPanel(api.sessionId));
+  useEffect(() => savePanel(api.sessionId, panel), [api.sessionId, panel]);
   /** The Terminal stays mounted (hidden) once opened, so its screen survives switching panels. */
-  const [terminalOpened, setTerminalOpened] = useState(false);
+  const [terminalOpened, setTerminalOpened] = useState(panel === "terminal");
   const toggleTerminal = useCallback(() => {
     setTerminalOpened(true);
     setPanelId((p) => (p === "terminal" ? null : "terminal"));
