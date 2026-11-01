@@ -11,7 +11,8 @@ export function Expandable({ label, children, expanded, className, ...data }: { 
   const [open, setOpen] = useState(false);
   return (
     <div className={cn("group/expand relative", className)} {...data}>
-      {children}
+      {/* Nested ones (a diagram in a render_ui card) have no gutter of their own: their buttons go inside. */}
+      <div className="contents [--expand-out:0]">{children}</div>
       <Tooltip content="Expand" side="right">
         <Button
           size="icon"
