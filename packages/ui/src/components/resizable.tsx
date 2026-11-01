@@ -1,6 +1,5 @@
 import * as React from "react";
 import { cn } from "../lib/utils";
-import { Tooltip } from "./tooltip";
 
 type DragOptions = {
   cursor: "col-resize" | "row-resize";
@@ -92,22 +91,20 @@ export function ResizeHandle({ label, edge, orientation = "vertical", style, onP
 }) {
   const vertical = orientation === "vertical";
   return (
-    <Tooltip content="Drag to resize, double-click to reset" side={edge ?? (vertical ? "right" : "bottom")} delay={700}>
-      <div
-        role="separator"
-        aria-orientation={orientation}
-        aria-label={label}
-        style={style}
-        className={cn(
-          "z-10 after:absolute after:transition-colors hover:after:bg-ring",
-          vertical ? "cursor-col-resize after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2" : "cursor-row-resize after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2",
-          !style && "absolute inset-y-0 w-2",
-          !style && (edge === "right" ? "-right-1" : "-left-1"),
-          style && "absolute",
-        )}
-        onPointerDown={onPointerDown}
-        onDoubleClick={onDoubleClick}
-      />
-    </Tooltip>
+    <div
+      role="separator"
+      aria-orientation={orientation}
+      aria-label={label}
+      style={style}
+      className={cn(
+        "z-10 after:absolute after:transition-colors hover:after:bg-ring",
+        vertical ? "cursor-col-resize after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2" : "cursor-row-resize after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2",
+        !style && "absolute inset-y-0 w-2",
+        !style && (edge === "right" ? "-right-1" : "-left-1"),
+        style && "absolute",
+      )}
+      onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
+    />
   );
 }

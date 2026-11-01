@@ -112,12 +112,14 @@ export type PromptBoxHandle = { focus(): void };
  * The prompt box of the Main Thread, or of a Side Thread (`threadId`). Comments and quotes waiting in it are
  * kept per Thread. In the Main Thread, `/btw <question>` goes to `onSideThread` instead of being sent.
  */
-export function PromptBox({ api, state, threadId = null, onSideThread, ref: handle }: {
+export function PromptBox({ api, state, threadId = null, onSideThread, onSend, ref: handle }: {
   api: SessionApi;
   state: ChatState;
   threadId?: string | null;
   /** Starts a Side Thread and sends it `text` (Main Thread only). */
   onSideThread?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
+  /** Sends instead of `api.prompt` (a side chat not started yet). */
+  onSend?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
   ref?: Ref<PromptBoxHandle>;
 }) {
   const [text, setText] = useState("");
@@ -198,7 +200,8 @@ export function PromptBox({ api, state, threadId = null, onSideThread, ref: hand
     // Our `/btw <question>` wins over an Agent command of the same name (Claude Code has one).
     const btw = threadId || !onSideThread ? null : btwQuestion(t);
     const inputs = files.map((a) => a.input);
-    (btw && onSideThread ? onSideThread(withReviewComments(btw, sent), inputs) : api.prompt(withReviewComments(t, sent), inputs, threadId)).catch((err) => {
+    const prompt = withReviewComments(t, sent);
+    (btw && onSideThread ? onSideThread(withReviewComments(btw, sent), inputs) : onSend ? onSend(prompt, inputs) : api.prompt(prompt, inputs, threadId)).catch((err) => {
       setError(errorMessage(err));
       ref.current?.restore(snap);
       setAttachments((cur) => [...files, ...cur]);

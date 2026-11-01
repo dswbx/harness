@@ -102,7 +102,7 @@ export function CommitsPane({
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize commits pane"
-        className="-mt-1 h-2 shrink-0 cursor-row-resize"
+        className="relative -mt-1 h-2 shrink-0 cursor-row-resize after:absolute after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2 after:transition-colors hover:after:bg-ring"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           drag.current = { y: e.clientY, h: height };

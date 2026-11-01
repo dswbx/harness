@@ -1,5 +1,5 @@
 import type { Event, SessionApi } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
+import { eventFamily, useSessionEvents } from "@harness/api";
 import { EventLog } from "@harness/ui";
 import { PanelHeader } from "./PanelHeader";
 
@@ -12,9 +12,12 @@ const reduce = (s: Log, e: Event): Log => reduceBatch(s, [e]);
 export function EventsPanel({ api }: { api: SessionApi }) {
   const { events } = useSessionEvents(api, reduce, init, reduceBatch);
   return (
-    <>
-      <PanelHeader title="Events" />
-      <EventLog events={events} title={null} className="h-auto flex-1" />
-    </>
+    <EventLog
+      events={events}
+      title={null}
+      family={eventFamily}
+      header={(controls) => <PanelHeader title="Events" className="gap-1.5">{controls}</PanelHeader>}
+      className="h-auto flex-1"
+    />
   );
 }

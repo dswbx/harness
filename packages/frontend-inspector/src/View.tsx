@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Event, SessionApi } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
+import { eventFamily, useSessionEvents } from "@harness/api";
 import { Badge, Button, EventLog, Input } from "@harness/ui";
 
 import { init, reduce, reduceBatch } from "./reducer";
@@ -32,7 +32,7 @@ export function View({ api }: { api: SessionApi }) {
 
   return (
     <div className="flex h-full flex-col">
-      <EventLog events={events} className="min-h-0 flex-1" />
+      <EventLog events={events} family={eventFamily} className="min-h-0 flex-1" />
 
       {pending.map((p) => (
         <Permission key={p.seq} e={p} api={api} run={run} />

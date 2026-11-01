@@ -9,6 +9,10 @@ export type StripeItem = {
   index: number;
   label: string;
   tip: string;
+  /** Shown as a badge in the tooltip (e.g. how many artifacts). */
+  count?: number;
+  /** Keys shown in the tooltip. */
+  shortcut?: string[];
   icon: ReactNode;
   on: boolean;
   /** Changed while it was closed. */
@@ -52,7 +56,17 @@ export function Stripe({ side, groups, drag, overlay, onToggle, onPress }: {
         {g.items.map((it, i) => (
           <Fragment key={it.id}>
             {i === slotAt && marker}
-            <Tooltip content={it.tip} side={side === "left" ? "right" : "left"} className={drag ? "hidden" : undefined}>
+            <Tooltip
+              content={
+                <span className="flex items-center gap-1.5">
+                  {it.tip}
+                  {it.count != null && <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold text-foreground tabular-nums">{it.count}</span>}
+                </span>
+              }
+              shortcut={it.shortcut}
+              side={side === "left" ? "right" : "left"}
+              className={drag ? "hidden" : undefined}
+            >
               <Button
                 size="icon"
                 variant="ghost"
