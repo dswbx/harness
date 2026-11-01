@@ -87,7 +87,8 @@ export function Stripe({ side, groups, drag, overlay, onToggle, onPress }: {
       )}
     >
       {group(groups[0])}
-      <div className="my-1.5 h-px w-5 shrink-0 bg-border" />
+      {/* Only between two filled zones (and while dragging, to tell the two drop targets apart). */}
+      {(drag || (groups[0].items.length > 0 && groups[1].items.length > 0)) && <div className="my-1.5 h-px w-5 shrink-0 bg-border" />}
       {group(groups[1])}
       <div className="flex-1" />
       {group(groups[2])}
