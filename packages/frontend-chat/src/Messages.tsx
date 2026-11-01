@@ -196,11 +196,11 @@ function HarnessContext({ text }: { text: string }) {
 }
 
 /**
- * In a wide enough Main Thread (the list is a container), artifacts (`chat-wide`) stand out past the text and
- * their Expand button sits in the gutter; narrower, they keep to the text and the button goes inside. The side
- * panel has no gutter for either.
+ * In the Main Thread, artifacts (`chat-wide`) stand out past the text to the prompt box's edges. Their Expand
+ * button sits in the gutter when the list (a container) is wide enough, else inside. The side panel has no
+ * gutter for either.
  */
-const bleed = "@min-[52rem]:[--chat-bleed:1rem] @min-[52rem]:[--expand-out:1]";
+const bleed = "[--chat-bleed:1rem] @min-[52rem]:[--expand-out:1]";
 
 export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, active, streaming, threadId, side }: {
   item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
