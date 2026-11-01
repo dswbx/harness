@@ -147,11 +147,6 @@ export function ArtifactsPanel({ artifacts, env, onJump }: {
           </div>
         ))}
       </div></ScrollArea>
-      <div className="flex gap-3.5 border-t px-3.5 py-2 text-[11px] text-muted-foreground">
-        <span><kbd className="font-mono">↑↓</kbd> move</span>
-        <span><kbd className="font-mono">↵</kbd> jump</span>
-        <span><kbd className="font-mono">Space</kbd> inspect</span>
-      </div>
     </div>
   );
 }
