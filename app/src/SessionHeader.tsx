@@ -102,7 +102,7 @@ export function SessionHeader({
   const openInEditor = () =>
     editor ? client.openInEditor(session.id).catch((e) => report("Could not open the editor", e)) : onChooseEditor?.();
   return (
-    <header data-tauri-drag-region className="flex h-13 shrink-0 items-center gap-1 border-b pl-5 pr-3">
+    <header data-tauri-drag-region className="flex h-13 shrink-0 items-center gap-1 border-b pl-5 pr-2">
       {leading}
       {/* Not a drag region, so the title can be selected and copied. */}
       <h1 className="mr-1 min-w-0 cursor-text select-text truncate text-sm font-semibold">{session.title}</h1>
