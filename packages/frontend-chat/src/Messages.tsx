@@ -195,8 +195,12 @@ function HarnessContext({ text }: { text: string }) {
   );
 }
 
-/** How far artifacts (`chat-wide`) stand out past the Main Thread's text; the side panel has no room for it. */
-const bleed = "[--chat-bleed:1rem]";
+/**
+ * In a wide enough Main Thread (the list is a container), artifacts (`chat-wide`) stand out past the text and
+ * their Expand button sits in the gutter; narrower, they keep to the text and the button goes inside. The side
+ * panel has no gutter for either.
+ */
+const bleed = "@min-[52rem]:[--chat-bleed:1.5rem] @min-[52rem]:[--expand-out:1]";
 
 export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, active, streaming, threadId, side }: {
   item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
@@ -311,6 +315,7 @@ export function MessageList({ handle, api, state, threadId, side, env, ui, rows,
       getKey={(i) => rows[i]!.id}
       estimateSize={72}
       gap={24}
+      className="@container"
       scrollbarClassName="z-10"
       innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
       empty={<p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>}

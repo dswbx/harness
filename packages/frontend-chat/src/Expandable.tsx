@@ -3,8 +3,9 @@ import { Maximize2 } from "lucide-react";
 import { Button, Dialog, DialogContent, DialogDescription, DialogTitle, Tooltip, cn } from "@harness/ui";
 
 /**
- * Content with an Expand button (on hover, in the chat column's right gutter) that opens it in a
- * near full-screen view. `expanded`: what that view shows; else `children` again, scrolling.
+ * Content with an Expand button (on hover, in its top right corner, or in the chat column's right gutter
+ * where `--expand-out: 1`) that opens it in a near full-screen view. `expanded`: what that view shows; else
+ * `children` again, scrolling.
  */
 export function Expandable({ label, children, expanded, className, ...data }: { label: string; children: ReactNode; expanded?: ReactNode; className?: string; [data: `data-${string}`]: string }) {
   const [open, setOpen] = useState(false);
@@ -15,7 +16,7 @@ export function Expandable({ label, children, expanded, className, ...data }: { 
         <Button
           size="icon"
           variant="ghost"
-          className="absolute -right-9 top-0 size-7 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/expand:opacity-100"
+          className="absolute top-[calc(0.375rem*(1-var(--expand-out,0)))] right-[calc(0.375rem-2.625rem*var(--expand-out,0))] size-7 bg-background/80 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/expand:opacity-100"
           aria-label={`Expand ${label}`}
           onClick={() => setOpen(true)}
         >
