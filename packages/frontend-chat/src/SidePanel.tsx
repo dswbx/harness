@@ -1,17 +1,18 @@
 import { Plus, X } from "lucide-react";
-import type { SessionApi } from "@harness/api";
+import type { AttachmentInput, SessionApi } from "@harness/api";
 import { Button, Tooltip, cn } from "@harness/ui";
 import type { DiffScope } from "./DiffPanel";
 import { PanelHeader } from "./PanelHeader";
 import type { ChatState } from "./reducer";
 import type { UiEnv } from "./RenderUi";
-import { ThreadView } from "./ThreadView";
+import { isDraftThread } from "./panelLayout";
+import { SideDraft, ThreadView } from "./ThreadView";
 
 /**
  * The side chats: pill tabs in the panel header, one Side Thread per tab. Every open chat stays mounted
  * (hidden) so a half-typed prompt survives switching chats, hiding the panel and moving it.
  */
-export function SidePanel({ api, state, threads, active, titleOf, env, focus, onSelect, onClose, onNew, onOpenDiff }: {
+export function SidePanel({ api, state, threads, active, titleOf, env, focus, onSelect, onClose, onNew, onSendDraft, onOpenDiff }: {
   api: SessionApi;
   state: ChatState;
   threads: string[];
@@ -22,6 +23,8 @@ export function SidePanel({ api, state, threads, active, titleOf, env, focus, on
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
+  /** First message of a draft tab: starts its Side Thread. */
+  onSendDraft: (draft: string, text: string, attachments: AttachmentInput[]) => Promise<void>;
   onOpenDiff: (s: DiffScope) => void;
 }) {
   return (
@@ -50,7 +53,11 @@ export function SidePanel({ api, state, threads, active, titleOf, env, focus, on
       <div className="relative min-h-0 flex-1">
         {threads.map((id) => (
           <div key={id} className={cn("h-full", id !== active && "hidden")}>
-            <ThreadView api={api} thread={state.threads[id]!} threadId={id} env={env} onOpenDiff={onOpenDiff} focusKey={focus.id === id ? focus.n : 0} />
+            {isDraftThread(id) ? (
+              <SideDraft api={api} draftId={id} onSend={(text, files) => onSendDraft(id, text, files)} focusKey={focus.id === id ? focus.n : 0} />
+            ) : (
+              <ThreadView api={api} thread={state.threads[id]!} threadId={id} env={env} onOpenDiff={onOpenDiff} focusKey={focus.id === id ? focus.n : 0} />
+            )}
           </div>
         ))}
       </div>

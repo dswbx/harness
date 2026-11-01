@@ -16,8 +16,8 @@ export interface Transport {
   subscribe(sessionId: string, fromSeq: number, onEvent: (e: Event) => void): Promise<Unsubscribe>;
   /** Harness-wide notifications (session list, attention, agents). Live only, no replay. */
   subscribeApp(onEvent: (e: AppEvent) => void): Promise<Unsubscribe>;
-  /** The Session's Terminal (started if none runs): its replay buffer, then live output. Input, resize and acks are Commands. */
-  attachTerminal(sessionId: string, cols: number, rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe>;
+  /** A Terminal tab of the Session (shell started if none runs): its replay buffer, then live output. Input, resize and acks are Commands. */
+  attachTerminal(sessionId: string, terminalId: number, cols: number, rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe>;
 }
 
 export function inTauri(): boolean {
@@ -44,7 +44,7 @@ export const tauriTransport: Transport = {
       live = false;
     };
   },
-  async attachTerminal(sessionId, cols, rows, onOutput) {
+  async attachTerminal(sessionId, terminalId, cols, rows, onOutput) {
     // Raw bytes arrive as an ArrayBuffer, markers as JSON. Bytes before `replayed` are the replay.
     const channel = new Channel<ArrayBuffer | { replayed: true } | { exit: number | null }>();
     let live = true;
@@ -59,10 +59,10 @@ export const tauriTransport: Transport = {
         replay = null;
       } else onOutput(m);
     };
-    const id = await invoke<number>("terminal_attach", { sessionId, cols, rows, channel });
+    const id = await invoke<number>("terminal_attach", { sessionId, terminalId, cols, rows, channel });
     return () => {
       live = false;
-      void invoke("terminal_detach", { sessionId, id }).catch(() => {});
+      void invoke("terminal_detach", { sessionId, terminalId, id }).catch(() => {});
     };
   },
 };

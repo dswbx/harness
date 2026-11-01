@@ -434,7 +434,7 @@ export const COMPUTED = ["count", "length", "sum"] as const;
 
 export const PLACEMENTS = ["inline", "top", "bottom", "left", "right"] as const;
 export type Placement = (typeof PLACEMENTS)[number];
-export type RenderUiInput = { root?: RawNode; id?: string; placement?: Placement; title?: string; remove?: boolean };
+export type RenderUiInput = { root?: RawNode; id?: string; placement?: Placement; title?: string; icon?: (typeof ICONS)[number]; remove?: boolean };
 
 const names = Object.keys(components) as ComponentType[];
 const node = "#/$defs/node";
@@ -458,6 +458,7 @@ const renderUiJson = {
     id: { type: "string", description: "Names this item: a later call with the same id replaces it. Required for top, bottom, left and right." },
     placement: { type: "string", enum: PLACEMENTS, description: "Where it shows: inline in the chat (default), or in a live area of the chat: top, bottom, or a panel on the left or right side (the user can move it to any other zone)." },
     title: { type: "string", description: "Label of the left or right panel." },
+    icon: { type: "string", enum: ICONS, description: "Icon of the left or right panel, in the panel strip." },
     remove: { const: true, description: "Remove the item with this id." },
     root: { $ref: node },
   },
@@ -553,8 +554,8 @@ export const frontendTools = [
     name: RENDER_UI,
     description:
       "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
-      'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Grid, Card, Tabs, Stepper and Accordion take children.\n' +
-      "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title; right opens in the top right zone, left in the top left; the user can move it). " +
+      'Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Grid, Card, Tabs, Stepper and Accordion take children.\n' +
+      "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title, an icon is optional; right opens in the top right zone, left in the top left; the user can move it). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
       'Choice and Input write the user\'s input with {"$bindState": "/path"}. ' +

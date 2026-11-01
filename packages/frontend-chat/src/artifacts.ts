@@ -29,6 +29,8 @@ export type Artifact = {
   /** Mermaid or table Markdown, or the render_ui node as JSON. */
   source: string;
   ui: { root: RawNode; files: Record<string, string> } | null;
+  /** render_ui `icon` name, when the call gave one. */
+  icon?: string | null;
 };
 
 /** Diagrams and tables in Markdown, in order, outside other code fences. */
@@ -165,6 +167,7 @@ export function collectArtifacts(items: Item[]): Artifact[] {
       prompt: old?.placement === "inline" && placement === "inline" ? old.prompt : prompt,
       source: JSON.stringify(v.root, null, 2),
       ui: { root: v.root, files: it.files },
+      icon: v.icon ?? null,
     };
     if (old) {
       // Replaced in place while inline; moving to another placement makes it new again.

@@ -301,15 +301,34 @@ export class MockTransport implements Transport {
       case "GitLog":
         if (!this.session(cmd.session_id).workspace.repo_root) throw new Error("not a git repository");
         return { type: "GitLog", commits: [...MOCK_COMMITS] };
+      case "ListTerminals": {
+        const tabs = this.tabs(cmd.session_id);
+        return {
+          type: "Terminals",
+          terminals: tabs.ids.map((id, i) => ({ id, title: `mock ${i + 1}`, running: this.terminals.has(`${cmd.session_id}:${id}`), busy: false })),
+        };
+      }
+      case "TerminalOpen": {
+        const tabs = this.tabs(cmd.session_id);
+        tabs.ids.push(++tabs.next);
+        this.emitApp({ type: "TerminalsChanged", session_id: cmd.session_id });
+        return { type: "TerminalOpened", terminal_id: tabs.next };
+      }
+      case "TerminalClose": {
+        const tabs = this.tabs(cmd.session_id);
+        tabs.ids = tabs.ids.filter((id) => id !== cmd.terminal_id);
+        this.endTerminal(cmd.session_id, cmd.terminal_id, null);
+        this.emitApp({ type: "TerminalsChanged", session_id: cmd.session_id });
+        return { type: "Ok" };
+      }
       case "TerminalInput":
-        this.terminalInput(cmd.session_id, cmd.data);
+        this.terminalInput(cmd.session_id, cmd.terminal_id, cmd.data);
         return { type: "Ok" };
       case "TerminalResize":
       case "TerminalAck":
         return { type: "Ok" };
       case "TerminalKill":
-        this.terminals.get(cmd.session_id)?.forEach((f) => f({ exit: null }));
-        this.terminals.delete(cmd.session_id);
+        this.endTerminal(cmd.session_id, cmd.terminal_id, null);
         return { type: "Ok" };
       case "GitShowFile":
         // Old side: "base" and any "<sha>^"; everything else falls back to the new contents.
@@ -619,41 +638,55 @@ export class MockTransport implements Transport {
     return () => this.appSubs.delete(onEvent);
   }
 
-  /** A pretend shell: echoes input, `exit` ends it. */
+  /** A pretend shell per Terminal tab (key `session:id`): echoes input, `exit` ends it. */
   private terminals = new Map<string, Set<(o: TerminalOutput) => void>>();
   private terminalLine = new Map<string, string>();
-  private terminalOut(sessionId: string, text: string) {
-    const bytes = new TextEncoder().encode(text);
-    this.terminals.get(sessionId)?.forEach((f) => f(bytes));
+  private terminalTabs = new Map<string, { next: number; ids: number[] }>();
+  private tabs(sessionId: string) {
+    let t = this.terminalTabs.get(sessionId);
+    if (!t) this.terminalTabs.set(sessionId, (t = { next: 1, ids: [1] }));
+    return t;
   }
-  private terminalInput(sessionId: string, data: string) {
-    let line = this.terminalLine.get(sessionId) ?? "";
+  private endTerminal(sessionId: string, terminalId: number, code: number | null) {
+    const key = `${sessionId}:${terminalId}`;
+    this.terminals.get(key)?.forEach((f) => f({ exit: code }));
+    this.terminals.delete(key);
+    this.terminalLine.delete(key);
+  }
+  private terminalOut(key: string, text: string) {
+    const bytes = new TextEncoder().encode(text);
+    this.terminals.get(key)?.forEach((f) => f(bytes));
+  }
+  private terminalInput(sessionId: string, terminalId: number, data: string) {
+    const key = `${sessionId}:${terminalId}`;
+    let line = this.terminalLine.get(key) ?? "";
     for (const ch of data) {
       if (ch === "\r") {
         if (line.trim() === "exit") {
-          this.terminals.get(sessionId)?.forEach((f) => f({ exit: 0 }));
-          this.terminals.delete(sessionId);
-          this.terminalLine.delete(sessionId);
+          this.endTerminal(sessionId, terminalId, 0);
+          this.emitApp({ type: "TerminalsChanged", session_id: sessionId });
           return;
         }
-        this.terminalOut(sessionId, `\r\n${line ? `mock: ${line}\r\n` : ""}\x1b[32m~\x1b[0m $ `);
+        this.terminalOut(key, `\r\n${line ? `mock: ${line}\r\n` : ""}\x1b[32m~\x1b[0m $ `);
         line = "";
       } else if (ch === "\x7f") {
-        if (line) this.terminalOut(sessionId, "\b \b");
+        if (line) this.terminalOut(key, "\b \b");
         line = line.slice(0, -1);
       } else if (ch >= " ") {
         line += ch;
-        this.terminalOut(sessionId, ch);
+        this.terminalOut(key, ch);
       }
     }
-    this.terminalLine.set(sessionId, line);
+    this.terminalLine.set(key, line);
   }
 
-  async attachTerminal(sessionId: string, _cols: number, _rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe> {
-    let set = this.terminals.get(sessionId);
+  async attachTerminal(sessionId: string, terminalId: number, _cols: number, _rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe> {
+    const key = `${sessionId}:${terminalId}`;
+    let set = this.terminals.get(key);
     if (!set) {
-      this.terminals.set(sessionId, (set = new Set()));
-      queueMicrotask(() => this.terminalOut(sessionId, "Mock terminal (browser). Type `exit` to end.\r\n\x1b[32m~\x1b[0m $ "));
+      this.terminals.set(key, (set = new Set()));
+      queueMicrotask(() => this.terminalOut(key, "Mock terminal (browser). Type `exit` to end.\r\n\x1b[32m~\x1b[0m $ "));
+      this.emitApp({ type: "TerminalsChanged", session_id: sessionId });
     }
     onOutput({ replay: new Uint8Array() });
     set.add(onOutput);
