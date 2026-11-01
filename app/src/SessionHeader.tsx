@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react";
-import { AppWindow, Code, Copy, FolderOpen, Info, MoreHorizontal } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { AppWindow, Code, Copy, FolderOpen, Info, MoreHorizontal, Settings } from "lucide-react";
 import type { Editor, HarnessClient, SessionStatus, SessionSummary } from "@harness/api";
 import { inTauri } from "@harness/api";
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip, cn } from "@harness/ui";
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger, Tooltip, cn } from "@harness/ui";
 import { useReportError } from "./toast";
 
 /** Room for the macOS traffic lights (overlay title bar, `trafficLightPosition` in tauri.conf.json: y centers them in the 52px header). */
@@ -59,11 +59,12 @@ const iconBtn = "size-7 text-muted-foreground hover:text-accent-foreground data-
 
 /**
  * The one header above a Session's View: title, info popover, actions menu, and a slot the Frontend
- * fills with its own actions (`toolbarRef`), and one after the title for its state badges (`statusRef`). `leading` sits
- * left of the title (traffic lights, sidebar toggle).
+ * fills with its own actions (`toolbarRef`), and one after the title for its state badges (`statusRef`). At the
+ * far right a gear menu: Settings, and entries the Frontend adds to `menuRef` (it exists while the menu is open).
+ * `leading` sits left of the title (traffic lights, sidebar toggle).
  */
 export function SessionHeader({
-  client, session, branch, leading, onOpenWindow, onChooseEditor, toolbarRef, statusRef,
+  client, session, branch, leading, onOpenWindow, onChooseEditor, toolbarRef, statusRef, menuRef, onOpenSettings,
 }: {
   client: HarnessClient;
   session: SessionSummary;
@@ -75,6 +76,9 @@ export function SessionHeader({
   onChooseEditor?: () => void;
   toolbarRef: (el: HTMLDivElement | null) => void;
   statusRef?: (el: HTMLDivElement | null) => void;
+  menuRef?: (el: HTMLDivElement | null) => void;
+  /** Opens Settings; without it the gear menu has no Settings entry. */
+  onOpenSettings?: () => void;
 }) {
   const report = useReportError();
   const reveal = () =>
@@ -85,6 +89,16 @@ export function SessionHeader({
   // Read when the menu opens, so a change in Settings shows at once.
   const [editor, setEditor] = useState<Editor | null | undefined>(undefined);
   const loadEditor = (open: boolean) => open && void client.getEditor().then(setEditor, () => setEditor(null));
+  // The Frontend's entries are portaled in from another React tree, so the menu cannot see their clicks: close on a native one.
+  const [gearOpen, setGearOpen] = useState(false);
+  const [gearItems, setGearItems] = useState<HTMLDivElement | null>(null);
+  const gearItemsRef = useCallback((el: HTMLDivElement | null) => { setGearItems(el); menuRef?.(el); }, [menuRef]);
+  useEffect(() => {
+    if (!gearItems) return;
+    const onClick = (e: MouseEvent) => (e.target as Element).closest("[data-menu-close]") && setGearOpen(false);
+    gearItems.addEventListener("click", onClick);
+    return () => gearItems.removeEventListener("click", onClick);
+  }, [gearItems]);
   const openInEditor = () =>
     editor ? client.openInEditor(session.id).catch((e) => report("Could not open the editor", e)) : onChooseEditor?.();
   return (
@@ -136,6 +150,26 @@ export function SessionHeader({
         </Tooltip>
       )}
       <div ref={toolbarRef} className="flex items-center gap-1" />
+      <DropdownMenu open={gearOpen} onOpenChange={setGearOpen}>
+        <DropdownMenuTrigger asChild>
+          <Tooltip content="Layout and settings" side="bottom">
+            <Button size="icon" variant="ghost" className={iconBtn} aria-label="Layout and settings">
+              <Settings />
+            </Button>
+          </Tooltip>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <div ref={gearItemsRef} className="peer flex flex-col empty:hidden" />
+          {onOpenSettings && (
+            <>
+              <DropdownMenuSeparator className="hidden peer-[:not(:empty)]:block" />
+              <DropdownMenuItem onSelect={onOpenSettings}>
+                <Settings /> Settings… <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </header>
   );
 }

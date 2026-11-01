@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
-import { RotateCcw, X } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import type { SessionApi } from "@harness/api";
 import { Button, Tooltip } from "@harness/ui";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
+import { PanelHeader } from "./PanelHeader";
 
 /** Acknowledge drawn output in batches of this size, or after `ACK_DELAY` (core flow control, ADR 0017). */
 const ACK_BATCH = 64 * 1024;
@@ -41,8 +42,8 @@ function fontFrom(el: HTMLElement): { fontFamily: string; fontSize: number } {
   return { fontFamily: family, fontSize: Number.isFinite(size) && size > 0 ? size : 12 };
 }
 
-/** The Session's Terminal in the right panel. Stays mounted while hidden so the shell's screen is kept. */
-export default function TerminalPanel({ api, active, onClose }: { api: SessionApi; active: boolean; onClose: () => void }) {
+/** The Session's Terminal in a panel. Stays mounted while hidden (or moved) so the shell's screen is kept. */
+export default function TerminalPanel({ api, active }: { api: SessionApi; active: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<{ term: Terminal; fit: () => void; restart: () => void } | null>(null);
 
@@ -197,9 +198,9 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
   }, [active]);
 
   return (
-    <aside className="flex h-full w-full flex-col border-l bg-background" aria-label="Terminal">
-      <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">Terminal</span>
+    <>
+      <PanelHeader title="Terminal">
+        <div className="flex-1" />
         <Tooltip content="Restart shell" side="bottom">
           <Button
             size="icon"
@@ -211,13 +212,10 @@ export default function TerminalPanel({ api, active, onClose }: { api: SessionAp
             <RotateCcw />
           </Button>
         </Tooltip>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Close terminal" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
+      </PanelHeader>
       <div className="min-h-0 flex-1 py-1 pl-2">
         <div ref={host} className="h-full w-full" />
       </div>
-    </aside>
+    </>
   );
 }

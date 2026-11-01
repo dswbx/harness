@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw, X } from "lucide-react";
+import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
 import { openWindow, type Diff, type FileChange, type GitStatus, type SessionApi, type WorkspaceInfo } from "@harness/api";
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
@@ -8,6 +8,7 @@ import {
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { splitPatch, type FilePatch } from "./diff";
 import { DiffViewer } from "./DiffViewer";
+import { PanelHeader } from "./PanelHeader";
 import { diffWindowUrl } from "./DiffWindow";
 import { useDiffComments, type DiffComment } from "./reviewComments";
 import { selectionScope, type DiffScope } from "./scope";
@@ -88,12 +89,11 @@ function FileRow({ api, file, comments, root, open, onToggle }: {
 }
 
 export function DiffPanel({
-  api, scope, onScope, onClose, refreshKey,
+  api, scope, onScope, refreshKey,
 }: {
   api: SessionApi;
   scope: DiffScope;
   onScope: (s: DiffScope) => void;
-  onClose: () => void;
   /** Changes whenever the Session log says the Workspace may have changed. */
   refreshKey: string;
 }) {
@@ -137,9 +137,8 @@ export function DiffPanel({
   const sum = (k: "additions" | "deletions") => files.reduce((s, f) => s + f[k], 0);
 
   return (
-    <aside className="flex h-full w-full flex-col border-l bg-background" aria-label="Diff panel">
-      <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
-        <span className="min-w-0 truncate text-sm font-medium" title={scope.label}>{scope.label}</span>
+    <>
+      <PanelHeader title={scope.label} titleHint={scope.label}>
         {diff && (
           <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             {files.length} {files.length === 1 ? "file" : "files"}
@@ -159,10 +158,7 @@ export function DiffPanel({
             <RefreshCw />
           </Button>
         </Tooltip>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Close diff panel" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
+      </PanelHeader>
       {noRepo ? (
         <p className="p-4 text-sm text-muted-foreground">This Session's folder is not a git repository, so there is nothing to diff.</p>
       ) : (
@@ -182,6 +178,6 @@ export function DiffPanel({
           <CommitsPane commits={commits} sel={scope.sel} tipSide="left" uncommitted={status?.files.length} onSelect={(sel) => onScope(selectionScope(sel, commits))} />
         </>
       )}
-    </aside>
+    </>
   );
 }

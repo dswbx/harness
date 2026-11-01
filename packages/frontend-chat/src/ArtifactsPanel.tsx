@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowRight, ChartColumn, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Search, Table2, Workflow, X, GitPullRequest } from "lucide-react";
+import { ArrowRight, ChartColumn, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Search, Table2, Workflow, GitPullRequest } from "lucide-react";
 import { Button, cn } from "@harness/ui";
 import { filterArtifacts, type Artifact, type ArtifactKind } from "./artifacts";
 import { Markdown } from "./Markdown";
+import { PanelHeader } from "./PanelHeader";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { fullMessageTime, useNow } from "./time";
 
@@ -30,7 +31,7 @@ function KindIcon({ a }: { a: Artifact }) {
   return <LayoutDashboard />;
 }
 
-const PLACED: Record<string, string> = { top: "Top", bottom: "Bottom", right: "Right" };
+const PLACED: Record<string, string> = { top: "Top", bottom: "Bottom", left: "Left", right: "Right" };
 
 /** The artifact itself, as the chat shows it, at panel width. */
 function Preview({ a, env }: { a: Artifact; env: UiEnv }) {
@@ -39,11 +40,11 @@ function Preview({ a, env }: { a: Artifact; env: UiEnv }) {
 }
 
 /**
- * The Artifacts panel (right): every render_ui item, Mermaid diagram and table of the Session,
+ * The Artifacts panel: every render_ui item, Mermaid diagram and table of the Session,
  * by Turn, filterable. A click opens one here (inspect); from there, or with Enter, it jumps to the chat.
  */
-export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
-  artifacts: Artifact[]; env: UiEnv; onJump: (a: Artifact) => void; onClose: () => void;
+export function ArtifactsPanel({ artifacts, env, onJump }: {
+  artifacts: Artifact[]; env: UiEnv; onJump: (a: Artifact) => void;
 }) {
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
   const [query, setQuery] = useState("");
@@ -61,7 +62,6 @@ export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
         onStep={(d) => { const next = shown[i + d]; if (next) { setInspecting(next.key); setSelected(next.key); } }}
         onBack={() => setInspecting(null)}
         onJump={() => onJump(current)}
-        onClose={onClose}
       />
     );
   }
@@ -89,15 +89,10 @@ export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
     else groups.push({ turn: a.turn, prompt: a.prompt, items: [a] });
   }
   return (
-    <aside className="flex h-full w-full flex-col border-l bg-background" aria-label="Artifacts" onKeyDown={onKey}>
-      <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3.5">
-        <span className="text-sm font-medium">Artifacts</span>
+    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKey}>
+      <PanelHeader title="Artifacts" className="pl-3.5">
         <span className="text-xs text-muted-foreground">{artifacts.length}</span>
-        <div className="flex-1" />
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Close panel" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
+      </PanelHeader>
       <div className="grid gap-2.5 px-3.5 pt-3 pb-2">
         <label className="flex h-8 items-center gap-2 rounded-md border px-2.5 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
           <Search className="size-4" />
@@ -148,7 +143,7 @@ export function ArtifactsPanel({ artifacts, env, onJump, onClose }: {
         <span><kbd className="font-mono">↵</kbd> jump</span>
         <span><kbd className="font-mono">Space</kbd> inspect</span>
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -179,9 +174,9 @@ function Row({ a, selected, onOpen }: { a: Artifact; selected: boolean; onOpen: 
   );
 }
 
-function Inspect({ a, env, position, onStep, onBack, onJump, onClose }: {
+function Inspect({ a, env, position, onStep, onBack, onJump }: {
   a: Artifact; env: UiEnv; position: { i: number; n: number } | null;
-  onStep: (d: 1 | -1) => void; onBack: () => void; onJump: () => void; onClose: () => void;
+  onStep: (d: 1 | -1) => void; onBack: () => void; onJump: () => void;
 }) {
   const [tab, setTab] = useState<"preview" | "source">("preview");
   const [copied, setCopied] = useState(false);
@@ -191,8 +186,8 @@ function Inspect({ a, env, position, onStep, onBack, onJump, onClose }: {
     else if (e.key === "Enter") { e.preventDefault(); onJump(); }
   };
   return (
-    <aside className="flex h-full w-full flex-col border-l bg-background outline-none" aria-label={`Artifact: ${a.title}`} tabIndex={-1} onKeyDown={onKey} ref={(el) => el?.focus({ preventScroll: true })}>
-      <div className="flex items-center gap-1 border-b py-2 pr-2 pl-1.5">
+    <div className="flex min-h-0 flex-1 flex-col outline-none" aria-label={`Artifact: ${a.title}`} tabIndex={-1} onKeyDown={onKey} ref={(el) => el?.focus({ preventScroll: true })}>
+      <PanelHeader className="gap-1 pl-1.5">
         <Button size="icon" variant="ghost" className="size-7" aria-label="Back to all artifacts" onClick={onBack}>
           <ChevronLeft />
         </Button>
@@ -204,10 +199,7 @@ function Inspect({ a, env, position, onStep, onBack, onJump, onClose }: {
         <Button size="icon" variant="ghost" className="size-7" aria-label="Next artifact" disabled={!position || position.i >= position.n - 1} onClick={() => onStep(1)}>
           <ChevronDown />
         </Button>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Close panel" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
+      </PanelHeader>
       <div className="flex items-center gap-2 px-3.5 pt-3">
         <div className="inline-flex gap-0.5 rounded-md bg-muted p-0.5" role="tablist">
           {(["preview", "source"] as const).map((t) => (
@@ -242,7 +234,7 @@ function Inspect({ a, env, position, onStep, onBack, onJump, onClose }: {
       </div>
       <div className="flex gap-2 border-t px-3.5 py-2.5">
         <Button size="sm" onClick={onJump}>
-          <ArrowRight /> {a.placement === "right" ? "Open tab" : a.placement === "inline" ? "Jump to message" : "Show"}
+          <ArrowRight /> {a.placement === "left" || a.placement === "right" ? "Open panel" : a.placement === "inline" ? "Jump to message" : "Show"}
         </Button>
         <Button
           size="sm"
@@ -252,6 +244,6 @@ function Inspect({ a, env, position, onStep, onBack, onJump, onClose }: {
           <Copy /> {copied ? "Copied" : "Copy source"}
         </Button>
       </div>
-    </aside>
+    </div>
   );
 }

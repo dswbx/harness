@@ -11,11 +11,12 @@ export type LogEvent = { seq: number; ts_ms: number; thread_id?: string | null; 
 
 /**
  * Raw Session Log viewer: kind filter, text search over the JSON, autoscroll, rows that open to
- * the full Event. Narrow containers drop the time and thread columns. `actions`: header buttons.
+ * the full Event. Narrow containers drop the time and thread columns. `actions`: header buttons;
+ * `title={null}` for a host that has its own header.
  */
 export function EventLog({ events, title = "Session Log", actions, className }: {
   events: readonly LogEvent[];
-  title?: string;
+  title?: string | null;
   actions?: React.ReactNode;
   className?: string;
 }) {
@@ -38,7 +39,7 @@ export function EventLog({ events, title = "Session Log", actions, className }: 
   return (
     <div className={cn("@container flex h-full min-h-0 flex-col", className)}>
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <span className="text-sm font-medium">{title}</span>
+        {title !== null && <span className="text-sm font-medium">{title}</span>}
         <Badge variant="secondary">{shown.length === events.length ? events.length : `${shown.length}/${events.length}`} events</Badge>
         <div className="flex-1" />
         {/* Narrow: filters wrap to their own line below the actions. */}

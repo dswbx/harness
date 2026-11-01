@@ -30,6 +30,18 @@ describe("render_ui placements", () => {
     expect(slots.right).toEqual([]);
   });
 
+  it("collects left and right items apart, in first-seen order", () => {
+    const s = fold([
+      ui({ id: "a", placement: "left", title: "A", root: md("a") }),
+      ui({ id: "b", placement: "right", title: "B", root: md("b") }),
+      ui({ id: "c", placement: "left", title: "C", root: md("c") }),
+      ui({ id: "a", placement: "left", title: "A", root: md("a2") }),
+    ]);
+    const { slots } = splitRenderUi(s.items);
+    expect(slots.left.map((x) => [x.id, x.root])).toEqual([["a", md("a2")], ["c", md("c")]]);
+    expect(slots.right.map((x) => x.id)).toEqual(["b"]);
+  });
+
   it("moves an id between placements", () => {
     const s = fold([ui({ id: "x", root: md("a") }), ui({ id: "x", placement: "top", root: md("b") })]);
     const { inline, slots } = splitRenderUi(s.items);

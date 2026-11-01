@@ -88,6 +88,18 @@ _Avoid_: plugin manifest, config
 One live rendering of a Session by its Frontend, such as a window or pane; a Session may have several Views at once, all of the same Frontend.
 _Avoid_: window, tab, subscriber
 
+**Panel**:
+A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, or a `render_ui` item placed left or right; ADR 0019).
+_Avoid_: tab, pane, sidebar
+
+**Zone**:
+One of six places a Panel can be docked (left top, left bottom, bottom left, bottom right, right bottom, right top); a Zone shows one Panel at a time and the user can move Panels between Zones.
+_Avoid_: slot, area, dock
+
+**Stripe**:
+The strip of icons along the left or right edge of a View, one icon per Panel, grouped by Zone; click toggles the Panel, dragging moves it to another Zone.
+_Avoid_: toolbar, activity bar
+
 **Session Directory**:
 Storage the Harness owns for one Session, separate from its Workspace, holding that Session's state including whatever its Frontend Tools produced.
 _Avoid_: session folder, data dir, workspace

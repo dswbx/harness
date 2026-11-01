@@ -1,9 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, CheckCircle2, CircleDashed, GitCompare, Layers, Loader2, MessagesSquare, PanelRight, Plus, ScrollText, SquareTerminal, X } from "lucide-react";
+import { Archive, CheckCircle2, CircleDashed, GitCompare, Layers, Loader2, MessagesSquare, PanelLeft, PanelRight, RotateCcw, ScrollText, SquareTerminal, X } from "lucide-react";
 import type { AttachmentInput, SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
-  Badge, Button, Portal, ResizeHandle, Tooltip, cn, useResizableWidth, type VirtualListHandle,
+  Badge, Button, MenuButton, Portal, Tooltip, cn, type VirtualListHandle,
 } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
@@ -11,16 +11,23 @@ import { PromptBox } from "./PromptBox";
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { MessageList, useRows } from "./Messages";
-import { ThreadView } from "./ThreadView";
+import { DockLayout, type DockPanel } from "./DockLayout";
 import { EventsPanel } from "./EventsPanel";
 import { collectArtifacts, type Artifact } from "./artifacts";
 import { ArtifactsPanel } from "./ArtifactsPanel";
+import { PanelHeader } from "./PanelHeader";
+import { SidePanel } from "./SidePanel";
+import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import { SelectionComment } from "./SelectionComment";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Slot } from "./slots";
 import { errorMessage } from "./errors";
 import { addReviewComment, composerKey } from "./reviewComments";
-import { closeThread, loadPanel, openThread, savePanel, selectThread, showView, toggleView, type PanelState, type PanelView } from "./panelTabs";
+import { usePanelDrag } from "./panelDrag";
+import {
+  closeThread, expand, hide, isOpen, isSlotPanel, loadLayout, move, openThread, reconcile, resetLayout, resize, saveLayout, selectThread, show,
+  shownOpen, slotIdOf, slotPanel, toggle, type Layout, type PanelId, type Zone,
+} from "./panelLayout";
 import { initialState, reduce, reduceBatch, type ChatState } from "./reducer";
 
 
@@ -72,42 +79,14 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
   );
 }
 
-/** Toolbar button of a right-placed slot; a dot marks changes made while it was closed. */
-function SlotTab({ slot, open, onClick }: { slot: Slot; open: boolean; onClick: () => void }) {
-  const key = slotKey(slot);
-  const [seen, setSeen] = useState(key);
-  useEffect(() => { if (open) setSeen(key); }, [open, key]);
-  const label = slot.title ?? slot.id;
+function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
   return (
-    <Tooltip content={label} side="bottom">
-      <Button
-        size="icon"
-        variant="ghost"
-        className={cn("relative size-7 text-muted-foreground hover:text-accent-foreground", open && "bg-accent text-accent-foreground")}
-        aria-label={label}
-        aria-pressed={open}
-        onClick={onClick}
-      >
-        <PanelRight />
-        {!open && seen !== key && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />}
-      </Button>
-    </Tooltip>
-  );
-}
-
-function SlotPanel({ slot, env, onClose }: { slot: Slot; env: UiEnv; onClose: () => void }) {
-  return (
-    <aside className="flex h-full w-full flex-col border-l bg-background" aria-label={slot.title ?? slot.id}>
-      <div className="flex items-center gap-1.5 border-b py-2 pr-2 pl-3">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{slot.title ?? slot.id}</span>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Close panel" onClick={onClose}>
-          <X />
-        </Button>
-      </div>
+    <>
+      <PanelHeader title={slot.title ?? slot.id} />
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <RenderUi root={slot.root} env={{ ...env, files: slot.files }} />
       </div>
-    </aside>
+    </>
   );
 }
 
@@ -115,15 +94,9 @@ function SlotPanel({ slot, env, onClose }: { slot: Slot; env: UiEnv; onClose: ()
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 
 /** Claude Code desktop-like chat. Pure fold of the Session Log (see reducer.ts). */
-export function View({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
-  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} toolbar={toolbar} status={status} />;
+export function View({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null; menu?: HTMLElement | null }) {
+  return diffScope ? <DiffWindow api={api} scope={diffScope} /> : <ChatView api={api} toolbar={toolbar} status={status} menu={menu} />;
 }
-
-const CHANGES: PanelView = { kind: "changes" };
-const TERMINAL: PanelView = { kind: "terminal" };
-const SIDE: PanelView = { kind: "side" };
-const EVENTS: PanelView = { kind: "events" };
-const ARTIFACTS: PanelView = { kind: "artifacts" };
 
 /** Briefly rings an element the user jumped to. */
 function flash(el: Element) {
@@ -133,21 +106,32 @@ function flash(el: Element) {
   );
 }
 
-function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null }) {
+
+const BASE_LABEL: Record<string, string> = { side: "Side chats", changes: "Changes", terminal: "Terminal", events: "Events", artifacts: "Artifacts" };
+const BASE_ICON: Record<string, React.ReactNode> = {
+  side: <MessagesSquare />, changes: <GitCompare />, terminal: <SquareTerminal />, events: <ScrollText />, artifacts: <Layers />,
+};
+
+function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: HTMLElement | null; status?: HTMLElement | null; menu?: HTMLElement | null }) {
   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-  /** The right panel: the view shown (side chats, Changes, Terminal, Events (the raw Session Log), Artifacts or a right render_ui item) and the open side chats. Kept per Session. */
-  const [panel, setPanel] = useState<PanelState>(() => loadPanel(api.sessionId));
-  useEffect(() => savePanel(api.sessionId, panel), [api.sessionId, panel]);
-  const active = panel.view;
-  const show = useCallback((v: PanelView) => setPanel((p) => showView(p, v)), []);
-  const toggle = useCallback((v: PanelView) => setPanel((p) => toggleView(p, v)), []);
-  const closePanel = useCallback(() => setPanel((p) => ({ ...p, view: null })), []);
-  /** The Terminal stays mounted (hidden) once opened, so its screen survives switching panels. */
-  const [terminalOpened, setTerminalOpened] = useState(false);
-  const toggleTerminal = useCallback(() => {
-    setTerminalOpened(true);
-    toggle(TERMINAL);
-  }, [toggle]);
+  const { ui, rows, subagents } = useRows(state.items);
+
+  // render_ui items placed left or right are panels. Their default zone follows the placement.
+  const slots = useMemo(
+    () => [...ui.slots.left.map((slot) => ({ slot, zone: "leftTop" as Zone })), ...ui.slots.right.map((slot) => ({ slot, zone: "rightTop" as Zone }))],
+    [ui.slots.left, ui.slots.right],
+  );
+  const slotPanels = useMemo(() => slots.map((s) => ({ id: slotPanel(s.slot.id), zone: s.zone })), [slots]);
+  const slotPanelsRef = useRef(slotPanels);
+  slotPanelsRef.current = slotPanels;
+
+  /** Where the panels sit, their sizes and the open side chats. Kept per Session. */
+  const [layout, setLayout] = useState<Layout>(() => loadLayout(api.sessionId));
+  useEffect(() => saveLayout(api.sessionId, layout), [api.sessionId, layout]);
+  /** Every change goes through reconcile first, so a panel that just appeared (a slot) has its place. */
+  const update = useCallback((f: (l: Layout) => Layout) => setLayout((l) => f(reconcile(l, slotPanelsRef.current))), []);
+  const lay = useMemo(() => reconcile(layout, slotPanels), [layout, slotPanels]);
+  useEffect(() => { if (lay !== layout) setLayout(lay); }, [lay, layout]);
 
   // Side chats: a prompt box takes focus in the chat that was just created.
   const [focus, setFocus] = useState<{ id: string; n: number }>({ id: "", n: 0 });
@@ -158,7 +142,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       setSideError(null);
       try {
         const { thread_id } = await api.startSideThread();
-        setPanel((p) => openThread(p, thread_id));
+        update((l) => openThread(l, thread_id));
         setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
         return thread_id;
       } catch (e) {
@@ -166,7 +150,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
         return null;
       }
     },
-    [api],
+    [api, update],
   );
   /** "Ask in side thread": a new Side Thread with the selected text as a quote chip in its prompt box. */
   const askSideThread = useCallback(
@@ -192,7 +176,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       if (e.ctrlKey && !e.metaKey && !e.altKey && (e.code === "Backquote" || e.key === "`")) {
         e.preventDefault();
         e.stopPropagation();
-        toggleTerminal();
+        update((l) => toggle(l, "terminal"));
       }
       // Cmd/Ctrl+Shift+B: a new Side Thread ("by the way").
       else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyB") {
@@ -203,11 +187,9 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [toggleTerminal, newSideThread]);
+  }, [update, newSideThread]);
   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
   const [archiveError, setArchiveError] = useState<string | null>(null);
-  /** Right panel, dragged from its left edge. */
-  const right = useResizableWidth({ storageKey: "harness.chat.rightPanelWidth", initial: 420, min: 320, max: 1000, edge: "left" });
   // Changes need git; hidden until the Workspace is known to be a repository.
   const [git, setGit] = useState(false);
   useEffect(() => {
@@ -216,8 +198,7 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
     return () => { off = true; };
   }, [api]);
 
-  const openDiff = useCallback((s: DiffScope) => { setScope(s); show(CHANGES); }, [show]);
-  const { ui, rows, subagents } = useRows(state.items);
+  const openDiff = useCallback((s: DiffScope) => { setScope(s); update((l) => show(l, "changes")); }, [update]);
   const env = useMemo<UiEnv>(
     () => ({
       state: state.uiState,
@@ -230,18 +211,17 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
     }),
     [api, state.uiState],
   );
-  const rightSlot = active?.kind === "slot" ? (ui.slots.right.find((x) => x.id === active.id) ?? null) : null;
-  // A right item the Agent adds or changes while the Session is open shows at once (not replayed ones).
+  // A left or right item the Agent adds or changes while the Session is open shows at once (not replayed ones).
   const [openedAt] = useState(() => Date.now());
-  const lastRight = useMemo(() => ui.slots.right.reduce<Slot | null>((a, x) => (!a || x.ts > a.ts ? x : a), null), [ui.slots.right]);
+  const lastSlot = useMemo(() => slots.reduce<Slot | null>((a, x) => (!a || x.slot.ts > a.ts ? x.slot : a), null), [slots]);
   useEffect(() => {
-    if (lastRight && lastRight.ts >= openedAt) show({ kind: "slot", id: lastRight.id });
-  }, [lastRight?.id, lastRight?.ts, openedAt, show]);
+    if (lastSlot && lastSlot.ts >= openedAt) update((l) => show(l, slotPanel(lastSlot.id)));
+  }, [lastSlot?.id, lastSlot?.ts, openedAt, update]);
   const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
   const list = useRef<VirtualListHandle>(null);
   const jump = useCallback((a: Artifact) => {
-    if (a.placement === "right") {
-      if (a.slotId) show({ kind: "slot", id: a.slotId });
+    if (a.placement === "right" || a.placement === "left") {
+      if (a.slotId) update((l) => show(l, slotPanel(a.slotId!)));
       return;
     }
     if (!a.rowId) {
@@ -261,23 +241,74 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       } else if (tries++ < 30) requestAnimationFrame(find);
     };
     requestAnimationFrame(find);
-  }, [show]);
+  }, [update]);
   const changeCount = useMemo(() => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0), [state.items]);
 
   const sideThreads = useMemo(() => state.threadList.filter((t) => !t.main), [state.threadList]);
   // Open side chats that have something to show (they arrive with the replay).
-  const openThreads = panel.threads.filter((id) => !!state.threads[id]);
-  const activeThread = panel.thread && openThreads.includes(panel.thread) ? panel.thread : (openThreads.at(-1) ?? null);
-  const sideShown = active?.kind === "side" && activeThread !== null;
-  const activeShown = sideShown || (!!active && active.kind !== "side" && (active.kind !== "slot" || !!rightSlot));
+  const openThreads = lay.threads.filter((id) => !!state.threads[id]);
+  const activeThread = lay.thread && openThreads.includes(lay.thread) ? lay.thread : (openThreads.at(-1) ?? null);
   const threadTitle = (id: string) => sideThreads.find((x) => x.id === id)?.title ?? "Side chat";
-  /** The toolbar button: hides the side chats, else shows the last active one, else starts a new one. */
+
+  // Panels with an icon, and those that can show now. The layout keeps the rest where they are.
+  const slotById = useMemo(() => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])), [slots]);
+  const available = useMemo(() => {
+    const a = new Set<PanelId>(["side", "terminal", "events", ...slotById.keys()]);
+    if (git) a.add("changes");
+    if (artifacts.length > 0 || isOpen(lay, "artifacts")) a.add("artifacts");
+    return a;
+  }, [slotById, git, artifacts.length, lay]);
+  const shown = useMemo(() => {
+    const renderable = new Set(available);
+    if (openThreads.length === 0) renderable.delete("side");
+    return shownOpen(lay, renderable);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [available, lay, openThreads.length]);
+  const open = (id: PanelId) => isOpen(shown, id);
+
+  /** The Terminal stays mounted (hidden) once opened, so its screen survives hiding and moving. */
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  useEffect(() => { if (open("terminal")) setTerminalOpened(true); });
+
+  // A dot on a slot's icon marks changes made while it was closed (its first sight counts as seen).
+  const slotKey = (x: Slot) => JSON.stringify(x.root);
+  const [seen, setSeen] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setSeen((prev) => {
+      let next = prev;
+      for (const { slot } of slots) {
+        const k = slotKey(slot);
+        if ((open(slotPanel(slot.id)) || !(slot.id in prev)) && prev[slot.id] !== k) next = { ...next, [slot.id]: k };
+      }
+      return next;
+    });
+  });
+
+  const { drag, start: startDrag } = usePanelDrag((id, t) => update((l) => move(l, id, t.zone, t.index ?? undefined)));
+
+  const label = (id: PanelId) => (isSlotPanel(id) ? (slotById.get(id)?.title ?? slotIdOf(id)!) : BASE_LABEL[id]!);
+  const icon = (id: PanelId) => (isSlotPanel(id) ? (lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? <PanelLeft /> : <PanelRight />) : BASE_ICON[id]);
+  const tip = (id: PanelId) => (id === "side" ? "Side chats (Cmd/Ctrl+Shift+B for a new one)" : id === "terminal" ? "Terminal (Ctrl+`)" : id === "artifacts" ? `Artifacts (${artifacts.length})` : label(id));
+  const group = (zone: Zone): StripeGroup => ({
+    zone,
+    items: lay.zones[zone].flatMap((id, index): StripeItem[] => {
+      if (!available.has(id)) return [];
+      const slot = slotById.get(id);
+      const on = shown.open[zone] === id;
+      return [{ id, index, label: label(id), tip: tip(id), icon: icon(id), on, dot: !!slot && !on && slot.id in seen && seen[slot.id] !== slotKey(slot) }];
+    }),
+  });
+  const left: [StripeGroup, StripeGroup, StripeGroup] = [group("leftTop"), group("leftBottom"), group("bottomLeft")];
+  const right: [StripeGroup, StripeGroup, StripeGroup] = [group("rightTop"), group("rightBottom"), group("bottomRight")];
+  const leftEmpty = left.every((g) => g.items.length === 0);
+
+  /** A stripe icon or shortcut for the side chats: hides them, else shows the last active chat, else starts a new one. */
   const toggleSide = () => {
-    if (active?.kind === "side") closePanel();
-    else if (activeThread) setPanel((p) => ({ ...selectThread(p, activeThread), view: SIDE }));
+    if (open("side")) update((l) => hide(l, "side"));
+    else if (activeThread) update((l) => show(selectThread(l, activeThread), "side"));
     else void newSideThread();
   };
-  const closeSide = (id: string) => setPanel((p) => closeThread(p, id));
+  const onToggle = (id: PanelId) => (id === "side" ? toggleSide() : update((l) => toggle(l, id)));
 
   const running = state.turnId !== null;
   const proc = state.process;
@@ -291,96 +322,52 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       </Badge>
     </Tooltip>
   );
-  const toolbarButton = "size-7 text-muted-foreground hover:text-accent-foreground";
-  const actions = (
+
+  const panels: DockPanel[] = [];
+  if (openThreads.length > 0) {
+    panels.push({
+      id: "side",
+      label: "Side chats",
+      children: (
+        <SidePanel
+          api={api} state={state} threads={openThreads} active={activeThread} titleOf={threadTitle} env={env} focus={focus}
+          onSelect={(id) => update((l) => selectThread(l, id))} onClose={(id) => update((l) => closeThread(l, id))}
+          onNew={() => void newSideThread()} onOpenDiff={openDiff}
+        />
+      ),
+    });
+  }
+  if (open("changes")) panels.push({ id: "changes", label: "Changes", children: <DiffPanel api={api} scope={scope} onScope={setScope} refreshKey={refreshKey} /> });
+  if (terminalOpened) {
+    panels.push({
+      id: "terminal",
+      label: "Terminal",
+      children: (
+        <Suspense fallback={null}>
+          <TerminalPanel api={api} active={open("terminal")} />
+        </Suspense>
+      ),
+    });
+  }
+  if (open("events")) panels.push({ id: "events", label: "Events", expandable: true, children: <EventsPanel api={api} /> });
+  if (open("artifacts")) panels.push({ id: "artifacts", label: "Artifacts", children: <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} /> });
+  for (const [id, slot] of slotById) {
+    if (open(id)) panels.push({ id, label: slot.title ?? slot.id, children: <SlotPanel slot={slot} env={env} /> });
+  }
+
+  const chat = (
     <>
-      {!status && toolbar && badge}
-      {ui.slots.right.map((x) => (
-        <SlotTab key={x.id} slot={x} open={active?.kind === "slot" && active.id === x.id} onClick={() => toggle({ kind: "slot", id: x.id })} />
-      ))}
-      {(artifacts.length > 0 || active?.kind === "artifacts") && (
-        <Tooltip content={`Artifacts (${artifacts.length})`} side="bottom">
-          <Button
-            size="icon"
-            variant="ghost"
-            className={cn(toolbarButton, active?.kind === "artifacts" && "bg-accent text-accent-foreground")}
-            aria-label="Artifacts"
-            aria-pressed={active?.kind === "artifacts"}
-            onClick={() => toggle(ARTIFACTS)}
-          >
-            <Layers />
-          </Button>
-        </Tooltip>
+      {!toolbar && (
+        <div className="flex h-13 shrink-0 items-center gap-2 border-b px-5">
+          <span className="truncate text-sm font-semibold">{state.title ?? "New Session"}</span>
+          {badge}
+        </div>
       )}
-      <Tooltip content="Events" side="bottom">
-        <Button
-          size="icon"
-          variant="ghost"
-          className={cn(toolbarButton, active?.kind === "events" && "bg-accent text-accent-foreground")}
-          aria-label="Events"
-          aria-pressed={active?.kind === "events"}
-          onClick={() => toggle(EVENTS)}
-        >
-          <ScrollText />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Side chats (Cmd/Ctrl+Shift+B for a new one)" side="bottom">
-        <Button
-          size="icon"
-          variant="ghost"
-          className={cn(toolbarButton, active?.kind === "side" && "bg-accent text-accent-foreground")}
-          aria-label="Side chats"
-          aria-pressed={active?.kind === "side"}
-          onClick={toggleSide}
-        >
-          <MessagesSquare />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Terminal (Ctrl+`)" side="bottom">
-        <Button
-          size="icon"
-          variant="ghost"
-          className={cn(toolbarButton, active?.kind === "terminal" && "bg-accent text-accent-foreground")}
-          aria-label="Terminal"
-          aria-pressed={active?.kind === "terminal"}
-          onClick={toggleTerminal}
-        >
-          <SquareTerminal />
-        </Button>
-      </Tooltip>
-      {git && (
-        <Tooltip content="Changes" side="bottom">
-          <Button
-            size="icon"
-            variant="ghost"
-            className={cn(toolbarButton, active?.kind === "changes" && "bg-accent text-accent-foreground")}
-            aria-label="Changes"
-            aria-pressed={active?.kind === "changes"}
-            onClick={() => toggle(CHANGES)}
-          >
-            <GitCompare />
-          </Button>
-        </Tooltip>
-      )}
-    </>
-  );
-  return (
-    <div className="flex h-full">
-    <div className="flex h-full min-w-0 flex-1 flex-col">
-      <Portal
-        container={toolbar}
-        fallback={
-          <div className="flex h-13 shrink-0 items-center gap-2 border-b px-5">
-            <span className="truncate text-sm font-semibold">{state.title ?? "New Session"}</span>
-            {badge}
-            <div className="flex-1" />
-            {actions}
-          </div>
-        }
-      >
-        {actions}
-      </Portal>
+      {toolbar && !status && <Portal container={toolbar}>{badge}</Portal>}
       {toolbar && <Portal container={status}>{badge}</Portal>}
+      <Portal container={menu}>
+        <MenuButton onClick={() => update(resetLayout)}><RotateCcw /> Reset layout</MenuButton>
+      </Portal>
       <SelectionComment sessionId={api.sessionId} onAskSideThread={(quote) => void askSideThread(quote)} />
       <TaskListPanel entries={state.taskList} />
       <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
@@ -416,52 +403,34 @@ function ChatView({ api, toolbar, status }: { api: SessionApi; toolbar?: HTMLEle
       ) : (
         <PromptBox api={api} state={state} onSideThread={btw} />
       )}
-    </div>
-    {(activeShown || terminalOpened) && (
-      <div className={cn("relative flex h-full shrink-0 flex-col", !activeShown && "hidden")} style={{ width: right.width }}>
-        <ResizeHandle label="Resize panel" {...right.handle} />
-        {sideShown && (
-          <div role="tablist" aria-label="Side chats" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-l bg-background px-2.5 py-2">
-            {openThreads.map((id) => {
-              const on = id === activeThread;
-              const title = threadTitle(id);
-              return (
-                <div key={id} className={cn("flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs", on ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}>
-                  <button role="tab" aria-selected={on} className="min-w-0 truncate" onClick={() => setPanel((p) => selectThread(p, id))}>{title}</button>
-                  <button className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground" aria-label={`Close ${title}`} onClick={() => closeSide(id)}>
-                    <X className="size-3" />
-                  </button>
-                </div>
-              );
-            })}
-            <Tooltip content="New side chat" side="bottom">
-              <Button size="icon" variant="ghost" className="size-[26px] shrink-0 text-muted-foreground hover:text-accent-foreground" aria-label="New side chat" onClick={() => void newSideThread()}>
-                <Plus />
-              </Button>
-            </Tooltip>
-          </div>
-        )}
-        <div className="relative min-h-0 flex-1">
-          {active?.kind === "changes" && <DiffPanel api={api} scope={scope} onScope={setScope} onClose={closePanel} refreshKey={refreshKey} />}
-          {active?.kind === "events" && <EventsPanel api={api} onClose={closePanel} />}
-          {active?.kind === "artifacts" && <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} onClose={closePanel} />}
-          {rightSlot && <SlotPanel slot={rightSlot} env={env} onClose={closePanel} />}
-          {terminalOpened && (
-            <div className={cn("h-full", active?.kind !== "terminal" && "hidden")}>
-              <Suspense fallback={null}>
-                <TerminalPanel api={api} active={active?.kind === "terminal"} onClose={closePanel} />
-              </Suspense>
-            </div>
-          )}
-          {/* Open side chats stay mounted (hidden) so a half-typed prompt survives switching chats and views. */}
-          {openThreads.map((id) => (
-            <div key={id} className={cn("h-full", !(sideShown && id === activeThread) && "hidden")}>
-              <ThreadView api={api} thread={state.threads[id]!} threadId={id} env={env} onOpenDiff={openDiff} focusKey={focus.id === id ? focus.n : 0} />
-            </div>
-          ))}
+    </>
+  );
+
+  return (
+    <div className="relative flex h-full">
+      {(!leftEmpty || drag) && <Stripe side="left" groups={left} drag={drag} overlay={leftEmpty} onToggle={onToggle} onPress={(it, e) => startDrag(it.id, it.label, e)} />}
+      <DockLayout
+        layout={shown}
+        chat={chat}
+        panels={panels}
+        drag={drag}
+        leftStripeOverlay={leftEmpty}
+        onResize={(patch) => update((l) => resize(l, patch))}
+        onMove={(id, zone) => update((l) => move(l, id, zone))}
+        onHide={(id) => update((l) => hide(l, id))}
+        onExpand={(id) => update((l) => expand(l, id))}
+        onDragStart={startDrag}
+      />
+      <Stripe side="right" groups={right} drag={drag} onToggle={onToggle} onPress={(it, e) => startDrag(it.id, it.label, e)} />
+      {drag && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
+          style={{ left: drag.x + 12, top: drag.y + 12 }}
+        >
+          {icon(drag.id)} {drag.label}
         </div>
-      </div>
-    )}
+      )}
     </div>
   );
 }

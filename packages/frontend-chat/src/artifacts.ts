@@ -14,7 +14,7 @@ export type Artifact = {
   title: string;
   /** What it is: "Mermaid · flowchart", "Table · 3 columns, 2 rows", "PullRequest". */
   sub: string;
-  /** Chat row that shows it; null for render_ui items placed top, bottom or right. */
+  /** Chat row that shows it; null for render_ui items placed top, bottom, left or right. */
   rowId: string | null;
   /** Which diagram/table of its message (0-based, per kind); null for render_ui. */
   index: number | null;
