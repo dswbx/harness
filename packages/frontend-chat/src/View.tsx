@@ -3,7 +3,7 @@ import { Archive, CheckCircle2, CircleDashed, GitCompare, Layers, Loader2, Messa
 import type { AttachmentInput, SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
-  Badge, Button, MenuButton, Portal, Tooltip, cn, type VirtualListHandle,
+  Badge, Button, MenuButton, Portal, ScrollArea, Tooltip, cn, type VirtualListHandle,
 } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
@@ -85,9 +85,9 @@ function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
   return (
     <>
       <PanelHeader title={slot.title ?? slot.id} />
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <ScrollArea className="min-h-0 flex-1"><div className="p-4">
         <RenderUi root={slot.root} env={{ ...env, files: slot.files }} />
-      </div>
+      </div></ScrollArea>
     </>
   );
 }

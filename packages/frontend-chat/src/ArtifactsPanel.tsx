@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowRight, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Search, Table2, Workflow, GitPullRequest } from "lucide-react";
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, cn } from "@harness/ui";
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, ScrollArea, cn } from "@harness/ui";
 import { filterArtifacts, type Artifact, type ArtifactKind } from "./artifacts";
 import { Markdown } from "./Markdown";
 import { PanelHeader } from "./PanelHeader";
@@ -129,7 +129,7 @@ export function ArtifactsPanel({ artifacts, env, onJump }: {
           </DropdownMenu>
         </label>
       </PanelHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" role="listbox" aria-label="Artifacts" tabIndex={0}>
+      <ScrollArea className="min-h-0 flex-1"><div className="px-2 pb-2 outline-none" role="listbox" aria-label="Artifacts" tabIndex={0}>
         {shown.length === 0 && (
           <p className="px-3 py-10 text-center text-sm text-muted-foreground">
             {artifacts.length === 0 ? "Cards, diagrams and tables from this Session show here." : "Nothing matches."}
@@ -146,7 +146,7 @@ export function ArtifactsPanel({ artifacts, env, onJump }: {
             ))}
           </div>
         ))}
-      </div>
+      </div></ScrollArea>
       <div className="flex gap-3.5 border-t px-3.5 py-2 text-[11px] text-muted-foreground">
         <span><kbd className="font-mono">↑↓</kbd> move</span>
         <span><kbd className="font-mono">↵</kbd> jump</span>
@@ -226,7 +226,7 @@ function Inspect({ a, env, position, onStep, onBack, onJump }: {
         <div className="flex-1" />
         <span className="truncate text-xs text-muted-foreground">{a.sub}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
+      <ScrollArea className="min-h-0 flex-1"><div className="p-3.5">
         {tab === "preview" ? (
           <Preview a={a} env={env} />
         ) : (
@@ -240,7 +240,7 @@ function Inspect({ a, env, position, onStep, onBack, onJump }: {
           <dd>{fullMessageTime(a.ts)}</dd>
           {a.placement !== "inline" && (<><dt className="text-muted-foreground">Placed</dt><dd>{PLACED[a.placement]}</dd></>)}
         </dl>
-      </div>
+      </div></ScrollArea>
       <div className="flex gap-2 border-t px-3.5 py-2.5">
         <Button size="sm" onClick={onJump}>
           <ArrowRight /> {a.placement === "left" || a.placement === "right" ? "Open panel" : a.placement === "inline" ? "Jump to message" : "Show"}

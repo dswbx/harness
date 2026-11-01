@@ -20,6 +20,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - Agents inherit a stripped env (`agent_quirks.rs` `stripped_env`: host `CLAUDE*` vars and `ANTHROPIC_BASE_URL`) plus the login-shell PATH.
 - Agent-specific ACP handling lives only in `crates/harness-core/src/agent_quirks.rs`, only for vital fixes, mapped to generic Event fields (ADR 0008 addendum). Never in Frontends.
 - Before adding logic that reads Events, ask: would a second Frontend have to copy this to show the same truth? Core Event field if it needs core/Agent knowledge, `@harness/api` helper if it is a pure derivation, else the Frontend (ADR 0012).
+- Scrolling: every scrolling panel, list, popover and menu uses `ScrollArea` (or `VirtualList`) from `@harness/ui`, the thin scrollbar of the sidebar and chat; with a max height, put it on the root and pass `viewportClassName="max-h-[inherit]"`. Native `overflow-auto` only for code/pre blocks. Popovers and menus cap their height to the space left in the window (`--radix-*-content-available-height`).
 - What the Agent should know about the Harness goes in the plain prompt files, not code: `crates/harness-core/prompts/harness.md` and each Frontend's `instructions.md` (ADR 0014). Keep them short.
 
 ## Commands

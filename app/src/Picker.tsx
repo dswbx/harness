@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Search } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger, cn } from "@harness/ui";
+import { Popover, PopoverContent, PopoverTrigger, ScrollArea, cn } from "@harness/ui";
 
 export type PickItem = {
   key: string;
@@ -84,7 +84,7 @@ export function Picker({
           </div>
         )}
         {header}
-        <div ref={list} role="listbox" aria-label={label} tabIndex={search ? undefined : -1} className="min-h-0 flex-1 overflow-y-auto p-1 outline-none">
+        <ScrollArea className="min-h-0 flex-1"><div ref={list} role="listbox" aria-label={label} tabIndex={search ? undefined : -1} className="p-1 outline-none">
           {items.length === 0 && <div className="px-3 py-6 text-center text-sm text-muted-foreground">{empty}</div>}
           {items.map((it, i) => (
             <div key={it.key}>
@@ -110,7 +110,7 @@ export function Picker({
               </button>
             </div>
           ))}
-        </div>
+        </div></ScrollArea>
         {hint && <div className="border-t px-3 py-2 text-xs text-muted-foreground">{hint}</div>}
       </PopoverContent>
     </Popover>

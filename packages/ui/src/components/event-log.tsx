@@ -2,6 +2,8 @@ import * as React from "react";
 import { ArrowDownToLine, ChevronRight, ListFilter, Search } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+import { ScrollArea } from "./scroll-area";
+import { Select } from "./select";
 import { Tooltip } from "./tooltip";
 import { VirtualList } from "./virtual-list";
 
@@ -81,16 +83,19 @@ export function EventLog({ events, title = "Session Log", actions, header, famil
         <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
           {shown.length === events.length ? compact(events.length) : `${compact(shown.length)}/${compact(events.length)}`}
         </span>
-        <label className="ml-1 flex h-7.5 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring @2xl:max-w-72">
-          <Search className="size-3.5 shrink-0" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            aria-label="Search events"
-            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
+        {/* Right-aligned at a fixed width, so a changing count never moves the search or the buttons. */}
+        <div className="ml-auto flex min-w-0 flex-1 justify-end pl-1">
+          <label className="flex h-7.5 w-full max-w-60 min-w-0 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+            <Search className="size-3.5 shrink-0" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              aria-label="Search events"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+        </div>
         <Popover>
           <Tooltip content={active.length ? active.join(" · ") : "Filter"} side="bottom">
             <PopoverTrigger
@@ -106,37 +111,32 @@ export function EventLog({ events, title = "Session Log", actions, header, famil
               )}
             </PopoverTrigger>
           </Tooltip>
-          <PopoverContent align="end" className="max-h-[min(32rem,var(--radix-popover-content-available-height))] w-64 overflow-y-auto text-[13px]">
-            <div className="flex items-center justify-between px-2 pt-1 pb-1">
-              <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">KIND</span>
-              <button
-                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
-                disabled={!active.length}
-                onClick={() => { setKinds(new Set()); setThread(null); }}
-              >
-                Clear all
-              </button>
-            </div>
-            {groups.map((g) => <Family key={g.name} g={g} kinds={kinds} setMany={setMany} />)}
-            {threads.length > 1 && (
-              <>
-                <div className="my-1 h-px bg-border" />
-                <div className="px-2 pt-1 pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground">THREAD</div>
-                <div className="flex flex-wrap gap-1 px-2 pb-1.5" role="radiogroup" aria-label="Thread">
-                  {[null, ...threads].map((t) => (
-                    <button
-                      key={t ?? ""}
-                      role="radio"
-                      aria-checked={thread === t}
-                      onClick={() => setThread(t)}
-                      className={cn("h-6 rounded-full bg-muted px-2.5 font-mono text-[11px]", thread === t && "bg-primary text-primary-foreground")}
-                    >
-                      {t ?? "All"}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+          <PopoverContent align="end" className="w-64 p-0 text-[13px]">
+            <ScrollArea className="max-h-[min(32rem,var(--radix-popover-content-available-height))]" viewportClassName="max-h-[inherit] p-1">
+              <div className="flex items-center justify-between px-2 pt-1 pb-1">
+                <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">KIND</span>
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  disabled={!active.length}
+                  onClick={() => { setKinds(new Set()); setThread(null); }}
+                >
+                  Clear all
+                </button>
+              </div>
+              {groups.map((g) => <Family key={g.name} g={g} kinds={kinds} setMany={setMany} />)}
+              {threads.length > 1 && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  <label className="flex items-center gap-2 px-2 pt-1 pb-1.5">
+                    <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">THREAD</span>
+                    <Select className="h-7 min-w-0 flex-1 font-mono text-xs" value={thread ?? ""} onChange={(e) => setThread(e.target.value || null)}>
+                      <option value="">All</option>
+                      {threads.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </Select>
+                  </label>
+                </>
+              )}
+            </ScrollArea>
           </PopoverContent>
         </Popover>
         <Tooltip content={auto ? "Autoscroll on" : "Autoscroll off"} side="bottom">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { MessagesSquare } from "lucide-react";
 import type { AttachmentInput, SessionApi } from "@harness/api";
+import { ScrollArea } from "@harness/ui";
 import type { DiffScope } from "./DiffPanel";
 import { MessageList, useRows } from "./Messages";
 import { PromptBox, type PromptBoxHandle } from "./PromptBox";
@@ -80,14 +81,14 @@ export function SideDraft({ api, draftId, onSend, focusKey }: {
   }, [focusKey]);
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background" aria-label="New side chat">
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto px-6 text-center">
+      <ScrollArea className="min-h-0 flex-1"><div className="flex min-h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
         <div className="grid gap-1">
           <p className="text-sm font-medium">Ask on the side</p>
           <p className="text-[13px] text-muted-foreground">Your first message starts this chat from the conversation so far. The Main Thread never sees it.</p>
         </div>
         <SelectionHint />
         <p className="max-w-60 text-xs text-muted-foreground">Or select text in the chat and pick <span className="font-medium text-foreground">Ask in side thread</span> to start one with a quote.</p>
-      </div>
+      </div></ScrollArea>
       <PromptBox ref={prompt} api={api} state={empty} threadId={draftId} onSend={onSend} />
     </aside>
   );

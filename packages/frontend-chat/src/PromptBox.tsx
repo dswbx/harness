@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { ArrowUp, FileText, MessageSquare, Paperclip, Square, X } from "lucide-react";
 import { onFileDrop, pickFiles, type AttachmentInput, type SessionApi, type SlashCommand } from "@harness/api";
-import { Button, Tooltip, cn } from "@harness/ui";
+import { Button, ScrollArea, Tooltip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { lineCount } from "./promptMarkdown";
@@ -225,7 +225,7 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
   return (
     <div className="relative mx-auto w-full max-w-3xl px-6 pb-5">
       {matches.length > 0 && (
-        <div className="absolute bottom-full left-6 mb-1 max-h-72 w-72 max-w-[calc(100%-3rem)] overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox" aria-label="Commands">
+        <ScrollArea className="absolute bottom-full left-6 mb-1 max-h-72 w-72 max-w-[calc(100%-3rem)] rounded-lg border bg-popover shadow-md" viewportClassName="max-h-[inherit]"><div className="p-1" role="listbox" aria-label="Commands">
           {matches.map((c, i) => (
             <Tooltip key={c.name} content={c.description} side="right" open={i === sel && !!c.description}>
               <button
@@ -242,7 +242,7 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
               </button>
             </Tooltip>
           ))}
-        </div>
+        </div></ScrollArea>
       )}
       {readOnly && (
         <div role="alert" className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm">

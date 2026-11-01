@@ -3,7 +3,7 @@ import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide
 import { openWindow, type Diff, type FileChange, type GitStatus, type SessionApi, type WorkspaceInfo } from "@harness/api";
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
-  DropdownMenuTrigger, Tooltip, cn,
+  DropdownMenuTrigger, ScrollArea, Tooltip, cn,
 } from "@harness/ui";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { splitPatch, type FilePatch } from "./diff";
@@ -164,7 +164,7 @@ export function DiffPanel({
       ) : (
         <>
           {error && <p role="alert" className="border-b px-3 py-2 text-xs text-destructive">{error}</p>}
-          <div className="min-h-0 flex-1 overflow-auto py-1">
+          <ScrollArea className="min-h-0 flex-1"><div className="py-1">
             {!diff ? (
               !error && <p className="p-3 text-xs text-muted-foreground">Loading...</p>
             ) : files.length === 0 ? (
@@ -174,7 +174,7 @@ export function DiffPanel({
                 <FileRow key={f.path} api={api} file={f} comments={comments} root={workspace?.repo_root} open={open.has(f.path)} onToggle={() => toggle(f.path)} />
               ))
             )}
-          </div>
+          </div></ScrollArea>
           <CommitsPane commits={commits} sel={scope.sel} tipSide="left" uncommitted={status?.files.length} onSelect={(sel) => onScope(selectionScope(sel, commits))} />
         </>
       )}

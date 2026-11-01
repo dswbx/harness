@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { cn } from "@harness/ui";
+import { ScrollArea, cn } from "@harness/ui";
 import { filterThemes, getThemes, onThemesChange, stepIndex, swatch } from "./appearance/appearance";
 
 function Dots({ theme, isDark }: { theme: string; isDark: boolean }) {
@@ -131,7 +131,7 @@ export function ThemePicker({ value, isDark, onPreview, onCommit, onRevert }: {
             onKeyDown={onFilterKey}
             className="h-8 w-full border-b bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground"
           />
-          <div ref={list} id={`${id}-list`} role="listbox" aria-label="Themes" className="max-h-80 overflow-y-auto p-1">
+          <ScrollArea className="max-h-80" viewportClassName="max-h-[inherit]"><div ref={list} id={`${id}-list`} role="listbox" aria-label="Themes" className="p-1">
             {items.length === 0 && <p className="px-2 py-1.5 text-xs text-muted-foreground">No matching themes.</p>}
             {items.map((t, i) => (
               <div
@@ -150,7 +150,7 @@ export function ThemePicker({ value, isDark, onPreview, onCommit, onRevert }: {
                 {t.id === value && <Check className="size-3.5 shrink-0" />}
               </div>
             ))}
-          </div>
+          </div></ScrollArea>
         </div>
       )}
     </div>

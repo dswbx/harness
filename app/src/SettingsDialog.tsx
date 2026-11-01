@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { Bot, Code, Info, LayoutGrid, Palette, Plug, Shield } from "lucide-react";
 import { RenderUiGallery } from "@harness/frontend-chat";
 import type { HarnessClient } from "@harness/api";
-import { Dialog, DialogContent, DialogDescription, DialogTitle, cn } from "@harness/ui";
+import { Dialog, DialogContent, DialogDescription, DialogTitle, ScrollArea, cn } from "@harness/ui";
 import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
 import { AppearancePanel } from "./AppearancePanel";
@@ -71,7 +71,7 @@ export function SettingsDialog({
             <div className="flex-1" />
             <p className="px-2.5 py-1 text-xs text-muted-foreground">Changes save right away.</p>
           </nav>
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+          <ScrollArea className="min-h-0 min-w-0 flex-1"><div className="p-6">
             {section === "appearance" && <AppearancePanel client={client} />}
             {section === "editor" && <EditorPanel client={client} />}
             {section === "permissions" && <PermissionsPanel client={client} sessionId={sessionId} agentsVersion={agentsVersion} />}
@@ -79,7 +79,7 @@ export function SettingsDialog({
             {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} />}
             {section === "components" && <RenderUiGallery />}
             {section === "about" && <AboutPanel />}
-          </div>
+          </div></ScrollArea>
         </div>
       </DialogContent>
     </Dialog>
