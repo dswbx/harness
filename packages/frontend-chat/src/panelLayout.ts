@@ -137,6 +137,13 @@ export function openThread(l: Layout, id: string): Layout {
   return show({ ...l, threads: l.threads.includes(id) ? l.threads : [...l.threads, id], thread: id }, "side");
 }
 
+/** A side chat tab not started yet: its Side Thread forks on the first message (`draft:<uuid>`). */
+export const isDraftThread = (id: string) => id.startsWith("draft:");
+
+/** The draft tab became Side Thread `to`: same place in the tabs, still active if it was. */
+export const replaceThread = (l: Layout, from: string, to: string): Layout =>
+  l.threads.includes(from) ? { ...l, threads: l.threads.map((t) => (t === from ? to : t)), thread: l.thread === from ? to : l.thread } : l;
+
 /** Selects an open Side Thread. */
 export const selectThread = (l: Layout, id: string): Layout => (l.threads.includes(id) ? { ...l, thread: id } : l);
 

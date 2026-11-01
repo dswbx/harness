@@ -3,7 +3,7 @@ import { Archive, CheckCircle2, CircleDashed, GitCompare, Layers, Loader2, Messa
 import type { AttachmentInput, SessionApi } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
-  Badge, Button, MenuButton, Portal, Tooltip, cn, type VirtualListHandle,
+  Badge, Button, MenuButton, Portal, ScrollArea, Tooltip, cn, type VirtualListHandle,
 } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
@@ -23,10 +23,11 @@ import { SelectionComment } from "./SelectionComment";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Slot } from "./slots";
 import { errorMessage } from "./errors";
-import { addReviewComment, composerKey } from "./reviewComments";
+import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
 import { usePanelDrag } from "./panelDrag";
+import { uiIcons } from "./uiIcons";
 import {
-  closeThread, expand, hide, isOpen, isSlotPanel, loadLayout, move, openThread, reconcile, resetLayout, resize, saveLayout, selectThread, show,
+  closeThread, expand, hide, isDraftThread, isOpen, isSlotPanel, loadLayout, move, openThread, replaceThread, reconcile, resetLayout, resize, saveLayout, selectThread, show,
   shownOpen, slotIdOf, slotPanel, toggle, type Layout, type PanelId, type Zone,
 } from "./panelLayout";
 import { initialState, reduce, reduceBatch, type ChatState } from "./reducer";
@@ -84,9 +85,9 @@ function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
   return (
     <>
       <PanelHeader title={slot.title ?? slot.id} />
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <ScrollArea className="min-h-0 flex-1"><div className="p-4">
         <RenderUi root={slot.root} env={{ ...env, files: slot.files }} />
-      </div>
+      </div></ScrollArea>
     </>
   );
 }
@@ -137,39 +138,39 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
   // Side chats: a prompt box takes focus in the chat that was just created.
   const [focus, setFocus] = useState<{ id: string; n: number }>({ id: "", n: 0 });
   const [sideError, setSideError] = useState<string | null>(null);
-  /** Opens a Side Thread (forked from Main when the Agent can), shows it, and returns its id. */
-  const newSideThread = useCallback(
-    async () => {
+  const layRef = useRef(lay);
+  layRef.current = lay;
+  /** Starts a Side Thread now (forked from Main when the Agent can), in place of tab `draft` or as a new tab, and sends it `text`. */
+  const startSideThread = useCallback(
+    async (text: string, attachments: AttachmentInput[], draft?: string) => {
       setSideError(null);
+      let thread_id: string;
       try {
-        const { thread_id } = await api.startSideThread();
-        update((l) => openThread(l, thread_id));
-        setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
-        return thread_id;
+        ({ thread_id } = await api.startSideThread());
       } catch (e) {
         setSideError(errorMessage(e));
-        return null;
+        throw e;
       }
+      update((l) => (draft && l.threads.includes(draft) ? replaceThread(l, draft, thread_id) : openThread(l, thread_id)));
+      setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
+      await api.prompt(text, attachments, thread_id);
     },
     [api, update],
   );
-  /** "Ask in side thread": a new Side Thread with the selected text as a quote chip in its prompt box. */
+  /** A new side chat tab (an open draft is reused). Its Side Thread starts with its first message. */
+  const newSideThread = useCallback(() => {
+    const id = layRef.current.threads.find(isDraftThread) ?? `draft:${crypto.randomUUID()}`;
+    update((l) => openThread(l, id));
+    setFocus((f) => ({ id, n: f.n + 1 }));
+    return id;
+  }, [update]);
+  /** "Ask in side thread": a new side chat with the selected text as a quote chip in its prompt box. */
   const askSideThread = useCallback(
-    async (quote: string) => {
-      const id = await newSideThread();
-      if (id) addReviewComment(composerKey(api.sessionId, id), { kind: "quote", quote, text: "" });
-    },
+    (quote: string) => addReviewComment(composerKey(api.sessionId, newSideThread()), { kind: "quote", quote, text: "" }),
     [api, newSideThread],
   );
   /** `/btw <text>` in the Main prompt box: a Side Thread whose first prompt is `text`. */
-  const btw = useCallback(
-    async (text: string, attachments: AttachmentInput[]) => {
-      const id = await newSideThread();
-      if (!id) throw new Error("Could not start a side thread");
-      await api.prompt(text, attachments, id);
-    },
-    [api, newSideThread],
-  );
+  const btw = useCallback((text: string, attachments: AttachmentInput[]) => startSideThread(text, attachments), [startSideThread]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -183,7 +184,7 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
       else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyB") {
         e.preventDefault();
         e.stopPropagation();
-        void newSideThread();
+        newSideThread();
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -247,9 +248,9 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
 
   const sideThreads = useMemo(() => state.threadList.filter((t) => !t.main), [state.threadList]);
   // Open side chats that have something to show (they arrive with the replay).
-  const openThreads = lay.threads.filter((id) => !!state.threads[id]);
+  const openThreads = lay.threads.filter((id) => isDraftThread(id) || !!state.threads[id]);
   const activeThread = lay.thread && openThreads.includes(lay.thread) ? lay.thread : (openThreads.at(-1) ?? null);
-  const threadTitle = (id: string) => sideThreads.find((x) => x.id === id)?.title ?? "Side chat";
+  const threadTitle = (id: string) => (isDraftThread(id) ? "New chat" : (sideThreads.find((x) => x.id === id)?.title ?? "Side chat"));
 
   // Panels with an icon, and those that can show now. The layout keeps the rest where they are.
   const slotById = useMemo(() => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])), [slots]);
@@ -288,15 +289,22 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
   const { drag, start: startDrag } = usePanelDrag((id, t) => update((l) => move(l, id, t.zone, t.index ?? undefined)));
 
   const label = (id: PanelId) => (isSlotPanel(id) ? (slotById.get(id)?.title ?? slotIdOf(id)!) : BASE_LABEL[id]!);
-  const icon = (id: PanelId) => (isSlotPanel(id) ? (lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? <PanelLeft /> : <PanelRight />) : BASE_ICON[id]);
-  const tip = (id: PanelId) => (id === "side" ? "Side chats (Cmd/Ctrl+Shift+B for a new one)" : id === "terminal" ? "Terminal (Ctrl+`)" : id === "artifacts" ? `Artifacts (${artifacts.length})` : label(id));
+  const icon = (id: PanelId) => {
+    if (!isSlotPanel(id)) return BASE_ICON[id];
+    const Custom = uiIcons[slotById.get(id)?.icon as keyof typeof uiIcons];
+    if (Custom) return <Custom />;
+    return lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? <PanelLeft /> : <PanelRight />;
+  };
+  const tip = (id: PanelId) => (id === "side" ? "Side chats (⇧⌘B new)" : label(id));
+  const count = (id: PanelId) => (id === "side" ? sideThreads.length : id === "artifacts" ? artifacts.length : undefined);
+  const shortcut = (id: PanelId) => (id === "terminal" ? ["⌃", "`"] : undefined);
   const group = (zone: Zone): StripeGroup => ({
     zone,
     items: lay.zones[zone].flatMap((id, index): StripeItem[] => {
       if (!available.has(id)) return [];
       const slot = slotById.get(id);
       const on = shown.open[zone] === id;
-      return [{ id, index, label: label(id), tip: tip(id), icon: icon(id), on, dot: !!slot && !on && slot.id in seen && seen[slot.id] !== slotKey(slot) }];
+      return [{ id, index, label: label(id), tip: tip(id), count: count(id), shortcut: shortcut(id), icon: icon(id), on, dot: !!slot && !on && slot.id in seen && seen[slot.id] !== slotKey(slot) }];
     }),
   });
   const left: [StripeGroup, StripeGroup, StripeGroup] = [group("leftTop"), group("leftBottom"), group("bottomLeft")];
@@ -307,7 +315,7 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
   const toggleSide = () => {
     if (open("side")) update((l) => hide(l, "side"));
     else if (activeThread) update((l) => show(selectThread(l, activeThread), "side"));
-    else void newSideThread();
+    else newSideThread();
   };
   const onToggle = (id: PanelId) => (id === "side" ? toggleSide() : update((l) => toggle(l, id)));
 
@@ -332,8 +340,8 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
       children: (
         <SidePanel
           api={api} state={state} threads={openThreads} active={activeThread} titleOf={threadTitle} env={env} focus={focus}
-          onSelect={(id) => update((l) => selectThread(l, id))} onClose={(id) => update((l) => closeThread(l, id))}
-          onNew={() => void newSideThread()} onOpenDiff={openDiff}
+          onSelect={(id) => update((l) => selectThread(l, id))} onClose={(id) => { if (isDraftThread(id)) setReviewComments(composerKey(api.sessionId, id), []); update((l) => closeThread(l, id)); }}
+          onNew={newSideThread} onSendDraft={(id, text, files) => startSideThread(text, files, id)} onOpenDiff={openDiff}
         />
       ),
     });

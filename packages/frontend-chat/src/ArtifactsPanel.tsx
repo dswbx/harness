@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowRight, ChartColumn, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Search, Table2, Workflow, GitPullRequest } from "lucide-react";
-import { Button, cn } from "@harness/ui";
+import { ArrowRight, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronUp, Copy, LayoutDashboard, Search, Table2, Workflow, GitPullRequest } from "lucide-react";
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, ScrollArea, cn } from "@harness/ui";
 import { filterArtifacts, type Artifact, type ArtifactKind } from "./artifacts";
 import { Markdown } from "./Markdown";
 import { PanelHeader } from "./PanelHeader";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { fullMessageTime, useNow } from "./time";
+import { uiIcons } from "./uiIcons";
 
 /** Short age for a row: "now", "5m", "2h", "3d". */
 function age(ts: number, now: number): string {
@@ -24,6 +25,8 @@ const KINDS: { kind: ArtifactKind | "all"; label: string }[] = [
 ];
 
 function KindIcon({ a }: { a: Artifact }) {
+  const Custom = a.icon ? uiIcons[a.icon as keyof typeof uiIcons] : undefined;
+  if (Custom) return <Custom />;
   if (a.kind === "diagram") return <Workflow />;
   if (a.kind === "table") return <Table2 />;
   if (a.ui?.root.type === "PullRequest") return <GitPullRequest />;
@@ -90,37 +93,43 @@ export function ArtifactsPanel({ artifacts, env, onJump }: {
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKey}>
-      <PanelHeader title="Artifacts" className="pl-3.5">
-        <span className="text-xs text-muted-foreground">{artifacts.length}</span>
-      </PanelHeader>
-      <div className="grid gap-2.5 px-3.5 pt-3 pb-2">
-        <label className="flex h-8 items-center gap-2 rounded-md border px-2.5 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
-          <Search className="size-4" />
+      <PanelHeader title="Artifacts" className="@container gap-1.5">
+        <span className="hidden text-xs text-muted-foreground @[18rem]:inline">{artifacts.length}</span>
+        <label className="ml-1 flex h-7.5 min-w-0 flex-1 items-center gap-1.5 rounded-md border pr-0.5 pl-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+          <Search className="size-3.5 shrink-0" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by title or content"
+            placeholder="Filter"
             aria-label="Filter artifacts"
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label={`Kind: ${KINDS.find((k) => k.kind === kind)!.label}`}
+                className={cn(
+                  "inline-flex h-5.5 shrink-0 items-center gap-0.5 rounded pr-0.5 pl-1.5 text-xs whitespace-nowrap hover:text-foreground data-[state=open]:bg-accent",
+                  kind !== "all" && "bg-accent font-medium text-foreground",
+                )}
+              >
+                {KINDS.find((k) => k.kind === kind)!.label}
+                <ChevronDown className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {KINDS.map((k) => (
+                <DropdownMenuItem key={k.kind} onSelect={() => setKind(k.kind)}>
+                  {k.label}
+                  <span className="ml-auto text-xs text-muted-foreground">{counts(k.kind)}</span>
+                  <Check className={cn("size-3.5", kind !== k.kind && "invisible")} />
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </label>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Kind">
-          {KINDS.map((k) => (
-            <button
-              key={k.kind}
-              aria-pressed={kind === k.kind}
-              onClick={() => setKind(k.kind)}
-              className={cn(
-                "inline-flex h-6.5 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground",
-                kind === k.kind && "border-primary bg-primary text-primary-foreground hover:text-primary-foreground",
-              )}
-            >
-              {k.label} <span className="opacity-60">{counts(k.kind)}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" role="listbox" aria-label="Artifacts" tabIndex={0}>
+      </PanelHeader>
+      <ScrollArea className="min-h-0 flex-1"><div className="px-2 pb-2 outline-none" role="listbox" aria-label="Artifacts" tabIndex={0}>
         {shown.length === 0 && (
           <p className="px-3 py-10 text-center text-sm text-muted-foreground">
             {artifacts.length === 0 ? "Cards, diagrams and tables from this Session show here." : "Nothing matches."}
@@ -137,12 +146,7 @@ export function ArtifactsPanel({ artifacts, env, onJump }: {
             ))}
           </div>
         ))}
-      </div>
-      <div className="flex gap-3.5 border-t px-3.5 py-2 text-[11px] text-muted-foreground">
-        <span><kbd className="font-mono">↑↓</kbd> move</span>
-        <span><kbd className="font-mono">↵</kbd> jump</span>
-        <span><kbd className="font-mono">Space</kbd> inspect</span>
-      </div>
+      </div></ScrollArea>
     </div>
   );
 }
@@ -157,7 +161,7 @@ function Row({ a, selected, onOpen }: { a: Artifact; selected: boolean; onOpen: 
       role="option"
       aria-selected={selected}
       onClick={onOpen}
-      className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-accent/60", selected && "bg-accent ring-1 ring-border ring-inset hover:bg-accent")}
+      className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-2 select-none hover:bg-accent/60", selected && "bg-accent ring-1 ring-border ring-inset hover:bg-accent")}
     >
       <span className={cn("grid size-8 shrink-0 place-items-center rounded-md bg-muted text-foreground/80 [&_svg]:size-4", selected && "bg-background")}>
         <KindIcon a={a} />
@@ -217,7 +221,7 @@ function Inspect({ a, env, position, onStep, onBack, onJump }: {
         <div className="flex-1" />
         <span className="truncate text-xs text-muted-foreground">{a.sub}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
+      <ScrollArea className="min-h-0 flex-1"><div className="p-3.5">
         {tab === "preview" ? (
           <Preview a={a} env={env} />
         ) : (
@@ -231,7 +235,7 @@ function Inspect({ a, env, position, onStep, onBack, onJump }: {
           <dd>{fullMessageTime(a.ts)}</dd>
           {a.placement !== "inline" && (<><dt className="text-muted-foreground">Placed</dt><dd>{PLACED[a.placement]}</dd></>)}
         </dl>
-      </div>
+      </div></ScrollArea>
       <div className="flex gap-2 border-t px-3.5 py-2.5">
         <Button size="sm" onClick={onJump}>
           <ArrowRight /> {a.placement === "left" || a.placement === "right" ? "Open panel" : a.placement === "inline" ? "Jump to message" : "Show"}

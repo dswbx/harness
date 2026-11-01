@@ -1,7 +1,7 @@
 import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useReducer, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronLeft, ChevronRight, FileCode, ImageOff, Info, Search, XCircle } from "lucide-react";
 import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
-import { Button, Input, Select, Textarea, Tooltip, cn } from "@harness/ui";
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, Tooltip, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { Markdown } from "./Markdown";
 import { splitPatch } from "./diff";
@@ -282,9 +282,11 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   const body =
     variant === "select" ? (
       <div className="flex items-center gap-2">
-        <Select className="w-auto min-w-48" value={picked == null ? "" : String(picked)} disabled={graded} onChange={(e) => void pick(e.target.value)}>
-          <option value="" disabled>Choose…</option>
-          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        <Select value={picked == null ? "" : String(picked)} disabled={graded} onValueChange={(v) => void pick(v)}>
+          <SelectTrigger className="w-auto min-w-48"><SelectValue placeholder="Choose…" /></SelectTrigger>
+          <SelectContent>
+            {options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          </SelectContent>
         </Select>
         {graded && (right ? <CheckCircle2 className="size-4 text-emerald-500" aria-label="correct" /> : <XCircle className="size-4 text-destructive" aria-label="wrong" />)}
       </div>

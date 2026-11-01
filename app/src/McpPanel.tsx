@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Lock, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { HarnessClient, McpServerDef } from "@harness/api";
-import { Badge, Button, Input, Select, Tooltip } from "@harness/ui";
+import { Badge, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tooltip } from "@harness/ui";
 import { SectionHeader } from "./SectionHeader";
 import { fromForm, summary, type Form, type Row } from "./settings";
 
@@ -102,9 +102,12 @@ export function McpPanel({
           </label>
           <label className="grid gap-1">
             Transport
-            <Select value={form.kind} onChange={(e) => patch({ kind: e.target.value as Form["kind"] })}>
-              <option value="stdio">stdio (local command)</option>
-              <option value="http">http (URL)</option>
+            <Select value={form.kind} onValueChange={(v) => patch({ kind: v as Form["kind"] })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="stdio">stdio (local command)</SelectItem>
+                <SelectItem value="http">http (URL)</SelectItem>
+              </SelectContent>
             </Select>
           </label>
           {form.kind === "stdio" ? (

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize};
 
-use crate::api::SessionId;
+use crate::api::{SessionId, TerminalInfo};
 
 /// What attached Frontends receive.
 pub enum TerminalOutput<'a> {
@@ -42,76 +42,191 @@ const ACK_TIMEOUT: Duration = Duration::from_secs(2);
 const COALESCE: Duration = Duration::from_millis(4);
 const MAX_MESSAGE: usize = 256 * 1024;
 
+/// A tab: lives until closed. `term` is the running shell, if any.
+struct Slot {
+    id: u32,
+    term: Option<Arc<Terminal>>,
+}
+
+#[derive(Default)]
+struct Session {
+    next: u32,
+    slots: Vec<Slot>,
+}
+
+impl Session {
+    fn add(&mut self) -> u32 {
+        self.next += 1;
+        self.slots.push(Slot { id: self.next, term: None });
+        self.next
+    }
+}
+
+type Changed = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Several Terminals per Session, keyed by a per-Session id (1, 2, ...). The first exists implicitly.
 #[derive(Default, Clone)]
 pub struct Terminals {
-    map: Arc<Mutex<HashMap<SessionId, Arc<Terminal>>>>,
+    map: Arc<Mutex<HashMap<SessionId, Session>>>,
+    /// Called with the Session id when its tabs open, close or a shell starts or exits.
+    changed: Option<Changed>,
 }
 
 impl Terminals {
-    /// Attaches to the Session's Terminal, starting a shell in `folder` if none runs. The sink
-    /// first gets `Replay`, then live output.
-    pub fn attach(&self, session_id: &str, folder: &Path, cols: u16, rows: u16, sink: TerminalSink) -> anyhow::Result<u64> {
+    pub fn new(changed: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        Self { map: Default::default(), changed: Some(Arc::new(changed)) }
+    }
+
+    fn notify(&self, session_id: &str) {
+        if let Some(f) = &self.changed {
+            f(session_id);
+        }
+    }
+
+    /// The Session's tabs (a first one is created if there are none).
+    pub fn list(&self, session_id: &str) -> Vec<TerminalInfo> {
+        let slots: Vec<(u32, Option<Arc<Terminal>>)> = {
+            let mut map = self.map.lock().unwrap();
+            let s = map.entry(session_id.to_owned()).or_default();
+            if s.slots.is_empty() {
+                s.add();
+            }
+            s.slots.iter().map(|x| (x.id, x.term.clone())).collect()
+        };
+        slots
+            .into_iter()
+            .enumerate()
+            .map(|(i, (id, term))| {
+                let n = i + 1;
+                match term {
+                    None => TerminalInfo { id, title: format!("{} {n}", default_shell_name()), running: false, busy: false },
+                    Some(t) => {
+                        let (name, busy) = t.foreground();
+                        TerminalInfo { id, title: if busy { name } else { format!("{name} {n}") }, running: true, busy }
+                    }
+                }
+            })
+            .collect()
+    }
+
+    /// A new tab; its shell starts on the first attach.
+    pub fn open(&self, session_id: &str) -> u32 {
+        let id = {
+            let mut map = self.map.lock().unwrap();
+            let s = map.entry(session_id.to_owned()).or_default();
+            if s.slots.is_empty() {
+                s.add();
+            }
+            s.add()
+        };
+        self.notify(session_id);
+        id
+    }
+
+    /// Kills the tab's shell and removes the tab.
+    pub fn close(&self, session_id: &str, terminal_id: u32) {
         let term = {
             let mut map = self.map.lock().unwrap();
-            match map.get(session_id) {
-                Some(t) => t.clone(),
+            let Some(s) = map.get_mut(session_id) else { return };
+            let Some(i) = s.slots.iter().position(|x| x.id == terminal_id) else { return };
+            s.slots.remove(i).term
+        };
+        if let Some(t) = term {
+            let _ = t.killer.lock().unwrap().kill();
+        }
+        self.notify(session_id);
+    }
+
+    /// Attaches to the tab's Terminal, starting a shell in `folder` if none runs. The sink
+    /// first gets `Replay`, then live output.
+    pub fn attach(&self, session_id: &str, terminal_id: u32, folder: &Path, cols: u16, rows: u16, sink: TerminalSink) -> anyhow::Result<u64> {
+        let (term, started) = {
+            let mut map = self.map.lock().unwrap();
+            let s = map.entry(session_id.to_owned()).or_default();
+            if s.slots.is_empty() {
+                s.add();
+            }
+            let slot = s.slots.iter_mut().find(|x| x.id == terminal_id).ok_or_else(|| anyhow::anyhow!("no terminal {terminal_id}"))?;
+            match &slot.term {
+                Some(t) => (t.clone(), false),
                 None => {
-                    let t = self.spawn(session_id, shell(folder), cols, rows)?;
-                    map.insert(session_id.to_owned(), t.clone());
-                    t
+                    let t = self.spawn(session_id, terminal_id, shell(folder), cols, rows)?;
+                    slot.term = Some(t.clone());
+                    (t, true)
                 }
             }
         };
+        if started {
+            self.notify(session_id);
+        }
         term.resize(cols, rows)?;
         Ok(term.attach(sink))
     }
 
-    pub fn detach(&self, session_id: &str, id: u64) {
-        if let Some(t) = self.get(session_id) {
+    pub fn detach(&self, session_id: &str, terminal_id: u32, id: u64) {
+        if let Some(t) = self.get(session_id, terminal_id) {
             t.detach(id);
         }
     }
 
-    pub fn input(&self, session_id: &str, data: &[u8]) -> anyhow::Result<()> {
-        let t = self.get(session_id).ok_or_else(|| anyhow::anyhow!("no terminal for {session_id}"))?;
+    pub fn input(&self, session_id: &str, terminal_id: u32, data: &[u8]) -> anyhow::Result<()> {
+        let t = self.get(session_id, terminal_id).ok_or_else(|| anyhow::anyhow!("no terminal {terminal_id} for {session_id}"))?;
         let mut w = t.writer.lock().unwrap();
         w.write_all(data)?;
         w.flush()?;
         Ok(())
     }
 
-    pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> anyhow::Result<()> {
-        match self.get(session_id) {
+    pub fn resize(&self, session_id: &str, terminal_id: u32, cols: u16, rows: u16) -> anyhow::Result<()> {
+        match self.get(session_id, terminal_id) {
             Some(t) => t.resize(cols, rows),
             None => Ok(()),
         }
     }
 
     /// A Frontend has drawn `bytes` of output.
-    pub fn ack(&self, session_id: &str, bytes: usize) {
-        if let Some(t) = self.get(session_id) {
+    pub fn ack(&self, session_id: &str, terminal_id: u32, bytes: usize) {
+        if let Some(t) = self.get(session_id, terminal_id) {
             let mut n = t.unacked.0.lock().unwrap();
             *n = n.saturating_sub(bytes);
             t.unacked.1.notify_all();
         }
     }
 
-    pub fn kill(&self, session_id: &str) {
-        if let Some(t) = self.map.lock().unwrap().remove(session_id) {
+    /// Ends the tab's shell; the tab stays and the next attach starts a new one.
+    pub fn kill(&self, session_id: &str, terminal_id: u32) {
+        let term = {
+            let mut map = self.map.lock().unwrap();
+            let slot = map.get_mut(session_id).and_then(|s| s.slots.iter_mut().find(|x| x.id == terminal_id));
+            slot.and_then(|x| x.term.take())
+        };
+        if let Some(t) = term {
             let _ = t.killer.lock().unwrap().kill();
+            self.notify(session_id);
         }
     }
 
-    fn get(&self, session_id: &str) -> Option<Arc<Terminal>> {
-        self.map.lock().unwrap().get(session_id).cloned()
+    /// Kills every shell of the Session and forgets its tabs.
+    pub fn kill_all(&self, session_id: &str) {
+        if let Some(s) = self.map.lock().unwrap().remove(session_id) {
+            for t in s.slots.into_iter().filter_map(|x| x.term) {
+                let _ = t.killer.lock().unwrap().kill();
+            }
+        }
     }
 
-    fn spawn(&self, session_id: &str, cmd: CommandBuilder, cols: u16, rows: u16) -> anyhow::Result<Arc<Terminal>> {
+    fn get(&self, session_id: &str, terminal_id: u32) -> Option<Arc<Terminal>> {
+        let map = self.map.lock().unwrap();
+        map.get(session_id)?.slots.iter().find(|x| x.id == terminal_id)?.term.clone()
+    }
+
+    fn spawn(&self, session_id: &str, terminal_id: u32, cmd: CommandBuilder, cols: u16, rows: u16) -> anyhow::Result<Arc<Terminal>> {
         let pair = portable_pty::native_pty_system().openpty(size(cols, rows))?;
         let mut child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
         let reader = pair.master.try_clone_reader()?;
         let term = Arc::new(Terminal {
+            pid: child.process_id(),
             writer: Mutex::new(pair.master.take_writer()?),
             master: Mutex::new(pair.master),
             killer: Mutex::new(child.clone_killer()),
@@ -121,23 +236,46 @@ impl Terminals {
         // Bounded, so a paused flush thread blocks the reader and the PTY fills up.
         let (tx, rx) = std::sync::mpsc::sync_channel(16);
         std::thread::spawn(move || read_loop(reader, tx));
-        let (t, map, id) = (term.clone(), self.map.clone(), session_id.to_owned());
+        let (t, this, sid) = (term.clone(), self.clone(), session_id.to_owned());
         std::thread::spawn(move || {
             t.flush_loop(rx);
             let code = child.wait().ok().map(|s| s.exit_code());
-            {
-                let mut map = map.lock().unwrap();
-                if map.get(&id).is_some_and(|x| Arc::ptr_eq(x, &t)) {
-                    map.remove(&id);
+            let ended = {
+                let mut map = this.map.lock().unwrap();
+                let slot = map.get_mut(&sid).and_then(|s| s.slots.iter_mut().find(|x| x.id == terminal_id));
+                match slot {
+                    Some(x) if x.term.as_ref().is_some_and(|y| Arc::ptr_eq(y, &t)) => {
+                        x.term = None;
+                        true
+                    }
+                    _ => false,
                 }
-            }
+            };
             let mut out = t.out.lock().unwrap();
             for (_, s) in out.sinks.drain(..) {
                 s(TerminalOutput::Exit(code));
             }
+            drop(out);
+            if ended {
+                this.notify(&sid);
+            }
         });
         Ok(term)
     }
+}
+
+/// Basename of `$SHELL` (the tab title before a shell runs).
+fn default_shell_name() -> String {
+    let sh = std::env::var("SHELL").unwrap_or_default();
+    Path::new(&sh).file_name().map_or_else(|| "sh".into(), |n| n.to_string_lossy().into_owned())
+}
+
+/// Command name of a process (`ps`), without a login shell's leading `-`.
+fn process_name(pid: i32) -> Option<String> {
+    let out = std::process::Command::new("ps").args(["-o", "comm=", "-p", &pid.to_string()]).output().ok()?;
+    let comm = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let base = comm.rsplit('/').next().unwrap_or(&comm).trim_start_matches('-');
+    (!base.is_empty()).then(|| base.to_owned())
 }
 
 /// The user's login shell, with the login-shell PATH and without host `CLAUDE*` vars.
@@ -183,6 +321,7 @@ struct Out {
 }
 
 struct Terminal {
+    pid: Option<u32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
@@ -191,6 +330,14 @@ struct Terminal {
 }
 
 impl Terminal {
+    /// Name of the foreground process and whether it is not the shell itself.
+    fn foreground(&self) -> (String, bool) {
+        let fg = self.master.lock().unwrap().process_group_leader();
+        let busy = matches!((fg, self.pid), (Some(f), Some(p)) if f > 0 && f as u32 != p);
+        let name = fg.filter(|f| *f > 0).and_then(process_name).unwrap_or_else(default_shell_name);
+        (name, busy)
+    }
+
     fn attach(&self, sink: TerminalSink) -> u64 {
         // Unique across shells: a detach for a killed shell must not hit its successor.
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -264,9 +411,18 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
+    /// Runs `cmd` as the Session's first Terminal.
     fn collect(terms: &Terminals, id: &str, cmd: CommandBuilder) -> mpsc::Receiver<Result<Vec<u8>, Option<u32>>> {
-        let t = terms.spawn(id, cmd, 80, 24).unwrap();
-        terms.map.lock().unwrap().insert(id.to_owned(), t.clone());
+        terms.list(id);
+        collect_in(terms, id, 1, cmd)
+    }
+
+    /// Runs `cmd` as an existing tab.
+    fn collect_in(terms: &Terminals, id: &str, tid: u32, cmd: CommandBuilder) -> mpsc::Receiver<Result<Vec<u8>, Option<u32>>> {
+        let t = terms.spawn(id, tid, cmd, 80, 24).unwrap();
+        let mut map = terms.map.lock().unwrap();
+        map.get_mut(id).unwrap().slots.iter_mut().find(|x| x.id == tid).unwrap().term = Some(t.clone());
+        drop(map);
         let (tx, rx) = mpsc::channel();
         let tx = Mutex::new(tx);
         t.attach(Box::new(move |o| {
@@ -297,7 +453,9 @@ mod tests {
         let (text, code) = drain(collect(&terms, "s1", cmd));
         assert!(text.contains("hello-pty"), "{text:?}");
         assert_eq!(code, Some(3));
-        assert!(terms.get("s1").is_none(), "an exited terminal is forgotten");
+        assert!(terms.get("s1", 1).is_none(), "an exited shell is forgotten");
+        let tabs = terms.list("s1");
+        assert!(tabs.len() == 1 && !tabs[0].running, "but its tab stays");
     }
 
     #[test]
@@ -306,7 +464,7 @@ mod tests {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.args(["-c", "read x; echo got-$x"]);
         let rx = collect(&terms, "s2", cmd);
-        terms.input("s2", b"abc\n").unwrap();
+        terms.input("s2", 1, b"abc\n").unwrap();
         let (text, code) = drain(rx);
         assert!(text.contains("got-abc"), "{text:?}");
         assert_eq!(code, Some(0));
@@ -325,7 +483,7 @@ mod tests {
         }
         let (tx, rx) = mpsc::channel();
         let tx = Mutex::new(tx);
-        terms.get("s4").unwrap().attach(Box::new(move |o| {
+        terms.get("s4", 1).unwrap().attach(Box::new(move |o| {
             let tag = match o {
                 TerminalOutput::Replay(d) => format!("replay:{}", String::from_utf8_lossy(d)),
                 TerminalOutput::Data(d) => format!("data:{}", String::from_utf8_lossy(d)),
@@ -335,7 +493,38 @@ mod tests {
         }));
         let msg = rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(msg.starts_with("replay:") && msg.contains("before-attach"), "{msg:?}");
-        terms.kill("s4");
+        terms.kill("s4", 1);
+    }
+
+    fn sh(script: &str) -> CommandBuilder {
+        let mut c = CommandBuilder::new("/bin/sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    #[test]
+    fn terminals_are_independent_and_closable() {
+        let terms = Terminals::default();
+        let a = collect(&terms, "m", sh("read x; echo A-$x"));
+        let second = terms.open("m");
+        assert_eq!(second, 2);
+        let b = collect_in(&terms, "m", second, sh("read x; echo B-$x"));
+        let tabs = terms.list("m");
+        assert_eq!(tabs.iter().map(|t| t.id).collect::<Vec<_>>(), [1, 2]);
+        assert!(tabs.iter().all(|t| t.running));
+        terms.input("m", 2, b"two\n").unwrap();
+        let (text, _) = drain(b);
+        assert!(text.contains("B-two") && !text.contains("A-"), "{text:?}");
+        terms.input("m", 1, b"one\n").unwrap();
+        let (text, _) = drain(a);
+        assert!(text.contains("A-one") && !text.contains("B-"), "{text:?}");
+        // Closing removes the tab; ids are not reused.
+        terms.close("m", 1);
+        assert_eq!(terms.list("m").iter().map(|t| t.id).collect::<Vec<_>>(), [2]);
+        assert_eq!(terms.open("m"), 3);
+        assert!(terms.input("m", 1, b"x").is_err());
+        terms.kill_all("m");
+        assert_eq!(terms.list("m").len(), 1, "a fresh first tab after kill_all");
     }
 
     #[test]
@@ -349,7 +538,7 @@ mod tests {
         while let Ok(Ok(d)) = rx.recv_timeout(Duration::from_secs(10)) {
             msgs += 1;
             text.extend(d);
-            terms.ack("s3", text.len());
+            terms.ack("s3", 1, text.len());
         }
         let text = String::from_utf8_lossy(&text);
         assert!(text.contains("line-19999"));

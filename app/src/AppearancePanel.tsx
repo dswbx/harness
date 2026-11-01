@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import type { HarnessClient } from "@harness/api";
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Select, Textarea, cn } from "@harness/ui";
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, cn } from "@harness/ui";
 import { setGuessInlineCode, setToolDisplay, toolDisplays, useGuessInlineCode, useToolDisplay } from "@harness/frontend-chat";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
@@ -50,13 +50,16 @@ function FontRow({ label, id, value, custom, placeholder, fonts, onChange, defau
 }) {
   return (
     <Row label={label} htmlFor={id}>
-      <Select id={id} className="h-8 w-72 shrink-0 text-xs" value={value} onChange={(e) => onChange({ choice: e.target.value })}>
-        <option value="theme">{defaultLabel}</option>
-        <option value="system">System</option>
-        {fonts.map((f) => (
-          <option key={f.id} value={f.id}>{f.label}</option>
-        ))}
-        <option value="custom">Custom…</option>
+      <Select value={value} onValueChange={(v) => onChange({ choice: v })}>
+        <SelectTrigger id={id} className="h-8 w-72 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="theme">{defaultLabel}</SelectItem>
+          <SelectItem value="system">System</SelectItem>
+          {fonts.map((f) => (
+            <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+          ))}
+          <SelectItem value="custom">Custom…</SelectItem>
+        </SelectContent>
       </Select>
       {value === "custom" && (
         <Input
@@ -78,10 +81,13 @@ function RhythmRow({ label, id, value, options, onChange }: {
 }) {
   return (
     <Row label={label} htmlFor={id}>
-      <Select id={id} className="h-8 w-44 shrink-0 text-xs" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>{o.label} ({o.value})</option>
-        ))}
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger id={id} className="h-8 w-44 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {options.map((o) => (
+            <SelectItem key={o.id} value={o.id}>{o.label} ({o.value})</SelectItem>
+          ))}
+        </SelectContent>
       </Select>
     </Row>
   );
@@ -92,8 +98,11 @@ function ToolDisplayRow() {
   const current = useToolDisplay();
   return (
     <Row label="Tool calls" htmlFor="tool-display">
-      <Select id="tool-display" className="h-8 w-44 shrink-0 text-xs" value={current.id} onChange={(e) => setToolDisplay(e.target.value)}>
-        {toolDisplays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+      <Select value={current.id} onValueChange={setToolDisplay}>
+        <SelectTrigger id="tool-display" className="h-8 w-44 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {toolDisplays.map((d) => <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>)}
+        </SelectContent>
       </Select>
     </Row>
   );

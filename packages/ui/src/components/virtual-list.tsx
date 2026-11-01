@@ -19,6 +19,8 @@ type Props = {
   innerClassName?: string;
   /** Rendered instead of rows when `count` is 0. */
   empty?: React.ReactNode;
+  /** Space above the first row, in px. */
+  paddingStart?: number;
   /** Rendered after the last row (inside the scroll area). */
   footer?: React.ReactNode;
   /** Keep the bottom in view while content grows, until the user scrolls up. Default true. */
@@ -33,7 +35,7 @@ export type VirtualListHandle = { scrollToKey: (key: React.Key) => boolean };
 
 /** Windowed list with dynamic row heights and stick-to-bottom while streaming. */
 export function VirtualList({
-  count, getKey, renderRow, estimateSize = 80, gap = 0, className, scrollbarClassName, innerClassName, empty, footer, stickToBottom = true, overscan = 8, handle,
+  count, getKey, renderRow, estimateSize = 80, gap = 0, className, scrollbarClassName, innerClassName, empty, footer, stickToBottom = true, overscan = 8, handle, paddingStart = 16,
 }: Props) {
   const scroller = React.useRef<HTMLDivElement>(null);
   const stick = React.useRef(stickToBottom);
@@ -43,7 +45,7 @@ export function VirtualList({
     estimateSize: () => estimateSize,
     getItemKey: getKey,
     overscan,
-    paddingStart: 16,
+    paddingStart,
   });
   const total = v.getTotalSize();
 

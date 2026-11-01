@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Commit, SessionApi } from "@harness/api";
-import { Tooltip, cn } from "@harness/ui";
+import { ScrollArea, Tooltip, cn } from "@harness/ui";
 import { ALL, WIP, toggleSelection } from "./scope";
 import { formatRelativeTime, fullMessageTime } from "./time";
 
@@ -102,7 +102,7 @@ export function CommitsPane({
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize commits pane"
-        className="-mt-1 h-2 shrink-0 cursor-row-resize"
+        className="relative -mt-1 h-2 shrink-0 cursor-row-resize after:absolute after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2 after:transition-colors hover:after:bg-ring"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           drag.current = { y: e.clientY, h: height };
@@ -121,7 +121,7 @@ export function CommitsPane({
         <span>{commits.length}</span>
         <span className="ml-auto text-[11px]">⌘/⇧-click to combine</span>
       </div>
-      <div role="listbox" aria-label="Commits" aria-multiselectable className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5" onKeyDown={onKey}>
+      <ScrollArea className="min-h-0 flex-1"><div role="listbox" aria-label="Commits" aria-multiselectable className="px-1.5 pb-1.5" onKeyDown={onKey}>
         {items.map((it) => {
           const on = !!sel?.includes(it.id);
           const row = (
@@ -147,7 +147,7 @@ export function CommitsPane({
             </Tooltip>
           ) : row;
         })}
-      </div>
+      </div></ScrollArea>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type {
   AgentInfo, AppEvent, AppSettingKey, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
-  Editor, SessionSummary, StatePatchOp, ThreadStart, WorkspaceInfo,
+  Editor, SessionSummary, StatePatchOp, TerminalInfo, ThreadStart, WorkspaceInfo,
 } from "./generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 
@@ -65,13 +65,22 @@ export interface SessionApi {
   authenticate(methodId: string): Promise<void>;
   /** For an AuthRequired method of kind "terminal": opens Terminal.app running the Agent's login. */
   openAuthTerminal(methodId: string): Promise<void>;
-  /** The Session's Terminal: a shell in its Workspace Folder, started if none runs (ADR 0017). */
-  terminalAttach(cols: number, rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe>;
-  terminalInput(data: string): Promise<void>;
-  terminalResize(cols: number, rows: number): Promise<void>;
+  /** The Session's Terminal tabs (a first one exists implicitly). Titles and `busy` change silently: re-list now and then. */
+  terminalList(): Promise<TerminalInfo[]>;
+  /** A new Terminal tab; its shell starts on the first attach. Returns its id. */
+  terminalOpen(): Promise<number>;
+  /** Kills the tab's shell and removes the tab. */
+  terminalClose(terminalId: number): Promise<void>;
+  /** Calls back when tabs open or close or a shell starts or ends (any Frontend). */
+  terminalsChanged(onChange: () => void): Promise<Unsubscribe>;
+  /** A Terminal tab: a shell in the Workspace Folder, started if none runs (ADR 0017). */
+  terminalAttach(terminalId: number, cols: number, rows: number, onOutput: (o: TerminalOutput) => void): Promise<Unsubscribe>;
+  terminalInput(terminalId: number, data: string): Promise<void>;
+  terminalResize(terminalId: number, cols: number, rows: number): Promise<void>;
   /** `bytes` of output were drawn; output pauses while too much is unacknowledged. */
-  terminalAck(bytes: number): Promise<void>;
-  terminalKill(): Promise<void>;
+  terminalAck(terminalId: number, bytes: number): Promise<void>;
+  /** Ends the shell; the tab stays and the next attach starts a new one. */
+  terminalKill(terminalId: number): Promise<void>;
 }
 
 export function createSessionApi(transport: Transport, sessionId: string): SessionApi {
@@ -137,11 +146,16 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       (await expect({ type: "FrontendList", session_id: sessionId, dir }, "Files")).files,
     authenticate: (method_id) => run({ type: "Authenticate", session_id: sessionId, method_id }),
     openAuthTerminal: (method_id) => run({ type: "OpenAuthTerminal", session_id: sessionId, method_id }),
-    terminalAttach: (cols, rows, onOutput) => transport.attachTerminal(sessionId, cols, rows, onOutput),
-    terminalInput: (data) => run({ type: "TerminalInput", session_id: sessionId, data }),
-    terminalResize: (cols, rows) => run({ type: "TerminalResize", session_id: sessionId, cols, rows }),
-    terminalAck: (bytes) => run({ type: "TerminalAck", session_id: sessionId, bytes }),
-    terminalKill: () => run({ type: "TerminalKill", session_id: sessionId }),
+    terminalList: async () => (await expect({ type: "ListTerminals", session_id: sessionId }, "Terminals")).terminals,
+    terminalOpen: async () => (await expect({ type: "TerminalOpen", session_id: sessionId }, "TerminalOpened")).terminal_id,
+    terminalClose: (terminal_id) => run({ type: "TerminalClose", session_id: sessionId, terminal_id }),
+    terminalsChanged: (onChange) =>
+      transport.subscribeApp((e) => e.type === "TerminalsChanged" && e.session_id === sessionId && onChange()),
+    terminalAttach: (terminalId, cols, rows, onOutput) => transport.attachTerminal(sessionId, terminalId, cols, rows, onOutput),
+    terminalInput: (terminal_id, data) => run({ type: "TerminalInput", session_id: sessionId, terminal_id, data }),
+    terminalResize: (terminal_id, cols, rows) => run({ type: "TerminalResize", session_id: sessionId, terminal_id, cols, rows }),
+    terminalAck: (terminal_id, bytes) => run({ type: "TerminalAck", session_id: sessionId, terminal_id, bytes }),
+    terminalKill: (terminal_id) => run({ type: "TerminalKill", session_id: sessionId, terminal_id }),
   };
 }
 

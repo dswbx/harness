@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { AgentInfo, Decision, HarnessClient, PermissionRule } from "@harness/api";
-import { Badge, Button, Input, Select, cn } from "@harness/ui";
+import { Badge, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, cn } from "@harness/ui";
 import { SectionHeader } from "./SectionHeader";
 import { FILTERS, filterRules, parseScope, scopeLabel, type Filter } from "./settings";
 
@@ -103,27 +103,37 @@ export function PermissionsPanel({
           <tbody className="divide-y">
             <tr className="border-t">
               <td className="px-2 py-2">
-                <Select className={sel} aria-label="Decision" value={decision} onChange={(e) => setDecision(e.target.value as Decision)}>
-                  <option value="allow">allow</option>
-                  <option value="ask">ask</option>
-                  <option value="deny">deny</option>
+                <Select value={decision} onValueChange={(v) => setDecision(v as Decision)}>
+                  <SelectTrigger className={sel} aria-label="Decision"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="allow">allow</SelectItem>
+                    <SelectItem value="ask">ask</SelectItem>
+                    <SelectItem value="deny">deny</SelectItem>
+                  </SelectContent>
                 </Select>
               </td>
               <td className="px-2 py-2">
-                <Select className={sel} aria-label="Scope" value={scope} onChange={(e) => setScope(e.target.value)}>
-                  <option value="global">Global</option>
-                  {agents.map((a) => (
-                    <option key={a.id} value={`agent:${a.id}`}>agent: {a.name}</option>
-                  ))}
-                  {sessionId && <option value="session">This session</option>}
+                <Select value={scope} onValueChange={setScope}>
+                  <SelectTrigger className={sel} aria-label="Scope"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="global">Global</SelectItem>
+                    {agents.map((a) => (
+                      <SelectItem key={a.id} value={`agent:${a.id}`}>agent: {a.name}</SelectItem>
+                    ))}
+                    {sessionId && <SelectItem value="session">This session</SelectItem>}
+                  </SelectContent>
                 </Select>
               </td>
               <td className="px-2 py-2">
-                <Select className={sel} aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-                  <option value="">Any</option>
-                  {KINDS.map((k) => (
-                    <option key={k} value={k}>{k}</option>
-                  ))}
+                {/* Select items need a value: "any" stands for no kind. */}
+                <Select value={kind || "any"} onValueChange={(v) => setKind(v === "any" ? "" : v)}>
+                  <SelectTrigger className={sel} aria-label="Kind"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any</SelectItem>
+                    {KINDS.map((k) => (
+                      <SelectItem key={k} value={k}>{k}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </td>
               <td className="px-2 py-2">

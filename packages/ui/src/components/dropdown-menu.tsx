@@ -2,6 +2,7 @@ import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
 import { cn } from "../lib/utils";
+import { ScrollArea } from "./scroll-area";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
@@ -12,21 +13,31 @@ const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
 const itemBase =
   "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
-const contentBase =
-  "z-50 min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-md max-h-[var(--radix-dropdown-menu-content-available-height)]";
+const contentBase = "z-50 min-w-[8rem] overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md";
 
-function DropdownMenuContent({ className, sideOffset = 6, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+/** Menu items scroll in a ScrollArea capped to the space left in the window. */
+const Scroll = ({ children }: { children: React.ReactNode }) => (
+  <ScrollArea className="max-h-[var(--radix-dropdown-menu-content-available-height)]" viewportClassName="max-h-[inherit] p-1">
+    {children}
+  </ScrollArea>
+);
+
+function DropdownMenuContent({ className, sideOffset = 6, children, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
     <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.Content sideOffset={sideOffset} className={cn(contentBase, className)} {...props} />
+      <DropdownMenuPrimitive.Content sideOffset={sideOffset} className={cn(contentBase, className)} {...props}>
+        <Scroll>{children}</Scroll>
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   );
 }
 
-function DropdownMenuSubContent({ className, sideOffset = 4, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+function DropdownMenuSubContent({ className, sideOffset = 4, children, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.SubContent sideOffset={sideOffset} className={cn(contentBase, "shadow-lg", className)} {...props} />
+      <DropdownMenuPrimitive.SubContent sideOffset={sideOffset} className={cn(contentBase, "shadow-lg", className)} {...props}>
+        <Scroll>{children}</Scroll>
+      </DropdownMenuPrimitive.SubContent>
     </DropdownMenuPrimitive.Portal>
   );
 }

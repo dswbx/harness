@@ -114,7 +114,7 @@ export function SessionHeader({
             </Button>
           </Tooltip>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-96 p-4 text-sm" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuContent align="start" className="w-96 p-3 text-sm" onCloseAutoFocus={(e) => e.preventDefault()}>
           <SessionDetails s={session} />
         </DropdownMenuContent>
       </DropdownMenu>

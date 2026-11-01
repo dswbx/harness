@@ -79,12 +79,11 @@ impl Harness {
                 Err(e) => tracing::warn!("skipping session {}: {e:#}", dir.display()),
             }
         }
-        Ok(Arc::new(Self {
-            data_dir,
-            shared,
-            sessions: RwLock::new(sessions),
-            terminals: Default::default(),
-        }))
+        let app_events = shared.clone();
+        let terminals = crate::terminal::Terminals::new(move |session_id| {
+            app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
+        });
+        Ok(Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals }))
     }
 
     /// URL of the Harness MCP (starts it). For diagnostics and tests.
@@ -122,21 +121,22 @@ impl Harness {
         self.shared.app_events.unsubscribe(id);
     }
 
-    /// Attaches to the Session's Terminal (a shell in its Workspace Folder, started if none runs):
+    /// Attaches to a Terminal tab of the Session (a shell in its Workspace Folder, started if none runs):
     /// the replay buffer, then live output until the sink returns `false` or `terminal_detach`.
     pub fn terminal_attach(
         &self,
         session_id: &str,
+        terminal_id: u32,
         cols: u16,
         rows: u16,
         sink: crate::terminal::TerminalSink,
     ) -> anyhow::Result<u64> {
         let folder = PathBuf::from(self.session(session_id)?.meta().folder);
-        self.terminals.attach(session_id, &folder, cols, rows, sink)
+        self.terminals.attach(session_id, terminal_id, &folder, cols, rows, sink)
     }
 
-    pub fn terminal_detach(&self, session_id: &str, id: u64) {
-        self.terminals.detach(session_id, id);
+    pub fn terminal_detach(&self, session_id: &str, terminal_id: u32, id: u64) {
+        self.terminals.detach(session_id, terminal_id, id);
     }
 
     async fn execute_inner(&self, cmd: Command) -> anyhow::Result<CommandResult> {
@@ -297,7 +297,7 @@ impl Harness {
                 CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? }
             }
             Command::ArchiveSession { session_id } => {
-                self.terminals.kill(&session_id);
+                self.terminals.kill_all(&session_id);
                 self.session(&session_id)?.archive().await?;
                 CommandResult::Ok
             }
@@ -307,7 +307,7 @@ impl Harness {
             }
             Command::DeleteSession { session_id, force } => {
                 let session = self.session(&session_id)?;
-                self.terminals.kill(&session_id);
+                self.terminals.kill_all(&session_id);
                 session.delete_workspace(force).await?;
                 self.sessions.write().unwrap().remove(&session_id);
                 std::fs::remove_dir_all(session.dir())?;
@@ -323,20 +323,35 @@ impl Harness {
             Command::GitLog { session_id } => {
                 CommandResult::GitLog { commits: self.session(&session_id)?.git_log().await? }
             }
-            Command::TerminalInput { session_id, data } => {
-                self.terminals.input(&session_id, data.as_bytes())?;
+            Command::ListTerminals { session_id } => {
+                self.session(&session_id)?;
+                let terminals = self.terminals.clone();
+                // Naming the foreground process runs `ps`.
+                let terminals = tokio::task::spawn_blocking(move || terminals.list(&session_id)).await?;
+                CommandResult::Terminals { terminals }
+            }
+            Command::TerminalOpen { session_id } => {
+                self.session(&session_id)?;
+                CommandResult::TerminalOpened { terminal_id: self.terminals.open(&session_id) }
+            }
+            Command::TerminalClose { session_id, terminal_id } => {
+                self.terminals.close(&session_id, terminal_id);
                 CommandResult::Ok
             }
-            Command::TerminalResize { session_id, cols, rows } => {
-                self.terminals.resize(&session_id, cols, rows)?;
+            Command::TerminalInput { session_id, terminal_id, data } => {
+                self.terminals.input(&session_id, terminal_id, data.as_bytes())?;
                 CommandResult::Ok
             }
-            Command::TerminalAck { session_id, bytes } => {
-                self.terminals.ack(&session_id, bytes as usize);
+            Command::TerminalResize { session_id, terminal_id, cols, rows } => {
+                self.terminals.resize(&session_id, terminal_id, cols, rows)?;
                 CommandResult::Ok
             }
-            Command::TerminalKill { session_id } => {
-                self.terminals.kill(&session_id);
+            Command::TerminalAck { session_id, terminal_id, bytes } => {
+                self.terminals.ack(&session_id, terminal_id, bytes as usize);
+                CommandResult::Ok
+            }
+            Command::TerminalKill { session_id, terminal_id } => {
+                self.terminals.kill(&session_id, terminal_id);
                 CommandResult::Ok
             }
             Command::GitShowFile { session_id, rev, path } => {
