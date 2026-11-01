@@ -56,8 +56,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Harness $TAG" --generate-notes
-          echo "id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id")" >> "$GITHUB_OUTPUT"
+          # A failed run leaves its draft behind; reuse it.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Harness $TAG" --generate-notes
+          id="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
+          test -n "$id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
       - name: Build and upload
         uses: tauri-apps/tauri-action@v0
