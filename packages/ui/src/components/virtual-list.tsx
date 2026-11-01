@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../lib/utils";
+import { ScrollArea } from "./scroll-area";
 
 type Props = {
   count: number;
@@ -12,6 +13,8 @@ type Props = {
   gap?: number;
   /** Scroll container classes. */
   className?: string;
+  /** Scrollbar classes (e.g. to lift it over a bar that overlays the list). */
+  scrollbarClassName?: string;
   /** Wrapper around rows and footer (e.g. a centered max-width column). */
   innerClassName?: string;
   /** Rendered instead of rows when `count` is 0. */
@@ -30,7 +33,7 @@ export type VirtualListHandle = { scrollToKey: (key: React.Key) => boolean };
 
 /** Windowed list with dynamic row heights and stick-to-bottom while streaming. */
 export function VirtualList({
-  count, getKey, renderRow, estimateSize = 80, gap = 0, className, innerClassName, empty, footer, stickToBottom = true, overscan = 8, handle,
+  count, getKey, renderRow, estimateSize = 80, gap = 0, className, scrollbarClassName, innerClassName, empty, footer, stickToBottom = true, overscan = 8, handle,
 }: Props) {
   const scroller = React.useRef<HTMLDivElement>(null);
   const stick = React.useRef(stickToBottom);
@@ -69,10 +72,11 @@ export function VirtualList({
   }, [total, count, footer, stickToBottom]);
 
   return (
-    <div
-      ref={scroller}
-      className={cn("min-h-0 flex-1 overflow-auto", className)}
-      onScroll={(e) => {
+    <ScrollArea
+      viewportRef={scroller}
+      className={cn("min-h-0 flex-1", className)}
+      scrollbarClassName={scrollbarClassName}
+      onViewportScroll={(e) => {
         if (!stickToBottom) return;
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -98,6 +102,6 @@ export function VirtualList({
         )}
         {footer}
       </div>
-    </div>
+    </ScrollArea>
   );
 }

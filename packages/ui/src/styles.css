@@ -121,6 +121,13 @@
   }
 }
 
+/* Artifacts (code, tables, diagrams, render_ui views) stand out past the text column by --chat-bleed
+   (set where a column has room for it); nested ones don't bleed again. */
+@utility chat-wide {
+  margin-inline: calc(-1 * var(--chat-bleed, 0px));
+  & > * { --chat-bleed: 0px; }
+}
+
 /* render_ui sizes: relative to the chat font size (Appearance), so nesting never compounds them. */
 @utility text-ui { font-size: var(--chat-font-size, 14px); }
 @utility text-ui-sm { font-size: calc(var(--chat-font-size, 14px) * 0.857); }

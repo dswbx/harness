@@ -7,6 +7,7 @@ import {
 } from "@harness/ui";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 import { PromptBox } from "./PromptBox";
+import { ScrollUnder } from "./ScrollUnder";
 // xterm.js stays out of the main chunk until the Terminal is first opened.
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
@@ -371,38 +372,48 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
       <SelectionComment sessionId={api.sessionId} onAskSideThread={(quote) => void askSideThread(quote)} />
       <TaskListPanel entries={state.taskList} />
       <Slots slots={ui.slots.top} env={env} className="border-b pt-3" />
-      <MessageList
-        handle={list}
-        api={api}
-        state={state}
-        threadId={state.mainThreadId ?? ""}
-        side={false}
-        env={env}
-        ui={ui}
-        rows={rows}
-        subagents={subagents}
-        onOpenDiff={openDiff}
-        empty="Send a message to start."
-      />
-      <Slots slots={ui.slots.bottom} env={env} className="pt-1" />
-      {sideError && <p role="alert" className="px-6 pb-2 text-xs text-destructive">{sideError}</p>}
-      {state.archived ? (
-        <div role="alert" className="border-t p-3">
-          <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
-            <Archive className="size-4 text-muted-foreground" />
-            <span className="flex-1">Archived. Unarchive to continue</span>
-            <Button
-              size="sm"
-              onClick={() => { setArchiveError(null); api.unarchive().catch((e) => setArchiveError(e instanceof Error ? e.message : String(e))); }}
-            >
-              Unarchive
-            </Button>
-          </div>
-          {archiveError && <p className="mt-2 text-xs text-destructive">{archiveError}</p>}
-        </div>
-      ) : (
-        <PromptBox api={api} state={state} onSideThread={btw} />
-      )}
+      <ScrollUnder
+        bottom={
+          <>
+            <Slots slots={ui.slots.bottom} env={env} className="pt-1" />
+            {sideError && <p role="alert" className="px-6 pb-2 text-xs text-destructive">{sideError}</p>}
+            {state.archived ? (
+              <div role="alert" className="p-3">
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
+                  <Archive className="size-4 text-muted-foreground" />
+                  <span className="flex-1">Archived. Unarchive to continue</span>
+                  <Button
+                    size="sm"
+                    onClick={() => { setArchiveError(null); api.unarchive().catch((e) => setArchiveError(e instanceof Error ? e.message : String(e))); }}
+                  >
+                    Unarchive
+                  </Button>
+                </div>
+                {archiveError && <p className="mt-2 text-xs text-destructive">{archiveError}</p>}
+              </div>
+            ) : (
+              <PromptBox api={api} state={state} onSideThread={btw} />
+            )}
+          </>
+        }
+      >
+        {(inset) => (
+          <MessageList
+            handle={list}
+            api={api}
+            state={state}
+            threadId={state.mainThreadId ?? ""}
+            side={false}
+            env={env}
+            ui={ui}
+            rows={rows}
+            subagents={subagents}
+            onOpenDiff={openDiff}
+            empty="Send a message to start."
+            inset={inset}
+          />
+        )}
+      </ScrollUnder>
     </>
   );
 
