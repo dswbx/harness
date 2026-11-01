@@ -22,7 +22,12 @@ export type AppEvent =
 /**  A Turn ended (`stop_reason` as in `TurnEnded`). */
 { type: "TurnFinished"; session_id: string; title: string; stop_reason: string } | 
 /**  Agents were installed, updated or removed. */
-{ type: "AgentsChanged" };
+{ type: "AgentsChanged" } | 
+/**
+ *  A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
+ *  Titles and `busy` change silently: poll while a Terminal is shown.
+ */
+{ type: "TerminalsChanged"; session_id: string };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes";
@@ -172,12 +177,18 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GitCommit"; session_id: string; message: string } | 
 /**  Pushes the current branch to `origin`, setting upstream. */
 { type: "GitPush"; session_id: string } | 
-/**  Keystrokes or pasted text for the Session's Terminal (attach first, ADR 0017). */
-{ type: "TerminalInput"; session_id: string; data: string } | { type: "TerminalResize"; session_id: string; cols: number; rows: number } | 
+/**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
+{ type: "ListTerminals"; session_id: string } | 
+/**  A new Terminal tab; its shell starts on the first attach. Returns its id. */
+{ type: "TerminalOpen"; session_id: string } | 
+/**  Kills the tab's shell and removes the tab. */
+{ type: "TerminalClose"; session_id: string; terminal_id: number } | 
+/**  Keystrokes or pasted text for a Terminal (attach first, ADR 0017). */
+{ type: "TerminalInput"; session_id: string; terminal_id: number; data: string } | { type: "TerminalResize"; session_id: string; terminal_id: number; cols: number; rows: number } | 
 /**  The Frontend has drawn `bytes` of Terminal output (flow control). */
-{ type: "TerminalAck"; session_id: string; bytes: number } | 
-/**  Ends the Session's shell; the next attach starts a new one. */
-{ type: "TerminalKill"; session_id: string } | 
+{ type: "TerminalAck"; session_id: string; terminal_id: number; bytes: number } | 
+/**  Ends the tab's shell; the tab stays and the next attach starts a new one. */
+{ type: "TerminalKill"; session_id: string; terminal_id: number } | 
 /**
  *  Start a Turn in a Thread (Main Thread when `thread_id` is absent). Returns immediately;
  *  progress arrives as Events.
@@ -218,7 +229,7 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
  *  `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
  *  `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
  */
-{ type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+{ type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
@@ -476,6 +487,17 @@ export type TaskEntry = {
 	content: string,
 	priority: string,
 	status: string,
+};
+
+/**  One Terminal tab of a Session (ADR 0017). */
+export type TerminalInfo = {
+	id: number,
+	/**  Foreground program while one runs, else the shell name and tab index. */
+	title: string,
+	/**  A shell runs (false after it ended, until the next attach). */
+	running: boolean,
+	/**  A program other than the shell is in the foreground. */
+	busy: boolean,
 };
 
 /**

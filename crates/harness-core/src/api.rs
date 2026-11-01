@@ -200,24 +200,41 @@ pub enum Command {
     GitPush {
         session_id: SessionId,
     },
-    /// Keystrokes or pasted text for the Session's Terminal (attach first, ADR 0017).
+    /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
+    ListTerminals {
+        session_id: SessionId,
+    },
+    /// A new Terminal tab; its shell starts on the first attach. Returns its id.
+    TerminalOpen {
+        session_id: SessionId,
+    },
+    /// Kills the tab's shell and removes the tab.
+    TerminalClose {
+        session_id: SessionId,
+        terminal_id: u32,
+    },
+    /// Keystrokes or pasted text for a Terminal (attach first, ADR 0017).
     TerminalInput {
         session_id: SessionId,
+        terminal_id: u32,
         data: String,
     },
     TerminalResize {
         session_id: SessionId,
+        terminal_id: u32,
         cols: u16,
         rows: u16,
     },
     /// The Frontend has drawn `bytes` of Terminal output (flow control).
     TerminalAck {
         session_id: SessionId,
+        terminal_id: u32,
         bytes: u32,
     },
-    /// Ends the Session's shell; the next attach starts a new one.
+    /// Ends the tab's shell; the tab stays and the next attach starts a new one.
     TerminalKill {
         session_id: SessionId,
+        terminal_id: u32,
     },
     /// Start a Turn in a Thread (Main Thread when `thread_id` is absent). Returns immediately;
     /// progress arrives as Events.
@@ -390,6 +407,8 @@ pub enum CommandResult {
     PullRequests { prs: Vec<PullRequest> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
+    Terminals { terminals: Vec<TerminalInfo> },
+    TerminalOpened { terminal_id: u32 },
     Diff { diff: Diff },
     Committed { commit: String },
     McpServers { servers: Vec<McpServerDef> },
@@ -652,6 +671,18 @@ pub struct WorkspaceInfo {
     /// The Session's own `harness/...` branch when it has a Worktree.
     pub worktree_branch: Option<String>,
     pub base_branch: Option<String>,
+}
+
+/// One Terminal tab of a Session (ADR 0017).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct TerminalInfo {
+    pub id: u32,
+    /// Foreground program while one runs, else the shell name and tab index.
+    pub title: String,
+    /// A shell runs (false after it ended, until the next attach).
+    pub running: bool,
+    /// A program other than the shell is in the foreground.
+    pub busy: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -987,6 +1018,9 @@ pub enum AppEvent {
     },
     /// Agents were installed, updated or removed.
     AgentsChanged,
+    /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
+    /// Titles and `busy` change silently: poll while a Terminal is shown.
+    TerminalsChanged { session_id: SessionId },
 }
 
 /// Receives Events for one subscription. Returns `false` once the receiver is gone.
