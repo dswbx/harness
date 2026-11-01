@@ -25,8 +25,8 @@ struct Subscriptions {
     by_webview: Mutex<HashMap<String, Vec<(String, u64)>>>,
     /// Webview label -> app subscription ids.
     app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
-    /// Webview label -> (session id, terminal attach id).
-    terminals_by_webview: Mutex<HashMap<String, Vec<(String, u64)>>>,
+    /// Webview label -> (session id, terminal id, terminal attach id).
+    terminals_by_webview: Mutex<HashMap<String, Vec<(String, u32, u64)>>>,
 }
 
 impl Subscriptions {
@@ -38,8 +38,8 @@ impl Subscriptions {
         for id in self.app_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
             harness.unsubscribe_app(id);
         }
-        for (session_id, id) in self.terminals_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
-            harness.terminal_detach(&session_id, id);
+        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
+            harness.terminal_detach(&session_id, terminal_id, id);
         }
     }
 }
@@ -85,7 +85,7 @@ fn subscribe_app(
     id
 }
 
-/// The Session's Terminal: the replay as raw bytes then `{"replayed": true}`, live output as raw
+/// A Terminal tab of the Session: the replay as raw bytes then `{"replayed": true}`, live output as raw
 /// bytes (an `ArrayBuffer` in JS, no JSON), then `{"exit": code}` when the shell ends.
 #[tauri::command]
 fn terminal_attach(
@@ -93,6 +93,7 @@ fn terminal_attach(
     harness: tauri::State<'_, Arc<Harness>>,
     subs: tauri::State<'_, Subscriptions>,
     session_id: String,
+    terminal_id: u32,
     cols: u16,
     rows: u16,
     channel: Channel<InvokeResponseBody>,
@@ -100,6 +101,7 @@ fn terminal_attach(
     let id = harness
         .terminal_attach(
             &session_id,
+            terminal_id,
             cols,
             rows,
             Box::new(move |o: TerminalOutput| match o {
@@ -120,7 +122,7 @@ fn terminal_attach(
         .unwrap()
         .entry(webview.label().to_owned())
         .or_default()
-        .push((session_id, id));
+        .push((session_id, terminal_id, id));
     Ok(id)
 }
 
@@ -130,11 +132,12 @@ fn terminal_detach(
     harness: tauri::State<'_, Arc<Harness>>,
     subs: tauri::State<'_, Subscriptions>,
     session_id: String,
+    terminal_id: u32,
     id: u64,
 ) {
-    harness.terminal_detach(&session_id, id);
+    harness.terminal_detach(&session_id, terminal_id, id);
     if let Some(list) = subs.terminals_by_webview.lock().unwrap().get_mut(webview.label()) {
-        list.retain(|(s, i)| !(s == &session_id && *i == id));
+        list.retain(|(s, t, i)| !(s == &session_id && *t == terminal_id && *i == id));
     }
 }
 

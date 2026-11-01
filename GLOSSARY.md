@@ -123,7 +123,7 @@ A git checkout the Harness creates from a chosen starting point (e.g. a branch) 
 _Avoid_: checkout, clone, sandbox
 
 **Terminal**:
-The user's shell for one Session, running in its primary Workspace Folder; a live byte stream outside the Session Log, kept while the Harness runs and ended when the Session is archived or deleted.
+A user's shell of one Session (a Session can have several, shown as tabs), running in its primary Workspace Folder; a live byte stream outside the Session Log, kept while the Harness runs and ended when the Session is archived or deleted, or the tab is closed.
 _Avoid_: console, shell panel
 
 **Workspace Template**:
