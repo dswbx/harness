@@ -166,6 +166,7 @@ export function EventLog({ events, title = "Session Log", actions, header, famil
         count={shown.length}
         getKey={(i) => shown[i]!.seq}
         estimateSize={28}
+        paddingStart={0}
         stickToBottom={auto}
         className="font-mono text-xs"
         empty={<p className="py-8 text-center text-muted-foreground">{events.length ? "No matching events." : "No events yet."}</p>}
