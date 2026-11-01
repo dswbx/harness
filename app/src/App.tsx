@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, Trash2 } from "lucide-react";
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import { syncAppearance } from "./appearance/appearance";
@@ -13,7 +13,8 @@ import { SessionDetails, SessionHeader, StatusDot, trafficLights } from "./Sessi
 import { openViewWindow } from "./openWindow";
 import { makeTransport } from "./transport";
 import { ToastProvider, errText, useReportError } from "./toast";
-import { restartToUpdate, useUpdate } from "./updates";
+import { UpdateFooter } from "./UpdateFooter";
+import { useUpdate } from "./updates";
 
 const params = new URLSearchParams(window.location.search);
 
@@ -336,13 +337,7 @@ function Shell({ transport }: { transport: Transport }) {
             )}
             {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
           </ScrollArea>
-          {update && (
-            <div className="shrink-0 border-t p-2">
-              <Button size="sm" className="w-full" onClick={() => restartToUpdate().catch((e) => report("Restart failed", e))}>
-                <RefreshCw /> Restart to update to {update}
-              </Button>
-            </div>
-          )}
+          <UpdateFooter update={update} />
         </aside>
       )}
       <main className="flex min-w-0 flex-1 flex-col">
