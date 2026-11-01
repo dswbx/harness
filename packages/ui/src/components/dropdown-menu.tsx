@@ -35,6 +35,14 @@ function DropdownMenuItem({ className, inset, ...props }: React.ComponentProps<t
   return <DropdownMenuPrimitive.Item className={cn(itemBase, inset && "pl-8", className)} {...props} />;
 }
 
+/**
+ * A menu entry for content portaled into an open menu from outside its React tree (a Frontend filling the
+ * host's gear menu), where `DropdownMenuItem` has no menu context. The host closes the menu on a click.
+ */
+function MenuButton({ className, ...props }: React.ComponentProps<"button">) {
+  return <button type="button" role="menuitem" data-menu-close className={cn(itemBase, "w-full", className)} {...props} />;
+}
+
 function DropdownMenuSubTrigger({ className, inset, children, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }) {
   return (
     <DropdownMenuPrimitive.SubTrigger className={cn(itemBase, "data-[state=open]:bg-accent", inset && "pl-8", className)} {...props}>
@@ -138,5 +146,6 @@ export {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
+  MenuButton,
   Switch,
 };

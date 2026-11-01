@@ -12,12 +12,12 @@ The user wants to ask about the conversation (or a selected excerpt of it) witho
 
 **Nothing flows back on its own.** The Main Thread's context changes only through the user: "Send to main" puts a quote or the Side Thread's last reply into the Main Thread's composer; the user sends it. No Agent-initiated `post_to_main` for now.
 
-**UI.** Side Threads are pill tabs in the right panel's side chat view, opened by one toolbar toggle; Changes, Terminal and `render_ui` right items (ADR 0015) are separate views of the same panel. Opened empty (button, shortcut), from a text selection ("Ask in side thread"), and later `/btw <text>`. Closing a tab hides the Side Thread; it stays in the Session Log and can be reopened.
+**UI.** Side Threads are pill tabs in the Side chats Panel (right top by default, ADR 0019), opened by one Stripe icon; Changes, Terminal and `render_ui` left or right items (ADR 0015) are Panels of their own. Opened empty (button, shortcut), from a text selection ("Ask in side thread"), and later `/btw <text>`. Closing a tab hides the Side Thread; it stays in the Session Log and can be reopened.
 
 **Kept open for Subsessions.** Later we may add Subsessions: child Sessions an orchestrator (or the user) starts for a piece of work, e.g. a canvas Frontend that always works through them. A Subsession differs from a Side Thread: it is its own Session (own Session Log, possibly own Frontend and Worktree), may write, and reports results back. A Side Thread stays a Thread: same Session, a detour, asking before writes by default. To not block Subsessions:
 - How an Agent Session starts (fork of a Thread up to a `seq`, text seed, nothing) is one core type, not Side-Thread-specific, so Subsession creation reuses it.
 - Transcript tools take a Thread reference that can name another Session, so cross-Session reads (parent reading a Subsession, the exploration's policy levels) are a scope change, not a new API.
-- Right panel tabs host any View the Frontend chooses, not only Side Threads.
+- Panels host any content the Frontend chooses, not only Side Threads.
 
 **Considered.** Fresh-only with transcript tools: works with every Agent and is cheap per question, but answers miss what the Agent read and decided, and users expect `/btw` to know the conversation. Fork-only: fails on Agents without fork. Hybrid costs one more start path.
 

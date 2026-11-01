@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, Settings, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, Trash2 } from "lucide-react";
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import { syncAppearance } from "./appearance/appearance";
 import {
-  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, ScrollArea, Tooltip, Separator, cn, useResizableWidth,
+  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, ScrollArea, Tooltip, cn, useResizableWidth,
 } from "@harness/ui";
 import { ComposerDialog } from "./ComposerDialog";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
@@ -44,6 +44,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
   const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<HTMLDivElement | null>(null);
+  const [menu, setMenu] = useState<HTMLDivElement | null>(null);
   const report = useReportError();
   useEffect(() => {
     new Client(transport).listSessions().then((l) => setSession(l.find((s) => s.id === sessionId) ?? null)).catch((e) => {
@@ -66,9 +67,9 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
   }
   return (
     <div className="flex h-full flex-col">
-      <SessionHeader client={new Client(transport)} session={session} toolbarRef={setToolbar} statusRef={setStatus} leading={trafficLights && <div className="w-12 shrink-0" />} />
+      <SessionHeader client={new Client(transport)} session={session} toolbarRef={setToolbar} statusRef={setStatus} menuRef={setMenu} leading={trafficLights && <div className="w-12 shrink-0" />} />
       <div className="min-h-0 flex-1">
-        <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} status={status} />
+        <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} status={status} menu={menu} />
       </div>
     </div>
   );
@@ -197,6 +198,7 @@ function Shell({ transport }: { transport: Transport }) {
   const [sidebarOpen, toggleSidebar] = useSidebarOpen();
   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<HTMLDivElement | null>(null);
+  const [menu, setMenu] = useState<HTMLDivElement | null>(null);
 
   const report = useReportError();
 
@@ -332,12 +334,6 @@ function Shell({ transport }: { transport: Transport }) {
             )}
             {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
           </ScrollArea>
-          <Separator />
-          <div className="p-2">
-            <Button size="sm" variant="ghost" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => setSettingsSection("appearance")}>
-              <Settings /> Settings
-            </Button>
-          </div>
         </aside>
       )}
       <main className="flex min-w-0 flex-1 flex-col">
@@ -350,11 +346,13 @@ function Shell({ transport }: { transport: Transport }) {
               leading={leading}
               toolbarRef={setToolbar}
               statusRef={setStatus}
+              menuRef={setMenu}
+              onOpenSettings={() => setSettingsSection("appearance")}
               onOpenWindow={() => openViewWindow(current.id, current.title).catch((e) => report("Could not open window", e))}
               onChooseEditor={() => setSettingsSection("editor")}
             />
             <div className="min-h-0 flex-1">
-              <ViewHost transport={transport} sessionId={current.id} frontendId={current.frontend_id} toolbar={toolbar} status={status} />
+              <ViewHost transport={transport} sessionId={current.id} frontendId={current.frontend_id} toolbar={toolbar} status={status} menu={menu} />
             </div>
           </>
         ) : (

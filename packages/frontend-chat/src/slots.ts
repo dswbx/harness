@@ -8,7 +8,7 @@ export type Slot = { id: string; title: string | null; root: RawNode; files: Rec
 /**
  * Splits `render_ui` calls by placement. A call with an `id` replaces earlier calls with that id
  * (inline: shown where it first appeared, with the latest content); `remove` hides them.
- * Calls placed top/bottom/right leave the chat rows and fill those areas, in first-seen order.
+ * Calls placed top/bottom leave the chat rows and fill live areas, left/right become panels (ADR 0019), in first-seen order.
  */
 export function splitRenderUi(items: Item[]): {
   /** Row id -> what to render there instead of its own input (latest for its id), or null to hide. */
@@ -16,7 +16,7 @@ export function splitRenderUi(items: Item[]): {
   slots: Record<Exclude<Placement, "inline">, Slot[]>;
 } {
   const inline = new Map<string, { root: RawNode; files: Record<string, string> } | null>();
-  const slots: Record<Exclude<Placement, "inline">, Slot[]> = { top: [], bottom: [], right: [] };
+  const slots: Record<Exclude<Placement, "inline">, Slot[]> = { top: [], bottom: [], left: [], right: [] };
   // id -> row of its first inline call, and the placement it currently lives in.
   const firstRow = new Map<string, string>();
   const where = new Map<string, Exclude<Placement, "inline"> | "inline">();

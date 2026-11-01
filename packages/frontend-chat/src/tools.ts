@@ -432,7 +432,7 @@ export type UiNode = {
  */
 export const COMPUTED = ["count", "length", "sum"] as const;
 
-export const PLACEMENTS = ["inline", "top", "bottom", "right"] as const;
+export const PLACEMENTS = ["inline", "top", "bottom", "left", "right"] as const;
 export type Placement = (typeof PLACEMENTS)[number];
 export type RenderUiInput = { root?: RawNode; id?: string; placement?: Placement; title?: string; remove?: boolean };
 
@@ -455,16 +455,16 @@ const actionList = { anyOf: [{ $ref: "#/$defs/action" }, { type: "array", items:
 const renderUiJson = {
   type: "object",
   properties: {
-    id: { type: "string", description: "Names this item: a later call with the same id replaces it. Required for top, bottom and right." },
-    placement: { type: "string", enum: PLACEMENTS, description: "Where it shows: inline in the chat (default), or in a live area of the chat: top, bottom, or a tab on the right." },
-    title: { type: "string", description: "Label of the right-side tab." },
+    id: { type: "string", description: "Names this item: a later call with the same id replaces it. Required for top, bottom, left and right." },
+    placement: { type: "string", enum: PLACEMENTS, description: "Where it shows: inline in the chat (default), or in a live area of the chat: top, bottom, or a panel on the left or right side (the user can move it to any other zone)." },
+    title: { type: "string", description: "Label of the left or right panel." },
     remove: { const: true, description: "Remove the item with this id." },
     root: { $ref: node },
   },
   additionalProperties: false,
   allOf: [
     { if: { properties: { remove: { const: true } }, required: ["remove"] }, then: { required: ["id"] }, else: { required: ["root"] } },
-    { if: { properties: { placement: { enum: ["top", "bottom", "right"] } }, required: ["placement"] }, then: { required: ["id"] } },
+    { if: { properties: { placement: { enum: ["top", "bottom", "left", "right"] } }, required: ["placement"] }, then: { required: ["id"] } },
   ],
   $defs: {
     expr: {
@@ -554,7 +554,7 @@ export const frontendTools = [
     description:
       "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
       'Input: {"root": node, "placement"?, "id"?, "title"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Grid, Card, Tabs, Stepper and Accordion take children.\n' +
-      "Placement: inline in the chat (default) or a live area: top, bottom, or a tab on the right (needs an id and a title). " +
+      "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title; right opens in the top right zone, left in the top left; the user can move it). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
       'Choice and Input write the user\'s input with {"$bindState": "/path"}. ' +
