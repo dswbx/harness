@@ -106,7 +106,7 @@ export function EventLog({ events, title = "Session Log", actions, header, famil
               )}
             </PopoverTrigger>
           </Tooltip>
-          <PopoverContent align="end" className="max-h-[min(70vh,32rem)] w-64 overflow-y-auto text-[13px]">
+          <PopoverContent align="end" className="max-h-[min(32rem,var(--radix-popover-content-available-height))] w-64 overflow-y-auto text-[13px]">
             <div className="flex items-center justify-between px-2 pt-1 pb-1">
               <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">KIND</span>
               <button
