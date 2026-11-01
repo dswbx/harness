@@ -3,6 +3,7 @@ import type { SessionApi } from "@harness/api";
 import type { DiffScope } from "./DiffPanel";
 import { MessageList, useRows } from "./Messages";
 import { PromptBox, type PromptBoxHandle } from "./PromptBox";
+import { ScrollUnder } from "./ScrollUnder";
 import type { ChatState } from "./reducer";
 import type { UiEnv } from "./RenderUi";
 
@@ -25,19 +26,23 @@ export function ThreadView({ api, thread, threadId, env, onOpenDiff, focusKey }:
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background" aria-label="Side chat">
-      <MessageList
-        api={api}
-        state={thread}
-        threadId={threadId}
-        side
-        env={sideEnv}
-        ui={ui}
-        rows={rows}
-        subagents={subagents}
-        onOpenDiff={onOpenDiff}
-        empty="Ask a question. The Main Thread never sees this."
-      />
-      <PromptBox ref={prompt} api={api} state={thread} threadId={threadId} />
+      <ScrollUnder bottom={<PromptBox ref={prompt} api={api} state={thread} threadId={threadId} />}>
+        {(inset) => (
+          <MessageList
+            api={api}
+            state={thread}
+            threadId={threadId}
+            side
+            env={sideEnv}
+            ui={ui}
+            rows={rows}
+            subagents={subagents}
+            onOpenDiff={onOpenDiff}
+            empty="Ask a question. The Main Thread never sees this."
+            inset={inset}
+          />
+        )}
+      </ScrollUnder>
     </aside>
   );
 }
