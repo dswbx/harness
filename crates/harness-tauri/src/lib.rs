@@ -1,5 +1,5 @@
 //! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, the
-//! Terminal byte stream, plus macOS niceties (dock badge, notifications) and self-update.
+//! Terminal byte stream, plus macOS niceties (dock badge, notifications) and opt-in self-update.
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use std::collections::HashMap;
@@ -252,8 +252,9 @@ pub fn run() {
             subscribe_app,
             terminal_attach,
             terminal_detach,
+            updates::update_state,
             updates::update_check,
-            updates::update_ready,
+            updates::update_install,
             updates::update_restart
         ])
         .run(tauri::generate_context!())

@@ -7,4 +7,3 @@ dist/
 .claude/worktrees/
 src-tauri/gen/
 .idea/
-/.cargo/config.toml
