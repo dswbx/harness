@@ -1,15 +1,16 @@
 import { useRef } from "react";
-import { Bot, Code, LayoutGrid, Palette, Plug, Shield } from "lucide-react";
+import { Bot, Code, Info, LayoutGrid, Palette, Plug, Shield } from "lucide-react";
 import { RenderUiGallery } from "@harness/frontend-chat";
 import type { HarnessClient } from "@harness/api";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, cn } from "@harness/ui";
+import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { EditorPanel } from "./EditorPanel";
 import { McpPanel } from "./McpPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 
-export type SettingsSection = "appearance" | "editor" | "permissions" | "agents" | "mcp" | "components";
+export type SettingsSection = "appearance" | "editor" | "permissions" | "agents" | "mcp" | "components" | "about";
 
 const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
@@ -18,9 +19,10 @@ const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
   { id: "agents", label: "Agents", icon: Bot },
   { id: "mcp", label: "MCP servers", icon: Plug },
   { id: "components", label: "UI components", icon: LayoutGrid },
+  { id: "about", label: "About", icon: Info },
 ];
 
-/** Appearance, Permission rules, Agents and MCP servers in one modal with a sidebar. */
+/** Appearance, Permission rules, Agents, MCP servers and About in one modal with a sidebar. */
 export function SettingsDialog({
   client, open, onOpenChange, section, onSectionChange, sessionId, agentsVersion, onAgentsChanged, onMcpChanged,
 }: {
@@ -50,7 +52,7 @@ export function SettingsDialog({
       >
         <div className="flex shrink-0 items-center gap-4 border-b bg-muted/30 py-3 pl-4 pr-12">
           <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
-          <DialogDescription className="sr-only">Appearance, Editor, Permission rules, Agents, MCP servers and UI components.</DialogDescription>
+          <DialogDescription className="sr-only">Appearance, Editor, Permission rules, Agents, MCP servers, UI components and About.</DialogDescription>
         </div>
         <div className="flex min-h-0 flex-1">
           <nav ref={nav} className="flex w-52 shrink-0 flex-col border-r bg-muted/30 p-2">
@@ -76,6 +78,7 @@ export function SettingsDialog({
             {section === "agents" && <AgentsPanel client={client} version={agentsVersion} onChanged={onAgentsChanged} />}
             {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} />}
             {section === "components" && <RenderUiGallery />}
+            {section === "about" && <AboutPanel />}
           </div>
         </div>
       </DialogContent>

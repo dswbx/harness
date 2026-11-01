@@ -27,3 +27,4 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - `cargo test -p harness-core`: unit + fake-agent integration tests.
 - `SMOKE_INSTALL=1 cargo run -q -p harness-core --example smoke -- codex-acp <folder> "<prompt>"`: install an Agent from the ACP Registry (managed toolchain) and run it headless. Drop `SMOKE_INSTALL` once installed in that data dir (`SMOKE_DATA`).
 - `bun install && bun run dev`: run the app.
+- Release: run the Release workflow (`gh workflow run release.yml`) from main. Tags `v{year}.{month}.{n}` on that commit, publishes a universal macOS build; installed apps self-update from it (`crates/harness-tauri/src/updates.rs`). Updater signing key: secret `TAURI_SIGNING_PRIVATE_KEY`.
