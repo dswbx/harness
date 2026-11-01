@@ -311,7 +311,7 @@ export function MessageList({ handle, api, state, threadId, side, env, ui, rows,
       getKey={(i) => rows[i]!.id}
       estimateSize={72}
       gap={24}
-      className="overflow-x-hidden"
+      scrollbarClassName="z-10"
       innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
       empty={<p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>}
       renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={onOpenDiff} subagents={subagents} active={running} streaming={running && i === rows.length - 1} threadId={threadId} side={side} />}
