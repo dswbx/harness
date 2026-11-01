@@ -12,7 +12,7 @@ export function FrontendToolRow({ item, env, view }: { item: FT; env: UiEnv; vie
   if (item.render?.ok) {
     const shown = view ?? (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
     return shown ? (
-      <Expandable label="view">
+      <Expandable label="view" className="chat-wide">
         <RenderUi root={shown.root} env={{ ...env, files: shown.files }} />
       </Expandable>
     ) : null;

@@ -195,6 +195,9 @@ function HarnessContext({ text }: { text: string }) {
   );
 }
 
+/** How far artifacts (`chat-wide`) stand out past the Main Thread's text; the side panel has no room for it. */
+const bleed = "[--chat-bleed:1rem]";
+
 export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, active, streaming, threadId, side }: {
   item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
   /** The Thread this row belongs to; `side`: it is a Side Thread (its comments go to its own composer). */
@@ -225,7 +228,7 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
       );
     case "agent":
       return (
-        <div className="group">
+        <div className={cn("group", !side && bleed)}>
           <div {...quotableAttrs(threadId, side)}>
             <Markdown>{item.text}</Markdown>
           </div>
@@ -244,7 +247,7 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
         </details>
       );
     case "frontend_tool":
-      return <FrontendToolRow item={item} env={env} view={view ?? undefined} />;
+      return <div className={cn(!side && bleed)}><FrontendToolRow item={item} env={env} view={view ?? undefined} /></div>;
     case "tools":
       return <ToolGroupRow calls={item.calls} subagents={subagents} active={active} />;
     case "tool":
@@ -293,10 +296,12 @@ export function useRows(items: Item[]) {
 }
 
 /** The message list of one Thread (the Main Thread's, or a Side Thread's in the panel). */
-export function MessageList({ handle, api, state, threadId, side, env, ui, rows, subagents, onOpenDiff, empty }: {
+export function MessageList({ handle, api, state, threadId, side, env, ui, rows, subagents, onOpenDiff, empty, inset = 0 }: {
   api: SessionApi; state: ChatState; threadId: string; side: boolean; env: UiEnv;
   ui: ReturnType<typeof splitRenderUi>; rows: ReturnType<typeof useRows>["rows"]; subagents: Map<string, Subagent<Tool>>;
   onOpenDiff: (s: DiffScope) => void; empty: string; handle?: Ref<VirtualListHandle>;
+  /** Height of the bar over the list's bottom (`ScrollUnder`), kept free at the end. */
+  inset?: number;
 }) {
   const running = state.turnId !== null;
   return (
@@ -306,10 +311,11 @@ export function MessageList({ handle, api, state, threadId, side, env, ui, rows,
       getKey={(i) => rows[i]!.id}
       estimateSize={72}
       gap={24}
+      className="overflow-x-hidden"
       innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
       empty={<p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>}
       renderRow={(i) => <Row item={rows[i]!} api={api} env={env} view={ui.inline.get(rows[i]!.id)} onOpenDiff={onOpenDiff} subagents={subagents} active={running} streaming={running && i === rows.length - 1} threadId={threadId} side={side} />}
-      footer={<Working since={state.turnStartedAt} />}
+      footer={<><Working since={state.turnStartedAt} /><div style={{ height: inset }} /></>}
     />
   );
 }

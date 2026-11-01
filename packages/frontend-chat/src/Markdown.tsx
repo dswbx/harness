@@ -20,7 +20,7 @@ const components: import("react-markdown").Components = {
     const cls = Array.isArray(code?.properties?.className) ? (code.properties.className as string[]) : [];
     if (code && cls.includes("language-mermaid")) {
       return (
-        <div data-artifact="diagram">
+        <div className="chat-wide" data-artifact="diagram">
           <Suspense fallback={<div className="h-24 animate-pulse rounded-md bg-muted" />}>
             <Mermaid source={textOf(code).replace(/\n$/, "")} />
           </Suspense>
@@ -28,9 +28,9 @@ const components: import("react-markdown").Components = {
       );
     }
     if (code && cls.includes("language-ansi")) {
-      return <pre {...props}><code><AnsiText text={textOf(code).replace(/\n$/, "")} /></code></pre>;
+      return <pre {...props} className="chat-wide"><code><AnsiText text={textOf(code).replace(/\n$/, "")} /></code></pre>;
     }
-    return <pre {...props}>{children}</pre>;
+    return <pre {...props} className="chat-wide">{children}</pre>;
   },
   // Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
   // break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
@@ -41,7 +41,7 @@ const components: import("react-markdown").Components = {
       </div>
     );
     return (
-      <Expandable label="table" className="mt-(--typeset-flow)" data-artifact="table" expanded={<div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>}>
+      <Expandable label="table" className="chat-wide mt-(--typeset-flow)" data-artifact="table" expanded={<div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>}>
         {table}
       </Expandable>
     );

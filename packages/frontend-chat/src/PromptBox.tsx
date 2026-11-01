@@ -220,9 +220,9 @@ export function PromptBox({ api, state, threadId = null, onSideThread, ref: hand
   const pick = (c: SlashCommand) => ref.current?.setText(`/${c.name} `);
 
   return (
-    <div className="relative mx-auto w-full max-w-3xl px-6 pb-5">
+    <div className={cn("relative mx-auto w-full max-w-3xl pb-5", threadId ? "px-4" : "px-10")}>
       {matches.length > 0 && (
-        <div className="absolute bottom-full left-6 mb-1 max-h-72 w-72 max-w-[calc(100%-3rem)] overflow-auto rounded-lg border bg-popover p-1 shadow-md" role="listbox" aria-label="Commands">
+        <div className={cn("absolute bottom-full mb-1 max-h-72 w-72 overflow-auto", threadId ? "left-4 max-w-[calc(100%-2rem)]" : "left-10 max-w-[calc(100%-5rem)]", "rounded-lg border bg-popover p-1 shadow-md")} role="listbox" aria-label="Commands">
           {matches.map((c, i) => (
             <Tooltip key={c.name} content={c.description} side="right" open={i === sel && !!c.description}>
               <button
