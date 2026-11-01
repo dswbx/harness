@@ -21,10 +21,17 @@ function ScrollArea({ className, children, viewportRef, onViewportScroll, scroll
       <ScrollAreaPrimitive.Viewport ref={viewportRef} onScroll={onViewportScroll} className={cn("size-full rounded-[inherit] [&>div]:block!", viewportClassName)}>
         {children}
       </ScrollAreaPrimitive.Viewport>
-      <ScrollAreaPrimitive.Scrollbar orientation="vertical" className={cn("flex w-2 touch-none select-none p-px transition-colors", scrollbarClassName)}>
-        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
-      </ScrollAreaPrimitive.Scrollbar>
+      <ScrollBar className={scrollbarClassName} />
     </ScrollAreaPrimitive.Root>
   );
 }
-export { ScrollArea };
+/** The app's thin vertical scrollbar, for a Radix ScrollArea root composed by hand (e.g. inside a Select). */
+function ScrollBar({ className }: { className?: string }) {
+  return (
+    <ScrollAreaPrimitive.Scrollbar orientation="vertical" className={cn("flex w-2 touch-none select-none p-px transition-colors", className)}>
+      <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
+    </ScrollAreaPrimitive.Scrollbar>
+  );
+}
+
+export { ScrollArea, ScrollBar };

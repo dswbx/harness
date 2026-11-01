@@ -3,7 +3,7 @@ import { ArrowDownToLine, ChevronRight, ListFilter, Search } from "lucide-react"
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import { ScrollArea } from "./scroll-area";
-import { Select } from "./select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
 import { Tooltip } from "./tooltip";
 import { VirtualList } from "./virtual-list";
 
@@ -127,13 +127,17 @@ export function EventLog({ events, title = "Session Log", actions, header, famil
               {threads.length > 1 && (
                 <>
                   <div className="my-1 h-px bg-border" />
-                  <label className="flex items-center gap-2 px-2 pt-1 pb-1.5">
+                  <div className="flex items-center gap-2 px-2 pt-1 pb-1.5">
                     <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">THREAD</span>
-                    <Select className="h-7 min-w-0 flex-1 font-mono text-xs" value={thread ?? ""} onChange={(e) => setThread(e.target.value || null)}>
-                      <option value="">All</option>
-                      {threads.map((t) => <option key={t} value={t}>{t}</option>)}
+                    {/* Select items need a value: "all" stands for no thread filter (thread names are 6-char ids or "session"). */}
+                    <Select value={thread ?? "all"} onValueChange={(v) => setThread(v === "all" ? null : v)}>
+                      <SelectTrigger className="h-7 min-w-0 flex-1 font-mono text-xs" aria-label="Thread"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all" className="font-mono text-xs">All</SelectItem>
+                        {threads.map((t) => <SelectItem key={t} value={t} className="font-mono text-xs">{t}</SelectItem>)}
+                      </SelectContent>
                     </Select>
-                  </label>
+                  </div>
                 </>
               )}
             </ScrollArea>
