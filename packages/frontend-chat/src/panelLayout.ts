@@ -279,6 +279,31 @@ export function clampSize(kind: ResizeKind, v: number, g: Geometry, w: number, h
   }
 }
 
+/**
+ * Drop targets while dragging: the six zones tiling the dock. Open sides and an open bottom keep their
+ * real size, so a target lines up with the panel under it; closed ones take their stored size in the room left.
+ */
+export function dropRects(l: Layout, w: number, h: number): Record<Zone, Rect> {
+  const g = computeRects(l, w, h);
+  const s = l.sizes;
+  const bottom = g.bottom || clamp(s.bottom, MIN_BOTTOM, Math.max(MIN_BOTTOM, h - MIN_CHAT_H));
+  const top = h - bottom;
+  const free = (size: number, other: number) => Math.max(0, Math.min(size, Math.round((w - other) / 2)));
+  const left = g.left || free(s.left, g.right);
+  const right = g.right || free(s.right, left);
+  const lt = Math.round(top * s.leftSplit);
+  const rt = Math.round(top * s.rightSplit);
+  const bw = Math.round(w * s.bottomSplit);
+  return {
+    leftTop: { x: 0, y: 0, w: left, h: lt },
+    leftBottom: { x: 0, y: lt, w: left, h: top - lt },
+    rightTop: { x: w - right, y: 0, w: right, h: rt },
+    rightBottom: { x: w - right, y: rt, w: right, h: top - rt },
+    bottomLeft: { x: 0, y: top, w: bw, h: bottom },
+    bottomRight: { x: bw, y: top, w: w - bw, h: bottom },
+  };
+}
+
 /** The layout with `id` shown in `zone` (and not where it was shown): what a drop would give, for the preview. */
 export function withShownIn(l: Layout, id: PanelId, zone: Zone): Layout {
   const open = { ...l.open };

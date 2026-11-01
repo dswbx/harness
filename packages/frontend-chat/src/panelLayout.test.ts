@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  clampSize, closeThread, computeRects, defaultLayout, expand, hide, migratePanel, move, openThread, parseLayout, reconcile, resetLayout, resize,
+  clampSize, closeThread, computeRects, defaultLayout, dropRects, expand, hide, migratePanel, move, openThread, parseLayout, reconcile, resetLayout, resize,
   selectThread, show, shownOpen, slotPanel, toggle, withShownIn, zoneOf, type Layout, type PanelId,
 } from "./panelLayout";
 
@@ -255,6 +255,18 @@ describe("migration of the old right panel state", () => {
   });
   it("the active thread falls back to the last", () => {
     expect(migratePanel({ threads: ["a", "b"], thread: "zzz" }).thread).toBe("b");
+  });
+});
+
+describe("dropRects", () => {
+  it("tiles the dock with all six zones at the current sizes, the chat left free", () => {
+    const t = dropRects(open(empty, "side"), 1200, 800);
+    const top = 800 - 240;
+    expect(t.rightTop).toEqual({ x: 1200 - 380, y: 0, w: 380, h: Math.round(top * 0.55) });
+    expect(t.rightBottom.y + t.rightBottom.h).toBe(top);
+    expect(t.bottomLeft).toEqual({ x: 0, y: top, w: 600, h: 240 });
+    expect(t.bottomRight).toEqual({ x: 600, y: top, w: 600, h: 240 });
+    expect(t.leftTop.x).toBe(0);
   });
 });
 

@@ -3,7 +3,7 @@ import { ResizeHandle, cn, useDragDelta } from "@harness/ui";
 import { PanelContext } from "./PanelHeader";
 import type { DragState } from "./panelDrag";
 import {
-  DEFAULT_SIZES, ZONES, ZONE_LABEL, clampSize, computeRects, isBottomZone, isLeftZone, isRightZone, withShownIn, zoneOf,
+  DEFAULT_SIZES, ZONES, ZONE_LABEL, clampSize, computeRects, dropRects, isBottomZone, isLeftZone, isRightZone, zoneOf,
   type Geometry, type Layout, type PanelId, type Rect, type ResizeKind, type Sizes, type Zone,
 } from "./panelLayout";
 
@@ -98,19 +98,15 @@ export function DockLayout({ layout, chat, panels, drag, leftStripeOverlay, onRe
     if (o.bottomLeft && o.bottomRight) handles.push({ kind: "bottomSplit", label: "Split bottom panels", vertical: true, rect: { x: z.bottomRight!.x, y: g.top, w: 0, h: g.bottom }, start: () => layout.sizes.bottomSplit, value: (v, dx) => clampSize("bottomSplit", v + dx / w, g, w, h) });
   }
 
-  // While dragging: a pad per zone at the dock's edges, and the blue rect the panel would take.
-  const sideH = (h - 150) / 2;
-  const lx = leftStripeOverlay ? 56 : 12;
-  const pads: { zone: Zone; rect: Rect }[] = [
-    { zone: "leftTop", rect: { x: lx, y: 12, w: 84, h: sideH - 6 } },
-    { zone: "leftBottom", rect: { x: lx, y: 12 + sideH + 6, w: 84, h: sideH - 6 } },
-    { zone: "rightTop", rect: { x: w - 96, y: 12, w: 84, h: sideH - 6 } },
-    { zone: "rightBottom", rect: { x: w - 96, y: 12 + sideH + 6, w: 84, h: sideH - 6 } },
-    { zone: "bottomLeft", rect: { x: lx, y: h - 108, w: w / 2 - 6 - lx, h: 96 } },
-    { zone: "bottomRight", rect: { x: w / 2 + 6, y: h - 108, w: w / 2 - 18, h: 96 } },
-  ];
+  // While dragging: the six zones tile the dock with the current sizes; the one under the pointer (or the
+  // stripe group hovered) lights up. The chat in the middle is no target.
+  const tiles = dropRects(layout, w, h);
+  const inset = (r: Rect, zone: Zone): Rect => {
+    const l = leftStripeOverlay && zone.startsWith("left") ? 44 : 0;
+    return { x: r.x + 4 + l, y: r.y + 4, w: Math.max(0, r.w - 8 - l), h: Math.max(0, r.h - 8) };
+  };
+  const pads = ZONES.map((zone) => ({ zone, rect: inset(tiles[zone], zone) }));
   const previewZone = drag?.target?.zone;
-  const preview = drag && previewZone ? computeRects(withShownIn(layout, drag.id, previewZone), w, h).zones[previewZone] : undefined;
   const px = (r: Rect) => ({ left: r.x, top: r.y, width: r.w, height: r.h });
 
   return (
@@ -150,24 +146,22 @@ export function DockLayout({ layout, chat, panels, drag, leftStripeOverlay, onRe
           {handles.map((hd) => <DockHandle key={hd.kind} {...hd} onResize={onResize} />)}
           {drag && (
             <>
-              {preview && (
-                <div aria-hidden className="pointer-events-none absolute z-30 grid place-items-center border-[1.5px] border-blue-500/75 bg-blue-500/15" style={px(preview)}>
-                  <span className="rounded bg-background/80 px-2 py-1 text-xs font-semibold">Move {drag.label} to {ZONE_LABEL[previewZone!]}</span>
-                </div>
-              )}
-              {pads.map((pad) => (
-                <div
-                  key={pad.zone}
-                  data-drop-zone={pad.zone}
-                  className={cn(
-                    "absolute z-[35] grid place-items-center rounded-lg border-[1.5px] border-dashed text-center text-[11px] font-semibold",
-                    previewZone === pad.zone ? "border-blue-500 bg-blue-500/25" : "border-blue-500/45 bg-background/60",
-                  )}
-                  style={px(pad.rect)}
-                >
-                  {ZONE_LABEL[pad.zone]}
-                </div>
-              ))}
+              {pads.map((pad) => {
+                const on = previewZone === pad.zone;
+                return (
+                  <div
+                    key={pad.zone}
+                    data-drop-zone={pad.zone}
+                    className={cn(
+                      "absolute z-[35] grid place-items-center rounded-lg border-[1.5px] text-center text-xs font-semibold",
+                      on ? "border-blue-500 bg-blue-500/20" : "border-dashed border-blue-500/40 bg-background/50 text-muted-foreground",
+                    )}
+                    style={px(pad.rect)}
+                  >
+                    <span className={cn("rounded px-2 py-1", on && "bg-background/80")}>{on ? `Move ${drag.label} to ${ZONE_LABEL[pad.zone]}` : ZONE_LABEL[pad.zone]}</span>
+                  </div>
+                );
+              })}
             </>
           )}
         </>
