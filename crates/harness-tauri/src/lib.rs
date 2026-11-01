@@ -1,5 +1,5 @@
 //! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, the
-//! Terminal byte stream, plus macOS niceties (dock badge, notifications).
+//! Terminal byte stream, plus macOS niceties (dock badge, notifications) and self-update.
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use std::collections::HashMap;
@@ -10,6 +10,8 @@ use harness_core::Harness;
 use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
+
+mod updates;
 
 /// Frontend Manifests of the built-in Frontends, registered with core at boot.
 const MANIFESTS: &[&str] = &[
@@ -203,7 +205,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Subscriptions::default())
+        .manage(updates::Updates::default())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let exe = std::env::current_exe()?.display().to_string();
@@ -217,6 +221,7 @@ pub fn run() {
             }
             watch_attention(app.handle(), &harness);
             app.manage(harness);
+            updates::spawn_checks(app.handle());
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -246,7 +251,10 @@ pub fn run() {
             unsubscribe,
             subscribe_app,
             terminal_attach,
-            terminal_detach
+            terminal_detach,
+            updates::update_check,
+            updates::update_ready,
+            updates::update_restart
         ])
         .run(tauri::generate_context!())
         .expect("error while running Harness");
