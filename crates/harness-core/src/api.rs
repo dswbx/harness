@@ -200,6 +200,22 @@ pub enum Command {
     GitPush {
         session_id: SessionId,
     },
+    /// What PR references in this Session resolve against: its GitHub repo (`upstream`, else `origin`), the repos of
+    /// all Sessions (best first) and the `gh` user.
+    PrContext {
+        session_id: SessionId,
+    },
+    /// PRs by reference via `gh`, in the same order; `None` for one that does not exist. Cached.
+    LookupPrs {
+        session_id: SessionId,
+        refs: Vec<PrRefKey>,
+    },
+    /// Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles.
+    SearchPrs {
+        session_id: SessionId,
+        repo: RepoId,
+        query: Option<String>,
+    },
     /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
     ListTerminals {
         session_id: SessionId,
@@ -405,6 +421,10 @@ pub enum CommandResult {
     ThreadStarted { thread_id: ThreadId, forked: bool },
     Branches { branches: Branches },
     PullRequests { prs: Vec<PullRequest> },
+    /// `me`: the `gh` user, None when `gh` is not signed in.
+    PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
+    PrLookup { prs: Vec<Option<PrInfo>> },
+    PrSearch { prs: Vec<PrInfo> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
     Terminals { terminals: Vec<TerminalInfo> },
@@ -621,6 +641,60 @@ pub enum PrChecks {
     Failing,
     Pending,
     None,
+}
+
+/// A GitHub repository, e.g. `supabase/spark`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+pub struct RepoId {
+    pub owner: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+pub struct PrRefKey {
+    pub repo: RepoId,
+    pub number: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PrState {
+    Open,
+    Draft,
+    Merged,
+    Closed,
+}
+
+/// A PR of any GitHub repository, as shown by a PR reference.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PrInfo {
+    pub repo: RepoId,
+    pub number: u32,
+    pub title: String,
+    pub author: String,
+    pub state: PrState,
+    pub checks: PrChecks,
+    /// Checks that passed (success, neutral, skipped) of all checks.
+    pub checks_passed: u32,
+    pub checks_total: u32,
+    pub additions: u32,
+    pub deletions: u32,
+    pub changed_files: u32,
+    /// RFC 3339.
+    pub updated_at: String,
+    pub url: String,
+}
+
+/// A GitHub repository some Sessions work in. `score` adds up each Session's recency (1 now, halving every ~3 weeks).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct KnownRepo {
+    pub repo: RepoId,
+    pub sessions: u32,
+    #[specta(type = specta_typescript::Number)]
+    pub score: f64,
+    /// Last activity of its Sessions.
+    #[specta(type = specta_typescript::Number)]
+    pub last_ms: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

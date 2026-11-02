@@ -27,6 +27,8 @@ pub struct Shared {
     pub app_events: AppEvents,
     /// Optional overrides of the `<harness_context>` texts (`harness.md`, `<frontend id>.md`).
     pub prompts_dir: PathBuf,
+    /// PR lookups and the Sessions' GitHub repos, shared by all Sessions.
+    pub pr_refs: crate::github_refs::PrRefs,
 }
 
 type AppSink = Box<dyn Fn(&crate::api::AppEvent) -> bool + Send + Sync>;

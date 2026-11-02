@@ -177,6 +177,15 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GitCommit"; session_id: string; message: string } | 
 /**  Pushes the current branch to `origin`, setting upstream. */
 { type: "GitPush"; session_id: string } | 
+/**
+ *  What PR references in this Session resolve against: its GitHub repo (`upstream`, else `origin`), the repos of
+ *  all Sessions (best first) and the `gh` user.
+ */
+{ type: "PrContext"; session_id: string } | 
+/**  PRs by reference via `gh`, in the same order; `None` for one that does not exist. Cached. */
+{ type: "LookupPrs"; session_id: string; refs: PrRefKey[] } | 
+/**  Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
+{ type: "SearchPrs"; session_id: string; repo: RepoId; query: string | null } | 
 /**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
 { type: "ListTerminals"; session_id: string } | 
 /**  A new Terminal tab; its shell starts on the first attach. Returns its id. */
@@ -229,7 +238,9 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
  *  `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
  *  `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
  */
-{ type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+{ type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | 
+/**  `me`: the `gh` user, None when `gh` is not signed in. */
+{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
@@ -379,6 +390,15 @@ export type GitStatus = {
 	files: FileChange[],
 };
 
+/**  A GitHub repository some Sessions work in. `score` adds up each Session's recency (1 now, halving every ~3 weeks). */
+export type KnownRepo = {
+	repo: RepoId,
+	sessions: number,
+	score: number,
+	/**  Last activity of its Sessions. */
+	last_ms: number,
+};
+
 /**  An MCP server in the MCP Library. */
 export type McpServerDef = {
 	/**  Stable id; empty on first save means "derive from name". */
@@ -423,6 +443,32 @@ export type PrChecks = "passing" | "failing" | "pending" | "none";
 
 export type PrFilter = "open" | "mine" | "review_requested";
 
+/**  A PR of any GitHub repository, as shown by a PR reference. */
+export type PrInfo = {
+	repo: RepoId,
+	number: number,
+	title: string,
+	author: string,
+	state: PrState,
+	checks: PrChecks,
+	/**  Checks that passed (success, neutral, skipped) of all checks. */
+	checks_passed: number,
+	checks_total: number,
+	additions: number,
+	deletions: number,
+	changed_files: number,
+	/**  RFC 3339. */
+	updated_at: string,
+	url: string,
+};
+
+export type PrRefKey = {
+	repo: RepoId,
+	number: number,
+};
+
+export type PrState = "open" | "draft" | "merged" | "closed";
+
 export type ProcessState = "starting" | "ready" | 
 /**  Stopped by the Harness (idle); restarted on the next prompt. */
 "stopped" | "exited" | "failed";
@@ -451,6 +497,12 @@ export type RegistryAgent = {
 	/**  `binary`, `npx` or `uvx`; `None` when nothing installs on this machine. */
 	install_method: string | null,
 	installed_version: string | null,
+};
+
+/**  A GitHub repository, e.g. `supabase/spark`. */
+export type RepoId = {
+	owner: string,
+	name: string,
 };
 
 export type Resolver = "policy" | "view" | "cancelled";

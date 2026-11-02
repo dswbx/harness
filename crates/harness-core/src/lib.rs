@@ -10,6 +10,7 @@ mod editor;
 mod env;
 mod frontend_files;
 mod github;
+mod github_refs;
 mod harness_context;
 pub mod host;
 pub mod library;
