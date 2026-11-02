@@ -1,6 +1,6 @@
 # v1 acceptance checklist
 
-Run on a clean machine or user account: no system Node, no prior `~/Library/Application Support/dev.dswbx.harness`. Use the released `.dmg` where possible, otherwise `bun run dev`. Tick each line and note anything odd.
+Run on a clean machine or user account: no system Node, no prior `~/.harness`. Use the released `.dmg` where possible, otherwise `bun run dev`. Tick each line and note anything odd.
 
 ## Install and Agents
 

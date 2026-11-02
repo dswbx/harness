@@ -76,7 +76,7 @@ Without them the build is unsigned, which is fine locally: right-click → Open 
 
 ## Data
 
-Everything lives under `~/Library/Application Support/dev.dswbx.harness/`:
+Everything lives under `~/.harness/`. Dev builds use `~/.harness-dev/` instead. `HARNESS_HOME` overrides both. `bun run dev:copy-data` replaces the dev data with a copy of the real data (without worktrees).
 
 | Path | Contents |
 |---|---|

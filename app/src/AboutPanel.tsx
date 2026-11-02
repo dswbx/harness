@@ -12,7 +12,7 @@ export function AboutPanel() {
 
   return (
     <div className="grid gap-6">
-      <SectionHeader title="About" description="Harness looks for updates on launch and every few hours. Nothing downloads until you choose Update." />
+      <SectionHeader title="About" description="Harness looks for updates on launch and every hour. Nothing downloads until you choose Update." />
       <div className="grid gap-3 text-sm">
         <p>
           Version <span className="font-mono">{version ?? "…"}</span>

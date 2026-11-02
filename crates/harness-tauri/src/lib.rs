@@ -19,6 +19,14 @@ const MANIFESTS: &[&str] = &[
     include_str!("../../../packages/frontend-inspector/manifest.json"),
 ];
 
+/// `$HARNESS_HOME`, else `~/.harness` (`~/.harness-dev` for dev builds, so they never touch real data).
+fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
+    match std::env::var_os("HARNESS_HOME") {
+        Some(dir) if !dir.is_empty() => dir.into(),
+        _ => home.join(if cfg!(debug_assertions) { ".harness-dev" } else { ".harness" }),
+    }
+}
+
 #[derive(Default)]
 struct Subscriptions {
     /// Webview label -> (session id, subscription id).
@@ -219,7 +227,7 @@ pub fn run() {
         .manage(Subscriptions::default())
         .manage(updates::Updates::default())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
+            let data_dir = data_dir(app.path().home_dir()?);
             let exe = std::env::current_exe()?.display().to_string();
             let options = harness_core::host::Options {
                 mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])),
@@ -231,6 +239,9 @@ pub fn run() {
             }
             watch_attention(app.handle(), &harness);
             app.manage(harness);
+            if let Some(main) = app.get_webview_window("main") {
+                main.set_title(&app.package_info().name)?;
+            }
             updates::spawn_checks(app.handle());
             Ok(())
         })
