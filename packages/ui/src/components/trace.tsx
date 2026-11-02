@@ -57,7 +57,7 @@ function TraceDetail({ className, ...props }: React.ComponentProps<"span">) {
 }
 
 function TraceDescription({ className, ...props }: React.ComponentProps<"span">) {
-  return <span data-slot="trace-description" className={cn("shrink-0 font-mono text-muted-foreground/70 tabular-nums", className)} {...props} />;
+  return <span data-slot="trace-description" className={cn("shrink-0 font-mono text-muted-foreground/70 tabular-nums before:mr-2 before:content-['·']", className)} {...props} />;
 }
 
 function TraceCollapsible({ className, ...props }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {

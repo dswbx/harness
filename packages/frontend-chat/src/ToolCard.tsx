@@ -42,9 +42,10 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
   }
   const text = blockText(b);
   if (text != null) {
-    const fence = parseFence(text);
+    const read = tool?.kind === "read";
+    const fence = parseFence(text, read);
     if (!fence) return <Markdown className={STEP_TEXT}>{text}</Markdown>;
-    const path = tool?.kind === "read" ? readPath(tool) : null;
+    const path = read ? readPath(tool) : null;
     const lines = fence.from != null ? `lines ${fence.from}–${fence.to}` : undefined;
     return <CodeFrame label={path?.split("/").pop() ?? (fence.lang || "output")} meta={lines} code={fence.code} lang={fence.lang || (path ? langOf(path) : "")} />;
   }
