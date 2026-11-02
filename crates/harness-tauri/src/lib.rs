@@ -239,6 +239,9 @@ pub fn run() {
             }
             watch_attention(app.handle(), &harness);
             app.manage(harness);
+            if let Some(main) = app.get_webview_window("main") {
+                main.set_title(&app.package_info().name)?;
+            }
             updates::spawn_checks(app.handle());
             Ok(())
         })

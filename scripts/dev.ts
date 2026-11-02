@@ -14,7 +14,8 @@ let port = 1420;
 while (!(await free(port))) port++;
 if (port !== 1420) console.log(`port 1420 taken, using ${port}`);
 
-const config = JSON.stringify({ build: { devUrl: `http://localhost:${port}` } });
+// "Harness (dev)" in the menu bar, About/Quit items and window title, so dev and released instances are easy to tell apart.
+const config = JSON.stringify({ productName: "Harness (dev)", build: { devUrl: `http://localhost:${port}` } });
 const proc = Bun.spawn(["tauri", "dev", "--config", config, ...process.argv.slice(2)], {
   stdio: ["inherit", "inherit", "inherit"],
   env: { ...process.env, HARNESS_DEV_PORT: String(port) },
