@@ -38,7 +38,7 @@ function DetailLine({ s, showFolder, now }: { s: SessionSummary; showFolder: boo
   const ws = s.workspace;
   const branch = branchOf(ws);
   return (
-    <span className="flex w-full items-center gap-2 text-xs font-normal text-muted-foreground">
+    <span className="flex w-full items-center gap-2 text-xs font-normal text-muted-foreground/70">
       <span className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
         {showFolder && (
           <span className="flex shrink-0 items-center gap-1">
@@ -46,9 +46,7 @@ function DetailLine({ s, showFolder, now }: { s: SessionSummary; showFolder: boo
             <span className="whitespace-nowrap">{folderName(s.folder)}</span>
           </span>
         )}
-        {!ws.repo_root ? (
-          <span title="Folder is not a git repository" className="whitespace-nowrap italic">no git</span>
-        ) : (branch || ws.pr != null) && (
+        {(branch || ws.pr != null) && (
           <span title={refTitle(ws)} className="flex min-w-0 items-center gap-1">
             {ws.worktree_branch ? <GitFork className="size-3 shrink-0" aria-label="Worktree" /> : ws.pr == null && <GitBranch className="size-3 shrink-0" aria-label="Branch" />}
             {ws.pr != null ? (
@@ -91,13 +89,14 @@ function SessionRow({
           onClick={onSelect}
           aria-current={selected || undefined}
           className={cn(
-            "flex w-full rounded-md px-2.5 text-left transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8 text-sm text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground",
-            display === "detail" ? "min-h-12 flex-col justify-center gap-0.5 py-1.5" : "h-8 items-center",
+            "flex w-full rounded-md px-2.5 text-left text-sm text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground",
+            // Detail: only the title line makes room for the menu button, so the date stays put.
+            display === "detail" ? "min-h-12 flex-col justify-center gap-0.5 py-1.5" : "h-8 items-center transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8",
             selected && "bg-accent font-medium text-accent-foreground hover:bg-accent hover:text-accent-foreground",
             s.archived && "opacity-70",
           )}
         >
-          <span className="flex w-full items-center gap-2">
+          <span className={cn("flex w-full items-center gap-2", display === "detail" && "transition-[padding] group-hover:pr-6 group-has-focus-visible:pr-6")}>
             <span className="min-w-0 flex-1 truncate">
               {hit ? <>{hit[0]}<mark className="rounded-sm bg-sky-400/30 text-foreground">{hit[1]}</mark>{hit[2]}</> : s.title}
             </span>
@@ -148,17 +147,14 @@ function ViewOptionsButton({ view, onChange }: { view: ViewOptions; onChange: (v
         <PopoverTrigger
           aria-label={changed ? `View options, ${changed} changed` : "View options"}
           className={cn(
-            "relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent [&_svg]:size-4",
+            "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent [&_svg]:size-4",
             changed > 0 && "bg-accent text-accent-foreground",
           )}
         >
           <ListFilter />
-          {changed > 0 && (
-            <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">{changed}</span>
-          )}
         </PopoverTrigger>
       </Tooltip>
-      <PopoverContent align="end" className="w-64 p-0 text-[13px]">
+      <PopoverContent align="end" className="w-64 p-0 text-[13px]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <ScrollArea className="max-h-[min(32rem,var(--radix-popover-content-available-height))]" viewportClassName="max-h-[inherit] p-1">
           {OPTIONS.map((o, i) => (
             <div key={o.key}>

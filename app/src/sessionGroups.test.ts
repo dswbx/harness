@@ -60,6 +60,6 @@ describe("labels", () => {
   });
   it("folderName and viewChanges", () => {
     expect(folderName("/Users/me/harness/")).toBe("harness");
-    expect(viewChanges({ sort: "created", display: "condensed", group: "date" })).toBe(2);
+    expect(viewChanges({ sort: "created", display: "condensed", group: "date" })).toBe(3);
   });
 });

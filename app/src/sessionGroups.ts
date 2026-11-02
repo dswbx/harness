@@ -7,9 +7,9 @@ export type Display = "condensed" | "detail";
 export type GroupBy = "none" | "folder" | "date";
 export type ViewOptions = { sort: SortBy; display: Display; group: GroupBy };
 
-export const DEFAULT_VIEW: ViewOptions = { sort: "recent", display: "condensed", group: "none" };
+export const DEFAULT_VIEW: ViewOptions = { sort: "recent", display: "detail", group: "folder" };
 
-/** How many view options differ from the defaults (the badge on the options button). */
+/** How many view options differ from the defaults (highlights the options button). */
 export const viewChanges = (v: ViewOptions) =>
   (Object.keys(DEFAULT_VIEW) as (keyof ViewOptions)[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).length;
 
