@@ -130,7 +130,10 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
   useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
   const key = composerKey(api.sessionId, threadId);
   const running = state.turnId !== null;
-  const matches = useMemo(() => matchCommands(threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands), text), [state.commands, text, threadId, onSideThread]);
+  // Text the "/" menu was closed at (Escape); any edit opens it again.
+  const [closedAt, setClosedAt] = useState<string | null>(null);
+  const all = useMemo(() => matchCommands(threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands), text), [state.commands, text, threadId, onSideThread]);
+  const matches = closedAt === text ? [] : all;
   const pct = state.usage ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100)) : null;
 
   const [error, setError] = useState<string | null>(null);
@@ -225,7 +228,9 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
   return (
     <div className="relative mx-auto w-full max-w-3xl px-6 pb-5">
       {matches.length > 0 && (
-        <ScrollArea className="absolute bottom-full left-6 mb-1 max-h-72 w-72 max-w-[calc(100%-3rem)] rounded-lg border bg-popover shadow-md" viewportClassName="max-h-[inherit]"><div className="p-1" role="listbox" aria-label="Commands">
+        // Radix sets an inline `position: relative` on the ScrollArea root, so the wrapper takes the popup out of the flow.
+        <div className="absolute bottom-full left-6 mb-1 w-72 max-w-[calc(100%-3rem)]">
+        <ScrollArea className="max-h-72 rounded-lg border bg-popover shadow-md" viewportClassName="max-h-[inherit]"><div className="p-1" role="listbox" aria-label="Commands">
           {matches.map((c, i) => (
             <Tooltip key={c.name} content={c.description} side="right" open={i === sel && !!c.description}>
               <button
@@ -243,6 +248,7 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
             </Tooltip>
           ))}
         </div></ScrollArea>
+        </div>
       )}
       {readOnly && (
         <div role="alert" className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
@@ -288,10 +294,14 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
           onMenuKey={(k) => {
             if (k === "down") setSel((sel + 1) % matches.length);
             else if (k === "up") setSel((sel + matches.length - 1) % matches.length);
+            else if (k === "close") setClosedAt(text);
             else pick(matches[sel]!);
           }}
           onChange={(t, md) => {
-            if (t !== text) setSel(0);
+            if (t !== text) {
+              setSel(0);
+              setClosedAt(null);
+            }
             setText(t);
             setLines(lineCount(md));
           }}

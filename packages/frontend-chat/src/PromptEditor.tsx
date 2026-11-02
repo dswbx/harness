@@ -26,6 +26,7 @@ import {
   KEY_ARROW_RIGHT_COMMAND,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
+  KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
   OUTDENT_CONTENT_COMMAND,
   PASTE_COMMAND,
@@ -65,12 +66,12 @@ export type PromptEditorHandle = {
   focus(): void;
 };
 
-export type MenuKey = "up" | "down" | "pick";
+export type MenuKey = "up" | "down" | "pick" | "close";
 
 type Props = {
   ref?: Ref<PromptEditorHandle>;
   placeholder: string;
-  /** While true, ArrowUp/ArrowDown/Tab/Enter go to `onMenuKey` instead of the editor. Otherwise Tab/Shift+Tab nest lists and indent code. */
+  /** While true, ArrowUp/ArrowDown/Tab/Enter/Escape go to `onMenuKey` instead of the editor. Otherwise Tab/Shift+Tab nest lists and indent code. */
   menuOpen: boolean;
   onMenuKey(key: MenuKey): void;
   /** `text`: plain text (for matching); `markdown`: what would be sent. */
@@ -211,6 +212,8 @@ function Behavior(props: Props & { onUpdate(): void }) {
         },
         COMMAND_PRIORITY_HIGH,
       ),
+      // Escape closes the open "/" menu; otherwise rich-text blurs the editor.
+      editor.registerCommand(KEY_ESCAPE_COMMAND, menu("close"), COMMAND_PRIORITY_HIGH),
       // Only list items indent (rich-text would pad paragraphs/code otherwise).
       editor.registerCommand(INDENT_CONTENT_COMMAND, () => ($indentListItems(1), true), COMMAND_PRIORITY_HIGH),
       editor.registerCommand(OUTDENT_CONTENT_COMMAND, () => ($indentListItems(-1), true), COMMAND_PRIORITY_HIGH),
