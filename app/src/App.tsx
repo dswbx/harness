@@ -360,10 +360,11 @@ function Shell({ transport }: { transport: Transport }) {
             </div>
           </>
         ) : (
-          <>
-            {leading && <div data-tauri-drag-region className="flex h-13 shrink-0 items-center pl-5">{leading}</div>}
-            <div className="grid flex-1 place-items-center text-sm text-muted-foreground">Select or create a Session.</div>
-          </>
+          <div className="relative grid flex-1 place-items-center text-sm text-muted-foreground">
+            {/* Overlay header: drag handle without pushing the message down. */}
+            <div data-tauri-drag-region className="absolute inset-x-0 top-0 flex h-13 items-center pl-5">{leading}</div>
+            Select or create a Session.
+          </div>
         )}
       </main>
       <Dialog open={toDelete !== null} onOpenChange={(o) => !o && setToDelete(null)}>
