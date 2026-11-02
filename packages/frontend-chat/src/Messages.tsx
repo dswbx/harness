@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type Ref } from "react";
-import { AlertTriangle, Brain, ChevronRight, FileText, Info, Loader2, ShieldCheck, ShieldX } from "lucide-react";
+import { AlertTriangle, ChevronRight, FileText, Info, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, type Subagent } from "@harness/api";
 import { Dialog, DialogContent, DialogTitle, Tooltip, VirtualList, cn, type VirtualListHandle } from "@harness/ui";
@@ -15,7 +15,7 @@ import { quotableAttrs } from "./SelectionComment";
 import type { UiEnv } from "./RenderUi";
 import { splitRenderUi } from "./slots";
 import type { RawNode } from "./tools";
-import { groupTools, useToolDisplay, type ToolGroup } from "./toolDisplay";
+import { groupTools, useToolDisplay, type ToolGroup, type ToolGroupProps } from "./toolDisplay";
 import { splitDetails } from "./errors";
 import type { ChatState, Item } from "./reducer";
 
@@ -242,20 +242,13 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
         </div>
       );
     case "thought":
-      return (
-        <details className="text-sm text-muted-foreground">
-          <summary className="flex cursor-pointer items-center gap-1.5 text-xs">
-            <Brain className="size-3.5" /> Thinking
-          </summary>
-          <Markdown className="mt-1 border-l-2 pl-3 italic text-muted-foreground">{item.text}</Markdown>
-        </details>
-      );
+      return <ToolGroupRow steps={[item]} subagents={subagents} active={active} streaming={streaming} />;
     case "frontend_tool":
       return <div className={cn(!side && bleed)}><FrontendToolRow item={item} env={env} view={view ?? undefined} /></div>;
     case "tools":
-      return <ToolGroupRow calls={item.calls} subagents={subagents} active={active} />;
+      return <ToolGroupRow steps={item.steps} subagents={subagents} active={active} streaming={streaming} />;
     case "tool":
-      return <ToolGroupRow calls={[item]} subagents={subagents} active={active} />;
+      return <ToolGroupRow steps={[item]} subagents={subagents} active={active} />;
     case "permission":
       if (item.auto) {
         return (
@@ -278,7 +271,7 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
   }
 });
 
-function ToolGroupRow(props: { calls: Tool[]; subagents: Map<string, Subagent<Tool>>; active: boolean }) {
+function ToolGroupRow(props: ToolGroupProps) {
   const { Group } = useToolDisplay();
   return <Group {...props} />;
 }

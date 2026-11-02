@@ -1,17 +1,19 @@
 import { useSyncExternalStore, type FC } from "react";
 import type { Subagent } from "@harness/api";
-import type { Tool } from "./group";
+import type { Step, Tool } from "./group";
 import { CardDisplay } from "./CardDisplay";
 import { TraceDisplay } from "./TraceDisplay";
 
-export { groupTools, type Tool, type ToolGroup } from "./group";
+export { groupTools, type Step, type Thought, type Tool, type ToolGroup } from "./group";
 
 export type ToolGroupProps = {
-  calls: Tool[];
+  steps: Step[];
   /** Calls a subagent made, by the id of the call that started it. */
   subagents: Map<string, Subagent<Tool>>;
   /** A Turn is running: unfinished calls are in flight (Agents often keep them `pending` until done). */
   active: boolean;
+  /** The group is the Thread's last row while a Turn runs: its last thought is still streaming. */
+  streaming?: boolean;
 };
 
 /** One way to show tool calls. Each gets a whole run of consecutive calls, so it can lay them out as one. */

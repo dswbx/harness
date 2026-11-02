@@ -827,6 +827,10 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
         args.push(var);
     }
     args.push(format!("PATH={}", session.agents().toolchain.path()));
+    // Quirk env goes before `spec.env` so a Custom Agent can override it.
+    for (k, v) in crate::agent_quirks::extra_env() {
+        args.push(format!("{k}={v}"));
+    }
     for (k, v) in &spec.env {
         args.push(format!("{k}={v}"));
     }

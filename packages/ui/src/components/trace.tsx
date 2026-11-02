@@ -8,13 +8,23 @@ function Trace({ className, ...props }: React.ComponentProps<"div">) {
   return <div data-slot="trace" className={cn("flex w-full min-w-0 flex-col gap-1.5", className)} {...props} />;
 }
 
+/** One shimmer loop, as in `styles.css`. */
+const SHIMMER_MS = 2400;
+
 function TraceLine({ className, status, ...props }: React.ComponentProps<"span"> & { status?: "running" | "error" | "pending" }) {
+  const ref = React.useRef<HTMLSpanElement>(null);
+  // Phase the shimmer on the page clock, not on when this element got it: a line that remounts
+  // (virtual list, regrouping, a body arriving) or flips back to running keeps the band where it was.
+  React.useLayoutEffect(() => {
+    if (status === "running") ref.current?.style.setProperty("--shimmer-delay", `${-(performance.now() % SHIMMER_MS)}ms`);
+  }, [status]);
   return (
     <span
+      ref={ref}
       data-slot="trace-line"
       data-status={status}
       className={cn(
-        "flex w-fit max-w-full min-w-0 items-center gap-2 text-muted-foreground transition-colors in-[button:hover]:text-foreground data-[status=error]:text-destructive data-[status=pending]:opacity-60 data-[status=running]:*:data-[slot=trace-title]:shimmer",
+        "flex w-fit max-w-full min-w-0 items-center gap-2 text-muted-foreground transition-colors in-[button:hover]:text-foreground data-[status=error]:text-destructive data-[status=pending]:opacity-60 data-[status=running]:**:data-[slot=trace-verb]:shimmer",
         className,
       )}
       {...props}
@@ -33,12 +43,21 @@ function TraceIcon({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
+/** Mono; holds a verb and a detail. The verb shimmers while running; the detail truncates first. */
 function TraceTitle({ className, ...props }: React.ComponentProps<"span">) {
-  return <span data-slot="trace-title" className={cn("min-w-0 truncate", className)} {...props} />;
+  return <span data-slot="trace-title" className={cn("flex min-w-0 items-baseline gap-2 font-mono", className)} {...props} />;
+}
+
+function TraceVerb({ className, ...props }: React.ComponentProps<"span">) {
+  return <span data-slot="trace-verb" className={cn("shrink-0 text-foreground/80 in-[button:hover]:text-foreground in-data-[status=error]:text-destructive", className)} {...props} />;
+}
+
+function TraceDetail({ className, ...props }: React.ComponentProps<"span">) {
+  return <span data-slot="trace-detail" className={cn("min-w-0 truncate text-muted-foreground/70", className)} {...props} />;
 }
 
 function TraceDescription({ className, ...props }: React.ComponentProps<"span">) {
-  return <span data-slot="trace-description" className={cn("shrink-0 text-muted-foreground/70 tabular-nums", className)} {...props} />;
+  return <span data-slot="trace-description" className={cn("shrink-0 font-mono text-muted-foreground/70 tabular-nums before:mr-2 before:content-['·']", className)} {...props} />;
 }
 
 function TraceCollapsible({ className, ...props }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
@@ -77,4 +96,4 @@ function TraceCollapsibleContent({ className, children, ...props }: React.Compon
   );
 }
 
-export { Trace, TraceLine, TraceIcon, TraceTitle, TraceDescription, TraceCollapsible, TraceCollapsibleTrigger, TraceCollapsibleContent };
+export { Trace, TraceLine, TraceIcon, TraceTitle, TraceVerb, TraceDetail, TraceDescription, TraceCollapsible, TraceCollapsibleTrigger, TraceCollapsibleContent };
