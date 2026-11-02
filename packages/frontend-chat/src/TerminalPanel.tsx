@@ -399,7 +399,7 @@ export default function TerminalPanel({ api, active }: { api: SessionApi; active
 
    return (
       <>
-         <PanelHeader>
+         <PanelHeader className="pl-1.5">
             {narrow ? (
                <DropdownMenu>
                   <DropdownMenuTrigger asChild>

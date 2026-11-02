@@ -142,8 +142,8 @@ export function ArtifactsPanel({
             <span className="hidden text-xs text-muted-foreground @[18rem]:inline">
                {artifacts.length}
             </span>
-            <label className="ml-1 flex h-7.5 min-w-0 flex-1 items-center gap-1.5 rounded-md border pr-0.5 pl-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
-               <Search className="size-3.5 shrink-0" />
+            <label className="ml-1 flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border pr-0.5 pl-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+               <Search className="size-3 shrink-0" />
                <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}

@@ -136,8 +136,8 @@ export function EventLog({
          </span>
          {/* Right-aligned at a fixed width, so a changing count never moves the search or the buttons. */}
          <div className="ml-auto flex min-w-0 flex-1 justify-end pl-1">
-            <label className="flex h-7.5 w-full max-w-60 min-w-0 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
-               <Search className="size-3.5 shrink-0" />
+            <label className="flex h-7 w-full max-w-60 min-w-0 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+               <Search className="size-3 shrink-0" />
                <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
