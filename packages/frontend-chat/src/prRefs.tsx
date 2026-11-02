@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { Check, CircleDashed, Copy, ExternalLink } from "lucide-react";
 import {
-  createPrSearch, createPrStore, displayRef, openExternalUrl, parsePrKey, prKey, repoName, usePr, type PrInfo, type PrRefContext, type PrRefKey, type PrSearch, type PrStore,
+  createPrSearch, createPrStore, displayRef, openExternalUrl, parsePrKey, repoName, usePr, type PrInfo, type PrRefContext, type PrRefKey, type PrSearch, type PrStore,
   type SessionApi,
 } from "@harness/api";
 import { Popover, PopoverAnchor, PopoverContent, cn } from "@harness/ui";
@@ -97,7 +97,7 @@ export function PrChipView({ refs, prKey: key, raw, text, prompt }: {
   if (entry.status === "missing" || entry.status === "unavailable") return <>{raw}</>;
 
   const pr = entry.status === "found" ? entry.pr : null;
-  const url = pr?.url ?? `https://github.com/${repoName(key.repo)}/pull/${key.number}`;
+  const url = pr?.url || `https://github.com/${repoName(key.repo)}/pull/${key.number}`;
   const v = pr ? prStateVisual(pr.state, pr.checks) : null;
   const Icon = v?.Icon ?? CircleDashed;
   const hover = (on: boolean, ms: number) => {
@@ -234,7 +234,7 @@ export function PrPopover({ pr, onOpen }: { pr: PrInfo; onOpen: () => void }) {
       </div>
       <div className="-mx-1.5 mt-0.5 flex items-center gap-0.5">
         <Action icon={ExternalLink} label="Open on GitHub" onClick={onOpen} />
-        <CopyAction text={prKey(pr)} />
+        <CopyAction text={pr.url || `https://github.com/${repoName(pr.repo)}/pull/${pr.number}`} />
       </div>
     </div>
   );
@@ -255,7 +255,7 @@ function Action({ icon: Icon, label, onClick }: { icon: typeof Copy; label: stri
   );
 }
 
-/** Copies `owner/repo#N`; shows "Copied" for a moment. */
+/** Copies the PR's URL; shows "Copied" for a moment. */
 function CopyAction({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -266,5 +266,5 @@ function CopyAction({ text }: { text: string }) {
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setCopied(false), 1500);
     }, () => {});
-  return <Action icon={copied ? Check : Copy} label={copied ? "Copied" : "Copy"} onClick={() => void copy()} />;
+  return <Action icon={copied ? Check : Copy} label={copied ? "Copied" : "Copy link"} onClick={() => void copy()} />;
 }

@@ -19,7 +19,7 @@ export function openExternalUrl(url: string) {
     window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
-  void import("@tauri-apps/api/core")
-    .then(({ invoke }) => invoke("plugin:opener|open_url", { url }))
+  void import("@tauri-apps/plugin-opener")
+    .then(({ openUrl }) => openUrl(url))
     .catch((e) => console.error("open url failed", e));
 }
