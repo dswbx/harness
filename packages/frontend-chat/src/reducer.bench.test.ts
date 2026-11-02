@@ -68,10 +68,15 @@ describe("reducer performance", () => {
   it("scales linearly: 4x events costs far less than 16x time", () => {
     const small = syntheticLog(10_000);
     const big = syntheticLog(40_000);
+    // best of 5: one GC pause on a noisy CI runner can skew a single sample
     const time = (ev: Event[]) => {
-      const t0 = performance.now();
-      reduceBatch(initialState(), ev);
-      return performance.now() - t0;
+      let best = Infinity;
+      for (let i = 0; i < 5; i++) {
+        const t0 = performance.now();
+        reduceBatch(initialState(), ev);
+        best = Math.min(best, performance.now() - t0);
+      }
+      return best;
     };
     time(small); // warm up
     const a = Math.max(time(small), 1);
