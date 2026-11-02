@@ -1,6 +1,9 @@
 import { memo, useMemo, useState } from "react";
 import { CheckCircle2, ChevronRight, CircleDashed, Loader2, XCircle } from "lucide-react";
-import { splitPatch, unifiedPatch } from "./diff";
+import { diffLines, langOf, splitPatch, unifiedPatch } from "./diff";
+import { Markdown } from "./Markdown";
+import { CodeFrame, Frame } from "./toolDisplay/CodeFrame";
+import { parseFence } from "./toolDisplay/fence";
 import { DiffViewer } from "./DiffViewer";
 import { Badge, cn } from "@harness/ui";
 import { blockText, type ContentBlock, type Item } from "./reducer";
@@ -16,15 +19,21 @@ export function StatusIcon({ status }: { status: string | null }) {
 
 export function Diff({ path, oldText, newText }: { path: string; oldText?: string | null; newText: string }) {
   const file = useMemo(() => splitPatch(unifiedPatch(path, oldText, newText))[0], [path, oldText, newText]);
+  const stat = useMemo(() => {
+    let add = 0;
+    let del = 0;
+    for (const l of diffLines(oldText, newText)) l.op === "+" ? add++ : l.op === "-" && del++;
+    return <><span className="text-emerald-500">+{add}</span> <span className="text-red-400">-{del}</span></>;
+  }, [oldText, newText]);
   return (
-    <div className="overflow-hidden rounded border">
-      <div className="border-b bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">{path}</div>
+    <Frame label={path} meta={stat}>
       {file && <DiffViewer file={file} mode="unified" fontSize={11} wrap />}
-    </div>
+    </Frame>
   );
 }
 
-export function Block({ b }: { b: ContentBlock }) {
+/** One content block of a call. `tool` names the file a fenced Read output belongs to. */
+export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
   if (b.type === "diff") {
     return <Diff path={String(b.path)} oldText={b.oldText as string | null} newText={String(b.newText ?? "")} />;
   }
@@ -32,9 +41,23 @@ export function Block({ b }: { b: ContentBlock }) {
     return <div className="text-xs text-muted-foreground">Terminal {String(b.terminalId)}</div>;
   }
   const text = blockText(b);
-  if (text != null) return <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs">{text}</pre>;
+  if (text != null) {
+    const fence = parseFence(text);
+    if (!fence) return <Markdown className={STEP_TEXT}>{text}</Markdown>;
+    const path = tool?.kind === "read" ? readPath(tool) : null;
+    const lines = fence.from != null ? `lines ${fence.from}–${fence.to}` : undefined;
+    return <CodeFrame label={path?.split("/").pop() ?? (fence.lang || "output")} meta={lines} code={fence.code} lang={fence.lang || (path ? langOf(path) : "")} />;
+  }
   return <pre className="overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(b, null, 2)}</pre>;
 }
+
+/** Prose in a step body (prompts, reports): the step size, not the chat's. */
+export const STEP_TEXT = "[--typeset-size:calc(var(--chat-font-size,14px)*0.93)]";
+
+const readPath = (t: Tool): string | null => {
+  const loc = (t.locations as { path?: unknown }[] | null)?.[0]?.path;
+  return typeof loc === "string" ? loc : /^Read (.+)$/.exec(t.title)?.[1] ?? null;
+};
 
 export const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
 /** null, `{}` and `[]` carry nothing worth showing. */
@@ -74,7 +97,7 @@ export const ToolCard = memo(function ToolCard({ tool }: { tool: Tool }) {
       {open && (
         <div className="space-y-2 border-t px-3 py-2">
           {tool.content.map((b, i) => (
-            <Block key={i} b={b} />
+            <Block key={i} b={b} tool={tool} />
           ))}
           {present(tool.rawInput) && (
             <details>

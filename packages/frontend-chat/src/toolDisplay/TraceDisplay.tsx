@@ -1,16 +1,17 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import {
-  ArrowRightLeft, Bot, Brain, FilePen, FileText, Globe, Plug, Search, SquareTerminal, ToggleRight, Trash2, Wrench, XCircle,
+  ArrowRightLeft, Bot, Brain, FileCheck, FilePen, FileText, Globe, Plug, Search, SquareTerminal, ToggleRight, Trash2, Wrench, XCircle,
 } from "lucide-react";
 import { subagentState, type Subagent } from "@harness/api";
 import {
-  Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceDescription, TraceDetail, TraceIcon, TraceLine, TraceTitle, TraceVerb,
+  Trace, cn, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceDescription, TraceDetail, TraceIcon, TraceLine, TraceTitle, TraceVerb,
 } from "@harness/ui";
-import { Block, json, present } from "../ToolCard";
+import { Block, STEP_TEXT, json, present } from "../ToolCard";
 import { Markdown } from "../Markdown";
 import { diffLines } from "../diff";
 import type { Tool } from "./group";
 import { ThoughtStep } from "./ThoughtStep";
+import { CodeFrame } from "./CodeFrame";
 import { stepLabel, type StepState } from "./label";
 import type { ToolGroupProps } from ".";
 
@@ -80,9 +81,13 @@ const Step = memo(function Step({ tool, subagent, active }: { tool: Tool; subage
 function CallBody({ tool }: { tool: Tool }) {
   return (
     <>
-      {tool.content.map((b, i) => <Block key={i} b={b} />)}
-      {present(tool.rawInput) && <Raw label="Input" value={tool.rawInput} />}
-      {present(tool.rawOutput) && <Raw label="Output" value={tool.rawOutput} />}
+      {tool.content.map((b, i) => <Block key={i} b={b} tool={tool} />)}
+      {(present(tool.rawInput) || present(tool.rawOutput)) && (
+        <div className="flex flex-col gap-1">
+          {present(tool.rawInput) && <Fold label="Input"><CodeFrame label="input" code={json(tool.rawInput)} lang={typeof tool.rawInput === "string" ? "" : "json"} /></Fold>}
+          {present(tool.rawOutput) && <Fold label="Output"><CodeFrame label="output" code={json(tool.rawOutput)} lang={typeof tool.rawOutput === "string" ? "" : "json"} /></Fold>}
+        </div>
+      )}
     </>
   );
 }
@@ -91,23 +96,30 @@ function SubagentBody({ task, subagent, active }: { task: Tool; subagent: Subage
   const prompt = (task.rawInput as { prompt?: unknown } | null)?.prompt;
   return (
     <>
-      {typeof prompt === "string" && (
-        <details>
-          <summary className="cursor-pointer font-mono">Task</summary>
-          <Markdown className="mt-1 rounded bg-muted p-2 text-xs">{prompt}</Markdown>
-        </details>
-      )}
+      {typeof prompt === "string" && <Fold label="Task"><Markdown className={STEP_TEXT}>{prompt}</Markdown></Fold>}
       {subagent.calls.length > 0 && <TraceDisplay steps={subagent.calls} subagents={new Map()} active={active} />}
-      {subagent.report != null && <Markdown className="rounded bg-muted p-2 text-foreground">{subagent.report}</Markdown>}
+      {subagent.report != null && (
+        <div className="flex flex-col gap-1.5">
+          <TraceLine>
+            <TraceIcon><FileCheck /></TraceIcon>
+            <TraceTitle><TraceVerb>Report</TraceVerb></TraceTitle>
+          </TraceLine>
+          <Markdown className={cn(STEP_TEXT, "rounded-lg border bg-card px-3 py-2 text-foreground")}>{subagent.report}</Markdown>
+        </div>
+      )}
     </>
   );
 }
 
-function Raw({ label, value }: { label: string; value: unknown }) {
+/** A secondary part of a step body (raw input, a subagent's task), one click away. */
+function Fold({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <details>
-      <summary className="cursor-pointer text-xs">{label}</summary>
-      <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs text-foreground">{json(value)}</pre>
-    </details>
+    <TraceCollapsible open={open} onOpenChange={setOpen}>
+      <TraceCollapsibleTrigger className="text-ui-sm">
+        <TraceLine><TraceTitle><TraceVerb className="text-muted-foreground in-[button:hover]:text-foreground">{label}</TraceVerb></TraceTitle></TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>{children}</TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 }
