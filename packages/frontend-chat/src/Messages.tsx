@@ -1,11 +1,8 @@
 import { memo, useEffect, useMemo, useState, type Ref } from "react";
-import { AlertTriangle, Brain, ChevronRight, FileText, Info, Loader2, ShieldCheck, ShieldX } from "lucide-react";
+import { AlertTriangle, ChevronRight, FileText, Info, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 import type { Attachment, SessionApi } from "@harness/api";
 import { groupSubagents, type Subagent } from "@harness/api";
-import {
-  Dialog, DialogContent, DialogTitle, Tooltip, Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceIcon, TraceLine,
-  TraceTitle, TraceVerb, VirtualList, cn, type VirtualListHandle,
-} from "@harness/ui";
+import { Dialog, DialogContent, DialogTitle, Tooltip, VirtualList, cn, type VirtualListHandle } from "@harness/ui";
 import { FileStat, type DiffScope } from "./DiffPanel";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
@@ -18,7 +15,7 @@ import { quotableAttrs } from "./SelectionComment";
 import type { UiEnv } from "./RenderUi";
 import { splitRenderUi } from "./slots";
 import type { RawNode } from "./tools";
-import { groupTools, useToolDisplay, type ToolGroup } from "./toolDisplay";
+import { groupTools, useToolDisplay, type ToolGroup, type ToolGroupProps } from "./toolDisplay";
 import { splitDetails } from "./errors";
 import type { ChatState, Item } from "./reducer";
 
@@ -205,26 +202,6 @@ function HarnessContext({ text }: { text: string }) {
  */
 const bleed = "[--chat-bleed:1rem] @min-[52rem]:[--expand-out:1]";
 
-/** A thought, shown like a tool call step: "Thinking" shimmers while it streams, then "Thought"; the text opens on a click. */
-function Thought({ text, streaming }: { text: string; streaming: boolean }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Trace className="text-ui">
-      <TraceCollapsible open={open} onOpenChange={setOpen}>
-        <TraceCollapsibleTrigger>
-          <TraceLine status={streaming ? "running" : undefined}>
-            <TraceIcon><Brain /></TraceIcon>
-            <TraceTitle><TraceVerb>{streaming ? "Thinking" : "Thought"}</TraceVerb></TraceTitle>
-          </TraceLine>
-        </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent>
-          <Markdown className="italic text-muted-foreground">{text}</Markdown>
-        </TraceCollapsibleContent>
-      </TraceCollapsible>
-    </Trace>
-  );
-}
-
 export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagents, active, streaming, threadId, side }: {
   item: Item | ToolGroup; api: SessionApi; env: UiEnv; view?: { root: RawNode; files: Record<string, string> } | null;
   /** The Thread this row belongs to; `side`: it is a Side Thread (its comments go to its own composer). */
@@ -265,13 +242,13 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
         </div>
       );
     case "thought":
-      return <Thought text={item.text} streaming={!!streaming} />;
+      return <ToolGroupRow steps={[item]} subagents={subagents} active={active} streaming={streaming} />;
     case "frontend_tool":
       return <div className={cn(!side && bleed)}><FrontendToolRow item={item} env={env} view={view ?? undefined} /></div>;
     case "tools":
-      return <ToolGroupRow calls={item.calls} subagents={subagents} active={active} />;
+      return <ToolGroupRow steps={item.steps} subagents={subagents} active={active} streaming={streaming} />;
     case "tool":
-      return <ToolGroupRow calls={[item]} subagents={subagents} active={active} />;
+      return <ToolGroupRow steps={[item]} subagents={subagents} active={active} />;
     case "permission":
       if (item.auto) {
         return (
@@ -294,7 +271,7 @@ export const Row = memo(function Row({ item, api, env, view, onOpenDiff, subagen
   }
 });
 
-function ToolGroupRow(props: { calls: Tool[]; subagents: Map<string, Subagent<Tool>>; active: boolean }) {
+function ToolGroupRow(props: ToolGroupProps) {
   const { Group } = useToolDisplay();
   return <Group {...props} />;
 }

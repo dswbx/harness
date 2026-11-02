@@ -10,14 +10,19 @@ import { Block, json, present } from "../ToolCard";
 import { Markdown } from "../Markdown";
 import { diffLines } from "../diff";
 import type { Tool } from "./group";
+import { ThoughtStep } from "./ThoughtStep";
 import { stepLabel, type StepState } from "./label";
 import type { ToolGroupProps } from ".";
 
 /** Steps of a run, one line each (shadcn Trace); a step opens only on a click. */
-export function TraceDisplay({ calls, subagents, active }: ToolGroupProps) {
+export function TraceDisplay({ steps, subagents, active, streaming }: ToolGroupProps) {
   return (
-    <Trace className="text-ui">
-      {calls.map((c) => <Step key={c.id} tool={c} subagent={subagents.get(c.id)} active={active} />)}
+    <Trace className="text-ui-step">
+      {steps.map((s, i) =>
+        s.type === "thought"
+          ? <ThoughtStep key={s.id} text={s.text} streaming={!!streaming && i === steps.length - 1} />
+          : <Step key={s.id} tool={s} subagent={subagents.get(s.id)} active={active} />,
+      )}
     </Trace>
   );
 }
@@ -92,7 +97,7 @@ function SubagentBody({ task, subagent, active }: { task: Tool; subagent: Subage
           <Markdown className="mt-1 rounded bg-muted p-2 text-xs">{prompt}</Markdown>
         </details>
       )}
-      {subagent.calls.length > 0 && <TraceDisplay calls={subagent.calls} subagents={new Map()} active={active} />}
+      {subagent.calls.length > 0 && <TraceDisplay steps={subagent.calls} subagents={new Map()} active={active} />}
       {subagent.report != null && <Markdown className="rounded bg-muted p-2 text-foreground">{subagent.report}</Markdown>}
     </>
   );

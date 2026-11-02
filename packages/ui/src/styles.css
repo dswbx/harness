@@ -137,6 +137,8 @@
 
 /* render_ui sizes: relative to the chat font size (Appearance), so nesting never compounds them. */
 @utility text-ui { font-size: var(--chat-font-size, 14px); }
+/* Tool call steps: a bit under the chat text, following its size. */
+@utility text-ui-step { font-size: calc(var(--chat-font-size, 14px) * 0.93); }
 @utility text-ui-sm { font-size: calc(var(--chat-font-size, 14px) * 0.857); }
 @utility text-ui-xl { font-size: calc(var(--chat-font-size, 14px) * 1.714); line-height: 1.2; }
 
@@ -147,6 +149,8 @@
   background-clip: text;
   color: transparent;
   animation: shimmer 2.4s linear infinite;
+  /* Set by TraceLine from the page clock: a remounted or re-added line picks up the band where it was. */
+  animation-delay: var(--shimmer-delay, 0ms);
   @media (prefers-reduced-motion: reduce) { animation: none; color: inherit; background: none; }
 }
 @theme {

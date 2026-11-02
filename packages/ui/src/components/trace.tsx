@@ -8,9 +8,19 @@ function Trace({ className, ...props }: React.ComponentProps<"div">) {
   return <div data-slot="trace" className={cn("flex w-full min-w-0 flex-col gap-1.5", className)} {...props} />;
 }
 
+/** One shimmer loop, as in `styles.css`. */
+const SHIMMER_MS = 2400;
+
 function TraceLine({ className, status, ...props }: React.ComponentProps<"span"> & { status?: "running" | "error" | "pending" }) {
+  const ref = React.useRef<HTMLSpanElement>(null);
+  // Phase the shimmer on the page clock, not on when this element got it: a line that remounts
+  // (virtual list, regrouping, a body arriving) or flips back to running keeps the band where it was.
+  React.useLayoutEffect(() => {
+    if (status === "running") ref.current?.style.setProperty("--shimmer-delay", `${-(performance.now() % SHIMMER_MS)}ms`);
+  }, [status]);
   return (
     <span
+      ref={ref}
       data-slot="trace-line"
       data-status={status}
       className={cn(
