@@ -10,6 +10,12 @@ export function matchCommands(commands: SlashCommand[], text: string): SlashComm
   return [...prefix, ...rest].slice(0, 8);
 }
 
+/** The command a prompt starts with (`/name`, then whitespace or the end), only when it is one of `commands`. `/api/users` is not one. */
+export function leadingCommand(commands: SlashCommand[], text: string): SlashCommand | null {
+  const m = /^\/(\S+)(?:\s|$)/.exec(text);
+  return (m && commands.find((c) => c.name === m[1])) ?? null;
+}
+
 /**
  * `/btw <question>` is ours: the Main prompt box starts a Side Thread with it (ADR 0018). It always wins over an
  * Agent command of the same name (Claude Code has its own `/btw`), so the Agent's is dropped from the list.

@@ -5,7 +5,7 @@ import { Button, ScrollArea, Tooltip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { lineCount } from "./promptMarkdown";
-import { btwQuestion, matchCommands, withSideThreadCommand } from "./commands";
+import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
 import type { ChatState } from "./reducer";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
@@ -132,7 +132,9 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
   const running = state.turnId !== null;
   // Text the "/" menu was closed at (Escape); any edit opens it again.
   const [closedAt, setClosedAt] = useState<string | null>(null);
-  const all = useMemo(() => matchCommands(threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands), text), [state.commands, text, threadId, onSideThread]);
+  const commands = useMemo(() => (threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands)), [state.commands, threadId, onSideThread]);
+  const all = useMemo(() => matchCommands(commands, text), [commands, text]);
+  const used = useMemo(() => leadingCommand(commands, text), [commands, text]);
   const matches = closedAt === text ? [] : all;
   const pct = state.usage ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100)) : null;
 
@@ -290,6 +292,7 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
         <PromptEditor
           ref={ref}
           placeholder={running ? "Agent is working... (you can still queue a prompt)" : threadId ? "Ask in this side thread" : "Message the Agent. Type / for commands."}
+          command={used}
           menuOpen={matches.length > 0}
           onMenuKey={(k) => {
             if (k === "down") setSel((sel + 1) % matches.length);
