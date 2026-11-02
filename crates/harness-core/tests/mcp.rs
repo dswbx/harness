@@ -408,4 +408,10 @@ fn generated_chat_manifest_validates_in_core() {
     assert_eq!(errors(json!({ "root": { "type": "Button", "props": { "label": "Continue" }, "visible": { "$and": [{ "$state": "/q/a1" }, { "$state": "/q/step", "eq": 0 }] } } })), "");
     assert!(!errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "visible": { "$state": 1 } } })).is_empty());
     assert!(!errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "setState", "params": { "value": 1 } } } } })).is_empty());
+    // Repeat scope (json-render's $item, $index, $bindItem) and rich Table rows.
+    assert_eq!(errors(json!({ "root": { "type": "Repeat", "props": { "items": { "$state": "/t" } }, "children": [
+        { "type": "Checkbox", "props": { "label": { "$item": "title" }, "value": { "$bindItem": "done" } }, "visible": { "$item": "open" } },
+        { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "removeState", "params": { "statePath": "/t", "index": { "$index": true } } } } }
+    ] } })), "");
+    assert_eq!(errors(json!({ "root": { "type": "Table", "props": { "columns": ["A"], "rows": [["x"], { "cells": [{ "text": "y", "tone": "error" }], "tone": "warning" }] } } })), "");
 }

@@ -140,6 +140,8 @@
 /* Tool call steps: a bit under the chat text, following its size. */
 @utility text-ui-step { font-size: calc(var(--chat-font-size, 14px) * 0.93); }
 @utility text-ui-sm { font-size: calc(var(--chat-font-size, 14px) * 0.857); }
+@utility text-ui-xs { font-size: calc(var(--chat-font-size, 14px) * 0.75); }
+@utility text-ui-lg { font-size: calc(var(--chat-font-size, 14px) * 1.143); }
 @utility text-ui-xl { font-size: calc(var(--chat-font-size, 14px) * 1.714); line-height: 1.2; }
 
 /* Trace: running step title shimmers; collapsible height animates (Radix sets the height var). */

@@ -7,7 +7,8 @@ import { fromSchema, s, type Schema, type Static } from "jsonv-ts";
  * below. Data binding follows json-render's syntax so we can adopt the library later: any prop
  * can be `{ "$state": "/path" }` or `{ "$template": "Done: ${/checks/done}" }` (read from the
  * Session State), inputs write with `{ "$bindState": "/path" }`, and `on` runs actions
- * (`setState`, `pushState`, `removeState`, plus our `sendMessage`).
+ * (`setState`, `pushState`, `removeState`, plus our `sendMessage`). Inside a Repeat, json-render's
+ * repeat scope: `{ "$item": "field" }`, `{ "$index": true }`, `{ "$bindItem": "field" }`, `${field}`.
  */
 
 /** A keypad Grid with `js` actions: a calculator that works without the Agent (the Grid example, mock, tests). */
@@ -58,7 +59,19 @@ export const ICONS = [
   "user", "users", "clock", "calendar", "search", "link", "settings", "star", "zap", "list", "message", "chart",
 ] as const;
 const icon = s.string({ enum: ICONS, description: "Icon name." });
-const tooltip = s.string({ description: "Shown on hover." });
+const tooltip = s.string({ description: "Extra detail shown on hover or keyboard focus. Not on touch screens: never the only place for important information." });
+const mono = s.boolean({ description: "Monospace, e.g. ids, hashes, durations." });
+/** Stack's layout props; Repeat lays out its copies with the same ones. */
+const layout = {
+  direction: s.string({ enum: ["vertical", "horizontal"] }).optional(),
+  gap: s.string({ enum: ["sm", "md", "lg"] }).optional(),
+  align: s.string({ enum: ["start", "center", "end", "stretch"], description: "Cross axis. Default: stretch (vertical), center (horizontal)." }).optional(),
+  justify: s.string({ enum: ["start", "center", "end", "between"], description: "Main axis. Default start." }).optional(),
+  wrap: s.boolean({ description: "Horizontal: wrap to a new line when narrow. Default true." }).optional(),
+  fill: s.boolean({ description: "Horizontal: children share the width (default true); false: each keeps its own width." }).optional(),
+};
+/** A Table cell: inline Markdown text, or an object for a tone, monospace or an icon. Sort and filter use `text`. */
+const cell = s.anyOf([s.string(), s.object({ text: s.string(), tone: tone.optional(), mono: mono.optional(), icon: icon.optional(), tooltip: tooltip.optional() })]);
 
 type Example = { node: unknown; state?: unknown };
 type Entry = {
@@ -80,22 +93,36 @@ const demoImage = (label: string, hue: number) =>
 /** The `render_ui` components. Add components as needed; give each an example. */
 export const components = {
   Stack: {
-    description: "Lays out children vertically (default) or in a row; children in a row share the width.",
+    description:
+      "Lays out children vertically (default) or in a row. In a row, children share the width (badges, buttons, Text keep theirs); `fill: false` lets each keep its own width. `align`/`justify` place them, `wrap: false` keeps one line.",
     children: true,
-    props: s.object({
-      direction: s.string({ enum: ["vertical", "horizontal"] }).optional(),
-      gap: s.string({ enum: ["sm", "md", "lg"] }).optional(),
-    }),
-    example: { node: { type: "Stack", props: { direction: "horizontal" }, children: [
-      { type: "Card", props: { title: "Left" }, children: [{ type: "Markdown", props: { text: "Same width" } }] },
-      { type: "Card", props: { title: "Right" }, children: [{ type: "Markdown", props: { text: "Same height" } }] },
+    props: s.object(layout),
+    example: { node: { type: "Stack", children: [
+      { type: "Stack", props: { direction: "horizontal", justify: "between", fill: false }, children: [
+        { type: "Text", props: { text: "Order #1042", size: "lg", weight: "bold" } },
+        { type: "Badge", props: { text: "shipped", tone: "success", icon: "package" } },
+      ] },
+      { type: "Stack", props: { direction: "horizontal" }, children: [
+        { type: "Card", props: { title: "Ship to", variant: "compact" }, children: [{ type: "Markdown", props: { text: "Mara Keller, Lindenstrasse 4, Bern" } }] },
+        { type: "Card", props: { title: "Items", variant: "compact" }, children: [{ type: "Markdown", props: { text: "2× Espresso cups, 1× Milk jug" } }] },
+      ] },
     ] } },
   },
   Card: {
-    description: "A bordered box with an optional header (title, description, icon) and tone; holds children.",
+    description: "A bordered box with an optional header (title, description, icon) and tone; holds children. variant: default, compact (less padding, e.g. small boxes in a row) or plain (no border or background: a titled section).",
     children: true,
-    props: s.object({ title: s.string().optional(), description: s.string().optional(), tone: tone.optional(), icon: icon.optional() }),
-    example: { node: { type: "Card", props: { title: "Build finished", description: "main · 42s", tone: "success" }, children: [{ type: "Markdown", props: { text: "All **3** checks passed." } }] } },
+    props: s.object({
+      title: s.string().optional(),
+      description: s.string().optional(),
+      tone: tone.optional(),
+      icon: icon.optional(),
+      variant: s.string({ enum: ["default", "compact", "plain"] }).optional(),
+    }),
+    example: { node: { type: "Stack", children: [
+      { type: "Card", props: { title: "Shakshuka", description: "4 servings · 30 min", icon: "star" }, children: [{ type: "Markdown", props: { text: "Eggs poached in a spiced tomato and pepper sauce." } }] },
+      { type: "Card", props: { title: "Contains eggs", tone: "warning", variant: "compact" } },
+      { type: "Card", props: { title: "Method", variant: "plain" }, children: [{ type: "Markdown", props: { text: "1. Soften onion and peppers.\n2. Add tomatoes, simmer 10 min.\n3. Crack in the eggs, cover until set." } }] },
+    ] } },
   },
   Markdown: {
     description: "Markdown text. A ```mermaid fence draws a diagram; a ```ansi fence shows terminal colors.",
@@ -103,17 +130,77 @@ export const components = {
     props: s.object({ text: s.string() }),
     example: { node: { type: "Markdown", props: { text: "**Bold**, `code` and a [link](https://example.com).\n\n```mermaid\nflowchart LR\n  Client --> API --> DB[(Postgres)]\n  API --> Cache\n```" } } },
   },
-  KeyValue: {
-    description: "Label/value rows.",
+  Text: {
+    description: "Short plain text: a label, a number, an arrow or a caption between other components. No Markdown (use Markdown for prose).",
     children: false,
-    props: s.object({ items: s.array(s.object({ label: s.string(), value: s.string() })) }),
-    example: { node: { type: "KeyValue", props: { items: [{ label: "Duration", value: "12s" }, { label: "Branch", value: "main" }] } } },
+    props: s.object({
+      text: s.anyOf([s.string(), s.number()]),
+      tone: tone.optional(),
+      mono: mono.optional(),
+      size: s.string({ enum: ["xs", "sm", "md", "lg"], description: "Default md." }).optional(),
+      muted: s.boolean().optional(),
+      weight: s.string({ enum: ["normal", "medium", "bold"] }).optional(),
+      tooltip: tooltip.optional(),
+    }),
+    example: { node: { type: "Stack", props: { direction: "horizontal", fill: false, align: "center", gap: "sm" }, children: [
+      { type: "Card", props: { title: "Zürich HB", description: "dep 07:33", variant: "compact" } },
+      { type: "Stack", props: { align: "center", gap: "sm" }, children: [{ type: "Text", props: { text: "3h 17m", size: "xs", muted: true } }, { type: "Text", props: { text: "→", size: "lg", muted: true } }] },
+      { type: "Card", props: { title: "Milano Centrale", description: "arr 10:50 · dep 11:15", variant: "compact" } },
+      { type: "Stack", props: { align: "center", gap: "sm" }, children: [{ type: "Text", props: { text: "2h 55m", size: "xs", muted: true, tooltip: "Frecciarossa 9531, coach 6" } }, { type: "Text", props: { text: "→", size: "lg", muted: true } }] },
+      { type: "Card", props: { title: "Roma Termini", description: "arr 14:10", variant: "compact", tone: "success" } },
+    ] } },
+  },
+  Repeat: {
+    description:
+      'Renders its children once per item of a state array (`items`: {"$state": "/path"}), laid out like a Stack. Inside, {"$item": "field"} reads the item ("" the whole item), {"$index": true} its index, a $template takes "${field}", {"$bindItem": "field"} writes to it, and visible takes {"$item": "field", "eq"?}. `key` names an item field that identifies it; `empty` is shown when there are no items.',
+    children: true,
+    props: s.object({
+      items: s.array(s.any()),
+      key: s.string().optional(),
+      empty: s.string().optional(),
+      ...layout,
+    }),
+    example: { node: { type: "Repeat", props: { items: { $state: "/tickets" }, key: "id", gap: "sm", empty: "No tickets." }, children: [
+      { type: "Card", props: { title: { $item: "title" }, description: { $template: "${id} · ${customer}" }, variant: "compact" }, children: [
+        { type: "Stack", props: { direction: "horizontal", fill: false, align: "center", gap: "sm" }, children: [
+          { type: "Checkbox", props: { label: "Resolved", value: { $bindItem: "done" } } },
+          { type: "Badge", props: { text: "high priority", tone: "error" }, visible: { $item: "priority", eq: "high" } },
+          { type: "Button", props: { label: "Remove", variant: "ghost" }, on: { press: { action: "removeState", params: { statePath: "/tickets", index: { $index: true } } } } },
+        ] },
+      ] },
+    ] }, state: { tickets: [
+      { id: "T-311", title: "Refund not received", customer: "Mara K.", priority: "high", done: false },
+      { id: "T-312", title: "Cannot change my email", customer: "Tom B.", priority: "normal", done: true },
+      { id: "T-315", title: "App crashes on login", customer: "Ines R.", priority: "high", done: false },
+    ] } },
+  },
+  KeyValue: {
+    description: "Label/value rows; a value can take a `tone`, `mono` and a `tooltip`.",
+    children: false,
+    props: s.object({ items: s.array(s.object({ label: s.string(), value: s.string(), tone: tone.optional(), mono: mono.optional(), tooltip: tooltip.optional() })) }),
+    example: { node: { type: "KeyValue", props: { items: [
+      { label: "Environment", value: "production", tone: "success" },
+      { label: "Release", value: "v4.2.0", mono: true, tooltip: "Tagged Oct 30 by @ana" },
+      { label: "Error rate", value: "2.4%", tone: "warning" },
+      { label: "Duration", value: "3m 41s" },
+    ] } } },
   },
   Table: {
-    description: "A table: column headings and rows of cell text. `sortable` sorts by a clicked column; `filter` adds a search box.",
+    description:
+      "A table: column headings and rows. A row is an array of cells, or {cells, tone} to tint the row. A cell is text, or {text, tone?, mono?, icon?, tooltip?}. `sortable` sorts by a clicked column; `filter` adds a search box (both use the cell text).",
     children: false,
-    props: s.object({ columns: s.array(s.string()), rows: s.array(s.array(s.string())), sortable: s.boolean().optional(), filter: s.boolean().optional() }),
-    example: { node: { type: "Table", props: { sortable: true, filter: true, columns: ["Route", "Before", "After"], rows: [["`/`", "1.8s", "0.9s"], ["`/settings`", "1.2s", "0.7s"], ["`/search`", "2.4s", "**1.1s**"]] } } },
+    props: s.object({
+      columns: s.array(s.string()),
+      rows: s.array(s.anyOf([s.array(cell), s.object({ cells: s.array(cell), tone: tone.optional() })])),
+      sortable: s.boolean().optional(),
+      filter: s.boolean().optional(),
+    }),
+    example: { node: { type: "Table", props: { sortable: true, filter: true, columns: ["Suite", "Result", "Time (s)", "Owner"], rows: [
+      ["checkout", { text: "passed", tone: "success", icon: "check" }, { text: "72", mono: true }, "@ana"],
+      { cells: ["search", { text: "failed", tone: "error", icon: "x" }, { text: "48", mono: true }, "@li"], tone: "error" },
+      { cells: ["payments", { text: "flaky", tone: "warning", icon: "alert", tooltip: "Failed 2 of the last 10 runs" }, { text: "123", mono: true }, "@sam"], tone: "warning" },
+      ["profile", { text: "passed", tone: "success", icon: "check" }, { text: "9", mono: true }, "*nobody*"],
+    ] } } },
   },
   Badge: {
     description: "A short label, e.g. a status.",
@@ -205,6 +292,29 @@ export const components = {
       { type: "Badge", props: { text: { $template: "Approach: ${/plan/approach}" } } },
     ] }, state: { plan: { approach: "index" } } },
   },
+  Popover: {
+    description:
+      "A click opens a small floating box with the children: details, a form or actions next to the thing they belong to. The trigger is a button from `label` (+ `icon`, `variant`); without `label`, the first child is the trigger (e.g. a Badge or Text; not a Button) and the other children are the content. State, bindings and actions work inside, also in a Repeat. Closes on a click outside or Escape.",
+    children: true,
+    props: s.object({
+      label: s.string({ description: "Trigger button text. Without it, the first child is the trigger." }).optional(),
+      icon: icon.optional(),
+      variant: s.string({ enum: ["primary", "secondary", "outline", "ghost"], description: "Trigger button style. Default outline." }).optional(),
+      title: s.string({ description: "Heading inside the box." }).optional(),
+      width: s.string({ enum: ["sm", "md", "lg"], description: "Box width. Default md." }).optional(),
+    }),
+    example: { node: { type: "Stack", props: { direction: "horizontal", fill: false, align: "center", gap: "sm" }, children: [
+      { type: "Popover", props: { title: "Room 4B" }, children: [
+        { type: "Badge", props: { text: { $template: "Room 4B · ${/room/status}" }, icon: "calendar", tone: "info" } },
+        { type: "KeyValue", props: { items: [{ label: "Seats", value: "8" }, { label: "Screen", value: "65 in, HDMI" }] } },
+        { type: "Button", props: { label: "Book 14:00 to 15:00", icon: "check" }, on: { press: { action: "setState", params: { statePath: "/room/status", value: "booked" } } } },
+      ] },
+      { type: "Popover", props: { label: "Filters", icon: "search", width: "sm" }, children: [
+        { type: "Input", props: { label: "Floor", placeholder: "e.g. 4", value: { $bindState: "/room/floor" } } },
+        { type: "Checkbox", props: { label: "Has a screen", value: { $bindState: "/room/screen" } } },
+      ] },
+    ] }, state: { room: { status: "free" } } },
+  },
   Tabs: {
     description: "Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index.",
     children: true,
@@ -241,7 +351,7 @@ export const components = {
   },
   List: {
     description:
-      "Rich rows: title, description, meta text, icon, badge. With `check` ($bindState to an object), each row gets a checkbox that writes `{ [id]: true|false }` there, e.g. a todo list; `on.change` runs after a toggle.",
+      "Rich rows: title, description, meta text, icon, badge, tooltip. `status` (done, running, waiting, blocked, failed) shows a status icon in place of `icon`. With `check` ($bindState to an object), each row gets a checkbox that writes `{ [id]: true|false }` there, e.g. a todo list; `on.change` runs after a toggle. Status and check are independent: the checkbox comes first, the status icon after it.",
     children: false,
     props: s.object({
       items: s.array(s.object({
@@ -252,16 +362,27 @@ export const components = {
         icon: icon.optional(),
         badge: s.string().optional(),
         tone: tone.optional(),
+        status: s.string({ enum: ["done", "running", "waiting", "blocked", "failed"] }).optional(),
+        tooltip: tooltip.optional(),
       }), { minItems: 1 }),
       check: s.any().optional(),
     }),
     bind: ["check"],
     events: ["change"],
-    example: { node: { type: "List", props: { check: { $bindState: "/todos" }, items: [
-      { id: "schema", title: "Add the migration", description: "users.email gets a unique index", icon: "database", meta: "5 min" },
-      { id: "api", title: "Update the signup handler", description: "Return 409 on a duplicate email", icon: "code", badge: "next", tone: "info" },
-      { id: "tests", title: "Cover the duplicate case", icon: "test" },
-    ] } }, state: { todos: { schema: true } } },
+    example: { node: { type: "Stack", children: [
+      { type: "List", props: { check: { $bindState: "/todos" }, items: [
+        { id: "schema", title: "Add the migration", description: "users.email gets a unique index", icon: "database", meta: "5 min" },
+        { id: "api", title: "Update the signup handler", description: "Return 409 on a duplicate email", icon: "code", badge: "next", tone: "info" },
+        { id: "tests", title: "Cover the duplicate case", icon: "test" },
+      ] } },
+      { type: "List", props: { items: [
+        { id: "ios", title: "Build the iOS app", status: "done", meta: "12 min" },
+        { id: "review", title: "App Store review", status: "running", description: "Submitted 09:20" },
+        { id: "play", title: "Play Store review", status: "waiting", tooltip: "Starts after the App Store review" },
+        { id: "notes", title: "Release notes", status: "blocked", description: "Waiting for the copy from marketing" },
+        { id: "android", title: "Build the Android app", status: "failed", badge: "retry", tone: "error" },
+      ] } },
+    ] }, state: { todos: { schema: true } } },
   },
   Checkbox: {
     description: "One checkbox; writes true/false to `value` ($bindState). `on.change` runs after a toggle.",
@@ -408,17 +529,20 @@ type Components = typeof components;
 export type ComponentType = keyof Components;
 
 /** An action an event runs (json-render's built-ins plus `sendMessage`). */
+/** A state path, or `{ $item: "field" }` for a field of the current Repeat item. */
+export type StatePath = string | { $item: string };
 export type UiAction =
-  | { action: "setState"; params: { statePath: string; value: unknown } }
-  | { action: "pushState"; params: { statePath: string; value: unknown } }
-  | { action: "removeState"; params: { statePath: string; index?: number } }
+  | { action: "setState"; params: { statePath: StatePath; value: unknown } }
+  | { action: "pushState"; params: { statePath: StatePath; value: unknown } }
+  | { action: "removeState"; params: { statePath: StatePath; index?: number | { $index: true } } }
   | { action: "sendMessage"; params: { text: unknown } }
-  | { action: "js"; params: { statePath: string; code: string } };
+  | { action: "js"; params: { statePath: StatePath; code: string } };
 type On = Partial<Record<"press" | "change" | "submit" | "finish", UiAction | UiAction[]>>;
 
 /** A node as the Agent sends it: props may hold `$state`/`$template`/`$bindState` expressions. */
-/** json-render's visibility conditions: truthy `$state`, with `eq`/`neq`/`not`; `$and`/`$or`. */
-export type Visible = boolean | { $state: string; eq?: unknown; neq?: unknown; not?: boolean } | { $and: Visible[] } | { $or: Visible[] };
+/** json-render's visibility conditions: truthy `$state` (or a Repeat's `$item`/`$index`), with `eq`/`neq`/`not`; `$and`/`$or`. */
+type Cond = { eq?: unknown; neq?: unknown; not?: boolean };
+export type Visible = boolean | ({ $state: string } & Cond) | ({ $item: string } & Cond) | ({ $index: true } & Cond) | { $and: Visible[] } | { $or: Visible[] };
 export type RawNode = { type: ComponentType; props?: Record<string, unknown>; children?: RawNode[]; on?: On; visible?: Visible };
 /** A node after binding: plain props, and the state paths its bound props write to. */
 export type UiNode = {
@@ -437,6 +561,8 @@ export type Placement = (typeof PLACEMENTS)[number];
 export type RenderUiInput = { root?: RawNode; id?: string; placement?: Placement; title?: string; icon?: (typeof ICONS)[number]; remove?: boolean };
 
 const names = Object.keys(components) as ComponentType[];
+const parents = names.filter((n) => (components[n] as Entry).children);
+const andList = (xs: string[]) => `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
 const node = "#/$defs/node";
 const json = (x: Schema) => JSON.parse(JSON.stringify(x)) as { properties?: Record<string, object>; required?: string[] };
 
@@ -469,9 +595,11 @@ const renderUiJson = {
   ],
   $defs: {
     expr: {
-      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Done: ${/checks/done}"}, {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}, or {"$js": "JavaScript"} (an expression or a function body with return; `state` is the Session State).',
+      description: 'Read from the Session State: {"$state": "/path"}, {"$template": "Done: ${/checks/done}"}, {"$computed": "count"|"length"|"sum", "args": {"values", "eq"?}}, or {"$js": "JavaScript"} (an expression or a function body with return; `state` is the Session State). Inside a Repeat: {"$item": "field"} and {"$index": true}.',
       oneOf: [
         { type: "object", properties: { $state: { type: "string" } }, required: ["$state"], additionalProperties: false },
+        { type: "object", properties: { $item: { type: "string" } }, required: ["$item"], additionalProperties: false },
+        { type: "object", properties: { $index: { const: true } }, required: ["$index"], additionalProperties: false },
         { type: "object", properties: { $template: { type: "string" } }, required: ["$template"], additionalProperties: false },
         { type: "object", properties: { $js: { type: "string" } }, required: ["$js"], additionalProperties: false },
         {
@@ -483,24 +611,36 @@ const renderUiJson = {
       ],
     },
     visible: {
-      description: 'Show the node only when true: {"$state": "/path"} (truthy), with "eq", "neq" or "not": true; {"$and": [...]}, {"$or": [...]}; or a boolean.',
+      description: 'Show the node only when true: {"$state": "/path"} (truthy), with "eq", "neq" or "not": true; inside a Repeat also {"$item": "field"} or {"$index": true}; {"$and": [...]}, {"$or": [...]}; or a boolean.',
       anyOf: [
         { type: "boolean" },
         { type: "object", properties: { $state: { type: "string" }, eq: {}, neq: {}, not: { type: "boolean" } }, required: ["$state"], additionalProperties: false },
+        { type: "object", properties: { $item: { type: "string" }, eq: {}, neq: {}, not: { type: "boolean" } }, required: ["$item"], additionalProperties: false },
+        { type: "object", properties: { $index: { const: true }, eq: {}, neq: {}, not: { type: "boolean" } }, required: ["$index"], additionalProperties: false },
         { type: "object", properties: { $and: { type: "array", items: { $ref: "#/$defs/visible" } } }, required: ["$and"], additionalProperties: false },
         { type: "object", properties: { $or: { type: "array", items: { $ref: "#/$defs/visible" } } }, required: ["$or"], additionalProperties: false },
       ],
     },
-    bind: { type: "object", properties: { $bindState: { type: "string" } }, required: ["$bindState"], additionalProperties: false, description: 'Two-way binding: {"$bindState": "/path"}.' },
+    bind: {
+      description: 'Two-way binding: {"$bindState": "/path"}; inside a Repeat, {"$bindItem": "field"} for a field of the item.',
+      oneOf: [
+        { type: "object", properties: { $bindState: { type: "string" } }, required: ["$bindState"], additionalProperties: false },
+        { type: "object", properties: { $bindItem: { type: "string" } }, required: ["$bindItem"], additionalProperties: false },
+      ],
+    },
+    path: { anyOf: [{ type: "string" }, { type: "object", properties: { $item: { type: "string" } }, required: ["$item"], additionalProperties: false }], description: 'A state path; inside a Repeat, {"$item": "field"} for a field of the item.' },
     action: {
       type: "object",
       properties: { action: { type: "string", enum: ["setState", "pushState", "removeState", "sendMessage", "js"] }, params: { type: "object" } },
       required: ["action", "params"],
       additionalProperties: false,
       allOf: [
-        { if: { properties: { action: { enum: ["setState", "pushState"] } } }, then: { properties: { params: { type: "object", properties: { statePath: { type: "string" }, value: {} }, required: ["statePath", "value"], additionalProperties: false } } } },
-        { if: { properties: { action: { const: "removeState" } } }, then: { properties: { params: { type: "object", properties: { statePath: { type: "string" }, index: { type: "integer" } }, required: ["statePath"], additionalProperties: false } } } },
-        { if: { properties: { action: { const: "js" } } }, then: { properties: { params: { type: "object", properties: { statePath: { type: "string" }, code: { type: "string" } }, required: ["statePath", "code"], additionalProperties: false } } } },
+        { if: { properties: { action: { enum: ["setState", "pushState"] } } }, then: { properties: { params: { type: "object", properties: { statePath: { $ref: "#/$defs/path" }, value: {} }, required: ["statePath", "value"], additionalProperties: false } } } },
+        {
+          if: { properties: { action: { const: "removeState" } } },
+          then: { properties: { params: { type: "object", properties: { statePath: { $ref: "#/$defs/path" }, index: { anyOf: [{ type: "integer" }, { type: "object", properties: { $index: { const: true } }, required: ["$index"], additionalProperties: false }] } }, required: ["statePath"], additionalProperties: false } } },
+        },
+        { if: { properties: { action: { const: "js" } } }, then: { properties: { params: { type: "object", properties: { statePath: { $ref: "#/$defs/path" }, code: { type: "string" } }, required: ["statePath", "code"], additionalProperties: false } } } },
         { if: { properties: { action: { const: "sendMessage" } } }, then: { properties: { params: { type: "object", properties: { text: { anyOf: [{ type: "string" }, { $ref: "#/$defs/expr" }] } }, required: ["text"], additionalProperties: false } } } },
       ],
     },
@@ -509,7 +649,7 @@ const renderUiJson = {
       properties: {
         type: { type: "string", enum: names },
         props: { type: "object" },
-        children: { type: "array", items: { $ref: node }, description: "Only for Stack, Grid, Card, Tabs, Stepper and Accordion." },
+        children: { type: "array", items: { $ref: node }, description: `Only for ${andList(parents)}.` },
         on: { type: "object", properties: { press: actionList, change: actionList, submit: actionList, finish: actionList }, additionalProperties: false },
         visible: { $ref: "#/$defs/visible" },
       },
@@ -554,7 +694,7 @@ export const frontendTools = [
     name: RENDER_UI,
     description:
       "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
-      'Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only Stack, Grid, Card, Tabs, Stepper and Accordion take children.\n' +
+      `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
       "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title, an icon is optional; right opens in the top right zone, left in the top left; the user can move it). " +
       'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
       'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
@@ -565,6 +705,8 @@ export const frontendTools = [
       'JavaScript ($js, js) runs sandboxed in the app without you, e.g. a calculator or a converter: no DOM, network or timers, 50 ms at most, JSON in and out. ' +
       '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
       "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
+      'Data from state: Repeat renders its children per item of a state array; inside, {"$item": "field"}, {"$index": true}, "${field}" in a $template, {"$bindItem": "field"}, visible {"$item": "field", "eq"?}; in actions, statePath {"$item": "field"} and removeState index {"$index": true}. When the data changes, patch the state instead of sending the tree again.\n' +
+      "Layout: compose generic parts (Stack with direction, align, justify, wrap, fill; Card variants; Text for short labels, numbers and arrows between parts; Table cells and KeyValue values with a tone) instead of asking for a special component.\n" +
       "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
       "Short text props (table cells and headings, KeyValue, List items, Choice labels, Card descriptions) take inline Markdown: `code`, **bold**, *italic*, links.\n" +
       "Use it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message.\n" +
