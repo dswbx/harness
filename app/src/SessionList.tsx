@@ -104,7 +104,7 @@ function SessionRow({
               {hit ? <>{hit[0]}<mark className="rounded-sm bg-sky-400/30 text-foreground">{hit[1]}</mark>{hit[2]}</> : s.title}
             </span>
             <StatusDot status={s.status} className="group-hover:hidden" />
-            {inlineDate && <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70 group-hover:hidden group-has-focus-visible:hidden">{relativeTime(s.updated_ms, now)}</span>}
+            {inlineDate && <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">{relativeTime(s.updated_ms, now)}</span>}
           </span>
           {sub && <DetailLine s={s} showFolder={showFolder} now={now} />}
         </button>
