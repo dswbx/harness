@@ -32,7 +32,8 @@
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost",
-      "devCsp": null
+      "devCsp": null,
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {
