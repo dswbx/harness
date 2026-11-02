@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useReducer, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronLeft, ChevronRight, FileCode, ImageOff, Info, Search, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleDashed, FileCode, ImageOff, Info, Loader2, Search, XCircle } from "lucide-react";
 import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, Tooltip, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
@@ -15,7 +15,7 @@ import { jsReady, loadJs, onJsReady, runJs } from "./sandbox";
 /** recharts is large: loaded the first time a Chart shows. */
 const UiChart = lazy(() => import("./UiChart"));
 import { PullRequest } from "./UiPullRequest";
-import { components, type RawNode, type UiAction, type UiNode, type Visible } from "./tools";
+import { components, type RawNode, type StatePath, type UiAction, type UiNode, type Visible } from "./tools";
 
 type Tone = "neutral" | "info" | "success" | "warning" | "error";
 type Img = { src: string; alt: string; caption?: string };
@@ -49,11 +49,34 @@ const Env = createContext<UiEnv | null>(null);
 const useEnv = () => useContext(Env)!;
 const imageCache = new Map<string, Promise<string>>();
 
-/** `{ $state }` and `{ $template }` read from `state`; other values stay as they are. */
-export function resolveValue(v: unknown, state: unknown): unknown {
+/**
+ * json-render's repeat scope: the Repeat item a node renders for. `$item`/`$index` read it,
+ * `$bindItem` and an action's `{ $item }` path write under `path` (absent: items are not from state).
+ */
+export type Scope = { item: unknown; index: number; path?: string };
+const ScopeCtx = createContext<Scope | undefined>(undefined);
+
+/** A field of the scope's item (`""`: the whole item; nested fields with `/`). */
+function readItem(field: string, scope: Scope | undefined): unknown {
+  if (!scope) return undefined;
+  return field === "" ? scope.item : getAt(scope.item, field.startsWith("/") ? field : `/${field}`);
+}
+
+/** The state path of an item field, for writes; undefined outside a Repeat over state. */
+export function itemPath(field: string, scope: Scope | undefined): string | undefined {
+  if (scope?.path == null) return undefined;
+  return field === "" ? scope.path : `${scope.path}/${field.replace(/^\//, "")}`;
+}
+
+const pathOf = (p: StatePath, scope: Scope | undefined) => (typeof p === "string" ? p : itemPath(p.$item, scope));
+
+/** `{ $state }`, `{ $template }` and the rest read from `state` (and the Repeat item); other values stay as they are. */
+export function resolveValue(v: unknown, state: unknown, scope?: Scope): unknown {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return v;
   const o = v as Record<string, unknown>;
   if (typeof o.$state === "string") return getAt(state, o.$state);
+  if (typeof o.$item === "string") return readItem(o.$item, scope);
+  if (o.$index === true) return scope?.index;
   if (typeof o.$js === "string") {
     const r = runJs(o.$js, state);
     if (r && "error" in r) console.warn(`render_ui $js: ${r.error}`);
@@ -61,10 +84,10 @@ export function resolveValue(v: unknown, state: unknown): unknown {
   }
   if (typeof o.$computed === "string") {
     const args = (o.args ?? {}) as { values?: unknown; eq?: unknown };
-    const raw = resolveValue(args.values, state);
+    const raw = resolveValue(args.values, state, scope);
     const values = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? Object.values(raw) : [];
     if (o.$computed === "count") {
-      const eq = args.eq === undefined ? true : resolveValue(args.eq, state);
+      const eq = args.eq === undefined ? true : resolveValue(args.eq, state, scope);
       return values.filter((x) => JSON.stringify(x) === JSON.stringify(eq)).length;
     }
     if (o.$computed === "length") return values.length;
@@ -72,8 +95,10 @@ export function resolveValue(v: unknown, state: unknown): unknown {
     return undefined;
   }
   if (typeof o.$template === "string") {
+    // `${/path}` reads the state; a bare `${field}` the Repeat item first, then `/field` (json-render).
     return o.$template.replace(/\$\{([^}]*)\}/g, (_, p: string) => {
-      const x = getAt(state, p);
+      const bare = p !== "" && !p.startsWith("/");
+      const x = bare ? (readItem(p, scope) ?? getAt(state, `/${p}`)) : getAt(state, p);
       return x == null ? "" : typeof x === "object" ? JSON.stringify(x) : String(x);
     });
   }
@@ -81,34 +106,38 @@ export function resolveValue(v: unknown, state: unknown): unknown {
 }
 
 /** json-render's visibility: `$state` is truthy (non-empty, non-zero, true), or `eq`/`neq` it; `not` flips. */
-export function isVisible(v: Visible | undefined, state: unknown): boolean {
+export function isVisible(v: Visible | undefined, state: unknown, scope?: Scope): boolean {
   if (v === undefined || v === true) return true;
   if (v === false) return false;
-  if ("$and" in v) return v.$and.every((x) => isVisible(x, state));
-  if ("$or" in v) return v.$or.some((x) => isVisible(x, state));
-  const x = getAt(state, v.$state);
+  if ("$and" in v) return v.$and.every((x) => isVisible(x, state, scope));
+  if ("$or" in v) return v.$or.some((x) => isVisible(x, state, scope));
+  const x = "$item" in v ? readItem(v.$item, scope) : "$index" in v ? scope?.index : getAt(state, v.$state);
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   const ok = "eq" in v ? same(x, v.eq) : "neq" in v ? !same(x, v.neq) : Array.isArray(x) ? x.length > 0 : !!x;
   return v.not ? !ok : ok;
 }
 
-/** Binds a node's props: expressions read from `state`, `$bindState` props read their path. */
-export function resolveNode(raw: RawNode, state: unknown): UiNode {
+/** Binds a node's props: expressions read from `state`, `$bindState`/`$bindItem` props read their path. */
+export function resolveNode(raw: RawNode, state: unknown, scope?: Scope): UiNode {
   const bind: readonly string[] = (components[raw.type] as { bind?: readonly string[] }).bind ?? [];
   const bindings: Record<string, string> = {};
   const props: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw.props ?? {})) {
-    const path = bind.includes(k) && typeof v === "object" && v !== null ? (v as { $bindState?: unknown }).$bindState : undefined;
-    if (typeof path === "string") {
+    const b = bind.includes(k) && typeof v === "object" && v !== null ? (v as { $bindState?: unknown; $bindItem?: unknown }) : undefined;
+    const path = typeof b?.$bindState === "string" ? b.$bindState : typeof b?.$bindItem === "string" ? itemPath(b.$bindItem, scope) : undefined;
+    if (path !== undefined) {
       bindings[k] = path;
       props[k] = getAt(state, path);
-    } else props[k] = resolveValue(v, state);
+    } else props[k] = b && "$bindItem" in b ? undefined : resolveValue(v, state, scope);
   }
   return { ...raw, props, bindings, children: undefined } as unknown as UiNode;
 }
 
-/** Runs `actions`: state actions become one patch (applied in order, each seeing the ones before), then messages are sent. */
-export async function runActions(actions: UiAction | UiAction[] | undefined, env: Pick<UiEnv, "state" | "patch" | "send" | "onError">) {
+/**
+ * Runs `actions`: state actions become one patch (applied in order, each seeing the ones before), then messages are sent.
+ * In a Repeat (`scope`), `{ $item }` paths and `{ $index: true }` indexes point at the item; an item path outside one skips the action.
+ */
+export async function runActions(actions: UiAction | UiAction[] | undefined, env: Pick<UiEnv, "state" | "patch" | "send" | "onError">, scope?: Scope) {
   const list = actions == null ? [] : Array.isArray(actions) ? actions : [actions];
   if (list.some((a) => a.action === "js") && !jsReady()) await loadJs();
   const ops: StatePatchOp[] = [];
@@ -121,17 +150,25 @@ export async function runActions(actions: UiAction | UiAction[] | undefined, env
     } catch { /* the core decides; later actions read the state as it was */ }
   };
   for (const a of list) {
-    if (a.action === "setState") push({ op: "replace", path: a.params.statePath, value: resolveValue(a.params.value, cur) });
+    if (a.action === "sendMessage") {
+      texts.push(String(resolveValue(a.params.text, cur, scope) ?? ""));
+      continue;
+    }
+    const path = pathOf(a.params.statePath, scope);
+    if (path === undefined) continue;
+    if (a.action === "setState") push({ op: "replace", path, value: resolveValue(a.params.value, cur, scope) });
     else if (a.action === "pushState") {
-      if (!Array.isArray(getAt(cur, a.params.statePath))) push({ op: "add", path: a.params.statePath, value: [] });
-      push({ op: "add", path: `${a.params.statePath}/-`, value: resolveValue(a.params.value, cur) });
-    } else if (a.action === "removeState") push({ op: "remove", path: a.params.index == null ? a.params.statePath : `${a.params.statePath}/${a.params.index}` });
-    else if (a.action === "js") {
+      if (!Array.isArray(getAt(cur, path))) push({ op: "add", path, value: [] });
+      push({ op: "add", path: `${path}/-`, value: resolveValue(a.params.value, cur, scope) });
+    } else if (a.action === "removeState") {
+      const index = typeof a.params.index === "object" ? scope?.index : a.params.index;
+      push({ op: "remove", path: index == null ? path : `${path}/${index}` });
+    } else if (a.action === "js") {
       const r = runJs(a.params.code, cur);
       // A failing script changes nothing and sends nothing.
       if (!r || "error" in r) return env.onError?.(r ? r.error : "The script engine did not load.");
-      push({ op: "replace", path: a.params.statePath, value: r.value });
-    } else if (a.action === "sendMessage") texts.push(String(resolveValue(a.params.text, cur) ?? ""));
+      push({ op: "replace", path, value: r.value });
+    }
   }
   if (ops.length) await env.patch(ops);
   for (const t of texts) if (t.trim()) await env.send(t);
@@ -256,6 +293,7 @@ function Carousel({ images }: { images: Img[] }) {
 
 function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
   const env = useEnv();
+  const scope = useContext(ScopeCtx);
   const { options, answer } = node.props;
   const picked = node.props.value;
   const graded = answer != null && picked != null && picked !== "";
@@ -270,7 +308,7 @@ function Choice({ node }: { node: Extract<UiNode, { type: "Choice" }> }) {
       next = structuredCloneSet(next, result, value === answer);
     }
     await env.patch(ops);
-    await runActions(node.on?.change, { ...env, state: next });
+    await runActions(node.on?.change, { ...env, state: next }, scope);
   };
   // Picked by value: duplicate values would pick several options at once.
   if (new Set(options.map((o) => o.value)).size !== options.length) {
@@ -387,6 +425,7 @@ function Tabs({ node, kids }: { node: Extract<UiNode, { type: "Tabs" }>; kids: R
 
 function Stepper({ node, kids }: { node: Extract<UiNode, { type: "Stepper" }>; kids: React.ReactNode[] }) {
   const env = useEnv();
+  const scope = useContext(ScopeCtx);
   const steps = node.props.steps;
   const [i, setI] = useIndex(node, steps.length);
   const last = i === steps.length - 1;
@@ -405,7 +444,7 @@ function Stepper({ node, kids }: { node: Extract<UiNode, { type: "Stepper" }>; k
       <div className="flex justify-between gap-2">
         <Button size="sm" variant="ghost" disabled={i === 0} onClick={() => setI(i - 1)}>Back</Button>
         {last ? (
-          node.on?.finish && <Button size="sm" onClick={() => void runActions(node.on?.finish, env)}>Finish</Button>
+          node.on?.finish && <Button size="sm" onClick={() => void runActions(node.on?.finish, env, scope)}>Finish</Button>
         ) : (
           <Button size="sm" onClick={() => setI(i + 1)}>Next</Button>
         )}
@@ -429,13 +468,14 @@ function structuredCloneSet(state: unknown, path: string, value: unknown): unkno
 
 function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
   const env = useEnv();
+  const scope = useContext(ScopeCtx);
   const path = node.bindings.value;
   const stored = node.props.value == null ? "" : String(node.props.value);
   const [text, setText] = useState(stored);
   useEffect(() => setText(stored), [stored]);
   const commit = async (submit: boolean) => {
     if (path && text !== stored) await env.patch([{ op: "replace", path, value: text }]);
-    if (submit) await runActions(node.on?.submit, { ...env, state: path ? structuredCloneSet(env.state, path, text) : env.state });
+    if (submit) await runActions(node.on?.submit, { ...env, state: path ? structuredCloneSet(env.state, path, text) : env.state }, scope);
   };
   return (
     <label className="grid grid-cols-1 gap-1.5">
@@ -471,12 +511,13 @@ const IconOf = ({ name, className }: { name?: string; className?: string }) => {
 /** A boolean bound to state; writes it, then runs `on.change` with the new state. */
 function useToggle(node: { props: { value?: unknown }; bindings: Record<string, string>; on?: RawNode["on"] }) {
   const env = useEnv();
+  const scope = useContext(ScopeCtx);
   const on = node.props.value === true;
   const toggle = async () => {
     const path = node.bindings.value;
     if (!path) return;
     await env.patch([{ op: "replace", path, value: !on }]);
-    await runActions(node.on?.change, { ...env, state: structuredCloneSet(env.state, path, !on) });
+    await runActions(node.on?.change, { ...env, state: structuredCloneSet(env.state, path, !on) }, scope);
   };
   return [on, toggle] as const;
 }
@@ -508,8 +549,18 @@ function Toggle({ node, kind }: { node: Extract<UiNode, { type: "Checkbox" | "Sw
   );
 }
 
+/** List `status` icons. */
+const statusIcons = {
+  done: { icon: CheckCircle2, className: "text-emerald-500" },
+  running: { icon: Loader2, className: "animate-spin text-sky-500" },
+  waiting: { icon: CircleDashed, className: "text-muted-foreground" },
+  blocked: { icon: Ban, className: "text-amber-500" },
+  failed: { icon: XCircle, className: "text-destructive" },
+} as const;
+
 function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
   const env = useEnv();
+  const scope = useContext(ScopeCtx);
   const path = node.bindings.check;
   const checked = (node.props.check ?? {}) as Record<string, unknown>;
   const toggle = async (id: string) => {
@@ -518,17 +569,22 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
     const ops: StatePatchOp[] = typeof node.props.check === "object" && node.props.check !== null ? [] : [{ op: "replace", path, value: {} }];
     ops.push({ op: "replace", path: `${path}/${id.replace(/~/g, "~0").replace(/\//g, "~1")}`, value });
     await env.patch(ops);
-    await runActions(node.on?.change, { ...env, state: structuredCloneSet(env.state, path, { ...checked, [id]: value }) });
+    await runActions(node.on?.change, { ...env, state: structuredCloneSet(env.state, path, { ...checked, [id]: value }) }, scope);
   };
   return (
     <ul className="divide-y rounded-lg border">
       {node.props.items.map((it) => {
         const done = checked[it.id] === true;
         const t = tones[it.tone ?? "neutral"];
+        const status = it.status ? statusIcons[it.status] : undefined;
         const row = (
           <>
             {path && <span className="mt-0.5"><CheckBox on={done} label={it.title} /></span>}
-            {it.icon && <IconOf name={it.icon} className={cn("mt-0.5 text-muted-foreground", it.tone && it.tone !== "neutral" && t.fg)} />}
+            {status ? (
+              <status.icon className={cn("mt-0.5 size-4 shrink-0", status.className)} aria-label={it.status} />
+            ) : (
+              it.icon && <IconOf name={it.icon} className={cn("mt-0.5 text-muted-foreground", it.tone && it.tone !== "neutral" && t.fg)} />
+            )}
             <span className="min-w-0 flex-1">
               <span className={cn("block text-ui", done && "text-muted-foreground line-through")}><Md>{it.title}</Md></span>
               {it.description && <span className="block text-ui-sm text-muted-foreground"><Md>{it.description}</Md></span>}
@@ -597,25 +653,53 @@ function Timeline({ node }: { node: Extract<UiNode, { type: "Timeline" }> }) {
   );
 }
 
+type Cell = Extract<UiNode, { type: "Table" }>["props"]["rows"][number] extends infer R ? (R extends unknown[] ? R[number] : never) : never;
+type Row = { cells: Cell[]; tone?: Tone };
+/** A row is an array of cells or `{ cells, tone }`; a cell is text or `{ text, tone?, mono?, icon? }`. */
+const rowOf = (r: unknown): Row => (Array.isArray(r) ? { cells: r } : { cells: [], ...(r as Partial<Row>) });
+const cellText = (c: unknown) => String((typeof c === "object" && c !== null ? (c as { text?: unknown }).text : c) ?? "");
+/** Row tints: lighter than the card tones, so cell tones stay readable. */
+const rowTone: Record<Tone, string> = {
+  neutral: "",
+  info: "bg-sky-500/5",
+  success: "bg-emerald-500/5",
+  warning: "bg-amber-500/5",
+  error: "bg-destructive/5",
+};
+
+function TableCell({ cell }: { cell: Cell }) {
+  if (typeof cell !== "object" || cell === null) return <Md>{cell}</Md>;
+  const t = tones[cell.tone ?? "neutral"];
+  return (
+    <span className={cn("inline-flex items-center gap-1", cell.mono && "font-mono", cell.tone && cell.tone !== "neutral" && t.fg)}>
+      {cell.icon && <IconOf name={cell.icon} className="size-3.5" />}
+      <Md>{cellText(cell)}</Md>
+    </span>
+  );
+}
+
+/** Table rows as shown: filtered by `q` and sorted by a column, both on the cell text. */
+export function tableRows(rows: unknown[], q: string, sort: { col: number; desc: boolean } | null): Row[] {
+  let out = rows.map(rowOf);
+  const needle = q.trim().toLowerCase();
+  if (needle) out = out.filter((r) => r.cells.some((c) => cellText(c).toLowerCase().includes(needle)));
+  if (sort) {
+    const num = (x: string) => Number.parseFloat(x.replace(/[^\d.-]/g, ""));
+    out = [...out].sort((a, b) => {
+      const x = cellText(a.cells[sort.col]), y = cellText(b.cells[sort.col]);
+      const nx = num(x), ny = num(y);
+      const c = Number.isNaN(nx) || Number.isNaN(ny) ? x.localeCompare(y, undefined, { numeric: true }) : nx - ny;
+      return sort.desc ? -c : c;
+    });
+  }
+  return out;
+}
+
 function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
   const [sort, setSort] = useState<{ col: number; desc: boolean } | null>(null);
   const [q, setQ] = useState("");
   const columns = node.props.columns ?? [];
-  const rows = useMemo(() => {
-    let out = node.props.rows ?? [];
-    const needle = q.trim().toLowerCase();
-    if (needle) out = out.filter((r) => r.some((c) => String(c).toLowerCase().includes(needle)));
-    if (sort) {
-      const num = (x: string) => Number.parseFloat(x.replace(/[^\d.-]/g, ""));
-      out = [...out].sort((a, b) => {
-        const x = String(a[sort.col] ?? ""), y = String(b[sort.col] ?? "");
-        const nx = num(x), ny = num(y);
-        const c = Number.isNaN(nx) || Number.isNaN(ny) ? x.localeCompare(y, undefined, { numeric: true }) : nx - ny;
-        return sort.desc ? -c : c;
-      });
-    }
-    return out;
-  }, [node.props.rows, q, sort]);
+  const rows = useMemo(() => tableRows(node.props.rows ?? [], q, sort), [node.props.rows, q, sort]);
   const click = (col: number) => setSort(sort?.col === col ? (sort.desc ? null : { col, desc: true }) : { col, desc: false });
   return (
     <div className="grid grid-cols-1 gap-2">
@@ -643,8 +727,8 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i} className="border-t">
-                {r.map((c, j) => <td key={j} className="px-3 py-2 align-top"><Md>{c}</Md></td>)}
+              <tr key={i} className={cn("border-t", rowTone[r.tone ?? "neutral"])}>
+                {r.cells.map((c, j) => <td key={j} className="px-3 py-2 align-top"><TableCell cell={c} /></td>)}
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={columns.length} className="px-3 py-3 text-center text-muted-foreground">No rows</td></tr>}
@@ -776,48 +860,112 @@ function Trace({ node }: { node: Extract<UiNode, { type: "Trace" }> }) {
   );
 }
 
+type Layout = Extract<UiNode, { type: "Stack" }>["props"];
+/** In a row, these keep their own width; other children share it. */
+const ownWidth = new Set<string>(["Badge", "Button", "Checkbox", "Switch", "FileLink", "Text"]);
+
+/**
+ * Stack classes: the container, and the cell that wraps a child sharing a row's width (null: it
+ * keeps its own). A row's children share it equally (same height, unless `align` says otherwise)
+ * and wrap when narrower than 12rem; `fill: false` lets all keep their width.
+ */
+export function stackClasses(p: Layout, type: string): { box: string; cell: string | null } {
+  const gap = { sm: "gap-1.5", md: "gap-3", lg: "gap-5" }[p.gap ?? "md"];
+  const align = p.align && { start: "items-start", center: "items-center", end: "items-end", stretch: "items-stretch" }[p.align];
+  const justify = p.justify && { start: "justify-start", center: "justify-center", end: "justify-end", between: "justify-between" }[p.justify];
+  if (p.direction !== "horizontal") return { box: cn("flex min-w-0 flex-col", gap, align, justify), cell: null };
+  const wrap = p.wrap !== false;
+  return {
+    box: cn("flex min-w-0 flex-row", wrap ? "flex-wrap" : "flex-nowrap", align ?? "items-center", justify, gap),
+    cell: p.fill === false || ownWidth.has(type) ? null : cn("flex flex-1 basis-0 flex-col [&>*]:flex-1", wrap ? "min-w-48" : "min-w-0", (!p.align || p.align === "stretch") && "self-stretch"),
+  };
+}
+
+/** Stack's layout (also a Repeat's copies). Each entry renders in its own Repeat scope. */
+function StackLayout({ p, entries }: { p: Layout; entries: { key: string | number; raw: RawNode; scope?: Scope }[] }) {
+  return (
+    <div className={stackClasses(p, "").box}>
+      {entries.map((e) => {
+        const cell = stackClasses(p, e.raw.type).cell;
+        const el = <ScopeCtx.Provider key={cell ? undefined : e.key} value={e.scope}><Node raw={e.raw} /></ScopeCtx.Provider>;
+        return cell ? <div key={e.key} className={cell}>{el}</div> : el;
+      })}
+    </div>
+  );
+}
+
+/** A Repeat's items with their scopes: each item's path under the array's state path (`/tickets/2`). */
+export function repeatScopes(raw: RawNode, state: unknown, scope?: Scope): Scope[] {
+  const src = raw.props?.items;
+  const items = resolveValue(src, state, scope);
+  if (!Array.isArray(items)) return [];
+  const o = (src ?? {}) as { $state?: unknown; $item?: unknown };
+  const base = typeof o.$state === "string" ? o.$state : typeof o.$item === "string" ? itemPath(o.$item, scope) : undefined;
+  return items.map((item, index) => ({ item, index, path: base == null ? undefined : `${base}/${index}` }));
+}
+
+const textSize = { xs: "text-ui-xs", sm: "text-ui-sm", md: "text-ui", lg: "text-ui-lg" } as const;
+
 function Node({ raw }: { raw: RawNode }) {
   const env = useEnv();
-  if (!isVisible(raw.visible, env.state)) return null;
-  const node = resolveNode(raw, env.state);
+  const scope = useContext(ScopeCtx);
+  if (!isVisible(raw.visible, env.state, scope)) return null;
+  const node = resolveNode(raw, env.state, scope);
   const kids = raw.children?.map((c, i) => <Node key={i} raw={c} />);
   switch (node.type) {
     case "Stack": {
-      const gap = { sm: "gap-1.5", md: "gap-3", lg: "gap-5" }[node.props?.gap ?? "md"];
       // Hidden children leave no gap or empty cell; keys stay their original index.
-      const shown = (raw.children ?? []).map((c, i) => [c, i] as const).filter(([c]) => isVisible(c.visible, env.state));
-      if (node.props?.direction !== "horizontal") return <div className={cn("flex min-w-0 flex-col", gap)}>{shown.map(([c, i]) => <Node key={i} raw={c} />)}</div>;
-      // A row: badges and buttons keep their width; other children share it equally (same height)
-      // and wrap when narrower than 12rem.
+      const shown = (raw.children ?? []).map((c, i) => ({ key: i, raw: c, scope })).filter((e) => isVisible(e.raw.visible, env.state, scope));
+      return <StackLayout p={node.props ?? {}} entries={shown} />;
+    }
+    case "Repeat": {
+      const scopes = repeatScopes(raw, env.state, scope);
+      if (!scopes.length) return node.props.empty ? <div className="text-ui-sm text-muted-foreground">{node.props.empty}</div> : null;
+      const { key } = node.props;
+      // Each item renders all children in order; hidden ones leave no gap.
+      const entries = scopes.flatMap((s) => {
+        const id = key && typeof s.item === "object" && s.item !== null ? String((s.item as Record<string, unknown>)[key] ?? s.index) : s.index;
+        return (raw.children ?? []).map((c, j) => ({ key: `${id}:${j}`, raw: c, scope: s })).filter((e) => isVisible(e.raw.visible, env.state, e.scope));
+      });
+      return <StackLayout p={node.props} entries={entries} />;
+    }
+    case "Text": {
+      const p = node.props;
+      const t = tones[p.tone ?? "neutral"];
       return (
-        <div className={cn("flex min-w-0 flex-row flex-wrap items-center", gap)}>
-          {shown.map(([c, i]) =>
-            c.type === "Badge" || c.type === "Button" || c.type === "Checkbox" || c.type === "Switch" || c.type === "FileLink" ? (
-              <Node key={i} raw={c} />
-            ) : (
-              <div key={i} className="flex min-w-48 flex-1 basis-0 flex-col self-stretch [&>*]:flex-1">
-                <Node raw={c} />
-              </div>
-            ),
+        <span
+          className={cn(
+            "min-w-0 break-words",
+            textSize[p.size ?? "md"],
+            p.mono && "font-mono",
+            p.weight === "medium" ? "font-medium" : p.weight === "bold" && "font-semibold",
+            p.muted && "text-muted-foreground",
+            p.tone && p.tone !== "neutral" && t.fg,
           )}
-        </div>
+        >
+          {String(p.text ?? "")}
+        </span>
       );
     }
     case "Card": {
       const t = tones[node.props?.tone ?? "neutral"];
       const Icon = (node.props?.icon && uiIcons[node.props.icon]) || t.icon;
+      const variant = node.props?.variant ?? "default";
+      const body = (kids?.length ?? 0) > 0;
+      // compact: less padding, smaller heading; plain: no box, a titled section.
+      const head = variant === "plain" ? "pb-2" : variant === "compact" ? cn("bg-muted/40 px-2.5 py-1.5", body && "border-b") : "border-b bg-muted/40 px-3 py-2.5";
       return (
-        <div className={cn("min-w-0 overflow-hidden rounded-lg border", t.box)}>
+        <div className={cn("min-w-0", variant !== "plain" && cn("overflow-hidden rounded-lg border", t.box))}>
           {node.props?.title && (
-            <div className="border-b bg-muted/40 px-3 py-2.5">
-              <div className="flex items-center gap-2 font-semibold text-foreground">
+            <div className={head}>
+              <div className={cn("flex items-center gap-2 font-semibold text-foreground", variant === "compact" && "text-ui-sm")}>
                 {Icon && <Icon className={cn("size-4 shrink-0", node.props.tone && node.props.tone !== "neutral" ? t.fg : "text-muted-foreground")} />}
                 <span className="min-w-0">{node.props.title}</span>
               </div>
               {node.props.description && <div className="mt-0.5 text-ui-sm text-muted-foreground"><Md>{node.props.description}</Md></div>}
             </div>
           )}
-          {(kids?.length ?? 0) > 0 && <div className="space-y-2 p-3">{kids}</div>}
+          {body && <div className={cn("space-y-2", variant === "plain" ? "" : variant === "compact" ? "p-2.5" : "p-3")}>{kids}</div>}
         </div>
       );
     }
@@ -829,7 +977,7 @@ function Node({ raw }: { raw: RawNode }) {
           {(node.props.items ?? []).map((it, i) => (
             <div key={i} className="contents">
               <dt className="text-muted-foreground"><Md>{it.label}</Md></dt>
-              <dd className="min-w-0 break-words"><Md>{it.value}</Md></dd>
+              <dd className={cn("min-w-0 break-words", it.mono && "font-mono", it.tone && it.tone !== "neutral" && tones[it.tone].fg)}><Md>{it.value}</Md></dd>
             </div>
           ))}
         </dl>
@@ -891,7 +1039,7 @@ function Node({ raw }: { raw: RawNode }) {
           variant={node.props.variant === "primary" || !node.props.variant ? "default" : node.props.variant}
           disabled={node.props.disabled}
           className="w-fit"
-          onClick={() => void runActions(node.on?.press, env)}
+          onClick={() => void runActions(node.on?.press, env, scope)}
         >
           {node.props.icon && <IconOf name={node.props.icon} />}
           {String(node.props.label ?? "")}
@@ -911,7 +1059,7 @@ function Node({ raw }: { raw: RawNode }) {
       return <Timeline node={node} />;
     case "Grid": {
       const n = node.props.columns ?? 3;
-      const shown = (raw.children ?? []).map((c, i) => [c, i] as const).filter(([c]) => isVisible(c.visible, env.state));
+      const shown = (raw.children ?? []).map((c, i) => [c, i] as const).filter(([c]) => isVisible(c.visible, env.state, scope));
       // Only Buttons: a keypad, exactly `columns` wide, keys filling their cells.
       if (shown.length && shown.every(([c]) => c.type === "Button")) {
         return (
@@ -993,12 +1141,15 @@ export function RenderUi({ root, env }: { root: RawNode; env: UiEnv }) {
       },
       patch: async (ops) => {
         const batch: Batch = { ops };
+        const sent = base.current;
         latest.current = tryApply(latest.current, ops);
         setPending((p) => [...p, batch]);
         setError(null);
         try {
           await env.patch(ops);
-          setPending((p) => p.map((b) => (b === batch ? { ops, settled: { at: base.current } } : b)));
+          // The new state may have arrived before the write settled (a local patcher, or the core's
+          // StateChanged first): it holds these ops, so drop them now, else removes and pushes apply twice.
+          setPending((p) => (base.current !== sent ? p.filter((b) => b !== batch) : p.map((b) => (b === batch ? { ops, settled: { at: sent } } : b))));
         } catch (e) {
           setPending((p) => p.filter((b) => b !== batch));
           setError(e instanceof Error ? e.message : String(e));
