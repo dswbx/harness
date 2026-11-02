@@ -5,6 +5,7 @@
   "workspaces": ["app", "packages/*"],
   "scripts": {
     "dev": "bun scripts/dev.ts",
+    "dev:copy-data": "rsync -a --delete --exclude worktrees/ ~/.harness/ ~/.harness-dev/",
     "bundle": "tauri build",
     "gen-ts": "cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts && bun run gen-manifests",
     "typecheck": "bun run --filter '*' typecheck && bun run check-boundaries",

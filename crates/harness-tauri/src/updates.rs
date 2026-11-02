@@ -1,5 +1,5 @@
 //! Opt-in self-update from GitHub Releases (`latest.json`, stable only). Release builds check at
-//! launch and every few hours; a newer release only shows as available. The user starts the
+//! launch and every hour; a newer release only shows as available. The user starts the
 //! download (`update_install`), then restarts when they like. The app shell follows
 //! `update-state`. Dev builds never update.
 
@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+const EVERY: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Serialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
