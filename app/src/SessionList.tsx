@@ -82,6 +82,9 @@ function SessionRow({
   const [menu, setMenu] = useState(false);
   const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground";
   const hit = highlight(s.title, query);
+  // Detail rows with nothing but a date (no folder shown, no git ref) stay one line, the date next to the title.
+  const sub = display === "detail" && (showFolder || !!branchOf(s.workspace) || s.workspace.pr != null);
+  const inlineDate = display === "detail" && !sub;
   return (
     <li className="group relative" onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
       <Tooltip side="right" align="start" delay={700} className="w-80 max-w-80 p-3 text-xs" content={<><div className="mb-2 text-sm font-semibold">{s.title}</div><SessionDetails s={s} /></>}>
@@ -91,18 +94,19 @@ function SessionRow({
           className={cn(
             "flex w-full rounded-md px-2.5 text-left text-sm text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground",
             // Detail: only the title line makes room for the menu button, so the date stays put.
-            display === "detail" ? "min-h-12 flex-col justify-center gap-0.5 py-1.5" : "h-8 items-center transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8",
+            sub ? "min-h-12 flex-col justify-center gap-0.5 py-1.5" : "h-8 items-center transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8",
             selected && "bg-accent font-medium text-accent-foreground hover:bg-accent hover:text-accent-foreground",
             s.archived && "opacity-70",
           )}
         >
-          <span className={cn("flex w-full items-center gap-2", display === "detail" && "transition-[padding] group-hover:pr-6 group-has-focus-visible:pr-6")}>
+          <span className={cn("flex w-full items-center gap-2", sub && "transition-[padding] group-hover:pr-6 group-has-focus-visible:pr-6")}>
             <span className="min-w-0 flex-1 truncate">
               {hit ? <>{hit[0]}<mark className="rounded-sm bg-sky-400/30 text-foreground">{hit[1]}</mark>{hit[2]}</> : s.title}
             </span>
             <StatusDot status={s.status} className="group-hover:hidden" />
+            {inlineDate && <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70 group-hover:hidden group-has-focus-visible:hidden">{relativeTime(s.updated_ms, now)}</span>}
           </span>
-          {display === "detail" && <DetailLine s={s} showFolder={showFolder} now={now} />}
+          {sub && <DetailLine s={s} showFolder={showFolder} now={now} />}
         </button>
       </Tooltip>
       <Tooltip content="Session menu">
