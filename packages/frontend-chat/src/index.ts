@@ -7,3 +7,4 @@ export { renderUiSchema, frontendTools, components, type RenderUiInput, type UiN
 export { RenderUiGallery } from "./Gallery";
 export { toolDisplays, setToolDisplay, useToolDisplay } from "./toolDisplay";
 export { setGuessInlineCode, useGuessInlineCode } from "./inlineCode";
+export { setOptionIsMeta, useOptionIsMeta } from "./terminalOptions";
