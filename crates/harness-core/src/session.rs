@@ -113,6 +113,9 @@ pub struct WorkspaceMeta {
     /// Base branch without a Worktree (a PR checked out in the folder); diffs and commits compare against it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// PR number when the Session was started from a PR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<u32>,
 }
 
 pub struct Session {
@@ -423,12 +426,15 @@ impl Session {
             agent_id: m.agent.id.clone(),
             folder: m.folder.clone(),
             created_ms: m.created_ms,
+            updated_ms: self.log.last_ts_ms().unwrap_or(m.created_ms),
             status: self.agent.status(),
             archived: m.archived,
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 worktree_branch: m.workspace.worktree.as_ref().map(|w| w.branch.clone()),
                 base_branch: m.workspace.worktree.as_ref().map(|w| w.base.clone()),
+                branch: crate::workspace::head_branch(Path::new(&m.folder)),
+                pr: m.workspace.pr,
             },
         }
     }

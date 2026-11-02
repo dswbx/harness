@@ -671,6 +671,10 @@ pub struct WorkspaceInfo {
     /// The Session's own `harness/...` branch when it has a Worktree.
     pub worktree_branch: Option<String>,
     pub base_branch: Option<String>,
+    /// Branch checked out in the Session's folder; None when not a git repo or HEAD is detached.
+    pub branch: Option<String>,
+    /// PR number when the Session was started from a PR.
+    pub pr: Option<u32>,
 }
 
 /// One Terminal tab of a Session (ADR 0017).
@@ -694,6 +698,9 @@ pub struct SessionSummary {
     pub folder: String,
     #[specta(type = specta_typescript::Number)]
     pub created_ms: i64,
+    /// Time of the Session's last activity (last Session Log Event), else `created_ms`.
+    #[specta(type = specta_typescript::Number)]
+    pub updated_ms: i64,
     pub status: SessionStatus,
     pub archived: bool,
     pub workspace: WorkspaceInfo,

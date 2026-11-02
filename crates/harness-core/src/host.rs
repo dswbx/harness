@@ -425,7 +425,9 @@ impl Harness {
         let dest = self.data_dir.join("worktrees").join(id).join(repo_name);
         let short = &id[id.len() - 6..];
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
-        let in_worktree = |wt: WorktreeMeta| (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None });
+        let in_worktree = |wt: WorktreeMeta, pr: Option<u32>| {
+            (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None, pr })
+        };
         match start {
             Start::Pr { pr, worktree: true } => {
                 if let Some(parent) = dest.parent() {
@@ -440,7 +442,7 @@ impl Harness {
                         return Err(e);
                     }
                 };
-                Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }))
+                Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }, Some(pr.number)))
             }
             Start::Pr { pr, worktree: false } => {
                 anyhow::ensure!(
@@ -448,11 +450,11 @@ impl Harness {
                     "the folder has uncommitted changes; commit or stash them, or use a Worktree"
                 );
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base) }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number) }))
             }
             Start::Branch { base, new_branch, worktree: true } => {
                 let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
-                Ok(in_worktree(wt))
+                Ok(in_worktree(wt, None))
             }
             Start::Branch { base, new_branch, worktree: false } => {
                 if let Some(nb) = new_branch {
@@ -462,7 +464,7 @@ impl Harness {
                 {
                     crate::workspace::checkout(&root, &b).await?;
                 }
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None, pr: None }))
             }
         }
     }

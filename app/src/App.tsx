@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, ArchiveRestore, ChevronRight, MoreHorizontal, PanelLeft, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { PanelLeft, Plus } from "lucide-react";
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import { syncAppearance } from "./appearance/appearance";
 import {
-  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, ScrollArea, Tooltip, cn, useResizableWidth,
+  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, Tooltip, cn, useResizableWidth,
 } from "@harness/ui";
 import { ComposerDialog } from "./ComposerDialog";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
 import { ViewHost } from "./ViewHost";
-import { SessionDetails, SessionHeader, StatusDot, trafficLights } from "./SessionHeader";
+import { SessionHeader, trafficLights } from "./SessionHeader";
+import { SessionList } from "./SessionList";
 import { openViewWindow } from "./openWindow";
 import { makeTransport } from "./transport";
 import { ToastProvider, errText, useReportError } from "./toast";
@@ -74,56 +75,6 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
         <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} status={status} menu={menu} />
       </div>
     </div>
-  );
-}
-
-function SessionRow({
-  s, selected, onSelect, onArchive, onDelete,
-}: {
-  s: SessionSummary;
-  selected: boolean;
-  onSelect: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-}) {
-  const [menu, setMenu] = useState(false);
-  const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground";
-  return (
-    <li className="group relative" onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}>
-      <Tooltip side="right" align="start" delay={700} className="w-80 max-w-80 p-3 text-xs" content={<><div className="mb-2 text-sm font-semibold">{s.title}</div><SessionDetails s={s} /></>}>
-        <button
-          onClick={onSelect}
-          aria-current={selected || undefined}
-          className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left transition-[padding] group-hover:pr-8 group-has-focus-visible:pr-8 text-sm text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground", selected && "bg-accent font-medium text-accent-foreground hover:bg-accent hover:text-accent-foreground", s.archived && "opacity-70")}
-        >
-          <span className="min-w-0 flex-1 truncate">{s.title}</span>
-          <StatusDot status={s.status} className="group-hover:hidden" />
-        </button>
-      </Tooltip>
-      <Tooltip content="Session menu">
-        <button
-          aria-label="Session menu"
-          className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"
-          onClick={() => setMenu(!menu)}
-        >
-          <MoreHorizontal className="size-4" />
-        </button>
-      </Tooltip>
-      {menu && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} onContextMenu={(e) => { e.preventDefault(); setMenu(false); }} />
-          <div role="menu" className="absolute right-1 top-8 z-20 w-36 rounded-md border bg-popover p-1 shadow-md">
-            <button role="menuitem" className={item} onClick={() => { setMenu(false); onArchive(); }}>
-              {s.archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
-              {s.archived ? "Unarchive" : "Archive"}
-            </button>
-            <button role="menuitem" className={cn(item, "text-destructive")} onClick={() => { setMenu(false); onDelete(); }}>
-              <Trash2 className="size-4" /> Delete
-            </button>
-          </div>
-        </>
-      )}
-    </li>
   );
 }
 
@@ -192,7 +143,6 @@ function Shell({ transport }: { transport: Transport }) {
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [agentsVersion, setAgentsVersion] = useState(0);
   const [mcpVersion, setMcpVersion] = useState(0);
-  const [archivedOpen, setArchivedOpen] = useState(false);
   const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -247,8 +197,8 @@ function Shell({ transport }: { transport: Transport }) {
               void load(); // unknown Session: the list is stale
               return l;
             }
-            if (l[i]!.status === e.status && l[i]!.title === e.title) return l;
-            return l.map((s, n) => (n === i ? { ...s, status: e.status, title: e.title } : s));
+            // Also counts as activity, so "Recent activity" order updates live.
+            return l.map((s, n) => (n === i ? { ...s, status: e.status, title: e.title, updated_ms: Date.now() } : s));
           });
         } else if (e.type === "AgentsChanged") setAgentsVersion((v) => v + 1);
       })
@@ -264,13 +214,7 @@ function Shell({ transport }: { transport: Transport }) {
   const current = sessions.find((s) => s.id === selected) ?? null;
   const branch = useBranch(client, current);
   const sidebar = useSidebarWidth();
-  // Sessions needing attention first (stable within each group).
-  const active = useMemo(() => {
-    const l = sessions.filter((s) => !s.archived);
-    return [...l.filter((s) => s.status === "needs_attention"), ...l.filter((s) => s.status !== "needs_attention")];
-  }, [sessions]);
-  const archived = sessions.filter((s) => s.archived);
-  const attention = active.filter((s) => s.status === "needs_attention").length;
+  const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
   const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
 
   useEffect(() => {
@@ -300,10 +244,6 @@ function Shell({ transport }: { transport: Transport }) {
       setDeleting(false);
     }
   };
-  const row = (s: SessionSummary) => (
-    <SessionRow key={s.id} s={s} selected={s.id === selected} onSelect={() => setSelected(s.id)} onArchive={() => toggleArchive(s)} onDelete={() => askDelete(s)} />
-  );
-
   const controls = <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} onNew={() => setComposer(true)} />;
   // Sidebar hidden: the controls move next to the traffic lights in the main header.
   const leading = sidebarOpen ? undefined : <div className={cn("mr-2 shrink-0", trafficLights && "pl-[68px]")}>{controls}</div>;
@@ -317,26 +257,9 @@ function Shell({ transport }: { transport: Transport }) {
             <div data-tauri-drag-region className="h-full flex-1" />
             {controls}
           </div>
-          <ScrollArea className="min-h-0 flex-1">
-            <ul className="flex flex-col gap-px px-2 py-1">
-              {sessions.length === 0 && <li className="p-3 text-xs text-muted-foreground">No Sessions yet.</li>}
-              {active.map(row)}
-            </ul>
-            {archived.length > 0 && (
-              <div className="p-2 pt-1">
-                <button
-                  className="flex w-full items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
-                  aria-expanded={archivedOpen}
-                  onClick={() => setArchivedOpen(!archivedOpen)}
-                >
-                  <ChevronRight className={cn("size-3 transition-transform", archivedOpen && "rotate-90")} />
-                  Archived ({archived.length})
-                </button>
-                {archivedOpen && <ul className="flex flex-col gap-px">{archived.map(row)}</ul>}
-              </div>
-            )}
+          <SessionList sessions={sessions} selected={selected} onSelect={setSelected} onArchive={toggleArchive} onDelete={askDelete}>
             {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
-          </ScrollArea>
+          </SessionList>
           <UpdateFooter update={update} />
         </aside>
       )}

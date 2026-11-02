@@ -24,9 +24,10 @@ export const toolDisplays: ToolDisplay[] = [
 
 // Per-viewer choice (Settings > Appearance); every chat follows it, across windows too.
 const KEY = "harness.chat.toolDisplay";
+const DEFAULT = "trace";
 const listeners = new Set<() => void>();
 const read = () => {
-  try { return localStorage.getItem(KEY) ?? toolDisplays[0]!.id; } catch { return toolDisplays[0]!.id; }
+  try { return localStorage.getItem(KEY) ?? DEFAULT; } catch { return DEFAULT; }
 };
 const subscribe = (f: () => void) => {
   listeners.add(f);
@@ -45,5 +46,5 @@ export function setToolDisplay(id: string) {
 
 export function useToolDisplay(): ToolDisplay {
   const id = useSyncExternalStore(subscribe, read);
-  return toolDisplays.find((d) => d.id === id) ?? toolDisplays[0]!;
+  return toolDisplays.find((d) => d.id === id) ?? toolDisplays.find((d) => d.id === DEFAULT)!;
 }

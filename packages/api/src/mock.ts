@@ -101,6 +101,26 @@ export class MockTransport implements Transport {
     private frontends: { id: string; name: string; version: string; frontend_tools?: FrontendToolDecl[] }[],
   ) {
     this.addSession("mock-1", "Mock session (fixture replay)", "chat");
+    // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
+    const h = 3600e3;
+    const ws = (folder: string, o: Partial<WorkspaceInfo> = {}): WorkspaceInfo =>
+      ({ repo_root: folder, worktree_branch: null, base_branch: null, branch: "main", pr: null, ...o });
+    const samples: [string, string, number, number, WorkspaceInfo, SessionSummary["status"]?][] = [
+      ["Compact header layout", "/Users/me/harness", 2, 0.2, ws("/Users/me/harness", { worktree_branch: "harness/compact-header", base_branch: "main", branch: "harness/compact-header" }), "working"],
+      ["Schema refs", "/Users/me/jsonv-ts", 50, 26, ws("/Users/me/jsonv-ts", { worktree_branch: "feat/attachments", base_branch: "main", branch: "feat/attachments", pr: 142 }), "needs_attention"],
+      ["Ping and pong greeting", "/Users/me/harness", 60, 58, ws("/Users/me/harness", { branch: "ping-greeting" })],
+      ["Hono route types", "/Users/me/jsonv-ts", 200, 150, ws("/Users/me/jsonv-ts", { branch: "side-thread-config", pr: 139 })],
+      ["Rust lifetimes questions", "/Users/me/scratch", 400, 380, ws("/Users/me/scratch", { repo_root: null, branch: null })],
+      ["Detached checkout", "/Users/me/supalite", 600, 560, ws("/Users/me/supalite", { branch: null })],
+      ["Biome config cleanup", "/Users/me/dotfiles", 1500, 1400, ws("/Users/me/dotfiles")],
+    ];
+    samples.forEach(([title, folder, c, u, workspace, status], i) => {
+      this.addSession(`mock-s${i + 1}`, title, "chat", false, folder, workspace);
+      const s = this.sessions.at(-1)!;
+      s.created_ms = Date.now() - c * h;
+      s.updated_ms = Date.now() - u * h;
+      if (status) s.status = status;
+    });
   }
 
   private addSession(
@@ -118,9 +138,10 @@ export class MockTransport implements Transport {
       agent_id: "codex",
       folder,
       created_ms: Date.now(),
+      updated_ms: Date.now(),
       status: "idle",
       archived: false,
-      workspace: workspace ?? { repo_root: folder, worktree_branch: null, base_branch: null },
+      workspace: workspace ?? { repo_root: folder, worktree_branch: null, base_branch: null, branch: "main", pr: null },
     });
     this.logs.set(
       id,
@@ -227,6 +248,8 @@ export class MockTransport implements Transport {
           repo_root: isRepo ? cmd.folder : null,
           worktree_branch: worktree ? (pr ? pr.head : (cmd.new_branch ?? `harness/${id}`)) : null,
           base_branch: worktree ? (pr ? pr.base : (cmd.branch ?? "main")) : null,
+          branch: !isRepo ? null : worktree ? (pr ? pr.head : (cmd.new_branch ?? `harness/${id}`)) : pr ? pr.head : (cmd.new_branch ?? cmd.branch ?? "main"),
+          pr: pr?.number ?? null,
         };
         const title = cmd.title ?? (pr ? `#${pr.number} ${pr.title}` : (cmd.folder.split("/").pop() ?? id));
         this.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
@@ -625,6 +648,7 @@ export class MockTransport implements Transport {
   private setStatus(id: string, status: SessionSummary["status"]) {
     const s = this.session(id);
     s.status = status;
+    s.updated_ms = Date.now();
     this.emitApp({ type: "SessionStatus", session_id: id, title: s.title, status });
   }
 
