@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, ChevronRight, Folder, FolderPlus, GitBranch, GitPullRequest, Info, List, MessageSquare, Plus, Puzzle } from "lucide-react";
 import {
-  inTauri, type AgentInfo, type BranchInfo, type Branches, type FrontendManifest, type HarnessClient, type McpServerDef, type PrFilter,
+  inTauri, parsePrRef, type AgentInfo, type BranchInfo, type Branches, type FrontendManifest, type HarnessClient, type McpServerDef, type PrFilter,
   type PullRequest,
 } from "@harness/api";
 import {
@@ -11,7 +11,7 @@ import {
 import { AgentIcon } from "./AgentsPanel";
 import { FieldButton, Picker, type PickItem } from "./Picker";
 import {
-  baseName, loadRecent, matches, mergeRecent, parsePrRef, relTime, rememberFolder, sessionFolders, tildify, type RecentFolder,
+  baseName, loadRecent, matches, mergeRecent, relTime, rememberFolder, sessionFolders, tildify, type RecentFolder,
 } from "./composer";
 
 /** What the Session starts from in a repository. */

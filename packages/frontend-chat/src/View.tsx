@@ -26,6 +26,7 @@ import { errorMessage } from "./errors";
 import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
 import { usePanelDrag } from "./panelDrag";
 import { uiIcons } from "./uiIcons";
+import { PrRefProvider } from "./prRefs";
 import {
   closeThread, expand, hide, isDraftThread, isOpen, isSlotPanel, loadLayout, move, openThread, replaceThread, reconcile, resetLayout, resize, saveLayout, selectThread, show,
   shownOpen, slotIdOf, slotPanel, toggle, type Layout, type PanelId, type Zone,
@@ -426,30 +427,32 @@ function ChatView({ api, toolbar, status, menu }: { api: SessionApi; toolbar?: H
   );
 
   return (
-    <div className="relative flex h-full">
-      {(!leftEmpty || drag) && <Stripe side="left" groups={left} drag={drag} overlay={leftEmpty} onToggle={onToggle} onPress={(it, e) => startDrag(it.id, it.label, e)} />}
-      <DockLayout
-        layout={shown}
-        chat={chat}
-        panels={panels}
-        drag={drag}
-        leftStripeOverlay={leftEmpty}
-        onResize={(patch) => update((l) => resize(l, patch))}
-        onMove={(id, zone) => update((l) => move(l, id, zone))}
-        onHide={(id) => update((l) => hide(l, id))}
-        onExpand={(id) => update((l) => expand(l, id))}
-        onDragStart={startDrag}
-      />
-      <Stripe side="right" groups={right} drag={drag} onToggle={onToggle} onPress={(it, e) => startDrag(it.id, it.label, e)} />
-      {drag && (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
-          style={{ left: drag.x + 12, top: drag.y + 12 }}
-        >
-          {icon(drag.id)} {drag.label}
-        </div>
-      )}
-    </div>
+    <PrRefProvider api={api}>
+      <div className="relative flex h-full">
+        {(!leftEmpty || drag) && <Stripe side="left" groups={left} drag={drag} overlay={leftEmpty} onToggle={onToggle} onPress={(it, e) => startDrag(it.id, it.label, e)} />}
+        <DockLayout
+          layout={shown}
+          chat={chat}
+          panels={panels}
+          drag={drag}
+          leftStripeOverlay={leftEmpty}
+          onResize={(patch) => update((l) => resize(l, patch))}
+          onMove={(id, zone) => update((l) => move(l, id, zone))}
+          onHide={(id) => update((l) => hide(l, id))}
+          onExpand={(id) => update((l) => expand(l, id))}
+          onDragStart={startDrag}
+        />
+        <Stripe side="right" groups={right} drag={drag} onToggle={onToggle} onPress={(it, e) => startDrag(it.id, it.label, e)} />
+        {drag && (
+          <div
+            aria-hidden
+            className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
+            style={{ left: drag.x + 12, top: drag.y + 12 }}
+          >
+            {icon(drag.id)} {drag.label}
+          </div>
+        )}
+      </div>
+    </PrRefProvider>
   );
 }

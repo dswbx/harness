@@ -56,13 +56,6 @@ export function relTime(ms: number, now = Date.now()): string {
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** A PR number from "142", "#142" or a GitHub PR URL. */
-export function parsePrRef(q: string): number | null {
-  const m = q.trim().match(/^#?(\d+)$/) ?? q.match(/\/pull\/(\d+)/);
-  const n = m ? Number(m[1]) : NaN;
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
-}
-
 /** Case-insensitive match of every word in `q` against any of `fields`. */
 export function matches(q: string, ...fields: (string | undefined)[]): boolean {
   const hay = fields.join(" ").toLowerCase();

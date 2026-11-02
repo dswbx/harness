@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "@harness/api";
-import { matches, mergeRecent, parsePrRef, relTime, sessionFolders, tildify } from "./composer";
+import { matches, mergeRecent, relTime, sessionFolders, tildify } from "./composer";
 
 describe("composer helpers", () => {
   it("merges recent folders newest first, one per path", () => {
@@ -20,10 +20,6 @@ describe("composer helpers", () => {
       ["now", "5m", "3h", "Yesterday", "4d", "2w"],
     );
     expect([tildify("/Users/me/x/y"), tildify("/Users/me"), tildify("/opt/x")]).toEqual(["~/x/y", "~", "/opt/x"]);
-  });
-
-  it("reads PR refs", () => {
-    expect(["142", "#7", "https://github.com/o/r/pull/31/files", "abc", "0"].map(parsePrRef)).toEqual([142, 7, 31, null, null]);
   });
 
   it("matches every word", () => {

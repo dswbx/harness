@@ -625,6 +625,11 @@ export class MockTransport implements Transport {
           } } });
           return { type: "Ok" };
         }
+        // Typing "/prs" simulates a reply with PR references in every form (chips; one batched lookup).
+        if (cmd.text.trim() === "/prs") {
+          this.emit(sid, { type: "AgentMessageChunk", text: "PR roundup: #23 landed, supabase/spark#17 is open and spark#12 merged. https://github.com/dswbx/harness/pull/21 has failing checks; draft #20 and closed #18 stay as they are, #999 does not exist.\n\nText only: C#, `#24` in code, and [the chips PR](https://github.com/dswbx/harness/pull/24)." });
+          return { type: "Ok" };
+        }
         // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.
         if (cmd.text.trim() === "/card") {
           const n = ++this.cardN;

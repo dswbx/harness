@@ -2,15 +2,17 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { AnsiText } from "./AnsiText";
 import { Expandable } from "./Expandable";
 import { rehypeInlineCode, useGuessInlineCode } from "./inlineCode";
+import { PrChip, usePrRefs } from "./prRefs";
+import { rehypePrRefs } from "./rehypePrRefs";
 
 /** mermaid is large: loaded with the first diagram. */
 const Mermaid = lazy(() => import("./Mermaid").then((m) => ({ default: m.Mermaid })));
 
-type Hast = { type: string; value?: string; tagName?: string; properties?: { className?: unknown }; children?: Hast[] };
+type Hast = { type: string; value?: string; tagName?: string; properties?: { className?: unknown; dataPrRef?: unknown; dataRaw?: unknown }; children?: Hast[] };
 const textOf = (n: Hast): string => n.value ?? (n.children ?? []).map(textOf).join("");
 
 /** ```mermaid fences become diagrams and ```ansi fences terminal output; other code stays as is. */
@@ -49,6 +51,12 @@ const components: import("react-markdown").Components = {
   thead: ({ node: _, ...props }) => <thead {...props} className="bg-muted/50" />,
   th: ({ node: _, ...props }) => <th {...props} className="px-3 py-2 font-medium" />,
   td: ({ node: _, ...props }) => <td {...props} className="px-3 py-2" />,
+  // PR refs marked by `rehypePrRefs`.
+  span({ node, ...props }) {
+    const p = (node as Hast | undefined)?.properties;
+    if (typeof p?.dataPrRef === "string") return <PrChip refKey={p.dataPrRef} raw={String(p.dataRaw ?? "")} />;
+    return <span {...props} />;
+  },
 };
 import { cn } from "@harness/ui";
 
@@ -56,17 +64,20 @@ type Plugins = NonNullable<import("react-markdown").Options["rehypePlugins"]>;
 const block: Plugins[number] = [rehypeHighlight, { detect: false, plainText: ["mermaid", "ansi"] }];
 /** Code blocks with a language, and inline code (see `inlineCode.ts`; guessing per Settings), get highlight.js tokens,
  * colored by the shared code theme (`@harness/ui`). */
-const highlight: Record<"guess" | "marked", Plugins> = {
-  guess: [block, [rehypeInlineCode, { guess: true }]],
-  marked: [block, [rehypeInlineCode, { guess: false }]],
-};
+const inline = { guess: [rehypeInlineCode, { guess: true }], marked: [rehypeInlineCode, { guess: false }] } satisfies Record<string, Plugins[number]>;
 
 /** `breaks`: single newlines become line breaks (user prompts are typed that way). */
 export function Markdown({ children, className, breaks }: { children: string; className?: string; breaks?: boolean }) {
   const guess = useGuessInlineCode();
+  // PR refs become chips (inside a Session's `PrRefProvider`) before inline code turns into spans.
+  const prCtx = usePrRefs()?.ctx;
+  const plugins = useMemo<Plugins>(
+    () => [block, ...(prCtx ? [[rehypePrRefs, { ctx: prCtx }] as Plugins[number]] : []), inline[guess ? "guess" : "marked"]],
+    [guess, prCtx],
+  );
   return (
     <div className={cn("typeset typeset-chat", className)}>
-      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]} rehypePlugins={highlight[guess ? "guess" : "marked"]} components={components}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]} rehypePlugins={plugins} components={components}>{children}</ReactMarkdown>
     </div>
   );
 }
