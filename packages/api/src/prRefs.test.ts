@@ -30,6 +30,10 @@ describe("findPrRefs", () => {
   });
 
   it("keeps C#, words that are no known repo, and non-PR URLs as text", () => {
+    expect(raws("a#3 har#3 C# hrns#3 spar#3")).toEqual([]);
+    expect(raws("harness#3 spark#17")).toEqual(["harness#3", "spark#17"]);
+    // Fuzzy is opt-in (prompt autocomplete).
+    expect(findPrRefs("har#3", ctx, { fuzzy: true }).map((m) => m.raw)).toEqual(["har#3"]);
     expect(raws("C# and F#, issue#3, step#2 #0")).toEqual([]);
     expect(raws("https://example.com/page#23 https://github.com/o/r/issues/5 https://github.com/o/r#5 x.com/a#3")).toEqual([]);
     // Without context only explicit refs count.
@@ -39,7 +43,7 @@ describe("findPrRefs", () => {
 
 describe("resolveRepo", () => {
   const one = (t: string) => {
-    const r = resolveRepo(t, ctx);
+    const r = resolveRepo(t, ctx, { fuzzy: true });
     return r.kind === "one" ? `${r.repo.owner}/${r.repo.name}` : r.kind;
   };
   it("goes by tier: exact, prefix, substring, subsequence", () => {
@@ -54,12 +58,28 @@ describe("resolveRepo", () => {
     // spark 2.1, supabase 1.1, spikes 0.1: spark clearly leads.
     expect(one("s")).toBe("supabase/spark");
     const close = { ...ctx, knownRepos: [known("a/lite", 1), known("b/lite", 0.8), known("c/lite", 0.1)] };
-    const r = resolveRepo("lite", close);
+    const r = resolveRepo("lite", close, { fuzzy: true });
     expect(r).toEqual({ kind: "ambiguous", repos: [repo("a/lite"), repo("b/lite"), repo("c/lite")] });
-    expect(resolveRepo("lite", { ...close, knownRepos: [known("a/lite", 1), known("b/lite", 0.74)] })).toMatchObject({ kind: "one", repo: repo("a/lite") });
+    expect(resolveRepo("lite", { ...close, knownRepos: [known("a/lite", 1), known("b/lite", 0.74)] }, { fuzzy: true })).toMatchObject({ kind: "one", repo: repo("a/lite") });
   });
   it("counts the Session repo when it is not known", () => {
-    expect(resolveRepo("solo", { sessionRepo: repo("me/solo"), knownRepos: [] })).toEqual({ kind: "one", repo: repo("me/solo") });
+    expect(resolveRepo("solo", { sessionRepo: repo("me/solo"), knownRepos: [] }, { fuzzy: true })).toEqual({ kind: "one", repo: repo("me/solo") });
+  });
+});
+
+describe("resolveRepo strict (default)", () => {
+  it("needs an exact, unique name", () => {
+    expect(resolveRepo("harness", ctx)).toEqual({ kind: "one", repo: repo("dswbx/harness") });
+    expect(resolveRepo("Spark", ctx)).toEqual({ kind: "one", repo: repo("supabase/spark") });
+    expect(resolveRepo("supabase/lite", ctx)).toEqual({ kind: "one", repo: repo("supabase/lite") });
+    for (const t of ["a", "har", "abase", "hrns", "zzz", "s"]) expect(resolveRepo(t, ctx).kind).toBe("none");
+    expect(resolveRepo("me", { sessionRepo: repo("me/me"), knownRepos: [] })).toEqual({ kind: "one", repo: repo("me/me") });
+  });
+  it("is ambiguous when two known repos share the name", () => {
+    const two = { ...ctx, knownRepos: [...ctx.knownRepos, known("me/spark", 0.5)] };
+    expect(resolveRepo("spark", two).kind).toBe("ambiguous");
+    expect(raws("spark#1", two)).toEqual([]);
+    expect(qualify("spark#1", two)).toBeNull();
   });
 });
 
@@ -79,6 +99,8 @@ describe("qualify and displayRef", () => {
     expect(qualify("https://github.com/o/r/pull/3/files", ctx)).toEqual({ repo: repo("o/r"), number: 3 });
     expect(qualify("#23", { ...ctx, sessionRepo: null })).toBeNull();
     expect(qualify("nope#1", ctx)).toBeNull();
+    expect(qualify("spar#17", ctx)).toBeNull();
+    expect(qualify("spar#17", ctx, { fuzzy: true })).toEqual({ repo: repo("supabase/spark"), number: 17 });
     expect(qualify("#23 and more", ctx)).toBeNull();
   });
   it("shows the shortest unambiguous form", () => {

@@ -36,8 +36,12 @@ export function parsePrKey(s: string): PrRefKey | null {
   return m && number ? { repo: { owner: m[1]!, name: m[2]! }, number } : null;
 }
 
+/** `fuzzy` allows prefix/substring/subsequence repo matches. Only for UIs where the user picks a match (prompt
+ * autocomplete). Message text stays strict: `repo` must equal exactly one known repo's name. */
+export type ResolveOpts = { fuzzy?: boolean };
+
 /** Refs in `text`. `repo#17` counts only when `repo` resolves to one known repo, so `issue#3` stays text. */
-export function findPrRefs(text: string, ctx: PrRefContext = { sessionRepo: null, knownRepos: [] }): PrRefMatch[] {
+export function findPrRefs(text: string, ctx: PrRefContext = { sessionRepo: null, knownRepos: [] }, opts: ResolveOpts = {}): PrRefMatch[] {
   const out: PrRefMatch[] = [];
   for (const m of text.matchAll(REF)) {
     const [raw, uOwner, uName, uNum, owner, name, num] = m;
@@ -47,7 +51,7 @@ export function findPrRefs(text: string, ctx: PrRefContext = { sessionRepo: null
     if (uOwner) repo = `${uOwner}/${uName}`;
     else if (owner) repo = `${owner}/${name}`;
     else if (name) {
-      if (resolveRepo(name, ctx).kind !== "one") continue;
+      if (resolveRepo(name, ctx, opts).kind !== "one") continue;
       repo = name;
     }
     out.push({ start: m.index, end: m.index + raw.length, raw, repo, number });
@@ -85,11 +89,18 @@ function candidates(ctx: PrRefContext): KnownRepo[] {
   return [...knownRepos, { repo: sessionRepo, sessions: 1, score: top, last_ms: 0 }];
 }
 
-/** The repo a typed `repo` or `owner/repo` means: the best match tier wins, ties go by score; when the top two of that
- * tier are within 25% of each other it is ambiguous. */
-export function resolveRepo(token: string, ctx: PrRefContext): RepoResolution {
+/** The repo a typed `repo` or `owner/repo` means. Strict (default): the token must equal exactly one known repo's name
+ * (case-insensitive), else "ambiguous" (several) or "none". With `fuzzy`: the best match tier wins, ties go by score;
+ * when the top two of that tier are within 25% of each other it is ambiguous. */
+export function resolveRepo(token: string, ctx: PrRefContext, { fuzzy = false }: ResolveOpts = {}): RepoResolution {
   if (!token) return { kind: "none" };
   const full = token.includes("/");
+  if (!fuzzy) {
+    const t = token.toLowerCase();
+    const same = candidates(ctx).filter((k) => (full ? repoName(k.repo) : k.repo.name).toLowerCase() === t);
+    if (same.length > 1) return { kind: "ambiguous", repos: same.map((k) => k.repo) };
+    return same[0] ? { kind: "one", repo: same[0].repo } : { kind: "none" };
+  }
   const hits = fuzzyRank(token, candidates(ctx), (k) => (full ? repoName(k.repo) : k.repo.name), (k) => k.score);
   if (!hits.length) return { kind: "none" };
   const best = hits.filter((h) => h.tier === hits[0]!.tier);
@@ -99,11 +110,11 @@ export function resolveRepo(token: string, ctx: PrRefContext): RepoResolution {
 }
 
 /** The full key of one ref (a string like `#17`, or a match); null when its repo is unknown or ambiguous. */
-export function qualify(ref: string | PrRefMatch, ctx: PrRefContext): PrRefKey | null {
+export function qualify(ref: string | PrRefMatch, ctx: PrRefContext, opts: ResolveOpts = {}): PrRefKey | null {
   let m: PrRefMatch | undefined;
   if (typeof ref === "string") {
     const s = ref.trim();
-    m = findPrRefs(s, ctx).find((x) => x.start === 0 && x.end === s.length);
+    m = findPrRefs(s, ctx, opts).find((x) => x.start === 0 && x.end === s.length);
   } else m = ref;
   if (!m) return null;
   if (m.repo === null) return ctx.sessionRepo ? { repo: ctx.sessionRepo, number: m.number } : null;
@@ -112,7 +123,7 @@ export function qualify(ref: string | PrRefMatch, ctx: PrRefContext): PrRefKey |
     const known = candidates(ctx).find((k) => sameRepo(k.repo, { owner, name }));
     return { repo: known?.repo ?? { owner, name }, number: m.number };
   }
-  const r = resolveRepo(m.repo, ctx);
+  const r = resolveRepo(m.repo, ctx, opts);
   return r.kind === "one" ? { repo: r.repo, number: m.number } : null;
 }
 
