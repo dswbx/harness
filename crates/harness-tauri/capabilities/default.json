@@ -1,17 +1,17 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "All Harness windows: core IPC, opening View windows, folder picker, external links.",
-  "windows": ["*"],
-  "permissions": [
-    "core:default",
-    "core:webview:allow-create-webview-window",
-    "core:window:allow-set-title",
-    "core:window:allow-start-dragging",
-    "dialog:allow-open",
-    "opener:allow-open-url",
-    "opener:allow-default-urls",
-    "opener:allow-reveal-item-in-dir",
-    "notification:default"
-  ]
+   "$schema": "../gen/schemas/desktop-schema.json",
+   "identifier": "default",
+   "description": "All Harness windows: core IPC, opening View windows, folder picker, external links.",
+   "windows": ["*"],
+   "permissions": [
+      "core:default",
+      "core:webview:allow-create-webview-window",
+      "core:window:allow-set-title",
+      "core:window:allow-start-dragging",
+      "dialog:allow-open",
+      "opener:allow-open-url",
+      "opener:allow-default-urls",
+      "opener:allow-reveal-item-in-dir",
+      "notification:default"
+   ]
 }

@@ -1,19 +1,19 @@
 import type { SlashCommand } from "@harness/api";
 
 export function matchCommands(commands: SlashCommand[], text: string): SlashCommand[] {
-  if (!text.startsWith("/") || /\s/.test(text)) return [];
-  const q = text.slice(1).toLowerCase();
-  const name = (c: SlashCommand) => c.name.toLowerCase();
-  // Prefix matches first, then other substring matches; each group keeps the Agent's order.
-  const prefix = commands.filter((c) => name(c).startsWith(q));
-  const rest = commands.filter((c) => !name(c).startsWith(q) && name(c).includes(q));
-  return [...prefix, ...rest].slice(0, 8);
+   if (!text.startsWith("/") || /\s/.test(text)) return [];
+   const q = text.slice(1).toLowerCase();
+   const name = (c: SlashCommand) => c.name.toLowerCase();
+   // Prefix matches first, then other substring matches; each group keeps the Agent's order.
+   const prefix = commands.filter((c) => name(c).startsWith(q));
+   const rest = commands.filter((c) => !name(c).startsWith(q) && name(c).includes(q));
+   return [...prefix, ...rest].slice(0, 8);
 }
 
 /** The command a prompt starts with (`/name`, then whitespace or the end), only when it is one of `commands`. `/api/users` is not one. */
 export function leadingCommand(commands: SlashCommand[], text: string): SlashCommand | null {
-  const m = /^\/(\S+)(?:\s|$)/.exec(text);
-  return (m && commands.find((c) => c.name === m[1])) ?? null;
+   const m = /^\/(\S+)(?:\s|$)/.exec(text);
+   return (m && commands.find((c) => c.name === m[1])) ?? null;
 }
 
 /**
@@ -22,12 +22,16 @@ export function leadingCommand(commands: SlashCommand[], text: string): SlashCom
  */
 export const BTW = "btw";
 export const withSideThreadCommand = (commands: SlashCommand[]): SlashCommand[] => [
-  { name: BTW, description: "Ask in a side thread; the Main Thread never sees it", hint: "<question>" },
-  ...commands.filter((c) => c.name !== BTW),
+   {
+      name: BTW,
+      description: "Ask in a side thread; the Main Thread never sees it",
+      hint: "<question>",
+   },
+   ...commands.filter((c) => c.name !== BTW),
 ];
 
 /** The question of a `/btw ` message (exact prefix, then text), else null. */
 export function btwQuestion(markdown: string): string | null {
-  const m = /^\/btw (.+)$/s.exec(markdown.trim());
-  return m?.[1]?.trim() || null;
+   const m = /^\/btw (.+)$/s.exec(markdown.trim());
+   return m?.[1]?.trim() || null;
 }

@@ -36,12 +36,12 @@ Two separate scopes:
 
 Levels for other Sessions:
 
-| Level | Readable Sessions |
-|---|---|
-| `off` (default) | none |
-| `same_folder` | same project folder |
-| `same_agent` | made with the same Agent (provider boundary) |
-| `all` | every Session |
+| Level           | Readable Sessions                            |
+| --------------- | -------------------------------------------- |
+| `off` (default) | none                                         |
+| `same_folder`   | same project folder                          |
+| `same_agent`    | made with the same Agent (provider boundary) |
+| `all`           | every Session                                |
 
 `same_folder` and `same_agent` could combine.
 

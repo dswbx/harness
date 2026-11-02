@@ -1,196 +1,274 @@
-import { useMemo } from "react";
-import { Brain, ChevronDown, Info, MoreHorizontal, Shield, SlidersHorizontal, Zap } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuSwitchItem,
-  DropdownMenuTrigger,
-  Tooltip,
-  cn,
+   cn,
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuLabel,
+   DropdownMenuRadioGroup,
+   DropdownMenuRadioItem,
+   DropdownMenuSeparator,
+   DropdownMenuSub,
+   DropdownMenuSubContent,
+   DropdownMenuSubTrigger,
+   DropdownMenuSwitchItem,
+   DropdownMenuTrigger,
+   Tooltip,
 } from "@harness/ui";
-import { chipLabel, fastOn, type ConfigGroups, groupConfigOptions, isToggle, toggleKind, valueName } from "./configGroups";
+import {
+   Brain,
+   ChevronDown,
+   Info,
+   MoreHorizontal,
+   Shield,
+   SlidersHorizontal,
+   Zap,
+} from "lucide-react";
+import { useMemo } from "react";
+import {
+   type ConfigGroups,
+   chipLabel,
+   fastOn,
+   groupConfigOptions,
+   isToggle,
+   toggleKind,
+   valueName,
+} from "./configGroups";
 import type { ConfigOption } from "./reducer";
 
 type OnChange = (id: string, value: string) => void;
 
 const trigger =
-  "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
+   "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
 
 /** Footer controls for the Agent's config options: Mode, Model chip, and a "More options" menu. */
-export function ConfigBar({ options, onChange, compact = false, modeOnly = false }: {
-  options: ConfigOption[];
-  onChange: OnChange;
-  /** Narrow prompt box: everything in one "Options" menu. */
-  compact?: boolean;
-  /** Only the Mode picker (Side Threads own just their mode). */
-  modeOnly?: boolean;
+export function ConfigBar({
+   options,
+   onChange,
+   compact = false,
+   modeOnly = false,
+}: {
+   options: ConfigOption[];
+   onChange: OnChange;
+   /** Narrow prompt box: everything in one "Options" menu. */
+   compact?: boolean;
+   /** Only the Mode picker (Side Threads own just their mode). */
+   modeOnly?: boolean;
 }) {
-  const g = useMemo(() => groupConfigOptions(options), [options]);
-  const label = chipLabel(g);
-  if (modeOnly) return g.mode ? <ModePicker o={g.mode} onChange={onChange} compact={compact} /> : null;
-  if (compact) return <CompactBar g={g} label={label} onChange={onChange} />;
-  return (
-    <>
-      {g.mode && <ModePicker o={g.mode} onChange={onChange} />}
-      {g.model && label && (
-        <DropdownMenu>
-          <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`}>
-            <span className="truncate">{label}</span>
-            {fastOn(g) && <Zap className="size-3.5 shrink-0 fill-yellow-400 text-yellow-400" aria-label="Fast mode on" />}
-            <ChevronDown className="size-3 shrink-0 opacity-60" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-64">
-            <OptionHeader o={g.model} />
-            <Values o={g.model} onChange={onChange} />
-            {(g.effort || g.chipSubmenus.length > 0 || g.chipToggles.length > 0) && <DropdownMenuSeparator />}
-            {g.effort && <OptionSub o={g.effort} label="Effort" onChange={onChange} />}
-            {g.chipSubmenus.map((o) => (
-              <OptionSub key={o.id} o={o} onChange={onChange} />
-            ))}
-            {g.chipToggles.map((o) => (
-              <OptionRow key={o.id} o={o} onChange={onChange} />
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-      {g.more.length > 0 && (
-        <DropdownMenu>
-          <Tooltip content="More options">
-            <DropdownMenuTrigger className={trigger} aria-label="More options">
-              <MoreHorizontal className="size-4" />
-            </DropdownMenuTrigger>
-          </Tooltip>
-          <DropdownMenuContent side="top" align="start" className="w-64">
-            {g.more.map((o) => (
-              <OptionRow key={o.id} o={o} onChange={onChange} />
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </>
-  );
+   const g = useMemo(() => groupConfigOptions(options), [options]);
+   const label = chipLabel(g);
+   if (modeOnly)
+      return g.mode ? <ModePicker o={g.mode} onChange={onChange} compact={compact} /> : null;
+   if (compact) return <CompactBar g={g} label={label} onChange={onChange} />;
+   return (
+      <>
+         {g.mode && <ModePicker o={g.mode} onChange={onChange} />}
+         {g.model && label && (
+            <DropdownMenu>
+               <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`}>
+                  <span className="truncate">{label}</span>
+                  {fastOn(g) && (
+                     <Zap
+                        className="size-3.5 shrink-0 fill-yellow-400 text-yellow-400"
+                        aria-label="Fast mode on"
+                     />
+                  )}
+                  <ChevronDown className="size-3 shrink-0 opacity-60" />
+               </DropdownMenuTrigger>
+               <DropdownMenuContent side="top" align="start" className="w-64">
+                  <OptionHeader o={g.model} />
+                  <Values o={g.model} onChange={onChange} />
+                  {(g.effort || g.chipSubmenus.length > 0 || g.chipToggles.length > 0) && (
+                     <DropdownMenuSeparator />
+                  )}
+                  {g.effort && <OptionSub o={g.effort} label="Effort" onChange={onChange} />}
+                  {g.chipSubmenus.map((o) => (
+                     <OptionSub key={o.id} o={o} onChange={onChange} />
+                  ))}
+                  {g.chipToggles.map((o) => (
+                     <OptionRow key={o.id} o={o} onChange={onChange} />
+                  ))}
+               </DropdownMenuContent>
+            </DropdownMenu>
+         )}
+         {g.more.length > 0 && (
+            <DropdownMenu>
+               <Tooltip content="More options">
+                  <DropdownMenuTrigger className={trigger} aria-label="More options">
+                     <MoreHorizontal className="size-4" />
+                  </DropdownMenuTrigger>
+               </Tooltip>
+               <DropdownMenuContent side="top" align="start" className="w-64">
+                  {g.more.map((o) => (
+                     <OptionRow key={o.id} o={o} onChange={onChange} />
+                  ))}
+               </DropdownMenuContent>
+            </DropdownMenu>
+         )}
+      </>
+   );
 }
 
 /** The Mode chip with its values menu. */
-function ModePicker({ o, onChange, compact = false }: { o: ConfigOption; onChange: OnChange; compact?: boolean }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className={cn(trigger, compact && "max-w-32 min-w-0")} aria-label={`${o.name}: ${valueName(o)}`}>
-        <Shield className="size-3.5 shrink-0" />
-        <span className="truncate">{valueName(o)}</span>
-        <ChevronDown className="size-3 shrink-0 opacity-60" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-72">
-        <OptionHeader o={o} />
-        <Values o={o} onChange={onChange} />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+function ModePicker({
+   o,
+   onChange,
+   compact = false,
+}: {
+   o: ConfigOption;
+   onChange: OnChange;
+   compact?: boolean;
+}) {
+   return (
+      <DropdownMenu>
+         <DropdownMenuTrigger
+            className={cn(trigger, compact && "max-w-32 min-w-0")}
+            aria-label={`${o.name}: ${valueName(o)}`}
+         >
+            <Shield className="size-3.5 shrink-0" />
+            <span className="truncate">{valueName(o)}</span>
+            <ChevronDown className="size-3 shrink-0 opacity-60" />
+         </DropdownMenuTrigger>
+         <DropdownMenuContent side="top" align="start" className="w-72">
+            <OptionHeader o={o} />
+            <Values o={o} onChange={onChange} />
+         </DropdownMenuContent>
+      </DropdownMenu>
+   );
 }
 
 /** One menu with all options as rows: Mode, Model (+ Effort), the model's own options, then the rest. */
-function CompactBar({ g, label, onChange }: { g: ConfigGroups; label: string | null; onChange: OnChange }) {
-  if (!g.mode && !g.model && g.more.length === 0) return null;
-  return (
-    <DropdownMenu>
-      <Tooltip content="Options">
-        <DropdownMenuTrigger className={cn(trigger, "max-w-40 min-w-0")} aria-label={label ? `Options: ${label}` : "Options"}>
-          <SlidersHorizontal className="size-3.5 shrink-0" />
-          {label && <span className="truncate">{label}</span>}
-          {fastOn(g) && <Zap className="size-3.5 shrink-0 fill-yellow-400 text-yellow-400" aria-label="Fast mode on" />}
-          <ChevronDown className="size-3 shrink-0 opacity-60" />
-        </DropdownMenuTrigger>
-      </Tooltip>
-      <DropdownMenuContent side="top" align="start" className="w-64">
-        {g.mode && <OptionSub o={g.mode} onChange={onChange} />}
-        {g.model && <OptionSub o={g.model} onChange={onChange} />}
-        {g.effort && <OptionSub o={g.effort} label="Effort" onChange={onChange} />}
-        {g.chipSubmenus.map((o) => (
-          <OptionSub key={o.id} o={o} onChange={onChange} />
-        ))}
-        {g.chipToggles.map((o) => (
-          <OptionRow key={o.id} o={o} onChange={onChange} />
-        ))}
-        {g.more.length > 0 && (g.mode || g.model) && <DropdownMenuSeparator />}
-        {g.more.map((o) => (
-          <OptionRow key={o.id} o={o} onChange={onChange} />
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+function CompactBar({
+   g,
+   label,
+   onChange,
+}: {
+   g: ConfigGroups;
+   label: string | null;
+   onChange: OnChange;
+}) {
+   if (!g.mode && !g.model && g.more.length === 0) return null;
+   return (
+      <DropdownMenu>
+         <Tooltip content="Options">
+            <DropdownMenuTrigger
+               className={cn(trigger, "max-w-40 min-w-0")}
+               aria-label={label ? `Options: ${label}` : "Options"}
+            >
+               <SlidersHorizontal className="size-3.5 shrink-0" />
+               {label && <span className="truncate">{label}</span>}
+               {fastOn(g) && (
+                  <Zap
+                     className="size-3.5 shrink-0 fill-yellow-400 text-yellow-400"
+                     aria-label="Fast mode on"
+                  />
+               )}
+               <ChevronDown className="size-3 shrink-0 opacity-60" />
+            </DropdownMenuTrigger>
+         </Tooltip>
+         <DropdownMenuContent side="top" align="start" className="w-64">
+            {g.mode && <OptionSub o={g.mode} onChange={onChange} />}
+            {g.model && <OptionSub o={g.model} onChange={onChange} />}
+            {g.effort && <OptionSub o={g.effort} label="Effort" onChange={onChange} />}
+            {g.chipSubmenus.map((o) => (
+               <OptionSub key={o.id} o={o} onChange={onChange} />
+            ))}
+            {g.chipToggles.map((o) => (
+               <OptionRow key={o.id} o={o} onChange={onChange} />
+            ))}
+            {g.more.length > 0 && (g.mode || g.model) && <DropdownMenuSeparator />}
+            {g.more.map((o) => (
+               <OptionRow key={o.id} o={o} onChange={onChange} />
+            ))}
+         </DropdownMenuContent>
+      </DropdownMenu>
+   );
 }
 
 /** Menu header: option name, its description behind an "i" icon. */
 function OptionHeader({ o, name }: { o: ConfigOption; name?: string }) {
-  return (
-    <DropdownMenuLabel className="flex items-center gap-1.5">
-      <span>{name ?? o.name}</span>
-      {o.description && (
-        <Tooltip content={o.description} side="top" align="start">
-          <span role="img" aria-label={o.description} className="text-muted-foreground/70 hover:text-foreground">
-            <Info className="size-3.5" />
-          </span>
-        </Tooltip>
-      )}
-    </DropdownMenuLabel>
-  );
+   return (
+      <DropdownMenuLabel className="flex items-center gap-1.5">
+         <span>{name ?? o.name}</span>
+         {o.description && (
+            <Tooltip content={o.description} side="top" align="start">
+               <span
+                  role="img"
+                  aria-label={o.description}
+                  className="text-muted-foreground/70 hover:text-foreground"
+               >
+                  <Info className="size-3.5" />
+               </span>
+            </Tooltip>
+         )}
+      </DropdownMenuLabel>
+   );
 }
 
 /** Radio list of an option's values (name + description, check on the current one). */
 function Values({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
-  return (
-    <DropdownMenuRadioGroup value={o.currentValue} onValueChange={(v) => v !== o.currentValue && onChange(o.id, v)}>
-      {o.options.map((v) => (
-        <Tooltip key={v.value} content={v.description} side="right">
-          <DropdownMenuRadioItem value={v.value} aria-description={v.description ?? undefined}>
-            <span className="truncate">{v.name}</span>
-          </DropdownMenuRadioItem>
-        </Tooltip>
-      ))}
-    </DropdownMenuRadioGroup>
-  );
+   return (
+      <DropdownMenuRadioGroup
+         value={o.currentValue}
+         onValueChange={(v) => v !== o.currentValue && onChange(o.id, v)}
+      >
+         {o.options.map((v) => (
+            <Tooltip key={v.value} content={v.description} side="right">
+               <DropdownMenuRadioItem value={v.value} aria-description={v.description ?? undefined}>
+                  <span className="truncate">{v.name}</span>
+               </DropdownMenuRadioItem>
+            </Tooltip>
+         ))}
+      </DropdownMenuRadioGroup>
+   );
 }
 
 /** Switch row for on/off options, else a submenu row. */
 function OptionRow({ o, onChange }: { o: ConfigOption; onChange: OnChange }) {
-  const t = isToggle(o);
-  if (!t) return <OptionSub o={o} onChange={onChange} />;
-  const kind = toggleKind(o);
-  return (
-    <Tooltip content={o.description} side="right">
-      <DropdownMenuSwitchItem
-        checked={o.currentValue === t.on}
-        onCheckedChange={(c) => onChange(o.id, c ? t.on : t.off)}
-        onSelect={(e) => e.preventDefault()}
-        aria-description={o.description ?? undefined}
-      >
-        {kind === "fast" && <Zap className={cn("size-4", o.currentValue === t.on ? "text-yellow-400" : "text-muted-foreground")} />}
-        {kind === "think" && <Brain className="size-4 text-muted-foreground" />}
-        <span className="truncate">{o.name}</span>
-      </DropdownMenuSwitchItem>
-    </Tooltip>
-  );
+   const t = isToggle(o);
+   if (!t) return <OptionSub o={o} onChange={onChange} />;
+   const kind = toggleKind(o);
+   return (
+      <Tooltip content={o.description} side="right">
+         <DropdownMenuSwitchItem
+            checked={o.currentValue === t.on}
+            onCheckedChange={(c) => onChange(o.id, c ? t.on : t.off)}
+            onSelect={(e) => e.preventDefault()}
+            aria-description={o.description ?? undefined}
+         >
+            {kind === "fast" && (
+               <Zap
+                  className={cn(
+                     "size-4",
+                     o.currentValue === t.on ? "text-yellow-400" : "text-muted-foreground",
+                  )}
+               />
+            )}
+            {kind === "think" && <Brain className="size-4 text-muted-foreground" />}
+            <span className="truncate">{o.name}</span>
+         </DropdownMenuSwitchItem>
+      </Tooltip>
+   );
 }
 
 /** Submenu row: name left, current value right; radio items inside. */
-function OptionSub({ o, label, onChange }: { o: ConfigOption; label?: string; onChange: OnChange }) {
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger aria-description={o.description ?? undefined}>
-        <span className="flex-1 truncate">{label ?? o.name}</span>
-        <span className="max-w-28 truncate text-xs text-muted-foreground">{valueName(o)}</span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-60">
-        <OptionHeader o={o} />
-        <Values o={o} onChange={onChange} />
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  );
+function OptionSub({
+   o,
+   label,
+   onChange,
+}: {
+   o: ConfigOption;
+   label?: string;
+   onChange: OnChange;
+}) {
+   return (
+      <DropdownMenuSub>
+         <DropdownMenuSubTrigger aria-description={o.description ?? undefined}>
+            <span className="flex-1 truncate">{label ?? o.name}</span>
+            <span className="max-w-28 truncate text-xs text-muted-foreground">{valueName(o)}</span>
+         </DropdownMenuSubTrigger>
+         <DropdownMenuSubContent className="w-60">
+            <OptionHeader o={o} />
+            <Values o={o} onChange={onChange} />
+         </DropdownMenuSubContent>
+      </DropdownMenuSub>
+   );
 }

@@ -28,15 +28,15 @@ First steps in the app: **Agents** → install Claude or Codex → **New Session
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `crates/harness-core` | The core: Commands in, Events out (`src/api.rs`). No Tauri dependency. |
-| `crates/harness-tauri` | Tauri adapter: IPC (`execute`, Session and app subscriptions), windows, badge and notifications, `mcp-shim` subcommand. |
-| `crates/fake-agent` | Scripted ACP agent (and MCP client) for deterministic tests. |
-| `packages/api` | `@harness/api`: generated types, transports (Tauri, mock), client. |
-| `packages/ui` | `@harness/ui`: shared components (Tailwind v4, shadcn style). |
-| `packages/frontend-chat`, `packages/frontend-inspector` | Frontends: a manifest plus a React module. They may import only `@harness/api` and `@harness/ui`. |
-| `app` | The shell: sidebar, Composer, Agents, MCP and permission dialogs, View host. |
+| Path                                                    | What                                                                                                                    |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `crates/harness-core`                                   | The core: Commands in, Events out (`src/api.rs`). No Tauri dependency.                                                  |
+| `crates/harness-tauri`                                  | Tauri adapter: IPC (`execute`, Session and app subscriptions), windows, badge and notifications, `mcp-shim` subcommand. |
+| `crates/fake-agent`                                     | Scripted ACP agent (and MCP client) for deterministic tests.                                                            |
+| `packages/api`                                          | `@harness/api`: generated types, transports (Tauri, mock), client.                                                      |
+| `packages/ui`                                           | `@harness/ui`: shared components (Tailwind v4, shadcn style).                                                           |
+| `packages/frontend-chat`, `packages/frontend-inspector` | Frontends: a manifest plus a React module. They may import only `@harness/api` and `@harness/ui`.                       |
+| `app`                                                   | The shell: sidebar, Composer, Agents, MCP and permission dialogs, View host.                                            |
 
 ## Writing a Frontend
 
@@ -67,10 +67,10 @@ bun run bundle
 
 This builds `target/release/bundle/macos/Harness.app` and a `.dmg`. Signing and notarization are driven by environment variables, so no secrets live in the repo:
 
-| Variable | Purpose |
-|---|---|
-| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)`, from your keychain |
-| `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID` | Notarization |
+| Variable                                                              | Purpose                                                            |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `APPLE_SIGNING_IDENTITY`                                              | e.g. `Developer ID Application: Name (TEAMID)`, from your keychain |
+| `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID` | Notarization                                                       |
 
 Without them the build is unsigned, which is fine locally: right-click → Open the first time. Hardened runtime is on. The app doesn't use the App Sandbox, because it spawns Agents, git and the toolchain.
 
@@ -78,11 +78,11 @@ Without them the build is unsigned, which is fine locally: right-click → Open 
 
 Everything lives under `~/.harness/`. Dev builds use `~/.harness-dev/` instead. `HARNESS_HOME` overrides both. `bun run dev:copy-data` replaces the dev data with a copy of the real data (without worktrees).
 
-| Path | Contents |
-|---|---|
-| `sessions/<id>/` | `session.json`, `log.jsonl`, `frontend/` |
-| `worktrees/<id>/` | Worktrees |
-| `agents/`, `toolchain/` | Installed Agents and runtimes |
+| Path                                                                 | Contents                                                            |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `sessions/<id>/`                                                     | `session.json`, `log.jsonl`, `frontend/`                            |
+| `worktrees/<id>/`                                                    | Worktrees                                                           |
+| `agents/`, `toolchain/`                                              | Installed Agents and runtimes                                       |
 | `agents.json`, `permissions.json`, `mcp.json`, `registry-cache.json` | Agent records, Permission Policy rules, MCP Library, registry cache |
 
 MCP Library secrets are in the Keychain under `dev.dswbx.harness.mcp`.

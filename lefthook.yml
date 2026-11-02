@@ -1,0 +1,7 @@
+# Installed by `bun install` (postinstall). Formats and lints staged files, restaging fixes.
+pre-commit:
+   commands:
+      biome:
+         glob: "*.{ts,tsx,js,mjs,json,jsonc,css,yml,yaml}"
+         run: bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+         stage_fixed: true

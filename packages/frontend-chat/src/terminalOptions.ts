@@ -5,21 +5,29 @@ import { useSyncExternalStore } from "react";
 const KEY = "harness.terminal.optionIsMeta";
 const listeners = new Set<() => void>();
 export const readOptionIsMeta = () => {
-  try { return localStorage.getItem(KEY) === "on"; } catch { return false; }
+   try {
+      return localStorage.getItem(KEY) === "on";
+   } catch {
+      return false;
+   }
 };
 export const onOptionIsMetaChange = (f: () => void) => {
-  listeners.add(f);
-  const onStorage = (e: StorageEvent) => e.key === KEY && f();
-  window.addEventListener("storage", onStorage);
-  return () => {
-    listeners.delete(f);
-    window.removeEventListener("storage", onStorage);
-  };
+   listeners.add(f);
+   const onStorage = (e: StorageEvent) => e.key === KEY && f();
+   window.addEventListener("storage", onStorage);
+   return () => {
+      listeners.delete(f);
+      window.removeEventListener("storage", onStorage);
+   };
 };
 
 export function setOptionIsMeta(on: boolean) {
-  try { localStorage.setItem(KEY, on ? "on" : "off"); } catch { /* per-viewer convenience only */ }
-  listeners.forEach((f) => f());
+   try {
+      localStorage.setItem(KEY, on ? "on" : "off");
+   } catch {
+      /* per-viewer convenience only */
+   }
+   listeners.forEach((f) => f());
 }
 
 /** Whether the terminal's Option key is Meta instead of typing characters (macOS). */

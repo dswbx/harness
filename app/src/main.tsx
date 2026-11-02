@@ -17,9 +17,9 @@ import { initAppearance } from "./appearance/appearance";
 initAppearance();
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <TooltipProvider>
-      <App />
-    </TooltipProvider>
-  </StrictMode>,
+   <StrictMode>
+      <TooltipProvider>
+         <App />
+      </TooltipProvider>
+   </StrictMode>,
 );

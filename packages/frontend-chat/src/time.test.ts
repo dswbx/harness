@@ -1,48 +1,61 @@
 import { describe, expect, it } from "vitest";
 import { formatAge, formatDuration, formatRelativeTime } from "./time";
 
-const at = (y: number, mo: number, d: number, h = 14, mi = 32) => new Date(y, mo - 1, d, h, mi).getTime();
+const at = (y: number, mo: number, d: number, h = 14, mi = 32) =>
+   new Date(y, mo - 1, d, h, mi).getTime();
 const now = at(2026, 10, 29, 18, 0);
 const ago = (ms: number) => formatRelativeTime(now - ms, now, "en");
 
 describe("formatRelativeTime", () => {
-  it("under 45s: just now (also for small clock skew into the future)", () => {
-    expect(ago(10_000)).toBe("just now");
-    expect(ago(-5_000)).toBe("just now");
-  });
-  it("minutes, never 0", () => {
-    expect(ago(50_000)).toBe("1 minute ago");
-    expect(ago(5 * 60_000)).toBe("5 minutes ago");
-  });
-  it("hours", () => {
-    expect(ago(60 * 60_000)).toBe("1 hour ago");
-    expect(ago(3 * 60 * 60_000 + 10 * 60_000)).toBe("3 hours ago");
-  });
-  it("days by calendar day: yesterday, then n days ago", () => {
-    expect(formatRelativeTime(at(2026, 10, 28, 9, 0), now, "en")).toBe("yesterday");
-    expect(formatRelativeTime(at(2026, 10, 26), now, "en")).toBe("3 days ago");
-  });
-  it("over 23h but same-ish evening counts as yesterday", () => {
-    expect(formatRelativeTime(at(2026, 10, 28, 17, 0), at(2026, 10, 29, 17, 30), "en")).toBe("yesterday");
-  });
-  it("a week or older: date, year only when not this year", () => {
-    expect(formatRelativeTime(at(2026, 10, 12), now, "en-GB")).toBe("12 Oct");
-    expect(formatRelativeTime(at(2025, 10, 12), now, "en-GB")).toBe("12 Oct 2025");
-  });
+   it("under 45s: just now (also for small clock skew into the future)", () => {
+      expect(ago(10_000)).toBe("just now");
+      expect(ago(-5_000)).toBe("just now");
+   });
+   it("minutes, never 0", () => {
+      expect(ago(50_000)).toBe("1 minute ago");
+      expect(ago(5 * 60_000)).toBe("5 minutes ago");
+   });
+   it("hours", () => {
+      expect(ago(60 * 60_000)).toBe("1 hour ago");
+      expect(ago(3 * 60 * 60_000 + 10 * 60_000)).toBe("3 hours ago");
+   });
+   it("days by calendar day: yesterday, then n days ago", () => {
+      expect(formatRelativeTime(at(2026, 10, 28, 9, 0), now, "en")).toBe("yesterday");
+      expect(formatRelativeTime(at(2026, 10, 26), now, "en")).toBe("3 days ago");
+   });
+   it("over 23h but same-ish evening counts as yesterday", () => {
+      expect(formatRelativeTime(at(2026, 10, 28, 17, 0), at(2026, 10, 29, 17, 30), "en")).toBe(
+         "yesterday",
+      );
+   });
+   it("a week or older: date, year only when not this year", () => {
+      expect(formatRelativeTime(at(2026, 10, 12), now, "en-GB")).toBe("12 Oct");
+      expect(formatRelativeTime(at(2025, 10, 12), now, "en-GB")).toBe("12 Oct 2025");
+   });
 });
 
 describe("formatDuration", () => {
-  it("seconds, then minutes, then hours", () => {
-    expect(formatDuration(8_400)).toBe("8s");
-    expect(formatDuration(245_000)).toBe("4m 05s");
-    expect(formatDuration(3_720_000)).toBe("1h 02m");
-  });
+   it("seconds, then minutes, then hours", () => {
+      expect(formatDuration(8_400)).toBe("8s");
+      expect(formatDuration(245_000)).toBe("4m 05s");
+      expect(formatDuration(3_720_000)).toBe("1h 02m");
+   });
 });
 
 describe("formatAge", () => {
-  it("short units", () => {
-    const m = 60_000;
-    expect([0, 30_000, 12 * m, 2 * 60 * m, 3 * 1440 * m, 15 * 1440 * m, 100 * 1440 * m, 800 * 1440 * m].map((d) => formatAge(now - d, now)))
-      .toEqual(["now", "now", "12m", "2h", "3d", "2w", "3mo", "2y"]);
-  });
+   it("short units", () => {
+      const m = 60_000;
+      expect(
+         [
+            0,
+            30_000,
+            12 * m,
+            2 * 60 * m,
+            3 * 1440 * m,
+            15 * 1440 * m,
+            100 * 1440 * m,
+            800 * 1440 * m,
+         ].map((d) => formatAge(now - d, now)),
+      ).toEqual(["now", "now", "12m", "2h", "3d", "2w", "3mo", "2y"]);
+   });
 });

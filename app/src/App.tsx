@@ -1,324 +1,474 @@
-import { useCallback, useEffect, useState } from "react";
-import { PanelLeft, Plus } from "lucide-react";
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
-import { syncAppearance } from "./appearance/appearance";
 import {
-  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ResizeHandle, Tooltip, cn, useResizableWidth,
+   Button,
+   cn,
+   Dialog,
+   DialogContent,
+   DialogDescription,
+   DialogFooter,
+   DialogHeader,
+   DialogTitle,
+   ResizeHandle,
+   Tooltip,
+   useResizableWidth,
 } from "@harness/ui";
+import { PanelLeft, Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
-import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
-import { ViewHost } from "./ViewHost";
+import { openViewWindow } from "./openWindow";
 import { SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
-import { openViewWindow } from "./openWindow";
+import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
+import { errText, ToastProvider, useReportError } from "./toast";
 import { makeTransport } from "./transport";
-import { ToastProvider, errText, useReportError } from "./toast";
 import { UpdateFooter } from "./UpdateFooter";
 import { useUpdate } from "./updates";
+import { ViewHost } from "./ViewHost";
 
 const params = new URLSearchParams(window.location.search);
 
 function useTransport() {
-  const [t, setT] = useState<Transport | null>(null);
-  useEffect(() => {
-    void makeTransport().then((t) => {
-      // Appearance and imported themes live in the core; the local copy painted the first frame.
-      void syncAppearance(new Client(t)).catch(() => {});
-      setT(t);
-    });
-  }, []);
-  return t;
+   const [t, setT] = useState<Transport | null>(null);
+   useEffect(() => {
+      void makeTransport().then((t) => {
+         // Appearance and imported themes live in the core; the local copy painted the first frame.
+         void syncAppearance(new Client(t)).catch(() => {});
+         setT(t);
+      });
+   }, []);
+   return t;
 }
 
 export function App() {
-  const transport = useTransport();
-  if (!transport) return null;
-  const solo = params.get("solo") === "1" && params.get("session");
-  return (
-    <ToastProvider>
-      {solo ? <Solo transport={transport} sessionId={params.get("session")!} /> : <Shell transport={transport} />}
-    </ToastProvider>
-  );
+   const transport = useTransport();
+   if (!transport) return null;
+   const solo = params.get("solo") === "1" && params.get("session");
+   return (
+      <ToastProvider>
+         {solo ? (
+            <Solo transport={transport} sessionId={params.get("session")!} />
+         ) : (
+            <Shell transport={transport} />
+         )}
+      </ToastProvider>
+   );
 }
 
 /** A window showing only one Session's View. */
 function Solo({ transport, sessionId }: { transport: Transport; sessionId: string }) {
-  const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
-  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
-  const [status, setStatus] = useState<HTMLDivElement | null>(null);
-  const [menu, setMenu] = useState<HTMLDivElement | null>(null);
-  const report = useReportError();
-  useEffect(() => {
-    new Client(transport).listSessions().then((l) => setSession(l.find((s) => s.id === sessionId) ?? null)).catch((e) => {
-      report("Could not load session", e);
-      setSession(null);
-    });
-  }, [transport, sessionId, report]);
-  useEffect(() => {
-    if (session) document.title = session.title;
-  }, [session]);
-  if (session === undefined) return null;
-  if (session === null) return <div className="p-6 text-sm text-destructive">Session not found.</div>;
-  // A Frontend's own window (`pane=...`, e.g. a pop-out diff) brings its own chrome.
-  if (params.get("pane")) {
-    return (
-      <div className="h-full">
-        <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} />
+   const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
+   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
+   const [status, setStatus] = useState<HTMLDivElement | null>(null);
+   const [menu, setMenu] = useState<HTMLDivElement | null>(null);
+   const report = useReportError();
+   useEffect(() => {
+      new Client(transport)
+         .listSessions()
+         .then((l) => setSession(l.find((s) => s.id === sessionId) ?? null))
+         .catch((e) => {
+            report("Could not load session", e);
+            setSession(null);
+         });
+   }, [transport, sessionId, report]);
+   useEffect(() => {
+      if (session) document.title = session.title;
+   }, [session]);
+   if (session === undefined) return null;
+   if (session === null)
+      return <div className="p-6 text-sm text-destructive">Session not found.</div>;
+   // A Frontend's own window (`pane=...`, e.g. a pop-out diff) brings its own chrome.
+   if (params.get("pane")) {
+      return (
+         <div className="h-full">
+            <ViewHost
+               transport={transport}
+               sessionId={session.id}
+               frontendId={session.frontend_id}
+            />
+         </div>
+      );
+   }
+   return (
+      <div className="flex h-full flex-col">
+         <SessionHeader
+            client={new Client(transport)}
+            session={session}
+            toolbarRef={setToolbar}
+            statusRef={setStatus}
+            menuRef={setMenu}
+            leading={trafficLights && <div className="w-12 shrink-0" />}
+         />
+         <div className="min-h-0 flex-1">
+            <ViewHost
+               transport={transport}
+               sessionId={session.id}
+               frontendId={session.frontend_id}
+               toolbar={toolbar}
+               status={status}
+               menu={menu}
+            />
+         </div>
       </div>
-    );
-  }
-  return (
-    <div className="flex h-full flex-col">
-      <SessionHeader client={new Client(transport)} session={session} toolbarRef={setToolbar} statusRef={setStatus} menuRef={setMenu} leading={trafficLights && <div className="w-12 shrink-0" />} />
-      <div className="min-h-0 flex-1">
-        <ViewHost transport={transport} sessionId={session.id} frontendId={session.frontend_id} toolbar={toolbar} status={status} menu={menu} />
-      </div>
-    </div>
-  );
+   );
 }
 
 /** Sidebar toggle and New Session, next to the traffic lights. */
-function WindowControls({ sidebarOpen, onToggleSidebar, onNew }: { sidebarOpen: boolean; onToggleSidebar: () => void; onNew: () => void }) {
-  const btn = "size-7 text-muted-foreground hover:text-foreground";
-  return (
-    <div className="flex items-center gap-0.5">
-      <Tooltip content={sidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
-        <Button size="icon" variant="ghost" className={btn} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} onClick={onToggleSidebar}>
-          <PanelLeft />
-        </Button>
-      </Tooltip>
-      <Tooltip content="New Session" side="bottom">
-        <Button size="icon" variant="ghost" className={btn} aria-label="New Session" onClick={onNew}>
-          <Plus />
-        </Button>
-      </Tooltip>
-    </div>
-  );
+function WindowControls({
+   sidebarOpen,
+   onToggleSidebar,
+   onNew,
+}: {
+   sidebarOpen: boolean;
+   onToggleSidebar: () => void;
+   onNew: () => void;
+}) {
+   const btn = "size-7 text-muted-foreground hover:text-foreground";
+   return (
+      <div className="flex items-center gap-0.5">
+         <Tooltip content={sidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
+            <Button
+               size="icon"
+               variant="ghost"
+               className={btn}
+               aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+               onClick={onToggleSidebar}
+            >
+               <PanelLeft />
+            </Button>
+         </Tooltip>
+         <Tooltip content="New Session" side="bottom">
+            <Button
+               size="icon"
+               variant="ghost"
+               className={btn}
+               aria-label="New Session"
+               onClick={onNew}
+            >
+               <Plus />
+            </Button>
+         </Tooltip>
+      </div>
+   );
 }
 
 const SIDEBAR_KEY = "harness.sidebarOpen";
 
 function useSidebarOpen() {
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem(SIDEBAR_KEY) !== "0";
-    } catch {
-      return true;
-    }
-  });
-  const toggle = useCallback(() => {
-    setOpen((o) => {
+   const [open, setOpen] = useState(() => {
       try {
-        localStorage.setItem(SIDEBAR_KEY, o ? "0" : "1");
-      } catch { /* per-window convenience only */ }
-      return !o;
-    });
-  }, []);
-  return [open, toggle] as const;
+         return localStorage.getItem(SIDEBAR_KEY) !== "0";
+      } catch {
+         return true;
+      }
+   });
+   const toggle = useCallback(() => {
+      setOpen((o) => {
+         try {
+            localStorage.setItem(SIDEBAR_KEY, o ? "0" : "1");
+         } catch {
+            /* per-window convenience only */
+         }
+         return !o;
+      });
+   }, []);
+   return [open, toggle] as const;
 }
 
 /** Sidebar width, dragged from its right edge (double-click resets). */
-const useSidebarWidth = () => useResizableWidth({ storageKey: "harness.sidebarWidth", initial: 256, min: 200, max: 480, edge: "right" });
+const useSidebarWidth = () =>
+   useResizableWidth({
+      storageKey: "harness.sidebarWidth",
+      initial: 256,
+      min: 200,
+      max: 480,
+      edge: "right",
+   });
 
 /** The Session's current branch, when its folder is a git repository (refreshed as its status changes). */
 function useBranch(client: HarnessClient, s: SessionSummary | null) {
-  const [branch, setBranch] = useState<string | null>(null);
-  const id = s?.workspace.repo_root ? s.id : null;
-  const status = s?.status;
-  useEffect(() => {
-    if (!id) return setBranch(null);
-    let off = false;
-    client.sessionApi(id).gitStatus().then((g) => !off && setBranch(g.branch), () => !off && setBranch(null));
-    return () => { off = true; };
-  }, [client, id, status]);
-  return branch;
+   const [branch, setBranch] = useState<string | null>(null);
+   const id = s?.workspace.repo_root ? s.id : null;
+   const status = s?.status;
+   useEffect(() => {
+      if (!id) return setBranch(null);
+      let off = false;
+      client
+         .sessionApi(id)
+         .gitStatus()
+         .then(
+            (g) => !off && setBranch(g.branch),
+            () => !off && setBranch(null),
+         );
+      return () => {
+         off = true;
+      };
+   }, [client, id, status]);
+   return branch;
 }
 
 function Shell({ transport }: { transport: Transport }) {
-  const [client] = useState<HarnessClient>(() => new Client(transport));
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [composer, setComposer] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-  const [agentsVersion, setAgentsVersion] = useState(0);
-  const [mcpVersion, setMcpVersion] = useState(0);
-  const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [menuError, setMenuError] = useState<string | null>(null);
-  const [sidebarOpen, toggleSidebar] = useSidebarOpen();
-  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
-  const [status, setStatus] = useState<HTMLDivElement | null>(null);
-  const [menu, setMenu] = useState<HTMLDivElement | null>(null);
+   const [client] = useState<HarnessClient>(() => new Client(transport));
+   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+   const [selected, setSelected] = useState<string | null>(null);
+   const [composer, setComposer] = useState(false);
+   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+   const [agentsVersion, setAgentsVersion] = useState(0);
+   const [mcpVersion, setMcpVersion] = useState(0);
+   const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
+   const [deleteError, setDeleteError] = useState<string | null>(null);
+   const [deleting, setDeleting] = useState(false);
+   const [menuError, setMenuError] = useState<string | null>(null);
+   const [sidebarOpen, toggleSidebar] = useSidebarOpen();
+   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
+   const [status, setStatus] = useState<HTMLDivElement | null>(null);
+   const [menu, setMenu] = useState<HTMLDivElement | null>(null);
 
-  const report = useReportError();
-  const update = useUpdate();
+   const report = useReportError();
+   const update = useUpdate();
 
-  // Cmd+, opens Settings (macOS convention). Capture phase, so the terminal or an editor never eats it.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ",") {
-        e.preventDefault();
-        e.stopPropagation();
-        setSettingsSection((s) => s ?? "appearance");
+   // Cmd+, opens Settings (macOS convention). Capture phase, so the terminal or an editor never eats it.
+   useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+         if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ",") {
+            e.preventDefault();
+            e.stopPropagation();
+            setSettingsSection((s) => s ?? "appearance");
+         }
+      };
+      window.addEventListener("keydown", onKey, true);
+      return () => window.removeEventListener("keydown", onKey, true);
+   }, []);
+
+   // Push-driven: SessionsChanged reloads, SessionStatus patches one row. The slow poll is a safety net.
+   useEffect(() => {
+      let stop = false;
+      let failed = false;
+      const load = () =>
+         client.listSessions().then(
+            (l) => {
+               failed = false;
+               if (!stop) setSessions(l);
+            },
+            (e) => {
+               if (!failed) report("Could not load sessions", e);
+               failed = true;
+            },
+         );
+      void load();
+      const poll = setInterval(load, 30_000);
+      let unsub: (() => void) | undefined;
+      client
+         .subscribeApp((e) => {
+            if (stop) return;
+            if (e.type === "SessionsChanged") void load();
+            else if (e.type === "SessionStatus") {
+               setSessions((l) => {
+                  const i = l.findIndex((s) => s.id === e.session_id);
+                  if (i < 0) {
+                     void load(); // unknown Session: the list is stale
+                     return l;
+                  }
+                  // Also counts as activity, so "Recent activity" order updates live.
+                  return l.map((s, n) =>
+                     n === i
+                        ? { ...s, status: e.status, title: e.title, updated_ms: Date.now() }
+                        : s,
+                  );
+               });
+            } else if (e.type === "AgentsChanged") setAgentsVersion((v) => v + 1);
+         })
+         .then((u) => (stop ? u() : (unsub = u)))
+         .catch((e) => report("Live updates unavailable (falling back to polling)", e));
+      return () => {
+         stop = true;
+         clearInterval(poll);
+         unsub?.();
+      };
+   }, [client, report]);
+
+   const current = sessions.find((s) => s.id === selected) ?? null;
+   const branch = useBranch(client, current);
+   const sidebar = useSidebarWidth();
+   const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
+   const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
+
+   useEffect(() => {
+      document.title = attention > 0 ? `(${attention}) Harness` : "Harness";
+   }, [attention]);
+
+   const toggleArchive = (s: SessionSummary) => {
+      setMenuError(null);
+      (s.archived ? client.unarchiveSession(s.id) : client.archiveSession(s.id))
+         .then(refresh)
+         .catch((e) => setMenuError(errText(e)));
+   };
+   const askDelete = (s: SessionSummary) => {
+      setToDelete(s);
+      setDeleteError(null);
+   };
+   /** First attempt is safe; once the core refused, the same button becomes "Delete anyway". */
+   const confirmDelete = async () => {
+      if (!toDelete) return;
+      setDeleting(true);
+      try {
+         await client.deleteSession(toDelete.id, deleteError !== null);
+         if (selected === toDelete.id) setSelected(null);
+         setToDelete(null);
+         await refresh();
+      } catch (e) {
+         setDeleteError(errText(e));
+      } finally {
+         setDeleting(false);
       }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
-
-  // Push-driven: SessionsChanged reloads, SessionStatus patches one row. The slow poll is a safety net.
-  useEffect(() => {
-    let stop = false;
-    let failed = false;
-    const load = () =>
-      client.listSessions().then(
-        (l) => {
-          failed = false;
-          if (!stop) setSessions(l);
-        },
-        (e) => {
-          if (!failed) report("Could not load sessions", e);
-          failed = true;
-        },
-      );
-    void load();
-    const poll = setInterval(load, 30_000);
-    let unsub: (() => void) | undefined;
-    client
-      .subscribeApp((e) => {
-        if (stop) return;
-        if (e.type === "SessionsChanged") void load();
-        else if (e.type === "SessionStatus") {
-          setSessions((l) => {
-            const i = l.findIndex((s) => s.id === e.session_id);
-            if (i < 0) {
-              void load(); // unknown Session: the list is stale
-              return l;
-            }
-            // Also counts as activity, so "Recent activity" order updates live.
-            return l.map((s, n) => (n === i ? { ...s, status: e.status, title: e.title, updated_ms: Date.now() } : s));
-          });
-        } else if (e.type === "AgentsChanged") setAgentsVersion((v) => v + 1);
-      })
-      .then((u) => (stop ? u() : (unsub = u)))
-      .catch((e) => report("Live updates unavailable (falling back to polling)", e));
-    return () => {
-      stop = true;
-      clearInterval(poll);
-      unsub?.();
-    };
-  }, [client, report]);
-
-  const current = sessions.find((s) => s.id === selected) ?? null;
-  const branch = useBranch(client, current);
-  const sidebar = useSidebarWidth();
-  const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
-  const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
-
-  useEffect(() => {
-    document.title = attention > 0 ? `(${attention}) Harness` : "Harness";
-  }, [attention]);
-
-  const toggleArchive = (s: SessionSummary) => {
-    setMenuError(null);
-    (s.archived ? client.unarchiveSession(s.id) : client.archiveSession(s.id)).then(refresh).catch((e) => setMenuError(errText(e)));
-  };
-  const askDelete = (s: SessionSummary) => {
-    setToDelete(s);
-    setDeleteError(null);
-  };
-  /** First attempt is safe; once the core refused, the same button becomes "Delete anyway". */
-  const confirmDelete = async () => {
-    if (!toDelete) return;
-    setDeleting(true);
-    try {
-      await client.deleteSession(toDelete.id, deleteError !== null);
-      if (selected === toDelete.id) setSelected(null);
-      setToDelete(null);
-      await refresh();
-    } catch (e) {
-      setDeleteError(errText(e));
-    } finally {
-      setDeleting(false);
-    }
-  };
-  const controls = <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} onNew={() => setComposer(true)} />;
-  // Sidebar hidden: the controls move next to the traffic lights in the main header.
-  const leading = sidebarOpen ? undefined : <div className={cn("mr-2 shrink-0", trafficLights && "pl-[68px]")}>{controls}</div>;
-
-  return (
-    <div className="flex h-full">
-      {sidebarOpen && (
-        <aside className="relative flex shrink-0 flex-col border-r bg-muted/30" style={{ width: sidebar.width }}>
-          <ResizeHandle label="Resize sidebar" {...sidebar.handle} />
-          <div data-tauri-drag-region className={cn("flex h-13 shrink-0 items-center gap-1 pr-2", trafficLights ? "pl-[76px]" : "pl-3")}>
-            <div data-tauri-drag-region className="h-full flex-1" />
-            {controls}
-          </div>
-          <SessionList sessions={sessions} selected={selected} onSelect={setSelected} onArchive={toggleArchive} onDelete={askDelete}>
-            {menuError && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{menuError}</p>}
-          </SessionList>
-          <UpdateFooter update={update} />
-        </aside>
-      )}
-      <main className="flex min-w-0 flex-1 flex-col">
-        {current ? (
-          <>
-            <SessionHeader
-              client={client}
-              session={current}
-              branch={branch}
-              leading={leading}
-              toolbarRef={setToolbar}
-              statusRef={setStatus}
-              menuRef={setMenu}
-              onOpenSettings={() => setSettingsSection("appearance")}
-              onOpenWindow={() => openViewWindow(current.id, current.title).catch((e) => report("Could not open window", e))}
-              onChooseEditor={() => setSettingsSection("editor")}
-            />
-            <div className="min-h-0 flex-1">
-              <ViewHost transport={transport} sessionId={current.id} frontendId={current.frontend_id} toolbar={toolbar} status={status} menu={menu} />
-            </div>
-          </>
-        ) : (
-          <div className="relative grid flex-1 place-items-center text-sm text-muted-foreground">
-            {/* Overlay header: drag handle without pushing the message down. */}
-            <div data-tauri-drag-region className="absolute inset-x-0 top-0 flex h-13 items-center pl-5">{leading}</div>
-            Select or create a Session.
-          </div>
-        )}
-      </main>
-      <Dialog open={toDelete !== null} onOpenChange={(o) => !o && setToDelete(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Session?</DialogTitle>
-            <DialogDescription>
-              "{toDelete?.title}" and its log will be deleted{toDelete?.workspace.worktree_branch ? ", along with its Worktree and branch" : ""}. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {deleteError && <p role="alert" className="text-sm text-destructive">{deleteError}</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setToDelete(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={deleting} onClick={() => void confirmDelete()}>
-              {deleteError ? "Delete anyway" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <SettingsDialog
-        client={client}
-        open={settingsSection !== null}
-        onOpenChange={(o) => !o && setSettingsSection(null)}
-        section={settingsSection ?? "appearance"}
-        onSectionChange={setSettingsSection}
-        sessionId={selected}
-        agentsVersion={agentsVersion}
-        onAgentsChanged={() => setAgentsVersion((v) => v + 1)}
-        onMcpChanged={() => setMcpVersion((v) => v + 1)}
+   };
+   const controls = (
+      <WindowControls
+         sidebarOpen={sidebarOpen}
+         onToggleSidebar={toggleSidebar}
+         onNew={() => setComposer(true)}
       />
-      <ComposerDialog client={client} open={composer} onOpenChange={setComposer} agentsVersion={agentsVersion} mcpVersion={mcpVersion} onManageAgents={() => { setComposer(false); setSettingsSection("agents"); }} onCreated={(id) => { setSelected(id); refresh().catch((e) => report("Could not load sessions", e)); }} />
-    </div>
-  );
+   );
+   // Sidebar hidden: the controls move next to the traffic lights in the main header.
+   const leading = sidebarOpen ? undefined : (
+      <div className={cn("mr-2 shrink-0", trafficLights && "pl-[68px]")}>{controls}</div>
+   );
+
+   return (
+      <div className="flex h-full">
+         {sidebarOpen && (
+            <aside
+               className="relative flex shrink-0 flex-col border-r bg-card"
+               style={{ width: sidebar.width }}
+            >
+               <ResizeHandle label="Resize sidebar" {...sidebar.handle} />
+               <div
+                  data-tauri-drag-region
+                  className={cn(
+                     "flex h-13 shrink-0 items-center gap-1 pr-2",
+                     trafficLights ? "pl-[76px]" : "pl-3",
+                  )}
+               >
+                  <div data-tauri-drag-region className="h-full flex-1" />
+                  {controls}
+               </div>
+               <SessionList
+                  sessions={sessions}
+                  selected={selected}
+                  onSelect={setSelected}
+                  onArchive={toggleArchive}
+                  onDelete={askDelete}
+               >
+                  {menuError && (
+                     <p role="alert" className="px-4 pb-2 text-xs text-destructive">
+                        {menuError}
+                     </p>
+                  )}
+               </SessionList>
+               <UpdateFooter update={update} />
+            </aside>
+         )}
+         <main className="flex min-w-0 flex-1 flex-col">
+            {current ? (
+               <>
+                  <SessionHeader
+                     client={client}
+                     session={current}
+                     branch={branch}
+                     leading={leading}
+                     toolbarRef={setToolbar}
+                     statusRef={setStatus}
+                     menuRef={setMenu}
+                     onOpenSettings={() => setSettingsSection("appearance")}
+                     onOpenWindow={() =>
+                        openViewWindow(current.id, current.title).catch((e) =>
+                           report("Could not open window", e),
+                        )
+                     }
+                     onChooseEditor={() => setSettingsSection("editor")}
+                  />
+                  <div className="min-h-0 flex-1">
+                     <ViewHost
+                        transport={transport}
+                        sessionId={current.id}
+                        frontendId={current.frontend_id}
+                        toolbar={toolbar}
+                        status={status}
+                        menu={menu}
+                     />
+                  </div>
+               </>
+            ) : (
+               <div className="relative grid flex-1 place-items-center text-sm text-muted-foreground">
+                  {/* Overlay header: drag handle without pushing the message down. */}
+                  <div
+                     data-tauri-drag-region
+                     className="absolute inset-x-0 top-0 flex h-13 items-center pl-5"
+                  >
+                     {leading}
+                  </div>
+                  Select or create a Session.
+               </div>
+            )}
+         </main>
+         <Dialog open={toDelete !== null} onOpenChange={(o) => !o && setToDelete(null)}>
+            <DialogContent>
+               <DialogHeader>
+                  <DialogTitle>Delete Session?</DialogTitle>
+                  <DialogDescription>
+                     "{toDelete?.title}" and its log will be deleted
+                     {toDelete?.workspace.worktree_branch
+                        ? ", along with its Worktree and branch"
+                        : ""}
+                     . This cannot be undone.
+                  </DialogDescription>
+               </DialogHeader>
+               {deleteError && (
+                  <p role="alert" className="text-sm text-destructive">
+                     {deleteError}
+                  </p>
+               )}
+               <DialogFooter>
+                  <Button variant="outline" onClick={() => setToDelete(null)}>
+                     Cancel
+                  </Button>
+                  <Button
+                     variant="destructive"
+                     disabled={deleting}
+                     onClick={() => void confirmDelete()}
+                  >
+                     {deleteError ? "Delete anyway" : "Delete"}
+                  </Button>
+               </DialogFooter>
+            </DialogContent>
+         </Dialog>
+         <SettingsDialog
+            client={client}
+            open={settingsSection !== null}
+            onOpenChange={(o) => !o && setSettingsSection(null)}
+            section={settingsSection ?? "appearance"}
+            onSectionChange={setSettingsSection}
+            sessionId={selected}
+            agentsVersion={agentsVersion}
+            onAgentsChanged={() => setAgentsVersion((v) => v + 1)}
+            onMcpChanged={() => setMcpVersion((v) => v + 1)}
+         />
+         <ComposerDialog
+            client={client}
+            open={composer}
+            onOpenChange={setComposer}
+            agentsVersion={agentsVersion}
+            mcpVersion={mcpVersion}
+            onManageAgents={() => {
+               setComposer(false);
+               setSettingsSection("agents");
+            }}
+            onCreated={(id) => {
+               setSelected(id);
+               refresh().catch((e) => report("Could not load sessions", e));
+            }}
+         />
+      </div>
+   );
 }
