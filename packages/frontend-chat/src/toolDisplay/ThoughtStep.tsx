@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Brain } from "lucide-react";
-import { TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceIcon, TraceLine, TraceTitle, TraceVerb } from "@harness/ui";
+import { TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceIcon, TraceLine, TraceTitle, TraceVerb, cn } from "@harness/ui";
 import { Markdown } from "../Markdown";
+import { STEP_TEXT } from "../ToolCard";
 
 /** A thought, shown like a tool call step: "Thinking" shimmers while it streams, then "Thought"; the text opens on a click. */
 export function ThoughtStep({ text, streaming }: { text: string; streaming: boolean }) {
@@ -15,7 +16,7 @@ export function ThoughtStep({ text, streaming }: { text: string; streaming: bool
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
-        <Markdown className="italic text-muted-foreground">{text}</Markdown>
+        <Markdown className={cn(STEP_TEXT, "italic text-muted-foreground")}>{text}</Markdown>
       </TraceCollapsibleContent>
     </TraceCollapsible>
   );
