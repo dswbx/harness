@@ -17,7 +17,7 @@ import {
   type SerializedLexicalNode,
   type Spread,
 } from "lexical";
-import { prKey, sameRepo, type PrRefKey } from "@harness/api";
+import { displayRef, prKey, type PrRefKey } from "@harness/api";
 import { PrChipView, usePrRefs } from "./prRefs";
 
 export type SerializedPrRefNode = Spread<{ owner: string; repo: string; number: number; typed: string }, SerializedLexicalNode>;
@@ -103,8 +103,7 @@ function PromptPrChip({ nodeKey, refKey, typed }: { nodeKey: NodeKey; refKey: Pr
     return () => offs.forEach((off) => off());
   }, [editor, nodeKey]);
   if (!refs) return <>{typed}</>;
-  const own = refs.ctx.sessionRepo && sameRepo(refs.ctx.sessionRepo, refKey.repo);
-  return <PrChipView refs={refs} prKey={refKey} raw={typed} text={own ? `#${refKey.number}` : prKey(refKey)} prompt={{ active }} />;
+  return <PrChipView refs={refs} prKey={refKey} raw={typed} text={displayRef(refKey, refs.ctx)} prompt={{ active }} />;
 }
 
 /** The node right before (`before`) or after a point, or null when the point is inside text. */

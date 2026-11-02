@@ -103,10 +103,10 @@ describe("qualify and displayRef", () => {
     expect(qualify("spar#17", ctx, { fuzzy: true })).toEqual({ repo: repo("supabase/spark"), number: 17 });
     expect(qualify("#23 and more", ctx)).toBeNull();
   });
-  it("shows the shortest unambiguous form", () => {
+  it("shows #N for the Session repo, else the full name", () => {
     const k = (full: string, number: number) => ({ repo: repo(full), number });
     expect(displayRef(k("dswbx/harness", 17), ctx)).toBe("#17");
-    expect(displayRef(k("supabase/spark", 17), ctx)).toBe("spark#17");
+    expect(displayRef(k("supabase/spark", 17), ctx)).toBe("supabase/spark#17");
     expect(displayRef(k("other/elsewhere", 1), ctx)).toBe("other/elsewhere#1");
     const twoLites = { ...ctx, knownRepos: [...ctx.knownRepos, known("me/lite", 0.5)] };
     expect(displayRef(k("supabase/lite", 2), twoLites)).toBe("supabase/lite#2");

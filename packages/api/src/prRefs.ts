@@ -127,12 +127,9 @@ export function qualify(ref: string | PrRefMatch, ctx: PrRefContext, opts: Resol
   return r.kind === "one" ? { repo: r.repo, number: m.number } : null;
 }
 
-/** The shortest unambiguous form: `#17` in the Session's repo, `repo#17` when no other known repo has that name,
- * else `owner/repo#17`. */
+/** One display rule everywhere: `#17` in the Session's repo, else the full `owner/repo#17`. */
 export function displayRef(key: PrRefKey, ctx: PrRefContext): string {
   if (ctx.sessionRepo && sameRepo(key.repo, ctx.sessionRepo)) return `#${key.number}`;
-  const named = repoCandidates(ctx).filter((k) => k.repo.name.toLowerCase() === key.repo.name.toLowerCase());
-  if (named.length === 1 && sameRepo(named[0]!.repo, key.repo)) return `${key.repo.name}#${key.number}`;
   return `${repoName(key.repo)}#${key.number}`;
 }
 
