@@ -1,7 +1,7 @@
 import { createContext, lazy, Suspense, useEffect, useMemo, useContext, useReducer, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleDashed, FileCode, ImageOff, Info, Loader2, Search, XCircle } from "lucide-react";
 import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, Tooltip, cn } from "@harness/ui";
+import { Button, Input, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, Tooltip, cn } from "@harness/ui";
 import { Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { Markdown } from "./Markdown";
 import { splitPatch } from "./diff";
@@ -502,7 +502,9 @@ function TextInput({ node }: { node: Extract<UiNode, { type: "Input" }> }) {
   );
 }
 
-const tip = (text: string | undefined, el: React.ReactElement) => (text ? <Tooltip content={text}>{el}</Tooltip> : el);
+/** Wraps `el` in a tooltip; `focus` lets the keyboard reach a non-interactive element to show it. */
+const tip = (text: string | undefined, el: React.ReactElement, focus = false) =>
+  text ? <Tooltip content={text} {...(focus && { tabIndex: 0 })}>{el}</Tooltip> : el;
 const IconOf = ({ name, className }: { name?: string; className?: string }) => {
   const I = name ? uiIcons[name as keyof typeof uiIcons] : undefined;
   return I ? <I className={cn("size-4 shrink-0", className)} /> : null;
@@ -596,14 +598,40 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
         return (
           <li key={it.id}>
             {path ? (
-              <button type="button" onClick={() => void toggle(it.id)} className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-accent/50">{row}</button>
+              tip(it.tooltip, <button type="button" onClick={() => void toggle(it.id)} className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-accent/50">{row}</button>)
             ) : (
-              <div className="flex items-start gap-2.5 px-3 py-2">{row}</div>
+              tip(it.tooltip, <div className="flex items-start gap-2.5 px-3 py-2">{row}</div>, true)
             )}
           </li>
         );
       })}
     </ul>
+  );
+}
+
+const popoverWidth = { sm: "w-60", md: "w-80", lg: "w-[28rem]" } as const;
+
+/** Trigger: a button from `label`, else the first child (wrapped in a plain button, so it is clickable and focusable). */
+function UiPopover({ node, kids }: { node: Extract<UiNode, { type: "Popover" }>; kids: ReactNode[] }) {
+  const p = node.props ?? {};
+  const [trigger, content] = p.label ? [null, kids] : [kids[0], kids.slice(1)];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        {p.label ? (
+          <Button size="sm" variant={p.variant === "primary" ? "default" : (p.variant ?? "outline")} className="w-fit">
+            {p.icon && <IconOf name={p.icon} />}
+            {p.label}
+          </Button>
+        ) : (
+          <button type="button" className="w-fit max-w-full cursor-pointer rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{trigger}</button>
+        )}
+      </PopoverTrigger>
+      <PopoverContent className={cn("max-h-[min(28rem,var(--radix-popover-content-available-height))] space-y-2 overflow-y-auto p-3 text-ui", popoverWidth[p.width ?? "md"])}>
+        {p.title && <div className="font-semibold">{p.title}</div>}
+        {content}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -670,11 +698,13 @@ const rowTone: Record<Tone, string> = {
 function TableCell({ cell }: { cell: Cell }) {
   if (typeof cell !== "object" || cell === null) return <Md>{cell}</Md>;
   const t = tones[cell.tone ?? "neutral"];
-  return (
-    <span className={cn("inline-flex items-center gap-1", cell.mono && "font-mono", cell.tone && cell.tone !== "neutral" && t.fg)}>
+  return tip(
+    cell.tooltip,
+    <span className={cn("inline-flex items-center gap-1", cell.mono && "font-mono", cell.tone && cell.tone !== "neutral" && t.fg, cell.tooltip && "underline decoration-dotted underline-offset-2")}>
       {cell.icon && <IconOf name={cell.icon} className="size-3.5" />}
       <Md>{cellText(cell)}</Md>
-    </span>
+    </span>,
+    true,
   );
 }
 
@@ -932,10 +962,12 @@ function Node({ raw }: { raw: RawNode }) {
     case "Text": {
       const p = node.props;
       const t = tones[p.tone ?? "neutral"];
-      return (
+      return tip(
+        p.tooltip,
         <span
           className={cn(
             "min-w-0 break-words",
+            p.tooltip && "underline decoration-dotted underline-offset-2",
             textSize[p.size ?? "md"],
             p.mono && "font-mono",
             p.weight === "medium" ? "font-medium" : p.weight === "bold" && "font-semibold",
@@ -944,7 +976,8 @@ function Node({ raw }: { raw: RawNode }) {
           )}
         >
           {String(p.text ?? "")}
-        </span>
+        </span>,
+        true,
       );
     }
     case "Card": {
@@ -977,7 +1010,9 @@ function Node({ raw }: { raw: RawNode }) {
           {(node.props.items ?? []).map((it, i) => (
             <div key={i} className="contents">
               <dt className="text-muted-foreground"><Md>{it.label}</Md></dt>
-              <dd className={cn("min-w-0 break-words", it.mono && "font-mono", it.tone && it.tone !== "neutral" && tones[it.tone].fg)}><Md>{it.value}</Md></dd>
+              <dd className={cn("min-w-0 break-words", it.mono && "font-mono", it.tone && it.tone !== "neutral" && tones[it.tone].fg)}>
+                {it.tooltip ? tip(it.tooltip, <span className="underline decoration-dotted underline-offset-2"><Md>{it.value}</Md></span>, true) : <Md>{it.value}</Md>}
+              </dd>
             </div>
           ))}
         </dl>
@@ -992,6 +1027,7 @@ function Node({ raw }: { raw: RawNode }) {
           {node.props.icon && <IconOf name={node.props.icon} className="size-3" />}
           {String(node.props.text ?? "")}
         </span>,
+        true,
       );
     }
     case "Code":
@@ -1009,6 +1045,7 @@ function Node({ raw }: { raw: RawNode }) {
           <div className={cn("text-ui-xl font-semibold tabular-nums", node.props.tone && node.props.tone !== "neutral" && t.fg)}>{String(node.props.value ?? "")}</div>
           {node.props.hint && <div className="text-ui-sm text-muted-foreground">{node.props.hint}</div>}
         </div>,
+        true,
       );
     }
     case "Progress": {
@@ -1029,6 +1066,8 @@ function Node({ raw }: { raw: RawNode }) {
       return <TextInput node={node} />;
     case "Tabs":
       return <Tabs node={node} kids={kids ?? []} />;
+    case "Popover":
+      return <UiPopover node={node} kids={kids ?? []} />;
     case "Stepper":
       return <Stepper node={node} kids={kids ?? []} />;
     case "Button":

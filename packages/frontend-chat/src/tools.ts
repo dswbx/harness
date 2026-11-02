@@ -59,7 +59,7 @@ export const ICONS = [
   "user", "users", "clock", "calendar", "search", "link", "settings", "star", "zap", "list", "message", "chart",
 ] as const;
 const icon = s.string({ enum: ICONS, description: "Icon name." });
-const tooltip = s.string({ description: "Shown on hover." });
+const tooltip = s.string({ description: "Extra detail shown on hover or keyboard focus. Not on touch screens: never the only place for important information." });
 const mono = s.boolean({ description: "Monospace, e.g. ids, hashes, durations." });
 /** Stack's layout props; Repeat lays out its copies with the same ones. */
 const layout = {
@@ -71,7 +71,7 @@ const layout = {
   fill: s.boolean({ description: "Horizontal: children share the width (default true); false: each keeps its own width." }).optional(),
 };
 /** A Table cell: inline Markdown text, or an object for a tone, monospace or an icon. Sort and filter use `text`. */
-const cell = s.anyOf([s.string(), s.object({ text: s.string(), tone: tone.optional(), mono: mono.optional(), icon: icon.optional() })]);
+const cell = s.anyOf([s.string(), s.object({ text: s.string(), tone: tone.optional(), mono: mono.optional(), icon: icon.optional(), tooltip: tooltip.optional() })]);
 
 type Example = { node: unknown; state?: unknown };
 type Entry = {
@@ -140,12 +140,13 @@ export const components = {
       size: s.string({ enum: ["xs", "sm", "md", "lg"], description: "Default md." }).optional(),
       muted: s.boolean().optional(),
       weight: s.string({ enum: ["normal", "medium", "bold"] }).optional(),
+      tooltip: tooltip.optional(),
     }),
     example: { node: { type: "Stack", props: { direction: "horizontal", fill: false, align: "center", gap: "sm" }, children: [
       { type: "Card", props: { title: "Zürich HB", description: "dep 07:33", variant: "compact" } },
       { type: "Stack", props: { align: "center", gap: "sm" }, children: [{ type: "Text", props: { text: "3h 17m", size: "xs", muted: true } }, { type: "Text", props: { text: "→", size: "lg", muted: true } }] },
       { type: "Card", props: { title: "Milano Centrale", description: "arr 10:50 · dep 11:15", variant: "compact" } },
-      { type: "Stack", props: { align: "center", gap: "sm" }, children: [{ type: "Text", props: { text: "2h 55m", size: "xs", muted: true } }, { type: "Text", props: { text: "→", size: "lg", muted: true } }] },
+      { type: "Stack", props: { align: "center", gap: "sm" }, children: [{ type: "Text", props: { text: "2h 55m", size: "xs", muted: true, tooltip: "Frecciarossa 9531, coach 6" } }, { type: "Text", props: { text: "→", size: "lg", muted: true } }] },
       { type: "Card", props: { title: "Roma Termini", description: "arr 14:10", variant: "compact", tone: "success" } },
     ] } },
   },
@@ -174,19 +175,19 @@ export const components = {
     ] } },
   },
   KeyValue: {
-    description: "Label/value rows; a value can take a `tone` and `mono`.",
+    description: "Label/value rows; a value can take a `tone`, `mono` and a `tooltip`.",
     children: false,
-    props: s.object({ items: s.array(s.object({ label: s.string(), value: s.string(), tone: tone.optional(), mono: mono.optional() })) }),
+    props: s.object({ items: s.array(s.object({ label: s.string(), value: s.string(), tone: tone.optional(), mono: mono.optional(), tooltip: tooltip.optional() })) }),
     example: { node: { type: "KeyValue", props: { items: [
       { label: "Environment", value: "production", tone: "success" },
-      { label: "Release", value: "v4.2.0", mono: true },
+      { label: "Release", value: "v4.2.0", mono: true, tooltip: "Tagged Oct 30 by @ana" },
       { label: "Error rate", value: "2.4%", tone: "warning" },
       { label: "Duration", value: "3m 41s" },
     ] } } },
   },
   Table: {
     description:
-      "A table: column headings and rows. A row is an array of cells, or {cells, tone} to tint the row. A cell is text, or {text, tone?, mono?, icon?}. `sortable` sorts by a clicked column; `filter` adds a search box (both use the cell text).",
+      "A table: column headings and rows. A row is an array of cells, or {cells, tone} to tint the row. A cell is text, or {text, tone?, mono?, icon?, tooltip?}. `sortable` sorts by a clicked column; `filter` adds a search box (both use the cell text).",
     children: false,
     props: s.object({
       columns: s.array(s.string()),
@@ -197,7 +198,7 @@ export const components = {
     example: { node: { type: "Table", props: { sortable: true, filter: true, columns: ["Suite", "Result", "Time (s)", "Owner"], rows: [
       ["checkout", { text: "passed", tone: "success", icon: "check" }, { text: "72", mono: true }, "@ana"],
       { cells: ["search", { text: "failed", tone: "error", icon: "x" }, { text: "48", mono: true }, "@li"], tone: "error" },
-      { cells: ["payments", { text: "flaky", tone: "warning", icon: "alert" }, { text: "123", mono: true }, "@sam"], tone: "warning" },
+      { cells: ["payments", { text: "flaky", tone: "warning", icon: "alert", tooltip: "Failed 2 of the last 10 runs" }, { text: "123", mono: true }, "@sam"], tone: "warning" },
       ["profile", { text: "passed", tone: "success", icon: "check" }, { text: "9", mono: true }, "*nobody*"],
     ] } } },
   },
@@ -291,6 +292,29 @@ export const components = {
       { type: "Badge", props: { text: { $template: "Approach: ${/plan/approach}" } } },
     ] }, state: { plan: { approach: "index" } } },
   },
+  Popover: {
+    description:
+      "A click opens a small floating box with the children: details, a form or actions next to the thing they belong to. The trigger is a button from `label` (+ `icon`, `variant`); without `label`, the first child is the trigger (e.g. a Badge or Text; not a Button) and the other children are the content. State, bindings and actions work inside, also in a Repeat. Closes on a click outside or Escape.",
+    children: true,
+    props: s.object({
+      label: s.string({ description: "Trigger button text. Without it, the first child is the trigger." }).optional(),
+      icon: icon.optional(),
+      variant: s.string({ enum: ["primary", "secondary", "outline", "ghost"], description: "Trigger button style. Default outline." }).optional(),
+      title: s.string({ description: "Heading inside the box." }).optional(),
+      width: s.string({ enum: ["sm", "md", "lg"], description: "Box width. Default md." }).optional(),
+    }),
+    example: { node: { type: "Stack", props: { direction: "horizontal", fill: false, align: "center", gap: "sm" }, children: [
+      { type: "Popover", props: { title: "Room 4B" }, children: [
+        { type: "Badge", props: { text: { $template: "Room 4B · ${/room/status}" }, icon: "calendar", tone: "info" } },
+        { type: "KeyValue", props: { items: [{ label: "Seats", value: "8" }, { label: "Screen", value: "65 in, HDMI" }] } },
+        { type: "Button", props: { label: "Book 14:00 to 15:00", icon: "check" }, on: { press: { action: "setState", params: { statePath: "/room/status", value: "booked" } } } },
+      ] },
+      { type: "Popover", props: { label: "Filters", icon: "search", width: "sm" }, children: [
+        { type: "Input", props: { label: "Floor", placeholder: "e.g. 4", value: { $bindState: "/room/floor" } } },
+        { type: "Checkbox", props: { label: "Has a screen", value: { $bindState: "/room/screen" } } },
+      ] },
+    ] }, state: { room: { status: "free" } } },
+  },
   Tabs: {
     description: "Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index.",
     children: true,
@@ -327,7 +351,7 @@ export const components = {
   },
   List: {
     description:
-      "Rich rows: title, description, meta text, icon, badge. `status` (done, running, waiting, blocked, failed) shows a status icon in place of `icon`. With `check` ($bindState to an object), each row gets a checkbox that writes `{ [id]: true|false }` there, e.g. a todo list; `on.change` runs after a toggle. Status and check are independent: the checkbox comes first, the status icon after it.",
+      "Rich rows: title, description, meta text, icon, badge, tooltip. `status` (done, running, waiting, blocked, failed) shows a status icon in place of `icon`. With `check` ($bindState to an object), each row gets a checkbox that writes `{ [id]: true|false }` there, e.g. a todo list; `on.change` runs after a toggle. Status and check are independent: the checkbox comes first, the status icon after it.",
     children: false,
     props: s.object({
       items: s.array(s.object({
@@ -339,6 +363,7 @@ export const components = {
         badge: s.string().optional(),
         tone: tone.optional(),
         status: s.string({ enum: ["done", "running", "waiting", "blocked", "failed"] }).optional(),
+        tooltip: tooltip.optional(),
       }), { minItems: 1 }),
       check: s.any().optional(),
     }),
@@ -353,7 +378,7 @@ export const components = {
       { type: "List", props: { items: [
         { id: "ios", title: "Build the iOS app", status: "done", meta: "12 min" },
         { id: "review", title: "App Store review", status: "running", description: "Submitted 09:20" },
-        { id: "play", title: "Play Store review", status: "waiting" },
+        { id: "play", title: "Play Store review", status: "waiting", tooltip: "Starts after the App Store review" },
         { id: "notes", title: "Release notes", status: "blocked", description: "Waiting for the copy from marketing" },
         { id: "android", title: "Build the Android app", status: "failed", badge: "retry", tone: "error" },
       ] } },
