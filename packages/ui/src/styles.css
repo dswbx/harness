@@ -101,6 +101,9 @@
   /* Scale rem so the default 14px base keeps rem = 16px (Tailwind sizes unchanged), and larger bases scale everything. */
   html { font-size: calc(var(--app-font-size) * 16 / 14); }
   body { @apply bg-background text-foreground antialiased; font-family: var(--font-sans); font-size: 0.875rem; letter-spacing: var(--letter-spacing, normal); }
+  /* ScrollArea: hide the native scrollbar here too. Radix injects this as an inline <style>, which the built app's CSP blocks (Tauri adds hashes to style-src, so 'unsafe-inline' is ignored). */
+  [data-radix-scroll-area-viewport] { scrollbar-width: none; }
+  [data-radix-scroll-area-viewport]::-webkit-scrollbar { display: none; }
 }
 
 /* Markdown content rendered by Frontends: shadcn/typeset (typeset.css, unchanged from
