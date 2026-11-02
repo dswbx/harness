@@ -25,10 +25,20 @@ function ScrollArea({ className, children, viewportRef, onViewportScroll, scroll
     </ScrollAreaPrimitive.Root>
   );
 }
-/** The app's thin vertical scrollbar, for a Radix ScrollArea root composed by hand (e.g. inside a Select). */
+/**
+ * The app's thin vertical scrollbar, for a Radix ScrollArea root composed by hand (e.g. inside a Select).
+ * Fades in and out: Radix waits for the exit animation before it unmounts the bar (keyframes in styles.css).
+ */
 function ScrollBar({ className }: { className?: string }) {
   return (
-    <ScrollAreaPrimitive.Scrollbar orientation="vertical" className={cn("flex w-2 touch-none select-none p-px transition-colors", className)}>
+    <ScrollAreaPrimitive.Scrollbar
+      orientation="vertical"
+      className={cn(
+        "flex w-2 touch-none select-none p-px transition-colors",
+        "motion-safe:data-[state=visible]:animate-[scrollbar-in_150ms_ease-out] motion-safe:data-[state=hidden]:animate-[scrollbar-out_300ms_ease-in_forwards]",
+        className,
+      )}
+    >
       <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
     </ScrollAreaPrimitive.Scrollbar>
   );

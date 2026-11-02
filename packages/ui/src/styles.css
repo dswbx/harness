@@ -106,6 +106,10 @@
   [data-radix-scroll-area-viewport]::-webkit-scrollbar { display: none; }
 }
 
+/* ScrollBar fade (scroll-area.tsx). */
+@keyframes scrollbar-in { from { opacity: 0; } }
+@keyframes scrollbar-out { to { opacity: 0; } }
+
 /* Markdown content rendered by Frontends: shadcn/typeset (typeset.css, unchanged from
    https://ui.shadcn.com/typeset.css so a new version can replace it) plus our chat preset.
    Size, leading and flow come from Appearance settings (--chat-*). */
