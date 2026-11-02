@@ -7,6 +7,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { PanelHeader } from "./PanelHeader";
+import { onOptionIsMetaChange, readOptionIsMeta } from "./terminalOptions";
 
 /** Acknowledge drawn output in batches of this size, or after `ACK_DELAY` (core flow control, ADR 0017). */
 const ACK_BATCH = 64 * 1024;
@@ -72,8 +73,7 @@ function TerminalView({ api, id, visible, onHandle, onActivity, onShortcut }: {
       cursorBlink: true,
       scrollback: 10000,
       minimumContrastRatio: 3,
-      // Option types the layout's characters (@ [ ] { } on many layouts, Karabiner remaps); word moves are mapped below.
-      macOptionIsMeta: false,
+      macOptionIsMeta: readOptionIsMeta(),
       theme: themeFrom(el),
     });
     const fitAddon = new FitAddon();
@@ -169,7 +169,8 @@ function TerminalView({ api, id, visible, onHandle, onActivity, onShortcut }: {
     onHandle(id, handle.current);
     attach();
 
-    // macOS text editing keys as shell input: Option+Left/Right word, Cmd+Left/Right line (xterm sends `ESC[1;3D`, which shells do not bind).
+    // macOS text editing keys as shell input, as VS Code's terminal sends them: Option+Left/Right word, Cmd+Left/Right line
+    // (xterm itself sends `ESC[1;3D`, which shells do not bind, and nothing for Cmd).
     const editKeys: Record<string, string> = {
       "alt+ArrowLeft": "\x1bb",
       "alt+ArrowRight": "\x1bf",
@@ -223,9 +224,11 @@ function TerminalView({ api, id, visible, onHandle, onActivity, onShortcut }: {
     restyle();
     const mo = new MutationObserver(restyle);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    const offOptionIsMeta = onOptionIsMetaChange(() => (t.options.macOptionIsMeta = readOptionIsMeta()));
 
     return () => {
       disposed = true;
+      offOptionIsMeta();
       flushAck();
       subs.forEach((s) => s.dispose());
       ro.disconnect();

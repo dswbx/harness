@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import type { HarnessClient } from "@harness/api";
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, cn } from "@harness/ui";
-import { setGuessInlineCode, setToolDisplay, toolDisplays, useGuessInlineCode, useToolDisplay } from "@harness/frontend-chat";
+import { setGuessInlineCode, setOptionIsMeta, setToolDisplay, toolDisplays, useGuessInlineCode, useOptionIsMeta, useToolDisplay } from "@harness/frontend-chat";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
 import { openExternal } from "./openExternal";
@@ -109,23 +109,39 @@ function ToolDisplayRow() {
 }
 
 /** Chat Frontend: highlight unmarked code-like inline code in the message's language (stored by the Frontend itself). */
+/** A labelled on/off switch. */
+function Toggle({ id, on, onChange, children }: { id: string; on: boolean; onChange: (on: boolean) => void; children: React.ReactNode }) {
+  return (
+    <label className="flex items-center gap-2 text-xs">
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(!on)}
+        className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
+      >
+        <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
+      </button>
+      <span>{children}</span>
+    </label>
+  );
+}
+
 function GuessInlineCodeRow() {
   const on = useGuessInlineCode();
   return (
     <Row label="Inline code" htmlFor="guess-inline-code" help="From the message's code blocks and file names, else TypeScript">
-      <label className="flex items-center gap-2 text-xs">
-        <button
-          id="guess-inline-code"
-          type="button"
-          role="switch"
-          aria-checked={on}
-          onClick={() => setGuessInlineCode(!on)}
-          className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}
-        >
-          <span className={cn("absolute top-0.5 size-3 rounded-full bg-background transition-all", on ? "left-3.5" : "left-0.5")} />
-        </button>
-        <span>Guess the language</span>
-      </label>
+      <Toggle id="guess-inline-code" on={on} onChange={setGuessInlineCode}>Guess the language</Toggle>
+    </Row>
+  );
+}
+
+function OptionIsMetaRow() {
+  const on = useOptionIsMeta();
+  return (
+    <Row label="Option key" htmlFor="option-is-meta" help="On: Option sends Esc for shell shortcuts (Opt+B). Off: Option types characters like @ [ ] { }">
+      <Toggle id="option-is-meta" on={on} onChange={setOptionIsMeta}>Use as Meta key</Toggle>
     </Row>
   );
 }
@@ -353,6 +369,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
               min={TERMINAL_FONT_SIZE_MIN} max={TERMINAL_FONT_SIZE_MAX} onChange={(terminalFontSize) => update({ terminalFontSize })}
             />
           </Row>
+          <OptionIsMetaRow />
         </Group>
       </div>
     </div>
