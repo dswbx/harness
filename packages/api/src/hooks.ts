@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import type { Event } from "./generated";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import type { Event, PrRefKey } from "./generated";
 import type { SessionApi } from "./client";
+import type { PrEntry, PrStore } from "./prStore";
+import { prKey } from "./prRefs";
 
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
@@ -53,4 +55,15 @@ export function useSessionEvents<S>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);
   return state;
+}
+
+/** A PR reference's info from `store`; asks for it on mount and whenever its cache entry changes (so expired ones refresh). */
+export function usePr(store: PrStore, key: PrRefKey): PrEntry {
+  const id = prKey(key);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const peek = useCallback(() => store.peek(key), [store, id]);
+  const entry = useSyncExternalStore(store.subscribe, peek);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => store.request(key), [store, id, entry]);
+  return entry;
 }

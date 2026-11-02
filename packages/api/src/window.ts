@@ -12,3 +12,14 @@ export async function openWindow(label: string, url: string, opts: { title: stri
   const w = new WebviewWindow(safe, { url, title: opts.title, width: opts.width ?? 1200, height: opts.height ?? 800, visible: false });
   w.once("tauri://error", (e) => console.error("window create failed", e));
 }
+
+/** Opens a web URL in the user's browser (inside Tauri via the opener plugin; in a plain browser a new tab). Frontends can't import Tauri, so this lives here. */
+export function openExternalUrl(url: string) {
+  if (!inTauri()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  void import("@tauri-apps/plugin-opener")
+    .then(({ openUrl }) => openUrl(url))
+    .catch((e) => console.error("open url failed", e));
+}

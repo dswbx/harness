@@ -1,16 +1,37 @@
 import { ExternalLink, GitBranch, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from "lucide-react";
 import { cn } from "@harness/ui";
+import type { PrChecks, PrState } from "@harness/api";
 import type { UiNode } from "./tools";
 
 type Pr = Extract<UiNode, { type: "PullRequest" }>["props"];
-type State = Pr["state"];
 
-const states: Record<State, { icon: typeof GitPullRequest; label: string; fg: string; pill: string }> = {
-  open: { icon: GitPullRequest, label: "Open", fg: "text-emerald-600 dark:text-emerald-400", pill: "bg-emerald-600 dark:bg-emerald-500" },
-  draft: { icon: GitPullRequestDraft, label: "Draft", fg: "text-muted-foreground", pill: "bg-zinc-500 dark:bg-zinc-600" },
-  merged: { icon: GitMerge, label: "Merged", fg: "text-violet-600 dark:text-violet-400", pill: "bg-violet-600 dark:bg-violet-500" },
-  closed: { icon: GitPullRequestClosed, label: "Closed", fg: "text-destructive", pill: "bg-red-600 dark:bg-red-500" },
+export type PrStateVisual = {
+  Icon: typeof GitPullRequest;
+  label: string;
+  /** Text color of the icon and label. */
+  fg: string;
+  /** Background at 20% of the state color, on hover and focus (PR chips). */
+  hoverBg: string;
+  /** The same background, always on (a prompt chip next to the caret). */
+  activeBg: string;
+  /** Solid background (state pill). */
+  pill: string;
 };
+
+const open: PrStateVisual = { Icon: GitPullRequest, label: "Open", fg: "text-emerald-600 dark:text-emerald-400", hoverBg: "hover:bg-emerald-500/20 focus-visible:bg-emerald-500/20", activeBg: "bg-emerald-500/20", pill: "bg-emerald-600 dark:bg-emerald-500" };
+const failing: PrStateVisual = { Icon: GitPullRequest, label: "Checks failing", fg: "text-red-600 dark:text-red-400", hoverBg: "hover:bg-red-500/20 focus-visible:bg-red-500/20", activeBg: "bg-red-500/20", pill: "bg-red-600 dark:bg-red-500" };
+const gray = { fg: "text-muted-foreground", hoverBg: "hover:bg-zinc-500/20 focus-visible:bg-zinc-500/20", activeBg: "bg-zinc-500/20", pill: "bg-zinc-500 dark:bg-zinc-600" };
+const states: Record<PrState, PrStateVisual> = {
+  open,
+  draft: { Icon: GitPullRequestDraft, label: "Draft", ...gray },
+  merged: { Icon: GitMerge, label: "Merged", fg: "text-violet-600 dark:text-violet-400", hoverBg: "hover:bg-violet-500/20 focus-visible:bg-violet-500/20", activeBg: "bg-violet-500/20", pill: "bg-violet-600 dark:bg-violet-500" },
+  closed: { Icon: GitPullRequestClosed, label: "Closed", ...gray },
+};
+
+/** How a PR state shows: a draft is gray even with failing checks; an open PR with failing checks is red. */
+export function prStateVisual(state: PrState, checks?: PrChecks | null): PrStateVisual {
+  return state === "open" && checks === "failing" ? failing : states[state];
+}
 const reviews = {
   approved: { text: "Approved", cls: "text-emerald-600 dark:text-emerald-400" },
   changes_requested: { text: "Changes requested", cls: "text-destructive" },
@@ -81,8 +102,8 @@ function Joined({ items }: { items: React.ReactNode[] }) {
 
 export function PullRequest({ node }: { node: Extract<UiNode, { type: "PullRequest" }> }) {
   const p = node.props;
-  const st = states[p.state];
-  const Icon = st.icon;
+  const st = prStateVisual(p.state);
+  const Icon = st.Icon;
   const variant = p.variant ?? "summary";
   const checks = p.checks ? checkStats(p.checks) : null;
   const checksLabel = checks && checks.total ? `${p.checks!.passed}/${checks.total} checks` : null;

@@ -22,6 +22,18 @@ export function formatRelativeTime(ts: number, now: number = Date.now(), locale?
   });
 }
 
+/** Short age for dense lists: "now", "12m", "2h", "3d", "2w", "4mo", "1y". */
+export function formatAge(ts: number, now: number = Date.now()): string {
+  const diff = Math.max(0, now - ts);
+  if (diff < MIN) return "now";
+  if (diff < HOUR) return `${Math.floor(diff / MIN)}m`;
+  if (diff < DAY) return `${Math.floor(diff / HOUR)}h`;
+  if (diff < 7 * DAY) return `${Math.floor(diff / DAY)}d`;
+  if (diff < 30 * DAY) return `${Math.floor(diff / (7 * DAY))}w`;
+  if (diff < 365 * DAY) return `${Math.floor(diff / (30 * DAY))}mo`;
+  return `${Math.floor(diff / (365 * DAY))}y`;
+}
+
 /** Elapsed time: "8s", "4m 05s", "1h 02m". */
 export function formatDuration(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));

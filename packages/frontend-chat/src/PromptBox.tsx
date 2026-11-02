@@ -1,9 +1,12 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { ArrowUp, FileText, MessageSquare, Paperclip, Square, X } from "lucide-react";
-import { onFileDrop, pickFiles, type AttachmentInput, type SessionApi, type SlashCommand } from "@harness/api";
-import { Button, ScrollArea, Tooltip, cn } from "@harness/ui";
+import { onFileDrop, pickFiles, sameRepo, type AttachmentInput, type SessionApi, type SlashCommand } from "@harness/api";
+import { Button, Tooltip, cn } from "@harness/ui";
 import { ConfigBar } from "./ConfigBar";
-import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
+import { PromptEditor, type CaretToken, type PromptEditorHandle } from "./PromptEditor";
+import { PrMenuPopup, PromptMenu, usePrMenu, type PrMenu } from "./PromptMenu";
+import { repoToken } from "./prMenu";
+import { usePrRefs } from "./prRefs";
 import { lineCount } from "./promptMarkdown";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
@@ -130,12 +133,23 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
   useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
   const key = composerKey(api.sessionId, threadId);
   const running = state.turnId !== null;
-  // Text the "/" menu was closed at (Escape); any edit opens it again.
+  // The `#` token at the caret (for the PR menu).
+  const [token, setToken] = useState<CaretToken | null>(null);
+  // The menu closed with Escape: its key (the text for "/", the token for "#"); a change opens it again.
   const [closedAt, setClosedAt] = useState<string | null>(null);
   const commands = useMemo(() => (threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands)), [state.commands, threadId, onSideThread]);
   const all = useMemo(() => matchCommands(commands, text), [commands, text]);
   const used = useMemo(() => leadingCommand(commands, text), [commands, text]);
-  const matches = closedAt === text ? [] : all;
+  const refs = usePrRefs();
+  const prMenu = usePrMenu(all.length ? null : (token?.text ?? null), refs);
+  // One menu at a time: "/" commands, else PRs for a `#` token.
+  const menu: { kind: "slash"; key: string; items: SlashCommand[] } | { kind: "pr"; key: string; menu: PrMenu } | null =
+    all.length ? { kind: "slash", key: `/${text}`, items: all }
+    : prMenu && token ? { kind: "pr", key: `#${token.nodeKey}:${token.start}:${token.text}`, menu: prMenu }
+    : null;
+  const open = menu && closedAt !== menu.key ? menu : null;
+  const count = !open ? 0 : open.kind === "slash" ? open.items.length : open.menu.rows.length;
+  const index = Math.min(sel, Math.max(0, count - 1));
   const pct = state.usage ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100)) : null;
 
   const [error, setError] = useState<string | null>(null);
@@ -226,22 +240,29 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
     });
   };
   const pick = (c: SlashCommand) => ref.current?.setText(`/${c.name} `);
+  // A PR becomes a chip (`#N` in the Session's repo, else `owner/repo#N`); a repo turns the token into `owner/repo#`.
+  const pickPr = (i: number) => {
+    const row = open?.kind === "pr" ? open.menu.rows[i] : undefined;
+    if (!row || !token) return;
+    if (row.kind === "repo") return ref.current?.replaceToken(token, { text: repoToken(row.hit) });
+    const key = { repo: row.pr.repo, number: row.pr.number };
+    const own = refs?.ctx.sessionRepo && sameRepo(refs.ctx.sessionRepo, key.repo);
+    ref.current?.replaceToken(token, { pr: key, typed: own ? `#${key.number}` : `${key.repo.owner}/${key.repo.name}#${key.number}` });
+  };
 
   return (
     <div className="relative mx-auto w-full max-w-3xl px-6 pb-5">
-      {matches.length > 0 && (
-        // Radix sets an inline `position: relative` on the ScrollArea root, so the wrapper takes the popup out of the flow.
-        <div className="absolute bottom-full left-6 mb-1 w-72 max-w-[calc(100%-3rem)]">
-        <ScrollArea className="max-h-72 rounded-lg border bg-popover shadow-md" viewportClassName="max-h-[inherit]"><div className="p-1" role="listbox" aria-label="Commands">
-          {matches.map((c, i) => (
-            <Tooltip key={c.name} content={c.description} side="right" open={i === sel && !!c.description}>
+      {open?.kind === "slash" && (
+        <PromptMenu label="Commands" className="w-72">
+          {open.items.map((c, i) => (
+            <Tooltip key={c.name} content={c.description} side="right" open={i === index && !!c.description}>
               <button
-                ref={i === sel ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                ref={i === index ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                 role="option"
-                aria-selected={i === sel}
+                aria-selected={i === index}
                 aria-description={c.description || undefined}
-                className={cn("flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm", i === sel && "bg-accent text-accent-foreground")}
-                onMouseMove={() => i !== sel && setSel(i)}
+                className={cn("flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm", i === index && "bg-accent text-accent-foreground")}
+                onMouseMove={() => i !== index && setSel(i)}
                 onClick={() => pick(c)}
               >
                 <span className="shrink-0">/{c.name}</span>
@@ -249,9 +270,9 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
               </button>
             </Tooltip>
           ))}
-        </div></ScrollArea>
-        </div>
+        </PromptMenu>
       )}
+      {open?.kind === "pr" && refs && <PrMenuPopup menu={open.menu} refs={refs} sel={index} onSelect={setSel} onPick={pickPr} />}
       {readOnly && (
         <div role="alert" className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
           <span className="flex-1">The Agent can't continue its earlier session. Continue with a summary of this conversation?</span>
@@ -293,13 +314,16 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
           ref={ref}
           placeholder={running ? "Agent is working... (you can still queue a prompt)" : threadId ? "Ask in this side thread" : "Message the Agent. Type / for commands."}
           command={used}
-          menuOpen={matches.length > 0}
+          menuOpen={count > 0}
           onMenuKey={(k) => {
-            if (k === "down") setSel((sel + 1) % matches.length);
-            else if (k === "up") setSel((sel + matches.length - 1) % matches.length);
-            else if (k === "close") setClosedAt(text);
-            else pick(matches[sel]!);
+            if (!open) return;
+            if (k === "down") setSel((index + 1) % count);
+            else if (k === "up") setSel((index + count - 1) % count);
+            else if (k === "close") setClosedAt(open.key);
+            else if (open.kind === "slash") pick(open.items[index]!);
+            else pickPr(index);
           }}
+          onToken={(t) => setToken((cur) => (cur?.text === t?.text && cur?.start === t?.start && cur?.nodeKey === t?.nodeKey ? cur : t))}
           onChange={(t, md) => {
             if (t !== text) {
               setSel(0);

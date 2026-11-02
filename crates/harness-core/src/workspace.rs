@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{BranchInfo, Branches, Commit, Diff, FileChange, GitStatus};
+use crate::api::{BranchInfo, Branches, Commit, Diff, FileChange, GitStatus, RepoId};
 
 pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     git_env(dir, args, &[]).await
@@ -32,6 +32,28 @@ async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) ->
 /// The repository root containing `folder`, or `None` when it is not in a git repository.
 pub async fn repo_root(folder: &Path) -> Option<PathBuf> {
     git(folder, &["rev-parse", "--show-toplevel"]).await.ok().map(|s| PathBuf::from(s.trim()))
+}
+
+/// GitHub repository of the `upstream` remote, else `origin`. None without one on github.com.
+pub async fn origin_repo(dir: &Path) -> Option<RepoId> {
+    for remote in ["upstream", "origin"] {
+        if let Ok(url) = git(dir, &["remote", "get-url", remote]).await
+            && let Some(repo) = parse_github_remote(url.trim())
+        {
+            return Some(repo);
+        }
+    }
+    None
+}
+
+/// `git@github.com:o/r.git`, `ssh://git@github.com/o/r`, `https://github.com/o/r.git`, ...
+fn parse_github_remote(url: &str) -> Option<RepoId> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let rest = rest.split_once('@').filter(|(user, _)| !user.contains('/')).map_or(rest, |(_, r)| r);
+    let path = rest.strip_prefix("github.com")?;
+    let path = path.strip_prefix(':').or_else(|| path.strip_prefix('/'))?.trim_end_matches('/');
+    let (owner, name) = path.strip_suffix(".git").unwrap_or(path).split_once('/')?;
+    Some(RepoId { owner: owner.to_owned(), name: name.to_owned() }).filter(crate::github_refs::valid_repo)
 }
 
 pub async fn current_branch(dir: &Path) -> anyhow::Result<Option<String>> {
@@ -383,6 +405,22 @@ mod tests {
         assert_eq!(parse_head("3f2a9c0e1b4d5a6f7e8d9c0b1a2f3e4d5c6b7a8f\n"), None);
         assert_eq!(parse_gitdir("gitdir: /repo/.git/worktrees/x\n"), Some("/repo/.git/worktrees/x"));
         assert_eq!(parse_gitdir("nonsense"), None);
+    }
+
+    #[test]
+    fn parses_github_remotes() {
+        let r = |o: &str, n: &str| Some(RepoId { owner: o.into(), name: n.into() });
+        assert_eq!(parse_github_remote("git@github.com:dswbx/harness.git"), r("dswbx", "harness"));
+        assert_eq!(parse_github_remote("git@github.com:dswbx/harness"), r("dswbx", "harness"));
+        assert_eq!(parse_github_remote("ssh://git@github.com/supabase/spark.git"), r("supabase", "spark"));
+        assert_eq!(parse_github_remote("https://github.com/supabase/spark"), r("supabase", "spark"));
+        assert_eq!(parse_github_remote("https://github.com/supabase/spark.git/"), r("supabase", "spark"));
+        assert_eq!(parse_github_remote("https://user@github.com/supabase/my.repo.git"), r("supabase", "my.repo"));
+        assert_eq!(parse_github_remote("git@gitlab.com:dswbx/harness.git"), None);
+        assert_eq!(parse_github_remote("https://github.com.evil.dev/a/b"), None);
+        assert_eq!(parse_github_remote("https://github.com/only-owner"), None);
+        assert_eq!(parse_github_remote("https://github.com/a/b/tree/main"), None);
+        assert_eq!(parse_github_remote("/local/path/repo.git"), None);
     }
 
     #[test]

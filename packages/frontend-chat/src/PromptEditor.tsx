@@ -25,6 +25,8 @@ import {
   KEY_ARROW_LEFT_COMMAND,
   KEY_ARROW_RIGHT_COMMAND,
   KEY_ARROW_UP_COMMAND,
+  KEY_BACKSPACE_COMMAND,
+  KEY_DELETE_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
@@ -51,13 +53,17 @@ import {
   type EscapeKey,
   type PromptSnapshot,
 } from "./promptMarkdown";
-import type { SlashCommand } from "@harness/api";
+import { $caretToken, $importPrRefs, $replaceToken, $unchip, registerAutoChip, type CaretToken } from "./promptPrRefs";
+
+export type { CaretToken };
+import { usePrRefs } from "./prRefs";
+import type { PrRefKey, SlashCommand } from "@harness/api";
 import { Tooltip } from "@harness/ui";
 
 export type PromptEditorHandle = {
   /** Markdown of the current content (newlines preserved, no escapes outside code). */
   getMarkdown(): string;
-  /** Replace content with plain text, caret at end, focus. */
+  /** Replace content with plain text (`owner/repo#N` becomes a chip), caret at end, focus. */
   setText(text: string): void;
   /** Exact current content (for `restore`). */
   snapshot(): PromptSnapshot;
@@ -66,6 +72,8 @@ export type PromptEditorHandle = {
   /** Empty the editor; keeps the caret only if the editor has focus. */
   clear(): void;
   focus(): void;
+  /** Replace `token` (if its text is still there) with a PR chip and a space, or with `text`; caret after it, focus. */
+  replaceToken(token: CaretToken, by: { pr: PrRefKey; typed: string } | { text: string }): void;
 };
 
 export type MenuKey = "up" | "down" | "pick" | "close";
@@ -80,6 +88,8 @@ type Props = {
   command?: SlashCommand | null;
   /** `text`: plain text (for matching); `markdown`: what would be sent. */
   onChange(text: string, markdown: string): void;
+  /** The `#` token at the caret, after each update. */
+  onToken?(token: CaretToken | null): void;
   onSubmit(): void;
   /** Content is taller than the max height and scrolls. */
   onOverflowChange?(overflow: boolean): void;
@@ -169,6 +179,9 @@ function Behavior(props: Props & { onUpdate(): void }) {
   const [editor] = useLexicalComposerContext();
   const p = useRef(props);
   useLayoutEffect(() => { p.current = props; });
+  const prRefs = usePrRefs();
+  const refs = useRef(prRefs);
+  useLayoutEffect(() => { refs.current = prRefs; });
 
   useImperativeHandle(props.ref, () => handle(editor), [editor]);
 
@@ -181,9 +194,26 @@ function Behavior(props: Props & { onUpdate(): void }) {
     };
     const offs = [
       editor.registerUpdateListener(({ editorState }) => {
-        editorState.read(() => p.current.onChange($getRoot().getTextContent(), $exportMarkdown()));
+        editorState.read(() => {
+          p.current.onChange($getRoot().getTextContent(), $exportMarkdown());
+          p.current.onToken?.($caretToken());
+        });
         p.current.onUpdate();
       }),
+      // A typed PR ref followed by a space or punctuation becomes a chip once the PR is found.
+      registerAutoChip(editor, () => refs.current),
+      // Backspace/Delete next to a chip (or on a selected one) turns it back into the text the user typed.
+      ...([[KEY_BACKSPACE_COMMAND, "backward"], [KEY_DELETE_COMMAND, "forward"]] as const).map(([cmd, dir]) =>
+        editor.registerCommand(
+          cmd,
+          (e: KeyboardEvent) => {
+            if (e.altKey || e.metaKey || e.ctrlKey || !$unchip(dir)) return false;
+            e.preventDefault();
+            return true;
+          },
+          COMMAND_PRIORITY_HIGH,
+        ),
+      ),
       // Up/Down go to the open "/" menu; otherwise arrows past the first/last code block (or list) add a paragraph there.
       ...([
         [KEY_ARROW_UP_COMMAND, "up"],
@@ -342,7 +372,10 @@ function handle(editor: LexicalEditor): PromptEditorHandle {
     getMarkdown: () => editor.getEditorState().read($exportMarkdown),
     setText: (text) => {
       editor.update(() => {
-        $reset().append($createTextNode(text)).selectEnd();
+        const t = $createTextNode(text);
+        $reset().append(t);
+        $importPrRefs(t);
+        $getRoot().selectEnd();
       });
       editor.focus();
     },
@@ -358,5 +391,9 @@ function handle(editor: LexicalEditor): PromptEditorHandle {
       });
     },
     focus: () => editor.focus(),
+    replaceToken: (token, by) => {
+      editor.update(() => void $replaceToken(token, by));
+      editor.focus();
+    },
   };
 }

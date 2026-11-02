@@ -34,8 +34,10 @@ import {
   type PointType,
   type SerializedEditorState,
 } from "lexical";
+import { PrRefNode } from "./PrRefNode";
+import { PR_REF } from "./promptPrRefs";
 
-export const PROMPT_NODES = [ListNode, ListItemNode, CodeNode, CodeHighlightNode, LinkNode, QuoteNode];
+export const PROMPT_NODES = [ListNode, ListItemNode, CodeNode, CodeHighlightNode, LinkNode, QuoteNode, PrRefNode];
 
 export const PROMPT_TRANSFORMERS: Transformer[] = [
   QUOTE,
@@ -51,6 +53,7 @@ export const PROMPT_TRANSFORMERS: Transformer[] = [
   ITALIC_UNDERSCORE,
   STRIKETHROUGH,
   LINK,
+  PR_REF,
 ];
 
 /** Markdown of one top-level block. `$convertToMarkdownString(…, node)` exports `node.getChildren()` as top-level blocks, so hand it a one-child stand-in. */

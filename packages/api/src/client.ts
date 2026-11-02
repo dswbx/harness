@@ -1,5 +1,5 @@
 import type {
-  AgentInfo, AppEvent, AppSettingKey, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, NewPermissionRule, PermissionRule, PrFilter, PullRequest,
+  AgentInfo, AppEvent, AppSettingKey, AttachmentInput, Branches, Commit, McpServerDef, RegistryAgent, Command, Diff, Event, FrontendManifest, GitStatus, KnownRepo, NewPermissionRule, PermissionRule, PrFilter, PrInfo, PrRefKey, PullRequest, RepoId,
   Editor, SessionSummary, StatePatchOp, TerminalInfo, ThreadStart, WorkspaceInfo,
 } from "./generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
@@ -48,6 +48,15 @@ export interface SessionApi {
   /** Stages everything; returns the commit id. */
   gitCommit(message: string): Promise<string>;
   gitPush(): Promise<void>;
+  /**
+   * What PR references resolve against: this Session's GitHub repo, the repos of all Sessions (best first) and the
+   * `gh` user (null when `gh` is not signed in).
+   */
+  prContext(): Promise<{ session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null }>;
+  /** PRs in the order of `refs`; null for one that does not exist. Cached in the core. Fails when `gh` does. */
+  lookupPrs(refs: PrRefKey[]): Promise<(PrInfo | null)[]>;
+  /** Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
+  searchPrs(repo: RepoId, query?: string | null): Promise<PrInfo[]>;
   /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
   frontendRead(path: string): Promise<string>;
   /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
@@ -132,6 +141,13 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
     gitCommit: async (message) =>
       (await expect({ type: "GitCommit", session_id: sessionId, message }, "Committed")).commit,
     gitPush: () => run({ type: "GitPush", session_id: sessionId }),
+    prContext: async () => {
+      const r = await expect({ type: "PrContext", session_id: sessionId }, "PrContext");
+      return { session_repo: r.session_repo, known_repos: r.known_repos, me: r.me };
+    },
+    lookupPrs: async (refs) => (await expect({ type: "LookupPrs", session_id: sessionId, refs }, "PrLookup")).prs,
+    searchPrs: async (repo, query = null) =>
+      (await expect({ type: "SearchPrs", session_id: sessionId, repo, query }, "PrSearch")).prs,
     frontendRead: async (path) =>
       (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent")).content,
     openInEditor: (path, line) => run({ type: "OpenInEditor", session_id: sessionId, path: path ?? null, line: line ?? null }),
