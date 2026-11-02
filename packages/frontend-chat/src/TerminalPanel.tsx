@@ -72,7 +72,8 @@ function TerminalView({ api, id, visible, onHandle, onActivity, onShortcut }: {
       cursorBlink: true,
       scrollback: 10000,
       minimumContrastRatio: 3,
-      macOptionIsMeta: true,
+      // Option types the layout's characters (@ [ ] { } on many layouts, Karabiner remaps); word moves are mapped below.
+      macOptionIsMeta: false,
       theme: themeFrom(el),
     });
     const fitAddon = new FitAddon();
@@ -168,8 +169,25 @@ function TerminalView({ api, id, visible, onHandle, onActivity, onShortcut }: {
     onHandle(id, handle.current);
     attach();
 
+    // macOS text editing keys as shell input: Option+Left/Right word, Cmd+Left/Right line (xterm sends `ESC[1;3D`, which shells do not bind).
+    const editKeys: Record<string, string> = {
+      "alt+ArrowLeft": "\x1bb",
+      "alt+ArrowRight": "\x1bf",
+      "meta+ArrowLeft": "\x01",
+      "meta+ArrowRight": "\x05",
+    };
+
     // Tab shortcuts while this Terminal has focus (Cmd+T new, Cmd+W close, Cmd+1..9 switch).
     t.attachCustomKeyEventHandler((e) => {
+      const mods = e.ctrlKey || e.shiftKey || (e.altKey && e.metaKey) ? null : e.altKey ? "alt" : e.metaKey ? "meta" : null;
+      const seq = mods && editKeys[`${mods}+${e.key}`];
+      if (seq) {
+        if (e.type === "keydown") {
+          e.preventDefault();
+          t.input(seq);
+        }
+        return false;
+      }
       if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return true;
       const key = /^[1-9]$/.test(e.key) ? Number(e.key) : e.key === "t" || e.key === "w" ? e.key : null;
       if (key === null) return true;
