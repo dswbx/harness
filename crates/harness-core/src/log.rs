@@ -11,6 +11,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +26,8 @@ pub struct SessionLog {
     session_id: SessionId,
     path: PathBuf,
     inner: Arc<Mutex<Inner>>,
+    /// `ts_ms` of the last Event (0 when empty); kept in memory, read for `SessionSummary.updated_ms`.
+    last_ts_ms: AtomicI64,
 }
 
 struct Inner {
@@ -73,6 +76,7 @@ impl SessionLog {
     /// Opens (or creates) the log at `path`, truncating a torn trailing line.
     pub fn open(session_id: SessionId, path: &Path) -> anyhow::Result<Self> {
         let mut next_seq = 0;
+        let mut last_ts_ms = 0;
         let mut valid_len = 0u64;
         if path.exists() {
             let mut reader = BufReader::new(File::open(path)?);
@@ -86,6 +90,7 @@ impl SessionLog {
                 match serde_json::from_str::<Event>(&line) {
                     Ok(ev) => {
                         next_seq = ev.seq + 1;
+                        last_ts_ms = ev.ts_ms;
                         valid_len += n as u64;
                     }
                     Err(_) => break,
@@ -101,11 +106,13 @@ impl SessionLog {
             session_id,
             path: path.to_owned(),
             inner: Arc::new(Mutex::new(Inner { file, next_seq, next_sub: 1, subscribers: Vec::new(), pending: None })),
+            last_ts_ms: AtomicI64::new(last_ts_ms),
         })
     }
 
     pub fn append(&self, thread_id: Option<ThreadId>, kind: EventKind) -> anyhow::Result<Event> {
         let mut inner = self.inner.lock().unwrap();
+        self.last_ts_ms.store(now_ms(), Ordering::Relaxed);
         if let Some(p) = inner.pending.as_mut()
             && merge_chunk(p, &thread_id, &kind)
         {
@@ -167,6 +174,11 @@ impl SessionLog {
 
     pub fn unsubscribe(&self, id: SubscriptionId) {
         self.inner.lock().unwrap().subscribers.retain(|(sid, _)| *sid != id);
+    }
+
+    /// Time of the last appended Event, None for an empty log.
+    pub fn last_ts_ms(&self) -> Option<i64> {
+        Some(self.last_ts_ms.load(Ordering::Relaxed)).filter(|&t| t > 0)
     }
 
     /// Live subscribers, i.e. open Views.

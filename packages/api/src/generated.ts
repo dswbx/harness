@@ -466,6 +466,8 @@ export type SessionSummary = {
 	agent_id: string,
 	folder: string,
 	created_ms: number,
+	/**  Time of the Session's last activity (last Session Log Event), else `created_ms`. */
+	updated_ms: number,
 	status: SessionStatus,
 	archived: boolean,
 	workspace: WorkspaceInfo,
@@ -511,4 +513,8 @@ export type WorkspaceInfo = {
 	/**  The Session's own `harness/...` branch when it has a Worktree. */
 	worktree_branch: string | null,
 	base_branch: string | null,
+	/**  Branch checked out in the Session's folder; None when not a git repo or HEAD is detached. */
+	branch: string | null,
+	/**  PR number when the Session was started from a PR. */
+	pr: number | null,
 };

@@ -39,6 +39,28 @@ pub async fn current_branch(dir: &Path) -> anyhow::Result<Option<String>> {
     Ok(Some(b.trim().to_owned()).filter(|b| !b.is_empty()))
 }
 
+/// Branch checked out at `folder` (or its nearest repo above), read from the HEAD file without
+/// spawning git. None when not in a git repo or HEAD is detached.
+pub fn head_branch(folder: &Path) -> Option<String> {
+    let dot_git = folder.ancestors().map(|d| d.join(".git")).find(|p| p.exists())?;
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        // Worktree or submodule: `.git` is a file `gitdir: <path>`, relative to its folder.
+        let content = std::fs::read_to_string(&dot_git).ok()?;
+        dot_git.parent()?.join(parse_gitdir(&content)?)
+    };
+    parse_head(&std::fs::read_to_string(git_dir.join("HEAD")).ok()?)
+}
+
+fn parse_gitdir(content: &str) -> Option<&str> {
+    content.trim().strip_prefix("gitdir:").map(str::trim).filter(|s| !s.is_empty())
+}
+
+fn parse_head(content: &str) -> Option<String> {
+    content.trim().strip_prefix("ref:")?.trim().strip_prefix("refs/heads/").filter(|s| !s.is_empty()).map(str::to_owned)
+}
+
 pub async fn list_branches(folder: &Path) -> anyhow::Result<Branches> {
     let Some(root) = repo_root(folder).await else {
         return Ok(Branches { repo_root: None, current: None, branches: vec![], remote: vec![] });
@@ -348,4 +370,38 @@ pub fn slug(s: &str) -> String {
     let out: String = out.trim_end_matches('-').chars().take(24).collect();
     let out = out.trim_end_matches('-').to_owned();
     if out.is_empty() { "session".into() } else { out }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_head_and_gitdir() {
+        assert_eq!(parse_head("ref: refs/heads/main\n").as_deref(), Some("main"));
+        assert_eq!(parse_head("ref: refs/heads/harness/pr-12-abc\n").as_deref(), Some("harness/pr-12-abc"));
+        assert_eq!(parse_head("3f2a9c0e1b4d5a6f7e8d9c0b1a2f3e4d5c6b7a8f\n"), None);
+        assert_eq!(parse_gitdir("gitdir: /repo/.git/worktrees/x\n"), Some("/repo/.git/worktrees/x"));
+        assert_eq!(parse_gitdir("nonsense"), None);
+    }
+
+    #[test]
+    fn head_branch_reads_dir_and_worktree_file() {
+        let tmp = std::env::temp_dir().join(format!("harness-head-{}", uuid::Uuid::now_v7()));
+        let repo = tmp.join("repo");
+        std::fs::create_dir_all(repo.join(".git/worktrees/wt")).unwrap();
+        std::fs::create_dir_all(repo.join("sub")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        assert_eq!(head_branch(&repo.join("sub")).as_deref(), Some("main"));
+
+        let wt = tmp.join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(repo.join(".git/worktrees/wt/HEAD"), "ref: refs/heads/feature/x\n").unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: ../repo/.git/worktrees/wt\n").unwrap();
+        assert_eq!(head_branch(&wt).as_deref(), Some("feature/x"));
+
+        std::fs::write(repo.join(".git/worktrees/wt/HEAD"), "0123456789abcdef0123456789abcdef01234567\n").unwrap();
+        assert_eq!(head_branch(&wt), None);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
 }
