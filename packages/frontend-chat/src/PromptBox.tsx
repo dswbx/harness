@@ -237,8 +237,8 @@ export function PromptBox({ api, state, threadId = null, onSideThread, onSend, r
                 onMouseMove={() => i !== sel && setSel(i)}
                 onClick={() => pick(c)}
               >
-                <span className="truncate">/{c.name}</span>
-                {c.hint && <span className="shrink-0 truncate text-xs text-muted-foreground">{c.hint}</span>}
+                <span className="shrink-0">/{c.name}</span>
+                {c.hint && <span className="min-w-0 truncate text-xs text-muted-foreground">{c.hint}</span>}
               </button>
             </Tooltip>
           ))}
