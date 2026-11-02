@@ -12,17 +12,19 @@ export type PrStateVisual = {
   fg: string;
   /** Background at 20% of the state color, on hover and focus (PR chips). */
   hoverBg: string;
+  /** The same background, always on (a prompt chip next to the caret). */
+  activeBg: string;
   /** Solid background (state pill). */
   pill: string;
 };
 
-const open: PrStateVisual = { Icon: GitPullRequest, label: "Open", fg: "text-emerald-600 dark:text-emerald-400", hoverBg: "hover:bg-emerald-500/20 focus-visible:bg-emerald-500/20", pill: "bg-emerald-600 dark:bg-emerald-500" };
-const failing: PrStateVisual = { Icon: GitPullRequest, label: "Checks failing", fg: "text-red-600 dark:text-red-400", hoverBg: "hover:bg-red-500/20 focus-visible:bg-red-500/20", pill: "bg-red-600 dark:bg-red-500" };
-const gray = { fg: "text-muted-foreground", hoverBg: "hover:bg-zinc-500/20 focus-visible:bg-zinc-500/20", pill: "bg-zinc-500 dark:bg-zinc-600" };
+const open: PrStateVisual = { Icon: GitPullRequest, label: "Open", fg: "text-emerald-600 dark:text-emerald-400", hoverBg: "hover:bg-emerald-500/20 focus-visible:bg-emerald-500/20", activeBg: "bg-emerald-500/20", pill: "bg-emerald-600 dark:bg-emerald-500" };
+const failing: PrStateVisual = { Icon: GitPullRequest, label: "Checks failing", fg: "text-red-600 dark:text-red-400", hoverBg: "hover:bg-red-500/20 focus-visible:bg-red-500/20", activeBg: "bg-red-500/20", pill: "bg-red-600 dark:bg-red-500" };
+const gray = { fg: "text-muted-foreground", hoverBg: "hover:bg-zinc-500/20 focus-visible:bg-zinc-500/20", activeBg: "bg-zinc-500/20", pill: "bg-zinc-500 dark:bg-zinc-600" };
 const states: Record<PrState, PrStateVisual> = {
   open,
   draft: { Icon: GitPullRequestDraft, label: "Draft", ...gray },
-  merged: { Icon: GitMerge, label: "Merged", fg: "text-violet-600 dark:text-violet-400", hoverBg: "hover:bg-violet-500/20 focus-visible:bg-violet-500/20", pill: "bg-violet-600 dark:bg-violet-500" },
+  merged: { Icon: GitMerge, label: "Merged", fg: "text-violet-600 dark:text-violet-400", hoverBg: "hover:bg-violet-500/20 focus-visible:bg-violet-500/20", activeBg: "bg-violet-500/20", pill: "bg-violet-600 dark:bg-violet-500" },
   closed: { Icon: GitPullRequestClosed, label: "Closed", ...gray },
 };
 

@@ -7,7 +7,7 @@ import { Popover, PopoverAnchor, PopoverContent, cn } from "@harness/ui";
 import { prStateVisual } from "./UiPullRequest";
 import { formatRelativeTime, useNow } from "./time";
 
-type PrRefs = { ctx: PrRefContext; store: PrStore };
+export type PrRefs = { ctx: PrRefContext; store: PrStore };
 const PrRefsContext = createContext<PrRefs | null>(null);
 
 /** The Session's PR ref context and store; null outside a provider or before the context loaded. */
@@ -41,10 +41,21 @@ export function PrChip({ refKey, raw }: { refKey: string; raw: string }) {
   const refs = usePrRefs();
   const key = useMemo(() => parsePrKey(refKey), [refKey]);
   if (!refs || !key) return <>{raw}</>;
-  return <Chip refs={refs} prKey={key} raw={raw} />;
+  return <PrChipView refs={refs} prKey={key} raw={raw} text={displayRef(key, refs.ctx)} />;
 }
 
-function Chip({ refs, prKey: key, raw }: { refs: PrRefs; prKey: PrRefKey; raw: string }) {
+/**
+ * The chip of one PR: state icon + `text`, popover on hover. In messages a link (popover also on focus). In the prompt
+ * (`prompt`) a plain span on a slightly lighter bg; `active` (caret next to it) shows the hover bg and opens the
+ * popover above.
+ */
+export function PrChipView({ refs, prKey: key, raw, text, prompt }: {
+  refs: PrRefs;
+  prKey: PrRefKey;
+  raw: string;
+  text: string;
+  prompt?: { active: boolean };
+}) {
   const entry = usePr(refs.store, key);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -54,32 +65,44 @@ function Chip({ refs, prKey: key, raw }: { refs: PrRefs; prKey: PrRefKey; raw: s
   const pr = entry.status === "found" ? entry.pr : null;
   const v = pr ? prStateVisual(pr.state, pr.checks) : null;
   const Icon = v?.Icon ?? CircleDashed;
+  const active = !!prompt?.active;
   const later = (to: boolean, ms: number) => {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setOpen(to), ms);
   };
   const show = { onMouseEnter: () => later(true, OPEN_DELAY), onMouseLeave: () => later(false, CLOSE_DELAY) };
-  const a = (
+  const cls = cn(
+    "inline rounded-[4px] px-[3px] whitespace-nowrap",
+    prompt ? "bg-foreground/7" : "bg-foreground/6 text-inherit no-underline outline-none",
+    v?.hoverBg ?? "hover:bg-zinc-500/20 focus-visible:bg-zinc-500/20",
+    active && (v?.activeBg ?? "bg-zinc-500/20"),
+  );
+  const body = (
+    <>
+      <Icon strokeWidth={2.2} className={cn(iconCls, v?.fg ?? "text-muted-foreground")} aria-hidden />
+      {text}
+    </>
+  );
+  const chip = prompt ? (
+    <span className={cls} {...(pr && show)}>{body}</span>
+  ) : (
     <a
       href={pr?.url ?? `https://github.com/${repoName(key.repo)}/pull/${key.number}`}
       target="_blank"
       rel="noreferrer"
       data-not-typeset
-      className={cn(
-        "inline rounded-[4px] bg-foreground/6 px-[3px] whitespace-nowrap text-inherit no-underline outline-none",
-        v?.hoverBg ?? "hover:bg-zinc-500/20 focus-visible:bg-zinc-500/20",
-      )}
+      className={cls}
       {...(pr && { ...show, onFocus: () => later(true, 0), onBlur: () => later(false, 0) })}
     >
-      <Icon strokeWidth={2.2} className={cn(iconCls, v?.fg ?? "text-muted-foreground")} aria-hidden />
-      {displayRef(key, refs.ctx)}
+      {body}
     </a>
   );
-  if (!pr) return a;
+  if (!pr) return chip;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverAnchor asChild>{a}</PopoverAnchor>
+    <Popover open={open || active} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>{chip}</PopoverAnchor>
       <PopoverContent
+        side={prompt ? "top" : undefined}
         className="w-[340px] max-w-[calc(100vw-16px)] px-3 py-2.5"
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
