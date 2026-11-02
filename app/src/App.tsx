@@ -339,7 +339,7 @@ function Shell({ transport }: { transport: Transport }) {
       <div className="flex h-full">
          {sidebarOpen && (
             <aside
-               className="relative flex shrink-0 flex-col border-r bg-muted/30"
+               className="relative flex shrink-0 flex-col border-r bg-card"
                style={{ width: sidebar.width }}
             >
                <ResizeHandle label="Resize sidebar" {...sidebar.handle} />
