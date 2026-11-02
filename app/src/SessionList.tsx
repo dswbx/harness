@@ -247,7 +247,11 @@ export function SessionList({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") return;
+              setQuery("");
+              e.currentTarget.blur();
+            }}
             placeholder="Search sessions"
             aria-label="Search sessions"
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
