@@ -265,12 +265,13 @@ export function SessionList({
         <ViewOptionsButton view={view} onChange={setView} />
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-4.5 px-2 py-1">
+        <div className="flex flex-col px-2 py-1">
           {sessions.length === 0 && <p className="p-3 text-xs text-muted-foreground">No Sessions yet.</p>}
           {groups.map((g) => {
             const open = g.id === "all" || !collapsed.includes(g.id);
             return (
-              <div key={g.id} className="flex flex-col">
+              // Only an open group adds space below it; collapsed headers stack tight.
+              <div key={g.id} className={cn("flex flex-col", open && "mb-4.5 last:mb-0")}>
                 {g.id !== "all" && (
                   <button
                     aria-expanded={open}
