@@ -251,7 +251,7 @@ function Shell({ transport }: { transport: Transport }) {
   return (
     <div className="flex h-full">
       {sidebarOpen && (
-        <aside className="relative flex shrink-0 flex-col border-r bg-muted/30" style={{ width: sidebar.width }}>
+        <aside className="relative flex shrink-0 flex-col border-r bg-card" style={{ width: sidebar.width }}>
           <ResizeHandle label="Resize sidebar" {...sidebar.handle} />
           <div data-tauri-drag-region className={cn("flex h-13 shrink-0 items-center gap-1 pr-2", trafficLights ? "pl-[76px]" : "pl-3")}>
             <div data-tauri-drag-region className="h-full flex-1" />
