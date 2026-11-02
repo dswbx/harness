@@ -160,3 +160,47 @@ export function registerAutoChip(editor: LexicalEditor, refs: () => { ctx: PrRef
     pending.forEach((cancel) => cancel());
   };
 }
+
+/** The run of non-space characters ending at the caret (from a space or `(`) when it contains `#` and is followed by
+ * nothing, a space; never in code or links. `start`/`end` are offsets in text node `nodeKey`. */
+export type CaretToken = { nodeKey: NodeKey; start: number; end: number; text: string };
+
+export function $caretToken(): CaretToken | null {
+  const sel = $getSelection();
+  if (!$isRangeSelection(sel) || !sel.isCollapsed() || sel.anchor.type !== "text") return null;
+  const node = sel.anchor.getNode();
+  if (!$isTextNode(node) || $noChips(node)) return null;
+  const text = node.getTextContent();
+  const end = sel.anchor.offset;
+  if (end < text.length && !/\s/.test(text[end]!)) return null;
+  const before = text.slice(0, end);
+  const start = Math.max(before.search(/[^\s(]*$/), 0);
+  const token = before.slice(start);
+  return token.includes("#") ? { nodeKey: node.getKey(), start, end, text: token } : null;
+}
+
+/**
+ * Replace `token` with a chip of `pr` plus a space (caret after the space), or with `text` (caret after it). Only if the
+ * token is still there as it was (same text, still ending there). Returns whether it did.
+ */
+export function $replaceToken(token: CaretToken, by: { pr: PrRefKey; typed: string } | { text: string }): boolean {
+  const node = $getNodeByKey(token.nodeKey);
+  const text = $isTextNode(node) ? node.getTextContent() : "";
+  if (!$isTextNode(node) || text.slice(token.start, token.end) !== token.text || /\S/.test(text[token.end] ?? " ")) return false;
+  if ("text" in by) {
+    node.spliceText(token.start, token.end - token.start, by.text, true);
+    return true;
+  }
+  const parts = node.splitText(token.start, token.end);
+  const target = parts[token.start === 0 ? 0 : 1]!;
+  const chip = $createPrRefNode(by.pr, by.typed);
+  target.replace(chip);
+  const next = chip.getNextSibling();
+  if ($isTextNode(next) && next.getTextContent().startsWith(" ")) next.select(1, 1);
+  else {
+    const space = $createTextNode(" ");
+    chip.insertAfter(space);
+    space.select(1, 1);
+  }
+  return true;
+}

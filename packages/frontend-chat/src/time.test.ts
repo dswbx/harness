@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatRelativeTime } from "./time";
+import { formatAge, formatDuration, formatRelativeTime } from "./time";
 
 const at = (y: number, mo: number, d: number, h = 14, mi = 32) => new Date(y, mo - 1, d, h, mi).getTime();
 const now = at(2026, 10, 29, 18, 0);
@@ -36,5 +36,13 @@ describe("formatDuration", () => {
     expect(formatDuration(8_400)).toBe("8s");
     expect(formatDuration(245_000)).toBe("4m 05s");
     expect(formatDuration(3_720_000)).toBe("1h 02m");
+  });
+});
+
+describe("formatAge", () => {
+  it("short units", () => {
+    const m = 60_000;
+    expect([0, 30_000, 12 * m, 2 * 60 * m, 3 * 1440 * m, 15 * 1440 * m, 100 * 1440 * m, 800 * 1440 * m].map((d) => formatAge(now - d, now)))
+      .toEqual(["now", "now", "12m", "2h", "3d", "2w", "3mo", "2y"]);
   });
 });

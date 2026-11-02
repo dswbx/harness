@@ -17,7 +17,7 @@ import {
 import { prKey, type PrEntry, type PrInfo, type PrRefContext, type PrRefKey, type PrStore } from "@harness/api";
 import { $exportMarkdown, PROMPT_NODES, PROMPT_TRANSFORMERS, restoreSnapshot, snapshot } from "./promptMarkdown";
 import { $createPrRefNode, $isPrRefNode } from "./PrRefNode";
-import { $importPrRefs, $unchip, autoChips, registerAutoChip } from "./promptPrRefs";
+import { $caretToken, $importPrRefs, $replaceToken, $unchip, autoChips, registerAutoChip, type CaretToken } from "./promptPrRefs";
 
 const harness = { owner: "dswbx", name: "harness" };
 const spark = { owner: "supabase", name: "spark" };
@@ -157,6 +157,7 @@ function fakeStore() {
     peek: (key) => entries.get(prKey(key)) ?? { status: "loading" },
     request: (key) => void requested.push(prKey(key)),
     subscribe: (l) => (listeners.add(l), () => void listeners.delete(l)),
+    seed: () => {},
   };
   const settle = (key: PrRefKey, e: PrEntry) => {
     entries.set(prKey(key), e);
@@ -261,5 +262,57 @@ describe("auto-chip", () => {
     run(ed, () => void $getSelection()!.insertText(" "));
     await flush();
     expect(shape(ed)).toEqual(["[supabase/spark#17] "]);
+  });
+});
+
+describe("# menu token and pick", () => {
+  /** One paragraph with `text`, caret at `at` (default: end); returns the token at the caret. */
+  const at = (text: string, offset = text.length, code = false) => {
+    const ed = newEditor();
+    run(ed, () => {
+      const t = code ? $createTextNode(text).toggleFormat("code") : $createTextNode(text);
+      $getRoot().append($createParagraphNode().append(t));
+      t.select(offset, offset);
+    });
+    return { ed, token: ed.getEditorState().read($caretToken) };
+  };
+  it("the run before the caret that contains #, from a space or (", () => {
+    expect(at("see #fix").token).toMatchObject({ start: 4, end: 8, text: "#fix" });
+    expect(at("(spark#1").token).toMatchObject({ start: 1, text: "spark#1" });
+    expect(at("see sp#  x", 7).token).toMatchObject({ start: 4, end: 7, text: "sp#" });
+    expect(at("see fix").token).toBeNull();
+    expect(at("#fix more", 2).token).toBeNull();
+    expect(at("#fix", 4, true).token).toBeNull();
+  });
+  it("picking a PR replaces the token with a chip and a space, caret after it", () => {
+    const { ed, token } = at("see #fi");
+    run(ed, () => void $replaceToken(token!, { pr: k(harness, 23), typed: "#23" }));
+    expect(shape(ed)).toEqual(["see [#23] "]);
+    expect(mdOf(ed)).toBe("see dswbx/harness#23 ");
+    expect(caret(ed)).toEqual([" ", 1]);
+    const n = ed.getEditorState().read(() => $getRoot().getAllTextNodes().length);
+    expect(n).toBe(2);
+    const chip = ed.getEditorState().read(() => ($getRoot().getFirstChild() as ElementNode).getChildren().find($isPrRefNode)!.getRefKey());
+    expect(chip).toEqual(k(harness, 23));
+  });
+  it("a pick mid-text reuses the following space", () => {
+    const { ed, token } = at("a spark# b", 8);
+    run(ed, () => void $replaceToken(token!, { pr: k(spark, 17), typed: "supabase/spark#17" }));
+    expect(shape(ed)).toEqual(["a [supabase/spark#17] b"]);
+    expect(caret(ed)).toEqual([" b", 1]);
+  });
+  it("a repo pick rewrites the token to owner/repo#, caret at its end", () => {
+    const { ed, token } = at("x sp#");
+    run(ed, () => void $replaceToken(token!, { text: "supabase/spark#" }));
+    expect(shape(ed)).toEqual(["x supabase/spark#"]);
+    expect(ed.getEditorState().read($caretToken)?.text).toBe("supabase/spark#");
+  });
+  it("does nothing when the token text changed", () => {
+    const { ed, token } = at("#fi");
+    run(ed, () => void $getSelection()!.insertText("x"));
+    let done = true;
+    run(ed, () => void (done = $replaceToken(token as CaretToken, { pr: k(harness, 1), typed: "#1" })));
+    expect(done).toBe(false);
+    expect(shape(ed)).toEqual(["#fix"]);
   });
 });

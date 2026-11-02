@@ -1,13 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleDashed } from "lucide-react";
 import {
-  createPrStore, displayRef, parsePrKey, repoName, usePr, type PrInfo, type PrRefContext, type PrRefKey, type PrStore, type SessionApi,
+  createPrSearch, createPrStore, displayRef, parsePrKey, repoName, usePr, type PrInfo, type PrRefContext, type PrRefKey, type PrSearch, type PrStore,
+  type SessionApi,
 } from "@harness/api";
 import { Popover, PopoverAnchor, PopoverContent, cn } from "@harness/ui";
 import { prStateVisual } from "./UiPullRequest";
 import { formatRelativeTime, useNow } from "./time";
 
-export type PrRefs = { ctx: PrRefContext; store: PrStore };
+/** `me`: the `gh` user (their PRs come first in the `#` menu). */
+export type PrRefs = { ctx: PrRefContext; store: PrStore; search: PrSearch; me: string | null };
 const PrRefsContext = createContext<PrRefs | null>(null);
 
 /** The Session's PR ref context and store; null outside a provider or before the context loaded. */
@@ -15,19 +17,20 @@ export const usePrRefs = () => useContext(PrRefsContext);
 
 /** PR chips for one Session: asks the core for its repo and the known repos once, and shares one lookup store. Without
  * them (no repo, `gh` missing) refs stay text. */
-export function PrRefProvider({ api, children }: { api: Pick<SessionApi, "prContext" | "lookupPrs">; children: ReactNode }) {
+export function PrRefProvider({ api, children }: { api: Pick<SessionApi, "prContext" | "lookupPrs" | "searchPrs">; children: ReactNode }) {
   const store = useMemo(() => createPrStore(api), [api]);
-  const [ctx, setCtx] = useState<PrRefContext | null>(null);
+  const search = useMemo(() => createPrSearch(api, store), [api, store]);
+  const [ctx, setCtx] = useState<{ ctx: PrRefContext; me: string | null } | null>(null);
   useEffect(() => {
     let off = false;
     setCtx(null);
     api.prContext().then(
-      (c) => !off && setCtx({ sessionRepo: c.session_repo, knownRepos: c.known_repos }),
+      (c) => !off && setCtx({ ctx: { sessionRepo: c.session_repo, knownRepos: c.known_repos }, me: c.me }),
       () => {},
     );
     return () => void (off = true);
   }, [api]);
-  const value = useMemo(() => (ctx ? { ctx, store } : null), [ctx, store]);
+  const value = useMemo(() => (ctx ? { ...ctx, store, search } : null), [ctx, store, search]);
   return <PrRefsContext.Provider value={value}>{children}</PrRefsContext.Provider>;
 }
 

@@ -1,7 +1,7 @@
 // PR info for PR references, looked up in batches and cached like the Host does (`github_refs.rs`).
-import type { PrInfo, PrRefKey } from "./generated";
+import type { PrInfo, PrRefKey, RepoId } from "./generated";
 import type { SessionApi } from "./client";
-import { prKey } from "./prRefs";
+import { prKey, repoName } from "./prRefs";
 
 /** `missing`: no such PR. `unavailable`: the lookup failed (no `gh`, offline); shown as plain text, retried later. */
 export type PrEntry =
@@ -16,6 +16,8 @@ export type PrStore = {
   /** Queues a lookup when the entry is absent or expired; lookups within `delay` go out as one batch. */
   request(key: PrRefKey): void;
   subscribe(listener: () => void): () => void;
+  /** Caches PRs found elsewhere (search results) as found. */
+  seed(prs: PrInfo[]): void;
 };
 
 const MIN = 60_000;
@@ -87,6 +89,51 @@ export function createPrStore(
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
+    },
+    seed(prs) {
+      if (!prs.length) return;
+      for (const pr of prs) set(prKey(pr), { status: "found", pr }, prTtl(pr));
+      notify();
+    },
+  };
+}
+
+/** PR search results per (repo, query), for the prompt's `#` menu. */
+export type PrSearch = {
+  /** Cached results, if fresh. */
+  peek(repo: RepoId, query: string | null): PrInfo[] | undefined;
+  /** Cached or fetched results; a failed search is not cached. Fetched PRs seed `store`. */
+  get(repo: RepoId, query: string | null): Promise<PrInfo[]>;
+};
+
+export function createPrSearch(
+  api: Pick<SessionApi, "searchPrs">,
+  store: Pick<PrStore, "seed">,
+  { ttl = MIN, now = Date.now }: { ttl?: number; now?: () => number } = {},
+): PrSearch {
+  const cache = new Map<string, { prs: PrInfo[]; expires: number }>();
+  const inflight = new Map<string, Promise<PrInfo[]>>();
+  const id = (repo: RepoId, query: string | null) => `${repoName(repo).toLowerCase()}\n${query?.trim().toLowerCase() ?? ""}`;
+  const peek = (repo: RepoId, query: string | null) => {
+    const hit = cache.get(id(repo, query));
+    return hit && hit.expires > now() ? hit.prs : undefined;
+  };
+  return {
+    peek,
+    get(repo, query) {
+      const cached = peek(repo, query);
+      if (cached) return Promise.resolve(cached);
+      const k = id(repo, query);
+      let p = inflight.get(k);
+      if (!p) {
+        p = api.searchPrs(repo, query?.trim() || null).then((prs) => {
+          cache.set(k, { prs, expires: now() + ttl });
+          store.seed(prs);
+          return prs;
+        }).finally(() => inflight.delete(k));
+        inflight.set(k, p);
+      }
+      return p;
     },
   };
 }

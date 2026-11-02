@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PrInfo, PrRefKey } from "./generated";
 import { MockTransport } from "./mock";
 import { createSessionApi } from "./client";
-import { createPrStore, PR_BATCH } from "./prStore";
+import { createPrSearch, createPrStore, PR_BATCH } from "./prStore";
 
 const key = (full: string, number: number): PrRefKey => {
   const [owner, name] = full.split("/") as [string, string];
@@ -95,4 +95,33 @@ it("works against the mock transport", async () => {
   await done;
   expect(store.peek(key("supabase/spark", 17))).toMatchObject({ status: "found", pr: { title: "Edge runtime: stream request bodies" } });
   expect(store.peek(key("dswbx/harness", 999))).toEqual({ status: "missing" });
+});
+
+it("search: cached per repo and query (case-insensitive), failures not cached, results seed the store", async () => {
+  const calls: (string | null)[] = [];
+  let fail = false;
+  const pr = { repo: { owner: "o", name: "r" }, number: 7, state: "merged" } as PrInfo;
+  const api = {
+    searchPrs: async (_repo: unknown, query: string | null = null) => {
+      calls.push(query);
+      if (fail) throw new Error("gh missing");
+      return [pr];
+    },
+    lookupPrs: async () => [],
+  };
+  const store = createPrStore(api, { now: () => now });
+  const search = createPrSearch(api, store, { now: () => now });
+  const r = { owner: "o", name: "r" };
+  expect(search.peek(r, null)).toBeUndefined();
+  await Promise.all([search.get(r, null), search.get(r, null)]);
+  expect(await search.get({ owner: "O", name: "R" }, null)).toEqual([pr]);
+  expect(calls).toEqual([null]);
+  expect(search.peek(r, null)).toEqual([pr]);
+  expect(store.peek(key("o/r", 7))).toEqual({ status: "found", pr });
+  fail = true;
+  await expect(search.get(r, " fix ")).rejects.toThrow();
+  await expect(search.get(r, "fix")).rejects.toThrow();
+  expect(calls).toEqual([null, "fix", "fix"]);
+  now += 61_000;
+  expect(search.peek(r, null)).toBeUndefined();
 });

@@ -53,9 +53,11 @@ import {
   type EscapeKey,
   type PromptSnapshot,
 } from "./promptMarkdown";
-import { $importPrRefs, $unchip, registerAutoChip } from "./promptPrRefs";
+import { $caretToken, $importPrRefs, $replaceToken, $unchip, registerAutoChip, type CaretToken } from "./promptPrRefs";
+
+export type { CaretToken };
 import { usePrRefs } from "./prRefs";
-import type { SlashCommand } from "@harness/api";
+import type { PrRefKey, SlashCommand } from "@harness/api";
 import { Tooltip } from "@harness/ui";
 
 export type PromptEditorHandle = {
@@ -70,6 +72,8 @@ export type PromptEditorHandle = {
   /** Empty the editor; keeps the caret only if the editor has focus. */
   clear(): void;
   focus(): void;
+  /** Replace `token` (if its text is still there) with a PR chip and a space, or with `text`; caret after it, focus. */
+  replaceToken(token: CaretToken, by: { pr: PrRefKey; typed: string } | { text: string }): void;
 };
 
 export type MenuKey = "up" | "down" | "pick" | "close";
@@ -84,6 +88,8 @@ type Props = {
   command?: SlashCommand | null;
   /** `text`: plain text (for matching); `markdown`: what would be sent. */
   onChange(text: string, markdown: string): void;
+  /** The `#` token at the caret, after each update. */
+  onToken?(token: CaretToken | null): void;
   onSubmit(): void;
   /** Content is taller than the max height and scrolls. */
   onOverflowChange?(overflow: boolean): void;
@@ -188,7 +194,10 @@ function Behavior(props: Props & { onUpdate(): void }) {
     };
     const offs = [
       editor.registerUpdateListener(({ editorState }) => {
-        editorState.read(() => p.current.onChange($getRoot().getTextContent(), $exportMarkdown()));
+        editorState.read(() => {
+          p.current.onChange($getRoot().getTextContent(), $exportMarkdown());
+          p.current.onToken?.($caretToken());
+        });
         p.current.onUpdate();
       }),
       // A typed PR ref followed by a space or punctuation becomes a chip once the PR is found.
@@ -382,5 +391,9 @@ function handle(editor: LexicalEditor): PromptEditorHandle {
       });
     },
     focus: () => editor.focus(),
+    replaceToken: (token, by) => {
+      editor.update(() => void $replaceToken(token, by));
+      editor.focus();
+    },
   };
 }

@@ -82,7 +82,7 @@ export function fuzzyRank<T>(query: string, items: readonly T[], text: (t: T) =>
 }
 
 /** Known repos plus the Session's repo (scored like the best known one when it is not known). */
-function candidates(ctx: PrRefContext): KnownRepo[] {
+export function repoCandidates(ctx: PrRefContext): KnownRepo[] {
   const { sessionRepo, knownRepos } = ctx;
   if (!sessionRepo || knownRepos.some((k) => sameRepo(k.repo, sessionRepo))) return knownRepos;
   const top = Math.max(0, ...knownRepos.map((k) => k.score));
@@ -97,11 +97,11 @@ export function resolveRepo(token: string, ctx: PrRefContext, { fuzzy = false }:
   const full = token.includes("/");
   if (!fuzzy) {
     const t = token.toLowerCase();
-    const same = candidates(ctx).filter((k) => (full ? repoName(k.repo) : k.repo.name).toLowerCase() === t);
+    const same = repoCandidates(ctx).filter((k) => (full ? repoName(k.repo) : k.repo.name).toLowerCase() === t);
     if (same.length > 1) return { kind: "ambiguous", repos: same.map((k) => k.repo) };
     return same[0] ? { kind: "one", repo: same[0].repo } : { kind: "none" };
   }
-  const hits = fuzzyRank(token, candidates(ctx), (k) => (full ? repoName(k.repo) : k.repo.name), (k) => k.score);
+  const hits = fuzzyRank(token, repoCandidates(ctx), (k) => (full ? repoName(k.repo) : k.repo.name), (k) => k.score);
   if (!hits.length) return { kind: "none" };
   const best = hits.filter((h) => h.tier === hits[0]!.tier);
   const [a, b] = best;
@@ -120,7 +120,7 @@ export function qualify(ref: string | PrRefMatch, ctx: PrRefContext, opts: Resol
   if (m.repo === null) return ctx.sessionRepo ? { repo: ctx.sessionRepo, number: m.number } : null;
   if (m.repo.includes("/")) {
     const [owner, name] = m.repo.split("/") as [string, string];
-    const known = candidates(ctx).find((k) => sameRepo(k.repo, { owner, name }));
+    const known = repoCandidates(ctx).find((k) => sameRepo(k.repo, { owner, name }));
     return { repo: known?.repo ?? { owner, name }, number: m.number };
   }
   const r = resolveRepo(m.repo, ctx, opts);
@@ -131,7 +131,7 @@ export function qualify(ref: string | PrRefMatch, ctx: PrRefContext, opts: Resol
  * else `owner/repo#17`. */
 export function displayRef(key: PrRefKey, ctx: PrRefContext): string {
   if (ctx.sessionRepo && sameRepo(key.repo, ctx.sessionRepo)) return `#${key.number}`;
-  const named = candidates(ctx).filter((k) => k.repo.name.toLowerCase() === key.repo.name.toLowerCase());
+  const named = repoCandidates(ctx).filter((k) => k.repo.name.toLowerCase() === key.repo.name.toLowerCase());
   if (named.length === 1 && sameRepo(named[0]!.repo, key.repo)) return `${key.repo.name}#${key.number}`;
   return `${repoName(key.repo)}#${key.number}`;
 }
