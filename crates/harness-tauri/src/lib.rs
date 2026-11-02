@@ -209,6 +209,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Main window reopens where and at the size it was. Not VISIBLE: windows stay hidden until first paint.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
+                .with_filter(|label| label == "main")
+                .build(),
+        )
         .manage(Subscriptions::default())
         .manage(updates::Updates::default())
         .setup(|app| {
