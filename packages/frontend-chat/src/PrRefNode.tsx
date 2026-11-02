@@ -1,15 +1,18 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
   $applyNodeReplacement,
+  $getNodeByKey,
   $getSelection,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
   BLUR_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_LOW,
   DecoratorNode,
   FOCUS_COMMAND,
+  KEY_ESCAPE_COMMAND,
   type LexicalEditor,
   type LexicalNode,
   type NodeKey,
@@ -18,7 +21,7 @@ import {
   type Spread,
 } from "lexical";
 import { displayRef, prKey, type PrRefKey } from "@harness/api";
-import { PrChipView, usePrRefs } from "./prRefs";
+import { PrChipView, usePrRefs, type RegisterEscape } from "./prRefs";
 
 export type SerializedPrRefNode = Spread<{ owner: string; repo: string; number: number; typed: string }, SerializedLexicalNode>;
 
@@ -82,7 +85,10 @@ export const $createPrRefNode = (key: PrRefKey, typed: string) =>
   $applyNodeReplacement(new PrRefNode(key.repo.owner, key.repo.name, key.number, typed));
 export const $isPrRefNode = (n: LexicalNode | null | undefined): n is PrRefNode => n instanceof PrRefNode;
 
-/** The chip in the prompt: `#N` for the Session's repo, else `owner/repo#N`. Active (popover above) while the caret is next to it. */
+/**
+ * The chip in the prompt: `#N` for the Session's repo, else `owner/repo#N`. Active (popover above) while the caret is
+ * next to it. Esc closes its open popover before anything else in the editor (menus, blur).
+ */
 function PromptPrChip({ nodeKey, refKey, typed }: { nodeKey: NodeKey; refKey: PrRefKey; typed: string }) {
   const refs = usePrRefs();
   const [editor] = useLexicalComposerContext();
@@ -102,8 +108,31 @@ function PromptPrChip({ nodeKey, refKey, typed }: { nodeKey: NodeKey; refKey: Pr
     ];
     return () => offs.forEach((off) => off());
   }, [editor, nodeKey]);
+  const onEscape = useCallback<RegisterEscape>(
+    (handle) =>
+      editor.registerCommand(
+        KEY_ESCAPE_COMMAND,
+        (e) => {
+          if (!handle()) return false;
+          e?.preventDefault();
+          return true;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+    [editor],
+  );
+  const onCaret = useCallback(
+    (side: "before" | "after") =>
+      editor.update(() => {
+        const n = $getNodeByKey(nodeKey);
+        if (!n) return;
+        if (side === "before") n.selectPrevious();
+        else n.selectNext(0, 0);
+      }),
+    [editor, nodeKey],
+  );
   if (!refs) return <>{typed}</>;
-  return <PrChipView refs={refs} prKey={refKey} raw={typed} text={displayRef(refKey, refs.ctx)} prompt={{ active }} />;
+  return <PrChipView refs={refs} prKey={refKey} raw={typed} text={displayRef(refKey, refs.ctx)} prompt={{ active, onEscape, onCaret }} />;
 }
 
 /** The node right before (`before`) or after a point, or null when the point is inside text. */
