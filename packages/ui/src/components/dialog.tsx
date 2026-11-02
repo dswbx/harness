@@ -2,6 +2,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type * as React from "react";
 import { cn } from "../lib/utils";
+import { Button } from "./button";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -23,9 +24,15 @@ function DialogContent({
             {...props}
          >
             {children}
-            <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100">
-               <X className="size-4" />
-               <span className="sr-only">Close</span>
+            <DialogPrimitive.Close asChild>
+               <Button
+                  size="icon"
+                  variant="ghost"
+                  className="absolute right-2.5 top-2.5 size-7 opacity-70 hover:opacity-100"
+                  aria-label="Close"
+               >
+                  <X />
+               </Button>
             </DialogPrimitive.Close>
          </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

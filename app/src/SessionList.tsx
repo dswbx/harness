@@ -436,8 +436,8 @@ export function SessionList({
    return (
       <>
          <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2">
-            <label className="flex h-7.5 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
-               <Search className="size-3.5 shrink-0" />
+            <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+               <Search className="size-3 shrink-0 opacity-80 " />
                <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -448,7 +448,7 @@ export function SessionList({
                   }}
                   placeholder="Search sessions"
                   aria-label="Search sessions"
-                  className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
                />
                {query && (
                   <button

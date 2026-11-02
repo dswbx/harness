@@ -61,7 +61,7 @@ export function Stripe({
             role="group"
             aria-label={ZONE_LABEL[g.zone]}
             className={cn(
-               "flex w-9 flex-col items-center gap-1 rounded-lg py-0.5",
+               "flex w-9 flex-col items-center gap-1 rounded-lg py-1",
                drag && "min-h-9 outline-1 outline-dashed outline-border",
                hot && "bg-blue-500/10 outline-blue-500/70",
             )}
@@ -89,7 +89,7 @@ export function Stripe({
                         variant="ghost"
                         data-drop-index={it.index}
                         className={cn(
-                           "relative size-8 touch-none text-muted-foreground hover:text-accent-foreground",
+                           "relative size-7 touch-none text-muted-foreground hover:text-accent-foreground",
                            it.on && "bg-accent text-accent-foreground",
                            drag?.id === it.id && "opacity-35",
                         )}
@@ -100,7 +100,7 @@ export function Stripe({
                      >
                         {it.icon}
                         {it.dot && (
-                           <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />
+                           <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
                         )}
                      </Button>
                   </Tooltip>
@@ -114,7 +114,7 @@ export function Stripe({
       <nav
          aria-label={side === "left" ? "Left panels" : "Right panels"}
          className={cn(
-            "flex w-11 shrink-0 flex-col items-center bg-background py-2",
+            "flex w-10 shrink-0 flex-col items-center bg-background py-0.5",
             side === "left" ? "border-r" : "border-l",
             overlay && "absolute inset-y-0 left-0 z-40",
          )}
@@ -122,7 +122,7 @@ export function Stripe({
          {group(groups[0])}
          {/* Only between two filled zones (and while dragging, to tell the two drop targets apart). */}
          {(drag || (groups[0].items.length > 0 && groups[1].items.length > 0)) && (
-            <div className="my-1.5 h-px w-5 shrink-0 bg-border" />
+            <div className="m-px h-px w-5 shrink-0 bg-border" />
          )}
          {group(groups[1])}
          <div className="flex-1" />

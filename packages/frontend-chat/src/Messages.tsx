@@ -322,7 +322,7 @@ export const Row = memo(function Row({
                {item.text && (
                   <Markdown
                      breaks
-                     className="max-w-[80%] rounded-2xl border bg-card px-3.5 py-2 text-card-foreground"
+                     className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground"
                   >
                      {item.text}
                   </Markdown>

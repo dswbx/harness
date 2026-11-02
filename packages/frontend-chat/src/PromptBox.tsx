@@ -158,7 +158,7 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
       >
          <button
             type="button"
-            className="grid size-8 place-items-center rounded-full hover:bg-accent hover:text-accent-foreground"
+            className="grid place-items-center rounded-full mr-1.5"
             aria-label={`Context window ${pct}% used`}
          >
             <svg viewBox="0 0 20 20" className="size-5 -rotate-90" aria-hidden>
@@ -168,7 +168,7 @@ function ContextRing({ pct, used, size }: { pct: number; used: number; size: num
                   r={r}
                   fill="none"
                   strokeWidth="2.5"
-                  className="stroke-muted"
+                  className="stroke-muted-foreground/20"
                />
                <circle
                   cx="10"
@@ -359,7 +359,7 @@ export function PromptBox({
    };
 
    return (
-      <div className="relative mx-auto w-full max-w-3xl px-6 pb-5">
+      <div className="relative mx-auto w-full max-w-3xl px-6 pb-3.5">
          {open?.kind === "slash" && (
             <PromptMenu label="Commands" className="w-72">
                {open.items.map((c, i) => (
@@ -427,8 +427,10 @@ export function PromptBox({
          <div
             ref={boxRef}
             className={cn(
-               "rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm transition-colors",
-               dragging && "border-ring bg-accent/40",
+               "rounded-2xl border bg-card px-3 pb-2 pt-3 shadow-sm transition-colors dark:border-card",
+               dragging
+                  ? "border-ring bg-accent/40 dark:border-ring"
+                  : "focus-within:border-ring/50 dark:focus-within:border-border",
             )}
             onPasteCapture={(e) => {
                const files = [...e.clipboardData.files];
@@ -539,7 +541,7 @@ export function PromptBox({
                   <Tooltip content="Stop Agent">
                      <Button
                         size="icon"
-                        className="size-8 rounded-full"
+                        className="size-6.5 rounded-full"
                         onClick={() => {
                            setError(null);
                            api.cancel(threadId).catch((err) => setError(errorMessage(err)));
@@ -552,7 +554,7 @@ export function PromptBox({
                ) : (
                   <Button
                      size="icon"
-                     className="size-8 rounded-full"
+                     className="size-6.5 rounded-full"
                      disabled={
                         (!text.trim() && comments.length === 0 && attachments.length === 0) ||
                         readOnly

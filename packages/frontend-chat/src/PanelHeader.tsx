@@ -50,7 +50,7 @@ export function PanelHeader({
    const p = useContext(PanelContext);
    return (
       <div
-         className={cn("flex shrink-0 items-center gap-1.5 border-b py-2 pr-2 pl-3", className)}
+         className={cn("flex shrink-0 items-center gap-1.5 border-b h-10 pr-2 pl-2.5", className)}
          onPointerDown={(e) =>
             !p?.expanded &&
             !(e.target as Element).closest("button, input, select, a, label, [role=tab]") &&

@@ -188,7 +188,7 @@ export function PromptEditor(props: Props) {
                      />
                   }
                   placeholder={
-                     <div className="pointer-events-none absolute left-1 top-0 select-none text-sm text-muted-foreground">
+                     <div className="pointer-events-none absolute left-1 top-0 select-none text-sm text-muted-foreground/50">
                         {props.placeholder}
                      </div>
                   }

@@ -161,7 +161,7 @@ export function SessionHeader({
    return (
       <header
          data-tauri-drag-region
-         className="flex h-13 shrink-0 items-center gap-1 border-b pl-5 pr-2"
+         className="flex h-13 shrink-0 items-center gap-1 border-b pl-4 pr-1.5"
       >
          {leading}
          {/* Not a drag region, so the title can be selected and copied. */}
