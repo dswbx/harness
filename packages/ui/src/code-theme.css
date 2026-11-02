@@ -5,55 +5,124 @@
  * tokens only.
  */
 :root {
-  --code-keyword: oklch(0.52 0.2 15);
-  --code-string: oklch(0.45 0.12 150);
-  --code-comment: oklch(0.55 0.02 260);
-  --code-number: oklch(0.5 0.15 250);
-  --code-title: oklch(0.48 0.18 300);
-  --code-type: oklch(0.52 0.14 60);
-  --code-attr: oklch(0.5 0.15 250);
-  --code-variable: oklch(0.55 0.15 40);
-  --code-meta: oklch(0.5 0.1 200);
-  --code-addition: oklch(0.45 0.12 150);
-  --code-deletion: oklch(0.52 0.2 15);
-  /* Terminal colors (ANSI 0-15) for logs. */
-  --ansi-0: oklch(0.3 0 0); --ansi-1: oklch(0.55 0.2 25); --ansi-2: oklch(0.5 0.14 150); --ansi-3: oklch(0.6 0.13 85);
-  --ansi-4: oklch(0.5 0.15 255); --ansi-5: oklch(0.52 0.18 320); --ansi-6: oklch(0.55 0.1 200); --ansi-7: oklch(0.6 0 0);
-  --ansi-8: oklch(0.5 0 0); --ansi-9: oklch(0.6 0.2 25); --ansi-10: oklch(0.58 0.15 150); --ansi-11: oklch(0.68 0.14 85);
-  --ansi-12: oklch(0.58 0.15 255); --ansi-13: oklch(0.6 0.18 320); --ansi-14: oklch(0.62 0.1 200); --ansi-15: oklch(0.2 0 0);
+   --code-keyword: oklch(0.52 0.2 15);
+   --code-string: oklch(0.45 0.12 150);
+   --code-comment: oklch(0.55 0.02 260);
+   --code-number: oklch(0.5 0.15 250);
+   --code-title: oklch(0.48 0.18 300);
+   --code-type: oklch(0.52 0.14 60);
+   --code-attr: oklch(0.5 0.15 250);
+   --code-variable: oklch(0.55 0.15 40);
+   --code-meta: oklch(0.5 0.1 200);
+   --code-addition: oklch(0.45 0.12 150);
+   --code-deletion: oklch(0.52 0.2 15);
+   /* Terminal colors (ANSI 0-15) for logs. */
+   --ansi-0: oklch(0.3 0 0);
+   --ansi-1: oklch(0.55 0.2 25);
+   --ansi-2: oklch(0.5 0.14 150);
+   --ansi-3: oklch(0.6 0.13 85);
+   --ansi-4: oklch(0.5 0.15 255);
+   --ansi-5: oklch(0.52 0.18 320);
+   --ansi-6: oklch(0.55 0.1 200);
+   --ansi-7: oklch(0.6 0 0);
+   --ansi-8: oklch(0.5 0 0);
+   --ansi-9: oklch(0.6 0.2 25);
+   --ansi-10: oklch(0.58 0.15 150);
+   --ansi-11: oklch(0.68 0.14 85);
+   --ansi-12: oklch(0.58 0.15 255);
+   --ansi-13: oklch(0.6 0.18 320);
+   --ansi-14: oklch(0.62 0.1 200);
+   --ansi-15: oklch(0.2 0 0);
 }
 :root.dark {
-  --code-keyword: oklch(0.72 0.16 15);
-  --code-string: oklch(0.78 0.12 150);
-  --code-comment: oklch(0.62 0.02 260);
-  --code-number: oklch(0.78 0.11 240);
-  --code-title: oklch(0.78 0.13 300);
-  --code-type: oklch(0.8 0.12 75);
-  --code-attr: oklch(0.78 0.11 240);
-  --code-variable: oklch(0.78 0.12 50);
-  --code-meta: oklch(0.75 0.08 200);
-  --code-addition: oklch(0.78 0.12 150);
-  --code-deletion: oklch(0.72 0.16 15);
-  --ansi-0: oklch(0.35 0 0); --ansi-1: oklch(0.7 0.17 25); --ansi-2: oklch(0.75 0.14 150); --ansi-3: oklch(0.82 0.13 85);
-  --ansi-4: oklch(0.72 0.13 255); --ansi-5: oklch(0.74 0.15 320); --ansi-6: oklch(0.78 0.1 200); --ansi-7: oklch(0.85 0 0);
-  --ansi-8: oklch(0.55 0 0); --ansi-9: oklch(0.76 0.17 25); --ansi-10: oklch(0.82 0.14 150); --ansi-11: oklch(0.88 0.13 85);
-  --ansi-12: oklch(0.8 0.12 255); --ansi-13: oklch(0.8 0.14 320); --ansi-14: oklch(0.85 0.09 200); --ansi-15: oklch(0.97 0 0);
+   --code-keyword: oklch(0.72 0.16 15);
+   --code-string: oklch(0.78 0.12 150);
+   --code-comment: oklch(0.62 0.02 260);
+   --code-number: oklch(0.78 0.11 240);
+   --code-title: oklch(0.78 0.13 300);
+   --code-type: oklch(0.8 0.12 75);
+   --code-attr: oklch(0.78 0.11 240);
+   --code-variable: oklch(0.78 0.12 50);
+   --code-meta: oklch(0.75 0.08 200);
+   --code-addition: oklch(0.78 0.12 150);
+   --code-deletion: oklch(0.72 0.16 15);
+   --ansi-0: oklch(0.35 0 0);
+   --ansi-1: oklch(0.7 0.17 25);
+   --ansi-2: oklch(0.75 0.14 150);
+   --ansi-3: oklch(0.82 0.13 85);
+   --ansi-4: oklch(0.72 0.13 255);
+   --ansi-5: oklch(0.74 0.15 320);
+   --ansi-6: oklch(0.78 0.1 200);
+   --ansi-7: oklch(0.85 0 0);
+   --ansi-8: oklch(0.55 0 0);
+   --ansi-9: oklch(0.76 0.17 25);
+   --ansi-10: oklch(0.82 0.14 150);
+   --ansi-11: oklch(0.88 0.13 85);
+   --ansi-12: oklch(0.8 0.12 255);
+   --ansi-13: oklch(0.8 0.14 320);
+   --ansi-14: oklch(0.85 0.09 200);
+   --ansi-15: oklch(0.97 0 0);
 }
 
 /* Diff selectors carry an extra attribute so they beat the library's built-in theme. */
 :is(.typeset, .diff-tailwindcss-wrapper[data-theme][data-theme][data-theme] .diff-line-syntax-raw) {
-  & :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-template-tag, .hljs-built_in) { color: var(--code-keyword); }
-  & :is(.hljs-string, .hljs-regexp, .hljs-char, .hljs-quote, .hljs-template-variable) { color: var(--code-string); }
-  & :is(.hljs-comment) { color: var(--code-comment); font-style: italic; }
-  & :is(.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link) { color: var(--code-number); }
-  & :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id) { color: var(--code-title); }
-  & :is(.hljs-type, .hljs-class, .hljs-params) { color: var(--code-type); }
-  & :is(.hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-pseudo) { color: var(--code-attr); }
-  & :is(.hljs-variable, .hljs-subst, .hljs-operator, .hljs-punctuation, .hljs-formula) { color: inherit; }
-  & :is(.hljs-variable.language_, .hljs-tag) { color: var(--code-variable); }
-  & :is(.hljs-meta, .hljs-meta .hljs-keyword) { color: var(--code-meta); }
-  & .hljs-addition { color: var(--code-addition); }
-  & .hljs-deletion { color: var(--code-deletion); }
-  & .hljs-emphasis { font-style: italic; }
-  & .hljs-strong { font-weight: 600; }
+   &
+      :is(
+         .hljs-keyword,
+         .hljs-selector-tag,
+         .hljs-literal,
+         .hljs-doctag,
+         .hljs-template-tag,
+         .hljs-built_in
+      ) {
+      color: var(--code-keyword);
+   }
+   & :is(.hljs-string, .hljs-regexp, .hljs-char, .hljs-quote, .hljs-template-variable) {
+      color: var(--code-string);
+   }
+   & :is(.hljs-comment) {
+      color: var(--code-comment);
+      font-style: italic;
+   }
+   & :is(.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link) {
+      color: var(--code-number);
+   }
+   & :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id) {
+      color: var(--code-title);
+   }
+   & :is(.hljs-type, .hljs-class, .hljs-params) {
+      color: var(--code-type);
+   }
+   &
+      :is(
+         .hljs-attr,
+         .hljs-attribute,
+         .hljs-property,
+         .hljs-selector-attr,
+         .hljs-selector-class,
+         .hljs-selector-pseudo
+      ) {
+      color: var(--code-attr);
+   }
+   & :is(.hljs-variable, .hljs-subst, .hljs-operator, .hljs-punctuation, .hljs-formula) {
+      color: inherit;
+   }
+   & :is(.hljs-variable.language_, .hljs-tag) {
+      color: var(--code-variable);
+   }
+   & :is(.hljs-meta, .hljs-meta .hljs-keyword) {
+      color: var(--code-meta);
+   }
+   & .hljs-addition {
+      color: var(--code-addition);
+   }
+   & .hljs-deletion {
+      color: var(--code-deletion);
+   }
+   & .hljs-emphasis {
+      font-style: italic;
+   }
+   & .hljs-strong {
+      font-weight: 600;
+   }
 }

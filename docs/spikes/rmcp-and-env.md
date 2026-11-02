@@ -8,13 +8,13 @@ rmcp 3.7.0 (features: `server client macros transport-streamable-http-server tra
 
 ## Result summary
 
-| Part | Result |
-|---|---|
-| A: rmcp server in axum, bearer + Origin reject, token->session, curl + rmcp client | works |
-| B: codex via HTTP url + bearer env var | works (server logged `session=sess-A`) |
-| B: `claude -p --mcp-config` | NOT verified: CLI returns `401 OAuth access token is invalid` even for `claude -p "say ok"` (also with `env -i`, sandbox off); `claude auth status` says logged in. User must re-login, then rerun the command below |
-| C: stdio shim | works (naive line proxy; tested by piping JSON and via codex stdio config); claude stdio untested (same auth issue) |
-| D: login-shell env | works, ~0.5s with oh-my-zsh + nvm |
+| Part                                                                               | Result                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A: rmcp server in axum, bearer + Origin reject, token->session, curl + rmcp client | works                                                                                                                                                                                                                |
+| B: codex via HTTP url + bearer env var                                             | works (server logged `session=sess-A`)                                                                                                                                                                               |
+| B: `claude -p --mcp-config`                                                        | NOT verified: CLI returns `401 OAuth access token is invalid` even for `claude -p "say ok"` (also with `env -i`, sandbox off); `claude auth status` says logged in. User must re-login, then rerun the command below |
+| C: stdio shim                                                                      | works (naive line proxy; tested by piping JSON and via codex stdio config); claude stdio untested (same auth issue)                                                                                                  |
+| D: login-shell env                                                                 | works, ~0.5s with oh-my-zsh + nvm                                                                                                                                                                                    |
 
 ## Part A: server
 

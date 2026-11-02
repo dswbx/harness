@@ -1,51 +1,51 @@
 {
-  "name": "@harness/frontend-chat",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "scripts": {
-    "typecheck": "tsc -p ."
-  },
-  "dependencies": {
-    "@git-diff-view/react": "^0.1.8",
-    "@harness/api": "workspace:*",
-    "@harness/ui": "workspace:*",
-    "@jitl/quickjs-singlefile-mjs-release-sync": "^0.32.0",
-    "@lexical/code": "^0.53.0",
-    "@lexical/link": "^0.53.0",
-    "@lexical/list": "^0.53.0",
-    "@lexical/markdown": "^0.53.0",
-    "@lexical/react": "^0.53.0",
-    "@lexical/rich-text": "^0.53.0",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-webgl": "^0.19.0",
-    "@xterm/xterm": "^6.0.0",
-    "jsonv-ts": "^0.11.1",
-    "lexical": "^0.53.0",
-    "lowlight": "^3.3.0",
-    "lucide-react": "^1.0.0",
-    "mermaid": "^11.17.2",
-    "quickjs-emscripten-core": "^0.32.0",
-    "react-markdown": "^10.0.0",
-    "recharts": "^3.10.1",
-    "rehype-highlight": "^7.0.2",
-    "remark-breaks": "^4.0.0",
-    "remark-gfm": "^4.0.0"
-  },
-  "peerDependencies": {
-    "react": "^19"
-  },
-  "devDependencies": {
-    "@lexical/headless": "^0.53.0",
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "react": "^19",
-    "remark-parse": "^11.0.0",
-    "remark-rehype": "^11.1.2",
-    "unified": "^11.0.5",
-    "vite": "^8"
-  }
+   "name": "@harness/frontend-chat",
+   "version": "0.1.0",
+   "private": true,
+   "type": "module",
+   "exports": {
+      ".": "./src/index.ts"
+   },
+   "scripts": {
+      "typecheck": "tsc -p ."
+   },
+   "dependencies": {
+      "@git-diff-view/react": "^0.1.8",
+      "@harness/api": "workspace:*",
+      "@harness/ui": "workspace:*",
+      "@jitl/quickjs-singlefile-mjs-release-sync": "^0.32.0",
+      "@lexical/code": "^0.53.0",
+      "@lexical/link": "^0.53.0",
+      "@lexical/list": "^0.53.0",
+      "@lexical/markdown": "^0.53.0",
+      "@lexical/react": "^0.53.0",
+      "@lexical/rich-text": "^0.53.0",
+      "@xterm/addon-fit": "^0.11.0",
+      "@xterm/addon-webgl": "^0.19.0",
+      "@xterm/xterm": "^6.0.0",
+      "jsonv-ts": "^0.11.1",
+      "lexical": "^0.53.0",
+      "lowlight": "^3.3.0",
+      "lucide-react": "^1.0.0",
+      "mermaid": "^11.17.2",
+      "quickjs-emscripten-core": "^0.32.0",
+      "react-markdown": "^10.0.0",
+      "recharts": "^3.10.1",
+      "rehype-highlight": "^7.0.2",
+      "remark-breaks": "^4.0.0",
+      "remark-gfm": "^4.0.0"
+   },
+   "peerDependencies": {
+      "react": "^19"
+   },
+   "devDependencies": {
+      "@lexical/headless": "^0.53.0",
+      "@types/node": "^22",
+      "@types/react": "^19",
+      "react": "^19",
+      "remark-parse": "^11.0.0",
+      "remark-rehype": "^11.1.2",
+      "unified": "^11.0.5",
+      "vite": "^8"
+   }
 }

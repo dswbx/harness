@@ -5,171 +5,245 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.52 0 0);
-  --accent: oklch(0.95 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.9 0 0);
-  --input: oklch(0.9 0 0);
-  --ring: oklch(0.7 0 0);
-  --radius: 0.5rem;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, monospace;
-  /* Base text size; rem sizes scale with it (14px = rem stays 16px). */
-  --app-font-size: 14px;
-  /* Chat messages (Appearance: chat font size, leading, flow). */
-  --chat-font-size: 14px;
-  --chat-leading: 1.6;
-  --chat-flow: 1.25em;
-  color-scheme: light;
-  /* Chart series colors (render_ui Chart). */
-  --chart-1: oklch(0.6 0.15 250);
-  --chart-2: oklch(0.65 0.15 160);
-  --chart-3: oklch(0.72 0.15 75);
-  --chart-4: oklch(0.6 0.18 300);
-  --chart-5: oklch(0.63 0.2 25);
+   --background: oklch(1 0 0);
+   --foreground: oklch(0.145 0 0);
+   --card: oklch(1 0 0);
+   --card-foreground: oklch(0.145 0 0);
+   --popover: oklch(1 0 0);
+   --popover-foreground: oklch(0.145 0 0);
+   --primary: oklch(0.205 0 0);
+   --primary-foreground: oklch(0.985 0 0);
+   --secondary: oklch(0.97 0 0);
+   --secondary-foreground: oklch(0.205 0 0);
+   --muted: oklch(0.97 0 0);
+   --muted-foreground: oklch(0.52 0 0);
+   --accent: oklch(0.95 0 0);
+   --accent-foreground: oklch(0.205 0 0);
+   --destructive: oklch(0.577 0.245 27.325);
+   --border: oklch(0.9 0 0);
+   --input: oklch(0.9 0 0);
+   --ring: oklch(0.7 0 0);
+   --radius: 0.5rem;
+   --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+   --font-mono: ui-monospace, monospace;
+   /* Base text size; rem sizes scale with it (14px = rem stays 16px). */
+   --app-font-size: 14px;
+   /* Chat messages (Appearance: chat font size, leading, flow). */
+   --chat-font-size: 14px;
+   --chat-leading: 1.6;
+   --chat-flow: 1.25em;
+   color-scheme: light;
+   /* Chart series colors (render_ui Chart). */
+   --chart-1: oklch(0.6 0.15 250);
+   --chart-2: oklch(0.65 0.15 160);
+   --chart-3: oklch(0.72 0.15 75);
+   --chart-4: oklch(0.6 0.18 300);
+   --chart-5: oklch(0.63 0.2 25);
 }
 
 :root.dark {
-  --background: oklch(0.16 0 0);
-  --foreground: oklch(0.96 0 0);
-  --card: oklch(0.2 0 0);
-  --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.2 0 0);
-  --popover-foreground: oklch(0.96 0 0);
-  --primary: oklch(0.92 0 0);
-  --primary-foreground: oklch(0.2 0 0);
-  --secondary: oklch(0.27 0 0);
-  --secondary-foreground: oklch(0.96 0 0);
-  --muted: oklch(0.27 0 0);
-  --muted-foreground: oklch(0.7 0 0);
-  --accent: oklch(0.3 0 0);
-  --accent-foreground: oklch(0.96 0 0);
-  --destructive: oklch(0.7 0.19 22);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.55 0 0);
-  color-scheme: dark;
-  --chart-1: oklch(0.7 0.14 250);
-  --chart-2: oklch(0.74 0.14 160);
-  --chart-3: oklch(0.8 0.14 75);
-  --chart-4: oklch(0.72 0.15 300);
-  --chart-5: oklch(0.72 0.17 25);
+   --background: oklch(0.16 0 0);
+   --foreground: oklch(0.96 0 0);
+   --card: oklch(0.2 0 0);
+   --card-foreground: oklch(0.96 0 0);
+   --popover: oklch(0.2 0 0);
+   --popover-foreground: oklch(0.96 0 0);
+   --primary: oklch(0.92 0 0);
+   --primary-foreground: oklch(0.2 0 0);
+   --secondary: oklch(0.27 0 0);
+   --secondary-foreground: oklch(0.96 0 0);
+   --muted: oklch(0.27 0 0);
+   --muted-foreground: oklch(0.7 0 0);
+   --accent: oklch(0.3 0 0);
+   --accent-foreground: oklch(0.96 0 0);
+   --destructive: oklch(0.7 0.19 22);
+   --border: oklch(1 0 0 / 12%);
+   --input: oklch(1 0 0 / 16%);
+   --ring: oklch(0.55 0 0);
+   color-scheme: dark;
+   --chart-1: oklch(0.7 0.14 250);
+   --chart-2: oklch(0.74 0.14 160);
+   --chart-3: oklch(0.8 0.14 75);
+   --chart-4: oklch(0.72 0.15 300);
+   --chart-5: oklch(0.72 0.17 25);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+   --color-background: var(--background);
+   --color-foreground: var(--foreground);
+   --color-card: var(--card);
+   --color-card-foreground: var(--card-foreground);
+   --color-popover: var(--popover);
+   --color-popover-foreground: var(--popover-foreground);
+   --color-primary: var(--primary);
+   --color-primary-foreground: var(--primary-foreground);
+   --color-secondary: var(--secondary);
+   --color-secondary-foreground: var(--secondary-foreground);
+   --color-muted: var(--muted);
+   --color-muted-foreground: var(--muted-foreground);
+   --color-accent: var(--accent);
+   --color-accent-foreground: var(--accent-foreground);
+   --color-destructive: var(--destructive);
+   --color-border: var(--border);
+   --color-input: var(--input);
+   --color-ring: var(--ring);
+   --radius-sm: calc(var(--radius) - 4px);
+   --radius-md: calc(var(--radius) - 2px);
+   --radius-lg: var(--radius);
+   --font-sans: var(--font-sans);
+   --font-mono: var(--font-mono);
 }
 
 @layer base {
-  * { @apply border-border outline-ring/50; }
-  /* App shell: only inner scroll containers scroll, never the page itself. */
-  html, body, #root { height: 100%; overflow: hidden; overscroll-behavior: none; }
-  /* Scale rem so the default 14px base keeps rem = 16px (Tailwind sizes unchanged), and larger bases scale everything. */
-  html { font-size: calc(var(--app-font-size) * 16 / 14); }
-  body { @apply bg-background text-foreground antialiased; font-family: var(--font-sans); font-size: 0.875rem; letter-spacing: var(--letter-spacing, normal); }
-  /* ScrollArea: hide the native scrollbar here too. Radix injects this as an inline <style>, which the built app's CSP blocks (Tauri adds hashes to style-src, so 'unsafe-inline' is ignored). */
-  [data-radix-scroll-area-viewport] { scrollbar-width: none; }
-  [data-radix-scroll-area-viewport]::-webkit-scrollbar { display: none; }
+   * {
+      @apply border-border outline-ring/50;
+   }
+   /* App shell: only inner scroll containers scroll, never the page itself. */
+   html,
+   body,
+   #root {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+   }
+   /* Scale rem so the default 14px base keeps rem = 16px (Tailwind sizes unchanged), and larger bases scale everything. */
+   html {
+      font-size: calc(var(--app-font-size) * 16 / 14);
+   }
+   body {
+      @apply bg-background text-foreground antialiased;
+      font-family: var(--font-sans);
+      font-size: 0.875rem;
+      letter-spacing: var(--letter-spacing, normal);
+   }
+   /* ScrollArea: hide the native scrollbar here too. Radix injects this as an inline <style>, which the built app's CSP blocks (Tauri adds hashes to style-src, so 'unsafe-inline' is ignored). */
+   [data-radix-scroll-area-viewport] {
+      scrollbar-width: none;
+   }
+   [data-radix-scroll-area-viewport]::-webkit-scrollbar {
+      display: none;
+   }
 }
 
 /* ScrollBar fade (scroll-area.tsx). */
-@keyframes scrollbar-in { from { opacity: 0; } }
-@keyframes scrollbar-out { to { opacity: 0; } }
+@keyframes scrollbar-in {
+   from {
+      opacity: 0;
+   }
+}
+@keyframes scrollbar-out {
+   to {
+      opacity: 0;
+   }
+}
 
 /* Markdown content rendered by Frontends: shadcn/typeset (typeset.css, unchanged from
    https://ui.shadcn.com/typeset.css so a new version can replace it) plus our chat preset.
    Size, leading and flow come from Appearance settings (--chat-*). */
 @layer components {
-  .typeset-chat {
-    --typeset-font-body: var(--font-sans);
-    --typeset-font-heading: var(--font-sans);
-    --typeset-font-mono: var(--font-mono);
-    --typeset-size: var(--chat-font-size);
-    --typeset-leading: var(--chat-leading);
-    --typeset-flow: var(--chat-flow);
-    /* No small-screen bump: narrow windows and side panels are normal here. */
-    font-size: var(--typeset-size);
-    /* Long paths and URLs wrap instead of widening the column. */
-    overflow-wrap: anywhere;
-  }
+   .typeset-chat {
+      --typeset-font-body: var(--font-sans);
+      --typeset-font-heading: var(--font-sans);
+      --typeset-font-mono: var(--font-mono);
+      --typeset-size: var(--chat-font-size);
+      --typeset-leading: var(--chat-leading);
+      --typeset-flow: var(--chat-flow);
+      /* No small-screen bump: narrow windows and side panels are normal here. */
+      font-size: var(--typeset-size);
+      /* Long paths and URLs wrap instead of widening the column. */
+      overflow-wrap: anywhere;
+   }
 }
 
 /* Artifacts (code, tables, diagrams, render_ui views) stand out past the text column by --chat-bleed
    (set where a column has room for it); nested ones don't bleed again. */
 @utility chat-wide {
-  margin-inline: calc(-1 * var(--chat-bleed, 0px));
-  & > * { --chat-bleed: 0px; }
+   margin-inline: calc(-1 * var(--chat-bleed, 0px));
+   & > * {
+      --chat-bleed: 0px;
+   }
 }
 
 /* render_ui sizes: relative to the chat font size (Appearance), so nesting never compounds them. */
-@utility text-ui { font-size: var(--chat-font-size, 14px); }
+@utility text-ui {
+   font-size: var(--chat-font-size, 14px);
+}
 /* Tool call steps: a bit under the chat text, following its size. */
-@utility text-ui-step { font-size: calc(var(--chat-font-size, 14px) * 0.93); }
-@utility text-ui-sm { font-size: calc(var(--chat-font-size, 14px) * 0.857); }
-@utility text-ui-xs { font-size: calc(var(--chat-font-size, 14px) * 0.75); }
-@utility text-ui-lg { font-size: calc(var(--chat-font-size, 14px) * 1.143); }
-@utility text-ui-xl { font-size: calc(var(--chat-font-size, 14px) * 1.714); line-height: 1.2; }
+@utility text-ui-step {
+   font-size: calc(var(--chat-font-size, 14px) * 0.93);
+}
+@utility text-ui-sm {
+   font-size: calc(var(--chat-font-size, 14px) * 0.857);
+}
+@utility text-ui-xs {
+   font-size: calc(var(--chat-font-size, 14px) * 0.75);
+}
+@utility text-ui-lg {
+   font-size: calc(var(--chat-font-size, 14px) * 1.143);
+}
+@utility text-ui-xl {
+   font-size: calc(var(--chat-font-size, 14px) * 1.714);
+   line-height: 1.2;
+}
 
 /* Trace: running step title shimmers; collapsible height animates (Radix sets the height var). */
 @utility shimmer {
-  background: linear-gradient(90deg, color-mix(in oklch, var(--muted-foreground) 55%, transparent) 30%, var(--foreground) 50%, color-mix(in oklch, var(--muted-foreground) 55%, transparent) 70%) 0 0 / 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2.4s linear infinite;
-  /* Set by TraceLine from the page clock: a remounted or re-added line picks up the band where it was. */
-  animation-delay: var(--shimmer-delay, 0ms);
-  @media (prefers-reduced-motion: reduce) { animation: none; color: inherit; background: none; }
+   background:
+      linear-gradient(
+         90deg,
+         color-mix(in oklch, var(--muted-foreground) 55%, transparent) 30%,
+         var(--foreground) 50%,
+         color-mix(in oklch, var(--muted-foreground) 55%, transparent) 70%
+      )
+      0 0 / 200% 100%;
+   -webkit-background-clip: text;
+   background-clip: text;
+   color: transparent;
+   animation: shimmer 2.4s linear infinite;
+   /* Set by TraceLine from the page clock: a remounted or re-added line picks up the band where it was. */
+   animation-delay: var(--shimmer-delay, 0ms);
+   @media (prefers-reduced-motion: reduce) {
+      animation: none;
+      color: inherit;
+      background: none;
+   }
 }
 @theme {
-  --animate-trace-down: trace-down 200ms ease-out;
-  --animate-trace-up: trace-up 200ms ease-out;
-  @keyframes trace-down { from { height: 0; } to { height: var(--radix-collapsible-content-height); } }
-  @keyframes trace-up { from { height: var(--radix-collapsible-content-height); } to { height: 0; } }
-  /* One whole 200% tile per loop: the gradient repeats, so the band leaves right as the next comes in from the left. */
-  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0% 0; } }
+   --animate-trace-down: trace-down 200ms ease-out;
+   --animate-trace-up: trace-up 200ms ease-out;
+   @keyframes trace-down {
+      from {
+         height: 0;
+      }
+      to {
+         height: var(--radix-collapsible-content-height);
+      }
+   }
+   @keyframes trace-up {
+      from {
+         height: var(--radix-collapsible-content-height);
+      }
+      to {
+         height: 0;
+      }
+   }
+   /* One whole 200% tile per loop: the gradient repeats, so the band leaves right as the next comes in from the left. */
+   @keyframes shimmer {
+      from {
+         background-position: 200% 0;
+      }
+      to {
+         background-position: 0% 0;
+      }
+   }
 }
 
 /* Prompt box: the leading `/command` when the Agent knows it (CSS Custom Highlight). */
 ::highlight(prompt-command) {
-  color: var(--chart-1);
+   color: var(--chart-1);
 }
 
 /* Chat: the quoted text stays looking selected while its comment box has focus (CSS Custom Highlight). */
 ::highlight(quote-comment) {
-  background-color: color-mix(in oklch, Highlight 70%, transparent);
+   background-color: color-mix(in oklch, Highlight 70%, transparent);
 }

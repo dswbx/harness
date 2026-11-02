@@ -1,7 +1,17 @@
 {
-  "version": "0.0.1",
-  "configurations": [
-    { "name": "app", "runtimeExecutable": "bun", "runtimeArgs": ["run", "--cwd", "app", "dev"], "port": 1420 },
-    { "name": "app-alt-port", "runtimeExecutable": "bun", "runtimeArgs": ["run", "--cwd", "app", "dev", "--port", "1431", "--strictPort"], "port": 1431 }
-  ]
+   "version": "0.0.1",
+   "configurations": [
+      {
+         "name": "app",
+         "runtimeExecutable": "bun",
+         "runtimeArgs": ["run", "--cwd", "app", "dev"],
+         "port": 1420
+      },
+      {
+         "name": "app-alt-port",
+         "runtimeExecutable": "bun",
+         "runtimeArgs": ["run", "--cwd", "app", "dev", "--port", "1431", "--strictPort"],
+         "port": 1431
+      }
+   ]
 }

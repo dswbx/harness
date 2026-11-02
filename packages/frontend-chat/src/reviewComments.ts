@@ -2,26 +2,26 @@ import { useMemo, useSyncExternalStore } from "react";
 
 /** A comment on one diff line, waiting in the prompt box until the next send. */
 export type DiffComment = {
-  id: string;
-  kind?: "diff";
-  path: string;
-  line: number;
-  /** "old": the line number is in the old file (a deleted line); "new": in the new file. */
-  side: "old" | "new";
-  /** The commented line's code, quoted in the prompt. */
-  code: string;
-  text: string;
+   id: string;
+   kind?: "diff";
+   path: string;
+   line: number;
+   /** "old": the line number is in the old file (a deleted line); "new": in the new file. */
+   side: "old" | "new";
+   /** The commented line's code, quoted in the prompt. */
+   code: string;
+   text: string;
 };
 
 /** A comment on text selected in a chat message, waiting in the prompt box until the next send. */
 export type QuoteComment = {
-  id: string;
-  kind: "quote";
-  quote: string;
-  /** May be empty for a quote sent without a comment. */
-  text: string;
-  /** "side_thread": text taken from a Side Thread ("Send to main"), not a comment on the Main Thread. */
-  source?: "side_thread";
+   id: string;
+   kind: "quote";
+   quote: string;
+   /** May be empty for a quote sent without a comment. */
+   text: string;
+   /** "side_thread": text taken from a Side Thread ("Send to main"), not a comment on the Main Thread. */
+   source?: "side_thread";
 };
 
 export type ReviewComment = DiffComment | QuoteComment;
@@ -31,32 +31,41 @@ export const isDiffComment = (c: ReviewComment): c is DiffComment => c.kind !== 
 
 /** Fence long enough that no backtick run inside `code` closes it. */
 function fence(code: string) {
-  const longest = Math.max(0, ...(code.match(/`+/g) ?? []).map((r) => r.length));
-  return "`".repeat(Math.max(3, longest + 1));
+   const longest = Math.max(0, ...(code.match(/`+/g) ?? []).map((r) => r.length));
+   return "`".repeat(Math.max(3, longest + 1));
 }
 
-const quoted = (s: string) => s.trim().split("\n").map((l) => (l ? `> ${l}` : ">")).join("\n");
+const quoted = (s: string) =>
+   s
+      .trim()
+      .split("\n")
+      .map((l) => (l ? `> ${l}` : ">"))
+      .join("\n");
 
 /** The sections the prompt gets on send: "Review comments:" (diff lines), "Comments on the conversation:" (quotes). */
 export function formatReviewComments(comments: ReviewComment[]): string {
-  const diffs = comments.filter(isDiffComment).map((c) => {
-    const f = fence(c.code);
-    return `${c.path}:${c.line} (${c.side})\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
-  });
-  const quotesOf = (side: boolean) =>
-    comments.flatMap((c) => (c.kind === "quote" && (c.source === "side_thread") === side ? [[quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n")] : []));
-  const quotes = quotesOf(false);
-  const fromSide = quotesOf(true);
-  return [
-    ...(diffs.length ? [["Review comments:", ...diffs].join("\n\n")] : []),
-    ...(quotes.length ? [["Comments on the conversation:", ...quotes].join("\n\n")] : []),
-    ...(fromSide.length ? [["From a side thread:", ...fromSide].join("\n\n")] : []),
-  ].join("\n\n");
+   const diffs = comments.filter(isDiffComment).map((c) => {
+      const f = fence(c.code);
+      return `${c.path}:${c.line} (${c.side})\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
+   });
+   const quotesOf = (side: boolean) =>
+      comments.flatMap((c) =>
+         c.kind === "quote" && (c.source === "side_thread") === side
+            ? [[quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n")]
+            : [],
+      );
+   const quotes = quotesOf(false);
+   const fromSide = quotesOf(true);
+   return [
+      ...(diffs.length ? [["Review comments:", ...diffs].join("\n\n")] : []),
+      ...(quotes.length ? [["Comments on the conversation:", ...quotes].join("\n\n")] : []),
+      ...(fromSide.length ? [["From a side thread:", ...fromSide].join("\n\n")] : []),
+   ].join("\n\n");
 }
 
 /** Prompt text plus the review section; either may be empty. */
 export function withReviewComments(text: string, comments: ReviewComment[]): string {
-  return [text.trim(), formatReviewComments(comments)].filter(Boolean).join("\n\n");
+   return [text.trim(), formatReviewComments(comments)].filter(Boolean).join("\n\n");
 }
 
 // Store: localStorage per Session, so the pop-out diff window and the main window share it.
@@ -67,68 +76,75 @@ const cache = new Map<string, { raw: string | null; list: ReviewComment[] }>();
 const EMPTY: ReviewComment[] = [];
 
 function readRaw(sessionId: string): string | null {
-  try {
-    return localStorage.getItem(PREFIX + sessionId);
-  } catch {
-    return null;
-  }
+   try {
+      return localStorage.getItem(PREFIX + sessionId);
+   } catch {
+      return null;
+   }
 }
 
 export function getReviewComments(sessionId: string): ReviewComment[] {
-  const raw = readRaw(sessionId);
-  const hit = cache.get(sessionId);
-  if (hit && hit.raw === raw) return hit.list;
-  let list = EMPTY;
-  try {
-    const v: unknown = raw ? JSON.parse(raw) : null;
-    if (Array.isArray(v)) list = v as ReviewComment[];
-  } catch {
-    // Corrupt entry: treat as empty.
-  }
-  cache.set(sessionId, { raw, list });
-  return list;
+   const raw = readRaw(sessionId);
+   const hit = cache.get(sessionId);
+   if (hit && hit.raw === raw) return hit.list;
+   let list = EMPTY;
+   try {
+      const v: unknown = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(v)) list = v as ReviewComment[];
+   } catch {
+      // Corrupt entry: treat as empty.
+   }
+   cache.set(sessionId, { raw, list });
+   return list;
 }
 
 export function setReviewComments(sessionId: string, list: ReviewComment[]) {
-  try {
-    if (list.length) localStorage.setItem(PREFIX + sessionId, JSON.stringify(list));
-    else localStorage.removeItem(PREFIX + sessionId);
-  } catch {
-    // Storage blocked: comments stay unsaved.
-  }
-  for (const l of listeners) l();
+   try {
+      if (list.length) localStorage.setItem(PREFIX + sessionId, JSON.stringify(list));
+      else localStorage.removeItem(PREFIX + sessionId);
+   } catch {
+      // Storage blocked: comments stay unsaved.
+   }
+   for (const l of listeners) l();
 }
 
 /**
  * Whose composer holds the comments: the Main Thread's (the Session id, as the diff views use it) or a
  * Side Thread's own (its quotes are not sent to Main).
  */
-export const composerKey = (sessionId: string, sideThreadId: string | null) => (sideThreadId ? `${sessionId}#${sideThreadId}` : sessionId);
+export const composerKey = (sessionId: string, sideThreadId: string | null) =>
+   sideThreadId ? `${sessionId}#${sideThreadId}` : sessionId;
 
 export const addReviewComment = (sessionId: string, c: NewComment) =>
-  setReviewComments(sessionId, [...getReviewComments(sessionId), { ...c, id: crypto.randomUUID() } as ReviewComment]);
+   setReviewComments(sessionId, [
+      ...getReviewComments(sessionId),
+      { ...c, id: crypto.randomUUID() } as ReviewComment,
+   ]);
 
 export const removeReviewComment = (sessionId: string, id: string) =>
-  setReviewComments(sessionId, getReviewComments(sessionId).filter((c) => c.id !== id));
+   setReviewComments(
+      sessionId,
+      getReviewComments(sessionId).filter((c) => c.id !== id),
+   );
 
 function subscribe(cb: () => void) {
-  listeners.add(cb);
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === null || e.key.startsWith(PREFIX)) cb();
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    listeners.delete(cb);
-    window.removeEventListener("storage", onStorage);
-  };
+   listeners.add(cb);
+   const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key.startsWith(PREFIX)) cb();
+   };
+   window.addEventListener("storage", onStorage);
+   return () => {
+      listeners.delete(cb);
+      window.removeEventListener("storage", onStorage);
+   };
 }
 
 export function useReviewComments(sessionId: string): ReviewComment[] {
-  return useSyncExternalStore(subscribe, () => getReviewComments(sessionId));
+   return useSyncExternalStore(subscribe, () => getReviewComments(sessionId));
 }
 
 /** This Session's diff line comments (for the diff views). */
 export function useDiffComments(sessionId: string): DiffComment[] {
-  const all = useReviewComments(sessionId);
-  return useMemo(() => all.filter(isDiffComment), [all]);
+   const all = useReviewComments(sessionId);
+   return useMemo(() => all.filter(isDiffComment), [all]);
 }
