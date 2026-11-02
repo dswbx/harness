@@ -54,7 +54,7 @@ export const ToolCard = memo(function ToolCard({ tool }: { tool: Tool }) {
       >
         <StatusIcon status={tool.status} />
         {harness ? (
-          <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-xs">
+          <span className="flex min-w-0 flex-1 items-center gap-2 truncate font-mono text-xs">
             <span>Harness · <span className="font-mono">{harness}</span></span>
             <Badge variant="secondary">MCP</Badge>
           </span>

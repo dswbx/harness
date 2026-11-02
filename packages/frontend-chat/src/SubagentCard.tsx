@@ -13,7 +13,6 @@ export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagen
   const [open, setOpen] = useState(false);
   const state = subagentState(task, subagent);
   const prompt = (task.rawInput as { prompt?: unknown } | null)?.prompt;
-  const last = subagent.calls.at(-1);
   const n = subagent.calls.length;
   return (
     <div className="rounded-lg border bg-card text-card-foreground">
@@ -26,13 +25,11 @@ export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagen
           <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-label="done" />
         )}
         <Bot className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs">
           <span className="text-muted-foreground">Subagent · </span>
           {task.title}
         </span>
-        <span className="min-w-0 max-w-[45%] truncate text-xs text-muted-foreground">
-          {state === "running" && last ? <span className="font-mono">{last.title}</span> : `${n} tool call${n === 1 ? "" : "s"}`}
-        </span>
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">{n} tool call{n === 1 ? "" : "s"}</span>
         <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
       </button>
       {open && (

@@ -14,6 +14,11 @@ pub fn stripped_env() -> Vec<String> {
     claude::stripped_env()
 }
 
+/// Env vars added when spawning any Agent. A Custom Agent's own env overrides them.
+pub fn extra_env() -> Vec<(&'static str, &'static str)> {
+    claude::extra_env()
+}
+
 /// Fills generic event fields from an Agent's own signals in the raw ACP `session/update`.
 pub fn adjust(update: &Value, kind: &mut EventKind) {
     claude::adjust(update, kind);
@@ -40,6 +45,12 @@ mod claude {
             .filter_map(|(k, _)| k.into_string().ok())
             .filter(|k| (k.starts_with("CLAUDE") && !KEEP.contains(&k.as_str())) || k == "ANTHROPIC_BASE_URL")
             .collect()
+    }
+
+    /// Recent Claude models omit thinking text by default, so `agent_thought_chunk` updates are
+    /// empty and no thinking shows. ACP has no standard way to ask for thinking text.
+    pub fn extra_env() -> Vec<(&'static str, &'static str)> {
+        vec![("CLAUDE_CODE_THINKING_DISPLAY", "summarized")]
     }
 
     /// Subagents. ACP has no notion of them; without this, a subagent's tool calls look like the
@@ -97,6 +108,11 @@ mod tests {
         let mut k = call("SubagentHandback", json!({ "message": "No." }));
         adjust(&json!({}), &mut k);
         assert!(matches!(&k, EventKind::ToolCall { parent_tool_call_id: None, report: None, .. }));
+    }
+
+    #[test]
+    fn claude_thinking_display() {
+        assert!(extra_env().contains(&("CLAUDE_CODE_THINKING_DISPLAY", "summarized")));
     }
 
     #[test]
