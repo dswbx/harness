@@ -955,7 +955,7 @@ function Node({ raw }: { raw: RawNode }) {
       // compact: less padding, smaller heading; plain: no box, a titled section.
       const head = variant === "plain" ? "pb-2" : variant === "compact" ? cn("bg-muted/40 px-2.5 py-1.5", body && "border-b") : "border-b bg-muted/40 px-3 py-2.5";
       return (
-        <div className={cn("min-w-0", variant !== "plain" && cn("overflow-hidden rounded-lg border", t.box))}>
+        <div className={cn("min-w-0", variant !== "plain" && cn("overflow-hidden rounded-lg border", t === tones.neutral ? "bg-card/50" : t.box))}>
           {node.props?.title && (
             <div className={head}>
               <div className={cn("flex items-center gap-2 font-semibold text-foreground", variant === "compact" && "text-ui-sm")}>
