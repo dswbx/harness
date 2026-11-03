@@ -324,12 +324,22 @@ export function fenceLanguage(line: string): string | null {
 
 export const lineCount = (s: string) => (s ? s.split("\n").length : 0);
 
+/** Numeric character reference, as Lexical writes them (`&#60;`, `&#38;`, `&#91;`, `&#32;`). */
+const CHAR_REF = /^&#(?:(\d{1,7})|[xX]([\da-fA-F]{1,6}));/;
+const charRef = (m: RegExpExecArray) => {
+   const n = m[1] ? Number(m[1]) : Number.parseInt(m[2]!, 16);
+   return n <= 0x10ffff ? String.fromCodePoint(n) : null;
+};
+
 /**
- * Lexical escapes `*_\`~\\` in plain text on export (`a_b` → `a\_b`). Prompts go to an Agent, so undo that
- * outside code: fenced blocks and inline code spans stay verbatim.
+ * Lexical escapes plain text on export: `*_\`~\\` with a backslash (`a_b` → `a\_b`), and `<`, `&`, `[`, `]` as numeric
+ * character references (`<ref>` → `&#60;ref>`, typed `&#60;` → `&#38;#60;`). Prompts go to an Agent, so undo that
+ * outside code in one pass (a decoded reference is not read again): fenced blocks and inline code spans stay verbatim.
+ * Every `&#` a user types comes out as `&#38;#`, so each reference left in the export is one Lexical wrote.
  */
 export function unescapeMarkdown(md: string): string {
    let out = "";
+   let ref: RegExpExecArray | null;
    let fence: string | null = null;
    for (const [i, line] of md.split("\n").entries()) {
       if (i) out += "\n";
@@ -349,6 +359,9 @@ export function unescapeMarkdown(md: string): string {
          if (c === "\\" && /[*_`~\\]/.test(line[j + 1] ?? "")) {
             out += line[j + 1];
             j += 2;
+         } else if (c === "&" && (ref = CHAR_REF.exec(line.slice(j))) && charRef(ref) !== null) {
+            out += charRef(ref);
+            j += ref[0].length;
          } else if (c === "`") {
             const run = /^`+/.exec(line.slice(j))![0];
             const end = line.indexOf(run, j + run.length);
