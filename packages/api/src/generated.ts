@@ -151,6 +151,12 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetState"; session_id: string } | 
 /**  Changes the Session State as the user (e.g. a bound UI component). */
 { type: "PatchState"; session_id: string; ops: StatePatchOp[] } | 
+/**
+ *  A Frontend Tool item failed in the UI (e.g. a script error in a render_ui Html frame).
+ *  `item` is the call's `id`, or its `call_id` when it has none. Logged as `FrontendError`
+ *  (repeats and items that are gone are ignored) so the Agent learns about it.
+ */
+{ type: "ReportFrontendError"; session_id: string; tool: string; item: string; message: string } | 
 /**  An image in `frontend/` (base64), e.g. one a Frontend Tool call named. */
 { type: "FrontendReadImage"; session_id: string; path: string } | { type: "FrontendWrite"; session_id: string; path: string; content: string } | 
 /**  Files under `dir` (recursive, relative to `frontend/`). */
@@ -348,6 +354,12 @@ rule_id?: string | null } |
  *  relative to `frontend/`. Read them with `FrontendReadImage`.
  */
 files?: { [key in string]: string } } | 
+/**
+ *  The UI reported an error in a Frontend Tool item (`ReportFrontendError`). The Agent sees
+ *  it in `harness_info` and at the start of its next prompt on this Thread; a new call with
+ *  the item's id clears it.
+ */
+{ type: "FrontendError"; tool: string; item: string; message: string } | 
 /**
  *  The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
  *  current state.

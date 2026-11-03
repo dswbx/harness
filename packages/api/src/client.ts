@@ -107,6 +107,11 @@ export interface SessionApi {
    getState(): Promise<unknown>;
    /** Changes the Session State as the user (all or nothing). */
    patchState(ops: StatePatchOp[]): Promise<void>;
+   /**
+    * A Frontend Tool item failed in the UI (e.g. an Html frame's script error); `item` is the call's `id`, else its
+    * `call_id`. The core logs it (`FrontendError`) so the Agent learns about it; repeats are ignored.
+    */
+   reportFrontendError(tool: string, item: string, message: string): Promise<void>;
    /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
    frontendReadImage(path: string): Promise<{ mime: string; data: string }>;
    frontendWrite(path: string, content: string): Promise<void>;
@@ -246,6 +251,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       getState: async () =>
          (await expect({ type: "GetState", session_id: sessionId }, "State")).state,
       patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),
+      reportFrontendError: (tool, item, message) =>
+         run({ type: "ReportFrontendError", session_id: sessionId, tool, item, message }),
       frontendReadImage: async (path) => {
          const r = await expect(
             { type: "FrontendReadImage", session_id: sessionId, path },

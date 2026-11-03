@@ -1,6 +1,6 @@
 import type { StatePatchOp } from "@harness/api";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { buildSrcdoc, currentTheme, type FrameMessage } from "./htmlBridge";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
 import { renderUiSchema } from "./tools";
 
 const MAX_HEIGHT = 2000;
@@ -17,6 +17,8 @@ type Props = {
    send: (text: string) => Promise<void>;
    /** Runs render_ui actions (RenderUi's runActions). */
    run: (actions: unknown) => Promise<void>;
+   /** Tells the core about an error (script, invalid action or patch), so the Agent learns about it. */
+   report?: (message: string) => void;
 };
 
 /** Actions from the frame are not checked by the core: check them with the render_ui schema. */
@@ -43,7 +45,16 @@ export function UiHtml(p: Props) {
    const latest = useRef(p);
    latest.current = p;
    const [auto, setAuto] = useState(() => heights.get(p.html) ?? 120);
-   const [error, setError] = useState<string | null>(null);
+   const [error, setShown] = useState<string | null>(null);
+   // Per document: new HTML may fix the errors, so it reports again.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: one reporter per document
+   const report = useMemo(() => onceEach((m: string) => latest.current.report?.(m)), [p.html]);
+   const reportRef = useRef(report);
+   reportRef.current = report;
+   const setError = useCallback((m: string) => {
+      setShown(m);
+      reportRef.current(m);
+   }, []);
    // A new document only for new HTML; state and theme then go in by message.
    const srcdoc = useMemo(
       () => buildSrcdoc(p.html, currentTheme(), latest.current.state),
@@ -75,7 +86,7 @@ export function UiHtml(p: Props) {
       };
       window.addEventListener("message", onMessage);
       return () => window.removeEventListener("message", onMessage);
-   }, []);
+   }, [setError]);
 
    // biome-ignore lint/correctness/useExhaustiveDependencies: post reads the ref
    useEffect(() => post({ type: "state", state: p.state }), [p.state]);

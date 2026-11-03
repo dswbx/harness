@@ -76,6 +76,7 @@ import { SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import type { Slot } from "./slots";
+import { RENDER_UI } from "./tools";
 import { uiIcons } from "./uiIcons";
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
@@ -129,7 +130,7 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
                   >
                      <X className="size-3.5" />
                   </button>
-                  <RenderUi root={x.root} env={{ ...env, files: x.files }} />
+                  <RenderUi root={x.root} env={{ ...env, files: x.files, item: x.id }} />
                </div>
             ))}
          </div>
@@ -143,7 +144,7 @@ function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
          <PanelHeader title={slot.title ?? slot.id} />
          <ScrollArea className="min-h-0 flex-1">
             <div className="p-4">
-               <RenderUi root={slot.root} env={{ ...env, files: slot.files }} />
+               <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
             </div>
          </ScrollArea>
       </>
@@ -333,6 +334,9 @@ function ChatView({
       () => ({
          state: state.uiState,
          patch: (ops) => api.patchState(ops),
+         report: (item, message) => {
+            api.reportFrontendError(RENDER_UI, item, message).catch(() => {});
+         },
          send: (text) => api.prompt(text),
          files: {},
          readImage: (p) => api.frontendReadImage(p),

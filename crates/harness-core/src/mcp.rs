@@ -165,7 +165,7 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title) and the top-level keys of the Session State.",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, and `errors` the UI reported, such as script errors) and the top-level keys of the Session State.",
             empty.clone(),
             "read",
         ),
@@ -320,8 +320,10 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     Ok(format!("Done. The Frontend received it ({path}). Live items: {items}"))
 }
 
-/// `harness_info`: live Frontend items (calls with an `id`) and the Session State's top-level keys.
+/// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
+/// them) and the Session State's top-level keys.
 fn info(session: &Session) -> anyhow::Result<Value> {
+    let errors = session.frontend_errors()?;
     let items: Vec<Value> = session
         .frontend_items()?
         .into_iter()
@@ -331,6 +333,10 @@ fn info(session: &Session) -> anyhow::Result<Value> {
                 if let Some(v) = input.get(k) {
                     item[k] = v.clone();
                 }
+            }
+            let errs: Vec<&str> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.as_str()).collect();
+            if !errs.is_empty() {
+                item["errors"] = json!(errs);
             }
             item
         })

@@ -141,6 +141,15 @@ pub enum Command {
         session_id: SessionId,
         ops: Vec<StatePatchOp>,
     },
+    /// A Frontend Tool item failed in the UI (e.g. a script error in a render_ui Html frame).
+    /// `item` is the call's `id`, or its `call_id` when it has none. Logged as `FrontendError`
+    /// (repeats and items that are gone are ignored) so the Agent learns about it.
+    ReportFrontendError {
+        session_id: SessionId,
+        tool: String,
+        item: String,
+        message: String,
+    },
     /// An image in `frontend/` (base64), e.g. one a Frontend Tool call named.
     FrontendReadImage {
         session_id: SessionId,
@@ -987,6 +996,14 @@ pub enum EventKind {
         /// relative to `frontend/`. Read them with `FrontendReadImage`.
         #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         files: std::collections::BTreeMap<String, String>,
+    },
+    /// The UI reported an error in a Frontend Tool item (`ReportFrontendError`). The Agent sees
+    /// it in `harness_info` and at the start of its next prompt on this Thread; a new call with
+    /// the item's id clears it.
+    FrontendError {
+        tool: String,
+        item: String,
+        message: String,
     },
     /// The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
     /// current state.

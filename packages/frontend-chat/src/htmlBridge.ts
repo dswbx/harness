@@ -58,6 +58,19 @@ export function currentTheme(): string {
    );
 }
 
+/**
+ * Wraps `report` so each message goes out once, at most `max` in all: a frame can throw the same error on every
+ * state change. The core dedupes too (replays, other windows); this keeps the calls few.
+ */
+export function onceEach(report: (message: string) => void, max = 5): (message: string) => void {
+   const sent = new Set<string>();
+   return (message) => {
+      if (sent.has(message) || sent.size >= max) return;
+      sent.add(message);
+      report(message);
+   };
+}
+
 /** Messages the frame sends to the host. */
 export type FrameMessage =
    | { type: "state"; state: unknown }
