@@ -11,6 +11,7 @@ import {
    GitPullRequest,
    ListFilter,
    MoreHorizontal,
+   Plus,
    Search,
    Trash2,
    X,
@@ -364,6 +365,7 @@ export function SessionList({
    onSelect,
    onArchive,
    onDelete,
+   onNewInFolder,
    children,
 }: {
    sessions: SessionSummary[];
@@ -371,6 +373,8 @@ export function SessionList({
    onSelect: (id: string) => void;
    onArchive: (s: SessionSummary) => void;
    onDelete: (s: SessionSummary) => void;
+   /** Opens the Composer with this folder picked (the + on a folder group). */
+   onNewInFolder?: (folder: string) => void;
    children?: ReactNode;
 }) {
    const [query, setQuery] = useState("");
@@ -473,21 +477,36 @@ export function SessionList({
                      // Only an open group adds space below it; collapsed headers stack tight.
                      <div key={g.id} className={cn("flex flex-col", open && "mb-4.5 last:mb-0")}>
                         {g.id !== "all" && (
-                           <button
-                              aria-expanded={open}
-                              onClick={() => toggle(g.id)}
-                              className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
-                           >
-                              <ChevronRight
-                                 className={cn(
-                                    "size-3 shrink-0 transition-transform",
-                                    open && "rotate-90",
-                                 )}
-                              />
-                              {g.folder && <Folder className="size-3.25 shrink-0" />}
-                              <span className="min-w-0 truncate text-foreground/75">{g.label}</span>
-                              <span className="shrink-0 tabular-nums">{g.sessions.length}</span>
-                           </button>
+                           <div className="group/hdr relative flex items-center">
+                              <button
+                                 aria-expanded={open}
+                                 onClick={() => toggle(g.id)}
+                                 className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-xs font-medium text-muted-foreground transition-[padding] hover:text-foreground group-hover/hdr:pr-7 group-has-focus-visible/hdr:pr-7"
+                              >
+                                 <ChevronRight
+                                    className={cn(
+                                       "size-3 shrink-0 transition-transform",
+                                       open && "rotate-90",
+                                    )}
+                                 />
+                                 {g.folder && <Folder className="size-3.25 shrink-0" />}
+                                 <span className="min-w-0 truncate text-foreground/75 group-hover/hdr:text-foreground">
+                                    {g.label}
+                                 </span>
+                                 <span className="shrink-0 tabular-nums">{g.sessions.length}</span>
+                              </button>
+                              {g.folder && onNewInFolder && g.sessions[0] && (
+                                 <Tooltip content={`New Session in ${g.label}`} side="bottom">
+                                    <button
+                                       aria-label={`New Session in ${g.label}`}
+                                       onClick={() => onNewInFolder(g.sessions[0]!.folder)}
+                                       className="absolute right-1 grid size-5 place-items-center rounded text-muted-foreground opacity-0 transition hover:bg-accent hover:text-accent-foreground group-hover/hdr:opacity-100 group-has-focus-visible/hdr:opacity-100 focus-visible:opacity-100"
+                                    >
+                                       <Plus className="size-3.5" />
+                                    </button>
+                                 </Tooltip>
+                              )}
+                           </div>
                         )}
                         {open && <ul className="flex flex-col gap-px">{g.sessions.map(row)}</ul>}
                      </div>

@@ -1,4 +1,12 @@
-import type { Editor, HarnessClient, SessionStatus, SessionSummary } from "@harness/api";
+import type {
+   Editor,
+   GitStatus,
+   HarnessClient,
+   PrInfo,
+   RepoId,
+   SessionStatus,
+   SessionSummary,
+} from "@harness/api";
 import { inTauri } from "@harness/api";
 import {
    Button,
@@ -11,9 +19,209 @@ import {
    DropdownMenuTrigger,
    Tooltip,
 } from "@harness/ui";
-import { AppWindow, Code, Copy, FolderOpen, Info, MoreHorizontal, Settings } from "lucide-react";
+import {
+   AppWindow,
+   ArrowDown,
+   ArrowUp,
+   Code,
+   Copy,
+   FolderOpen,
+   GitBranch,
+   GitMerge,
+   GitPullRequest,
+   GitPullRequestClosed,
+   GitPullRequestDraft,
+   Info,
+   MoreHorizontal,
+   RefreshCw,
+   Settings,
+} from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { openExternal } from "./openExternal";
 import { useReportError } from "./toast";
+
+/** The Session's git ref as the header shows it (see App's `useGitRef`). */
+export type GitRef = {
+   /** Null outside a repository or until loaded. */
+   status: GitStatus | null;
+   /** The GitHub repo of the folder, when it has one. */
+   repo: RepoId | null;
+   /** The PR the Session works on, when there is one. */
+   pr: PrInfo | null;
+   refresh: () => void;
+};
+
+const PR_STYLE: Record<
+   PrInfo["state"],
+   { icon: typeof GitPullRequest; cls: string; label: string }
+> = {
+   open: { icon: GitPullRequest, cls: "text-emerald-600 dark:text-emerald-400", label: "Open" },
+   draft: { icon: GitPullRequestDraft, cls: "text-muted-foreground", label: "Draft" },
+   merged: { icon: GitMerge, cls: "text-violet-600 dark:text-violet-400", label: "Merged" },
+   closed: { icon: GitPullRequestClosed, cls: "text-red-600 dark:text-red-400", label: "Closed" },
+};
+
+const CHECKS_LABEL: Record<PrInfo["checks"], string> = {
+   passing: "checks passing",
+   failing: "checks failing",
+   pending: "checks running",
+   none: "no checks",
+};
+
+const refBtn =
+   "flex h-7 max-w-72 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground [&_svg]:size-3.5 [&_svg]:shrink-0";
+
+/**
+ * Branch or PR of the Session, right of the title: opens it on GitHub. A branch behind its upstream
+ * shows ↓n, a click fast-forwards it; ahead shows ↑n.
+ */
+function GitRefButton({
+   client,
+   session,
+   git,
+}: {
+   client: HarnessClient;
+   session: SessionSummary;
+   git: GitRef;
+}) {
+   const report = useReportError();
+   const [updating, setUpdating] = useState(false);
+   const { status, repo, pr } = git;
+   const branch = status?.branch ?? null;
+   if (!status && !pr) return null;
+
+   const update = () => {
+      if (!branch) return;
+      setUpdating(true);
+      client
+         .updateBranch(session.folder, branch)
+         .then(git.refresh, (e) => report(`Could not update ${branch}`, e))
+         .finally(() => setUpdating(false));
+   };
+
+   const counts = status && (status.ahead > 0 || status.behind > 0) && (
+      <span className="flex shrink-0 items-center gap-1 tabular-nums">
+         {status.ahead > 0 && (
+            <Tooltip
+               side="bottom"
+               content={`${status.ahead} ${status.ahead === 1 ? "commit" : "commits"} not pushed`}
+            >
+               <span className="flex items-center text-muted-foreground">
+                  <ArrowUp className="size-3" />
+                  {status.ahead}
+               </span>
+            </Tooltip>
+         )}
+         {status.behind > 0 && (
+            <Tooltip
+               side="bottom"
+               content={`${status.behind} ${status.behind === 1 ? "commit" : "commits"} behind ${status.upstream ?? "upstream"} · click to fast-forward`}
+            >
+               <button
+                  aria-label={`Update ${branch}: ${status.behind} behind`}
+                  disabled={updating}
+                  onClick={update}
+                  className="flex h-5 items-center rounded px-1 text-amber-600 hover:bg-amber-500/15 disabled:opacity-60 dark:text-amber-400"
+               >
+                  {updating ? <RefreshCw className="size-3 animate-spin" /> : <ArrowDown />}
+                  {status.behind}
+               </button>
+            </Tooltip>
+         )}
+      </span>
+   );
+
+   if (pr) {
+      const st = PR_STYLE[pr.state];
+      const Icon = st.icon;
+      const checks =
+         pr.checks_total > 0
+            ? `${pr.checks_passed}/${pr.checks_total} ${CHECKS_LABEL[pr.checks]}`
+            : CHECKS_LABEL[pr.checks];
+      return (
+         <span className="flex min-w-0 items-center gap-0.5">
+            <Tooltip
+               side="bottom"
+               className="max-w-80"
+               content={
+                  <div className="flex flex-col gap-0.5">
+                     <span className="font-medium">
+                        #{pr.number} {pr.title}
+                     </span>
+                     <span className="text-muted-foreground">
+                        {st.label} · {checks}
+                        {branch ? ` · ${branch}` : ""}
+                     </span>
+                     <span className="text-muted-foreground">Opens on GitHub</span>
+                  </div>
+               }
+            >
+               <a
+                  href={pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => openExternal(e, pr.url)}
+                  aria-label={`Pull request #${pr.number}, ${st.label}, ${checks}; opens on GitHub`}
+                  className={refBtn}
+               >
+                  <Icon className={st.cls} />
+                  <span className="shrink-0 font-medium text-foreground/90">#{pr.number}</span>
+                  <span className="min-w-0 truncate">{pr.title}</span>
+                  {pr.checks_total > 0 && (
+                     <span
+                        aria-hidden
+                        className={cn(
+                           "size-1.5 shrink-0 rounded-full",
+                           {
+                              passing: "bg-emerald-500",
+                              failing: "bg-red-500",
+                              pending: "bg-amber-500",
+                              none: "bg-muted-foreground/40",
+                           }[pr.checks],
+                        )}
+                     />
+                  )}
+               </a>
+            </Tooltip>
+            {counts}
+         </span>
+      );
+   }
+
+   if (!branch) return null;
+   const url = repo ? `https://github.com/${repo.owner}/${repo.name}/tree/${branch}` : null;
+   const label = (
+      <>
+         <GitBranch />
+         <span className="min-w-0 truncate font-mono">{branch}</span>
+      </>
+   );
+   return (
+      <span className="flex min-w-0 items-center gap-0.5">
+         {url ? (
+            <Tooltip side="bottom" content={`Branch ${branch} · opens on GitHub`}>
+               <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => openExternal(e, url)}
+                  aria-label={`Branch ${branch}; opens on GitHub`}
+                  className={refBtn}
+               >
+                  {label}
+               </a>
+            </Tooltip>
+         ) : (
+            <Tooltip side="bottom" content={`Branch ${branch}`}>
+               <span className={cn(refBtn, "hover:bg-transparent hover:text-muted-foreground")}>
+                  {label}
+               </span>
+            </Tooltip>
+         )}
+         {counts}
+      </span>
+   );
+}
 
 /** Room for the macOS traffic lights (overlay title bar, `trafficLightPosition` in tauri.conf.json: y centers them in the 52px header). */
 export const trafficLights = inTauri();
@@ -103,7 +311,7 @@ const iconBtn =
 export function SessionHeader({
    client,
    session,
-   branch,
+   git,
    leading,
    onOpenWindow,
    onChooseEditor,
@@ -114,8 +322,8 @@ export function SessionHeader({
 }: {
    client: HarnessClient;
    session: SessionSummary;
-   /** Current git branch; none outside a repository. */
-   branch?: string | null;
+   /** Branch, counts and PR; none outside a repository. */
+   git?: GitRef;
    leading?: ReactNode;
    onOpenWindow?: () => void;
    /** Opens Settings at the editor choice (no editor chosen yet). */
@@ -227,13 +435,7 @@ export function SessionHeader({
          </DropdownMenu>
          <div ref={statusRef} className="flex min-w-0 items-center gap-1 empty:hidden" />
          <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
-         {branch && (
-            <Tooltip content={`Branch ${branch}`} side="bottom">
-               <span className="min-w-0 max-w-64 truncate px-1 font-mono text-xs text-muted-foreground">
-                  {branch}
-               </span>
-            </Tooltip>
-         )}
+         {git && <GitRefButton client={client} session={session} git={git} />}
          <div ref={toolbarRef} className="flex items-center gap-1" />
          <DropdownMenu open={gearOpen} onOpenChange={setGearOpen}>
             <DropdownMenuTrigger asChild>

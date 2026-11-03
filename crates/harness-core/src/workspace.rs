@@ -379,6 +379,18 @@ pub async fn push(dir: &Path) -> anyhow::Result<String> {
     Ok(branch)
 }
 
+/// Fast-forwards `branch` to `origin/<branch>`: `pull --ff-only` when it is checked out in `dir`, else a
+/// fetch into the branch (git refuses one checked out in another worktree, and any non-fast-forward).
+pub async fn update_branch(dir: &Path, branch: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!branch.is_empty() && !branch.starts_with('-'), "invalid branch name");
+    if current_branch(dir).await?.as_deref() == Some(branch) {
+        git(dir, &["pull", "--ff-only", "origin", branch]).await?;
+    } else {
+        git(dir, &["fetch", "origin", &format!("{branch}:{branch}")]).await?;
+    }
+    Ok(())
+}
+
 /// Lowercase, dash-separated, at most 24 chars; safe inside a branch name.
 pub fn slug(s: &str) -> String {
     let mut out = String::new();

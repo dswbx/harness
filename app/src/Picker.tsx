@@ -84,29 +84,34 @@ export function Picker({
    return (
       <Popover open={open} onOpenChange={onOpenChange}>
          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+         {/* A grid, not a flex column: its max height is not a definite height, so a flex item's percentage
+             height (the ScrollArea viewport's) would not resolve and the list would overflow under the hint.
+             The `minmax(0,1fr)` row is re-resolved against the max height, which makes it definite. */}
          <PopoverContent
             matchTrigger
-            className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] flex-col p-0"
+            className="grid max-h-[min(26rem,var(--radix-popover-content-available-height))] grid-rows-[auto_minmax(0,1fr)_auto] p-0"
             onKeyDown={onKeyDown}
          >
-            {search && (
-               <div className="flex items-center gap-2 border-b px-2.5">
-                  <Search className="size-4 shrink-0 text-muted-foreground" />
-                  <input
-                     autoFocus
-                     aria-label={search.placeholder}
-                     value={search.value}
-                     onChange={(e) => search.onChange(e.target.value)}
-                     placeholder={search.placeholder}
-                     className={cn(
-                        "h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground",
-                        search.mono && "font-mono text-[13px]",
-                     )}
-                  />
-               </div>
-            )}
-            {header}
-            <ScrollArea className="min-h-0 flex-1">
+            <div className="flex flex-col">
+               {search && (
+                  <div className="flex items-center gap-2 border-b px-2.5">
+                     <Search className="size-4 shrink-0 text-muted-foreground" />
+                     <input
+                        autoFocus
+                        aria-label={search.placeholder}
+                        value={search.value}
+                        onChange={(e) => search.onChange(e.target.value)}
+                        placeholder={search.placeholder}
+                        className={cn(
+                           "h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground",
+                           search.mono && "font-mono text-[13px]",
+                        )}
+                     />
+                  </div>
+               )}
+               {header}
+            </div>
+            <ScrollArea className="min-h-0">
                <div
                   ref={list}
                   role="listbox"
@@ -147,7 +152,11 @@ export function Picker({
                   ))}
                </div>
             </ScrollArea>
-            {hint && <div className="border-t px-3 py-2 text-xs text-muted-foreground">{hint}</div>}
+            {hint ? (
+               <div className="border-t px-3 py-2 text-xs text-muted-foreground">{hint}</div>
+            ) : (
+               <div />
+            )}
          </PopoverContent>
       </Popover>
    );

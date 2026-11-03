@@ -1,4 +1,11 @@
-import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
+import type {
+   GitStatus,
+   HarnessClient,
+   PrInfo,
+   RepoId,
+   SessionSummary,
+   Transport,
+} from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import {
    Button,
@@ -18,7 +25,7 @@ import { useCallback, useEffect, useState } from "react";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
 import { openViewWindow } from "./openWindow";
-import { SessionHeader, trafficLights } from "./SessionHeader";
+import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
 import { errText, ToastProvider, useReportError } from "./toast";
@@ -186,26 +193,49 @@ const useSidebarWidth = () =>
       edge: "right",
    });
 
-/** The Session's current branch, when its folder is a git repository (refreshed as its status changes). */
-function useBranch(client: HarnessClient, s: SessionSummary | null) {
-   const [branch, setBranch] = useState<string | null>(null);
+/**
+ * The Session's git ref for the header: branch with ahead/behind, its GitHub repo and PR. Reloaded as the
+ * Session's status changes, every minute while the window is visible, when it comes back, and on `refresh`.
+ */
+function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
+   const [status, setStatus] = useState<GitStatus | null>(null);
+   const [gh, setGh] = useState<{ repo: RepoId | null; pr: PrInfo | null }>({
+      repo: null,
+      pr: null,
+   });
+   const [version, setVersion] = useState(0);
    const id = s?.workspace.repo_root ? s.id : null;
-   const status = s?.status;
+   const sessionStatus = s?.status;
    useEffect(() => {
-      if (!id) return setBranch(null);
+      if (!id) {
+         setStatus(null);
+         setGh({ repo: null, pr: null });
+         return;
+      }
       let off = false;
-      client
-         .sessionApi(id)
-         .gitStatus()
-         .then(
-            (g) => !off && setBranch(g.branch),
-            () => !off && setBranch(null),
+      const load = () => {
+         if (document.hidden) return;
+         const api = client.sessionApi(id);
+         api.gitStatus().then(
+            (g) => !off && setStatus(g),
+            () => !off && setStatus(null),
          );
+         api.branchPr().then(
+            (r) => !off && setGh(r),
+            () => !off && setGh({ repo: null, pr: null }),
+         );
+      };
+      load();
+      const timer = setInterval(load, 60_000);
+      window.addEventListener("focus", load);
       return () => {
          off = true;
+         clearInterval(timer);
+         window.removeEventListener("focus", load);
       };
-   }, [client, id, status]);
-   return branch;
+   }, [client, id, sessionStatus, version]);
+   const refresh = useCallback(() => setVersion((v) => v + 1), []);
+   return { status, repo: gh.repo, pr: gh.pr, refresh };
 }
 
 function Shell({ transport }: { transport: Transport }) {
@@ -213,6 +243,8 @@ function Shell({ transport }: { transport: Transport }) {
    const [sessions, setSessions] = useState<SessionSummary[]>([]);
    const [selected, setSelected] = useState<string | null>(null);
    const [composer, setComposer] = useState(false);
+   /** Folder the Composer opens with (the + on a sidebar folder group); null: its own default. */
+   const [composerFolder, setComposerFolder] = useState<string | null>(null);
    const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
    const [agentsVersion, setAgentsVersion] = useState(0);
    const [mcpVersion, setMcpVersion] = useState(0);
@@ -289,7 +321,7 @@ function Shell({ transport }: { transport: Transport }) {
    }, [client, report]);
 
    const current = sessions.find((s) => s.id === selected) ?? null;
-   const branch = useBranch(client, current);
+   const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
    const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
    const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
@@ -359,6 +391,10 @@ function Shell({ transport }: { transport: Transport }) {
                   onSelect={setSelected}
                   onArchive={toggleArchive}
                   onDelete={askDelete}
+                  onNewInFolder={(folder) => {
+                     setComposerFolder(folder);
+                     setComposer(true);
+                  }}
                >
                   {menuError && (
                      <p role="alert" className="px-4 pb-2 text-xs text-destructive">
@@ -375,7 +411,7 @@ function Shell({ transport }: { transport: Transport }) {
                   <SessionHeader
                      client={client}
                      session={current}
-                     branch={branch}
+                     git={git}
                      leading={leading}
                      toolbarRef={setToolbar}
                      statusRef={setStatus}
@@ -457,7 +493,11 @@ function Shell({ transport }: { transport: Transport }) {
          <ComposerDialog
             client={client}
             open={composer}
-            onOpenChange={setComposer}
+            onOpenChange={(o) => {
+               setComposer(o);
+               if (!o) setComposerFolder(null);
+            }}
+            folder={composerFolder}
             agentsVersion={agentsVersion}
             mcpVersion={mcpVersion}
             onManageAgents={() => {

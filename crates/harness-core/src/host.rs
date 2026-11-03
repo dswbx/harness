@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::api::{
-    AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, SessionId,
-    SessionSummary,
+    AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, PrRefKey,
+    SessionId, SessionSummary,
 };
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
@@ -311,6 +311,30 @@ impl Harness {
             }
             Command::ListPullRequests { folder, filter } => {
                 CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? }
+            }
+            Command::UpdateBranch { folder, branch } => {
+                crate::workspace::update_branch(Path::new(&folder), &branch).await?;
+                CommandResult::Ok
+            }
+            Command::BranchPr { session_id } => {
+                let session = self.session(&session_id)?;
+                let meta = session.meta();
+                let refs = &self.shared.pr_refs;
+                let repo = match repo_folder(&meta) {
+                    Some(folder) => refs.repo_of(&folder).await,
+                    None => None,
+                };
+                let pr = match &repo {
+                    None => None,
+                    Some(repo) => match meta.workspace.pr {
+                        Some(number) => refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten(),
+                        None => match crate::workspace::current_branch(Path::new(&meta.folder)).await? {
+                            Some(branch) => refs.for_branch(repo, &branch).await?,
+                            None => None,
+                        },
+                    },
+                };
+                CommandResult::BranchPr { repo, pr }
             }
             Command::ArchiveSession { session_id } => {
                 self.terminals.kill_all(&session_id);
