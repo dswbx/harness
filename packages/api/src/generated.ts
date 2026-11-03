@@ -206,9 +206,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**  Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
 { type: "SearchPrs"; session_id: string; repo: RepoId; query: string | null } | 
 /**
- *  The Session's GitHub repo and the PR it works on: the one it started from, else the newest PR
- *  (open first) whose head is the current branch. Both None without a GitHub remote; `pr` None
- *  without `gh`. Cached like PR references.
+ *  The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+ *  first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+ *  base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+ *  remote; `pr` None without `gh`. Cached like PR references.
  */
 { type: "BranchPr"; session_id: string } | 
 /**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
@@ -265,7 +266,7 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
  */
 { type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | 
 /**  `me`: the `gh` user, None when `gh` is not signed in. */
-{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
+{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */

@@ -244,9 +244,10 @@ pub enum Command {
         repo: RepoId,
         query: Option<String>,
     },
-    /// The Session's GitHub repo and the PR it works on: the one it started from, else the newest PR
-    /// (open first) whose head is the current branch. Both None without a GitHub remote; `pr` None
-    /// without `gh`. Cached like PR references.
+    /// The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+    /// first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+    /// base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+    /// remote; `pr` None without `gh`. Cached like PR references.
     BranchPr {
         session_id: SessionId,
     },
@@ -459,7 +460,7 @@ pub enum CommandResult {
     PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
     PrLookup { prs: Vec<Option<PrInfo>> },
     PrSearch { prs: Vec<PrInfo> },
-    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo> },
+    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo>, base: Option<String> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
     Terminals { terminals: Vec<TerminalInfo> },

@@ -352,7 +352,7 @@ async fn base_refs(dir: &Path, base: &str) -> Vec<String> {
 }
 
 /// The repo's main line: `origin/HEAD`, else a local `main` or `master`.
-async fn default_branch(dir: &Path) -> Option<String> {
+pub(crate) async fn default_branch(dir: &Path) -> Option<String> {
     if let Ok(r) = git(dir, &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).await
         && !r.trim().is_empty()
     {
@@ -365,7 +365,6 @@ async fn default_branch(dir: &Path) -> Option<String> {
     }
     None
 }
-
 
 pub async fn commit(dir: &Path, message: &str) -> anyhow::Result<String> {
     git(dir, &["add", "-A"]).await?;

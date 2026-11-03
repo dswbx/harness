@@ -199,17 +199,17 @@ const useSidebarWidth = () =>
  */
 function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
    const [status, setStatus] = useState<GitStatus | null>(null);
-   const [gh, setGh] = useState<{ repo: RepoId | null; pr: PrInfo | null }>({
-      repo: null,
-      pr: null,
-   });
+   const none = { repo: null, pr: null, base: null };
+   const [gh, setGh] = useState<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>(
+      none,
+   );
    const [version, setVersion] = useState(0);
    const id = s?.workspace.repo_root ? s.id : null;
    const sessionStatus = s?.status;
    useEffect(() => {
       if (!id) {
          setStatus(null);
-         setGh({ repo: null, pr: null });
+         setGh(none);
          return;
       }
       let off = false;
@@ -222,7 +222,7 @@ function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
          );
          api.branchPr().then(
             (r) => !off && setGh(r),
-            () => !off && setGh({ repo: null, pr: null }),
+            () => !off && setGh(none),
          );
       };
       load();
@@ -235,7 +235,7 @@ function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
       };
    }, [client, id, sessionStatus, version]);
    const refresh = useCallback(() => setVersion((v) => v + 1), []);
-   return { status, repo: gh.repo, pr: gh.pr, refresh };
+   return { status, repo: gh.repo, pr: gh.pr, base: gh.base, refresh };
 }
 
 function Shell({ transport }: { transport: Transport }) {

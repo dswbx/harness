@@ -824,14 +824,15 @@ export class MockTransport implements Transport {
          }
          case "BranchPr": {
             const s = this.session(cmd.session_id);
+            const base = s.workspace.base_branch ?? "main";
             if (!s.workspace.repo_root || s.folder.includes("nogh"))
-               return { type: "BranchPr", repo: null, pr: null };
+               return { type: "BranchPr", repo: null, pr: null, base };
             const repo = folderRepo(s.folder);
-            if (!repo) return { type: "BranchPr", repo: null, pr: null };
+            if (!repo) return { type: "BranchPr", repo: null, pr: null, base };
             const pr =
                MOCK_PR_INFOS.find((p) => sameRepo(p.repo, repo) && p.number === s.workspace.pr) ??
                (s.workspace.worktree_branch ? (MOCK_PR_INFOS[0] ?? null) : null);
-            return { type: "BranchPr", repo, pr };
+            return { type: "BranchPr", repo, pr, base };
          }
          case "GitPush": {
             this.ahead.set(cmd.session_id, 0);
