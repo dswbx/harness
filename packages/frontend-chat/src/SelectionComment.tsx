@@ -1,6 +1,6 @@
 import { Button, Textarea } from "@harness/ui";
 import { MessageSquarePlus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { addReviewComment, composerKey } from "./reviewComments";
 
 /** Elements whose selected text can be commented on (chat messages). */
@@ -67,6 +67,7 @@ export function SelectionComment({
    const [editing, setEditing] = useState(false);
    const [text, setText] = useState("");
    const box = useRef<HTMLDivElement>(null);
+   const area = useRef<HTMLTextAreaElement>(null);
    const editingRef = useRef(false);
    editingRef.current = editing;
 
@@ -98,6 +99,15 @@ export function SelectionComment({
       CSS.highlights.set(HIGHLIGHT, new Highlight(spot.range));
       return () => void CSS.highlights.delete(HIGHLIGHT);
    }, [editing, spot]);
+
+   // Grow with the text up to max-h-40, then scroll (WebKit has no `field-sizing: content`).
+   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the text changes.
+   useLayoutEffect(() => {
+      const el = area.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+   }, [text, editing]);
 
    // Close the form on a click outside it.
    useEffect(() => {
@@ -158,6 +168,7 @@ export function SelectionComment({
                </div>
                <div className="flex items-end gap-2">
                   <Textarea
+                     ref={area}
                      autoFocus
                      rows={1}
                      value={text}

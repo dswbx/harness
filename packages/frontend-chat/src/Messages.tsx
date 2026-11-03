@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { memo, type Ref, useEffect, useMemo, useState } from "react";
 import { AuthCard } from "./Auth";
+import { CommentChips } from "./CommentChip";
 import { type DiffScope, FileStat } from "./DiffPanel";
 import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
@@ -28,6 +29,7 @@ import { MessageFooter } from "./MessageFooter";
 import { PermissionCard } from "./Permission";
 import type { UiEnv } from "./RenderUi";
 import type { ChatState, Item } from "./reducer";
+import { parseReviewComments } from "./reviewComments";
 import { quotableAttrs } from "./SelectionComment";
 import { SideReplyFooter } from "./SideReplyFooter";
 import { splitRenderUi } from "./slots";
@@ -236,6 +238,19 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
    );
 }
 
+/** A sent prompt's bubble: its review comments as chips (like the prompt box), then the typed text. */
+function UserText({ text }: { text: string }) {
+   const p = useMemo(() => parseReviewComments(text), [text]);
+   return (
+      <div className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground">
+         {p.comments.length > 0 && (
+            <CommentChips comments={p.comments} className={p.text ? "pb-1.5" : undefined} />
+         )}
+         {p.text && <Markdown breaks>{p.text}</Markdown>}
+      </div>
+   );
+}
+
 /** What the core sent the Agent before this message (`<harness_context>`), on request. */
 function HarnessContext({ text }: { text: string }) {
    const [open, setOpen] = useState(false);
@@ -319,14 +334,7 @@ export const Row = memo(function Row({
                {item.attachments.length > 0 && (
                   <UserAttachments api={api} items={item.attachments} />
                )}
-               {item.text && (
-                  <Markdown
-                     breaks
-                     className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground"
-                  >
-                     {item.text}
-                  </Markdown>
-               )}
+               {item.text && <UserText text={item.text} />}
                <MessageFooter text={item.text} ts={item.ts} align="end">
                   {item.context && <HarnessContext text={item.context} />}
                </MessageFooter>

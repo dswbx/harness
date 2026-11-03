@@ -7,9 +7,10 @@ import {
    sameRepo,
 } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
-import { ArrowUp, FileText, MessageSquare, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
+import { CommentChips } from "./CommentChip";
 import { ConfigBar } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
@@ -22,7 +23,6 @@ import type { ChatState } from "./reducer";
 import {
    composerKey,
    getReviewComments,
-   type ReviewComment,
    removeReviewComment,
    setReviewComments,
    useReviewComments,
@@ -58,61 +58,6 @@ function AttachmentChips({
                      className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/att:opacity-100"
                      aria-label={`Remove ${a.name}`}
                      onClick={() => onRemove(a.id)}
-                  >
-                     <X className="size-3" />
-                  </button>
-               </span>
-            </Tooltip>
-         ))}
-      </div>
-   );
-}
-
-/** Review comments from the diff views, sent with the next prompt. */
-function CommentChips({ sessionId, comments }: { sessionId: string; comments: ReviewComment[] }) {
-   return (
-      <div className="flex flex-wrap gap-1 pb-1.5" aria-label="Review comments">
-         {comments.map((c) => (
-            <Tooltip
-               key={c.id}
-               className="max-w-96 whitespace-pre-wrap"
-               content={
-                  c.kind === "quote" ? (
-                     <>
-                        <div className="my-1 border-l-2 pl-2 text-muted-foreground">{c.quote}</div>
-                        <div>{c.text}</div>
-                     </>
-                  ) : (
-                     <>
-                        <div className="font-mono text-muted-foreground">
-                           {c.path}:{c.line} ({c.side})
-                        </div>
-                        <pre className="my-1 overflow-hidden font-mono">{c.code}</pre>
-                        <div>{c.text}</div>
-                     </>
-                  )
-               }
-            >
-               <span className="flex max-w-full items-center gap-1 rounded-md border bg-muted py-0.5 pl-1.5 pr-0.5 text-xs">
-                  <MessageSquare className="size-3 shrink-0 text-muted-foreground" />
-                  {c.kind === "quote" ? (
-                     <span className="min-w-0 max-w-40 shrink-0 truncate text-muted-foreground">
-                        “{c.quote}”
-                     </span>
-                  ) : (
-                     <span className="shrink-0 font-mono text-muted-foreground">
-                        {c.path.split("/").pop()}:{c.line}
-                     </span>
-                  )}
-                  <span className="min-w-0 max-w-64 truncate">{c.text}</span>
-                  <button
-                     className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                     aria-label={
-                        c.kind === "quote"
-                           ? "Remove comment"
-                           : `Remove comment on ${c.path}:${c.line}`
-                     }
-                     onClick={() => removeReviewComment(sessionId, c.id)}
                   >
                      <X className="size-3" />
                   </button>
@@ -468,7 +413,13 @@ export function PromptBox({
                   onRemove={(id) => setAttachments((cur) => cur.filter((a) => a.id !== id))}
                />
             )}
-            {comments.length > 0 && <CommentChips sessionId={key} comments={comments} />}
+            {comments.length > 0 && (
+               <CommentChips
+                  className="pb-1.5"
+                  comments={comments}
+                  onRemove={(id) => removeReviewComment(key, id)}
+               />
+            )}
             <PromptEditor
                ref={ref}
                placeholder={
