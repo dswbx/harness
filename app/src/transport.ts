@@ -11,8 +11,10 @@ import { registry } from "./registry";
 export async function makeTransport(): Promise<Transport> {
    if (inTauri()) return tauriTransport;
    const { mockEvents } = await import("./mock/events");
+   // `?stress`: a long synthetic Session, for profiling.
+   const stress = new URLSearchParams(location.search).has("stress");
    return new MockTransport(
-      mockEvents(),
+      stress ? (await import("./mock/stressEvents")).stressEvents() : mockEvents(),
       Object.values(registry).map((f) => f.manifest),
    );
 }
