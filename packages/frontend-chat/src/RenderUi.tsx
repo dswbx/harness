@@ -53,6 +53,7 @@ import { InlineMarkdown as Md } from "./InlineMarkdown";
 import { Markdown } from "./Markdown";
 import { jsReady, loadJs, onJsReady, runJs } from "./sandbox";
 import { Diff as FileDiff } from "./ToolCard";
+import { UiHtml } from "./UiHtml";
 import { uiIcons } from "./uiIcons";
 
 /** recharts is large: loaded the first time a Chart shows. */
@@ -1891,6 +1892,18 @@ function Node({ raw }: { raw: RawNode }) {
          return <Trace node={node} />;
       case "PullRequest":
          return <PullRequest node={node} />;
+      case "Html":
+         return (
+            <UiHtml
+               html={node.props.html}
+               height={node.props.height}
+               title={node.props.title}
+               state={env.state}
+               patch={env.patch}
+               send={env.send}
+               run={(a) => runActions(a as UiAction[], env, scope)}
+            />
+         );
       case "Chart": {
          const data = Array.isArray(node.props.data)
             ? (node.props.data as Record<string, unknown>[])

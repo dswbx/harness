@@ -1,5 +1,6 @@
 import { applyStatePatch, type StatePatchOp } from "@harness/api";
 import { describe, expect, it } from "vitest";
+import { buildSrcdoc, HTML_CSP, themeCss } from "./htmlBridge";
 import {
    isVisible,
    repeatScopes,
@@ -346,5 +347,31 @@ describe("render_ui JavaScript (sandboxed)", () => {
       );
       expect(patches).toEqual([]);
       expect(errors[0]).toContain("TypeError");
+   });
+});
+
+describe("render_ui Html", () => {
+   it("accepts an Html node and rejects children or a missing html", () => {
+      const ok = { root: { type: "Html", props: { html: "<svg></svg>", height: 200 } } };
+      expect(renderUiSchema.validate(ok).valid).toBe(true);
+      const kids = { root: { type: "Html", props: { html: "x" }, children: [ok.root] } };
+      expect(renderUiSchema.validate(kids).valid).toBe(false);
+      expect(renderUiSchema.validate({ root: { type: "Html", props: {} } }).valid).toBe(false);
+   });
+   it("builds a frame document with CSP, theme, state and bridge first", () => {
+      const doc = buildSrcdoc(
+         "<!doctype html><html><body class='x'><p>hi</p></body></html>",
+         ":root { --foreground: red; }",
+         { a: "</script>" },
+      );
+      expect(doc).toContain(`content="${HTML_CSP}"`);
+      expect(doc).toContain("--foreground: red;");
+      expect(doc).toContain("\\u003c/script>");
+      expect(doc.indexOf("window.harness")).toBeLessThan(doc.indexOf("<p>hi</p>"));
+      expect(doc.match(/<body/g)).toHaveLength(1);
+   });
+   it("reads the theme tokens into a :root block", () => {
+      const css = themeCss((n) => (n === "--primary" ? " oklch(0.2 0 0) " : ""), "dark");
+      expect(css).toBe(":root { --primary: oklch(0.2 0 0); color-scheme: dark; }");
    });
 });

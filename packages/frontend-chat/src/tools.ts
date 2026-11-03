@@ -76,6 +76,42 @@ export function calculatorExample() {
    };
 }
 
+/** The Html example: a clickable SVG diagram bound to `/html_demo/selected` (gallery, tests). */
+function htmlExample() {
+   const box = (id: string, x: number, label: string) =>
+      `<g class="box" data-box="${id}" data-on-click='{"action":"setState","params":{"statePath":"/html_demo/selected","value":"${id}"}}'><rect x="${x}" y="20" width="120" height="56" rx="8"/><text x="${x + 60}" y="53">${label}</text></g>`;
+   const arrow = (x: number) =>
+      `<line x1="${x}" y1="48" x2="${x + 36}" y2="48" marker-end="url(#head)"/>`;
+   return {
+      type: "Html" as const,
+      props: {
+         title: "Request flow",
+         html: [
+            "<style>",
+            "svg { width: 100%; max-width: 480px; display: block; }",
+            ".box rect { fill: var(--card); stroke: var(--border); stroke-width: 1.5; }",
+            ".box.on rect { stroke: var(--chart-1); stroke-width: 2.5; }",
+            ".box text { fill: var(--foreground); font: 13px var(--font-sans); text-anchor: middle; }",
+            "line { stroke: var(--muted-foreground); stroke-width: 1.5; }",
+            "#head path { fill: var(--muted-foreground); }",
+            "p { margin: 8px 0 0; color: var(--muted-foreground); }",
+            "</style>",
+            '<svg viewBox="0 0 480 96" role="img" aria-label="Web app calls API, API reads Database">',
+            '<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z"/></marker></defs>',
+            box("web", 2, "Web app"),
+            arrow(124),
+            box("api", 180, "API"),
+            arrow(302),
+            box("db", 358, "Database"),
+            "</svg>",
+            '<p>Selected: <strong data-state="/html_demo/selected"></strong></p>',
+            '<p data-visible=\'{"$state":"/html_demo/selected","eq":"api"}\'>The API checks the session, then reads from the database.</p>',
+            "<script>harness.subscribe((s) => document.querySelectorAll('[data-box]').forEach((b) => b.classList.toggle('on', b.dataset.box === s?.html_demo?.selected)));</script>",
+         ].join("\n"),
+      },
+   };
+}
+
 const tone = s.string({
    enum: ["neutral", "info", "success", "warning", "error"],
    description: "Accent. Default neutral.",
@@ -1392,6 +1428,26 @@ export const components = {
          },
       },
    },
+   Html: {
+      description:
+         "Free HTML/SVG in a sandboxed frame, for diagrams and custom visuals the catalog cannot show (e.g. an architecture diagram). Prefer catalog components for normal UI. Connects to the Session State with data-* attributes and `window.harness` (see above).",
+      children: false,
+      props: s.object({
+         html: s.string({
+            description:
+               "Body content: HTML or SVG with inline <style> and <script>. No network; images from data: or https URLs. Theme colors: var(--foreground), --muted-foreground, --card, --border, --primary, --chart-1 to --chart-5.",
+         }),
+         height: s
+            .number({
+               minimum: 40,
+               maximum: 2000,
+               description: "Fixed height in px. Default: fits the content.",
+            })
+            .optional(),
+         title: s.string({ description: "What it shows (frame title)." }).optional(),
+      }),
+      example: { node: htmlExample(), state: { html_demo: { selected: "" } } },
+   },
 } as const satisfies Record<string, Entry>;
 
 type Components = typeof components;
@@ -1807,6 +1863,9 @@ export const frontendTools = [
          'Data from state: Repeat renders its children per item of a state array; inside, {"$item": "field"}, {"$index": true}, "${field}" in a $template, {"$bindItem": "field"}, visible {"$item": "field", "eq"?}; in actions, statePath {"$item": "field"} and removeState index {"$index": true}. When the data changes, patch the state instead of sending the tree again.\n' +
          "Layout: compose generic parts (Stack with direction, align, justify, wrap, fill; Card variants; Text for short labels, numbers and arrows between parts; Table cells and KeyValue values with a tone) instead of asking for a special component.\n" +
          "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
+         "Html: only for diagrams and custom visuals the catalog cannot show (architecture diagrams, annotated drawings); it runs in a sandboxed frame with the app's theme colors as CSS variables. " +
+         'Attributes: data-state="/path" (shows the value as text), data-visible=\'{"$state": "/path", "eq": "x"}\' (same syntax as visible), data-on-click=\'<action or array>\' and data-on-change (run actions), data-bind="/path" on input, select and textarea (two-way). ' +
+         "Scripts get window.harness: state, get(path), subscribe(fn), patch(ops), send(text), run(actions).\n" +
          "Short text props (table cells and headings, KeyValue, List items, Choice labels, Card descriptions) take inline Markdown: `code`, **bold**, *italic*, links.\n" +
          "Use it for results, status, comparisons, screenshots, decisions you need from the user, or guided tasks, instead of a long plain message.\n" +
          `Icons (the icon prop): ${ICONS.join(", ")}.\nComponents:\n` +
