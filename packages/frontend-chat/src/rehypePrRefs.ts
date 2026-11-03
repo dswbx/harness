@@ -23,6 +23,8 @@ function split(text: string, ctx: PrRefContext): Node[] | null {
    const out: Node[] = [];
    let at = 0;
    for (const m of findPrRefs(text, ctx)) {
+      // A bare `#3` in a message is too often a list item or step, so only `repo#3`, `owner/repo#3` and URLs count.
+      if (m.repo === null) continue;
       const key = qualify(m, ctx);
       if (!key) continue;
       if (m.start > at) out.push({ type: "text", value: text.slice(at, m.start) });
@@ -34,7 +36,7 @@ function split(text: string, ctx: PrRefContext): Node[] | null {
    return out;
 }
 
-/** Rehype plugin: PR refs in text become `<span data-pr-ref="owner/repo#N" data-raw>` (rendered as `PrChip`). A link
+/** Rehype plugin: PR refs in text (not bare `#N`) become `<span data-pr-ref="owner/repo#N" data-raw>` (rendered as `PrChip`). A link
  * that is just a PR URL (autolink) becomes one too; named links stay links. Without `ctx` it does nothing. Runs
  * before `rehypeInlineCode`, which turns inline code into spans. */
 export function rehypePrRefs({ ctx }: { ctx?: PrRefContext | null } = {}) {

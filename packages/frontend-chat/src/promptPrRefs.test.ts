@@ -179,25 +179,31 @@ describe("unchip", () => {
 describe("autoChips", () => {
    const at = (text: string) => autoChips(text, text.length - 1, text.length, ctx)[0] ?? null;
    it("strict refs followed by a space or punctuation", () => {
-      expect(at("see #23 ")).toMatchObject({ start: 4, end: 7, raw: "#23", key: k(harness, 23) });
+      expect(at("see harness#23 ")).toMatchObject({
+         start: 4,
+         end: 14,
+         raw: "harness#23",
+         key: k(harness, 23),
+      });
       expect(at("supabase/spark#17,")?.key).toEqual(k(spark, 17));
       expect(at("spark#17)")?.key).toEqual(k(spark, 17));
       expect(at("https://github.com/supabase/spark/pull/9 ")?.key).toEqual(k(spark, 9));
    });
-   it("nothing for fuzzy names, unknown names, no boundary or no Session repo", () => {
+   it("nothing for bare #N, fuzzy names, unknown names or no boundary", () => {
       expect(at("spa#17 ")).toBeNull();
       expect(at("issue#3 ")).toBeNull();
-      expect(at("see #23")).toBeNull();
-      expect(at("#23x ")).toBeNull();
-      expect(autoChips("#23 ", 3, 4, { sessionRepo: null, knownRepos: [] })).toEqual([]);
+      expect(at("see #23 ")).toBeNull();
+      expect(at("see harness#23")).toBeNull();
+      expect(at("harness#23x ")).toBeNull();
    });
    it("every ref whose boundary lies in the typed range, none before it", () => {
-      expect(autoChips("#1 #2 spark#3 x", 2, 15, ctx).map((c) => c.raw)).toEqual([
-         "#1",
-         "#2",
-         "spark#3",
+      const t = "spark#1 spark#2 #3 spark#4 x";
+      expect(autoChips(t, 7, t.length, ctx).map((c) => c.raw)).toEqual([
+         "spark#1",
+         "spark#2",
+         "spark#4",
       ]);
-      expect(autoChips("#1 #2 spark#3 x", 3, 15, ctx).map((c) => c.raw)).toEqual(["#2", "spark#3"]);
+      expect(autoChips(t, 8, t.length, ctx).map((c) => c.raw)).toEqual(["spark#2", "spark#4"]);
    });
 });
 
@@ -240,55 +246,55 @@ describe("auto-chip", () => {
    const flush = () => new Promise((r) => setTimeout(r));
 
    it("typing a space after a ref chips it once the PR is found; the caret stays after it", async () => {
-      const { ed, settle, requested, type } = setup("see #23");
+      const { ed, settle, requested, type } = setup("see harness#23");
       type(" ");
       expect(requested).toEqual(["dswbx/harness#23"]);
-      expect(shape(ed)).toEqual(["see #23 "]);
+      expect(shape(ed)).toEqual(["see harness#23 "]);
       settle(k(harness, 23), found(k(harness, 23)));
       await flush();
-      expect(shape(ed)).toEqual(["see [#23] "]);
+      expect(shape(ed)).toEqual(["see [harness#23] "]);
       expect(caret(ed)).toEqual([" ", 1]);
       expect(mdOf(ed)).toBe("see dswbx/harness#23 ");
    });
    it("a missing or unavailable PR stays text", async () => {
-      const a = setup("#23");
+      const a = setup("harness#23");
       a.type(" ");
       a.settle(k(harness, 23), { status: "missing" });
       const b = setup("spark#17");
       b.type(".");
       b.settle(k(spark, 17), { status: "unavailable" });
       await flush();
-      expect(shape(a.ed)).toEqual(["#23 "]);
+      expect(shape(a.ed)).toEqual(["harness#23 "]);
       expect(shape(b.ed)).toEqual(["spark#17."]);
    });
    it("leaves text changed meanwhile alone", async () => {
-      const { ed, settle, type } = setup("see #23");
+      const { ed, settle, type } = setup("see harness#23");
       type(" ");
       run(ed, () => {
          const t = $getRoot().getAllTextNodes()[0]!;
-         t.setTextContent("see #24 ");
+         t.setTextContent("see harness#24 ");
          t.selectEnd();
       });
       settle(k(harness, 23), found(k(harness, 23)));
       await flush();
-      expect(shape(ed)).toEqual(["see #24 "]);
+      expect(shape(ed)).toEqual(["see harness#24 "]);
    });
    it("never in code, never for a fuzzy name, only on a typed character", async () => {
-      const code = setup("#23", true);
+      const code = setup("harness#23", true);
       code.type(" ");
       const fuzzy = setup("spa#17");
       fuzzy.type(" ");
       expect(code.requested).toEqual([]);
       expect(fuzzy.requested).toEqual([]);
-      const moved = setup("#23 x");
+      const moved = setup("harness#23 x");
       moved.requested.length = 0;
-      run(moved.ed, () => void $getRoot().getAllTextNodes()[0]!.select(4, 4));
+      run(moved.ed, () => void $getRoot().getAllTextNodes()[0]!.select(11, 11));
       expect(moved.requested).toEqual([]);
       const inline = newEditor();
       const s = fakeStore();
       registerAutoChip(inline, () => ({ ctx, store: s.store }));
       run(inline, () => {
-         const t = $createTextNode("#23").toggleFormat("code");
+         const t = $createTextNode("harness#23").toggleFormat("code");
          $getRoot().append($createParagraphNode().append(t));
          t.selectEnd();
       });
@@ -297,13 +303,19 @@ describe("auto-chip", () => {
    });
    it("several refs typed in one update (fast typing, paste) all chip", async () => {
       const { ed, settle, type } = setup("see");
-      type(" #23 and spark#17, ok");
+      type(" harness#23 and spark#17, ok");
       settle(k(harness, 23), found(k(harness, 23)));
-      expect(shape(ed)).toEqual(["see #23 and spark#17, ok"]);
+      expect(shape(ed)).toEqual(["see harness#23 and spark#17, ok"]);
       settle(k(spark, 17), found(k(spark, 17)));
       await flush();
-      expect(shape(ed)).toEqual(["see [#23] and [spark#17], ok"]);
+      expect(shape(ed)).toEqual(["see [harness#23] and [spark#17], ok"]);
       expect(mdOf(ed)).toBe("see dswbx/harness#23 and supabase/spark#17, ok");
+   });
+   it("a bare #N stays text; the # menu picks those", () => {
+      const { requested, type, ed } = setup("see #23");
+      type(" ");
+      expect(requested).toEqual([]);
+      expect(shape(ed)).toEqual(["see #23 "]);
    });
    it("a cached PR chips at once", async () => {
       const ed = newEditor();
