@@ -203,15 +203,13 @@ function SessionRow({
                {sub && <DetailLine s={s} showFolder={showFolder} now={now} />}
             </button>
          </Tooltip>
-         <Tooltip content="Session menu">
-            <button
-               aria-label="Session menu"
-               className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"
-               onClick={() => setMenu(!menu)}
-            >
-               <MoreHorizontal className="size-4" />
-            </button>
-         </Tooltip>
+         <button
+            aria-label="Session menu"
+            className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"
+            onClick={() => setMenu(!menu)}
+         >
+            <MoreHorizontal className="size-4" />
+         </button>
          {menu && (
             <>
                <div
@@ -496,15 +494,13 @@ export function SessionList({
                                  <span className="shrink-0 tabular-nums">{g.sessions.length}</span>
                               </button>
                               {g.folder && onNewInFolder && g.sessions[0] && (
-                                 <Tooltip content={`New Session in ${g.label}`} side="bottom">
-                                    <button
-                                       aria-label={`New Session in ${g.label}`}
-                                       onClick={() => onNewInFolder(g.sessions[0]!.folder)}
-                                       className="absolute right-1 grid size-5 place-items-center rounded text-muted-foreground opacity-0 transition hover:bg-accent hover:text-accent-foreground group-hover/hdr:opacity-100 group-has-focus-visible/hdr:opacity-100 focus-visible:opacity-100"
-                                    >
-                                       <Plus className="size-3.5" />
-                                    </button>
-                                 </Tooltip>
+                                 <button
+                                    aria-label={`New Session in ${g.label}`}
+                                    onClick={() => onNewInFolder(g.sessions[0]!.folder)}
+                                    className="absolute right-1 grid size-5 place-items-center rounded text-muted-foreground opacity-0 transition hover:bg-accent hover:text-accent-foreground group-hover/hdr:opacity-100 group-has-focus-visible/hdr:opacity-100 focus-visible:opacity-100"
+                                 >
+                                    <Plus className="size-3.5" />
+                                 </button>
                               )}
                            </div>
                         )}
