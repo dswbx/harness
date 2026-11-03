@@ -232,12 +232,7 @@ function FileRefView({
                   Open
                </button>
             </div>
-            <ScrollArea
-               className="max-h-[min(320px,calc(var(--radix-popover-content-available-height)-36px))]"
-               viewportClassName="max-h-[inherit]"
-            >
-               <FileLines reader={reader} base={slice} fileRef={ref} onOpen={openAt} />
-            </ScrollArea>
+            <FileLines reader={reader} base={slice} fileRef={ref} />
          </PopoverContent>
       </Popover>
    );
@@ -303,17 +298,15 @@ function toLines(tree: Hast): Run[][] {
 const STEP = 20;
 
 /** Numbered, highlighted lines; the ref's lines marked; rows above and below show the rest of the file, `STEP` lines a
- * click. A click on a line opens the file there. Lines wrap with the code blocks' wrap choice. */
+ * click; those rows stay put while the lines scroll. Lines wrap with the code blocks' wrap choice. */
 function FileLines({
    reader,
    base,
    fileRef: ref,
-   onOpen,
 }: {
    reader: FileReader;
    base: FileSlice;
    fileRef: FileRef;
-   onOpen: (line: number) => void;
 }) {
    const wrap = useWrapCode();
    const [win, setWin] = useState({ from: base.start, to: base.start + base.lines.length - 1 });
@@ -343,7 +336,7 @@ function FileLines({
    const below = total - last;
    const digits = `${String(win.to).length + 1}ch`;
    return (
-      <div className="typeset font-mono text-[12.5px] leading-5">
+      <div className="typeset flex min-h-0 flex-col font-mono text-[12.5px] leading-5">
          {above > 0 && (
             <MoreLines
                up
@@ -351,49 +344,54 @@ function FileLines({
                onClick={() => setWin((w) => ({ ...w, from: Math.max(1, w.from - STEP) }))}
             />
          )}
-         <div className={cn("py-1.5", !wrap && "overflow-x-auto")}>
-            {rows.map((runs, i) => {
-               const n = first + i;
-               const marked = n >= from && n <= to;
-               return (
-                  <div
-                     key={n}
-                     className={cn(
-                        "flex min-w-full cursor-pointer hover:bg-muted/40",
-                        !wrap && "w-max",
-                        marked && "bg-sky-500/10 hover:bg-sky-500/15",
-                     )}
-                     onClick={() => !window.getSelection()?.toString() && onOpen(n)}
-                  >
-                     <span
-                        aria-hidden
-                        style={{ minWidth: digits }}
+         <ScrollArea
+            // The popover's room, less its header and the "more lines" rows.
+            className="max-h-[min(320px,calc(var(--radix-popover-content-available-height)-80px))]"
+            viewportClassName="max-h-[inherit]"
+         >
+            <div className={cn("py-1.5", !wrap && "overflow-x-auto")}>
+               {rows.map((runs, i) => {
+                  const n = first + i;
+                  const marked = n >= from && n <= to;
+                  return (
+                     <div
+                        key={n}
                         className={cn(
-                           "sticky left-0 shrink-0 select-none bg-card pr-3 pl-3 text-right text-muted-foreground/60 tabular-nums",
-                           marked &&
-                              "bg-[color-mix(in_oklab,var(--color-sky-500)_10%,var(--color-card))] text-muted-foreground shadow-[inset_2px_0_0_var(--color-sky-500)]",
+                           "flex min-w-full",
+                           !wrap && "w-max",
+                           marked && "bg-sky-500/10",
                         )}
                      >
-                        {n}
-                     </span>
-                     <span
-                        className={cn(
-                           "min-w-0 flex-1 bg-transparent p-0 pr-3 text-foreground",
-                           wrap ? WRAP : "whitespace-pre",
-                        )}
-                     >
-                        {runs.map((r, j) => (
-                           // biome-ignore lint/suspicious/noArrayIndexKey: runs of one line.
-                           <span key={j} className={r.cls}>
-                              {r.text}
-                           </span>
-                        ))}
-                        {!runs.length && " "}
-                     </span>
-                  </div>
-               );
-            })}
-         </div>
+                        <span
+                           aria-hidden
+                           style={{ minWidth: digits }}
+                           className={cn(
+                              "sticky left-0 shrink-0 select-none bg-card pr-3 pl-3 text-right text-muted-foreground/60 tabular-nums",
+                              marked &&
+                                 "bg-[color-mix(in_oklab,var(--color-sky-500)_10%,var(--color-card))] text-muted-foreground shadow-[inset_2px_0_0_var(--color-sky-500)]",
+                           )}
+                        >
+                           {n}
+                        </span>
+                        <span
+                           className={cn(
+                              "min-w-0 flex-1 bg-transparent p-0 pr-3 text-foreground",
+                              wrap ? WRAP : "whitespace-pre",
+                           )}
+                        >
+                           {runs.map((r, j) => (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: runs of one line.
+                              <span key={j} className={r.cls}>
+                                 {r.text}
+                              </span>
+                           ))}
+                           {!runs.length && " "}
+                        </span>
+                     </div>
+                  );
+               })}
+            </div>
+         </ScrollArea>
          {below > 0 && (
             <MoreLines
                count={below}
