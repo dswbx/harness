@@ -22,7 +22,7 @@ import {
 import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommitsPane, useCommits } from "./CommitsPane";
-import { DiffViewer } from "./DiffViewer";
+import { CommentCount, DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
 import { type FilePatch, splitPatch } from "./diff";
 import { PanelHeader } from "./PanelHeader";
@@ -120,6 +120,7 @@ function FileRow({
                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                   {slash > 0 ? file.path.slice(0, slash) : ""}
                </span>
+               <CommentCount n={comments.filter((c) => c.path === file.path).length} />
                <span className="shrink-0 font-mono text-xs text-emerald-500">
                   +{file.additions}
                </span>
@@ -136,7 +137,6 @@ function FileRow({
                   file={file}
                   comments={comments}
                   mode="unified"
-                  fontSize={11}
                   wrap
                />
             </div>

@@ -31,6 +31,8 @@ import { Minus, Plus, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
    type Appearance,
+   CODE_FONT_SIZE_MAX,
+   CODE_FONT_SIZE_MIN,
    CUSTOM_FONT_MAX,
    clampFontSize,
    cleanFont,
@@ -603,6 +605,21 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                      value={a.fontSize}
                      fallback={DEFAULT_APPEARANCE.fontSize}
                      onChange={(fontSize) => update({ fontSize })}
+                  />
+               </Row>
+               <Row
+                  label="Code font size"
+                  htmlFor="code-font-size"
+                  help="Code blocks, diffs and file contents. Not inline code."
+               >
+                  <SizeField
+                     id="code-font-size"
+                     label="code font size"
+                     value={a.codeFontSize}
+                     fallback={DEFAULT_APPEARANCE.codeFontSize}
+                     min={CODE_FONT_SIZE_MIN}
+                     max={CODE_FONT_SIZE_MAX}
+                     onChange={(codeFontSize) => update({ codeFontSize })}
                   />
                </Row>
             </Group>

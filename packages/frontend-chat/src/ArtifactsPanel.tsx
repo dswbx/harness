@@ -359,7 +359,7 @@ function Inspect({
                {tab === "preview" ? (
                   <Preview a={a} env={env} />
                ) : (
-                  <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                  <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-3.5 font-mono text-code leading-relaxed whitespace-pre-wrap">
                      {a.source}
                   </pre>
                )}

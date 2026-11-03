@@ -1,5 +1,5 @@
 import type { Diff, SessionApi } from "@harness/api";
-import { Button, cn, Tooltip } from "@harness/ui";
+import { Button, cn, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import {
    ArrowDown,
    ArrowLeft,
@@ -13,7 +13,6 @@ import {
    Folder,
    List,
    ListTree,
-   MessageSquare,
    Rows2,
    WrapText,
 } from "lucide-react";
@@ -26,7 +25,7 @@ import {
    useState,
 } from "react";
 import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
-import { DiffViewer, type FileContents } from "./DiffViewer";
+import { CommentCount, DiffViewer, type FileContents } from "./DiffViewer";
 import { type FilePatch, splitPatch } from "./diff";
 import { errorMessage } from "./errors";
 import { ancestorKeys, fileTree, type TreeRow } from "./fileTree";
@@ -142,6 +141,13 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
    const comments = useDiffComments(api.sessionId);
    const commits = useCommits(api);
+   const sidebar = useResizableWidth({
+      storageKey: "harness:diff-sidebar-width",
+      initial: 320,
+      min: 200,
+      max: 640,
+      edge: "right",
+   });
    const pane = useRef<HTMLDivElement>(null);
    const list = useRef<HTMLUListElement>(null);
    const change = useRef(-1);
@@ -415,14 +421,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                {view === "list" && slash > 0 ? f.path.slice(0, slash) : ""}
             </span>
-            {n > 0 && (
-               <Tooltip content={`${n} comments`}>
-                  <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
-                     <MessageSquare className="size-3" />
-                     {n}
-                  </span>
-               </Tooltip>
-            )}
+            <CommentCount n={n} />
          </li>
       );
    };
@@ -549,7 +548,11 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
             </div>
          </div>
          <div className="flex min-h-0 flex-1">
-            <div className="flex w-80 shrink-0 flex-col border-r">
+            <div
+               className="relative flex shrink-0 flex-col border-r"
+               style={{ width: sidebar.width }}
+            >
+               <ResizeHandle label="Resize file list" {...sidebar.handle} />
                <div className="flex items-center gap-1.5 py-1 pr-1.5 pl-3 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground/80">Changed files</span>
                   <span>{files.length}</span>
@@ -621,6 +624,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                      comments={comments}
                      mode={mode}
                      wrap={wrap}
+                     resizable
                      contents={contents.get(file.path)}
                   />
                ) : (

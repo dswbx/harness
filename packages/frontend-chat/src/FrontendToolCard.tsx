@@ -36,7 +36,7 @@ export function FrontendToolRow({
                   <li key={i}>{e}</li>
                ))}
             </ul>
-            <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2">
+            <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-code">
                {raw(item.input)}
             </pre>
          </div>
@@ -47,7 +47,7 @@ export function FrontendToolRow({
          <summary className="cursor-pointer px-3 py-2 text-xs">
             Frontend tool <span className="font-mono">{item.tool}</span>
          </summary>
-         <pre className="max-h-64 overflow-auto border-t bg-muted p-2 text-xs">
+         <pre className="max-h-64 overflow-auto border-t bg-muted p-2 text-code">
             {raw(item.input)}
          </pre>
       </details>
