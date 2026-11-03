@@ -63,6 +63,8 @@ describe("load / save", () => {
       expect(normalize({ chatFontSize: 99, leading: "huge", flow: 2 })).toEqual(
          a({ chatFontSize: 18 }),
       );
+      expect(normalize({ codeFontSize: 99 }).codeFontSize).toBe(24);
+      expect(normalize({ codeFontSize: 3 }).codeFontSize).toBe(9);
    });
 
    it("custom fonts: trimmed, stripped, limited", () => {
@@ -113,6 +115,7 @@ describe("resolveVars", () => {
          "--chat-leading": "1.6",
          "--chat-flow": "1.25em",
          "--terminal-font-size": "12px",
+         "--code-font-size": "12px",
       };
       expect(resolveVars(DEFAULT_APPEARANCE, false)).toEqual({
          "--app-font-size": "14px",
@@ -247,6 +250,7 @@ describe("applyAppearance", () => {
          "--chat-leading",
          "--chat-flow",
          "--terminal-font-size",
+         "--code-font-size",
       ]);
    });
 });

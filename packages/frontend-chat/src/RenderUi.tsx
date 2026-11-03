@@ -1377,7 +1377,7 @@ function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
                   <span className="text-emerald-600 dark:text-emerald-400">+{f.additions}</span>
                   <span className="text-destructive">-{f.deletions}</span>
                </div>
-               <DiffViewer file={f} mode="unified" fontSize={11} wrap />
+               <DiffViewer file={f} mode="unified" wrap />
             </div>
          ))}
          {files.length === 0 && <Markdown>{"```diff\n" + p.patch + "\n```"}</Markdown>}

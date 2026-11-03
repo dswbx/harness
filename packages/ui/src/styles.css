@@ -32,6 +32,8 @@
    --chat-font-size: 14px;
    --chat-leading: 1.6;
    --chat-flow: 1.25em;
+   /* Code blocks and diffs, not inline code (Appearance: code font size). */
+   --code-font-size: 12px;
    color-scheme: light;
    /* Chart series colors (render_ui Chart). */
    --chart-1: oklch(0.6 0.15 250);
@@ -184,6 +186,11 @@
 @utility text-ui-xl {
    font-size: calc(var(--chat-font-size, 14px) * 1.714);
    line-height: 1.2;
+}
+
+/* Code blocks and diffs (Appearance: code font size). */
+@utility text-code {
+   font-size: var(--code-font-size, 12px);
 }
 
 /* Trace: running step title shimmers; collapsible height animates (Radix sets the height var). */

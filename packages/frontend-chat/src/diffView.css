@@ -73,3 +73,20 @@
 .harness-diff .diff-table-scroll-container {
    font-family: var(--font-mono) !important;
 }
+
+/*
+ * Split mode with a drag handle: the old side ends at --harness-split-left (px, set by DiffViewer).
+ * Normal: two scroll containers side by side. Wrap: one table; the old content column takes the rest.
+ */
+.harness-diff-resizable .split-diff-view-normal > .old-diff-table-wrapper {
+   flex: 0 0 var(--harness-split-left);
+   width: auto;
+   min-width: 0;
+}
+.harness-diff-resizable .split-diff-view-normal > .new-diff-table-wrapper {
+   flex: 1 1 0;
+   min-width: 0;
+}
+.harness-diff-resizable .split-diff-view-wrap col.diff-table-old-content-col {
+   width: calc(var(--harness-split-left) - var(--diff-aside-width--));
+}
