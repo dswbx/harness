@@ -30,7 +30,7 @@ export function mockEvents(): Event[] {
       ev({
          type: "AgentNotice",
          severity: "info",
-         title: "UserPromptSubmit says: [memsearch] Recall available if needed",
+         title: "SessionStart says: [example-hook] Context loaded",
          description: null,
       }),
       ev({
@@ -222,7 +222,7 @@ export function mockEvents(): Event[] {
       }),
       ev({
          type: "AgentMessageChunk",
-         text: "Renamed. `Engine::script` now takes a `Schema`, see `src/server/router.ts:4` and `server/router.ts:44`; `reload_schema()` runs after it.\n\n```rust\npub enum Schema { Reload, Keep }\n\nengine.script(sql, params, Schema::Reload).await // standalone, embedded: may run DDL, so the schema reloads after every script\nengine.script(sql, params, Schema::Keep).await\n```\n\nHere is a **plan** next.\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B{Agent} --> C[Tool calls] --> D[Session Log] --> E[Frontend]\n  B --> F[Messages] --> D\n  E --> G[Reducer] --> H[View]\n```\n\n| Area | Status | Files | Notes |\n| --- | --- | --- | --- |\n| Tool call display | spike | `toolDisplay/*.tsx` | Cards and Trace, in **Settings > Appearance** |\n| Mermaid zoom | done | `Mermaid.tsx`, `ZoomView.tsx` | Expand, pan, pinch, +/-/0 keys |\n",
+         text: "Renamed. `Widget::render` now takes a `Mode`, see `src/server/router.ts:4` and `server/router.ts:44`; `fix_something()` runs after it.\n\n```rust\npub enum Mode { Full, Quick }\n\nwidget.render(input, opts, Mode::Full).await // a long comment so the line runs past the frame and the wrap button has something to do\nwidget.render(input, opts, Mode::Quick).await\n```\n\nHere is a **plan** next.\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B{Agent} --> C[Tool calls] --> D[Session Log] --> E[Frontend]\n  B --> F[Messages] --> D\n  E --> G[Reducer] --> H[View]\n```\n\n| Area | Status | Files | Notes |\n| --- | --- | --- | --- |\n| Tool call display | spike | `toolDisplay/*.tsx` | Cards and Trace, in **Settings > Appearance** |\n| Mermaid zoom | done | `Mermaid.tsx`, `ZoomView.tsx` | Expand, pan, pinch, +/-/0 keys |\n",
       }),
       ev({
          type: "ToolCall",
