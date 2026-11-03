@@ -76,9 +76,11 @@ impl Toolchain {
         let _guard = self.lock.lock().await;
         let dir = self.dir(&pin);
         let bin = dir.join(pin.bin);
-        if bin.exists() {
+        if bin.exists() && intact(&pin, &bin) {
             return Ok(bin);
         }
+        // A copy that lost Node's `bin/npm` symlinks runs `require('../lib/cli.js')` from `bin/`.
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&self.root)?;
         let staging = self.root.join(format!(".staging-{}", uuid::Uuid::now_v7()));
         let result = async {
@@ -117,6 +119,11 @@ impl Toolchain {
     }
 }
 
+/// Node's `bin/npm` and `bin/npx` must be symlinks into `lib/`; a copy that resolved them is broken.
+fn intact(pin: &Pin, bin: &Path) -> bool {
+    pin.name != "node" || ["npm", "npx"].iter().all(|f| bin.join(f).is_symlink())
+}
+
 /// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given.
 pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<()> {
     let out = tokio::process::Command::new("curl")
@@ -142,4 +149,23 @@ pub async fn unpack(archive: &Path, into: &Path) -> anyhow::Result<()> {
 pub fn is_archive(url: &str) -> bool {
     let u = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
     [".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz", ".tar"].iter().any(|e| u.ends_with(e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_without_npm_symlinks_is_not_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("npm"), "require('../lib/cli.js')").unwrap();
+        std::os::unix::fs::symlink("../lib/npx-cli.js", bin.join("npx")).unwrap();
+        assert!(!intact(&node_pin().unwrap(), &bin));
+        std::fs::remove_file(bin.join("npm")).unwrap();
+        std::os::unix::fs::symlink("../lib/npm-cli.js", bin.join("npm")).unwrap();
+        assert!(intact(&node_pin().unwrap(), &bin));
+        assert!(intact(&uv_pin().unwrap(), &bin));
+    }
 }
