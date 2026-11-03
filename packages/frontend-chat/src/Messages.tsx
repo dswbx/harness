@@ -33,6 +33,7 @@ import { SideReplyFooter } from "./SideReplyFooter";
 import { splitRenderUi } from "./slots";
 import { formatDuration } from "./time";
 import { groupTools, type ToolGroup, type ToolGroupProps, useToolDisplay } from "./toolDisplay";
+import { NoticeStep } from "./toolDisplay/NoticeStep";
 import type { RawNode } from "./tools";
 
 type Tool = Extract<Item, { type: "tool" }>;
@@ -114,6 +115,8 @@ function Notice({ item }: { item: Extract<Item, { type: "notice" }> }) {
 }
 
 function AgentNotice({ item }: { item: Extract<Item, { type: "agent_notice" }> }) {
+   if (item.severity === "info")
+      return <NoticeStep title={item.title} description={item.description} />;
    const warn = item.severity === "warning" || item.severity === "error";
    const Icon = warn ? AlertTriangle : Info;
    return (

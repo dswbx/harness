@@ -3,6 +3,7 @@ import manifest from "../manifest.json";
 import { View } from "./View";
 
 export const frontend: Frontend = { manifest, View };
+export { setWrapCode, useWrapCode } from "./CodeBlock";
 export { RenderUiGallery } from "./Gallery";
 export { setGuessInlineCode, useGuessInlineCode } from "./inlineCode";
 export { setOptionIsMeta, useOptionIsMeta } from "./terminalOptions";

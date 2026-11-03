@@ -120,6 +120,18 @@ pub enum Command {
         #[serde(default)]
         line: Option<u32>,
     },
+    /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
+    /// (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+    /// for a file reference in a message. Fails for files outside the folder,
+    /// missing, too large, binary or not UTF-8.
+    ReadSessionFile {
+        session_id: SessionId,
+        path: String,
+        #[serde(default)]
+        start: Option<u32>,
+        #[serde(default)]
+        end: Option<u32>,
+    },
     /// The Session State (ADR 0015).
     GetState {
         session_id: SessionId,
@@ -434,6 +446,8 @@ pub enum CommandResult {
     McpServers { servers: Vec<McpServerDef> },
     McpServerSaved { server: McpServerDef },
     FileContent { content: String },
+    /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
+    FileLines { path: String, start: u32, lines: Vec<String>, total: u32 },
     State {
         #[specta(type = specta_typescript::Unknown)]
         state: Json,

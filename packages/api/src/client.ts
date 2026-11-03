@@ -93,6 +93,16 @@ export interface SessionApi {
    frontendRead(path: string): Promise<string>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
    openInEditor(path?: string, line?: number): Promise<void>;
+   /**
+    * Lines `start..=end` (1-based, clipped; default: all) of a text file in the Session's folder (relative or absolute
+    * inside it; a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the
+    * file found, relative to the folder. Fails for files outside it, missing, too large, binary or not UTF-8.
+    */
+   readSessionFile(
+      path: string,
+      start?: number,
+      end?: number,
+   ): Promise<{ path: string; start: number; lines: string[]; total: number }>;
    /** The Session State (ADR 0015); also rebuilt from `StateChanged` events. */
    getState(): Promise<unknown>;
    /** Changes the Session State as the user (all or nothing). */
@@ -220,6 +230,19 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             path: path ?? null,
             line: line ?? null,
          }),
+      readSessionFile: async (path, start, end) => {
+         const r = await expect(
+            {
+               type: "ReadSessionFile",
+               session_id: sessionId,
+               path,
+               start: start ?? null,
+               end: end ?? null,
+            },
+            "FileLines",
+         );
+         return { path: r.path, start: r.start, lines: r.lines, total: r.total };
+      },
       getState: async () =>
          (await expect({ type: "GetState", session_id: sessionId }, "State")).state,
       patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),

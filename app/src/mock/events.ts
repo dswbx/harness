@@ -28,6 +28,12 @@ export function mockEvents(): Event[] {
             "<harness_context>\nYou run inside Harness, a desktop app that hosts coding agents. (mock)\n\n## Frontend: Chat\n\nUse `render_ui` for structured results.\n\n## This Session\n- Workspace folder: /mock/project\n- Worktree: no\n</harness_context>",
       }),
       ev({
+         type: "AgentNotice",
+         severity: "info",
+         title: "SessionStart says: [example-hook] Context loaded",
+         description: null,
+      }),
+      ev({
          type: "TaskListUpdated",
          entries: [
             { content: "Rename hello.txt", priority: "medium", status: "completed" },
@@ -216,7 +222,7 @@ export function mockEvents(): Event[] {
       }),
       ev({
          type: "AgentMessageChunk",
-         text: "Renamed. Here is a **plan** next.\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B{Agent} --> C[Tool calls] --> D[Session Log] --> E[Frontend]\n  B --> F[Messages] --> D\n  E --> G[Reducer] --> H[View]\n```\n\n| Area | Status | Files | Notes |\n| --- | --- | --- | --- |\n| Tool call display | spike | `toolDisplay/*.tsx` | Cards and Trace, in **Settings > Appearance** |\n| Mermaid zoom | done | `Mermaid.tsx`, `ZoomView.tsx` | Expand, pan, pinch, +/-/0 keys |\n",
+         text: "Renamed. `Widget::render` now takes a `Mode`, see `src/server/router.ts:4` and `server/router.ts:44`; `fix_something()` runs after it.\n\n```rust\npub enum Mode { Full, Quick }\n\nwidget.render(input, opts, Mode::Full).await // a long comment so the line runs past the frame and the wrap button has something to do\nwidget.render(input, opts, Mode::Quick).await\n```\n\nHere is a **plan** next.\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B{Agent} --> C[Tool calls] --> D[Session Log] --> E[Frontend]\n  B --> F[Messages] --> D\n  E --> G[Reducer] --> H[View]\n```\n\n| Area | Status | Files | Notes |\n| --- | --- | --- | --- |\n| Tool call display | spike | `toolDisplay/*.tsx` | Cards and Trace, in **Settings > Appearance** |\n| Mermaid zoom | done | `Mermaid.tsx`, `ZoomView.tsx` | Expand, pan, pinch, +/-/0 keys |\n",
       }),
       ev({
          type: "ToolCall",
