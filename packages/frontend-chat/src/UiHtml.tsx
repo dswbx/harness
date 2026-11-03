@@ -1,5 +1,6 @@
 import type { StatePatchOp } from "@harness/api";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { InExpanded } from "./Expandable";
 import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
 import { renderUiSchema } from "./tools";
 
@@ -42,6 +43,8 @@ const isOps = (x: unknown): x is StatePatchOp[] =>
 /** render_ui `Html`: Agent HTML in a sandboxed frame, connected to the Session State by a bridge. */
 export function UiHtml(p: Props) {
    const frame = useRef<HTMLIFrameElement>(null);
+   // The expanded view is for seeing all of it: no maximum height there.
+   const expanded = useContext(InExpanded);
    const latest = useRef(p);
    latest.current = p;
    const [auto, setAuto] = useState(() => heights.get(p.html) ?? 120);
@@ -111,7 +114,7 @@ export function UiHtml(p: Props) {
             srcDoc={srcdoc}
             onLoad={() => post({ type: "state", state: latest.current.state })}
             className="block w-full border-0"
-            style={{ height: p.height ? Math.min(auto, p.height) : auto }}
+            style={{ height: p.height && !expanded ? Math.min(auto, p.height) : auto }}
          />
          {error && <p className="mt-1 text-ui-sm text-destructive">{error}</p>}
       </div>

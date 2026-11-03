@@ -8,7 +8,10 @@ import {
    Tooltip,
 } from "@harness/ui";
 import { Maximize2 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { createContext, type ReactNode, useState } from "react";
+
+/** True inside the expanded view: content there may take all the height it needs. */
+export const InExpanded = createContext(false);
 
 /**
  * Content with an Expand button (on hover, in its top right corner, or in the chat column's right gutter
@@ -48,7 +51,9 @@ export function Expandable({
             <DialogContent className="h-[90vh] max-w-[94vw] grid-rows-1 overflow-hidden p-0">
                <DialogTitle className="sr-only">{label}</DialogTitle>
                <DialogDescription className="sr-only">Expanded view</DialogDescription>
-               {expanded ?? <div className="min-h-0 overflow-auto p-8 pt-12">{children}</div>}
+               <InExpanded.Provider value={true}>
+                  {expanded ?? <div className="min-h-0 overflow-auto p-8 pt-12">{children}</div>}
+               </InExpanded.Provider>
             </DialogContent>
          </Dialog>
       </div>
