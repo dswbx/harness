@@ -142,7 +142,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "OpenInEditor"; session_id: string; path?: string | null; line?: number | null } | 
 /**
  *  Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
- *  (relative or absolute inside it), e.g. for a file reference in a message. Fails for files outside the folder,
+ *  (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+ *  for a file reference in a message. Fails for files outside the folder,
  *  missing, too large, binary or not UTF-8.
  */
 { type: "ReadSessionFile"; session_id: string; path: string; start?: number | null; end?: number | null } | 
@@ -247,8 +248,8 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
 { type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | 
 /**  `me`: the `gh` user, None when `gh` is not signed in. */
 { type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
-/**  `lines` start at line `start` (1-based); `total`: the file's line count. */
-{ type: "FileLines"; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+/**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
+{ type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */

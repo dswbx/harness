@@ -34,9 +34,18 @@ pub const MAX_READ: u64 = 2 * 1024 * 1024;
 
 /// Lines `start..=end` (1-based, clipped to the file) of the UTF-8 text file `path` inside `folder`, as
 /// (first line number, lines, total line count). Refuses paths outside `folder`, files over `MAX_READ`, binary files.
-pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32>) -> anyhow::Result<(u32, Vec<String>, u32)> {
+/// Also finds a relative `path` that does not start at the folder (`embed/src/a.rs` for `crates/embed/src/a.rs`) when
+/// exactly one file ends with it (see `find_by_suffix`). Returns the file's path relative to `folder` too.
+pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32>) -> anyhow::Result<(String, u32, Vec<String>, u32)> {
     anyhow::ensure!(!path.trim().is_empty(), "no path");
-    let file = resolve(folder, Some(path))?;
+    let file = match resolve(folder, Some(path)) {
+        Err(_) if Path::new(path).is_relative() && !path.starts_with("..") && !folder.join(path).exists() => {
+            resolve(folder, Some(&find_by_suffix(folder, path)?))?
+        }
+        r => r?,
+    };
+    let root = std::fs::canonicalize(folder)?;
+    let rel = file.strip_prefix(&root).unwrap_or(&file).to_string_lossy().replace('\\', "/");
     let meta = std::fs::metadata(&file)?;
     anyhow::ensure!(meta.is_file(), "{path} is not a file");
     anyhow::ensure!(meta.len() <= MAX_READ, "{path} is too large");
@@ -48,7 +57,47 @@ pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32
     let start = start.unwrap_or(1).max(1);
     let end = end.unwrap_or(total).min(total);
     let lines = if start > end { vec![] } else { all[start as usize - 1..end as usize].iter().map(|l| l.to_string()).collect() };
-    Ok((start, lines, total))
+    Ok((rel, start, lines, total))
+}
+
+/// Folders `find_by_suffix` skips (besides hidden ones).
+const SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out", "vendor"];
+/// Entries `find_by_suffix` looks at before it gives up.
+const MAX_SCAN: usize = 50_000;
+
+/// The one file under `folder` (relative path) whose path ends with the components of `suffix`. Skips hidden and
+/// build folders, follows no symlinks. Fails when no file or several files match.
+pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
+    let want: Vec<&str> = suffix.trim_start_matches("./").split('/').filter(|c| !c.is_empty()).collect();
+    anyhow::ensure!(!want.is_empty(), "no path");
+    let mut found = Vec::new();
+    let mut dirs = vec![PathBuf::new()];
+    let mut seen = 0;
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(folder.join(&dir)) else { continue };
+        for e in entries.flatten() {
+            seen += 1;
+            anyhow::ensure!(seen <= MAX_SCAN, "{suffix}: No such file (folder too large to search)");
+            let Ok(kind) = e.file_type() else { continue };
+            let name = e.file_name().to_string_lossy().into_owned();
+            if kind.is_dir() {
+                if !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()) {
+                    dirs.push(dir.join(&name));
+                }
+            } else if kind.is_file() && name == *want.last().unwrap() {
+                let rel = dir.join(&name);
+                let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                if parts.len() >= want.len() && parts[parts.len() - want.len()..].iter().zip(&want).all(|(a, b)| a == b) {
+                    found.push(parts.join("/"));
+                }
+            }
+        }
+    }
+    match found.len() {
+        0 => anyhow::bail!("{suffix}: No such file"),
+        1 => Ok(found.pop().unwrap()),
+        n => anyhow::bail!("{suffix}: {n} files match"),
+    }
 }
 
 /// What to open: an editor URL, or the path itself for the system default app.
@@ -135,13 +184,13 @@ mod tests {
         std::fs::write(folder.join("bin.dat"), [0u8, 1, 2]).unwrap();
         std::fs::write(folder.join("latin1.txt"), [0xE9u8, b'a']).unwrap();
         std::fs::write(dir.path().join("secret.txt"), "s").unwrap();
-        let (start, lines, total) = read_lines(&folder, "src/a.rs", Some(2), Some(3)).unwrap();
-        assert_eq!((start, lines, total), (2, vec!["two".to_string(), "three".to_string()], 4));
+        let (rel, start, lines, total) = read_lines(&folder, "src/a.rs", Some(2), Some(3)).unwrap();
+        assert_eq!((rel.as_str(), start, lines, total), ("src/a.rs", 2, vec!["two".to_string(), "three".to_string()], 4));
         // Clipped to the file; absolute paths inside the folder are fine.
         let abs = std::fs::canonicalize(folder.join("src/a.rs")).unwrap();
-        let (_, lines, _) = read_lines(&folder, abs.to_str().unwrap(), Some(3), Some(99)).unwrap();
+        let (_, _, lines, _) = read_lines(&folder, abs.to_str().unwrap(), Some(3), Some(99)).unwrap();
         assert_eq!(lines, ["three", "four"]);
-        let (_, lines, _) = read_lines(&folder, "src/a.rs", None, None).unwrap();
+        let (_, _, lines, _) = read_lines(&folder, "src/a.rs", None, None).unwrap();
         assert_eq!(lines.len(), 4);
         // Escapes: `..`, an absolute path outside, a symlink out.
         assert!(read_lines(&folder, "../secret.txt", None, None).unwrap_err().to_string().contains("outside"));
@@ -155,8 +204,25 @@ mod tests {
         }
         assert!(read_lines(&folder, "missing.rs", None, None).is_err());
         assert!(read_lines(&folder, "src", None, None).is_err());
+        // A path that does not start at the folder: found when one file ends with it.
+        assert_eq!(read_lines(&folder, "a.rs", None, None).unwrap().0, "src/a.rs");
         assert!(read_lines(&folder, "", None, None).is_err());
         assert!(read_lines(&folder, "bin.dat", None, None).unwrap_err().to_string().contains("binary"));
         assert!(read_lines(&folder, "latin1.txt", None, None).unwrap_err().to_string().contains("UTF-8"));
+    }
+
+    #[test]
+    fn finds_a_file_by_the_end_of_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path();
+        for p in ["crates/embed/src/tenants.rs", "crates/server/src/tenants.rs", "crates/server/src/system.rs", "node_modules/x/system.rs", ".git/system.rs"] {
+            std::fs::create_dir_all(f.join(p).parent().unwrap()).unwrap();
+            std::fs::write(f.join(p), "").unwrap();
+        }
+        assert_eq!(find_by_suffix(f, "embed/src/tenants.rs").unwrap(), "crates/embed/src/tenants.rs");
+        assert_eq!(find_by_suffix(f, "system.rs").unwrap(), "crates/server/src/system.rs");
+        assert!(find_by_suffix(f, "tenants.rs").unwrap_err().to_string().contains("2 files"));
+        assert!(find_by_suffix(f, "bed/src/tenants.rs").is_err());
+        assert!(find_by_suffix(f, "missing.rs").is_err());
     }
 }

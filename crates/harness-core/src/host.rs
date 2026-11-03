@@ -282,9 +282,9 @@ impl Harness {
             }
             Command::ReadSessionFile { session_id, path, start, end } => {
                 let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
-                let (start, lines, total) =
+                let (path, start, lines, total) =
                     tokio::task::spawn_blocking(move || crate::editor::read_lines(&folder, &path, start, end)).await??;
-                CommandResult::FileLines { start, lines, total }
+                CommandResult::FileLines { path, start, lines, total }
             }
             Command::GetState { session_id } => CommandResult::State { state: self.session(&session_id)?.state()? },
             Command::PatchState { session_id, ops } => {
