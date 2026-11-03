@@ -1441,7 +1441,8 @@ export const components = {
             .number({
                minimum: 40,
                maximum: 2000,
-               description: "Fixed height in px. Default: fits the content.",
+               description:
+                  "Maximum height in px; taller content scrolls inside the frame. The frame always fits its content, so leave it out unless the content can grow very tall.",
             })
             .optional(),
          title: s.string({ description: "What it shows (frame title)." }).optional(),

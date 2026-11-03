@@ -9,6 +9,7 @@ const heights = new Map<string, number>();
 
 type Props = {
    html: string;
+   /** Maximum height; the frame otherwise fits its content. */
    height?: number;
    title?: string;
    state: unknown;
@@ -99,7 +100,7 @@ export function UiHtml(p: Props) {
             srcDoc={srcdoc}
             onLoad={() => post({ type: "state", state: latest.current.state })}
             className="block w-full border-0"
-            style={{ height: p.height ?? auto }}
+            style={{ height: p.height ? Math.min(auto, p.height) : auto }}
          />
          {error && <p className="mt-1 text-ui-sm text-destructive">{error}</p>}
       </div>
