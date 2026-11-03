@@ -1278,7 +1278,7 @@ export class MockTransport implements Transport {
             if (cmd.text.trim() === "/prs") {
                this.emit(sid, {
                   type: "AgentMessageChunk",
-                  text: "PR roundup: #23 landed, supabase/spark#17 is open and spark#12 merged. https://github.com/dswbx/harness/pull/21 has failing checks; draft #20 and closed #18 stay as they are, #999 does not exist.\n\nText only: C#, `#24` in code, and [the chips PR](https://github.com/dswbx/harness/pull/24).",
+                  text: "PR roundup: harness#23 landed, supabase/spark#17 is open and spark#12 merged. https://github.com/dswbx/harness/pull/21 has failing checks; draft harness#20 and closed dswbx/harness#18 stay as they are, harness#999 does not exist.\n\nText only: C#, step #3, `spark#24` in code, and [the chips PR](https://github.com/dswbx/harness/pull/24).",
                });
                return { type: "Ok" };
             }
