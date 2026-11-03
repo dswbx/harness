@@ -23,7 +23,10 @@ export function FrontendToolRow({
          (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
       return shown ? (
          <Expandable label="view" className="chat-wide">
-            <RenderUi root={shown.root} env={{ ...env, files: shown.files }} />
+            <RenderUi
+               root={shown.root}
+               env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
+            />
          </Expandable>
       ) : null;
    }

@@ -10,6 +10,7 @@ const FAMILY: Record<EventKind["type"], string> = {
    ToolCallUpdate: "Tools",
    TaskListUpdated: "Tools",
    FrontendToolOutput: "Tools",
+   FrontendError: "Errors",
    PermissionRequested: "Permissions",
    PermissionResolved: "Permissions",
    PermissionRuleAdded: "Permissions",

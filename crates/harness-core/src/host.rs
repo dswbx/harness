@@ -291,6 +291,10 @@ impl Harness {
                 self.session(&session_id)?.patch_state(None, ops, crate::api::StateWriter::User)?;
                 CommandResult::Ok
             }
+            Command::ReportFrontendError { session_id, tool, item, message } => {
+                self.session(&session_id)?.report_frontend_error(&tool, &item, &message)?;
+                CommandResult::Ok
+            }
             Command::FrontendReadImage { session_id, path } => {
                 let (mime, data) = self.session(&session_id)?.frontend_read_image(&path)?;
                 CommandResult::Attachment { mime, data }
