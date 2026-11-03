@@ -264,13 +264,19 @@
          color: var(--typeset-muted);
       }
 
-      /* Inline code. */
+      /* Inline code: a softer chip with a hairline border, so plain (unhighlighted) code stands apart from the text. */
       &:where(:not(pre) > code) {
-         background-color: var(--color-muted, color-mix(in oklab, currentColor 8%, transparent));
+         background-color: color-mix(
+            in oklab,
+            var(--color-muted, color-mix(in oklab, currentColor 8%, transparent)) 60%,
+            transparent
+         );
+         border: 1px solid var(--color-border, color-mix(in oklab, currentColor 14%, transparent));
+         color: color-mix(in oklab, currentColor 92%, transparent);
          font-family: var(--typeset-font-mono);
          font-size: 0.85em;
          border-radius: min(calc(var(--radius, 0.5em) * 0.6), 0.35em);
-         padding: 0.125em 0.3em;
+         padding: 0.075em 0.3em;
       }
 
       /* Code blocks. */

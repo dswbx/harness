@@ -1,5 +1,5 @@
 import { common, createLowlight } from "lowlight";
-import { useSyncExternalStore } from "react";
+import { localPref } from "./localPref";
 
 const lowlight = createLowlight(common);
 
@@ -123,34 +123,8 @@ export function rehypeInlineCode({ guess = true }: { guess?: boolean } = {}) {
    };
 }
 
-// Per-viewer choice (Settings > Appearance), on by default; every chat follows it, across windows too.
-const KEY = "harness.chat.guessInlineCode";
-const listeners = new Set<() => void>();
-const read = () => {
-   try {
-      return localStorage.getItem(KEY) !== "off";
-   } catch {
-      return true;
-   }
-};
-const subscribe = (f: () => void) => {
-   listeners.add(f);
-   const onStorage = (e: StorageEvent) => e.key === KEY && f();
-   window.addEventListener("storage", onStorage);
-   return () => {
-      listeners.delete(f);
-      window.removeEventListener("storage", onStorage);
-   };
-};
-
-export function setGuessInlineCode(on: boolean) {
-   try {
-      localStorage.setItem(KEY, on ? "on" : "off");
-   } catch {
-      /* per-viewer convenience only */
-   }
-   listeners.forEach((f) => f());
-}
-
+/** Per-viewer choice (Settings > Appearance), on by default. */
+const guessPref = localPref("harness.chat.guessInlineCode", true);
+export const setGuessInlineCode = guessPref.set;
 /** Whether unmarked inline code that looks like code is highlighted in a guessed language. */
-export const useGuessInlineCode = () => useSyncExternalStore(subscribe, read);
+export const useGuessInlineCode = guessPref.use;

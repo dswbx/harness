@@ -868,6 +868,19 @@ export class MockTransport implements Transport {
                cmd.line ?? "",
             );
             return { type: "Ok" };
+         case "ReadSessionFile": {
+            const text = MOCK_NEW[cmd.path.replace(/^\.\//, "")];
+            if (text === undefined) throw new Error(`${cmd.path}: No such file or directory`);
+            const all = text.replace(/\n$/, "").split("\n");
+            const start = Math.max(1, cmd.start ?? 1);
+            const end = Math.min(all.length, cmd.end ?? all.length);
+            return {
+               type: "FileLines",
+               start,
+               lines: all.slice(start - 1, Math.max(start - 1, end)),
+               total: all.length,
+            };
+         }
          case "GetState":
             return { type: "State", state: this.states.get(cmd.session_id) ?? {} };
          case "PatchState": {

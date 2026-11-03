@@ -29,6 +29,28 @@ pub fn resolve(folder: &Path, path: Option<&str>) -> anyhow::Result<PathBuf> {
     Ok(p)
 }
 
+/// Largest file `read_lines` reads.
+pub const MAX_READ: u64 = 2 * 1024 * 1024;
+
+/// Lines `start..=end` (1-based, clipped to the file) of the UTF-8 text file `path` inside `folder`, as
+/// (first line number, lines, total line count). Refuses paths outside `folder`, files over `MAX_READ`, binary files.
+pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32>) -> anyhow::Result<(u32, Vec<String>, u32)> {
+    anyhow::ensure!(!path.trim().is_empty(), "no path");
+    let file = resolve(folder, Some(path))?;
+    let meta = std::fs::metadata(&file)?;
+    anyhow::ensure!(meta.is_file(), "{path} is not a file");
+    anyhow::ensure!(meta.len() <= MAX_READ, "{path} is too large");
+    let bytes = std::fs::read(&file)?;
+    anyhow::ensure!(!bytes.contains(&0), "{path} is a binary file");
+    let text = String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("{path} is not UTF-8 text"))?;
+    let all: Vec<&str> = text.lines().collect();
+    let total = all.len() as u32;
+    let start = start.unwrap_or(1).max(1);
+    let end = end.unwrap_or(total).min(total);
+    let lines = if start > end { vec![] } else { all[start as usize - 1..end as usize].iter().map(|l| l.to_string()).collect() };
+    Ok((start, lines, total))
+}
+
 /// What to open: an editor URL, or the path itself for the system default app.
 pub fn target(editor: &Editor, path: &Path, line: Option<u32>) -> String {
     let file = encode(&path.to_string_lossy());
@@ -102,5 +124,39 @@ mod tests {
         assert_eq!(resolve(&folder, Some("src/a.rs")).unwrap(), root.join("src/a.rs"));
         assert!(resolve(&folder, Some("../secret.txt")).unwrap_err().to_string().contains("outside"));
         assert!(resolve(&folder, Some("missing.rs")).is_err());
+    }
+
+    #[test]
+    fn reads_lines_only_inside_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("proj");
+        std::fs::create_dir_all(folder.join("src")).unwrap();
+        std::fs::write(folder.join("src/a.rs"), "one\ntwo\nthree\nfour\n").unwrap();
+        std::fs::write(folder.join("bin.dat"), [0u8, 1, 2]).unwrap();
+        std::fs::write(folder.join("latin1.txt"), [0xE9u8, b'a']).unwrap();
+        std::fs::write(dir.path().join("secret.txt"), "s").unwrap();
+        let (start, lines, total) = read_lines(&folder, "src/a.rs", Some(2), Some(3)).unwrap();
+        assert_eq!((start, lines, total), (2, vec!["two".to_string(), "three".to_string()], 4));
+        // Clipped to the file; absolute paths inside the folder are fine.
+        let abs = std::fs::canonicalize(folder.join("src/a.rs")).unwrap();
+        let (_, lines, _) = read_lines(&folder, abs.to_str().unwrap(), Some(3), Some(99)).unwrap();
+        assert_eq!(lines, ["three", "four"]);
+        let (_, lines, _) = read_lines(&folder, "src/a.rs", None, None).unwrap();
+        assert_eq!(lines.len(), 4);
+        // Escapes: `..`, an absolute path outside, a symlink out.
+        assert!(read_lines(&folder, "../secret.txt", None, None).unwrap_err().to_string().contains("outside"));
+        assert!(read_lines(&folder, "src/../../secret.txt", None, None).is_err());
+        let outside = std::fs::canonicalize(dir.path().join("secret.txt")).unwrap();
+        assert!(read_lines(&folder, outside.to_str().unwrap(), None, None).is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path().join("secret.txt"), folder.join("link.txt")).unwrap();
+            assert!(read_lines(&folder, "link.txt", None, None).is_err());
+        }
+        assert!(read_lines(&folder, "missing.rs", None, None).is_err());
+        assert!(read_lines(&folder, "src", None, None).is_err());
+        assert!(read_lines(&folder, "", None, None).is_err());
+        assert!(read_lines(&folder, "bin.dat", None, None).unwrap_err().to_string().contains("binary"));
+        assert!(read_lines(&folder, "latin1.txt", None, None).unwrap_err().to_string().contains("UTF-8"));
     }
 }

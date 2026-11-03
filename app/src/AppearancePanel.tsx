@@ -3,10 +3,12 @@ import {
    setGuessInlineCode,
    setOptionIsMeta,
    setToolDisplay,
+   setWrapCode,
    toolDisplays,
    useGuessInlineCode,
    useOptionIsMeta,
    useToolDisplay,
+   useWrapCode,
 } from "@harness/frontend-chat";
 import {
    Button,
@@ -251,6 +253,17 @@ function GuessInlineCodeRow() {
       >
          <Toggle id="guess-inline-code" on={on} onChange={setGuessInlineCode}>
             Guess the language
+         </Toggle>
+      </Row>
+   );
+}
+
+function WrapCodeRow() {
+   const on = useWrapCode();
+   return (
+      <Row label="Code blocks" htmlFor="wrap-code" help="Same as the wrap button on any code block">
+         <Toggle id="wrap-code" on={on} onChange={setWrapCode}>
+            Wrap long lines
          </Toggle>
       </Row>
    );
@@ -619,6 +632,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                />
                <ToolDisplayRow />
                <GuessInlineCodeRow />
+               <WrapCodeRow />
             </Group>
             <Group title="Terminal">
                <FontRow
