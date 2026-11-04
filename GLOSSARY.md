@@ -141,7 +141,7 @@ A shared capability the Harness owns (e.g. git status, create worktree), offered
 _Avoid_: command, action, API (alone)
 
 **Frontend Tool**:
-A tool a Frontend declares for its Sessions; when the Agent calls it, the Harness records the call's output in the Session Directory and the Frontend interprets it whenever a View renders (e.g. `render_ui`).
+A tool a Frontend declares for its Sessions; when the Agent calls it, the Harness records the call's output in the Session Directory and the Frontend interprets it whenever a View renders (e.g. `render_ui`). One that `replies` is a request instead: nothing is recorded, a window of the app answers, and the Agent gets the answer (e.g. `view_artifact`).
 _Avoid_: custom tool, plugin tool
 
 **Harness MCP**:

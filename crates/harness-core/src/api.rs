@@ -103,6 +103,13 @@ pub enum Command {
         #[specta(type = Option<specta_typescript::Unknown>)]
         value: Option<Json>,
     },
+    /// Answers a `FrontendRequest` AppEvent. The first answer wins; an answer for an unknown
+    /// `request_id` does nothing (several windows may answer).
+    AnswerFrontendRequest {
+        session_id: SessionId,
+        request_id: String,
+        answer: FrontendAnswer,
+    },
     /// Reads the JSON at an https URL, e.g. a theme's shadcn registry item (tweakcn), for the app to import.
     FetchJson {
         url: String,
@@ -591,6 +598,28 @@ pub struct FrontendToolDecl {
     pub description: String,
     #[specta(type = specta_typescript::Unknown)]
     pub input_schema: Json,
+    /// The Frontend answers the call: the result goes back to the Agent, nothing goes in the Session Log.
+    #[serde(default)]
+    pub replies: bool,
+}
+
+/// A Frontend's answer to a `FrontendRequest`. `error` makes it a tool error for the Agent; else
+/// the Agent gets `text` then `image`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct FrontendAnswer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<FrontendImage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct FrontendImage {
+    pub mime: String,
+    /// Base64 (standard alphabet, no `data:` prefix).
+    pub data: String,
 }
 
 /// An MCP server in the MCP Library.
@@ -1148,6 +1177,18 @@ pub enum AppEvent {
     /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
     /// Titles and `busy` change silently: poll while a Terminal is shown.
     TerminalsChanged { session_id: SessionId },
+    /// The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
+    /// `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
+    /// it. Live only and not logged: Views still render only from the Session Log.
+    FrontendRequest {
+        session_id: SessionId,
+        request_id: String,
+        tool: String,
+        #[specta(type = specta_typescript::Unknown)]
+        input: Json,
+        #[specta(type = specta_typescript::Number)]
+        last_seq: u64,
+    },
 }
 
 /// Receives Events for one subscription. Returns `false` once the receiver is gone.

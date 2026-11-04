@@ -16,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+base64 = "0.22"
 harness-core = { path = "../harness-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

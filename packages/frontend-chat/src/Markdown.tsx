@@ -1,11 +1,13 @@
-import { type ComponentProps, lazy, Suspense, useMemo } from "react";
+import { type ComponentProps, createContext, lazy, Suspense, useContext, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { AnsiText } from "./AnsiText";
+import { markdownTitle } from "./artifacts";
 import { CodeBlock } from "./CodeBlock";
 import { Expandable } from "./Expandable";
+import { fileName, markdownTableRows, tableFormats } from "./exportFormats";
 import { FileRefLink, useFileRefs } from "./FileRef";
 import { rehypeFileRefs } from "./fileRefs";
 import { rehypeInlineCode, useGuessInlineCode } from "./inlineCode";
@@ -42,7 +44,7 @@ function Pre({ node, children, ...props }: PreProps) {
       return (
          <div className="chat-wide" data-artifact="diagram">
             <Suspense fallback={<div className="h-24 animate-pulse rounded-md bg-muted" />}>
-               <Mermaid source={textOf(code).replace(/\n$/, "")} />
+               <MermaidInMarkdown source={textOf(code).replace(/\n$/, "")} />
             </Suspense>
          </div>
       );
@@ -64,32 +66,58 @@ function Pre({ node, children, ...props }: PreProps) {
    );
 }
 
+/** The Markdown being rendered: a table's downloads use its source. `title`: names what it shows, when given. */
+const MarkdownText = createContext<{ text: string; title?: string }>({ text: "" });
+
+/** The artifact title of a diagram or table here, which names its downloads. */
+function useArtifactTitle(kind: "diagram" | "table", source: string) {
+   const { text, title } = useContext(MarkdownText);
+   return useMemo(() => title ?? markdownTitle(text, kind, source), [title, text, kind, source]);
+}
+
+function MermaidInMarkdown({ source }: { source: string }) {
+   return <Mermaid source={source} title={useArtifactTitle("diagram", source)} />;
+}
+
+// Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
+// break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
+function MarkdownTable({ node, ...props }: ComponentProps<"table"> & { node?: unknown }) {
+   const { text } = useContext(MarkdownText);
+   const at = (node as { position?: { start: { offset?: number }; end: { offset?: number } } })
+      ?.position;
+   const source = at ? text.slice(at.start.offset, at.end.offset) : "";
+   const title = useArtifactTitle("table", source);
+   const name = fileName(title ?? "table");
+   const table = (
+      <div className="overflow-x-auto rounded-md border">
+         <table
+            {...props}
+            className="m-0 w-full max-w-none border-b-0 [overflow-wrap:break-word]"
+         />
+      </div>
+   );
+   return (
+      <Expandable
+         label="table"
+         title={title}
+         className="chat-wide mt-(--typeset-flow)"
+         data-artifact="table"
+         expanded={
+            <div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>
+         }
+         formats={(png) => [
+            png(<div className="typeset typeset-chat">{table}</div>),
+            ...tableFormats(name, markdownTableRows(source), source),
+         ]}
+      >
+         {table}
+      </Expandable>
+   );
+}
+
 const components: Components = {
    pre: Pre,
-   // Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
-   // break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
-   table({ node: _, ...props }) {
-      const table = (
-         <div className="overflow-x-auto rounded-md border">
-            <table
-               {...props}
-               className="m-0 w-full max-w-none border-b-0 [overflow-wrap:break-word]"
-            />
-         </div>
-      );
-      return (
-         <Expandable
-            label="table"
-            className="chat-wide mt-(--typeset-flow)"
-            data-artifact="table"
-            expanded={
-               <div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>
-            }
-         >
-            {table}
-         </Expandable>
-      );
-   },
+   table: MarkdownTable,
    thead: ({ node: _, ...props }) => <thead {...props} className="bg-muted/50" />,
    th: ({ node: _, ...props }) => <th {...props} className="px-3 py-2 font-medium" />,
    td: ({ node: _, ...props }) => <td {...props} className="px-3 py-2" />,
@@ -153,8 +181,11 @@ export function Markdown({
    className,
    breaks,
    plainCode,
+   title,
 }: {
    children: string;
+   /** What this shows, if not to be found from the text before it: names downloads. */
+   title?: string;
    className?: string;
    breaks?: boolean;
    plainCode?: boolean;
@@ -173,15 +204,18 @@ export function Markdown({
       ],
       [guess, prCtx, fileRefs],
    );
+   const context = useMemo(() => ({ text: children, title }), [children, title]);
    return (
       <div className={cn("typeset typeset-chat", className)}>
-         <ReactMarkdown
-            remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
-            rehypePlugins={plugins}
-            components={plainCode ? plainCodeComponents : components}
-         >
-            {children}
-         </ReactMarkdown>
+         <MarkdownText.Provider value={context}>
+            <ReactMarkdown
+               remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
+               rehypePlugins={plugins}
+               components={plainCode ? plainCodeComponents : components}
+            >
+               {children}
+            </ReactMarkdown>
+         </MarkdownText.Provider>
       </div>
    );
 }

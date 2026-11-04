@@ -64,6 +64,9 @@ export function UiHtml(p: Props) {
       [p.html],
    );
 
+   // A frame paints white until its document loads (its first, empty document has no dark color scheme).
+   const [loaded, setLoaded] = useState<string | null>(null);
+
    const post = (m: unknown) => frame.current?.contentWindow?.postMessage(m, "*");
 
    useEffect(() => {
@@ -112,9 +115,15 @@ export function UiHtml(p: Props) {
             title={p.title ?? "HTML"}
             sandbox="allow-scripts"
             srcDoc={srcdoc}
-            onLoad={() => post({ type: "state", state: latest.current.state })}
+            onLoad={() => {
+               setLoaded(srcdoc);
+               post({ type: "state", state: latest.current.state });
+            }}
             className="block w-full border-0"
-            style={{ height: p.height && !expanded ? Math.min(auto, p.height) : auto }}
+            style={{
+               height: p.height && !expanded ? Math.min(auto, p.height) : auto,
+               visibility: loaded === srcdoc ? undefined : "hidden",
+            }}
          />
          {error && <p className="mt-1 text-ui-sm text-destructive">{error}</p>}
       </div>

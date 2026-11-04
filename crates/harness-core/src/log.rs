@@ -176,6 +176,14 @@ impl SessionLog {
         self.inner.lock().unwrap().subscribers.retain(|(sid, _)| *sid != id);
     }
 
+    /// `seq` of the newest Event, 0 for an empty log. Flushes a held chunk, so subscribers have
+    /// received this `seq` when the call returns.
+    pub fn last_seq(&self) -> anyhow::Result<u64> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.flush()?;
+        Ok(inner.next_seq.saturating_sub(1))
+    }
+
     /// Time of the last appended Event, None for an empty log.
     pub fn last_ts_ms(&self) -> Option<i64> {
         Some(self.last_ts_ms.load(Ordering::Relaxed)).filter(|&t| t > 0)

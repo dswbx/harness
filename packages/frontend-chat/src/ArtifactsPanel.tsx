@@ -14,7 +14,6 @@ import {
    ChevronDown,
    ChevronLeft,
    ChevronUp,
-   Copy,
    GitPullRequest,
    LayoutDashboard,
    Search,
@@ -22,10 +21,14 @@ import {
    Workflow,
 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { type Artifact, type ArtifactKind, filterArtifacts } from "./artifacts";
-import { Markdown } from "./Markdown";
+import { ArtifactImage, ArtifactPreview, artifactFormats } from "./ArtifactExport";
+import { type Artifact, type ArtifactKind, artifactSource, filterArtifacts } from "./artifacts";
+import { useCapture } from "./Capture";
+import { CopyButton, Frame, useWrapCode, WRAP, WrapButton } from "./CodeBlock";
+import { ExportSubmenu, useExport } from "./ExportMenu";
+import { Highlighted } from "./highlight";
 import { PanelHeader } from "./PanelHeader";
-import { RenderUi, type UiEnv } from "./RenderUi";
+import type { UiEnv } from "./RenderUi";
 import { fullMessageTime, useNow } from "./time";
 import { uiIcons } from "./uiIcons";
 
@@ -62,11 +65,31 @@ const PLACED: Record<string, string> = {
    right: "Right",
 };
 
-/** The artifact itself, as the chat shows it, at panel width. */
-function Preview({ a, env }: { a: Artifact; env: UiEnv }) {
-   if (a.ui) return <RenderUi root={a.ui.root} env={{ ...env, files: a.ui.files }} />;
+/** The artifact's source, highlighted, with wrap and copy. */
+function Source({ a }: { a: Artifact }) {
+   const wrap = useWrapCode();
+   const { lang, text } = artifactSource(a);
    return (
-      <Markdown>{a.kind === "diagram" ? `\`\`\`mermaid\n${a.source}\n\`\`\`` : a.source}</Markdown>
+      <Frame
+         label={lang}
+         action={
+            <>
+               <WrapButton />
+               <CopyButton text={text} />
+            </>
+         }
+      >
+         <pre
+            className={cn(
+               "code-colors m-0 overflow-x-auto p-3 font-mono text-code leading-relaxed",
+               wrap && WRAP,
+            )}
+         >
+            <code>
+               <Highlighted lang={lang} text={text} />
+            </code>
+         </pre>
+      </Frame>
    );
 }
 
@@ -275,9 +298,12 @@ function Inspect({
    onBack: () => void;
    onJump: () => void;
 }) {
-   const [tab, setTab] = useState<"preview" | "source">("preview");
-   const [copied, setCopied] = useState(false);
+   const [tab, setTab] = useState<"preview" | "image" | "source">("preview");
+   const { stage, shoot } = useCapture();
+   const { busy, error, save } = useExport();
    const onKey = (e: KeyboardEvent) => {
+      // A menu's keys are its own (its content is in a portal, but React events still come here).
+      if ((e.target as Element).closest("[role=menu]")) return;
       if (e.key === "Escape" || e.key === "Backspace") {
          e.preventDefault();
          onBack();
@@ -297,7 +323,22 @@ function Inspect({
          onKeyDown={onKey}
          ref={(el) => el?.focus({ preventScroll: true })}
       >
-         <PanelHeader className="gap-1 pl-1.5">
+         <PanelHeader
+            className="gap-1 pl-1.5"
+            menu={
+               <>
+                  <DropdownMenuItem onSelect={onJump}>
+                     <ArrowRight />{" "}
+                     {a.placement === "left" || a.placement === "right"
+                        ? "Open panel"
+                        : a.placement === "inline"
+                          ? "Jump to message"
+                          : "Show"}
+                  </DropdownMenuItem>
+                  <ExportSubmenu formats={artifactFormats(a, env, shoot)} save={save} />
+               </>
+            }
+         >
             <Button
                size="icon"
                variant="ghost"
@@ -336,7 +377,7 @@ function Inspect({
          </PanelHeader>
          <div className="flex items-center gap-2 px-3.5 pt-3">
             <div className="inline-flex gap-0.5 rounded-md bg-muted p-0.5" role="tablist">
-               {(["preview", "source"] as const).map((t) => (
+               {(["preview", "image", "source"] as const).map((t) => (
                   <button
                      key={t}
                      role="tab"
@@ -354,15 +395,21 @@ function Inspect({
             <div className="flex-1" />
             <span className="truncate text-xs text-muted-foreground">{a.sub}</span>
          </div>
+         {(busy || error) && (
+            <p
+               className={cn(
+                  "px-3.5 pt-2 text-xs text-muted-foreground",
+                  error && "text-destructive",
+               )}
+            >
+               {error ?? "Preparing the download..."}
+            </p>
+         )}
          <ScrollArea className="min-h-0 flex-1">
             <div className="p-3.5">
-               {tab === "preview" ? (
-                  <Preview a={a} env={env} />
-               ) : (
-                  <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-3.5 font-mono text-code leading-relaxed whitespace-pre-wrap">
-                     {a.source}
-                  </pre>
-               )}
+               {tab === "preview" && <ArtifactPreview a={a} env={env} />}
+               {tab === "image" && <ArtifactImage a={a} env={env} shoot={shoot} />}
+               {tab === "source" && <Source a={a} />}
                <dl className="mt-4 grid grid-cols-[88px_1fr] gap-y-1.5 px-0.5 text-[13px]">
                   <dt className="text-muted-foreground">From</dt>
                   <dd>
@@ -385,28 +432,7 @@ function Inspect({
                </dl>
             </div>
          </ScrollArea>
-         <div className="flex gap-2 border-t px-3.5 py-2.5">
-            <Button size="sm" onClick={onJump}>
-               <ArrowRight />{" "}
-               {a.placement === "left" || a.placement === "right"
-                  ? "Open panel"
-                  : a.placement === "inline"
-                    ? "Jump to message"
-                    : "Show"}
-            </Button>
-            <Button
-               size="sm"
-               variant="outline"
-               onClick={() =>
-                  void navigator.clipboard.writeText(a.source).then(() => {
-                     setCopied(true);
-                     setTimeout(() => setCopied(false), 1200);
-                  })
-               }
-            >
-               <Copy /> {copied ? "Copied" : "Copy source"}
-            </Button>
-         </div>
+         {stage}
       </div>
    );
 }

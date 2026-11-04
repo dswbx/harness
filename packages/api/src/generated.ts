@@ -27,7 +27,13 @@ export type AppEvent =
  *  A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
  *  Titles and `busy` change silently: poll while a Terminal is shown.
  */
-{ type: "TerminalsChanged"; session_id: string };
+{ type: "TerminalsChanged"; session_id: string } | 
+/**
+ *  The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
+ *  `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
+ *  it. Live only and not logged: Views still render only from the Session Log.
+ */
+{ type: "FrontendRequest"; session_id: string; request_id: string; tool: string; input: unknown; last_seq: number };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes";
@@ -134,6 +140,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetAppSetting"; key: AppSettingKey } | 
 /**  Saves an app setting; null removes it. */
 { type: "SetAppSetting"; key: AppSettingKey; value: unknown | null } | 
+/**
+ *  Answers a `FrontendRequest` AppEvent. The first answer wins; an answer for an unknown
+ *  `request_id` does nothing (several windows may answer).
+ */
+{ type: "AnswerFrontendRequest"; session_id: string; request_id: string; answer: FrontendAnswer } | 
 /**  Reads the JSON at an https URL, e.g. a theme's shadcn registry item (tweakcn), for the app to import. */
 { type: "FetchJson"; url: string } | 
 /**  The user's editor for "Open in editor" (None until chosen). */
@@ -401,6 +412,22 @@ export type ForkPoint = {
 	seq: number,
 };
 
+/**
+ *  A Frontend's answer to a `FrontendRequest`. `error` makes it a tool error for the Agent; else
+ *  the Agent gets `text` then `image`.
+ */
+export type FrontendAnswer = {
+	text?: string | null,
+	image?: FrontendImage | null,
+	error?: string | null,
+};
+
+export type FrontendImage = {
+	mime: string,
+	/**  Base64 (standard alphabet, no `data:` prefix). */
+	data: string,
+};
+
 export type FrontendManifest = {
 	id: string,
 	name: string,
@@ -414,6 +441,8 @@ export type FrontendToolDecl = {
 	name: string,
 	description: string,
 	input_schema: unknown,
+	/**  The Frontend answers the call: the result goes back to the Agent, nothing goes in the Session Log. */
+	replies?: boolean,
 };
 
 export type GitStatus = {

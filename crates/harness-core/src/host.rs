@@ -295,6 +295,10 @@ impl Harness {
                 self.session(&session_id)?.report_frontend_error(&tool, &item, &message)?;
                 CommandResult::Ok
             }
+            Command::AnswerFrontendRequest { session_id, request_id, answer } => {
+                self.session(&session_id)?.answer_frontend_request(&request_id, answer);
+                CommandResult::Ok
+            }
             Command::FrontendReadImage { session_id, path } => {
                 let (mime, data) = self.session(&session_id)?.frontend_read_image(&path)?;
                 CommandResult::Attachment { mime, data }

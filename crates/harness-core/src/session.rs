@@ -134,6 +134,44 @@ pub struct FrontendErrorEntry {
     pub message: String,
 }
 
+/// How long a Frontend Tool that `replies` waits for a window.
+const FRONTEND_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Frontend requests waiting for their answer: request id -> who waits.
+#[derive(Default)]
+struct FrontendRequests(std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<crate::api::FrontendAnswer>>>);
+
+/// Removes a request from `FrontendRequests` when the wait ends in any way, also when the future is dropped.
+struct PendingFrontendRequest<'a>(&'a FrontendRequests, String);
+
+impl Drop for PendingFrontendRequest<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().unwrap().remove(&self.1);
+    }
+}
+
+impl FrontendRequests {
+    /// Adds a request, calls `emit` with its id, and waits for the answer.
+    async fn wait(&self, timeout: Duration, emit: impl FnOnce(String)) -> anyhow::Result<crate::api::FrontendAnswer> {
+        let request_id = uuid::Uuid::now_v7().to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.0.lock().unwrap().insert(request_id.clone(), tx);
+        let _pending = PendingFrontendRequest(self, request_id.clone());
+        emit(request_id);
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(answer) => Ok(answer?),
+            Err(_) => anyhow::bail!("No app window answered in time. The window may be closed or the Mac asleep."),
+        }
+    }
+
+    /// The first answer wins; later ones and unknown ids do nothing.
+    fn answer(&self, request_id: &str, answer: crate::api::FrontendAnswer) {
+        if let Some(tx) = self.0.lock().unwrap().remove(request_id) {
+            let _ = tx.send(answer);
+        }
+    }
+}
+
 pub struct Session {
     dir: PathBuf,
     meta: std::sync::Mutex<SessionMeta>,
@@ -142,6 +180,7 @@ pub struct Session {
     shared: Arc<Shared>,
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: std::sync::Mutex<()>,
+    frontend_requests: FrontendRequests,
 }
 
 impl Session {
@@ -232,7 +271,7 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
-        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared, state_lock: Default::default() }
+        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared, state_lock: Default::default(), frontend_requests: Default::default() }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -253,6 +292,26 @@ impl Session {
     pub fn frontend_tools(&self) -> Vec<crate::api::FrontendToolDecl> {
         let id = self.meta.lock().unwrap().frontend_id.clone();
         self.shared.frontends.read().unwrap().iter().find(|f| f.id == id).map(|f| f.frontend_tools.clone()).unwrap_or_default()
+    }
+
+    /// Asks the Session's windows to answer a Frontend Tool call (`FrontendToolDecl::replies`).
+    pub async fn request_frontend(&self, tool: &str, input: serde_json::Value) -> anyhow::Result<crate::api::FrontendAnswer> {
+        let last_seq = self.log.last_seq()?;
+        self.frontend_requests
+            .wait(FRONTEND_REQUEST_TIMEOUT, |request_id| {
+                self.shared.app_events.emit(crate::api::AppEvent::FrontendRequest {
+                    session_id: self.id(),
+                    request_id,
+                    tool: tool.to_owned(),
+                    input,
+                    last_seq,
+                });
+            })
+            .await
+    }
+
+    pub fn answer_frontend_request(&self, request_id: &str, answer: crate::api::FrontendAnswer) {
+        self.frontend_requests.answer(request_id, answer);
     }
 
     /// Stores a validated Frontend Tool call under `frontend/tools/<tool>/<call id>.json` and
@@ -738,4 +797,21 @@ fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
     std::fs::write(&tmp, serde_json::to_vec_pretty(meta)?)?;
     std::fs::rename(tmp, dir.join("session.json"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod frontend_request_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_timeout_or_a_dropped_wait_removes_the_request() {
+        let requests = FrontendRequests::default();
+        let err = requests.wait(Duration::from_millis(1), |_| {}).await.unwrap_err();
+        assert_eq!(err.to_string(), "No app window answered in time. The window may be closed or the Mac asleep.");
+        assert!(requests.0.lock().unwrap().is_empty());
+
+        let wait = requests.wait(Duration::from_secs(60), |_| {});
+        assert!(tokio::time::timeout(Duration::from_millis(1), wait).await.is_err());
+        assert!(requests.0.lock().unwrap().is_empty());
+    }
 }

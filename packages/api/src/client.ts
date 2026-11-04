@@ -9,6 +9,7 @@ import type {
    Diff,
    Editor,
    Event,
+   FrontendAnswer,
    FrontendManifest,
    GitStatus,
    KnownRepo,
@@ -114,6 +115,8 @@ export interface SessionApi {
     * `call_id`. The core logs it (`FrontendError`) so the Agent learns about it; repeats are ignored.
     */
    reportFrontendError(tool: string, item: string, message: string): Promise<void>;
+   /** Answers a `FrontendRequest` AppEvent. The first answer wins; later ones do nothing. */
+   answerFrontendRequest(requestId: string, answer: FrontendAnswer): Promise<void>;
    /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
    frontendReadImage(path: string): Promise<{ mime: string; data: string }>;
    frontendWrite(path: string, content: string): Promise<void>;
@@ -259,6 +262,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),
       reportFrontendError: (tool, item, message) =>
          run({ type: "ReportFrontendError", session_id: sessionId, tool, item, message }),
+      answerFrontendRequest: (request_id, answer) =>
+         run({ type: "AnswerFrontendRequest", session_id: sessionId, request_id, answer }),
       frontendReadImage: async (path) => {
          const r = await expect(
             { type: "FrontendReadImage", session_id: sessionId, path },
