@@ -351,16 +351,33 @@ function ChatView({
    const [archiveError, setArchiveError] = useState<string | null>(null);
    // Changes need git; hidden until the Workspace is known to be a repository.
    const [git, setGit] = useState(false);
+   const turnRunning = state.turnId !== null;
+   // The folder can become a repository later (`git init`): look again after each Turn, and for a
+   // terminal command every 20s and on focus, until it is one.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: turnRunning triggers the check.
    useEffect(() => {
       let off = false;
-      api.workspace().then(
-         (w) => !off && setGit(!!w?.repo_root),
-         () => {},
-      );
+      const check = () => {
+         if (document.hidden) return;
+         api.workspace().then(
+            (w) => !off && setGit(!!w?.repo_root),
+            () => {},
+         );
+      };
+      check();
+      if (git) {
+         return () => {
+            off = true;
+         };
+      }
+      const timer = setInterval(check, 20_000);
+      window.addEventListener("focus", check);
       return () => {
          off = true;
+         clearInterval(timer);
+         window.removeEventListener("focus", check);
       };
-   }, [api]);
+   }, [api, turnRunning, git]);
 
    const openDiff = useCallback(
       (s: DiffScope) => {

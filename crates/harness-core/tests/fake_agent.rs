@@ -897,6 +897,24 @@ async fn quick_session_gets_its_own_empty_folder() {
 }
 
 #[tokio::test]
+async fn session_folder_that_becomes_a_repo_gets_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let s = summary(&h, &sid).await.unwrap();
+    assert!(s.workspace.repo_root.is_none());
+    let git = std::process::Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&s.folder).status().unwrap();
+    assert!(git.success());
+    let s = summary(&h, &sid).await.unwrap();
+    assert_eq!(s.workspace.repo_root.as_deref(), Some(s.folder.as_str()));
+    assert_eq!(s.workspace.branch.as_deref(), Some("main"));
+    let CommandResult::GitStatus { status } = h.execute(Command::GitStatus { session_id: sid.clone() }).await.unwrap() else {
+        panic!("expected GitStatus");
+    };
+    assert_eq!(status.branch.as_deref(), Some("main"));
+}
+
+#[tokio::test]
 async fn quick_session_title_comes_from_the_first_prompt_then_the_agent() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));

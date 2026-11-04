@@ -61,10 +61,15 @@ pub async fn current_branch(dir: &Path) -> anyhow::Result<Option<String>> {
     Ok(Some(b.trim().to_owned()).filter(|b| !b.is_empty()))
 }
 
+/// The nearest folder at or above `folder` with a `.git`, without spawning git.
+pub fn find_repo_root(folder: &Path) -> Option<PathBuf> {
+    folder.ancestors().find(|d| d.join(".git").exists()).map(Path::to_owned)
+}
+
 /// Branch checked out at `folder` (or its nearest repo above), read from the HEAD file without
 /// spawning git. None when not in a git repo or HEAD is detached.
 pub fn head_branch(folder: &Path) -> Option<String> {
-    let dot_git = folder.ancestors().map(|d| d.join(".git")).find(|p| p.exists())?;
+    let dot_git = find_repo_root(folder)?.join(".git");
     let git_dir = if dot_git.is_dir() {
         dot_git
     } else {

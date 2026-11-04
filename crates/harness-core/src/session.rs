@@ -581,7 +581,23 @@ impl Session {
         Ok(r)
     }
 
+    /// A folder can become a repository after the Session started (`git init`, by the Agent or
+    /// in the terminal), so a Session with no repository looks again each time it is asked.
+    fn adopt_repo(&self) {
+        let folder = {
+            let m = self.meta.lock().unwrap();
+            if m.workspace.repo_root.is_some() {
+                return;
+            }
+            PathBuf::from(&m.folder)
+        };
+        if let Some(root) = crate::workspace::find_repo_root(&folder) {
+            let _ = self.update_meta(|m| m.workspace.repo_root = Some(root));
+        }
+    }
+
     pub fn summary(&self) -> SessionSummary {
+        self.adopt_repo();
         let m = self.meta.lock().unwrap();
         SessionSummary {
             id: m.id.clone(),
@@ -621,6 +637,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         self.note_first_prompt(&thread, &text)?;
+        self.adopt_repo();
         crate::acp::prompt(self.clone(), thread, text, attachments).await
     }
 
@@ -757,6 +774,7 @@ impl Session {
     }
 
     fn folder(&self) -> anyhow::Result<PathBuf> {
+        self.adopt_repo();
         let m = self.meta.lock().unwrap();
         anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
         Ok(PathBuf::from(&m.folder))
