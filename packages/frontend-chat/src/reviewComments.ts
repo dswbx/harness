@@ -63,9 +63,114 @@ export function formatReviewComments(comments: ReviewComment[]): string {
    ].join("\n\n");
 }
 
-/** Prompt text plus the review section; either may be empty. */
+/** Between the comment sections and the typed text. */
+const SEPARATOR = "\n\n---\n\n";
+
+/**
+ * The review sections, then the prompt text (the order the user sees them in); either may be empty.
+ * A leading slash command stays first, so the Agent still sees it.
+ */
 export function withReviewComments(text: string, comments: ReviewComment[]): string {
-   return [text.trim(), formatReviewComments(comments)].filter(Boolean).join("\n\n");
+   const t = text.trim();
+   const parts = [formatReviewComments(comments), t].filter(Boolean);
+   return t.startsWith("/") ? parts.reverse().join("\n\n") : parts.join(SEPARATOR);
+}
+
+const HEADERS = {
+   "Review comments:": "diff",
+   "Comments on the conversation:": "quote",
+   "From a side thread:": "side",
+} as const;
+type Section = (typeof HEADERS)[keyof typeof HEADERS];
+const DIFF_HEAD = /^(.+):(\d+) \((old|new)\)$/;
+const FENCE = /^`{3,}$/;
+const isHeader = (l: string | undefined): l is keyof typeof HEADERS =>
+   l !== undefined && Object.hasOwn(HEADERS, l);
+
+/**
+ * The inverse of `withReviewComments`: the comments and the typed text of a sent prompt. Text that does not
+ * start with a section header, or does not parse back to itself, comes back untouched with no comments.
+ */
+export function parseReviewComments(text: string): { comments: ReviewComment[]; text: string } {
+   const none = { comments: [], text };
+   const lines = text.trim().split("\n");
+   if (!isHeader(lines[0])) return none;
+   const comments: ReviewComment[] = [];
+   let i = 0;
+   let section: Section = "diff";
+   // At a blank line: the section ends there (next header, the separator, or the end).
+   const sectionEnd = (j: number) =>
+      j >= lines.length ||
+      (lines[j] === "" &&
+         ((isHeader(lines[j + 1]) && lines[j + 2] === "") ||
+            (lines[j + 1] === "---" && lines[j + 2] === "")));
+   const itemStart = (j: number) =>
+      section === "diff"
+         ? DIFF_HEAD.test(lines[j] ?? "") && FENCE.test(lines[j + 1] ?? "")
+         : (lines[j] ?? "").startsWith(">");
+   // Comment text: up to the next item or the section's end.
+   const readText = () => {
+      const start = i;
+      while (!sectionEnd(i) && !(lines[i] === "" && itemStart(i + 1))) i++;
+      return lines.slice(start, i).join("\n");
+   };
+   while (i < lines.length) {
+      const header = lines[i];
+      if (!isHeader(header) || lines[i + 1] !== "") return none;
+      section = HEADERS[header];
+      i += 2;
+      while (true) {
+         if (section === "diff") {
+            const m = DIFF_HEAD.exec(lines[i] ?? "");
+            const f = lines[i + 1] ?? "";
+            if (!m || !FENCE.test(f)) return none;
+            const close = lines.indexOf(f, i + 2);
+            if (close < 0) return none;
+            const code = lines.slice(i + 2, close).join("\n");
+            i = close + 1;
+            const t = readText();
+            comments.push({
+               id: String(comments.length),
+               path: m[1] as string,
+               line: Number(m[2]),
+               side: m[3] as "old" | "new",
+               code,
+               text: t,
+            });
+         } else {
+            const start = i;
+            while ((lines[i] ?? "").startsWith(">")) i++;
+            if (i === start) return none;
+            const quote = lines
+               .slice(start, i)
+               .map((l) => l.replace(/^> ?/, ""))
+               .join("\n");
+            let t = "";
+            if (!sectionEnd(i) && !itemStart(i + 1)) {
+               i++;
+               t = readText();
+            }
+            comments.push({
+               id: String(comments.length),
+               kind: "quote",
+               quote,
+               text: t,
+               ...(section === "side" && { source: "side_thread" as const }),
+            });
+         }
+         if (sectionEnd(i)) break;
+         i++;
+      }
+      if (i >= lines.length) break;
+      i++;
+      if (lines[i] === "---") {
+         i += 2;
+         break;
+      }
+   }
+   const rest = lines.slice(i).join("\n");
+   // Anything ambiguous (e.g. a comment with a quote in it) parses to something else: show it as typed.
+   return withReviewComments(rest, comments) === text.trim() ? { comments, text: rest } : none;
 }
 
 // Store: localStorage per Session, so the pop-out diff window and the main window share it.

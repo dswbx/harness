@@ -185,3 +185,24 @@ export function Markdown({
       </div>
    );
 }
+
+const INLINE = ["p", "strong", "em", "del", "code", "a"];
+const inlineComponents: import("react-markdown").Components = {
+   p: ({ children }) => <>{children}</>,
+   a: ({ children }) => <span className="underline">{children}</span>,
+   code: ({ children }) => <code className="font-mono">{children}</code>,
+};
+
+/** One line of inline Markdown (code, bold, italic; links as text); other blocks become their text. */
+export function InlineMarkdown({ children }: { children: string }) {
+   return (
+      <ReactMarkdown
+         remarkPlugins={[remarkGfm]}
+         allowedElements={INLINE}
+         unwrapDisallowed
+         components={inlineComponents}
+      >
+         {children.replace(/\s*\n\s*/g, " ")}
+      </ReactMarkdown>
+   );
+}

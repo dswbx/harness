@@ -35,6 +35,7 @@ import {
    PASTE_COMMAND,
 } from "lexical";
 import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { registerCodeHighlight } from "./promptCodeHighlight";
 import {
    $codeTab,
    $escapeBlock,
@@ -65,7 +66,7 @@ import {
 export type { CaretToken };
 
 import type { PrRefKey, SlashCommand } from "@harness/api";
-import { Tooltip } from "@harness/ui";
+import { cn, Tooltip } from "@harness/ui";
 import { usePrRefs } from "./prRefs";
 
 export type PromptEditorHandle = {
@@ -101,6 +102,12 @@ type Props = {
    onSubmit(): void;
    /** Content is taller than the max height and scrolls. */
    onOverflowChange?(overflow: boolean): void;
+   /** The editor's accessible name; default "Message". */
+   label?: string;
+   /** Replaces the default max height of the scrolling area (`max-h-[40vh]`). */
+   maxHeightClassName?: string;
+   /** Replaces the default min height of the content (`min-h-10`). */
+   minHeightClassName?: string;
 };
 
 const theme: InitialConfigType["theme"] = {
@@ -111,7 +118,7 @@ const theme: InitialConfigType["theme"] = {
       strikethrough: "line-through",
       code: "rounded bg-muted px-1 font-mono text-[0.9em]",
    },
-   code: "my-1 block [tab-size:4] overflow-x-auto whitespace-pre rounded-md border bg-background/60 p-2 font-mono text-xs data-[language]:before:mb-1 data-[language]:before:block data-[language]:before:select-none data-[language]:before:text-[0.65rem] data-[language]:before:text-muted-foreground data-[language]:before:content-[attr(data-language)]",
+   code: "code-colors my-1 block [tab-size:4] overflow-x-auto whitespace-pre rounded-md border bg-background/60 p-2 font-mono text-xs data-[language]:before:mb-1 data-[language]:before:block data-[language]:before:select-none data-[language]:before:text-[0.65rem] data-[language]:before:text-muted-foreground data-[language]:before:content-[attr(data-language)]",
    // Preflight sets `list-style: none` on ul/ol; markers come from these. Nested lists sit in a wrapper li (`nested.listitem`)
    // whose own marker is hidden; the inner list shows its depth's marker.
    list: {
@@ -121,6 +128,8 @@ const theme: InitialConfigType["theme"] = {
       listitem: "my-0.5",
       nested: { listitem: "list-none" },
    },
+   // A code token's highlight type is already its highlight.js classes (see promptCodeHighlight.ts).
+   codeHighlight: new Proxy<Record<string, string>>({}, { get: (_, type) => type }),
    link: "text-primary underline underline-offset-2",
    quote: "my-1 border-l-2 pl-3 text-muted-foreground",
 };
@@ -175,16 +184,22 @@ export function PromptEditor(props: Props) {
             <div
                ref={scroller}
                onScroll={measure}
-               className="relative isolate max-h-[40vh] overflow-y-auto"
+               className={cn(
+                  "relative isolate overflow-y-auto",
+                  props.maxHeightClassName ?? "max-h-[40vh]",
+               )}
             >
                <RichTextPlugin
                   contentEditable={
                      <ContentEditable
-                        aria-label="Message"
+                        aria-label={props.label ?? "Message"}
                         spellCheck={false}
                         autoCorrect="off"
                         autoCapitalize="off"
-                        className="min-h-10 px-1 text-sm outline-none"
+                        className={cn(
+                           "px-1 text-sm outline-none",
+                           props.minHeightClassName ?? "min-h-10",
+                        )}
                      />
                   }
                   placeholder={
@@ -239,6 +254,7 @@ function Behavior(props: Props & { onUpdate(): void }) {
          }),
          // A typed PR ref followed by a space or punctuation becomes a chip once the PR is found.
          registerAutoChip(editor, () => refs.current),
+         registerCodeHighlight(editor),
          // Backspace/Delete next to a chip (or on a selected one) turns it back into the text the user typed.
          ...(
             [

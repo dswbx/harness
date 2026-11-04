@@ -191,11 +191,11 @@ describe("review comments", () => {
       );
    });
 
-   it("appends to the prompt text, either part optional", () => {
+   it("goes before the prompt text, either part optional", () => {
       expect(withReviewComments("Fix these.", [])).toBe("Fix these.");
       expect(withReviewComments("  ", [c({})])).toBe(formatReviewComments([c({})]));
       expect(withReviewComments("Fix these.", [c({})])).toBe(
-         "Fix these.\n\n" + formatReviewComments([c({})]),
+         `${formatReviewComments([c({})])}\n\n---\n\nFix these.`,
       );
    });
 });
