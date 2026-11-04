@@ -343,7 +343,7 @@ function SectionHeader({
    open: boolean;
    onToggle: () => void;
 }) {
-   const Icon = kind === "code" ? Folder : kind === "link" ? Globe : ListTree;
+   const Icon = kind === "code" ? Folder : kind === "link" ? Globe : null;
    return (
       <button
          type="button"
@@ -354,7 +354,7 @@ function SectionHeader({
          <span className="text-muted-foreground">
             <Chevron open={open} />
          </span>
-         <Icon className="size-3.5 shrink-0 text-foreground/80" aria-hidden />
+         {Icon && <Icon className="size-3.5 shrink-0 text-foreground/80" aria-hidden />}
          <span className="truncate text-[12.5px] font-semibold">{s.title}</span>
          {s.tag && (
             <span className="shrink-0 rounded border px-1 text-[10.5px] leading-[15px] font-medium text-foreground/80">
