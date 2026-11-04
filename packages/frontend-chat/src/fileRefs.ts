@@ -90,6 +90,11 @@ const decode = (s: string) => {
 const hasScheme = (href: string) =>
    /^[a-z][\w+.-]*:\/\//i.test(href) || /^(mailto|tel):/i.test(href);
 
+/** The file reference a Markdown link is: by its href, or by its text when the href is relative. */
+export function linkFileRef(href: string, text: string): FileRef | null {
+   return parseFileRef(decode(href)) ?? (hasScheme(href) ? null : parseFileRef(text));
+}
+
 /** Rehype plugin: marks inline code (`code` outside `pre`, not `{:lang}`-prefixed) and links whose text (or relative
  * href) is a file reference with `data-file-ref` (see `fileRefKey`). Runs before `rehypeInlineCode`. */
 export function rehypeFileRefs() {
@@ -105,8 +110,7 @@ export function rehypeFileRefs() {
          }
          if (node.type === "element" && node.tagName === "a") {
             const href = typeof node.properties?.href === "string" ? node.properties.href : "";
-            const ref =
-               parseFileRef(decode(href)) ?? (hasScheme(href) ? null : parseFileRef(textOf(node)));
+            const ref = linkFileRef(href, textOf(node));
             if (ref) node.properties = { ...node.properties, dataFileRef: fileRefKey(ref) };
             return;
          }
