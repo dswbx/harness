@@ -461,12 +461,17 @@ function ChatView({
       [slots],
    );
    const available = useMemo(() => {
-      const a = new Set<PanelId>(["side", "terminal", "events", ...slotById.keys()]);
+      const a = new Set<PanelId>([
+         "side",
+         "terminal",
+         "events",
+         "artifacts",
+         "references",
+         ...slotById.keys(),
+      ]);
       if (git) a.add("changes");
-      if (artifacts.length > 0 || isOpen(lay, "artifacts")) a.add("artifacts");
-      if (resolved.any || referencesOpen) a.add("references");
       return a;
-   }, [slotById, git, artifacts.length, resolved.any, referencesOpen, lay]);
+   }, [slotById, git]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");

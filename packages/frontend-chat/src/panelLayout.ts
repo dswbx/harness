@@ -77,8 +77,8 @@ export const DEFAULT_SIZES: Sizes = {
 };
 
 const DEFAULT_ZONE: Record<(typeof BASE_PANELS)[number], Zone> = {
-   changes: "leftTop",
-   artifacts: "leftBottom",
+   changes: "rightTop",
+   artifacts: "leftTop",
    references: "leftBottom",
    terminal: "bottomLeft",
    events: "bottomRight",
@@ -97,12 +97,12 @@ const noOpen = (): Record<Zone, PanelId | null> => ({
 export function defaultLayout(): Layout {
    return {
       zones: {
-         leftTop: ["changes"],
-         leftBottom: ["artifacts", "references"],
+         leftTop: ["artifacts"],
+         leftBottom: ["references"],
          bottomLeft: ["terminal"],
          bottomRight: ["events"],
          rightBottom: [],
-         rightTop: ["side"],
+         rightTop: ["changes", "side"],
       },
       open: noOpen(),
       sizes: { ...DEFAULT_SIZES },

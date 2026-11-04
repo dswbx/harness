@@ -52,8 +52,6 @@ export type ResolvedReferences = {
    prsUnavailable: boolean;
    /** Lookups are still running. */
    checking: boolean;
-   /** The panel has something to offer: its stripe icon shows. */
-   any: boolean;
    /** For the stripe; undefined until the lookups are done. */
    count: number | undefined;
 };
@@ -61,13 +59,12 @@ export const NO_REFERENCES: ResolvedReferences = {
    refs: [],
    prsUnavailable: false,
    checking: false,
-   any: false,
    count: undefined,
 };
 
 /**
  * Finds the Session's references and, once `active` (the panel was opened), asks the PR store and the file reader about
- * each candidate and reports what exists. No lookups before that: until then the stripe shows the icon without a count.
+ * each candidate and reports what exists. No lookups before that: until then the stripe's icon has no count.
  * Renders nothing; it sits inside their providers.
  */
 export function ReferencesProbe({
@@ -131,7 +128,6 @@ export function ReferencesProbe({
       return {
          ...r,
          checking,
-         any: known ? r.refs.length > 0 : candidates.length > 0,
          count: known ? r.refs.length : undefined,
       };
    }, [candidates, store, reader, changed, tick, active]);
