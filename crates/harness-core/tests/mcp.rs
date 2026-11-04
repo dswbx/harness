@@ -142,6 +142,8 @@ async fn primitives_over_http() {
     let repo = repo(dir.path());
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, &repo, vec![]).await;
+    // The fake Agent starts in its auto mode; push asks in the asking mode.
+    set_mode(&h, &sid, "default").await;
 
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(tools, "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,threads_list,transcript_outline,transcript_read,transcript_search,json_render");
@@ -161,6 +163,35 @@ async fn primitives_over_http() {
         matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push")
     });
     assert!(asked);
+}
+
+fn pushed_asks(h: &Harness, sid: &str) -> bool {
+    events(h, sid).into_iter().any(|e| matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push"))
+}
+
+async fn set_mode(h: &Harness, sid: &str, value: &str) {
+    h.execute(Command::SetConfigOption { session_id: sid.into(), thread_id: None, config_id: "mode".into(), value: value.into() }).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn push_does_not_ask_in_an_auto_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+    // Start the Agent, then switch to its auto mode.
+    ask(&h, &sid, "mcp-list", None).await;
+    set_mode(&h, &sid, "auto").await;
+
+    let push = ask(&h, &sid, "mcp git_push {}", None).await;
+    assert!(!push.contains("denied") && !push.contains("cancelled"), "{push}");
+    assert!(!pushed_asks(&h, &sid), "no approval card in auto mode");
+
+    // Back in the asking mode it asks again.
+    set_mode(&h, &sid, "default").await;
+    let push = ask(&h, &sid, "mcp git_push {}", Some("reject")).await;
+    assert_eq!(push, "mcp error: the user denied this");
+    assert!(pushed_asks(&h, &sid));
 }
 
 #[tokio::test(flavor = "multi_thread")]

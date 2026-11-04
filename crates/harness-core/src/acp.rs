@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use crate::api::{
-    AttachmentInput, Boundary, Decision, EventKind, ForkPoint, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
+    AttachmentInput, Boundary, Decision, Event, EventKind, ForkPoint, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
     SessionStatus, SlashCommand, TaskEntry, ThreadId, ThreadStart,
 };
 use crate::session::Session;
@@ -1243,8 +1243,22 @@ fn on_permission(
     let _ = session.log().sync();
 }
 
+/// The Thread's current Agent mode: the newest of its `ModeChanged` events and the mode option in
+/// its `ConfigOptionsChanged` events (Agents without legacy modes only report the latter).
+fn thread_mode(events: &[Event], thread: &ThreadId) -> Option<String> {
+    events.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match &e.kind {
+        EventKind::ModeChanged { mode_id } => Some(mode_id.clone()),
+        EventKind::ConfigOptionsChanged { options } => {
+            options.as_array()?.iter().find(|o| is_mode(o)).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
+        }
+        _ => None,
+    })
+}
+
 /// Checks a Harness MCP tool call against the Permission Policy, asking the user when the Policy
-/// says so. Errors when denied.
+/// says so. Errors when denied. A default Ask (no explicit rule, not a plan approval) is skipped when
+/// the Thread's Agent mode is one where the Agent decides without asking (`agent_quirks::auto_mode`):
+/// the Agent could do the same through its shell.
 pub async fn authorize(
     session: &Arc<Session>,
     thread: &ThreadId,
@@ -1267,6 +1281,12 @@ pub async fn authorize(
     let verdict = session.policy().evaluate(&cx, &facts);
     if verdict.decision == Decision::Allow {
         return Ok(());
+    }
+    if verdict.decision == Decision::Ask && verdict.rule_id.is_none() && kind != "switch_mode" {
+        let auto = session.log().events().ok().and_then(|e| thread_mode(&e, thread)).is_some_and(|m| crate::agent_quirks::auto_mode(&m));
+        if auto {
+            return Ok(());
+        }
     }
     let request_id = uuid::Uuid::now_v7().to_string();
     let options = vec![
