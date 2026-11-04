@@ -61,10 +61,15 @@ pub async fn current_branch(dir: &Path) -> anyhow::Result<Option<String>> {
     Ok(Some(b.trim().to_owned()).filter(|b| !b.is_empty()))
 }
 
+/// The nearest folder at or above `folder` with a `.git`, without spawning git.
+pub fn find_repo_root(folder: &Path) -> Option<PathBuf> {
+    folder.ancestors().find(|d| d.join(".git").exists()).map(Path::to_owned)
+}
+
 /// Branch checked out at `folder` (or its nearest repo above), read from the HEAD file without
 /// spawning git. None when not in a git repo or HEAD is detached.
 pub fn head_branch(folder: &Path) -> Option<String> {
-    let dot_git = folder.ancestors().map(|d| d.join(".git")).find(|p| p.exists())?;
+    let dot_git = find_repo_root(folder)?.join(".git");
     let git_dir = if dot_git.is_dir() {
         dot_git
     } else {
@@ -261,6 +266,9 @@ pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
 
 /// Diff between two trees or commits, as file list plus unified patch.
 pub async fn diff(dir: &Path, from: &str, to: &str) -> anyhow::Result<Diff> {
+    // "HEAD" (the Uncommitted changes scope) does not resolve before the first commit.
+    let empty = if from == "HEAD" && !has_commits(dir).await { Some(empty_tree(dir).await?) } else { None };
+    let from = empty.as_deref().unwrap_or(from);
     let names = git(dir, &["diff", "--no-renames", "--name-status", from, to]).await?;
     let nums = git(dir, &["diff", "--no-renames", "--numstat", from, to]).await?;
     let patch = git(dir, &["diff", "--no-renames", from, to]).await?;
@@ -289,6 +297,9 @@ pub async fn show_file(dir: &Path, rev: &str, path: &str) -> anyhow::Result<Stri
 /// Commits in `base..HEAD`, newest first.
 pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
     anyhow::ensure!(!base.starts_with('-'), "invalid base");
+    if !has_commits(dir).await {
+        return Ok(vec![]);
+    }
     // Records end with \x1e: the body spans lines.
     let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%cn%x1f%ct%x1f%b%x1e", &format!("{base}..HEAD")]).await?;
     Ok(out
@@ -312,7 +323,8 @@ pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
 /// Where a Session's changes start: the closest merge base with its base branch (a Worktree's, or a PR's), local or on
 /// any remote; a base found nowhere (a PR into a branch never fetched) is fetched once. Without a base, or when it is
 /// gone: on a branch, where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default
-/// branch, its upstream, so only unpushed commits count; else HEAD (no commits, only uncommitted work).
+/// branch, its upstream, so only unpushed commits count; else HEAD (no commits, only uncommitted work). A repository
+/// with no commits yet starts from the empty tree, so every file counts as added.
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
     if let Some(base) = base {
         let mut refs = base_refs(dir, base).await;
@@ -336,7 +348,19 @@ pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String>
     if let Ok(mb) = git(dir, &["merge-base", "HEAD", fork]).await {
         return Ok(mb.trim().to_owned());
     }
+    if !has_commits(dir).await {
+        return empty_tree(dir).await;
+    }
     Ok(git(dir, &["rev-parse", "HEAD"]).await?.trim().to_owned())
+}
+
+/// False right after `git init`: HEAD names a branch with no commits.
+async fn has_commits(dir: &Path) -> bool {
+    git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"]).await.is_ok()
+}
+
+async fn empty_tree(dir: &Path) -> anyhow::Result<String> {
+    Ok(git(dir, &["hash-object", "-t", "tree", "/dev/null"]).await?.trim().to_owned())
 }
 
 /// `base` as a local branch (or any ref) and as `<remote>/<base>` on every remote, those that exist.

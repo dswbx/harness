@@ -1,6 +1,6 @@
-import type { SessionSummary } from "@harness/api";
+import type { AgentInfo, SessionSummary } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { matches, mergeRecent, relTime, sessionFolders, tildify } from "./composer";
+import { matches, mergeRecent, quickAgent, relTime, sessionFolders, tildify } from "./composer";
 
 describe("composer helpers", () => {
    it("merges recent folders newest first, one per path", () => {
@@ -50,5 +50,34 @@ describe("composer helpers", () => {
       expect(matches("feat comp", "feat/composer-v2")).toBe(true);
       expect(matches("feat x", "feat/composer-v2")).toBe(false);
       expect(matches("", "anything")).toBe(true);
+   });
+});
+
+describe("Quick Sessions", () => {
+   const session = (o: Partial<SessionSummary>) =>
+      ({
+         agent_id: "a",
+         created_ms: 0,
+         folder: "/f",
+         workspace: { worktree_branch: null },
+         ...o,
+      }) as SessionSummary;
+   const agent = (id: string) => ({ id }) as AgentInfo;
+
+   it("sessionFolders skips Quick Sessions", () => {
+      const list = [session({ folder: "/p" }), session({ folder: "/d/quick/1", quick: true })];
+      expect(sessionFolders(list).map((r) => r.path)).toEqual(["/p"]);
+   });
+
+   it("quickAgent takes the newest Session's Agent, else the first", () => {
+      const agents = [agent("a"), agent("b")];
+      const list = [
+         session({ agent_id: "a", created_ms: 1 }),
+         session({ agent_id: "b", created_ms: 2 }),
+      ];
+      expect(quickAgent(list, agents)?.id).toBe("b");
+      expect(quickAgent([session({ agent_id: "gone" })], agents)?.id).toBe("a");
+      expect(quickAgent([], agents)?.id).toBe("a");
+      expect(quickAgent([], [])).toBeUndefined();
    });
 });

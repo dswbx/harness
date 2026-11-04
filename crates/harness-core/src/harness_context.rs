@@ -92,5 +92,8 @@ fn facts(session: &Session) -> String {
         }
         (None, None) => lines.push("- Not a git repository".to_owned()),
     }
+    if meta.quick {
+        lines.push("- Quick Session: the folder is empty scratch space".to_owned());
+    }
     lines.join("\n")
 }

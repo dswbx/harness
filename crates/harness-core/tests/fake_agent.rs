@@ -867,3 +867,183 @@ async fn files_are_linked_inside_the_folder_and_embedded_outside() {
         .unwrap_err();
     assert!(err.contains("nope.txt"), "{err}");
 }
+
+async fn quick_session(h: &Harness) -> String {
+    let CommandResult::SessionCreated { session_id } = h
+        .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else { panic!() };
+    session_id
+}
+
+async fn summary(h: &Harness, sid: &str) -> Option<harness_core::api::SessionSummary> {
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    sessions.into_iter().find(|s| s.id == sid)
+}
+
+#[tokio::test]
+async fn quick_session_gets_its_own_empty_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let s = summary(&h, &sid).await.unwrap();
+    assert!(s.quick);
+    assert_eq!(s.title, "New Quick Session");
+    assert_eq!(std::fs::canonicalize(&s.folder).unwrap(), std::fs::canonicalize(data.join("quick").join(&sid)).unwrap());
+    assert_eq!(std::fs::read_dir(&s.folder).unwrap().count(), 0);
+    assert!(s.workspace.repo_root.is_none());
+}
+
+#[tokio::test]
+async fn session_folder_that_becomes_a_repo_gets_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let s = summary(&h, &sid).await.unwrap();
+    assert!(s.workspace.repo_root.is_none());
+    let git = std::process::Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&s.folder).status().unwrap();
+    assert!(git.success());
+    let s = summary(&h, &sid).await.unwrap();
+    assert_eq!(s.workspace.repo_root.as_deref(), Some(s.folder.as_str()));
+    assert_eq!(s.workspace.branch.as_deref(), Some("main"));
+    let CommandResult::GitStatus { status } = h.execute(Command::GitStatus { session_id: sid.clone() }).await.unwrap() else {
+        panic!("expected GitStatus");
+    };
+    assert_eq!(status.branch.as_deref(), Some("main"));
+
+    // No commits yet: all changes and uncommitted changes both show every file as added.
+    std::fs::write(std::path::Path::new(&s.folder).join("a.txt"), "hi\n").unwrap();
+    for from in [None, Some("HEAD".to_owned())] {
+        let CommandResult::Diff { diff } = h.execute(Command::GitDiff { session_id: sid.clone(), from, to: None }).await.unwrap() else {
+            panic!("expected Diff");
+        };
+        assert_eq!(diff.files.iter().map(|f| (f.path.as_str(), f.status.as_str())).collect::<Vec<_>>(), [("a.txt", "A")]);
+    }
+    let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid.clone() }).await.unwrap() else {
+        panic!("expected GitLog");
+    };
+    assert!(commits.is_empty());
+}
+
+#[tokio::test]
+async fn quick_session_title_comes_from_the_first_prompt_then_the_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    turn(&h, &sid, None, "  \nhow do lifetimes compare to generics in a longer sentence\nsecond line").await;
+    assert_eq!(summary(&h, &sid).await.unwrap().title, "how do lifetimes compare to generics in…");
+    // The second prompt keeps the title.
+    turn(&h, &sid, None, "another question").await;
+    assert_eq!(summary(&h, &sid).await.unwrap().title, "how do lifetimes compare to generics in…");
+    // The fake Agent sends a title when the prompt asks for one.
+    turn(&h, &sid, None, "title please").await;
+    assert_eq!(summary(&h, &sid).await.unwrap().title, "Fake title");
+}
+
+#[tokio::test]
+async fn quick_session_with_a_given_title_keeps_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let CommandResult::SessionCreated { session_id: sid } = h
+        .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: Some("Mine".into()), mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else { panic!() };
+    turn(&h, &sid, None, "hello").await;
+    assert_eq!(summary(&h, &sid).await.unwrap().title, "Mine");
+}
+
+#[tokio::test]
+async fn discard_removes_only_an_unused_quick_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let discard = |sid: String| Command::DiscardEmptySession { session_id: sid };
+
+    // Unused: removed, with its folder.
+    let empty = quick_session(&h).await;
+    let folder = summary(&h, &empty).await.unwrap().folder;
+    h.execute(discard(empty.clone())).await.unwrap();
+    assert!(summary(&h, &empty).await.is_none());
+    assert!(!std::path::Path::new(&folder).exists());
+    // Unknown id: nothing happens.
+    h.execute(discard(empty)).await.unwrap();
+
+    // After a prompt: kept.
+    let used = quick_session(&h).await;
+    turn(&h, &used, None, "hello").await;
+    h.execute(discard(used.clone())).await.unwrap();
+    assert!(summary(&h, &used).await.is_some());
+
+    // A file in the folder (the terminal can add one): kept.
+    let with_file = quick_session(&h).await;
+    let folder = summary(&h, &with_file).await.unwrap().folder;
+    std::fs::write(std::path::Path::new(&folder).join("notes.txt"), "x").unwrap();
+    h.execute(discard(with_file.clone())).await.unwrap();
+    assert!(summary(&h, &with_file).await.is_some());
+
+    // A Session with a folder from the user: kept, and its folder too.
+    let (h2, normal, tmp) = setup().await;
+    h2.execute(discard(normal.clone())).await.unwrap();
+    assert!(summary(&h2, &normal).await.is_some());
+    assert!(tmp.path().exists());
+}
+
+#[tokio::test]
+async fn deleting_a_quick_session_removes_its_folder_and_archiving_keeps_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    turn(&h, &sid, None, "hello").await;
+    let folder = summary(&h, &sid).await.unwrap().folder;
+    let file = std::path::Path::new(&folder).join("notes.txt");
+    std::fs::write(&file, "x").unwrap();
+
+    h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert!(file.exists());
+    h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
+    h.execute(Command::DeleteSession { session_id: sid.clone(), force: false }).await.unwrap();
+    assert!(summary(&h, &sid).await.is_none());
+    assert!(!std::path::Path::new(&folder).exists());
+}
+
+#[tokio::test]
+async fn deleting_a_session_keeps_a_folder_that_is_not_named_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    drop(h);
+    // Bad metadata: a quick Session that points at a folder of the user.
+    let other = dir.path().join("precious");
+    std::fs::create_dir_all(&other).unwrap();
+    let path = data.join("sessions").join(&sid).join("session.json");
+    let mut meta: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta["folder"] = other.display().to_string().into();
+    meta["awaiting_first_prompt"] = false.into();
+    std::fs::write(&path, serde_json::to_vec(&meta).unwrap()).unwrap();
+
+    let h = harness(&data, &[], Duration::from_secs(900));
+    h.execute(Command::DeleteSession { session_id: sid, force: false }).await.unwrap();
+    assert!(other.exists());
+}
+
+#[tokio::test]
+async fn startup_removes_unused_quick_sessions_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[], Duration::from_secs(900));
+    let empty = quick_session(&h).await;
+    let empty_folder = summary(&h, &empty).await.unwrap().folder;
+    let used = quick_session(&h).await;
+    turn(&h, &used, None, "hello").await;
+    drop(h);
+
+    let h = harness(&data, &[], Duration::from_secs(900));
+    assert!(summary(&h, &empty).await.is_none());
+    assert!(!std::path::Path::new(&empty_folder).exists());
+    let kept = summary(&h, &used).await.unwrap();
+    assert!(kept.quick);
+    assert_eq!(kept.title, "hello");
+}

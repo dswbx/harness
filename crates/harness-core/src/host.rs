@@ -83,6 +83,12 @@ impl Harness {
         for entry in std::fs::read_dir(&sessions_dir)? {
             let dir = entry?.path();
             match Session::open(&dir, shared.clone()) {
+                // The app closed while this Quick Session was still unused.
+                Ok(s) if s.is_discardable() => {
+                    if let Err(e) = s.remove_files().and_then(|()| shared.policy.forget_session(&s.id())) {
+                        tracing::warn!("removing empty quick session {}: {e:#}", dir.display());
+                    }
+                }
                 Ok(s) => {
                     sessions.insert(s.id().clone(), Arc::new(s));
                 }
@@ -108,9 +114,18 @@ impl Harness {
         frontends.push(manifest);
     }
 
+    async fn delete_session(&self, session_id: &SessionId, force: bool) -> anyhow::Result<()> {
+        let session = self.session(session_id)?;
+        self.terminals.kill_all(session_id);
+        session.delete_workspace(force).await?;
+        self.sessions.write().unwrap().remove(session_id);
+        session.remove_files()?;
+        self.shared.policy.forget_session(session_id)
+    }
+
     pub async fn execute(&self, cmd: Command) -> Result<CommandResult, String> {
         let changes = match &cmd {
-            Command::CreateSession { .. } | Command::DeleteSession { .. } => Some(AppEvent::SessionsChanged),
+            Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => Some(AppEvent::SessionsChanged),
             Command::InstallAgent { .. } | Command::AddCustomAgent { .. } | Command::RemoveAgent { .. } => {
                 Some(AppEvent::AgentsChanged)
             }
@@ -218,6 +233,39 @@ impl Harness {
                     let shared = self.shared.clone();
                     tokio::spawn(async move { shared.pr_refs.repo_of(&folder).await });
                 }
+                self.sessions.write().unwrap().insert(id.clone(), Arc::new(session));
+                CommandResult::SessionCreated { session_id: id }
+            }
+            Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
+                let agent = self.agent(&agent_id)?;
+                anyhow::ensure!(
+                    self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id),
+                    "unknown frontend {frontend_id}"
+                );
+                for m in &mcp_servers {
+                    self.shared.library.resolve(m)?;
+                }
+                let id = uuid::Uuid::now_v7().to_string();
+                let folder = self.data_dir.join("quick").join(&id);
+                std::fs::create_dir_all(&folder)?;
+                let folder = std::fs::canonicalize(&folder)?.display().to_string();
+                let title_from_prompt = title.is_none();
+                let session = Session::create(
+                    &self.data_dir.join("sessions").join(&id),
+                    id.clone(),
+                    title.unwrap_or_else(|| crate::session::QUICK_TITLE.to_owned()),
+                    folder,
+                    agent,
+                    frontend_id,
+                    WorkspaceMeta::default(),
+                    mcp_servers,
+                    self.shared.clone(),
+                )?;
+                session.update_meta(|m| {
+                    m.quick = true;
+                    m.awaiting_first_prompt = true;
+                    m.title_from_prompt = title_from_prompt;
+                })?;
                 self.sessions.write().unwrap().insert(id.clone(), Arc::new(session));
                 CommandResult::SessionCreated { session_id: id }
             }
@@ -365,12 +413,14 @@ impl Harness {
                 CommandResult::Ok
             }
             Command::DeleteSession { session_id, force } => {
-                let session = self.session(&session_id)?;
-                self.terminals.kill_all(&session_id);
-                session.delete_workspace(force).await?;
-                self.sessions.write().unwrap().remove(&session_id);
-                std::fs::remove_dir_all(session.dir())?;
-                self.shared.policy.forget_session(&session_id)?;
+                self.delete_session(&session_id, force).await?;
+                CommandResult::Ok
+            }
+            Command::DiscardEmptySession { session_id } => {
+                let discardable = self.sessions.read().unwrap().get(&session_id).is_some_and(|s| s.is_discardable());
+                if discardable {
+                    self.delete_session(&session_id, false).await?;
+                }
                 CommandResult::Ok
             }
             Command::GitStatus { session_id } => {

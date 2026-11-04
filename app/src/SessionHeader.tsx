@@ -41,6 +41,7 @@ import {
    Plus,
    Settings,
    X,
+   Zap,
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useReportError } from "./toast";
@@ -355,6 +356,7 @@ export function SessionDetails({ s }: { s: SessionSummary }) {
             </span>
          </div>
          <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5">
+            {s.quick && row("Kind", "Quick Session")}
             {row("Folder", s.folder, true)}
             {row(
                "Worktree",
@@ -537,6 +539,12 @@ export function SessionHeader({
          </DropdownMenu>
          <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
          {git && <GitRefButton client={client} session={session} git={git} />}
+         {session.quick && (
+            <span className="flex shrink-0 items-center gap-1.5 px-1.5 text-xs text-muted-foreground">
+               <Zap className="size-3" />
+               Quick Session
+            </span>
+         )}
          <div ref={toolbarRef} className="flex items-center gap-1" />
          <DropdownMenu open={gearOpen} onOpenChange={setGearOpen}>
             <DropdownMenuTrigger asChild>

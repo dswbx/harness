@@ -1,4 +1,16 @@
-import type { SessionSummary } from "@harness/api";
+import type { AgentInfo, SessionSummary } from "@harness/api";
+
+/** Title of a Quick Session until its first prompt (the core's `QUICK_TITLE`). */
+export const QUICK_TITLE = "New Quick Session";
+
+/** The Agent for a new Quick Session: the newest Session's if still installed, else the first. */
+export function quickAgent(sessions: SessionSummary[], agents: AgentInfo[]): AgentInfo | undefined {
+   const newest = sessions.reduce<SessionSummary | undefined>(
+      (a, s) => (!a || s.created_ms > a.created_ms ? s : a),
+      undefined,
+   );
+   return agents.find((a) => a.id === newest?.agent_id) ?? agents[0];
+}
 
 /** Folders picked in the Composer, newest first (per machine; Sessions add their own). */
 export const RECENT_KEY = "harness.recentFolders";
@@ -44,7 +56,7 @@ export function mergeRecent(...lists: RecentFolder[][]): RecentFolder[] {
 /** Folders of Sessions that work in the folder itself (a Worktree Session's folder is the Worktree). */
 export function sessionFolders(sessions: SessionSummary[]): RecentFolder[] {
    return sessions
-      .filter((s) => !s.workspace.worktree_branch)
+      .filter((s) => !s.workspace.worktree_branch && !s.quick)
       .map((s) => ({ path: s.folder, at: s.created_ms }));
 }
 
