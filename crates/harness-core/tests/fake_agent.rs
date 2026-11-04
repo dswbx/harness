@@ -127,7 +127,7 @@ async fn permission_first_answer_wins_and_late_view_replays() {
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     assert_eq!(status_of(&h).await, SessionStatus::NeedsAttention);
 
-    let answer = |opt: &str| Command::ResolvePermission { session_id: sid.clone(), request_id: request_id.clone(), option_id: Some(opt.into()) };
+    let answer = |opt: &str| Command::ResolvePermission { session_id: sid.clone(), request_id: request_id.clone(), option_id: Some(opt.into()), global: false };
     h.execute(answer("reject")).await.unwrap();
     assert!(h.execute(answer("allow")).await.is_err(), "second answer must lose");
 
@@ -194,7 +194,7 @@ async fn always_allow_is_remembered_for_the_session() {
     h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
-    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()) }).await.unwrap();
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()), global: false }).await.unwrap();
     let added = until(&mut rx, |k| matches!(k, EventKind::PermissionRuleAdded { .. })).await;
     let EventKind::PermissionRuleAdded { rule } = added.kind else { unreachable!() };
     assert_eq!(rule.pattern.as_deref(), Some("echo hi"));
@@ -202,6 +202,29 @@ async fn always_allow_is_remembered_for_the_session() {
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
 
     let (by, rule_id, status) = permission_turn(&h, &sid).await;
+    assert_eq!((by, rule_id, status.as_str()), (Resolver::Policy, Some(rule.id), "completed"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn global_always_allow_applies_to_other_sessions() {
+    let (h, sid, dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()), global: true }).await.unwrap();
+    let added = until(&mut rx, |k| matches!(k, EventKind::PermissionRuleAdded { .. })).await;
+    let EventKind::PermissionRuleAdded { rule } = added.kind else { unreachable!() };
+    assert_eq!(rule.scope, RuleScope::Global);
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+
+    let folder = dir.path().display().to_string();
+    let CommandResult::SessionCreated { session_id: second } = h
+        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else { panic!() };
+    let (by, rule_id, status) = permission_turn(&h, &second).await;
     assert_eq!((by, rule_id, status.as_str()), (Resolver::Policy, Some(rule.id), "completed"));
 }
 
@@ -528,7 +551,7 @@ async fn main_thread_mid_turn_falls_back_to_a_seed() {
     let (side, _) = start_side(&h, &sid, None, ThreadStart::Fork).await;
     assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
     assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
-    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("allow".into()) }).await.unwrap();
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("allow".into()), global: false }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
 }
 
@@ -731,7 +754,7 @@ async fn app_events_announce_list_changes_and_attention() {
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     until(&mut rx, |k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })).await;
-    h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id, option_id: Some("allow".into()) }).await.unwrap();
+    h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id, option_id: Some("allow".into()), global: false }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     for _ in 0..40 {
         if seen.lock().unwrap().iter().any(|e| e["type"] == "TurnFinished") {

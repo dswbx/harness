@@ -57,7 +57,7 @@ async fn turn(h: &Harness, sid: &str, text: &str) -> Vec<Event> {
             {
                 let allow = options.iter().find(|o| o.kind == "allow_once").or(options.first()).map(|o| o.option_id.clone());
                 let _ = h
-                    .execute(Command::ResolvePermission { session_id: sid.into(), request_id: request_id.clone(), option_id: allow })
+                    .execute(Command::ResolvePermission { session_id: sid.into(), request_id: request_id.clone(), option_id: allow, global: false })
                     .await;
             }
         }

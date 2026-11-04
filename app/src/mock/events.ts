@@ -236,18 +236,20 @@ export function mockEvents(): Event[] {
          locations: [],
          raw_input: { command: "bun test" },
       }),
+      ...mockGitSteps(ev),
       ev({
          type: "PermissionRequested",
-         request_id: "mock-push",
+         request_id: "mock-edit",
          tool_call: {
-            toolCallId: "push:1",
-            kind: "git_push",
-            title: "mcp__harness__git_push",
+            toolCallId: "mock-edit-perm",
+            kind: "edit",
+            title: "Edit src/server/router.ts",
             rawInput: {},
          },
          options: [
             { option_id: "allow", name: "Allow", kind: "allow_once" },
-            { option_id: "deny", name: "Deny", kind: "reject_once" },
+            { option_id: "always", name: "Always allow", kind: "allow_always" },
+            { option_id: "reject", name: "Reject", kind: "reject_once" },
          ],
       }),
       ev({
@@ -264,6 +266,95 @@ export function mockEvents(): Event[] {
          options: [
             { option_id: "implement_plan", name: "Implement this plan", kind: "allow_once" },
             { option_id: "revise_plan", name: "Revise", kind: "reject_once" },
+         ],
+      }),
+   ];
+}
+
+const HASH = "3f9c2ab81d4e5f60718293a4b5c6d7e8f9012345";
+const text = (t: string) => [{ type: "text", text: t }];
+const content = (t: string) => [{ type: "content", content: { type: "text", text: t } }];
+
+/** Harness git tool calls as the core logs them: done, failed, then a push waiting for approval. */
+function mockGitSteps(ev: (kind: EventKind) => Event): Event[] {
+   const call = (id: string, tool: string) =>
+      ev({
+         type: "ToolCall",
+         tool_call_id: id,
+         title: `mcp__harness__${tool}`,
+         kind: null,
+         status: null,
+         content: [],
+         locations: null,
+         raw_input: {},
+         harness_tool: tool,
+      });
+   const update = (
+      id: string,
+      u: { status?: string; raw_input?: unknown; raw_output?: unknown; text?: string },
+   ) =>
+      ev({
+         type: "ToolCallUpdate",
+         tool_call_id: id,
+         title: null,
+         kind: null,
+         status: u.status ?? null,
+         content: u.text !== undefined ? content(u.text) : null,
+         locations: null,
+         raw_input: u.raw_input ?? null,
+         raw_output: u.raw_output ?? null,
+      });
+   const done = (id: string, out: string, raw_input?: unknown) =>
+      update(id, {
+         status: "completed",
+         raw_input,
+         raw_output: text(out),
+         text: out,
+      });
+   const status = JSON.stringify(
+      { branch: "feat/rename", upstream: null, ahead: 0, behind: 0, files: [{}, {}, {}] },
+      null,
+      2,
+   );
+   const patch =
+      "diff --git a/src/hello.ts b/src/hello.ts\n--- a/src/hello.ts\n+++ b/src/hello.ts\n@@ -1,3 +1,4 @@\n-const a = 1\n+const a = 2\n+const b = 3\n context\n";
+   const failure = "The operation timed out.";
+   return [
+      call("mock-git-status", "git_status"),
+      done("mock-git-status", status),
+      call("mock-git-diff", "git_diff"),
+      done("mock-git-diff", patch, {}),
+      call("mock-git-commit", "git_commit"),
+      update("mock-git-commit", {
+         raw_input: {
+            message:
+               "Rename hello.txt to hello.ts\n\nMove the file and update its imports so the build keeps working.",
+         },
+      }),
+      done("mock-git-commit", `Committed ${HASH}`),
+      call("mock-git-push-1", "git_push"),
+      update("mock-git-push-1", { status: "in_progress" }),
+      update("mock-git-push-1", {
+         status: "failed",
+         raw_output: failure,
+         text: `\`\`\`\n${failure}\n\`\`\``,
+      }),
+      call("mock-git-push-2", "git_push"),
+      update("mock-git-push-2", { status: "in_progress" }),
+      ev({
+         type: "PermissionRequested",
+         request_id: "mock-push",
+         tool_call: {
+            toolCallId: "harness-mock-push",
+            kind: "git_push",
+            title: "Push branch to origin",
+            rawInput: {},
+         },
+         harness_tool: "git_push",
+         options: [
+            { option_id: "allow", name: "Allow", kind: "allow_once" },
+            { option_id: "always", name: "Always allow", kind: "allow_always" },
+            { option_id: "reject", name: "Reject", kind: "reject_once" },
          ],
       }),
    ];

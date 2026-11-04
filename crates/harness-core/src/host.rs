@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::api::{
-    AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, PrRefKey,
+    AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey,
     SessionId, SessionSummary,
 };
 use crate::log::SubscriptionId;
@@ -495,14 +495,14 @@ impl Harness {
                 CommandResult::FileContent { content: self.session(&session_id)?.git_show_file(&rev, &path).await? }
             }
             Command::GitCommit { session_id, message } => {
-                CommandResult::Committed { commit: self.session(&session_id)?.git_commit(message).await? }
+                CommandResult::Committed { commit: self.session(&session_id)?.git_commit(message, GitActor::User).await? }
             }
             Command::GitPush { session_id } => {
-                self.session(&session_id)?.git_push().await?;
+                self.session(&session_id)?.git_push(GitActor::User).await?;
                 CommandResult::Ok
             }
-            Command::ResolvePermission { session_id, request_id, option_id } => {
-                self.session(&session_id)?.resolve_permission(&request_id, option_id)?;
+            Command::ResolvePermission { session_id, request_id, option_id, global } => {
+                self.session(&session_id)?.resolve_permission(&request_id, option_id, global)?;
                 CommandResult::Ok
             }
             Command::ListPermissionRules => CommandResult::PermissionRules { rules: self.shared.policy.list() },

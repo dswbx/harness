@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{AgentInfo, EventKind, SessionId, SessionStatus, SessionSummary, ThreadId};
+use crate::api::{AgentInfo, EventKind, GitActor, SessionId, SessionStatus, SessionSummary, ThreadId};
 use crate::log::{now_ms, SessionLog};
 use crate::permissions::Policy;
 
@@ -753,8 +753,8 @@ impl Session {
         self.agent.cancel(self, &thread).await
     }
 
-    pub fn resolve_permission(&self, request_id: &str, option_id: Option<String>) -> anyhow::Result<()> {
-        self.agent.resolve_permission(self, request_id, option_id)
+    pub fn resolve_permission(&self, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
+        self.agent.resolve_permission(self, request_id, option_id, global)
     }
 
     pub async fn set_config_option(self: &Arc<Self>, thread_id: Option<ThreadId>, config_id: String, value: String) -> anyhow::Result<()> {
@@ -809,16 +809,16 @@ impl Session {
         crate::workspace::show_file(&self.folder()?, rev, path).await
     }
 
-    pub async fn git_commit(&self, message: String) -> anyhow::Result<String> {
+    pub async fn git_commit(&self, message: String, by: GitActor) -> anyhow::Result<String> {
         let commit = crate::workspace::commit(&self.folder()?, &message).await?;
-        self.log.append(None, EventKind::GitCommitted { commit: commit.clone(), message })?;
+        self.log.append(None, EventKind::GitCommitted { commit: commit.clone(), message, by })?;
         Ok(commit)
     }
 
-    pub async fn git_push(&self) -> anyhow::Result<()> {
+    pub async fn git_push(&self, by: GitActor) -> anyhow::Result<String> {
         let branch = crate::workspace::push(&self.folder()?).await?;
-        self.log.append(None, EventKind::GitPushed { branch })?;
-        Ok(())
+        self.log.append(None, EventKind::GitPushed { branch: branch.clone(), by })?;
+        Ok(branch)
     }
 
     pub async fn archive(&self) -> anyhow::Result<()> {

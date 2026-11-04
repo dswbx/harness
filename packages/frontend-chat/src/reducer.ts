@@ -62,6 +62,8 @@ export type Item =
         report: string | null;
         /** The Harness MCP tool this calls (`git_status`), when it is one. */
         harnessTool: string | null;
+        /** How a Harness tool call got through its approval: you answered, a rule, the Agent's auto mode, or it was denied. */
+        approval?: "you" | "denied" | "rule" | "auto";
      }
    | {
         type: "permission";
@@ -70,6 +72,8 @@ export type Item =
         toolCall: ToolCallRef;
         /** The Harness MCP tool the request is for, when it is one. */
         harnessTool: string | null;
+        /** The tool call this approves (a Harness tool's step in the Trace), when there is one. */
+        stepId: string | null;
         options: PermissionOption[];
         resolved: boolean;
         /** Set when the core answered via the Permission Policy (no actionable card). */
@@ -396,6 +400,10 @@ function applyThread(c: Ctx, e: Event) {
             background: existing !== undefined ? (d.items[existing] as Tool).background : false,
             report: k.report ?? null,
             harnessTool: k.harness_tool ?? null,
+            ...(existing !== undefined &&
+               (d.items[existing] as Tool).approval && {
+                  approval: (d.items[existing] as Tool).approval,
+               }),
          };
          if (existing !== undefined) own(c)[existing] = item;
          else {
@@ -567,11 +575,22 @@ function applyThread(c: Ctx, e: Event) {
             description: k.description,
          });
          return;
-      case "GitCommitted":
-         notice("info", `Committed ${k.commit.slice(0, 7)}: ${k.message}`);
+      // The Agent's own commits and pushes are Trace steps already; the notice is for the user's.
+      case "GitCommitted": {
+         if (k.by === "agent") return;
+         const [subject = "", ...rest] = k.message.trim().split("\n");
+         push(c, {
+            type: "notice",
+            id,
+            level: "info",
+            text: `You committed ${k.commit.slice(0, 7)} ${subject.trim()}`,
+            ...(rest.some((l) => l.trim()) && { info: k.message.trim() }),
+         });
          return;
+      }
       case "GitPushed":
-         notice("info", `Pushed ${k.branch}`);
+         if (k.by === "agent") return;
+         notice("info", `You pushed ${k.branch} to origin`);
          return;
       case "SessionArchived":
          d.archived = k.archived;
@@ -586,12 +605,28 @@ function applyThread(c: Ctx, e: Event) {
       case "PermissionRequested": {
          const idx = permIndex(c);
          idx.set(k.request_id, own(c).length);
+         let stepId: string | null = null;
+         if (k.harness_tool) {
+            for (let n = d.items.length - 1; n >= 0; n--) {
+               const t = d.items[n]!;
+               if (
+                  t.type === "tool" &&
+                  t.harnessTool === k.harness_tool &&
+                  t.status !== "completed" &&
+                  t.status !== "failed"
+               ) {
+                  stepId = t.id;
+                  break;
+               }
+            }
+         }
          push(c, {
             type: "permission",
             id,
             requestId: k.request_id,
             toolCall: (k.tool_call ?? {}) as ToolCallRef,
             harnessTool: k.harness_tool ?? null,
+            stepId,
             options: k.options,
             resolved: false,
          });
@@ -601,9 +636,25 @@ function applyThread(c: Ctx, e: Event) {
          const at = permIndex(c).get(k.request_id);
          const i = at !== undefined ? d.items[at] : undefined;
          if (!i || i.type !== "permission") return;
+         const kind = i.options.find((o) => o.option_id === k.option_id)?.kind ?? "";
+         if (i.stepId && k.option_id !== null) {
+            const ti = toolIndex(c).get(i.stepId);
+            const tool = ti !== undefined ? d.items[ti] : undefined;
+            if (tool?.type === "tool") {
+               const approval: Tool["approval"] = kind.startsWith("reject")
+                  ? "denied"
+                  : !kind.startsWith("allow")
+                    ? undefined
+                    : k.by === "policy"
+                      ? k.rule_id
+                         ? "rule"
+                         : "auto"
+                      : "you";
+               if (approval) own(c)[ti!] = { ...tool, approval };
+            }
+         }
          if (k.by !== "policy") own(c)[at!] = { ...i, resolved: true };
          else {
-            const kind = i.options.find((o) => o.option_id === k.option_id)?.kind ?? "";
             own(c)[at!] = {
                ...i,
                resolved: true,
@@ -613,7 +664,10 @@ function applyThread(c: Ctx, e: Event) {
          return;
       }
       case "PermissionRuleAdded":
-         notice("info", `Remembered for this session: ${describeRule(k.rule)}`);
+         notice(
+            "info",
+            `Remembered for ${k.rule.scope.type === "global" ? "all Sessions" : "this session"}: ${describeRule(k.rule)}`,
+         );
          return;
    }
 }
@@ -671,6 +725,8 @@ export function describeRule(r: PermissionRule): string {
 export function permissionTitle(
    toolCall: ToolCallRef,
    harnessTool: string | null = null,
+   /** Shown as a step: the message goes in the detail, not the title. */
+   step = false,
 ): string | null {
    const input = toolCall.rawInput ?? {};
    switch (toolCall.kind) {
@@ -678,7 +734,7 @@ export function permissionTitle(
          return "Push branch to origin?";
       case "git_commit": {
          const msg = typeof input.message === "string" ? input.message : null;
-         return msg ? `Commit all changes: "${msg}"?` : "Commit all changes?";
+         return msg && !step ? `Commit all changes: "${msg}"?` : "Commit all changes?";
       }
       case "frontend_tool": {
          // The core titles these "Frontend tool: <name>".

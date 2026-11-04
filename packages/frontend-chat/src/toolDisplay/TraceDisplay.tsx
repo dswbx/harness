@@ -14,11 +14,16 @@ import {
 } from "@harness/ui";
 import {
    ArrowRightLeft,
+   ArrowUpFromLine,
    Bot,
    Brain,
+   CircleDot,
    FileCheck,
+   FileDiff,
    FilePen,
    FileText,
+   GitBranch,
+   GitCommitHorizontal,
    Globe,
    Plug,
    Search,
@@ -35,7 +40,7 @@ import { Block, json, present, STEP_TEXT } from "../ToolCard";
 import type { ToolGroupProps } from ".";
 import { CodeFrame } from "./CodeFrame";
 import type { Tool } from "./group";
-import { type StepState, stepLabel } from "./label";
+import { gitSummary, type StepState, stepLabel } from "./label";
 import { ThoughtStep } from "./ThoughtStep";
 
 /** Steps of a run, one line each (shadcn Trace); a step opens only on a click. */
@@ -69,6 +74,31 @@ const KIND_ICONS: Record<string, typeof Wrench> = {
    switch_mode: ToggleRight,
 };
 
+const GIT_ICONS: Record<string, typeof Wrench> = {
+   git_commit: GitCommitHorizontal,
+   git_push: ArrowUpFromLine,
+   git_status: CircleDot,
+   git_diff: FileDiff,
+   list_branches: GitBranch,
+};
+
+const APPROVAL_META = {
+   you: "allowed by you",
+   rule: "allowed by rule",
+   auto: "auto mode",
+   denied: "denied",
+} as const;
+
+/** `+a -d`, green and red. */
+function plusMinus(add: number, del: number) {
+   return (
+      <>
+         <span className="text-emerald-500">+{add}</span>{" "}
+         <span className="text-red-400">-{del}</span>
+      </>
+   );
+}
+
 /** `+3 -1` over the call's diffs. */
 function diffStat(tool: Tool) {
    let add = 0;
@@ -80,12 +110,7 @@ function diffStat(tool: Tool) {
          else if (l.op === "-") del++;
       }
    }
-   return add || del ? (
-      <>
-         <span className="text-emerald-500">+{add}</span>{" "}
-         <span className="text-red-400">-{del}</span>
-      </>
-   ) : null;
+   return add || del ? plusMinus(add, del) : null;
 }
 
 const Step = memo(function Step({
@@ -98,33 +123,51 @@ const Step = memo(function Step({
    active: boolean;
 }) {
    const [open, setOpen] = useState(false);
+   const denied = !subagent && tool.approval === "denied";
    const state: StepState = subagent
       ? subagentState(tool, subagent)
-      : tool.status === "failed"
-        ? "failed"
-        : tool.status === "completed"
-          ? "done"
-          : active
-            ? "running"
-            : "pending";
+      : denied
+        ? "pending"
+        : tool.status === "failed"
+          ? "failed"
+          : tool.status === "completed"
+            ? "done"
+            : active
+              ? "running"
+              : "pending";
    const stat = useMemo(() => diffStat(tool), [tool.content]);
+   const git = useMemo(
+      () => (subagent ? null : gitSummary(tool)),
+      [subagent, tool.harnessTool, tool.rawInput, tool.rawOutput, tool.content],
+   );
    const Icon = subagent
       ? Bot
       : state === "failed"
         ? XCircle
-        : tool.harnessTool || tool.title.startsWith("mcp__")
-          ? Plug
-          : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
+        : tool.harnessTool && GIT_ICONS[tool.harnessTool]
+          ? GIT_ICONS[tool.harnessTool]!
+          : tool.harnessTool || tool.title.startsWith("mcp__")
+            ? Plug
+            : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
    const { verb, detail } = stepLabel(tool, state, !!subagent);
    // Live count for a subagent (never its last call: a long one pushed the title out).
    const n = subagent?.calls.length ?? 0;
-   const description = subagent
-      ? `${n} tool call${n === 1 ? "" : "s"}`
+   const approval = tool.approval && !subagent ? APPROVAL_META[tool.approval] : null;
+   const metas: ReactNode[] = subagent
+      ? [`${n} tool call${n === 1 ? "" : "s"}`]
       : state === "failed"
-        ? "failed"
-        : state === "pending"
-          ? "stopped"
-          : stat;
+        ? [git?.error ?? "failed"]
+        : denied
+          ? ["denied"]
+          : state === "pending"
+            ? ["stopped"]
+            : [
+                 git?.changed !== undefined && `${git.changed} changed`,
+                 git?.count !== undefined && `${git.count} branch${git.count === 1 ? "" : "es"}`,
+                 git?.additions !== undefined && plusMinus(git.additions, git.deletions ?? 0),
+                 stat,
+                 approval,
+              ];
    const line = (
       <TraceLine
          status={
@@ -143,12 +186,26 @@ const Step = memo(function Step({
          <TraceTitle>
             <TraceVerb>{verb}</TraceVerb>
             {detail && <TraceDetail>{detail}</TraceDetail>}
+            {git?.hash && (
+               <span className="shrink-0 rounded bg-muted px-1 text-ui-sm text-muted-foreground">
+                  {git.hash}
+               </span>
+            )}
          </TraceTitle>
-         {description && <TraceDescription>{description}</TraceDescription>}
+         {metas.map((m, i) => m && <TraceDescription key={i}>{m}</TraceDescription>)}
       </TraceLine>
    );
+   const message =
+      tool.harnessTool === "git_commit" &&
+      typeof (tool.rawInput as { message?: unknown } | null)?.message === "string"
+         ? (tool.rawInput as { message: string }).message.trim()
+         : "";
    const hasBody =
-      !!subagent || tool.content.length > 0 || present(tool.rawInput) || present(tool.rawOutput);
+      !!subagent ||
+      !!message ||
+      tool.content.length > 0 ||
+      present(tool.rawInput) ||
+      present(tool.rawOutput);
    if (!hasBody) return line;
    return (
       <TraceCollapsible open={open} onOpenChange={setOpen}>
@@ -156,6 +213,8 @@ const Step = memo(function Step({
          <TraceCollapsibleContent className="space-y-2">
             {subagent ? (
                <SubagentBody task={tool} subagent={subagent} active={active} />
+            ) : message ? (
+               <CodeFrame label="commit message" meta={git?.hash} code={message} />
             ) : (
                <CallBody tool={tool} />
             )}

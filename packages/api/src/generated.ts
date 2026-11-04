@@ -274,7 +274,9 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
  */
 { type: "StartSideThread"; session_id: string; seed?: string | null; source?: ThreadStart } | { type: "ResolvePermission"; session_id: string; request_id: string; 
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
-option_id: string | null } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string } | 
+option_id: string | null; 
+/**  With an `*_always` option, the rule applies to every Session (Global scope) instead of this Session. */
+global?: boolean } | { type: "ListPermissionRules" } | { type: "AddPermissionRule"; rule: NewPermissionRule } | { type: "RemovePermissionRule"; rule_id: string } | { type: "SetConfigOption"; session_id: string; thread_id: string | null; config_id: string; value: string } | { type: "SetMode"; session_id: string; thread_id: string | null; mode_id: string } | 
 /**  Reads a stored attachment (base64). Only files in the Session Directory's `attachments/`. */
 { type: "ReadAttachment"; session_id: string; path: string } | 
 /**
@@ -410,7 +412,7 @@ files?: { [key in string]: string } } |
  *  The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
  *  current state.
  */
-{ type: "StateChanged"; ops: StatePatchOp[]; by: StateWriter } | { type: "GitCommitted"; commit: string; message: string } | { type: "GitPushed"; branch: string } | { type: "SessionArchived"; archived: boolean } | 
+{ type: "StateChanged"; ops: StatePatchOp[]; by: StateWriter } | { type: "GitCommitted"; commit: string; message: string; by?: GitActor } | { type: "GitPushed"; branch: string; by?: GitActor } | { type: "SessionArchived"; archived: boolean } | 
 /**
  *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
  *  output). `severity` is `info`, `warning`, `error` or a custom value.
@@ -466,6 +468,9 @@ export type FrontendToolDecl = {
 	/**  The Frontend answers the call: the result goes back to the Agent, nothing goes in the Session Log. */
 	replies?: boolean,
 };
+
+/**  Who ran a git action. */
+export type GitActor = "agent" | "user";
 
 export type GitStatus = {
 	branch: string | null,

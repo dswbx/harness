@@ -28,7 +28,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::api::ThreadId;
+use crate::api::{GitActor, ThreadId};
 use crate::session::Session;
 
 #[derive(Clone)]
@@ -267,11 +267,11 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
             }
             "git_commit" => {
                 let message = s("message").filter(|m| !m.trim().is_empty()).ok_or_else(|| anyhow::anyhow!("message is required"))?;
-                format!("Committed {}", session.git_commit(message).await?)
+                format!("Committed {}", session.git_commit(message, GitActor::Agent).await?)
             }
             "git_push" => {
-                session.git_push().await?;
-                "Pushed.".to_owned()
+                let branch = session.git_push(GitActor::Agent).await?;
+                format!("Pushed {branch}.")
             }
             "state_get" => {
                 let state = session.state()?;

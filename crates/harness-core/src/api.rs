@@ -355,6 +355,9 @@ pub enum Command {
         request_id: String,
         /// `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule.
         option_id: Option<String>,
+        /// With an `*_always` option, the rule applies to every Session (Global scope) instead of this Session.
+        #[serde(default)]
+        global: bool,
     },
     ListPermissionRules,
     AddPermissionRule {
@@ -436,6 +439,15 @@ pub enum StatePatchOp {
 #[serde(rename_all = "snake_case")]
 pub enum StateWriter {
     Agent,
+    User,
+}
+
+/// Who ran a git action.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum GitActor {
+    Agent,
+    #[default]
     User,
 }
 
@@ -1095,9 +1107,13 @@ pub enum EventKind {
     GitCommitted {
         commit: String,
         message: String,
+        #[serde(default)]
+        by: GitActor,
     },
     GitPushed {
         branch: String,
+        #[serde(default)]
+        by: GitActor,
     },
     SessionArchived {
         archived: bool,

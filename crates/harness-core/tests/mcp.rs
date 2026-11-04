@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_core::api::{
-    AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, StatePatchOp, StateWriter, FrontendToolDecl, McpServerDef, McpTransport,
+    AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, NewPermissionRule, Decision, Resolver, RuleScope, StatePatchOp, StateWriter, FrontendToolDecl, McpServerDef, McpTransport,
 };
 use harness_core::host::Options;
 use harness_core::Harness;
@@ -118,7 +118,7 @@ async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String
                 && answered.insert(request_id.clone())
             {
                 let _ = h
-                    .execute(Command::ResolvePermission { session_id: sid.into(), request_id: request_id.clone(), option_id: Some(a.into()) })
+                    .execute(Command::ResolvePermission { session_id: sid.into(), request_id: request_id.clone(), option_id: Some(a.into()), global: false })
                     .await;
             }
         }
@@ -169,6 +169,24 @@ fn pushed_asks(h: &Harness, sid: &str) -> bool {
     events(h, sid).into_iter().any(|e| matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push"))
 }
 
+/// The (resolver, rule id, option) of every resolved git_push request.
+fn push_resolutions(h: &Harness, sid: &str) -> Vec<(Resolver, Option<String>, Option<String>)> {
+    let log = events(h, sid);
+    let ids: Vec<String> = log
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::PermissionRequested { request_id, tool_call, .. } if tool_call["kind"] == "git_push" => Some(request_id.clone()),
+            _ => None,
+        })
+        .collect();
+    log.into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::PermissionResolved { request_id, option_id, by, rule_id } if ids.contains(&request_id) => Some((by, rule_id, option_id)),
+            _ => None,
+        })
+        .collect()
+}
+
 async fn set_mode(h: &Harness, sid: &str, value: &str) {
     h.execute(Command::SetConfigOption { session_id: sid.into(), thread_id: None, config_id: "mode".into(), value: value.into() }).await.unwrap();
 }
@@ -185,13 +203,31 @@ async fn push_does_not_ask_in_an_auto_mode() {
 
     let push = ask(&h, &sid, "mcp git_push {}", None).await;
     assert!(!push.contains("denied") && !push.contains("cancelled"), "{push}");
-    assert!(!pushed_asks(&h, &sid), "no approval card in auto mode");
+    assert_eq!(push_resolutions(&h, &sid), vec![(Resolver::Policy, None, Some("allow".into()))], "auto mode passes, logged as Policy");
 
     // Back in the asking mode it asks again.
     set_mode(&h, &sid, "default").await;
     let push = ask(&h, &sid, "mcp git_push {}", Some("reject")).await;
     assert_eq!(push, "mcp error: the user denied this");
     assert!(pushed_asks(&h, &sid));
+    let last = push_resolutions(&h, &sid).pop().unwrap();
+    assert_eq!(last, (Resolver::View, None, Some("reject".into())));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_allow_rule_passes_and_is_logged() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+    let CommandResult::PermissionRuleAdded { rule } = h
+        .execute(Command::AddPermissionRule { rule: NewPermissionRule { scope: RuleScope::Global, tool_kind: Some("git_push".into()), pattern: None, decision: Decision::Allow } })
+        .await
+        .unwrap()
+    else { panic!() };
+    let push = ask(&h, &sid, "mcp git_push {}", None).await;
+    assert!(!push.contains("denied") && !push.contains("cancelled"), "{push}");
+    assert_eq!(push_resolutions(&h, &sid), vec![(Resolver::Policy, Some(rule.id), Some("allow".into()))]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

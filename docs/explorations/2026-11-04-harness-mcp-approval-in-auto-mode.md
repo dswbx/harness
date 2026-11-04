@@ -12,6 +12,7 @@ Date: 2026-11-04. Versions: Harness main @ 2026-11-04, claude-agent-acp and code
 
 - `agent_quirks::auto_mode` lists the modes where the Agent decides itself: `auto`, `bypassPermissions`, `agent`, `agent-full-access`.
 - `acp::authorize` skips a default Ask (no explicit rule, not `switch_mode`) when the Thread's current mode is such a mode. Explicit user rules still win. Plan approvals are untouched.
+- Later the same day: that skip, and a pass by an explicit Allow rule, log `PermissionRequested` + `PermissionResolved` by Policy (`rule_id` null for auto mode), so the step can say why it ran without a question. A default Allow stays silent.
 
 ## Assumed / unverified
 
