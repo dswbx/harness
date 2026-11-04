@@ -1,5 +1,6 @@
+import { uiTitle } from "./artifacts";
 import { Expandable } from "./Expandable";
-import { uiFormats } from "./exportFormats";
+import { fileName, uiFormats } from "./exportFormats";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Item } from "./reducer";
 import type { RawNode } from "./tools";
@@ -22,18 +23,21 @@ export function FrontendToolRow({
       const shown =
          view ??
          (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
-      return shown ? (
+      if (!shown) return null;
+      const title = uiTitle(shown.root, item.render.value.title);
+      return (
          <Expandable
             label="view"
+            title={title}
             className="chat-wide"
-            formats={(png) => [png(), ...uiFormats("view", shown.root)]}
+            formats={(png) => [png(), ...uiFormats(fileName(title), shown.root)]}
          >
             <RenderUi
                root={shown.root}
                env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
             />
          </Expandable>
-      ) : null;
+      );
    }
    if (item.render && !item.render.ok) {
       return (

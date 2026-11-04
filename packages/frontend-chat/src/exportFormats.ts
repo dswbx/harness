@@ -122,10 +122,11 @@ export function uiFormats(name: string, root: RawNode): ExportFormat[] {
    return [];
 }
 
-/** A title as a file name. */
+/** A title as a file name: the title itself, without what file systems refuse. */
 export const fileName = (title: string) =>
    title
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "artifact";
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: file systems refuse them
+      .replace(/[/\\:*?"<>|\u0000-\u001f]+/g, " ")
+      .replace(/\s+/g, " ")
+      .slice(0, 100)
+      .replace(/^[\s.]+|[\s.]+$/g, "") || "artifact";

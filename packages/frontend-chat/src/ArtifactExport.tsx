@@ -18,7 +18,9 @@ import { dataUrl, svgToPng } from "./toPng";
 export function ArtifactPreview({ a, env }: { a: Artifact; env: UiEnv }) {
    if (a.ui) return <RenderUi root={a.ui.root} env={{ ...env, files: a.ui.files }} />;
    return (
-      <Markdown>{a.kind === "diagram" ? `\`\`\`mermaid\n${a.source}\n\`\`\`` : a.source}</Markdown>
+      <Markdown title={a.title}>
+         {a.kind === "diagram" ? `\`\`\`mermaid\n${a.source}\n\`\`\`` : a.source}
+      </Markdown>
    );
 }
 

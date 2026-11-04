@@ -4,9 +4,10 @@ import rehypeHighlight from "rehype-highlight";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { AnsiText } from "./AnsiText";
+import { markdownTitle } from "./artifacts";
 import { CodeBlock } from "./CodeBlock";
 import { Expandable } from "./Expandable";
-import { markdownTableRows, tableFormats } from "./exportFormats";
+import { fileName, markdownTableRows, tableFormats } from "./exportFormats";
 import { FileRefLink, useFileRefs } from "./FileRef";
 import { rehypeFileRefs } from "./fileRefs";
 import { rehypeInlineCode, useGuessInlineCode } from "./inlineCode";
@@ -43,7 +44,7 @@ function Pre({ node, children, ...props }: PreProps) {
       return (
          <div className="chat-wide" data-artifact="diagram">
             <Suspense fallback={<div className="h-24 animate-pulse rounded-md bg-muted" />}>
-               <Mermaid source={textOf(code).replace(/\n$/, "")} />
+               <MermaidInMarkdown source={textOf(code).replace(/\n$/, "")} />
             </Suspense>
          </div>
       );
@@ -65,16 +66,28 @@ function Pre({ node, children, ...props }: PreProps) {
    );
 }
 
-/** The Markdown being rendered: a table's downloads use its source. */
-const MarkdownText = createContext("");
+/** The Markdown being rendered: a table's downloads use its source. `title`: names what it shows, when given. */
+const MarkdownText = createContext<{ text: string; title?: string }>({ text: "" });
+
+/** The artifact title of a diagram or table here, which names its downloads. */
+function useArtifactTitle(kind: "diagram" | "table", source: string) {
+   const { text, title } = useContext(MarkdownText);
+   return useMemo(() => title ?? markdownTitle(text, kind, source), [title, text, kind, source]);
+}
+
+function MermaidInMarkdown({ source }: { source: string }) {
+   return <Mermaid source={source} title={useArtifactTitle("diagram", source)} />;
+}
 
 // Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
 // break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
 function MarkdownTable({ node, ...props }: ComponentProps<"table"> & { node?: unknown }) {
-   const text = useContext(MarkdownText);
+   const { text } = useContext(MarkdownText);
    const at = (node as { position?: { start: { offset?: number }; end: { offset?: number } } })
       ?.position;
    const source = at ? text.slice(at.start.offset, at.end.offset) : "";
+   const title = useArtifactTitle("table", source);
+   const name = fileName(title ?? "table");
    const table = (
       <div className="overflow-x-auto rounded-md border">
          <table
@@ -86,6 +99,7 @@ function MarkdownTable({ node, ...props }: ComponentProps<"table"> & { node?: un
    return (
       <Expandable
          label="table"
+         title={title}
          className="chat-wide mt-(--typeset-flow)"
          data-artifact="table"
          expanded={
@@ -93,7 +107,7 @@ function MarkdownTable({ node, ...props }: ComponentProps<"table"> & { node?: un
          }
          formats={(png) => [
             png(<div className="typeset typeset-chat">{table}</div>),
-            ...tableFormats("table", markdownTableRows(source), source),
+            ...tableFormats(name, markdownTableRows(source), source),
          ]}
       >
          {table}
@@ -167,8 +181,11 @@ export function Markdown({
    className,
    breaks,
    plainCode,
+   title,
 }: {
    children: string;
+   /** What this shows, if not to be found from the text before it: names downloads. */
+   title?: string;
    className?: string;
    breaks?: boolean;
    plainCode?: boolean;
@@ -187,9 +204,10 @@ export function Markdown({
       ],
       [guess, prCtx, fileRefs],
    );
+   const context = useMemo(() => ({ text: children, title }), [children, title]);
    return (
       <div className={cn("typeset typeset-chat", className)}>
-         <MarkdownText.Provider value={children}>
+         <MarkdownText.Provider value={context}>
             <ReactMarkdown
                remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
                rehypePlugins={plugins}

@@ -91,6 +91,8 @@ describe("fitScale", () => {
 });
 
 it("fileName makes a title safe", () => {
-   expect(fileName("Last 20 CI runs: Übersicht!")).toBe("last-20-ci-runs-übersicht");
+   expect(fileName("Last 20 CI runs: Übersicht!")).toBe("Last 20 CI runs Übersicht!");
+   expect(fileName("Here is a plan.")).toBe("Here is a plan");
+   expect(fileName("a/b\\c")).toBe("a b c");
    expect(fileName("???")).toBe("artifact");
 });

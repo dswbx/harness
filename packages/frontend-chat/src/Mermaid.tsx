@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useIsDark } from "./DiffViewer";
 import { type Drawn, drawMermaid, knownDiagram } from "./drawMermaid";
 import { Expandable } from "./Expandable";
-import { mermaidFormats } from "./exportFormats";
+import { fileName, mermaidFormats } from "./exportFormats";
 import { ZoomView } from "./ZoomView";
 
 /** The diagram's own size, from its viewBox. */
@@ -12,7 +12,7 @@ function svgSize(svg: string): { width: number; height: number } | null {
 }
 
 /** A ```mermaid fence: the diagram. */
-export function Mermaid({ source }: { source: string }) {
+export function Mermaid({ source, title }: { source: string; title?: string }) {
    const dark = useIsDark();
    const [out, setOut] = useState<Drawn | null>(() => knownDiagram(dark, source) ?? null);
    useEffect(() => {
@@ -48,7 +48,8 @@ export function Mermaid({ source }: { source: string }) {
       <Expandable
          label="diagram"
          className="not-typeset"
-         formats={() => mermaidFormats("diagram", source)}
+         title={title}
+         formats={() => mermaidFormats(fileName(title ?? "diagram"), source)}
          expanded={
             <ZoomView {...size}>
                <div

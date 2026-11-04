@@ -113,6 +113,16 @@ export function markdownArtifacts(
    return out;
 }
 
+/** The title of a diagram or table of this Markdown, by its source: the same one the Artifacts panel shows. */
+export function markdownTitle(
+   text: string,
+   kind: "diagram" | "table",
+   source: string,
+): string | undefined {
+   return markdownArtifacts(text).find((m) => m.kind === kind && m.source.trim() === source.trim())
+      ?.title;
+}
+
 const cells = (row: string) =>
    row
       .trim()
@@ -133,7 +143,7 @@ function plain(line: string): string {
 }
 
 /** A render_ui node's name: the call's title, else the first title/label-ish prop in the tree. */
-function uiTitle(root: RawNode, title: string | undefined): string {
+export function uiTitle(root: RawNode, title: string | undefined): string {
    if (title) return title;
    const seen: RawNode[] = [root];
    while (seen.length) {

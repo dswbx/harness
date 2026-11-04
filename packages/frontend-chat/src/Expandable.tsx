@@ -3,7 +3,7 @@ import { Maximize2 } from "lucide-react";
 import { createContext, type ReactNode, useState } from "react";
 import { useCapture } from "./Capture";
 import { ExportMenu } from "./ExportMenu";
-import type { ExportFormat } from "./exportFormats";
+import { type ExportFormat, fileName } from "./exportFormats";
 
 /** True inside the expanded view: content there may take all the height it needs. */
 export const InExpanded = createContext(false);
@@ -16,6 +16,7 @@ export const InExpanded = createContext(false);
  */
 export function Expandable({
    label,
+   title,
    children,
    expanded,
    formats,
@@ -23,6 +24,8 @@ export function Expandable({
    ...data
 }: {
    label: string;
+   /** Names the downloads; else `label`. */
+   title?: string;
    children: ReactNode;
    expanded?: ReactNode;
    formats?: (png: (node?: ReactNode) => ExportFormat) => ExportFormat[];
@@ -33,7 +36,7 @@ export function Expandable({
    const { stage, shoot } = useCapture();
    const png = (node: ReactNode = children): ExportFormat => ({
       label: "PNG",
-      file: `${label}.png`,
+      file: `${fileName(title ?? label)}.png`,
       blob: async () => (await shoot(node)).png,
    });
    return (
