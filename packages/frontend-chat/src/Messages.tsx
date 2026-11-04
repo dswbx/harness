@@ -75,11 +75,9 @@ function ChangesRow({
                   )}
                />
             </button>
-            <Tooltip content="Open diff for this turn">
-               <button className="flex-1 py-2 pr-3 text-left hover:underline" onClick={onOpen}>
-                  Changed {n} {n === 1 ? "file" : "files"}
-               </button>
-            </Tooltip>
+            <button className="flex-1 py-2 pr-3 text-left hover:underline" onClick={onOpen}>
+               Changed {n} {n === 1 ? "file" : "files"}
+            </button>
          </div>
          {open && (
             <ul className="space-y-1 border-t px-3 py-2">
