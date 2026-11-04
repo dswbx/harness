@@ -177,6 +177,13 @@ pub enum Command {
         #[serde(default)]
         filter: PrFilter,
     },
+    /// Fast-forwards a local `branch` of the repository containing `folder` to its `origin` counterpart:
+    /// a pull when it is checked out in `folder`, else a fetch into the branch (fails when it is checked
+    /// out elsewhere or has diverged).
+    UpdateBranch {
+        folder: String,
+        branch: String,
+    },
     /// Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept.
     ArchiveSession {
         session_id: SessionId,
@@ -236,6 +243,13 @@ pub enum Command {
         session_id: SessionId,
         repo: RepoId,
         query: Option<String>,
+    },
+    /// The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+    /// first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+    /// base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+    /// remote; `pr` None without `gh`. Cached like PR references.
+    BranchPr {
+        session_id: SessionId,
     },
     /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
     ListTerminals {
@@ -446,6 +460,7 @@ pub enum CommandResult {
     PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
     PrLookup { prs: Vec<Option<PrInfo>> },
     PrSearch { prs: Vec<PrInfo> },
+    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo>, base: Option<String> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
     Terminals { terminals: Vec<TerminalInfo> },

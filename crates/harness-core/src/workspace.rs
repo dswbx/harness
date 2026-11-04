@@ -352,7 +352,7 @@ async fn base_refs(dir: &Path, base: &str) -> Vec<String> {
 }
 
 /// The repo's main line: `origin/HEAD`, else a local `main` or `master`.
-async fn default_branch(dir: &Path) -> Option<String> {
+pub(crate) async fn default_branch(dir: &Path) -> Option<String> {
     if let Ok(r) = git(dir, &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).await
         && !r.trim().is_empty()
     {
@@ -366,7 +366,6 @@ async fn default_branch(dir: &Path) -> Option<String> {
     None
 }
 
-
 pub async fn commit(dir: &Path, message: &str) -> anyhow::Result<String> {
     git(dir, &["add", "-A"]).await?;
     git(dir, &["commit", "-m", message]).await?;
@@ -377,6 +376,18 @@ pub async fn push(dir: &Path) -> anyhow::Result<String> {
     let branch = current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("HEAD is detached"))?;
     git(dir, &["push", "-u", "origin", &branch]).await?;
     Ok(branch)
+}
+
+/// Fast-forwards `branch` to `origin/<branch>`: `pull --ff-only` when it is checked out in `dir`, else a
+/// fetch into the branch (git refuses one checked out in another worktree, and any non-fast-forward).
+pub async fn update_branch(dir: &Path, branch: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!branch.is_empty() && !branch.starts_with('-'), "invalid branch name");
+    if current_branch(dir).await?.as_deref() == Some(branch) {
+        git(dir, &["pull", "--ff-only", "origin", branch]).await?;
+    } else {
+        git(dir, &["fetch", "origin", &format!("{branch}:{branch}")]).await?;
+    }
+    Ok(())
 }
 
 /// Lowercase, dash-separated, at most 24 chars; safe inside a branch name.

@@ -36,7 +36,7 @@ const isModeOption = (o: { id: string; category?: string }) =>
    o.category === "mode" || o.id === "mode";
 const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
 const MOCK_BRANCHES: BranchInfo[] = [
-   { name: "main", time: ago(0.1), ahead: 0, behind: 0, worktree: false },
+   { name: "main", time: ago(0.1), ahead: 0, behind: 21, worktree: false },
    { name: "feature/login", time: ago(4), ahead: 3, behind: 1, worktree: false },
    { name: "feature/compact-header", time: ago(50), ahead: 0, behind: 0, worktree: true },
 ];
@@ -714,7 +714,12 @@ export class MockTransport implements Transport {
                   branch: this.session(cmd.session_id).workspace.worktree_branch ?? "main",
                   upstream: null,
                   ahead: this.ahead.get(cmd.session_id) ?? 0,
-                  behind: 0,
+                  behind:
+                     MOCK_BRANCHES.find(
+                        (b) =>
+                           b.name ===
+                           (this.session(cmd.session_id).workspace.worktree_branch ?? "main"),
+                     )?.behind ?? 0,
                   files: this.committed.has(cmd.session_id) ? [] : MOCK_FILES,
                },
             };
@@ -808,6 +813,26 @@ export class MockTransport implements Transport {
             this.ahead.set(cmd.session_id, (this.ahead.get(cmd.session_id) ?? 0) + 1);
             this.emit(cmd.session_id, { type: "GitCommitted", commit, message: cmd.message });
             return { type: "Committed", commit };
+         }
+         case "UpdateBranch": {
+            if (cmd.folder.includes("norepo")) throw new Error("not a git repository");
+            await new Promise((r) => setTimeout(r, 600));
+            const b = MOCK_BRANCHES.find((b) => b.name === cmd.branch);
+            if (!b) throw new Error(`fatal: couldn't find remote ref ${cmd.branch}`);
+            b.behind = 0;
+            return { type: "Ok" };
+         }
+         case "BranchPr": {
+            const s = this.session(cmd.session_id);
+            const base = s.workspace.base_branch ?? "main";
+            if (!s.workspace.repo_root || s.folder.includes("nogh"))
+               return { type: "BranchPr", repo: null, pr: null, base };
+            const repo = folderRepo(s.folder);
+            if (!repo) return { type: "BranchPr", repo: null, pr: null, base };
+            const pr =
+               MOCK_PR_INFOS.find((p) => sameRepo(p.repo, repo) && p.number === s.workspace.pr) ??
+               (s.workspace.worktree_branch ? (MOCK_PR_INFOS[0] ?? null) : null);
+            return { type: "BranchPr", repo, pr, base };
          }
          case "GitPush": {
             this.ahead.set(cmd.session_id, 0);
