@@ -14,12 +14,19 @@ import { CommentChips } from "./CommentChip";
 import { ConfigBar } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
-import { type PendingMessage, PendingMessages, RecoveryCard } from "./PendingMessages";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
+import {
+   hasArrived,
+   type PendingMessage,
+   setPendingActions,
+   updatePendingMessages,
+   usePendingMessages,
+} from "./pendingMessages";
 import { repoToken } from "./prMenu";
 import { lineCount } from "./promptMarkdown";
 import { usePrRefs } from "./prRefs";
+import { RecoveryCard } from "./RecoveryCard";
 import type { ChatState } from "./reducer";
 import {
    composerKey,
@@ -196,16 +203,18 @@ export function PromptBox({
 
    const [error, setError] = useState<string | null>(null);
    const readOnly = state.readOnly;
-   const [pending, setPending] = useState<PendingMessage[]>([]);
+   const pending = usePendingMessages(key);
    const userCount = useMemo(
       () => state.items.filter((i) => i.type === "user").length,
       [state.items],
    );
    // A sent message is replaced by its row in the list once that row has arrived.
    useEffect(() => {
-      const arrived = (p: PendingMessage) => p.status === "sent" && userCount > p.base;
-      if (pending.some(arrived)) setPending((cur) => cur.filter((p) => !arrived(p)));
-   }, [pending, userCount]);
+      if (pending.some((p) => p.status === "sent" && hasArrived(p, userCount)))
+         updatePendingMessages(key, (cur) =>
+            cur.filter((p) => !(p.status === "sent" && hasArrived(p, userCount))),
+         );
+   }, [key, pending, userCount]);
    const failed = pending.filter((p) => p.status === "failed");
    const sending = pending.some((p) => p.status === "sending");
    const comments = useReviewComments(key);
@@ -308,18 +317,23 @@ export function PromptBox({
    const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
       const base = userCount + pending.filter((p) => p.status !== "failed").length;
       const next: PendingMessage = { ...item, status: "sending", base };
-      setPending((cur) =>
+      updatePendingMessages(key, (cur) =>
          cur.some((p) => p.id === item.id)
             ? cur.map((p) => (p.id === item.id ? next : p))
             : [...cur, next],
       );
       const mark = (status: PendingMessage["status"]) =>
-         setPending((cur) => cur.map((p) => (p.id === item.id ? { ...p, status } : p)));
+         updatePendingMessages(key, (cur) =>
+            cur.map((p) => (p.id === item.id ? { ...p, status } : p)),
+         );
       try {
          await run();
          mark("sent");
          // Not every prompt makes a Turn (e.g. a mock command): don't keep it forever.
-         setTimeout(() => setPending((cur) => cur.filter((p) => p.id !== item.id)), 5000);
+         setTimeout(
+            () => updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id)),
+            5000,
+         );
          return true;
       } catch (err) {
          setError(errorMessage(err));
@@ -344,8 +358,9 @@ export function PromptBox({
       ed.restore(item.snap);
       setAttachments((cur) => [...item.files, ...cur]);
       setReviewComments(key, [...item.comments, ...getReviewComments(key)]);
-      setPending((cur) => cur.filter((p) => p.id !== item.id));
+      updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id));
    };
+   setPendingActions(key, { retry: () => void retry(), edit: editPending });
    const continueWithSummary = async () => {
       const [first, ...rest] = failed;
       if (first) {
@@ -431,12 +446,6 @@ export function PromptBox({
                onPick={pickPr}
             />
          )}
-         <PendingMessages
-            items={pending}
-            state={state}
-            onRetry={() => void retry()}
-            onEdit={editPending}
-         />
          {state.recovery && !sending && (
             <RecoveryCard
                recovery={state.recovery}
