@@ -18,7 +18,8 @@ export interface Frontend {
     * Host Session header slots a View may portal into (else it shows its own header): `toolbar` for actions (right),
     * `indicator` for one small status dot on the host's Session info icon, `status` for what that state means (at
     * the top of the info menu; it exists only while the menu is open), `menu` for entries of the header's gear menu (it exists
-    * only while that menu is open; entries are `MenuButton`s, which close it).
+    * only while that menu is open; entries are `MenuButton`s, which close it). `onGitRefresh` reloads the host's git info
+    * (the header's branch and PR); call it when the user asks the View to refresh.
     */
    View: ComponentType<{
       api: SessionApi;
@@ -26,6 +27,7 @@ export interface Frontend {
       status?: HTMLElement | null;
       indicator?: HTMLElement | null;
       menu?: HTMLElement | null;
+      onGitRefresh?: () => void;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

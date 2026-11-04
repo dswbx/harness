@@ -57,8 +57,9 @@ pub enum Command {
         agent_id: String,
         frontend_id: String,
         title: Option<String>,
-        /// Branch to work on. With `worktree`, the base of the new Worktree's branch; without,
-        /// the folder is checked out to it (refused when the folder has changes).
+        /// Branch to work on. With `worktree`, the base of the new Worktree's branch (started from its
+        /// fetched origin copy when there is one); without, the folder is checked out to it
+        /// (refused when the folder has changes).
         #[serde(default)]
         branch: Option<String>,
         /// Work in a new Worktree on its own `harness/...` branch.
@@ -269,9 +270,12 @@ pub enum Command {
     /// The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
     /// first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
     /// base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
-    /// remote; `pr` None without `gh`. Cached like PR references.
+    /// remote; `pr` None without `gh`. Cached like PR references, unless `refresh` (drops the cached
+    /// PR the Session started from).
     BranchPr {
         session_id: SessionId,
+        #[serde(default)]
+        refresh: bool,
     },
     /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
     ListTerminals {
@@ -832,7 +836,7 @@ pub struct WorkspaceInfo {
     pub base_branch: Option<String>,
     /// Branch checked out in the Session's folder; None when not a git repo or HEAD is detached.
     pub branch: Option<String>,
-    /// PR number when the Session was started from a PR.
+    /// The PR the Session started from, else the last PR found for its current branch.
     pub pr: Option<u32>,
 }
 

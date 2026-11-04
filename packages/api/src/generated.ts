@@ -110,8 +110,9 @@ export type Command = { type: "ListAgents" } |
 /**  Primary Workspace Folder (v1: exactly one). */
 folder: string; agent_id: string; frontend_id: string; title: string | null; 
 /**
- *  Branch to work on. With `worktree`, the base of the new Worktree's branch; without,
- *  the folder is checked out to it (refused when the folder has changes).
+ *  Branch to work on. With `worktree`, the base of the new Worktree's branch (started from its
+ *  fetched origin copy when there is one); without, the folder is checked out to it
+ *  (refused when the folder has changes).
  */
 branch?: string | null; 
 /**  Work in a new Worktree on its own `harness/...` branch. */
@@ -232,9 +233,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
  *  first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
  *  base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
- *  remote; `pr` None without `gh`. Cached like PR references.
+ *  remote; `pr` None without `gh`. Cached like PR references, unless `refresh` (drops the cached
+ *  PR the Session started from).
  */
-{ type: "BranchPr"; session_id: string } | 
+{ type: "BranchPr"; session_id: string; refresh?: boolean } | 
 /**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
 { type: "ListTerminals"; session_id: string } | 
 /**  A new Terminal tab; its shell starts on the first attach. Returns its id. */
@@ -660,6 +662,6 @@ export type WorkspaceInfo = {
 	base_branch: string | null,
 	/**  Branch checked out in the Session's folder; None when not a git repo or HEAD is detached. */
 	branch: string | null,
-	/**  PR number when the Session was started from a PR. */
+	/**  The PR the Session started from, else the last PR found for its current branch. */
 	pr: number | null,
 };

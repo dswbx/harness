@@ -136,12 +136,15 @@ export function DiffPanel({
    scope,
    onScope,
    refreshKey,
+   onRefresh,
 }: {
    api: SessionApi;
    scope: DiffScope;
    onScope: (s: DiffScope) => void;
    /** Changes whenever the Session log says the Workspace may have changed. */
    refreshKey: string;
+   /** Also called by Refresh, for what the host shows of the same Workspace. */
+   onRefresh?: () => void;
 }) {
    const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
    const [diff, setDiff] = useState<Diff | null>(null);
@@ -252,7 +255,10 @@ export function DiffPanel({
                   className="size-7"
                   aria-label="Refresh diff"
                   disabled={noRepo}
-                  onClick={() => setTick((t) => t + 1)}
+                  onClick={() => {
+                     setTick((t) => t + 1);
+                     onRefresh?.();
+                  }}
                >
                   <RefreshCw />
                </Button>
