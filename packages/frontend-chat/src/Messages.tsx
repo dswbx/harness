@@ -5,6 +5,9 @@ import {
    Dialog,
    DialogContent,
    DialogTitle,
+   Popover,
+   PopoverContent,
+   PopoverTrigger,
    Tooltip,
    VirtualList,
    type VirtualListHandle,
@@ -110,7 +113,25 @@ function Notice({ item }: { item: Extract<Item, { type: "notice" }> }) {
    return (
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
          <div className="h-px flex-1 bg-border" />
-         <span className="whitespace-pre-wrap text-center">{item.text}</span>
+         <span className="flex items-center gap-1 whitespace-pre-wrap text-center">
+            {item.text}
+            {item.info && (
+               <Popover>
+                  <PopoverTrigger asChild>
+                     <button
+                        type="button"
+                        aria-label="About this notice"
+                        className="grid size-4 place-items-center rounded hover:text-foreground"
+                     >
+                        <Info className="size-3.5" />
+                     </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="center" className="w-72 p-3 text-xs">
+                     {item.info}
+                  </PopoverContent>
+               </Popover>
+            )}
+         </span>
          <div className="h-px flex-1 bg-border" />
       </div>
    );
@@ -242,7 +263,7 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
 }
 
 /** A sent prompt's bubble: its review comments as chips (like the prompt box), then the typed text. */
-function UserText({ text }: { text: string }) {
+export function UserText({ text }: { text: string }) {
    const p = useMemo(() => parseReviewComments(text), [text]);
    return (
       <div className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground">

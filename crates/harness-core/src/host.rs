@@ -15,9 +15,16 @@ use crate::workspace::WorktreeMeta;
 
 /// Default for `Shared::idle_timeout`.
 pub const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// Default for `Shared::restore_retries`.
+pub const RESTORE_RETRIES: [std::time::Duration; 3] = [
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(15),
+];
 
 pub struct Options {
     pub idle_timeout: std::time::Duration,
+    pub restore_retries: Vec<std::time::Duration>,
     pub registry_url: String,
     /// Where MCP Library secrets live; the Keychain by default.
     pub secrets: Box<dyn crate::library::Secrets>,
@@ -29,6 +36,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             idle_timeout: IDLE_TIMEOUT,
+            restore_retries: RESTORE_RETRIES.to_vec(),
             registry_url: crate::agents::REGISTRY_URL.to_owned(),
             secrets: Box::new(crate::library::Keychain),
             mcp_shim: None,
@@ -61,6 +69,7 @@ impl Harness {
         let shared = Arc::new(Shared {
             policy: Policy::open(data_dir.join("permissions.json"))?,
             idle_timeout: options.idle_timeout,
+            restore_retries: options.restore_retries,
             agents: crate::agents::Agents::open(&data_dir, options.registry_url, agents)?,
             frontends: RwLock::new(Vec::new()),
             mcp: Default::default(),
@@ -232,8 +241,8 @@ impl Harness {
                 self.session(&session_id)?.warm_up();
                 CommandResult::Ok
             }
-            Command::ContinueWithSummary { session_id, thread_id, text } => {
-                self.session(&session_id)?.continue_with_summary(thread_id, text).await?;
+            Command::ContinueWithSummary { session_id, thread_id, text, attachments } => {
+                self.session(&session_id)?.continue_with_summary(thread_id, text, attachments).await?;
                 CommandResult::Ok
             }
             Command::StartSideThread { session_id, seed, source } => {

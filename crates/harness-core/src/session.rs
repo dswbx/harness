@@ -17,6 +17,8 @@ pub struct Shared {
     /// How long an Agent process may sit with no Turn, no pending request and no View before it
     /// is stopped.
     pub idle_timeout: Duration,
+    /// The waits before each new try at restoring an Agent Session whose resume and load failed.
+    pub restore_retries: Vec<Duration>,
     pub agents: crate::agents::Agents,
     pub frontends: std::sync::RwLock<Vec<crate::api::FrontendManifest>>,
     pub mcp: crate::mcp::HarnessMcp,
@@ -72,9 +74,6 @@ pub struct SessionMeta {
     /// Last Agent Session id per Thread, used to resume or load.
     #[serde(default)]
     pub agent_sessions: HashMap<ThreadId, String>,
-    /// Threads whose Agent Session could not be continued.
-    #[serde(default)]
-    pub read_only_threads: HashSet<ThreadId>,
     /// Context Seeds waiting to be sent with a Thread's next prompt.
     #[serde(default)]
     pub seeds: HashMap<ThreadId, String>,
@@ -168,7 +167,6 @@ impl Session {
             main_thread_id: uuid::Uuid::now_v7().to_string(),
             side_threads: Vec::new(),
             agent_sessions: Default::default(),
-            read_only_threads: Default::default(),
             seeds: Default::default(),
             context_pending: Default::default(),
             fork_note_pending: Default::default(),
@@ -547,11 +545,12 @@ impl Session {
         self: &Arc<Self>,
         thread_id: Option<ThreadId>,
         text: Option<String>,
+        attachments: Vec<crate::api::AttachmentInput>,
     ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         crate::acp::continue_with_summary(self.clone(), thread.clone()).await?;
         if let Some(text) = text {
-            crate::acp::prompt(self.clone(), thread, text, Vec::new()).await?;
+            crate::acp::prompt(self.clone(), thread, text, attachments).await?;
         }
         Ok(())
     }
@@ -560,7 +559,7 @@ impl Session {
     /// Only for a Thread that never had one: resuming waits for the next prompt.
     pub fn warm_up(self: &Arc<Self>) {
         let m = self.meta();
-        if m.archived || m.read_only_threads.contains(&m.main_thread_id) || m.agent_sessions.contains_key(&m.main_thread_id) {
+        if m.archived || m.agent_sessions.contains_key(&m.main_thread_id) {
             return;
         }
         let session = self.clone();

@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::api::{AttachmentKind, Event, EventKind, ForkPoint, ThreadId};
+use crate::api::{AttachmentKind, Event, EventKind, ForkPoint, ThreadId, TranscriptSize};
 
 /// Upper bound for a seed; older Turns are dropped first.
 const MAX_CHARS: usize = 24_000;
@@ -190,6 +190,13 @@ pub fn summarize(events: &[Event], thread: &ThreadId) -> String {
         &turns(events, thread, None),
         "This conversation continues an earlier one whose Agent Session could not be resumed. Transcript so far:",
     )
+}
+
+/// How many of the Thread's Turns `summarize` would keep.
+pub fn transcript_size(events: &[Event], thread: &ThreadId) -> TranscriptSize {
+    let turns = turns(events, thread, None);
+    let (kept, _) = recent(&turns);
+    TranscriptSize { kept_turns: kept.len() as u32, total_turns: turns.len() as u32 }
 }
 
 /// Seed for a Side Thread that could not fork: the Main Thread up to `upto_seq`. `None` when the

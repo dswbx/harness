@@ -195,7 +195,6 @@ describe("turns", () => {
       ]);
       expect(s.threads.side!.items.map((i) => i.type === "notice" && i.text)).toEqual([
          "Started with a summary of main",
-         "Agent session resumed",
       ]);
       expect(s.items).toHaveLength(0);
    });
@@ -263,13 +262,50 @@ describe("turns", () => {
 });
 
 describe("continuity", () => {
-   it("read-only is set by ThreadReadOnly and cleared by continued_with_summary", () => {
-      let s = fold([started(), ev({ type: "ThreadReadOnly", reason: "gone" })]);
-      expect(s.readOnly).toBe(true);
+   it("a retryable failure offers recovery without blocking the prompt box, until restored", () => {
+      let s = fold([started(), ev({ type: "AgentSessionRestoring", attempt: 1, of: 3 })]);
+      expect(s.restoring).toEqual({ attempt: 1, of: 3 });
+      s = [
+         ev({
+            type: "ThreadReadOnly",
+            reason: "gone",
+            retryable: true,
+            errors: ["resume: x"],
+            transcript: { kept_turns: 1, total_turns: 2 },
+         }),
+      ].reduce(reduce, s);
+      expect(s.restoring).toBeNull();
+      expect(s.readOnly).toBe(false);
+      expect(s.recovery).toEqual({
+         retryable: true,
+         errors: ["resume: x"],
+         transcript: { kept_turns: 1, total_turns: 2 },
+      });
       s = [ev({ type: "AgentSessionStarted", acp_session_id: "n", boundary: "resumed" })].reduce(
          reduce,
          s,
       );
+      expect(s.recovery).toBeNull();
+   });
+
+   it("continued_with_summary explains what the new Agent Session got", () => {
+      const s = fold([
+         started(),
+         ev({
+            type: "AgentSessionStarted",
+            acp_session_id: "n",
+            boundary: "continued_with_summary",
+            transcript: { kept_turns: 18, total_turns: 42 },
+         }),
+      ]);
+      expect(s.items.at(-1)).toMatchObject({
+         text: "Continued from transcript",
+         info: expect.stringContaining("the last 18 of 42 turns"),
+      });
+   });
+
+   it("read-only is set by ThreadReadOnly and cleared by continued_with_summary", () => {
+      let s = fold([started(), ev({ type: "ThreadReadOnly", reason: "gone" })]);
       expect(s.readOnly).toBe(true);
       s = [
          ev({
@@ -281,7 +317,7 @@ describe("continuity", () => {
       expect(s.readOnly).toBe(false);
       expect(s.items.at(-1)).toMatchObject({
          level: "boundary",
-         text: "Continued in a new Agent session with a summary",
+         text: "Continued from transcript",
       });
    });
 
@@ -290,20 +326,13 @@ describe("continuity", () => {
          ev({ type: "AgentSessionStarted", acp_session_id: "a", boundary: "resumed" }),
          ev({ type: "AgentSessionStarted", acp_session_id: "b", boundary: "loaded" }),
       ]);
-      expect(s.items.map((i) => i.type === "notice" && i.text)).toEqual([
-         "Agent session resumed",
-         "Agent session reloaded",
-      ]);
+      expect(s.items.filter((i) => i.type === "notice")).toHaveLength(0);
    });
 
-   it("stopped shows an info notice", () => {
+   it("stopped adds no notice: the status dot shows it", () => {
       const s = fold([ev({ type: "AgentProcessState", state: "stopped", message: "idle" })]);
       expect(s.process?.state).toBe("stopped");
-      expect(s.items).toHaveLength(1);
-      expect(s.items[0]).toMatchObject({
-         level: "info",
-         text: expect.stringContaining("Agent stopped while idle"),
-      });
+      expect(s.items).toHaveLength(0);
    });
 
    it("crash mid-turn shows an error notice", () => {

@@ -239,10 +239,11 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
  */
 { type: "WarmUp"; session_id: string } | 
 /**
- *  Starts a new Agent Session for a Thread, seeded with a summary of the Thread so far. The
- *  way out of a read-only Thread. `text`, when given, is prompted right away.
+ *  Starts a new Agent Session for a Thread, seeded with a transcript of the Thread so far. The
+ *  way out of a Thread whose Agent Session cannot be restored. `text`, when given, is prompted
+ *  right away, with `attachments`.
  */
-{ type: "ContinueWithSummary"; session_id: string; thread_id: string | null; text: string | null } | 
+{ type: "ContinueWithSummary"; session_id: string; thread_id: string | null; text: string | null; attachments?: AttachmentInput[] } | 
 /**
  *  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
  *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
@@ -320,12 +321,21 @@ forked_from?: ForkPoint | null } |
 /**  The Agent needs the user to sign in before it can work. */
 { type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
 /**
- *  The Thread's Agent Session cannot be continued; the Thread stays readable and can be
- *  continued with a summary.
+ *  The Thread's Agent Session could not be restored; the Thread stays readable and can be
+ *  continued from a transcript. `retryable`: the Agent supports resume or load, so the next
+ *  prompt tries again. Logs from before these fields read as not retryable.
  */
-{ type: "ThreadReadOnly"; reason: string } | 
+{ type: "ThreadReadOnly"; reason: string; retryable?: boolean; 
+/**  Why each method failed, for the user. */
+errors?: string[]; 
+/**  What a transcript would hold right now. */
+transcript?: TranscriptSize | null } | 
+/**  Restoring the Thread's Agent Session failed and is being tried again. */
+{ type: "AgentSessionRestoring"; attempt: number; of: number } | 
 /**  A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary. */
-{ type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
+{ type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary; 
+/**  `continued_with_summary`: what its transcript held. */
+transcript?: TranscriptSize | null } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
 /**  What the Agent accepts in prompts, from its `initialize` answer. */
 { type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[]; 
 /**  The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session. */
@@ -593,6 +603,12 @@ export type TerminalInfo = {
  *  fork, the Main Thread has no Agent Session or is mid-Turn, or the fork fails.
  */
 export type ThreadStart = "fork" | "seed";
+
+/**  How many of a Thread's Turns fit in a transcript. */
+export type TranscriptSize = {
+	kept_turns: number,
+	total_turns: number,
+};
 
 export type WorkspaceInfo = {
 	repo_root: string | null,

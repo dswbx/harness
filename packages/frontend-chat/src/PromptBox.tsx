@@ -14,6 +14,7 @@ import { CommentChips } from "./CommentChip";
 import { ConfigBar } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
+import { type PendingMessage, PendingMessages, RecoveryCard } from "./PendingMessages";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
 import { repoToken } from "./prMenu";
@@ -195,6 +196,18 @@ export function PromptBox({
 
    const [error, setError] = useState<string | null>(null);
    const readOnly = state.readOnly;
+   const [pending, setPending] = useState<PendingMessage[]>([]);
+   const userCount = useMemo(
+      () => state.items.filter((i) => i.type === "user").length,
+      [state.items],
+   );
+   // A sent message is replaced by its row in the list once that row has arrived.
+   useEffect(() => {
+      const arrived = (p: PendingMessage) => p.status === "sent" && userCount > p.base;
+      if (pending.some(arrived)) setPending((cur) => cur.filter((p) => !arrived(p)));
+   }, [pending, userCount]);
+   const failed = pending.filter((p) => p.status === "failed");
+   const sending = pending.some((p) => p.status === "sending");
    const comments = useReviewComments(key);
    const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
    const [dragging, setDragging] = useState(false);
@@ -264,11 +277,25 @@ export function PromptBox({
       const btw = threadId || !onSideThread ? null : btwQuestion(t);
       const inputs = files.map((a) => a.input);
       const prompt = withReviewComments(t, sent);
+      if (!btw && !onSend) {
+         void deliver(
+            {
+               id: crypto.randomUUID(),
+               prompt,
+               inputs,
+               files,
+               comments: sent,
+               snap,
+               status: "sending",
+               base: 0,
+            },
+            () => api.prompt(prompt, inputs, threadId),
+         );
+         return;
+      }
       (btw && onSideThread
          ? onSideThread(withReviewComments(btw, sent), inputs)
-         : onSend
-           ? onSend(prompt, inputs)
-           : api.prompt(prompt, inputs, threadId)
+         : (onSend as NonNullable<typeof onSend>)(prompt, inputs)
       ).catch((err) => {
          setError(errorMessage(err));
          ref.current?.restore(snap);
@@ -277,7 +304,61 @@ export function PromptBox({
          setReviewComments(key, [...sent, ...getReviewComments(key)]);
       });
    };
-   const continueWithSummary = () => {
+   /** Shows `item` as sending until `run` settles. True when it was sent. */
+   const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
+      const base = userCount + pending.filter((p) => p.status !== "failed").length;
+      const next: PendingMessage = { ...item, status: "sending", base };
+      setPending((cur) =>
+         cur.some((p) => p.id === item.id)
+            ? cur.map((p) => (p.id === item.id ? next : p))
+            : [...cur, next],
+      );
+      const mark = (status: PendingMessage["status"]) =>
+         setPending((cur) => cur.map((p) => (p.id === item.id ? { ...p, status } : p)));
+      try {
+         await run();
+         mark("sent");
+         // Not every prompt makes a Turn (e.g. a mock command): don't keep it forever.
+         setTimeout(() => setPending((cur) => cur.filter((p) => p.id !== item.id)), 5000);
+         return true;
+      } catch (err) {
+         setError(errorMessage(err));
+         mark("failed");
+         return false;
+      }
+   };
+   const retry = async () => {
+      setError(null);
+      for (const p of failed) {
+         if (!(await deliver(p, () => api.prompt(p.prompt, p.inputs, threadId)))) return;
+      }
+   };
+   const editPending = (item: PendingMessage) => {
+      const ed = ref.current;
+      if (!ed) return;
+      if (ed.getMarkdown().trim()) {
+         setError("Clear the prompt box to edit this message.");
+         return;
+      }
+      setError(null);
+      ed.restore(item.snap);
+      setAttachments((cur) => [...item.files, ...cur]);
+      setReviewComments(key, [...item.comments, ...getReviewComments(key)]);
+      setPending((cur) => cur.filter((p) => p.id !== item.id));
+   };
+   const continueWithSummary = async () => {
+      const [first, ...rest] = failed;
+      if (first) {
+         setError(null);
+         const ok = await deliver(first, () =>
+            api.continueWithSummary(first.prompt, threadId, first.inputs),
+         );
+         if (!ok) return;
+         for (const p of rest) {
+            if (!(await deliver(p, () => api.prompt(p.prompt, p.inputs, threadId)))) return;
+         }
+         return;
+      }
       const ed = ref.current;
       const t = ed?.getMarkdown().trim() ?? "";
       const snap = ed?.snapshot();
@@ -350,21 +431,21 @@ export function PromptBox({
                onPick={pickPr}
             />
          )}
-         {readOnly && (
-            <div
-               role="alert"
-               className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm"
-            >
-               <span className="flex-1">
-                  The Agent can't continue its earlier session. Continue with a summary of this
-                  conversation?
-               </span>
-               <Button size="sm" onClick={continueWithSummary}>
-                  Continue with summary
-               </Button>
-            </div>
+         <PendingMessages
+            items={pending}
+            state={state}
+            onRetry={() => void retry()}
+            onEdit={editPending}
+         />
+         {state.recovery && !sending && (
+            <RecoveryCard
+               recovery={state.recovery}
+               canRetry={failed.length > 0}
+               onRetry={() => void retry()}
+               onContinue={() => void continueWithSummary()}
+            />
          )}
-         {error && (
+         {error && !(state.recovery && failed.length > 0) && (
             <div role="alert" className="mb-2 whitespace-pre-wrap text-xs text-destructive">
                {error}
             </div>
@@ -425,9 +506,11 @@ export function PromptBox({
                placeholder={
                   running
                      ? "Agent is working... (you can still queue a prompt)"
-                     : threadId
-                       ? "Ask in this side thread"
-                       : "Message the Agent. Type / for commands."
+                     : sending && (state.restoring || state.process?.state === "starting")
+                       ? "Agent is starting... (you can still queue a prompt)"
+                       : threadId
+                         ? "Ask in this side thread"
+                         : "Message the Agent. Type / for commands."
                }
                command={used}
                menuOpen={count > 0}

@@ -30,9 +30,9 @@ Run on a clean machine or user account: no system Node, no prior `~/.harness`. U
 
 ## Continuity
 
-- [ ] Quit and reopen the app, then send a message: "Agent session resumed", and the Agent remembers the context.
+- [ ] Quit and reopen the app, then send a message: the Agent remembers the context, and no notice appears.
 - [ ] `pkill -f claude-agent-acp` during a Turn shows an error notice, and the next message recovers.
-- [ ] After 15 minutes with no window open on a Session, its Agent stops ("stopped while idle") and restarts on the next message.
+- [ ] After 15 minutes with no window open on a Session, its Agent stops (a grey dot on the header's info icon) and restarts on the next message.
 
 ## Workspaces and git
 
