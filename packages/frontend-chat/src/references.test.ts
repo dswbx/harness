@@ -198,6 +198,11 @@ describe("groupReferences", () => {
       expect(s[0]!.dirs.map((d) => d.label)).toEqual(["docs", "src"]);
       expect(s[0]!.dirs[1]!.items.map((r) => r.key)).toEqual(["src/a.ts", "src/b.ts"]);
    });
+   it("puts files at the top of the Session's folder directly in the section, without a folder", () => {
+      const [s] = groupReferences([code("b.md"), code("src/a.ts"), code("a.md")], "code", repo);
+      expect(s!.dirs.map((d) => d.label)).toEqual(["src"]);
+      expect(s!.items.map((r) => r.key)).toEqual(["a.md", "b.md"]);
+   });
    it("PRs: the Session's repo first, open ones first", () => {
       const other = { owner: "supabase", name: "spark" };
       const s = groupReferences(

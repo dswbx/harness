@@ -301,7 +301,7 @@ export type ReferenceSection = {
    note: string;
    /** "Session", "This repo". */
    tag: string | null;
-   /** Rows under a folder row (code in the Session's folder); else `items` directly. */
+   /** Rows under a folder row (code in the Session's folder); `items` sit directly in the section, after them. */
    dirs: { label: string; items: Reference[] }[];
    items: Reference[];
 };
@@ -363,7 +363,10 @@ export function groupReferences(
          "Session",
       );
       const dirs = new Map<string, Reference[]>();
-      for (const r of inside) dirs.set(r.dir, [...(dirs.get(r.dir) ?? []), r]);
+      for (const r of inside)
+         if (r.dir === ".") session.items.push(r);
+         else dirs.set(r.dir, [...(dirs.get(r.dir) ?? []), r]);
+      session.items = byName(session.items);
       session.dirs = [...dirs.keys()]
          .sort()
          .map((label) => ({ label, items: byName(dirs.get(label)!) }));

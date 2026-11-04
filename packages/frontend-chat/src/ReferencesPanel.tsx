@@ -284,7 +284,9 @@ const contextLine = (r: Reference) =>
    r.kind === "pr"
       ? `${prStateVisual(r.pr.state, r.pr.checks).label} · ${r.pr.repo.owner}/${r.pr.repo.name}`
       : r.kind === "code"
-        ? r.dir
+        ? r.dir === "."
+           ? "Session folder"
+           : r.dir
         : `${r.site}${pathOf(r.url)}`;
 
 function ListRow({ r, selected, onOpen }: { r: Reference; selected: boolean; onOpen: () => void }) {
