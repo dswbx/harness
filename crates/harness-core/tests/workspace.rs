@@ -308,6 +308,30 @@ async fn branch_list_has_tracking_worktree_and_remote_only_branches() {
     assert!(main.time > 0);
     assert!(b.branches.iter().find(|x| x.name == wt_branch).unwrap().worktree, "checked out in the Session's Worktree");
     assert_eq!(b.remote.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["origin/only-remote"]);
+
+    assert_eq!(b.default_branch.as_deref(), Some("main"));
+    sh(&repo, &["remote", "set-head", "origin", "only-remote"]);
+    assert_eq!(branches(&h, &repo).await.default_branch.as_deref(), Some("origin/only-remote"));
+    sh(&repo, &["remote", "set-head", "origin", "main"]);
+    assert_eq!(branches(&h, &repo).await.default_branch.as_deref(), Some("main"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn branch_list_marks_archived_session_branches() {
+    let (_dir, repo, data) = repo();
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, true).await.unwrap();
+    let branch = summary(&h, &sid).await.unwrap().workspace.worktree_branch.unwrap();
+    let state = |b: &harness_core::api::Branches| {
+        let x = b.branches.iter().find(|x| x.name == branch).unwrap();
+        (x.worktree, x.archived)
+    };
+
+    assert_eq!(state(&branches(&h, &repo).await), (true, false));
+    h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(state(&branches(&h, &repo).await), (false, true));
+    h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(state(&branches(&h, &repo).await), (true, false));
 }
 
 #[tokio::test(flavor = "multi_thread")]

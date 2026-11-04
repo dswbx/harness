@@ -42,6 +42,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AgentIcon } from "./AgentsPanel";
 import {
    baseName,
+   branchChoices,
    loadRecent,
    matches,
    mergeRecent,
@@ -305,7 +306,10 @@ export function ComposerDialog({
             .then((b) => {
                if (off) return;
                setBranches(b);
-               const first = b.current ?? b.branches[0]?.name;
+               const first =
+                  b.current ??
+                  b.branches.find((x) => x.name === b.default_branch)?.name ??
+                  b.branches[0]?.name;
                setTarget(first ? { kind: "local", name: first } : null);
                setWorktree(false);
             })
@@ -583,6 +587,7 @@ export function ComposerDialog({
          </span>
       </>
    );
+   const choices = branchChoices(branches, bq);
    const branchItems: PickItem[] = [
       ...(bq && !branchExists(bq)
          ? [
@@ -605,28 +610,44 @@ export function ComposerDialog({
               },
            ]
          : []),
-      ...(branches?.branches ?? [])
-         .filter((b) => matches(bq, b.name))
-         .map(
-            (b): PickItem => ({
-               key: `l:${b.name}`,
-               section: "Local",
-               selected: target?.kind === "local" && target.name === b.name,
-               onSelect: () => pickTarget({ kind: "local", name: b.name }),
-               content: branchRow(b, false),
-            }),
-         ),
-      ...(branches?.remote ?? [])
-         .filter((b) => matches(bq, b.name))
-         .map(
-            (b): PickItem => ({
-               key: `r:${b.name}`,
-               section: "Remote only",
-               selected: target?.kind === "remote" && target.name === b.name,
-               onSelect: () => pickTarget({ kind: "remote", name: b.name }),
-               content: branchRow(b, true),
-            }),
-         ),
+      ...(choices.defaultLocal
+         ? [
+              {
+                 key: `l:${choices.defaultLocal.name}`,
+                 selected: target?.kind === "local" && target.name === choices.defaultLocal.name,
+                 onSelect: () => pickTarget({ kind: "local", name: choices.defaultLocal!.name }),
+                 content: branchRow(choices.defaultLocal, false),
+              } satisfies PickItem,
+           ]
+         : []),
+      ...(choices.defaultRemote
+         ? [
+              {
+                 key: `r:${choices.defaultRemote.name}`,
+                 selected: target?.kind === "remote" && target.name === choices.defaultRemote.name,
+                 onSelect: () => pickTarget({ kind: "remote", name: choices.defaultRemote!.name }),
+                 content: branchRow(choices.defaultRemote, true),
+              } satisfies PickItem,
+           ]
+         : []),
+      ...choices.local.map(
+         (b): PickItem => ({
+            key: `l:${b.name}`,
+            section: "Local",
+            selected: target?.kind === "local" && target.name === b.name,
+            onSelect: () => pickTarget({ kind: "local", name: b.name }),
+            content: branchRow(b, false),
+         }),
+      ),
+      ...choices.remote.map(
+         (b): PickItem => ({
+            key: `r:${b.name}`,
+            section: "Remote only",
+            selected: target?.kind === "remote" && target.name === b.name,
+            onSelect: () => pickTarget({ kind: "remote", name: b.name }),
+            content: branchRow(b, true),
+         }),
+      ),
    ];
 
    // ---- PR list

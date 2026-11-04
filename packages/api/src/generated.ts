@@ -77,6 +77,8 @@ export type BranchInfo = {
 	behind: number,
 	/**  Checked out in another Worktree (it can't be checked out again). */
 	worktree: boolean,
+	/**  Branch of an archived Session's removed Worktree. Set by the Host's `ListBranches` only. */
+	archived: boolean,
 };
 
 export type Branches = {
@@ -84,6 +86,8 @@ export type Branches = {
 	repo_root: string | null,
 	/**  `None` when HEAD is detached. */
 	current: string | null,
+	/**  The repo's main line, as named in `branches` (or in `remote` when it has no local branch). `None` when unknown. */
+	default_branch: string | null,
 	/**  Local branches, most recently committed first. */
 	branches: BranchInfo[],
 	/**  Remote branches with no local branch of the same name (`origin/x`), most recent first. */

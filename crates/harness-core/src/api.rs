@@ -692,6 +692,8 @@ pub struct Branches {
     pub repo_root: Option<String>,
     /// `None` when HEAD is detached.
     pub current: Option<String>,
+    /// The repo's main line, as named in `branches` (or in `remote` when it has no local branch). `None` when unknown.
+    pub default_branch: Option<String>,
     /// Local branches, most recently committed first.
     pub branches: Vec<BranchInfo>,
     /// Remote branches with no local branch of the same name (`origin/x`), most recent first.
@@ -709,6 +711,8 @@ pub struct BranchInfo {
     pub behind: u32,
     /// Checked out in another Worktree (it can't be checked out again).
     pub worktree: bool,
+    /// Branch of an archived Session's removed Worktree. Set by the Host's `ListBranches` only.
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]

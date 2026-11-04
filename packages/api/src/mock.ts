@@ -37,12 +37,34 @@ const isModeOption = (o: { id: string; category?: string }) =>
    o.category === "mode" || o.id === "mode";
 const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
 const MOCK_BRANCHES: BranchInfo[] = [
-   { name: "main", time: ago(0.1), ahead: 0, behind: 21, worktree: false },
-   { name: "feature/login", time: ago(4), ahead: 3, behind: 1, worktree: false },
-   { name: "feature/compact-header", time: ago(50), ahead: 0, behind: 0, worktree: true },
+   { name: "main", time: ago(0.1), ahead: 0, behind: 21, worktree: false, archived: false },
+   { name: "feature/login", time: ago(4), ahead: 3, behind: 1, worktree: false, archived: false },
+   {
+      name: "feature/compact-header",
+      time: ago(50),
+      ahead: 0,
+      behind: 0,
+      worktree: true,
+      archived: false,
+   },
+   {
+      name: "harness/old-parser-fix",
+      time: ago(300),
+      ahead: 0,
+      behind: 0,
+      worktree: false,
+      archived: true,
+   },
 ];
 const MOCK_REMOTE: BranchInfo[] = [
-   { name: "origin/feature/completions", time: ago(170), ahead: 0, behind: 0, worktree: false },
+   {
+      name: "origin/feature/completions",
+      time: ago(170),
+      ahead: 0,
+      behind: 0,
+      worktree: false,
+      archived: false,
+   },
 ];
 const MOCK_PRS: PullRequest[] = [
    {
@@ -711,10 +733,17 @@ export class MockTransport implements Transport {
             return {
                type: "Branches",
                branches: cmd.folder.includes("norepo")
-                  ? { repo_root: null, current: null, branches: [], remote: [] }
+                  ? {
+                       repo_root: null,
+                       current: null,
+                       default_branch: null,
+                       branches: [],
+                       remote: [],
+                    }
                   : {
                        repo_root: cmd.folder,
                        current: "main",
+                       default_branch: "main",
                        branches: MOCK_BRANCHES,
                        remote: MOCK_REMOTE,
                     },
