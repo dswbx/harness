@@ -436,6 +436,12 @@ function ChatView({
       [jumpToRow],
    );
    const [resolved, setResolved] = useState<ResolvedReferences>(NO_REFERENCES);
+   // References are looked up from the first time their panel opens.
+   const [referencesOpened, setReferencesOpened] = useState(false);
+   const referencesOpen = isOpen(lay, "references");
+   useEffect(() => {
+      if (referencesOpen) setReferencesOpened(true);
+   }, [referencesOpen]);
    const changeCount = useMemo(
       () => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0),
       [state.items],
@@ -458,9 +464,9 @@ function ChatView({
       const a = new Set<PanelId>(["side", "terminal", "events", ...slotById.keys()]);
       if (git) a.add("changes");
       if (artifacts.length > 0 || isOpen(lay, "artifacts")) a.add("artifacts");
-      if (resolved.refs.length > 0 || isOpen(lay, "references")) a.add("references");
+      if (resolved.any || referencesOpen) a.add("references");
       return a;
-   }, [slotById, git, artifacts.length, resolved.refs.length, lay]);
+   }, [slotById, git, artifacts.length, resolved.any, referencesOpen, lay]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -513,7 +519,7 @@ function ChatView({
          : id === "artifacts"
            ? artifacts.length
            : id === "references"
-             ? resolved.refs.length
+             ? resolved.count
              : undefined;
    const shortcut = (id: PanelId) => (id === "terminal" ? ["⌃", "`"] : undefined);
    const group = (zone: Zone): StripeGroup => ({
@@ -756,7 +762,11 @@ function ChatView({
    return (
       <PrRefProvider api={api}>
          <FileRefProvider api={api}>
-            <ReferencesProbe items={state.items} onResolved={setResolved} />
+            <ReferencesProbe
+               items={state.items}
+               active={referencesOpened}
+               onResolved={setResolved}
+            />
             <div className="relative flex h-full">
                {(!leftEmpty || drag) && (
                   <Stripe

@@ -47,18 +47,36 @@ import {
 import { useNow } from "./time";
 import { prStateVisual } from "./UiPullRequest";
 
-export type ResolvedReferences = { refs: Reference[]; prsUnavailable: boolean };
-export const NO_REFERENCES: ResolvedReferences = { refs: [], prsUnavailable: false };
+export type ResolvedReferences = {
+   refs: Reference[];
+   prsUnavailable: boolean;
+   /** Lookups are still running. */
+   checking: boolean;
+   /** The panel has something to offer: its stripe icon shows. */
+   any: boolean;
+   /** For the stripe; undefined until the lookups are done. */
+   count: number | undefined;
+};
+export const NO_REFERENCES: ResolvedReferences = {
+   refs: [],
+   prsUnavailable: false,
+   checking: false,
+   any: false,
+   count: undefined,
+};
 
 /**
- * Keeps the Session's references checked while the panel may be closed (the stripe shows their count): asks the PR store
- * and the file reader about each candidate and reports what exists. Renders nothing; it sits inside their providers.
+ * Finds the Session's references and, once `active` (the panel was opened), asks the PR store and the file reader about
+ * each candidate and reports what exists. No lookups before that: until then the stripe shows the icon without a count.
+ * Renders nothing; it sits inside their providers.
  */
 export function ReferencesProbe({
    items,
+   active,
    onResolved,
 }: {
    items: Item[];
+   active: boolean;
    onResolved: (r: ResolvedReferences) => void;
 }) {
    const prRefs = usePrRefs();
@@ -79,6 +97,7 @@ export function ReferencesProbe({
    const wanted = useMemo(() => candidates.map((c) => c.key).join("\n"), [candidates]);
    // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event.
    useEffect(() => {
+      if (!active) return;
       let off = false;
       for (const c of candidates) {
          if (c.kind === "pr") store?.request(c.ref);
@@ -89,20 +108,33 @@ export function ReferencesProbe({
          }
       }
       return () => void (off = true);
-   }, [wanted, store, reader]);
+   }, [wanted, store, reader, active]);
    // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is when the caches changed.
-   const resolved = useMemo(
-      () =>
-         resolveReferences(candidates, {
-            pr: (k) => store?.peek(k) ?? null,
-            file: (f) => {
-               const w = refWindow(f);
-               return reader ? reader.peek(f.path, w.from, w.to) : undefined;
-            },
-            changed,
-         }),
-      [candidates, store, reader, changed, tick],
-   );
+   const resolved = useMemo(() => {
+      const file = (f: FileRef) => {
+         const w = refWindow(f);
+         return reader ? reader.peek(f.path, w.from, w.to) : undefined;
+      };
+      const r = resolveReferences(candidates, {
+         pr: (k) => store?.peek(k) ?? null,
+         file,
+         changed,
+      });
+      const checking =
+         active &&
+         candidates.some((c) =>
+            c.kind === "pr"
+               ? store?.peek(c.ref).status === "loading"
+               : c.kind === "file" && !!reader && file(c.ref) === undefined,
+         );
+      const known = active && !checking;
+      return {
+         ...r,
+         checking,
+         any: known ? r.refs.length > 0 : candidates.length > 0,
+         count: known ? r.refs.length : undefined,
+      };
+   }, [candidates, store, reader, changed, tick, active]);
    useEffect(() => onResolved(resolved), [resolved, onResolved]);
    return null;
 }
@@ -492,7 +524,9 @@ export function ReferencesPanel({
                      {hasAny
                         ? "Nothing matches."
                         : refs.length === 0
-                          ? "Links, PRs and code refs from this Session show here."
+                          ? resolved.checking
+                             ? "Checking references..."
+                             : "Links, PRs and code refs from this Session show here."
                           : `No ${meta.label === "Code" ? "code refs" : meta.label} in this Session.`}
                   </p>
                )}
