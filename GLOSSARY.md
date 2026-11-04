@@ -44,6 +44,10 @@ _Avoid_: task list, spec
 An Agent mode in which it drafts a Plan instead of acting.
 _Avoid_: planning mode, read-only mode
 
+**Quick Session**:
+A Session with no folder from the user; the Harness makes an empty folder for it, which goes with the Session (ADR 0020).
+_Avoid_: chat, scratch session
+
 **Archived Session**:
 A Session set aside by the user: its work is preserved and it can be restored, but its Worktrees no longer occupy disk.
 _Avoid_: closed session, inactive session
@@ -115,7 +119,7 @@ The set of folders one Session's Agents work in, defined for that Session alone 
 _Avoid_: project, working directory, repo
 
 **Workspace Folder**:
-One folder in a Workspace: either an existing folder used as is (which other Sessions may also use) or a Worktree.
+One folder in a Workspace: an existing folder used as is (which other Sessions may also use), a Worktree, or the folder the Harness makes for a Quick Session.
 _Avoid_: root, mount, directory
 
 **Worktree**:

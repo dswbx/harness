@@ -412,6 +412,23 @@ export class HarnessClient {
       if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
       return r.session_id;
    }
+   /** A Session with no folder from the user: the core makes an empty one for it. */
+   async createQuickSession(args: {
+      agentId: string;
+      frontendId: string;
+      title?: string | null;
+      mcpServers?: string[];
+   }): Promise<string> {
+      const r = await this.transport.execute({
+         type: "CreateQuickSession",
+         agent_id: args.agentId,
+         frontend_id: args.frontendId,
+         title: args.title || null,
+         mcp_servers: args.mcpServers ?? [],
+      });
+      if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
+      return r.session_id;
+   }
    async listBranches(folder: string): Promise<Branches> {
       const r = await this.transport.execute({ type: "ListBranches", folder });
       if (r.type !== "Branches") throw new Error("unexpected result: " + r.type);
@@ -437,6 +454,10 @@ export class HarnessClient {
    /** Rejects with the core's reason when work would be lost and `force` is false. */
    async deleteSession(sessionId: string, force = false): Promise<void> {
       await this.transport.execute({ type: "DeleteSession", session_id: sessionId, force });
+   }
+   /** Deletes the Session if it is a Quick Session nobody used; the core decides. */
+   async discardEmptySession(sessionId: string): Promise<void> {
+      await this.transport.execute({ type: "DiscardEmptySession", session_id: sessionId });
    }
    async listMcpServers(): Promise<McpServerDef[]> {
       const r = await this.transport.execute({ type: "ListMcpServers" });

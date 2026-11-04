@@ -77,6 +77,16 @@ pub enum Command {
         #[serde(default)]
         mcp_servers: Vec<String>,
     },
+    /// Creates a Quick Session: a Session with no folder from the user. The core makes an empty
+    /// folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
+    CreateQuickSession {
+        agent_id: String,
+        frontend_id: String,
+        title: Option<String>,
+        /// MCP Library servers (ids) to give the Agent, besides the Harness MCP.
+        #[serde(default)]
+        mcp_servers: Vec<String>,
+    },
     ListMcpServers,
     /// Adds or replaces an MCP Library server. `secrets` holds values for `secret_keys`; they go
     /// to the Keychain, never to disk. A missing secret keeps the stored one.
@@ -205,6 +215,11 @@ pub enum Command {
         session_id: SessionId,
         #[serde(default)]
         force: bool,
+    },
+    /// Deletes a Quick Session that nobody used: no prompt was sent and its folder is empty.
+    /// Does nothing for any other Session or an unknown id, so an out-of-date caller loses no work.
+    DiscardEmptySession {
+        session_id: SessionId,
     },
     GitStatus {
         session_id: SessionId,
@@ -847,6 +862,8 @@ pub struct SessionSummary {
     pub updated_ms: i64,
     pub status: SessionStatus,
     pub archived: bool,
+    /// A Quick Session: `folder` is a folder the Harness made for it.
+    pub quick: bool,
     pub workspace: WorkspaceInfo,
 }
 

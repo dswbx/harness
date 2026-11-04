@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
-import { PromptBox } from "./PromptBox";
+import { PromptBox, type PromptBoxHandle } from "./PromptBox";
 import { ScrollUnder } from "./ScrollUnder";
 
 // xterm.js stays out of the main chunk until the Terminal is first opened.
@@ -240,6 +240,16 @@ function ChatView({
    menu?: HTMLElement | null;
 }) {
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
+   // A Session with nothing in it yet is waiting for a message. The short wait lets the replay arrive.
+   const prompt = useRef<PromptBoxHandle>(null);
+   const hasItems = useRef(false);
+   hasItems.current = state.items.length > 0;
+   useEffect(() => {
+      const t = setTimeout(() => {
+         if (!hasItems.current) prompt.current?.focus();
+      }, 150);
+      return () => clearTimeout(t);
+   }, []);
    const { ui, rows, subagents } = useRows(state.items);
 
    // render_ui items placed left or right are panels. Their default zone follows the placement.
@@ -694,7 +704,7 @@ function ChatView({
                         )}
                      </div>
                   ) : (
-                     <PromptBox api={api} state={state} onSideThread={btw} />
+                     <PromptBox ref={prompt} api={api} state={state} onSideThread={btw} />
                   )}
                </>
             }

@@ -128,6 +128,13 @@ new_branch?: string | null;
  */
 pr?: number | null; 
 /**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
+mcp_servers?: string[] } | 
+/**
+ *  Creates a Quick Session: a Session with no folder from the user. The core makes an empty
+ *  folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
+ */
+{ type: "CreateQuickSession"; agent_id: string; frontend_id: string; title: string | null; 
+/**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
 mcp_servers?: string[] } | { type: "ListMcpServers" } | 
 /**
  *  Adds or replaces an MCP Library server. `secrets` holds values for `secret_keys`; they go
@@ -193,7 +200,12 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  Deletes the Session and its Worktree and branch. Refuses unmerged or uncommitted work
  *  unless `force`.
  */
-{ type: "DeleteSession"; session_id: string; force?: boolean } | { type: "GitStatus"; session_id: string } | 
+{ type: "DeleteSession"; session_id: string; force?: boolean } | 
+/**
+ *  Deletes a Quick Session that nobody used: no prompt was sent and its folder is empty.
+ *  Does nothing for any other Session or an unknown id, so an out-of-date caller loses no work.
+ */
+{ type: "DiscardEmptySession"; session_id: string } | { type: "GitStatus"; session_id: string } | 
 /**
  *  Diff of the Workspace. `from` defaults to where the Session's changes start (merge base
  *  with the Worktree's base branch, else HEAD); `to` defaults to the working tree now.
@@ -595,6 +607,8 @@ export type SessionSummary = {
 	updated_ms: number,
 	status: SessionStatus,
 	archived: boolean,
+	/**  A Quick Session: `folder` is a folder the Harness made for it. */
+	quick: boolean,
 	workspace: WorkspaceInfo,
 };
 

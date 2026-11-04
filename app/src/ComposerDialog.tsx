@@ -36,6 +36,7 @@ import {
    Plus,
    Puzzle,
    RefreshCw,
+   Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AgentIcon } from "./AgentsPanel";
@@ -199,6 +200,8 @@ export function ComposerDialog({
    // Workspace folder
    const [recent, setRecent] = useState<RecentFolder[]>([]);
    const [folder, setFolder] = useState("");
+   /** "No folder" picked: a Quick Session. `folder` is empty then. */
+   const [noFolder, setNoFolder] = useState(false);
    const [folderOpen, setFolderOpen] = useState(false);
    const [folderQuery, setFolderQuery] = useState("");
    /** Current branch per recent folder (`null`: not a repository), loaded when the list opens. */
@@ -263,6 +266,7 @@ export function ComposerDialog({
             if (off) return;
             const r = mergeRecent(loadRecent(), sessionFolders(sessions));
             setRecent(r);
+            setNoFolder(false);
             setFolder((cur) => presetFolder || cur || r[0]?.path || "");
          });
       return () => {
@@ -394,9 +398,15 @@ export function ComposerDialog({
    };
 
    const pickFolder = (p: string) => {
+      setNoFolder(false);
       setFolder(p);
       setFolderOpen(false);
       setFolderQuery("");
+   };
+
+   const pickNoFolder = () => {
+      pickFolder("");
+      setNoFolder(true);
    };
 
    const browse = async () => {
@@ -421,15 +431,11 @@ export function ComposerDialog({
                        branch: target && target.name !== branches?.current ? target.name : null,
                        worktree,
                     };
-         const id = await client.createSession({
-            folder: folder.trim(),
-            agentId,
-            frontendId,
-            title: title.trim() || null,
-            mcpServers: mcpIds,
-            ...repoArgs,
-         });
-         rememberFolder(folder.trim());
+         const common = { agentId, frontendId, title: title.trim() || null, mcpServers: mcpIds };
+         const id = noFolder
+            ? await client.createQuickSession(common)
+            : await client.createSession({ folder: folder.trim(), ...common, ...repoArgs });
+         if (!noFolder) rememberFolder(folder.trim());
          setTitle("");
          setMcpIds([]);
          setPr(null);
@@ -444,7 +450,7 @@ export function ComposerDialog({
 
    const canCreate =
       !busy &&
-      !!folder.trim() &&
+      (noFolder || !!folder.trim()) &&
       !!agentId &&
       !!frontendId &&
       (!isRepo || (mode === "pr" ? !!pr : !!target?.name.trim()));
@@ -474,6 +480,27 @@ export function ComposerDialog({
                        <span className="truncate">
                           Use <span className="font-mono text-[13px]">{fq}</span>
                        </span>
+                    </>
+                 ),
+              },
+           ]
+         : []),
+      ...(matches(fq, "no folder", "quick session")
+         ? [
+              {
+                 key: "no-folder",
+                 selected: noFolder,
+                 onSelect: pickNoFolder,
+                 content: (
+                    <>
+                       <Zap
+                          className={cn(
+                             "size-4 shrink-0",
+                             noFolder ? "text-primary" : "text-muted-foreground",
+                          )}
+                       />
+                       <span className="flex-1">No folder</span>
+                       <span className="shrink-0 text-xs text-muted-foreground">Quick Session</span>
                     </>
                  ),
               },
@@ -739,9 +766,11 @@ export function ComposerDialog({
                      empty={recent.length ? "No folder matches" : "No recent folders yet"}
                      trigger={
                         <FieldButton
-                           icon={<Folder />}
-                           title={folder ? baseName(folder) : undefined}
-                           subtitle={folder ? tildify(folder) : undefined}
+                           icon={noFolder ? <Zap /> : <Folder />}
+                           title={noFolder ? "No folder" : folder ? baseName(folder) : undefined}
+                           subtitle={
+                              noFolder ? "Quick Session" : folder ? tildify(folder) : undefined
+                           }
                            placeholder="Choose a folder"
                         />
                      }
@@ -1059,9 +1088,11 @@ export function ComposerDialog({
                               placeholder={
                                  mode === "pr" && pr?.title
                                     ? `#${pr.number} ${pr.title}`
-                                    : folder
-                                      ? baseName(folder)
-                                      : "Optional"
+                                    : noFolder
+                                      ? "First words of your message"
+                                      : folder
+                                        ? baseName(folder)
+                                        : "Optional"
                               }
                            />
                         </label>

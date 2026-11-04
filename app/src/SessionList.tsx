@@ -15,6 +15,7 @@ import {
    Search,
    Trash2,
    X,
+   Zap,
 } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { SessionDetails, StatusDot } from "./SessionHeader";
@@ -83,8 +84,14 @@ function DetailLine({
          <span className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
             {showFolder && (
                <span className="flex shrink-0 items-center gap-1">
-                  <Folder className="size-3 shrink-0" />
-                  <span className="whitespace-nowrap">{folderName(s.folder)}</span>
+                  {s.quick ? (
+                     <Zap className="size-3 shrink-0" />
+                  ) : (
+                     <Folder className="size-3 shrink-0" />
+                  )}
+                  <span className="whitespace-nowrap">
+                     {s.quick ? "Quick" : folderName(s.folder)}
+                  </span>
                </span>
             )}
             {(branch || ws.pr != null) && (
@@ -364,6 +371,7 @@ export function SessionList({
    onArchive,
    onDelete,
    onNewInFolder,
+   onNewQuick,
    children,
 }: {
    sessions: SessionSummary[];
@@ -373,6 +381,8 @@ export function SessionList({
    onDelete: (s: SessionSummary) => void;
    /** Opens the Composer with this folder picked (the + on a folder group). */
    onNewInFolder?: (folder: string) => void;
+   /** Starts a Quick Session right away (the + on the Quick group). */
+   onNewQuick?: () => void;
    children?: ReactNode;
 }) {
    const [query, setQuery] = useState("");
@@ -479,7 +489,10 @@ export function SessionList({
                               <button
                                  aria-expanded={open}
                                  onClick={() => toggle(g.id)}
-                                 className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-xs font-medium text-muted-foreground transition-[padding] hover:text-foreground group-hover/hdr:pr-7 group-has-focus-visible/hdr:pr-7"
+                                 className={cn(
+                                    "flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-xs font-medium text-muted-foreground transition-[padding] hover:text-foreground group-hover/hdr:pr-7 group-has-focus-visible/hdr:pr-7",
+                                    g.quick && "pr-7",
+                                 )}
                               >
                                  <ChevronRight
                                     className={cn(
@@ -488,6 +501,7 @@ export function SessionList({
                                     )}
                                  />
                                  {g.folder && <Folder className="size-3.25 shrink-0" />}
+                                 {g.quick && <Zap className="size-3.25 shrink-0" />}
                                  <span className="min-w-0 truncate text-foreground/75 group-hover/hdr:text-foreground">
                                     {g.label}
                                  </span>
@@ -498,6 +512,18 @@ export function SessionList({
                                     aria-label={`New Session in ${g.label}`}
                                     onClick={() => onNewInFolder(g.sessions[0]!.folder)}
                                     className="absolute right-1 grid size-5 place-items-center rounded text-muted-foreground opacity-0 transition hover:bg-accent hover:text-accent-foreground group-hover/hdr:opacity-100 group-has-focus-visible/hdr:opacity-100 focus-visible:opacity-100"
+                                 >
+                                    <Plus className="size-3.5" />
+                                 </button>
+                              )}
+                              {g.quick && onNewQuick && (
+                                 <button
+                                    aria-label="New Quick Session"
+                                    onClick={() => {
+                                       if (!open) toggle(g.id);
+                                       onNewQuick();
+                                    }}
+                                    className="absolute right-1 grid size-5 place-items-center rounded text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
                                  >
                                     <Plus className="size-3.5" />
                                  </button>

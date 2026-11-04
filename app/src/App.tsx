@@ -21,9 +21,10 @@ import {
    useResizableWidth,
 } from "@harness/ui";
 import { PanelLeft, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
+import { QUICK_TITLE, quickAgent } from "./composer";
 import { FrontendRequests } from "./FrontendRequests";
 import { openViewWindow } from "./openWindow";
 import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
@@ -342,6 +343,38 @@ function Shell({ transport }: { transport: Transport }) {
          .then(refresh)
          .catch((e) => setMenuError(errText(e)));
    };
+   /** The Quick group's +: no dialog. Stays on a Quick Session that is still unused. */
+   const startQuick = async () => {
+      const current = sessions.find((s) => s.id === selected);
+      if (current?.quick && current.title === QUICK_TITLE) return;
+      try {
+         const [agents, frontends] = await Promise.all([
+            client.listAgents(),
+            client.listFrontends(),
+         ]);
+         const agent = quickAgent(sessions, agents);
+         const frontend = frontends.find((f) => f.id === "chat") ?? frontends[0];
+         // No Agent yet: the Composer offers to open the Agents settings.
+         if (!agent || !frontend) return setComposer(true);
+         const id = await client.createQuickSession({ agentId: agent.id, frontendId: frontend.id });
+         setSelected(id);
+         await refresh();
+      } catch (e) {
+         report("Could not start a Quick Session", e);
+      }
+   };
+   // Leaving a Quick Session: the core removes it if it is still unused.
+   const leaving = useRef(selected);
+   useEffect(() => {
+      const prev = leaving.current;
+      leaving.current = selected;
+      if (!prev || prev === selected) return;
+      if (!sessions.find((s) => s.id === prev)?.quick) return;
+      client
+         .discardEmptySession(prev)
+         .then(refresh)
+         .catch((e) => report("Could not remove the empty Quick Session", e));
+   }, [selected]);
    const askDelete = (s: SessionSummary) => {
       setToDelete(s);
       setDeleteError(null);
@@ -397,6 +430,7 @@ function Shell({ transport }: { transport: Transport }) {
                   onSelect={setSelected}
                   onArchive={toggleArchive}
                   onDelete={askDelete}
+                  onNewQuick={() => void startQuick()}
                   onNewInFolder={(folder) => {
                      setComposerFolder(folder);
                      setComposer(true);
@@ -462,9 +496,11 @@ function Shell({ transport }: { transport: Transport }) {
                   <DialogTitle>Delete Session?</DialogTitle>
                   <DialogDescription>
                      "{toDelete?.title}" and its log will be deleted
-                     {toDelete?.workspace.worktree_branch
-                        ? ", along with its Worktree and branch"
-                        : ""}
+                     {toDelete?.quick
+                        ? ", along with its folder and the files in it"
+                        : toDelete?.workspace.worktree_branch
+                          ? ", along with its Worktree and branch"
+                          : ""}
                      . This cannot be undone.
                   </DialogDescription>
                </DialogHeader>

@@ -97,6 +97,29 @@ pub struct SessionMeta {
     /// The title was taken from the log's `SessionInfoUpdated` events once (Sessions from before titles were kept here).
     #[serde(default)]
     pub title_backfilled: bool,
+    /// A Quick Session: the Harness made `folder` for it and deletes it with the Session.
+    #[serde(default)]
+    pub quick: bool,
+    /// Quick Session with no prompt yet on any Thread. It can be discarded (`is_discardable`).
+    #[serde(default)]
+    pub awaiting_first_prompt: bool,
+    /// The title is a placeholder: the first Main Thread prompt replaces it.
+    #[serde(default)]
+    pub title_from_prompt: bool,
+}
+
+/// Title of a Quick Session until its first prompt.
+pub const QUICK_TITLE: &str = "New Quick Session";
+
+/// A title from the first line of a prompt: up to 40 characters.
+fn title_from_text(text: &str) -> Option<String> {
+    const MAX: usize = 40;
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let mut title: String = line.chars().take(MAX).collect();
+    if line.chars().count() > MAX {
+        title = format!("{}…", title.trim_end());
+    }
+    Some(title)
 }
 
 /// How a Side Thread starts.
@@ -214,6 +237,9 @@ impl Session {
             archived: false,
             mcp_servers,
             title_backfilled: true,
+            quick: false,
+            awaiting_first_prompt: false,
+            title_from_prompt: false,
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
@@ -567,6 +593,7 @@ impl Session {
             updated_ms: self.log.last_ts_ms().unwrap_or(m.created_ms),
             status: self.agent.status(),
             archived: m.archived,
+            quick: m.quick,
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 worktree_branch: m.workspace.worktree.as_ref().map(|w| w.branch.clone()),
@@ -593,7 +620,54 @@ impl Session {
         attachments: Vec<crate::api::AttachmentInput>,
     ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
+        self.note_first_prompt(&thread, &text)?;
         crate::acp::prompt(self.clone(), thread, text, attachments).await
+    }
+
+    /// A Quick Session is used from its first prompt on, and takes its title from the first one
+    /// on the Main Thread. The Agent's own title replaces that later (`set_agent_title`).
+    fn note_first_prompt(&self, thread: &ThreadId, text: &str) -> anyhow::Result<()> {
+        let is_main = self.is_main(Some(thread));
+        let m = self.meta();
+        if !m.awaiting_first_prompt && !(m.title_from_prompt && is_main) {
+            return Ok(());
+        }
+        let title = if is_main && m.title_from_prompt { title_from_text(text) } else { None };
+        self.update_meta(|m| {
+            m.awaiting_first_prompt = false;
+            if is_main && title.is_some() {
+                m.title_from_prompt = false;
+            }
+            if let Some(t) = &title {
+                m.title = t.clone();
+            }
+        })?;
+        if let Some(title) = title {
+            let session_id = self.id();
+            self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status: self.agent.status() });
+        }
+        Ok(())
+    }
+
+    /// A Quick Session nobody used: no prompt, nothing in its folder, not archived.
+    pub fn is_discardable(&self) -> bool {
+        let m = self.meta();
+        m.quick
+            && m.awaiting_first_prompt
+            && !m.archived
+            && std::fs::read_dir(&m.folder).map(|mut d| d.next().is_none()).unwrap_or(true)
+    }
+
+    /// Removes the Session Directory and, for a Quick Session, the folder the Harness made.
+    /// The folder's name must be the Session id, so bad metadata can never delete another folder.
+    pub fn remove_files(&self) -> anyhow::Result<()> {
+        let m = self.meta();
+        std::fs::remove_dir_all(&self.dir)?;
+        let folder = Path::new(&m.folder);
+        if m.quick && folder.file_name().is_some_and(|n| n == m.id.as_str()) && folder.exists() {
+            std::fs::remove_dir_all(folder)?;
+        }
+        Ok(())
     }
 
     /// A stored attachment as `(mime, base64)`.

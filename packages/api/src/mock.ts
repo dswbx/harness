@@ -460,7 +460,32 @@ export class MockTransport implements Transport {
          s.updated_ms = Date.now() - u * h;
          if (status) s.status = status;
       });
+      const quick: [string, number][] = [
+         ["Compare SQLite and libSQL", 3],
+         ["Convert seconds to hours", 50],
+      ];
+      quick.forEach(([title, age], i) => {
+         this.addQuickSession(`mock-q${i + 1}`, title, "chat");
+         const s = this.sessions.at(-1)!;
+         s.created_ms = Date.now() - age * h;
+         s.updated_ms = s.created_ms;
+      });
    }
+
+   private addQuickSession(id: string, title: string, frontend_id: string) {
+      const workspace: WorkspaceInfo = {
+         repo_root: null,
+         worktree_branch: null,
+         base_branch: null,
+         branch: null,
+         pr: null,
+      };
+      this.addSession(id, title, frontend_id, false, `/Users/me/.harness/quick/${id}`, workspace);
+      this.sessions.at(-1)!.quick = true;
+   }
+
+   /** Quick Sessions with no prompt yet. */
+   private unusedQuick = new Set<string>();
 
    private addSession(
       id: string,
@@ -480,6 +505,7 @@ export class MockTransport implements Transport {
          updated_ms: Date.now(),
          status: "idle",
          archived: false,
+         quick: false,
          workspace: workspace ?? {
             repo_root: folder,
             worktree_branch: null,
@@ -630,7 +656,7 @@ export class MockTransport implements Transport {
                })),
             };
          case "ListSessions":
-            return { type: "Sessions", sessions: this.sessions };
+            return { type: "Sessions", sessions: [...this.sessions] };
          case "CreateSession": {
             const id = `mock-${++this.n + 1}`;
             const isRepo = !cmd.folder.includes("norepo");
@@ -666,6 +692,20 @@ export class MockTransport implements Transport {
             this.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
             this.emitApp({ type: "SessionsChanged" });
             return { type: "SessionCreated", session_id: id };
+         }
+         case "CreateQuickSession": {
+            const id = `mock-${++this.n + 1}`;
+            this.addQuickSession(id, cmd.title ?? "New Quick Session", cmd.frontend_id);
+            this.unusedQuick.add(id);
+            this.emitApp({ type: "SessionsChanged" });
+            return { type: "SessionCreated", session_id: id };
+         }
+         case "DiscardEmptySession": {
+            if (this.unusedQuick.delete(cmd.session_id)) {
+               this.sessions = this.sessions.filter((x) => x.id !== cmd.session_id);
+               this.emitApp({ type: "SessionsChanged" });
+            }
+            return { type: "Ok" };
          }
          case "ListBranches":
             return {
@@ -1129,6 +1169,19 @@ export class MockTransport implements Transport {
          }
          case "Prompt": {
             const sid = cmd.session_id;
+            if (this.unusedQuick.delete(sid) && !cmd.thread_id) {
+               const s = this.session(sid);
+               const line = cmd.text.trim().split("\n")[0] ?? "";
+               if (s.title === "New Quick Session" && line) {
+                  s.title = line.length > 40 ? `${line.slice(0, 40).trimEnd()}…` : line;
+                  this.emitApp({
+                     type: "SessionStatus",
+                     session_id: sid,
+                     title: s.title,
+                     status: s.status,
+                  });
+               }
+            }
             if (cmd.thread_id) return this.promptSide(sid, cmd.thread_id, cmd.text);
             if (this.readOnly.has(sid))
                throw new Error("Thread is read-only: continue with a summary first");
