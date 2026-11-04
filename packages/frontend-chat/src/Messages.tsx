@@ -15,6 +15,7 @@ import {
 import {
    AlertTriangle,
    ChevronRight,
+   Diff,
    FileText,
    Info,
    Loader2,
@@ -24,7 +25,7 @@ import {
 import { memo, type Ref, useEffect, useMemo, useState } from "react";
 import { AuthCard } from "./Auth";
 import { CommentChips } from "./CommentChip";
-import { type DiffScope, FileStat } from "./DiffPanel";
+import type { DiffScope } from "./DiffPanel";
 import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
@@ -50,6 +51,7 @@ import type { RawNode } from "./tools";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
+/** One line under a Turn: totals and file names; opens the diff scoped to that Turn. */
 function ChangesRow({
    item,
    onOpen,
@@ -57,38 +59,33 @@ function ChangesRow({
    item: Extract<Item, { type: "changes" }>;
    onOpen: () => void;
 }) {
-   const [open, setOpen] = useState(false);
    const n = item.files.length;
+   const sum = (key: "additions" | "deletions") =>
+      item.files.reduce((total, f) => total + (f[key] ?? 0), 0);
+   const additions = sum("additions");
+   const deletions = sum("deletions");
+   const names = item.files.map((f) => f.path.slice(f.path.lastIndexOf("/") + 1)).join(", ");
    return (
-      <div className="rounded-lg border bg-card text-sm">
-         <div className="flex items-center">
-            <button
-               className="p-2"
-               aria-label={open ? "Hide files" : "Show files"}
-               aria-expanded={open}
-               onClick={() => setOpen(!open)}
-            >
-               <ChevronRight
-                  className={cn(
-                     "size-4 text-muted-foreground transition-transform",
-                     open && "rotate-90",
-                  )}
-               />
-            </button>
-            <button className="flex-1 py-2 pr-3 text-left hover:underline" onClick={onOpen}>
-               Changed {n} {n === 1 ? "file" : "files"}
-            </button>
-         </div>
-         {open && (
-            <ul className="space-y-1 border-t px-3 py-2">
-               {item.files.map((f) => (
-                  <li key={f.path}>
-                     <FileStat f={f} />
-                  </li>
-               ))}
-            </ul>
+      <button
+         type="button"
+         className="group flex w-full flex-wrap items-start gap-x-2.5 gap-y-1 border-t pt-3 text-left text-[13px] text-muted-foreground hover:text-foreground"
+         onClick={onOpen}
+      >
+         <Diff className="mt-0.5 size-4 shrink-0" />
+         <span className="shrink-0 font-medium text-foreground">
+            {n} {n === 1 ? "file" : "files"} changed
+         </span>
+         {(additions > 0 || deletions > 0) && (
+            <span className="mt-px flex shrink-0 gap-1.5 font-mono text-xs tabular-nums">
+               <span className="text-emerald-600">+{additions}</span>
+               <span className="text-red-600">-{deletions}</span>
+            </span>
          )}
-      </div>
+         <span className="mt-px min-w-40 flex-1 truncate font-mono text-xs group-hover:whitespace-normal group-hover:break-words">
+            {names}
+         </span>
+         <ChevronRight className="mt-0.5 size-3.5 shrink-0" />
+      </button>
    );
 }
 
