@@ -1,6 +1,5 @@
 import {
    type Diff,
-   type FileChange,
    type GitStatus,
    openWindow,
    type SessionApi,
@@ -37,22 +36,6 @@ const fingerprint = (s: GitStatus) =>
 
 const errorMessage = (err: unknown): string =>
    err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
-
-export function FileStat({ f }: { f: FileChange }) {
-   return (
-      <span className="flex min-w-0 items-center gap-2 font-mono text-xs">
-         <span
-            className="w-3 shrink-0 text-center text-muted-foreground"
-            title={`status ${f.status}`}
-         >
-            {f.status}
-         </span>
-         <span className="min-w-0 flex-1 truncate">{f.path}</span>
-         {f.additions != null && <span className="text-emerald-600">+{f.additions}</span>}
-         {f.deletions != null && <span className="text-red-600">-{f.deletions}</span>}
-      </span>
-   );
-}
 
 const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
 
