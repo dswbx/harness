@@ -89,14 +89,31 @@ export interface SessionApi {
    lookupPrs(refs: PrRefKey[]): Promise<(PrInfo | null)[]>;
    /** Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
    searchPrs(repo: RepoId, query?: string | null): Promise<PrInfo[]>;
+   /** The Session's GitHub repo, the PR it works on (started from, else by head branch) and the branch it merges to. */
+   branchPr(): Promise<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>;
    /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
    frontendRead(path: string): Promise<string>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
    openInEditor(path?: string, line?: number): Promise<void>;
+   /**
+    * Lines `start..=end` (1-based, clipped; default: all) of a text file in the Session's folder (relative or absolute
+    * inside it; a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the
+    * file found, relative to the folder. Fails for files outside it, missing, too large, binary or not UTF-8.
+    */
+   readSessionFile(
+      path: string,
+      start?: number,
+      end?: number,
+   ): Promise<{ path: string; start: number; lines: string[]; total: number }>;
    /** The Session State (ADR 0015); also rebuilt from `StateChanged` events. */
    getState(): Promise<unknown>;
    /** Changes the Session State as the user (all or nothing). */
    patchState(ops: StatePatchOp[]): Promise<void>;
+   /**
+    * A Frontend Tool item failed in the UI (e.g. an Html frame's script error); `item` is the call's `id`, else its
+    * `call_id`. The core logs it (`FrontendError`) so the Agent learns about it; repeats are ignored.
+    */
+   reportFrontendError(tool: string, item: string, message: string): Promise<void>;
    /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
    frontendReadImage(path: string): Promise<{ mime: string; data: string }>;
    frontendWrite(path: string, content: string): Promise<void>;
@@ -210,6 +227,10 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
          (await expect({ type: "LookupPrs", session_id: sessionId, refs }, "PrLookup")).prs,
       searchPrs: async (repo, query = null) =>
          (await expect({ type: "SearchPrs", session_id: sessionId, repo, query }, "PrSearch")).prs,
+      branchPr: async () => {
+         const r = await expect({ type: "BranchPr", session_id: sessionId }, "BranchPr");
+         return { repo: r.repo, pr: r.pr, base: r.base };
+      },
       frontendRead: async (path) =>
          (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent"))
             .content,
@@ -220,9 +241,24 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             path: path ?? null,
             line: line ?? null,
          }),
+      readSessionFile: async (path, start, end) => {
+         const r = await expect(
+            {
+               type: "ReadSessionFile",
+               session_id: sessionId,
+               path,
+               start: start ?? null,
+               end: end ?? null,
+            },
+            "FileLines",
+         );
+         return { path: r.path, start: r.start, lines: r.lines, total: r.total };
+      },
       getState: async () =>
          (await expect({ type: "GetState", session_id: sessionId }, "State")).state,
       patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),
+      reportFrontendError: (tool, item, message) =>
+         run({ type: "ReportFrontendError", session_id: sessionId, tool, item, message }),
       frontendReadImage: async (path) => {
          const r = await expect(
             { type: "FrontendReadImage", session_id: sessionId, path },
@@ -371,6 +407,11 @@ export class HarnessClient {
       const r = await this.transport.execute({ type: "ListPullRequests", folder, filter });
       if (r.type !== "PullRequests") throw new Error("unexpected result: " + r.type);
       return r.prs;
+   }
+
+   /** Fast-forwards a local branch to its `origin` counterpart (a pull when checked out in `folder`). */
+   async updateBranch(folder: string, branch: string): Promise<void> {
+      await this.transport.execute({ type: "UpdateBranch", folder, branch });
    }
    async archiveSession(sessionId: string): Promise<void> {
       await this.transport.execute({ type: "ArchiveSession", session_id: sessionId });

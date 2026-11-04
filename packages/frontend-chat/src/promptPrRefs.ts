@@ -87,13 +87,13 @@ const BOUNDARY = /[\s.,;:!?)\]}'"]/;
 
 /**
  * Refs in `text` whose ending boundary character (space, punctuation) was just typed, i.e. lies in `[from, to)`, and
- * that resolve strictly (`#N` in the Session's repo, `owner/repo#N`, a known repo's exact unique name, a PR URL; never
- * fuzzy). `to` is the caret.
+ * that resolve strictly (`owner/repo#N`, a known repo's exact unique name, a PR URL; never fuzzy). `to` is the caret.
+ * A bare `#N` stays text (often a list item); the `#` menu is how to pick a PR in the Session's repo.
  */
 export function autoChips(text: string, from: number, to: number, ctx: PrRefContext): AutoChip[] {
    return findPrRefs(text.slice(0, to), ctx).flatMap((m) => {
-      const key =
-         m.end >= from && m.end < to && BOUNDARY.test(text[m.end]!) ? qualify(m, ctx) : null;
+      const typed = m.repo !== null && m.end >= from && m.end < to && BOUNDARY.test(text[m.end]!);
+      const key = typed ? qualify(m, ctx) : null;
       return key ? [{ start: m.start, end: m.end, raw: m.raw, key }] : [];
    });
 }

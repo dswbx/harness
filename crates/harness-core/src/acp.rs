@@ -319,6 +319,11 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
     } else {
         fork_note.then(|| crate::harness_context::fork_note(&session, &thread))
     };
+    let errors = crate::harness_context::frontend_errors(&session, &thread).unwrap_or_default();
+    let context = match (context, errors) {
+        (Some(c), Some(e)) => Some(format!("{c}\n\n{e}")),
+        (c, e) => c.or(e),
+    };
     let turn_id = uuid::Uuid::now_v7().to_string();
     session.log().append(Some(thread.clone()), EventKind::TurnStarted {
         turn_id: turn_id.clone(),

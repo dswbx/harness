@@ -140,10 +140,23 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetEditor" } | { type: "SetEditor"; editor: Editor | null } | 
 /**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
 { type: "OpenInEditor"; session_id: string; path?: string | null; line?: number | null } | 
+/**
+ *  Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
+ *  (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+ *  for a file reference in a message. Fails for files outside the folder,
+ *  missing, too large, binary or not UTF-8.
+ */
+{ type: "ReadSessionFile"; session_id: string; path: string; start?: number | null; end?: number | null } | 
 /**  The Session State (ADR 0015). */
 { type: "GetState"; session_id: string } | 
 /**  Changes the Session State as the user (e.g. a bound UI component). */
 { type: "PatchState"; session_id: string; ops: StatePatchOp[] } | 
+/**
+ *  A Frontend Tool item failed in the UI (e.g. a script error in a render_ui Html frame).
+ *  `item` is the call's `id`, or its `call_id` when it has none. Logged as `FrontendError`
+ *  (repeats and items that are gone are ignored) so the Agent learns about it.
+ */
+{ type: "ReportFrontendError"; session_id: string; tool: string; item: string; message: string } | 
 /**  An image in `frontend/` (base64), e.g. one a Frontend Tool call named. */
 { type: "FrontendReadImage"; session_id: string; path: string } | { type: "FrontendWrite"; session_id: string; path: string; content: string } | 
 /**  Files under `dir` (recursive, relative to `frontend/`). */
@@ -155,6 +168,12 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  `gh` is missing, not signed in, or the folder has no GitHub remote.
  */
 { type: "ListPullRequests"; folder: string; filter?: PrFilter } | 
+/**
+ *  Fast-forwards a local `branch` of the repository containing `folder` to its `origin` counterpart:
+ *  a pull when it is checked out in `folder`, else a fetch into the branch (fails when it is checked
+ *  out elsewhere or has diverged).
+ */
+{ type: "UpdateBranch"; folder: string; branch: string } | 
 /**  Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept. */
 { type: "ArchiveSession"; session_id: string } | 
 /**  Restores an archived Session's Worktree. */
@@ -186,6 +205,13 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "LookupPrs"; session_id: string; refs: PrRefKey[] } | 
 /**  Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
 { type: "SearchPrs"; session_id: string; repo: RepoId; query: string | null } | 
+/**
+ *  The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+ *  first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+ *  base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+ *  remote; `pr` None without `gh`. Cached like PR references.
+ */
+{ type: "BranchPr"; session_id: string } | 
 /**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
 { type: "ListTerminals"; session_id: string } | 
 /**  A new Terminal tab; its shell starts on the first attach. Returns its id. */
@@ -240,7 +266,9 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
  */
 { type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | 
 /**  `me`: the `gh` user, None when `gh` is not signed in. */
-{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
+/**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
+{ type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
@@ -339,6 +367,12 @@ rule_id?: string | null } |
  *  relative to `frontend/`. Read them with `FrontendReadImage`.
  */
 files?: { [key in string]: string } } | 
+/**
+ *  The UI reported an error in a Frontend Tool item (`ReportFrontendError`). The Agent sees
+ *  it in `harness_info` and at the start of its next prompt on this Thread; a new call with
+ *  the item's id clears it.
+ */
+{ type: "FrontendError"; tool: string; item: string; message: string } | 
 /**
  *  The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
  *  current state.

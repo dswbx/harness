@@ -3,10 +3,12 @@ import {
    setGuessInlineCode,
    setOptionIsMeta,
    setToolDisplay,
+   setWrapCode,
    toolDisplays,
    useGuessInlineCode,
    useOptionIsMeta,
    useToolDisplay,
+   useWrapCode,
 } from "@harness/frontend-chat";
 import {
    Button,
@@ -29,6 +31,8 @@ import { Minus, Plus, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
    type Appearance,
+   CODE_FONT_SIZE_MAX,
+   CODE_FONT_SIZE_MIN,
    CUSTOM_FONT_MAX,
    clampFontSize,
    cleanFont,
@@ -251,6 +255,17 @@ function GuessInlineCodeRow() {
       >
          <Toggle id="guess-inline-code" on={on} onChange={setGuessInlineCode}>
             Guess the language
+         </Toggle>
+      </Row>
+   );
+}
+
+function WrapCodeRow() {
+   const on = useWrapCode();
+   return (
+      <Row label="Code blocks" htmlFor="wrap-code" help="Same as the wrap button on any code block">
+         <Toggle id="wrap-code" on={on} onChange={setWrapCode}>
+            Wrap long lines
          </Toggle>
       </Row>
    );
@@ -592,6 +607,21 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                      onChange={(fontSize) => update({ fontSize })}
                   />
                </Row>
+               <Row
+                  label="Code font size"
+                  htmlFor="code-font-size"
+                  help="Code blocks, diffs and file contents. Not inline code."
+               >
+                  <SizeField
+                     id="code-font-size"
+                     label="code font size"
+                     value={a.codeFontSize}
+                     fallback={DEFAULT_APPEARANCE.codeFontSize}
+                     min={CODE_FONT_SIZE_MIN}
+                     max={CODE_FONT_SIZE_MAX}
+                     onChange={(codeFontSize) => update({ codeFontSize })}
+                  />
+               </Row>
             </Group>
             <Group title="Chat">
                <Row label="Font size" htmlFor="chat-font-size">
@@ -619,6 +649,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                />
                <ToolDisplayRow />
                <GuessInlineCodeRow />
+               <WrapCodeRow />
             </Group>
             <Group title="Terminal">
                <FontRow

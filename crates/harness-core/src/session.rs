@@ -120,6 +120,20 @@ pub struct WorkspaceMeta {
     pub pr: Option<u32>,
 }
 
+/// Most errors kept per Frontend Tool item, and the longest message (bytes).
+pub const MAX_FRONTEND_ERRORS: usize = 5;
+pub const MAX_FRONTEND_ERROR_LEN: usize = 300;
+
+/// A `FrontendError` not cleared yet.
+#[derive(Debug, Clone)]
+pub struct FrontendErrorEntry {
+    pub seq: u64,
+    pub thread: ThreadId,
+    pub tool: String,
+    pub item: String,
+    pub message: String,
+}
+
 pub struct Session {
     dir: PathBuf,
     meta: std::sync::Mutex<SessionMeta>,
@@ -318,6 +332,70 @@ impl Session {
             }
         }
         Ok(items)
+    }
+
+    /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since: a
+    /// new call with the item's id, or its removal, clears them. Also the items errors can be
+    /// reported for, with the Thread of their latest call.
+    fn frontend_error_scan(&self) -> anyhow::Result<(HashMap<(String, String), ThreadId>, Vec<FrontendErrorEntry>)> {
+        let mut items: HashMap<(String, String), ThreadId> = HashMap::new();
+        let mut errors: Vec<FrontendErrorEntry> = Vec::new();
+        for e in self.log.events()? {
+            match e.kind {
+                EventKind::FrontendToolOutput { tool, call_id, input, .. } => {
+                    let Some(thread) = e.thread_id else { continue };
+                    match input.get("id").and_then(|v| v.as_str()) {
+                        Some(id) => {
+                            errors.retain(|x| !(x.tool == tool && x.item == id));
+                            let key = (tool, id.to_owned());
+                            if input.get("remove") == Some(&serde_json::Value::Bool(true)) {
+                                items.remove(&key);
+                            } else {
+                                items.insert(key, thread);
+                            }
+                        }
+                        None => {
+                            items.insert((tool, call_id), thread);
+                        }
+                    }
+                }
+                EventKind::FrontendError { tool, item, message } => errors.push(FrontendErrorEntry {
+                    seq: e.seq,
+                    thread: e.thread_id.unwrap_or_default(),
+                    tool,
+                    item,
+                    message,
+                }),
+                _ => {}
+            }
+        }
+        errors.retain(|x| items.contains_key(&(x.tool.clone(), x.item.clone())));
+        Ok((items, errors))
+    }
+
+    /// Current errors of Frontend Tool items, oldest first (see `frontend_error_scan`).
+    pub fn frontend_errors(&self) -> anyhow::Result<Vec<FrontendErrorEntry>> {
+        Ok(self.frontend_error_scan()?.1)
+    }
+
+    /// Logs `FrontendError` for a live item (its `id`, or the call id of a call without one), on
+    /// the Thread that made it. Ignores items that are gone, repeats of a current error, and more
+    /// than `MAX_FRONTEND_ERRORS` per item; cuts long messages.
+    pub fn report_frontend_error(&self, tool: &str, item: &str, message: &str) -> anyhow::Result<()> {
+        let mut message = message.trim().to_owned();
+        anyhow::ensure!(!message.is_empty(), "message is required");
+        if message.len() > MAX_FRONTEND_ERROR_LEN {
+            message.truncate(message.floor_char_boundary(MAX_FRONTEND_ERROR_LEN));
+            message.push('…');
+        }
+        let (items, errors) = self.frontend_error_scan()?;
+        let Some(thread) = items.get(&(tool.to_owned(), item.to_owned())) else { return Ok(()) };
+        let current: Vec<_> = errors.iter().filter(|x| x.tool == tool && x.item == item).collect();
+        if current.len() >= MAX_FRONTEND_ERRORS || current.iter().any(|x| x.message == message) {
+            return Ok(());
+        }
+        self.log.append(Some(thread.clone()), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
+        Ok(())
     }
 
     pub fn frontend_dir(&self) -> PathBuf {

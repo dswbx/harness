@@ -38,23 +38,23 @@ function run(md: string, c: PrRefContext | null = ctx) {
 
 it("turns refs in text into chips, keeping the text around them", () => {
    const { chips, tree } = run("Fixed in #23 and supabase/spark#17, see spark#12. C# is fine.");
-   expect(chips).toEqual([
-      "dswbx/harness#23 #23",
-      "supabase/spark#17 supabase/spark#17",
-      "supabase/spark#12 spark#12",
-   ]);
+   expect(chips).toEqual(["supabase/spark#17 supabase/spark#17", "supabase/spark#12 spark#12"]);
    const p = tree.children![0]!;
    expect(p.children!.map((n) => n.value ?? `[${n.properties!.dataRaw}]`).join("")).toBe(
-      "Fixed in [#23] and [supabase/spark#17], see [spark#12]. C# is fine.",
+      "Fixed in #23 and [supabase/spark#17], see [spark#12]. C# is fine.",
    );
 });
 
 it("skips code spans, code blocks, named links and headings", () => {
    expect(
       run(
-         "`#23` and\n\n```\n#24\n```\n\n[see #25](https://x.dev) and\n\n# Title #26\n\n**bold #27**",
+         "`spark#23` and\n\n```\nspark#24\n```\n\n[see spark#25](https://x.dev) and\n\n# Title spark#26\n\n**bold spark#27**",
       ).chips,
-   ).toEqual(["dswbx/harness#27 #27"]);
+   ).toEqual(["supabase/spark#27 spark#27"]);
+});
+
+it("keeps bare #N as text (list items, steps)", () => {
+   expect(run("To settle #3 and #9, see harness#4.").chips).toEqual(["dswbx/harness#4 harness#4"]);
 });
 
 it("turns PR autolinks into chips; named PR links and other links stay links", () => {
@@ -71,7 +71,7 @@ it("turns PR autolinks into chips; named PR links and other links stay links", (
    expect(links).toEqual(["https://github.com/o/r/pull/3", "https://github.com/o/r/issues/4"]);
 });
 
-it("does nothing without a context or a Session repo for #N", () => {
+it("does nothing without a context", () => {
    expect(run("#23 supabase/spark#17", null).chips).toEqual([]);
    expect(run("#23 o/r#1", { sessionRepo: null, knownRepos: [] }).chips).toEqual(["o/r#1 o/r#1"]);
 });

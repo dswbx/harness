@@ -189,6 +189,33 @@ describe("unescapeMarkdown", () => {
       expect(unescapeMarkdown("```ts\na\\_b\n```\nc\\_d")).toBe("```ts\na\\_b\n```\nc_d");
       expect(unescapeMarkdown("\\` not code `x\\_y`")).toBe("` not code `x\\_y`");
    });
+   it("decodes Lexical's character references once, outside code only", () => {
+      expect(unescapeMarkdown("&#60;ref> &#38;#60; &#x3C; &#91;x&#93;")).toBe("<ref> &#60; < [x]");
+      expect(unescapeMarkdown("`&#60;` &#60;")).toBe("`&#60;` <");
+      expect(unescapeMarkdown("```\n&#60;\n```")).toBe("```\n&#60;\n```");
+   });
+});
+
+describe("typed text survives export literally", () => {
+   it.each([
+      "<ref>.supabase.co",
+      '"<ref>.supabase.co"',
+      "a & b",
+      "&lt; typed",
+      "&#60; typed",
+      "&#38;#38;#60;ref>",
+      "a <",
+      "x<y && y>z",
+      "[x] and [a](b)",
+      "\\[x\\] \\& a\\b",
+      "2*3*4 a_b ~x",
+   ])("%s", (s) => {
+      expect(mdOf(built(p(s)))).toBe(s);
+   });
+   it("export is stable when the sent text is put back and sent again", () => {
+      const once = mdOf(built(p("see <ref> & &lt;")));
+      expect(mdOf(built(p(once)))).toBe("see <ref> & &lt;");
+   });
 });
 
 describe("list indent", () => {

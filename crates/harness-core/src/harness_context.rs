@@ -32,6 +32,32 @@ pub fn fork_note(session: &Session, thread: &ThreadId) -> String {
     format!("<harness_context>\n{note}\n</harness_context>")
 }
 
+/// Errors the UI reported for Frontend Tool items of `thread` since its last Turn started
+/// (`FrontendError`, still current), as a short block for the next prompt.
+pub fn frontend_errors(session: &Session, thread: &ThreadId) -> anyhow::Result<Option<String>> {
+    let since = session
+        .log()
+        .events()?
+        .into_iter()
+        .rev()
+        .find(|e| e.thread_id.as_ref() == Some(thread) && matches!(e.kind, crate::api::EventKind::TurnStarted { .. }))
+        .map_or(0, |e| e.seq);
+    let lines: Vec<String> = session
+        .frontend_errors()?
+        .into_iter()
+        .filter(|e| e.thread == *thread && e.seq > since)
+        .take(10)
+        .map(|e| format!("- {} `{}`: {}", e.tool, e.item, e.message))
+        .collect();
+    if lines.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "<harness_context>\n## Frontend errors\n\nThe user's UI reported errors in items you made (`harness_info` lists them while they last; a new call with the same id clears them):\n{}\n</harness_context>",
+        lines.join("\n")
+    )))
+}
+
 /// Where a Side Thread comes from and what it may do; `None` for the Main Thread.
 fn side_note(session: &Session, thread: &ThreadId, forked: bool) -> Option<String> {
     let meta = session.meta();

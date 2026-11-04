@@ -35,6 +35,7 @@ import {
    MessageSquare,
    Plus,
    Puzzle,
+   RefreshCw,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AgentIcon } from "./AgentsPanel";
@@ -105,11 +106,51 @@ function PrIcon({ pr, className }: { pr?: PickedPr | null; className?: string })
 function AheadBehind({ b }: { b?: BranchInfo }) {
    if (!b || (!b.ahead && !b.behind)) return null;
    return (
-      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-         {b.ahead ? `↑${b.ahead}` : ""}
-         {b.ahead && b.behind ? " " : ""}
-         {b.behind ? `↓${b.behind}` : ""}
-      </span>
+      <Tooltip
+         content={[
+            b.ahead ? `${b.ahead} ahead of` : "",
+            b.behind ? `${b.behind} behind` : "",
+            `origin/${b.name}`,
+         ]
+            .filter(Boolean)
+            .join(b.ahead && b.behind ? ", " : " ")}
+      >
+         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {b.ahead ? `↑${b.ahead}` : ""}
+            {b.ahead && b.behind ? " " : ""}
+            {b.behind ? `↓${b.behind}` : ""}
+         </span>
+      </Tooltip>
+   );
+}
+
+/** "Update" for a branch behind its upstream: fast-forwards it, then the list reloads. */
+function UpdateBranch({
+   b,
+   onUpdate,
+   busy,
+}: {
+   b?: BranchInfo;
+   onUpdate: (b: BranchInfo) => void;
+   busy: boolean;
+}) {
+   if (!b?.behind) return null;
+   return (
+      <Tooltip content={`Fast-forward ${b.name} to origin/${b.name}`}>
+         <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            className="-my-1 h-6 shrink-0 gap-1 px-1.5 text-xs text-muted-foreground"
+            onClick={(e) => {
+               e.stopPropagation();
+               onUpdate(b);
+            }}
+         >
+            <RefreshCw className={cn("size-3", busy && "animate-spin")} />
+            {busy ? "Updating" : "Update"}
+         </Button>
+      </Tooltip>
    );
 }
 
@@ -130,12 +171,15 @@ export function ComposerDialog({
    agentsVersion = 0,
    mcpVersion = 0,
    onManageAgents,
+   folder: presetFolder = null,
 }: {
    /** Bump to reload the Agent list (after installs/removals). */
    agentsVersion?: number;
    /** Bump to reload the MCP Library. */
    mcpVersion?: number;
    onManageAgents?: () => void;
+   /** Folder to open with (the + on a sidebar folder group); null: the most recent one. */
+   folder?: string | null;
    client: HarnessClient;
    open: boolean;
    onOpenChange: (o: boolean) => void;
@@ -162,19 +206,22 @@ export function ComposerDialog({
 
    // Start point
    const [branches, setBranches] = useState<Branches | null>(null);
+   /** Bumped to reload the branch list (after an Update) without resetting the pick. */
+   const [branchesVersion, setBranchesVersion] = useState(0);
+   /** Branch being fast-forwarded. */
+   const [updating, setUpdating] = useState<string | null>(null);
    const [mode, setMode] = useState<"branch" | "pr">("branch");
    const [target, setTarget] = useState<Target | null>(null);
    const [worktree, setWorktree] = useState(false);
    /** A PR opens in a Worktree unless turned off (then it is checked out in the folder). */
    const [prWorktree, setPrWorktree] = useState(true);
-   const [branchOpen, setBranchOpen] = useState(false);
+   const [startOpen, setStartOpen] = useState(false);
    const [branchQuery, setBranchQuery] = useState("");
    const [prs, setPrs] = useState<PullRequest[] | null>(null);
    /** `false` when `gh` can't list PRs here: the Pull request tab is hidden. */
    const [prAvailable, setPrAvailable] = useState(false);
    const [prFilter, setPrFilter] = useState<PrFilter>("open");
    const [prQuery, setPrQuery] = useState("");
-   const [prOpen, setPrOpen] = useState(false);
    const [pr, setPr] = useState<PickedPr | null>(null);
 
    const [agentOpen, setAgentOpen] = useState(false);
@@ -216,12 +263,12 @@ export function ComposerDialog({
             if (off) return;
             const r = mergeRecent(loadRecent(), sessionFolders(sessions));
             setRecent(r);
-            setFolder((cur) => cur || r[0]?.path || "");
+            setFolder((cur) => presetFolder || cur || r[0]?.path || "");
          });
       return () => {
          off = true;
       };
-   }, [isOpen, client]);
+   }, [isOpen, client, presetFolder]);
 
    useEffect(() => {
       if (!folderOpen) return;
@@ -265,6 +312,29 @@ export function ComposerDialog({
          clearTimeout(h);
       };
    }, [folder, isOpen, client]);
+
+   // After an Update: fresh ahead/behind counts, the pick kept.
+   useEffect(() => {
+      if (!branchesVersion || !folder.trim()) return;
+      let off = false;
+      client
+         .listBranches(folder.trim())
+         .then((b) => !off && setBranches(b))
+         .catch(() => {});
+      return () => {
+         off = true;
+      };
+   }, [branchesVersion, folder, client]);
+
+   const updateBranch = (b: BranchInfo) => {
+      setUpdating(b.name);
+      setError(null);
+      client
+         .updateBranch(folder.trim(), b.name)
+         .then(() => setBranchesVersion((v) => v + 1))
+         .catch((e) => setError(`Could not update ${b.name}: ${String(e)}`))
+         .finally(() => setUpdating(null));
+   };
 
    const isRepo = branches?.repo_root != null;
 
@@ -312,7 +382,7 @@ export function ComposerDialog({
 
    const pickTarget = (t: Target) => {
       setTarget(t);
-      setBranchOpen(false);
+      setStartOpen(false);
       setBranchQuery("");
       const info = t.kind === "local" ? local.get(t.name) : undefined;
       // Switching the folder to another branch would need a clean tree; a Worktree avoids that.
@@ -537,7 +607,7 @@ export function ComposerDialog({
    const typedPr = parsePrRef(pq);
    const pickPr = (p: PickedPr) => {
       setPr(p);
-      setPrOpen(false);
+      setStartOpen(false);
       setPrQuery("");
    };
    const prItems: PickItem[] = [
@@ -680,54 +750,94 @@ export function ComposerDialog({
 
                {isRepo && (
                   <div className="grid gap-2">
-                     <Label
-                        extra={
+                     <Label>Start from</Label>
+                     <Picker
+                        label={mode === "branch" ? "Branches" : "Pull requests"}
+                        open={startOpen}
+                        onOpenChange={(o) => {
+                           setStartOpen(o);
+                           if (!o) {
+                              setBranchQuery("");
+                              setPrQuery("");
+                           }
+                        }}
+                        search={
+                           mode === "branch"
+                              ? {
+                                   value: branchQuery,
+                                   onChange: setBranchQuery,
+                                   placeholder: "Find or create a branch",
+                                   mono: true,
+                                }
+                              : {
+                                   value: prQuery,
+                                   onChange: setPrQuery,
+                                   placeholder: "Search PRs, or paste a number or URL",
+                                }
+                        }
+                        header={
                            prAvailable && (
-                              <div
-                                 role="tablist"
-                                 aria-label="Start from"
-                                 className="ml-auto flex rounded-md bg-muted p-0.5 text-xs"
-                              >
-                                 {(["branch", "pr"] as const).map((m) => (
-                                    <button
-                                       key={m}
-                                       type="button"
-                                       role="tab"
-                                       aria-selected={mode === m}
-                                       onClick={() => setMode(m)}
-                                       className={cn(
-                                          "h-6 rounded px-2.5",
-                                          mode === m
-                                             ? "bg-background text-foreground shadow-xs"
-                                             : "text-muted-foreground hover:text-foreground",
-                                       )}
-                                    >
-                                       {m === "branch" ? "Branch" : "Pull request"}
-                                    </button>
-                                 ))}
+                              <div className="flex items-center gap-1.5 border-b px-2 py-1.5">
+                                 <div
+                                    role="tablist"
+                                    aria-label="Start from"
+                                    className="flex shrink-0 rounded-md bg-muted p-0.5 text-xs"
+                                 >
+                                    {(["branch", "pr"] as const).map((m) => (
+                                       <button
+                                          key={m}
+                                          type="button"
+                                          role="tab"
+                                          aria-selected={mode === m}
+                                          onClick={() => setMode(m)}
+                                          className={cn(
+                                             "h-6 rounded px-2.5",
+                                             mode === m
+                                                ? "bg-background text-foreground shadow-xs"
+                                                : "text-muted-foreground hover:text-foreground",
+                                          )}
+                                       >
+                                          {m === "branch" ? "Branch" : "Pull request"}
+                                       </button>
+                                    ))}
+                                 </div>
+                                 {mode === "pr" && (
+                                    <div className="ml-auto flex gap-1">
+                                       {PR_FILTERS.map(([f, name]) => (
+                                          <button
+                                             key={f}
+                                             type="button"
+                                             onClick={() => setPrFilter(f)}
+                                             className={cn(
+                                                "h-6 rounded-full px-2 text-xs",
+                                                prFilter === f
+                                                   ? "bg-accent text-accent-foreground"
+                                                   : "border text-muted-foreground hover:text-foreground",
+                                             )}
+                                          >
+                                             {name}
+                                          </button>
+                                       ))}
+                                    </div>
+                                 )}
                               </div>
                            )
                         }
-                     >
-                        Start from
-                     </Label>
-                     {mode === "branch" ? (
-                        <Picker
-                           label="Branches"
-                           open={branchOpen}
-                           onOpenChange={(o) => {
-                              setBranchOpen(o);
-                              if (!o) setBranchQuery("");
-                           }}
-                           search={{
-                              value: branchQuery,
-                              onChange: setBranchQuery,
-                              placeholder: "Find or create a branch",
-                              mono: true,
-                           }}
-                           items={branchItems}
-                           hint="Another branch than the folder's opens in a new worktree."
-                           trigger={
+                        items={mode === "branch" ? branchItems : prItems}
+                        empty={
+                           mode === "pr"
+                              ? prs === null
+                                 ? "Loading pull requests…"
+                                 : "No pull requests"
+                              : undefined
+                        }
+                        hint={
+                           mode === "branch"
+                              ? "Another branch than the folder's opens in a new worktree."
+                              : "Opens on the PR's head branch, checked out with gh."
+                        }
+                        trigger={
+                           mode === "branch" ? (
                               <FieldButton
                                  icon={<GitBranch />}
                                  placeholder="Pick a branch"
@@ -751,44 +861,7 @@ export function ComposerDialog({
                                     )
                                  }
                               />
-                           }
-                        />
-                     ) : (
-                        <Picker
-                           label="Pull requests"
-                           open={prOpen}
-                           onOpenChange={(o) => {
-                              setPrOpen(o);
-                              if (!o) setPrQuery("");
-                           }}
-                           search={{
-                              value: prQuery,
-                              onChange: setPrQuery,
-                              placeholder: "Search PRs, or paste a number or URL",
-                           }}
-                           header={
-                              <div className="flex gap-1.5 px-2 pt-2">
-                                 {PR_FILTERS.map(([f, name]) => (
-                                    <button
-                                       key={f}
-                                       type="button"
-                                       onClick={() => setPrFilter(f)}
-                                       className={cn(
-                                          "h-6 rounded-full px-2.5 text-xs",
-                                          prFilter === f
-                                             ? "bg-accent text-accent-foreground"
-                                             : "border text-muted-foreground hover:text-foreground",
-                                       )}
-                                    >
-                                       {name}
-                                    </button>
-                                 ))}
-                              </div>
-                           }
-                           items={prItems}
-                           empty={prs === null ? "Loading pull requests…" : "No pull requests"}
-                           hint="Opens on the PR's head branch, checked out with gh."
-                           trigger={
+                           ) : (
                               <FieldButton
                                  icon={<PrIcon pr={pr} />}
                                  placeholder="Pick a pull request"
@@ -801,9 +874,22 @@ export function ComposerDialog({
                                     )
                                  }
                               />
-                           }
-                        />
-                     )}
+                           )
+                        }
+                     />
+                     {targetInfo?.behind && mode === "branch" ? (
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                           <span>
+                              {targetInfo.name} is {targetInfo.behind}{" "}
+                              {targetInfo.behind === 1 ? "commit" : "commits"} behind origin.
+                           </span>
+                           <UpdateBranch
+                              b={targetInfo}
+                              busy={updating === targetInfo.name}
+                              onUpdate={updateBranch}
+                           />
+                        </p>
+                     ) : null}
                      <label className={cn("flex items-center gap-2", wtLocked && "opacity-60")}>
                         <button
                            type="button"

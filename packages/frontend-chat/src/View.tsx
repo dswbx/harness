@@ -39,6 +39,7 @@ import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { EventsPanel } from "./EventsPanel";
 import { errorMessage } from "./errors";
+import { FileRefProvider } from "./FileRef";
 import { MessageList, useRows } from "./Messages";
 import { PanelHeader } from "./PanelHeader";
 import { usePanelDrag } from "./panelDrag";
@@ -75,6 +76,7 @@ import { SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import type { Slot } from "./slots";
+import { RENDER_UI } from "./tools";
 import { uiIcons } from "./uiIcons";
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
@@ -128,7 +130,7 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
                   >
                      <X className="size-3.5" />
                   </button>
-                  <RenderUi root={x.root} env={{ ...env, files: x.files }} />
+                  <RenderUi root={x.root} env={{ ...env, files: x.files, item: x.id }} />
                </div>
             ))}
          </div>
@@ -142,7 +144,7 @@ function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
          <PanelHeader title={slot.title ?? slot.id} />
          <ScrollArea className="min-h-0 flex-1">
             <div className="p-4">
-               <RenderUi root={slot.root} env={{ ...env, files: slot.files }} />
+               <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
             </div>
          </ScrollArea>
       </>
@@ -332,6 +334,9 @@ function ChatView({
       () => ({
          state: state.uiState,
          patch: (ops) => api.patchState(ops),
+         report: (item, message) => {
+            api.reportFrontendError(RENDER_UI, item, message).catch(() => {});
+         },
          send: (text) => api.prompt(text),
          files: {},
          readImage: (p) => api.frontendReadImage(p),
@@ -654,46 +659,48 @@ function ChatView({
 
    return (
       <PrRefProvider api={api}>
-         <div className="relative flex h-full">
-            {(!leftEmpty || drag) && (
-               <Stripe
-                  side="left"
-                  groups={left}
+         <FileRefProvider api={api}>
+            <div className="relative flex h-full">
+               {(!leftEmpty || drag) && (
+                  <Stripe
+                     side="left"
+                     groups={left}
+                     drag={drag}
+                     overlay={leftEmpty}
+                     onToggle={onToggle}
+                     onPress={(it, e) => startDrag(it.id, it.label, e)}
+                  />
+               )}
+               <DockLayout
+                  layout={shown}
+                  chat={chat}
+                  panels={panels}
                   drag={drag}
-                  overlay={leftEmpty}
+                  leftStripeOverlay={leftEmpty}
+                  onResize={(patch) => update((l) => resize(l, patch))}
+                  onMove={(id, zone) => update((l) => move(l, id, zone))}
+                  onHide={(id) => update((l) => hide(l, id))}
+                  onExpand={(id) => update((l) => expand(l, id))}
+                  onDragStart={startDrag}
+               />
+               <Stripe
+                  side="right"
+                  groups={right}
+                  drag={drag}
                   onToggle={onToggle}
                   onPress={(it, e) => startDrag(it.id, it.label, e)}
                />
-            )}
-            <DockLayout
-               layout={shown}
-               chat={chat}
-               panels={panels}
-               drag={drag}
-               leftStripeOverlay={leftEmpty}
-               onResize={(patch) => update((l) => resize(l, patch))}
-               onMove={(id, zone) => update((l) => move(l, id, zone))}
-               onHide={(id) => update((l) => hide(l, id))}
-               onExpand={(id) => update((l) => expand(l, id))}
-               onDragStart={startDrag}
-            />
-            <Stripe
-               side="right"
-               groups={right}
-               drag={drag}
-               onToggle={onToggle}
-               onPress={(it, e) => startDrag(it.id, it.label, e)}
-            />
-            {drag && (
-               <div
-                  aria-hidden
-                  className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
-                  style={{ left: drag.x + 12, top: drag.y + 12 }}
-               >
-                  {icon(drag.id)} {drag.label}
-               </div>
-            )}
-         </div>
+               {drag && (
+                  <div
+                     aria-hidden
+                     className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
+                     style={{ left: drag.x + 12, top: drag.y + 12 }}
+                  >
+                     {icon(drag.id)} {drag.label}
+                  </div>
+               )}
+            </div>
+         </FileRefProvider>
       </PrRefProvider>
    );
 }

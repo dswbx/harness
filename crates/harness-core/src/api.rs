@@ -120,6 +120,18 @@ pub enum Command {
         #[serde(default)]
         line: Option<u32>,
     },
+    /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
+    /// (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+    /// for a file reference in a message. Fails for files outside the folder,
+    /// missing, too large, binary or not UTF-8.
+    ReadSessionFile {
+        session_id: SessionId,
+        path: String,
+        #[serde(default)]
+        start: Option<u32>,
+        #[serde(default)]
+        end: Option<u32>,
+    },
     /// The Session State (ADR 0015).
     GetState {
         session_id: SessionId,
@@ -128,6 +140,15 @@ pub enum Command {
     PatchState {
         session_id: SessionId,
         ops: Vec<StatePatchOp>,
+    },
+    /// A Frontend Tool item failed in the UI (e.g. a script error in a render_ui Html frame).
+    /// `item` is the call's `id`, or its `call_id` when it has none. Logged as `FrontendError`
+    /// (repeats and items that are gone are ignored) so the Agent learns about it.
+    ReportFrontendError {
+        session_id: SessionId,
+        tool: String,
+        item: String,
+        message: String,
     },
     /// An image in `frontend/` (base64), e.g. one a Frontend Tool call named.
     FrontendReadImage {
@@ -155,6 +176,13 @@ pub enum Command {
         folder: String,
         #[serde(default)]
         filter: PrFilter,
+    },
+    /// Fast-forwards a local `branch` of the repository containing `folder` to its `origin` counterpart:
+    /// a pull when it is checked out in `folder`, else a fetch into the branch (fails when it is checked
+    /// out elsewhere or has diverged).
+    UpdateBranch {
+        folder: String,
+        branch: String,
     },
     /// Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept.
     ArchiveSession {
@@ -215,6 +243,13 @@ pub enum Command {
         session_id: SessionId,
         repo: RepoId,
         query: Option<String>,
+    },
+    /// The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+    /// first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+    /// base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+    /// remote; `pr` None without `gh`. Cached like PR references.
+    BranchPr {
+        session_id: SessionId,
     },
     /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
     ListTerminals {
@@ -425,6 +460,7 @@ pub enum CommandResult {
     PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
     PrLookup { prs: Vec<Option<PrInfo>> },
     PrSearch { prs: Vec<PrInfo> },
+    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo>, base: Option<String> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
     Terminals { terminals: Vec<TerminalInfo> },
@@ -434,6 +470,8 @@ pub enum CommandResult {
     McpServers { servers: Vec<McpServerDef> },
     McpServerSaved { server: McpServerDef },
     FileContent { content: String },
+    /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
+    FileLines { path: String, start: u32, lines: Vec<String>, total: u32 },
     State {
         #[specta(type = specta_typescript::Unknown)]
         state: Json,
@@ -973,6 +1011,14 @@ pub enum EventKind {
         /// relative to `frontend/`. Read them with `FrontendReadImage`.
         #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         files: std::collections::BTreeMap<String, String>,
+    },
+    /// The UI reported an error in a Frontend Tool item (`ReportFrontendError`). The Agent sees
+    /// it in `harness_info` and at the start of its next prompt on this Thread; a new call with
+    /// the item's id clears it.
+    FrontendError {
+        tool: String,
+        item: String,
+        message: String,
     },
     /// The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
     /// current state.

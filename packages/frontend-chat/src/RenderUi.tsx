@@ -53,6 +53,7 @@ import { InlineMarkdown as Md } from "./InlineMarkdown";
 import { Markdown } from "./Markdown";
 import { jsReady, loadJs, onJsReady, runJs } from "./sandbox";
 import { Diff as FileDiff } from "./ToolCard";
+import { UiHtml } from "./UiHtml";
 import { uiIcons } from "./uiIcons";
 
 /** recharts is large: loaded the first time a Chart shows. */
@@ -107,6 +108,10 @@ export type UiEnv = {
    scope?: string;
    /** A `js` action failed (RenderUi shows it under the tree). */
    onError?: (message: string) => void;
+   /** The call this tree is from: its `id`, else its call id (for `report`). */
+   item?: string;
+   /** Tells the core an item failed (e.g. an Html frame's script error), so the Agent learns about it. */
+   report?: (item: string, message: string) => void;
 };
 const Env = createContext<UiEnv | null>(null);
 const useEnv = () => useContext(Env)!;
@@ -1377,7 +1382,7 @@ function DiffBlock({ node }: { node: Extract<UiNode, { type: "Diff" }> }) {
                   <span className="text-emerald-600 dark:text-emerald-400">+{f.additions}</span>
                   <span className="text-destructive">-{f.deletions}</span>
                </div>
-               <DiffViewer file={f} mode="unified" fontSize={11} wrap />
+               <DiffViewer file={f} mode="unified" wrap />
             </div>
          ))}
          {files.length === 0 && <Markdown>{"```diff\n" + p.patch + "\n```"}</Markdown>}
@@ -1891,6 +1896,19 @@ function Node({ raw }: { raw: RawNode }) {
          return <Trace node={node} />;
       case "PullRequest":
          return <PullRequest node={node} />;
+      case "Html":
+         return (
+            <UiHtml
+               html={node.props.html}
+               height={node.props.height}
+               title={node.props.title}
+               state={env.state}
+               patch={env.patch}
+               send={env.send}
+               run={(a) => runActions(a as UiAction[], env, scope)}
+               report={env.item && env.report ? (m) => env.report!(env.item!, m) : undefined}
+            />
+         );
       case "Chart": {
          const data = Array.isArray(node.props.data)
             ? (node.props.data as Record<string, unknown>[])

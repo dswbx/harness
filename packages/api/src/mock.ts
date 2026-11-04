@@ -36,7 +36,7 @@ const isModeOption = (o: { id: string; category?: string }) =>
    o.category === "mode" || o.id === "mode";
 const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
 const MOCK_BRANCHES: BranchInfo[] = [
-   { name: "main", time: ago(0.1), ahead: 0, behind: 0, worktree: false },
+   { name: "main", time: ago(0.1), ahead: 0, behind: 21, worktree: false },
    { name: "feature/login", time: ago(4), ahead: 3, behind: 1, worktree: false },
    { name: "feature/compact-header", time: ago(50), ahead: 0, behind: 0, worktree: true },
 ];
@@ -714,7 +714,12 @@ export class MockTransport implements Transport {
                   branch: this.session(cmd.session_id).workspace.worktree_branch ?? "main",
                   upstream: null,
                   ahead: this.ahead.get(cmd.session_id) ?? 0,
-                  behind: 0,
+                  behind:
+                     MOCK_BRANCHES.find(
+                        (b) =>
+                           b.name ===
+                           (this.session(cmd.session_id).workspace.worktree_branch ?? "main"),
+                     )?.behind ?? 0,
                   files: this.committed.has(cmd.session_id) ? [] : MOCK_FILES,
                },
             };
@@ -809,6 +814,26 @@ export class MockTransport implements Transport {
             this.emit(cmd.session_id, { type: "GitCommitted", commit, message: cmd.message });
             return { type: "Committed", commit };
          }
+         case "UpdateBranch": {
+            if (cmd.folder.includes("norepo")) throw new Error("not a git repository");
+            await new Promise((r) => setTimeout(r, 600));
+            const b = MOCK_BRANCHES.find((b) => b.name === cmd.branch);
+            if (!b) throw new Error(`fatal: couldn't find remote ref ${cmd.branch}`);
+            b.behind = 0;
+            return { type: "Ok" };
+         }
+         case "BranchPr": {
+            const s = this.session(cmd.session_id);
+            const base = s.workspace.base_branch ?? "main";
+            if (!s.workspace.repo_root || s.folder.includes("nogh"))
+               return { type: "BranchPr", repo: null, pr: null, base };
+            const repo = folderRepo(s.folder);
+            if (!repo) return { type: "BranchPr", repo: null, pr: null, base };
+            const pr =
+               MOCK_PR_INFOS.find((p) => sameRepo(p.repo, repo) && p.number === s.workspace.pr) ??
+               (s.workspace.worktree_branch ? (MOCK_PR_INFOS[0] ?? null) : null);
+            return { type: "BranchPr", repo, pr, base };
+         }
          case "GitPush": {
             this.ahead.set(cmd.session_id, 0);
             this.emit(cmd.session_id, {
@@ -868,6 +893,26 @@ export class MockTransport implements Transport {
                cmd.line ?? "",
             );
             return { type: "Ok" };
+         case "ReadSessionFile": {
+            const want = cmd.path.replace(/^\.\//, "");
+            const hits =
+               want in MOCK_NEW
+                  ? [want]
+                  : Object.keys(MOCK_NEW).filter((p) => p.endsWith(`/${want}`));
+            if (hits.length !== 1) throw new Error(`${cmd.path}: No such file or directory`);
+            const path = hits[0]!;
+            const text = MOCK_NEW[path]!;
+            const all = text.replace(/\n$/, "").split("\n");
+            const start = Math.max(1, cmd.start ?? 1);
+            const end = Math.min(all.length, cmd.end ?? all.length);
+            return {
+               type: "FileLines",
+               path,
+               start,
+               lines: all.slice(start - 1, Math.max(start - 1, end)),
+               total: all.length,
+            };
+         }
          case "GetState":
             return { type: "State", state: this.states.get(cmd.session_id) ?? {} };
          case "PatchState": {
@@ -1258,7 +1303,7 @@ export class MockTransport implements Transport {
             if (cmd.text.trim() === "/prs") {
                this.emit(sid, {
                   type: "AgentMessageChunk",
-                  text: "PR roundup: #23 landed, supabase/spark#17 is open and spark#12 merged. https://github.com/dswbx/harness/pull/21 has failing checks; draft #20 and closed #18 stay as they are, #999 does not exist.\n\nText only: C#, `#24` in code, and [the chips PR](https://github.com/dswbx/harness/pull/24).",
+                  text: "PR roundup: harness#23 landed, supabase/spark#17 is open and spark#12 merged. https://github.com/dswbx/harness/pull/21 has failing checks; draft harness#20 and closed dswbx/harness#18 stay as they are, harness#999 does not exist.\n\nText only: C#, step #3, `spark#24` in code, and [the chips PR](https://github.com/dswbx/harness/pull/24).",
                });
                return { type: "Ok" };
             }

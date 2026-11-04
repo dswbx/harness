@@ -50,7 +50,7 @@ export function Diff({
    }, [oldText, newText]);
    return (
       <Frame label={path} meta={stat}>
-         {file && <DiffViewer file={file} mode="unified" fontSize={11} wrap />}
+         {file && <DiffViewer file={file} mode="unified" wrap />}
       </Frame>
    );
 }
@@ -86,7 +86,9 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
       );
    }
    return (
-      <pre className="overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(b, null, 2)}</pre>
+      <pre className="overflow-auto rounded bg-muted p-2 text-code">
+         {JSON.stringify(b, null, 2)}
+      </pre>
    );
 }
 
@@ -153,7 +155,7 @@ export const ToolCard = memo(function ToolCard({ tool }: { tool: Tool }) {
                      <summary className="cursor-pointer text-xs text-muted-foreground">
                         Input
                      </summary>
-                     <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">
+                     <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-code">
                         {json(tool.rawInput)}
                      </pre>
                   </details>
@@ -163,7 +165,7 @@ export const ToolCard = memo(function ToolCard({ tool }: { tool: Tool }) {
                      <summary className="cursor-pointer text-xs text-muted-foreground">
                         Output
                      </summary>
-                     <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">
+                     <pre className="mt-1 max-h-64 overflow-auto rounded bg-muted p-2 text-code">
                         {json(tool.rawOutput)}
                      </pre>
                   </details>

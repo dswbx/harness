@@ -61,6 +61,7 @@ export function VirtualList({
       paddingStart,
    });
    const total = v.getTotalSize();
+   const items = v.getVirtualItems();
 
    React.useImperativeHandle(
       handle,
@@ -105,21 +106,22 @@ export function VirtualList({
             {count === 0 ? (
                empty
             ) : (
-               <div style={{ height: total, position: "relative" }}>
-                  {v.getVirtualItems().map((row) => (
+               // Rows in normal flow between two spacers, not absolutely placed: a row that grows (an opening
+               // collapsible) pushes the rows below in the same frame, instead of overlapping them until it is
+               // measured again.
+               <div
+                  style={{
+                     paddingTop: items[0]?.start ?? 0,
+                     paddingBottom: Math.max(0, total - (items.at(-1)?.end ?? 0)),
+                  }}
+               >
+                  {items.map((row) => (
                      <div
                         key={row.key}
                         data-index={row.index}
                         data-key={String(row.key)}
                         ref={v.measureElement}
-                        style={{
-                           position: "absolute",
-                           top: 0,
-                           left: 0,
-                           width: "100%",
-                           transform: `translateY(${row.start}px)`,
-                           paddingBottom: gap,
-                        }}
+                        style={{ paddingBottom: gap }}
                      >
                         {renderRow(row.index)}
                      </div>

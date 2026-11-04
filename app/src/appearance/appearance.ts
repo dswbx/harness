@@ -25,6 +25,8 @@ export type Appearance = {
    terminalFont: string;
    customTerminalFont: string;
    terminalFontSize: number;
+   /** Code blocks and diffs (not inline code): size in px. */
+   codeFontSize: number;
 };
 
 export type RhythmOption = { id: string; label: string; value: string };
@@ -54,12 +56,15 @@ export const DEFAULT_APPEARANCE: Appearance = {
    terminalFont: "theme",
    customTerminalFont: "",
    terminalFontSize: 12,
+   codeFontSize: 12,
 };
 export const CUSTOM_FONT_MAX = 200;
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 18;
 export const TERMINAL_FONT_SIZE_MIN = 9;
 export const TERMINAL_FONT_SIZE_MAX = 24;
+export const CODE_FONT_SIZE_MIN = 9;
+export const CODE_FONT_SIZE_MAX = 24;
 export const STORAGE_KEY = "harness.appearance";
 /** Imported themes, cached here so the first paint has them; the core's `themes.json` is the truth. */
 export const THEMES_KEY = "harness.themes";
@@ -156,6 +161,7 @@ export function normalize(raw: unknown): Appearance {
          TERMINAL_FONT_SIZE_MIN,
          TERMINAL_FONT_SIZE_MAX,
       ),
+      codeFontSize: size(r.codeFontSize, d.codeFontSize, CODE_FONT_SIZE_MIN, CODE_FONT_SIZE_MAX),
    };
 }
 
@@ -186,7 +192,7 @@ function fontVar(
    return f ? `"${f.family}", ${system}` : null;
 }
 
-/** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size, chat text, terminal text. */
+/** CSS custom properties to set on <html>: preset tokens for the mode, font overrides, base size, chat text, terminal text, code blocks. */
 export function resolveVars(a: Appearance, isDark: boolean): Record<string, string> {
    const vars: Record<string, string> = {};
    const p = themeById(a.theme);
@@ -207,6 +213,7 @@ export function resolveVars(a: Appearance, isDark: boolean): Record<string, stri
    const term = fontVar(a.terminalFont, a.customTerminalFont, MONO_FONTS, SYSTEM_MONO);
    if (term) vars["--terminal-font"] = term;
    vars["--terminal-font-size"] = `${a.terminalFontSize}px`;
+   vars["--code-font-size"] = `${a.codeFontSize}px`;
    return vars;
 }
 

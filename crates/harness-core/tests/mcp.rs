@@ -269,6 +269,52 @@ async fn session_state_and_harness_info() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn frontend_errors_reach_the_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    let shown = |a: String| a.split_once("Working on it.").map(|(c, _)| c.to_owned()).unwrap_or(a);
+    ask(&h, &sid, "show-context", None).await;
+    ask(&h, &sid, r#"mcp json_render {"title":"a","id":"chart"}"#, None).await;
+    let report = |item: &str, message: &str| Command::ReportFrontendError {
+        session_id: sid.clone(),
+        tool: "json_render".into(),
+        item: item.into(),
+        message: message.into(),
+    };
+    h.execute(report("chart", "TypeError: x is undefined")).await.unwrap();
+    h.execute(report("chart", "TypeError: x is undefined")).await.unwrap();
+    h.execute(report("gone", "ignored: no such item")).await.unwrap();
+    for i in 0..10 {
+        h.execute(report("chart", &format!("{i}{}", "y".repeat(400)))).await.unwrap();
+    }
+    let logged: Vec<String> = events(&h, &sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::FrontendError { message, .. } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(logged.len(), 5, "repeats and unknown items are dropped, at most 5 per item: {logged:?}");
+    assert!(logged[1].len() < 310 && logged[1].ends_with('…'), "long messages are cut");
+
+    // The next prompt starts with them, once; harness_info lists them while they last.
+    let next = shown(ask(&h, &sid, "show-context", None).await);
+    assert!(next.starts_with("context: <harness_context>\n## Frontend errors") && next.contains("- json_render `chart`: TypeError: x is undefined"), "{next}");
+    assert_eq!(shown(ask(&h, &sid, "show-context", None).await), "context: none", "only errors since the last Turn");
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    assert!(info.contains("\"errors\": [\n") && info.contains("TypeError: x is undefined"), "{info}");
+
+    // A new call with the id clears them; the same error may then be reported again.
+    ask(&h, &sid, r#"mcp json_render {"title":"b","id":"chart"}"#, None).await;
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    assert!(!info.contains("errors"), "{info}");
+    h.execute(report("chart", "TypeError: x is undefined")).await.unwrap();
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    assert!(info.contains("TypeError: x is undefined"), "{info}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn harness_context_starts_each_agent_session() {
     let dir = tempfile::tempdir().unwrap();
     let repo = repo(dir.path());
