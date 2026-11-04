@@ -196,6 +196,7 @@ impl Session {
     pub fn open(dir: &Path, shared: Arc<Shared>) -> anyhow::Result<Self> {
         let meta: SessionMeta = serde_json::from_slice(&std::fs::read(dir.join("session.json"))?)?;
         let log = SessionLog::open(meta.id.clone(), &dir.join("log.jsonl"))?;
+        log.note_agent_gone()?;
         let session = Self::from_parts(dir, meta, log, shared);
         if !session.meta.lock().unwrap().title_backfilled {
             let title = session.log.events()?.into_iter().rev().find_map(|e| match e.kind {

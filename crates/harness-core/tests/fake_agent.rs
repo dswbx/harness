@@ -272,6 +272,26 @@ async fn restart_resumes_the_agent_session() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn restart_logs_the_agent_as_stopped_without_moving_the_session() {
+    let (h, sid, dir) = setup().await;
+    turn(&h, &sid, None, "hi").await;
+    async fn updated(h: &Harness, sid: &str) -> i64 {
+        let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+        sessions.into_iter().find(|s| s.id == sid).unwrap().updated_ms
+    }
+    let before = updated(&h, &sid).await;
+    let gone = |h: &Harness| {
+        h_events(h, &sid).into_iter().filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, message: Some(m) } if m == "app_restart")).count()
+    };
+    let data = dir.path().join("data");
+    let h2 = harness(&data, &[], Duration::from_secs(900));
+    assert_eq!(gone(&h2), 1);
+    assert_eq!(updated(&h2, &sid).await, before);
+    let h3 = harness(&data, &[], Duration::from_secs(900));
+    assert_eq!(gone(&h3), 1, "only once");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn load_replay_is_not_logged_twice() {
     let (h, sid, dir) = setup_with(&["--load"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "hi").await;

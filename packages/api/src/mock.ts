@@ -1134,6 +1134,15 @@ export class MockTransport implements Transport {
                   acp_session_id: `acp-res-${this.logs.get(sid)!.length}`,
                   boundary: "resumed",
                });
+            // Typing "/apprestart" simulates reopening the app: the Agent process is gone.
+            if (cmd.text.trim() === "/apprestart") {
+               this.emit(sid, {
+                  type: "AgentProcessState",
+                  state: "stopped",
+                  message: "app_restart",
+               });
+               return { type: "Ok" };
+            }
             // Typing "/auth" simulates an Agent that needs sign-in.
             if (cmd.text.trim() === "/auth") {
                this.emit(sid, {

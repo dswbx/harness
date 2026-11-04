@@ -557,7 +557,11 @@ function ChatView({
             <span className={cn("size-2 shrink-0 rounded-full", procInfo.dot)} />
             {procInfo.title}
          </div>
-         <p className="text-muted-foreground">{procInfo.text}</p>
+         <p className="text-muted-foreground">
+            {!connecting && proc?.message === "app_restart"
+               ? "The app restarted, so the agent is not running. It starts on your next message."
+               : procInfo.text}
+         </p>
          {proc?.state === "failed" && proc.message && (
             <pre className="whitespace-pre-wrap break-words font-mono text-xs">{proc.message}</pre>
          )}
