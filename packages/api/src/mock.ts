@@ -11,6 +11,7 @@ import type {
    Event,
    EventKind,
    FileChange,
+   FrontendAnswer,
    FrontendToolDecl,
    KnownRepo,
    McpServerDef,
@@ -323,6 +324,17 @@ export function mockRenderUi(srcs: string[]) {
    };
 }
 
+declare global {
+   interface Window {
+      /** Manual testing in the browser mock: asks the UI to answer a Frontend Tool that `replies`. */
+      __harnessMockFrontendRequest?: (
+         sessionId: string,
+         tool: string,
+         input: unknown,
+      ) => Promise<FrontendAnswer>;
+   }
+}
+
 export class MockTransport implements Transport {
    private logs = new Map<string, Event[]>();
    private sessions: SessionSummary[] = [];
@@ -369,6 +381,10 @@ export class MockTransport implements Transport {
          frontend_tools?: FrontendToolDecl[];
       }[],
    ) {
+      if (typeof window !== "undefined") {
+         window.__harnessMockFrontendRequest = (sessionId, tool, input) =>
+            this.frontendRequest(sessionId, tool, input);
+      }
       this.addSession("mock-1", "Mock session (fixture replay)", "chat");
       // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
       const h = 3600e3;
@@ -506,6 +522,21 @@ export class MockTransport implements Transport {
    }
 
    /** Defaults to the session's Main Thread (fixture logs carry real ids). */
+   private frontendRequest(sessionId: string, tool: string, input: unknown) {
+      const request_id = `mock-request-${++this.n}`;
+      return new Promise<FrontendAnswer>((resolve) => {
+         this.frontendRequests.set(request_id, resolve);
+         this.emitApp({
+            type: "FrontendRequest",
+            session_id: sessionId,
+            request_id,
+            tool,
+            input,
+            last_seq: this.logs.get(sessionId)?.at(-1)?.seq ?? 0,
+         });
+      });
+   }
+
    private emit(sessionId: string, kind: EventKind, thread_id?: string | null) {
       const log = this.logs.get(sessionId)!;
       if (thread_id === undefined) {
@@ -526,6 +557,10 @@ export class MockTransport implements Transport {
 
    async execute(cmd: Command): Promise<CommandResult> {
       switch (cmd.type) {
+         case "AnswerFrontendRequest":
+            this.frontendRequests.get(cmd.request_id)?.(cmd.answer);
+            this.frontendRequests.delete(cmd.request_id);
+            return { type: "Ok" };
          case "ListAgents":
             return { type: "Agents", agents: [...this.installed] };
          case "ListRegistry":
@@ -1435,6 +1470,7 @@ export class MockTransport implements Transport {
    }
 
    private appSubs = new Set<(e: AppEvent) => void>();
+   private frontendRequests = new Map<string, (answer: FrontendAnswer) => void>();
    private emitApp(e: AppEvent) {
       this.appSubs.forEach((f) => f(e));
    }

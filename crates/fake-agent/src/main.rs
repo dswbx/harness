@@ -81,7 +81,11 @@ async fn harness_mcp(id: &SessionId, tool: Option<&str>, args: serde_json::Value
             }
             let r = client.call_tool(params).await.map_err(|e| e.to_string())?;
             let v = serde_json::to_value(&r).unwrap_or_default();
-            let text = v["content"].as_array().into_iter().flatten().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n");
+            let block = |c: &serde_json::Value| match c["text"].as_str() {
+                Some(t) => Some(t.to_owned()),
+                None => c["data"].as_str().map(|d| format!("image {} {d}", c["mimeType"].as_str().unwrap_or_default())),
+            };
+            let text = v["content"].as_array().into_iter().flatten().filter_map(block).collect::<Vec<_>>().join("\n");
             if v["isError"].as_bool() == Some(true) { Err(text) } else { Ok(text) }
         }
     };

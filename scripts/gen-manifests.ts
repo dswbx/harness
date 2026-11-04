@@ -12,9 +12,8 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
    const manifestPath = join(dir, "manifest.json");
    if (!existsSync(manifestPath)) continue;
    const toolsPath = join(dir, "src/tools.ts");
-   const tools: { name: string; description: string; schema: unknown }[] = existsSync(toolsPath)
-      ? (await import(toolsPath)).frontendTools
-      : [];
+   const tools: { name: string; description: string; schema: unknown; replies?: boolean }[] =
+      existsSync(toolsPath) ? (await import(toolsPath)).frontendTools : [];
    const instructionsPath = join(dir, "instructions.md");
    const instructions = existsSync(instructionsPath)
       ? readFileSync(instructionsPath, "utf8").trim()
@@ -27,6 +26,7 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
          name: t.name,
          description: t.description,
          input_schema: JSON.parse(JSON.stringify(t.schema)),
+         replies: t.replies ?? false,
       })),
    };
    const text = JSON.stringify(next, null, 2) + "\n";

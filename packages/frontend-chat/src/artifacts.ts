@@ -33,6 +33,16 @@ export type Artifact = {
    icon?: string | null;
 };
 
+/** What the source view shows and copies: a render_ui `Html` root as its HTML, not as JSON around it. */
+export function artifactSource(a: Artifact): { lang: string; text: string } {
+   if (a.kind === "diagram") return { lang: "mermaid", text: a.source };
+   if (a.kind === "table") return { lang: "markdown", text: a.source };
+   const html = a.ui?.root.type === "Html" ? a.ui.root.props?.html : null;
+   return typeof html === "string"
+      ? { lang: "html", text: html }
+      : { lang: "json", text: a.source };
+}
+
 /** Diagrams and tables in Markdown, in order, outside other code fences. */
 export function markdownArtifacts(
    text: string,

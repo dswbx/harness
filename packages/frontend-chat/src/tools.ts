@@ -1845,7 +1845,31 @@ function catalogText(): string {
 
 export const RENDER_UI = "render_ui";
 
-export const frontendTools = [
+export const VIEW_ARTIFACT = "view_artifact";
+
+export const frontendTools: {
+   name: string;
+   description: string;
+   schema: unknown;
+   replies?: boolean;
+}[] = [
+   {
+      name: VIEW_ARTIFACT,
+      description:
+         "See an artifact as the user sees it, as a PNG image, to check your work: a diagram, table or render_ui item shown in this conversation, or Mermaid or HTML you pass here, which the user does not see. " +
+         "Without arguments: the newest artifact. `id`: a render_ui id (see harness_info) or an artifact key. `kind`: the newest of that kind. " +
+         "The result also has Mermaid syntax errors and the script errors of Html frames. Uses the app's current theme. The app window must be open.",
+      schema: s.object({
+         id: s.string().optional(),
+         kind: s.string({ enum: ["ui", "diagram", "table"] }).optional(),
+         mermaid: s.string({ description: "Mermaid source to draw" }).optional(),
+         html: s
+            .string({ description: "HTML to draw, in the same sandboxed frame as render_ui Html" })
+            .optional(),
+         width: s.number({ description: "Width in CSS pixels (default 900)" }).optional(),
+      }),
+      replies: true,
+   },
    {
       name: RENDER_UI,
       description:
@@ -1874,4 +1898,4 @@ export const frontendTools = [
          catalogText(),
       schema: renderUiJson,
    },
-] as const;
+];

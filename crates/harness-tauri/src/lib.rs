@@ -57,6 +57,23 @@ async fn execute(harness: tauri::State<'_, Arc<Harness>>, cmd: Command) -> Resul
     harness.execute(cmd).await
 }
 
+/// Saves bytes where the user chooses in the native save dialog; `None` on cancel. The path comes
+/// only from the dialog, so a webview cannot write to any other path.
+#[tauri::command]
+async fn save_file(app: tauri::AppHandle, name: String, data: String) -> Result<Option<String>, String> {
+    use base64::Engine;
+    use tauri_plugin_dialog::DialogExt;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| format!("invalid file data: {e}"))?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_file_name(name).save_file(move |path| {
+        let _ = tx.send(path);
+    });
+    let Some(path) = rx.await.map_err(|e| e.to_string())? else { return Ok(None) };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, bytes).await.map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
 #[tauri::command]
 fn subscribe(
     webview: Webview,
@@ -268,6 +285,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             execute,
+            save_file,
             subscribe,
             unsubscribe,
             subscribe_app,

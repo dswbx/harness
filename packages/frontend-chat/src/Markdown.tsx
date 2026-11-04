@@ -1,4 +1,4 @@
-import { type ComponentProps, lazy, Suspense, useMemo } from "react";
+import { type ComponentProps, createContext, lazy, Suspense, useContext, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkBreaks from "remark-breaks";
@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { AnsiText } from "./AnsiText";
 import { CodeBlock } from "./CodeBlock";
 import { Expandable } from "./Expandable";
+import { markdownTableRows, tableFormats } from "./exportFormats";
 import { FileRefLink, useFileRefs } from "./FileRef";
 import { rehypeFileRefs } from "./fileRefs";
 import { rehypeInlineCode, useGuessInlineCode } from "./inlineCode";
@@ -64,32 +65,45 @@ function Pre({ node, children, ...props }: PreProps) {
    );
 }
 
+/** The Markdown being rendered: a table's downloads use its source. */
+const MarkdownText = createContext("");
+
+// Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
+// break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
+function MarkdownTable({ node, ...props }: ComponentProps<"table"> & { node?: unknown }) {
+   const text = useContext(MarkdownText);
+   const at = (node as { position?: { start: { offset?: number }; end: { offset?: number } } })
+      ?.position;
+   const source = at ? text.slice(at.start.offset, at.end.offset) : "";
+   const table = (
+      <div className="overflow-x-auto rounded-md border">
+         <table
+            {...props}
+            className="m-0 w-full max-w-none border-b-0 [overflow-wrap:break-word]"
+         />
+      </div>
+   );
+   return (
+      <Expandable
+         label="table"
+         className="chat-wide mt-(--typeset-flow)"
+         data-artifact="table"
+         expanded={
+            <div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>
+         }
+         formats={(png) => [
+            png(<div className="typeset typeset-chat">{table}</div>),
+            ...tableFormats("table", markdownTableRows(source), source),
+         ]}
+      >
+         {table}
+      </Expandable>
+   );
+}
+
 const components: Components = {
    pre: Pre,
-   // Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
-   // break-word, not typeset's `anywhere`: columns keep whole words instead of splitting them.
-   table({ node: _, ...props }) {
-      const table = (
-         <div className="overflow-x-auto rounded-md border">
-            <table
-               {...props}
-               className="m-0 w-full max-w-none border-b-0 [overflow-wrap:break-word]"
-            />
-         </div>
-      );
-      return (
-         <Expandable
-            label="table"
-            className="chat-wide mt-(--typeset-flow)"
-            data-artifact="table"
-            expanded={
-               <div className="typeset typeset-chat min-h-0 overflow-auto p-8 pt-12">{table}</div>
-            }
-         >
-            {table}
-         </Expandable>
-      );
-   },
+   table: MarkdownTable,
    thead: ({ node: _, ...props }) => <thead {...props} className="bg-muted/50" />,
    th: ({ node: _, ...props }) => <th {...props} className="px-3 py-2 font-medium" />,
    td: ({ node: _, ...props }) => <td {...props} className="px-3 py-2" />,
@@ -175,13 +189,15 @@ export function Markdown({
    );
    return (
       <div className={cn("typeset typeset-chat", className)}>
-         <ReactMarkdown
-            remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
-            rehypePlugins={plugins}
-            components={plainCode ? plainCodeComponents : components}
-         >
-            {children}
-         </ReactMarkdown>
+         <MarkdownText.Provider value={children}>
+            <ReactMarkdown
+               remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
+               rehypePlugins={plugins}
+               components={plainCode ? plainCodeComponents : components}
+            >
+               {children}
+            </ReactMarkdown>
+         </MarkdownText.Provider>
       </div>
    );
 }

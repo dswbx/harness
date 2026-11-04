@@ -24,6 +24,7 @@ import { PanelLeft, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
+import { FrontendRequests } from "./FrontendRequests";
 import { openViewWindow } from "./openWindow";
 import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
@@ -59,6 +60,7 @@ export function App() {
          ) : (
             <Shell transport={transport} />
          )}
+         {!params.get("pane") && <FrontendRequests transport={transport} />}
       </ToastProvider>
    );
 }

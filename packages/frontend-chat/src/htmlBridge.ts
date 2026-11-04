@@ -78,6 +78,7 @@ export type FrameMessage =
    | { type: "patch"; ops: unknown }
    | { type: "send"; text: unknown }
    | { type: "height"; px: unknown }
+   | { type: "snapshot"; id: unknown; xml: unknown; width: unknown; height: unknown }
    | { type: "error"; message: unknown };
 
 /**
@@ -139,6 +140,44 @@ export const BRIDGE = `(function () {
     run: function (actions) { post({ type: "actions", actions: actions }); },
   };
   window.harness = h;
+  // The document as XML, for the host to draw as an image (capture.ts): what the scripts made of it so far.
+  var snapshot = function (id) {
+    if (snapshotting) return;
+    snapshotting = true;
+    var send = function () {
+      snapshotting = false;
+      var root = document.documentElement;
+      var clone = root.cloneNode(true);
+      var from = root.querySelectorAll("canvas, input, textarea");
+      var to = clone.querySelectorAll("canvas, input, textarea");
+      Array.prototype.forEach.call(from, function (el, i) {
+        if (el.tagName === "CANVAS") {
+          var img = document.createElement("img");
+          try { img.src = el.toDataURL(); } catch (err) {}
+          img.setAttribute("style", el.getAttribute("style") || "");
+          img.width = el.offsetWidth;
+          img.height = el.offsetHeight;
+          to[i].replaceWith(img);
+        } else if (el.tagName === "TEXTAREA") to[i].textContent = el.value;
+        else {
+          to[i].setAttribute("value", el.value);
+          if (el.checked) to[i].setAttribute("checked", "");
+        }
+      });
+      Array.prototype.forEach.call(clone.querySelectorAll("script, meta"), function (el) { el.remove(); });
+      post({
+        type: "snapshot",
+        id: id,
+        xml: new XMLSerializer().serializeToString(clone),
+        width: Math.max(root.scrollWidth, document.body.scrollWidth, 1),
+        height: Math.max(root.scrollHeight, document.body.scrollHeight, 1),
+      });
+    };
+    // Scripts that draw on load get a moment.
+    if (document.readyState === "complete") setTimeout(send, 150);
+    else window.addEventListener("load", function () { setTimeout(send, 150); });
+  };
+  var snapshotting = false;
   window.addEventListener("message", function (e) {
     if (e.source !== parent || !e.data) return;
     if (e.data.type === "state") {
@@ -146,6 +185,7 @@ export const BRIDGE = `(function () {
       subs.forEach(function (fn) { try { fn(h.state); } catch (err) { post({ type: "error", message: String(err) }); } });
       apply();
     } else if (e.data.type === "theme") document.getElementById("harness-theme").textContent = e.data.css;
+    else if (e.data.type === "snapshot") snapshot(e.data.id);
   });
   document.addEventListener("click", function (e) {
     var el = e.target && e.target.closest && e.target.closest("[data-on-click]");
