@@ -138,7 +138,8 @@ pub struct WorktreeMeta {
 }
 
 /// Creates `branch` (default `harness/<slug>-<short id>`) from `base` (default: the current
-/// branch) at `path`.
+/// branch) at `path`. It starts from the freshly fetched origin copy of `base` when there is one
+/// (the local branch may be stale), else from the local `base`. `WorktreeMeta.base` stays `base`.
 pub async fn create_worktree(
     repo_root: &Path,
     base: Option<String>,
@@ -156,8 +157,38 @@ pub async fn create_worktree(
         std::fs::create_dir_all(parent)?;
     }
     let p = path.display().to_string();
-    git(repo_root, &["worktree", "add", "-b", &branch, &p, &base]).await?;
+    let start = worktree_start(repo_root, &base).await;
+    // `--no-track`: the new branch must not get `origin/<base>` as its upstream.
+    git(repo_root, &["worktree", "add", "--no-track", "-b", &branch, &p, &start]).await?;
     Ok(WorktreeMeta { repo_root: repo_root.to_owned(), path: path.to_owned(), branch, base })
+}
+
+/// Start point for a Worktree on `base`: its freshly fetched remote copy when there is one, else `base`.
+/// A failed or slow fetch is logged and the last known remote ref is used.
+async fn worktree_start(repo_root: &Path, base: &str) -> String {
+    if base.starts_with('-') {
+        return base.to_owned();
+    }
+    let remotes = git(repo_root, &["remote"]).await.unwrap_or_default();
+    let tracking = match base.split_once('/') {
+        Some((r, b)) if remotes.lines().any(|l| l == r) && git(repo_root, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{base}")]).await.is_ok() => Some((r, b)),
+        _ => None,
+    };
+    let (remote, branch) = tracking.unwrap_or(("origin", base));
+    if !branch.starts_with('-') {
+        let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+        let args = ["fetch", "--quiet", "--no-tags", remote, &spec];
+        match tokio::time::timeout(std::time::Duration::from_secs(15), git(repo_root, &args)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}"),
+            Err(_) => tracing::warn!("fetching {remote}/{branch} timed out, using the last known copy"),
+        }
+    }
+    if tracking.is_some() {
+        return base.to_owned();
+    }
+    let remote_ref = format!("refs/remotes/origin/{base}");
+    if git(repo_root, &["rev-parse", "--verify", "--quiet", &remote_ref]).await.is_ok() { remote_ref } else { base.to_owned() }
 }
 
 /// Creates `branch` from `base` (default: HEAD) and switches the folder to it; uncommitted
@@ -209,10 +240,17 @@ pub async fn wip_commit(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Commits on `branch` that are not on `base`.
+/// Commits on `branch` that are not on `base`, local or on any remote.
 pub async fn unmerged_count(repo_root: &Path, base: &str, branch: &str) -> anyhow::Result<u64> {
-    let range = format!("{base}..{branch}");
-    Ok(git(repo_root, &["rev-list", "--count", &range]).await?.trim().parse()?)
+    let refs = base_refs(repo_root, base).await;
+    let out = if refs.is_empty() {
+        git(repo_root, &["rev-list", "--count", &format!("{base}..{branch}")]).await?
+    } else {
+        let mut args = vec!["rev-list", "--count", branch, "--not"];
+        args.extend(refs.iter().map(String::as_str));
+        git(repo_root, &args).await?
+    };
+    Ok(out.trim().parse()?)
 }
 
 pub async fn delete_branch(repo_root: &Path, branch: &str) -> anyhow::Result<()> {
@@ -475,6 +513,89 @@ mod tests {
 
         std::fs::write(repo.join(".git/worktrees/wt/HEAD"), "0123456789abcdef0123456789abcdef01234567\n").unwrap();
         assert_eq!(head_branch(&wt), None);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    fn sh(dir: &Path, args: &[&str]) -> String {
+        let o = std::process::Command::new("git").args(args).current_dir(dir).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8_lossy(&o.stdout).trim().to_owned()
+    }
+
+    fn commit(dir: &Path, msg: &str) {
+        sh(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", msg]);
+    }
+
+    /// (tmp, origin, clone): the clone's local `main` and `origin/main` are one commit behind origin.
+    fn stale_clone() -> (PathBuf, PathBuf, PathBuf) {
+        let tmp = std::env::temp_dir().join(format!("harness-wt-{}", uuid::Uuid::now_v7()));
+        let (origin, clone, other) = (tmp.join("origin.git"), tmp.join("clone"), tmp.join("other"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        sh(&tmp, &["init", "-q", "--bare", "-b", "main", "origin.git"]);
+        sh(&tmp, &["clone", "-q", origin.to_str().unwrap(), "clone"]);
+        commit(&clone, "one");
+        sh(&clone, &["push", "-q", "origin", "main"]);
+        sh(&tmp, &["clone", "-q", origin.to_str().unwrap(), "other"]);
+        commit(&other, "two");
+        sh(&other, &["push", "-q", "origin", "main"]);
+        (tmp, origin, clone)
+    }
+
+    async fn wt(clone: &Path, base: &str, name: &str) -> WorktreeMeta {
+        let path = clone.parent().unwrap().join(name);
+        create_worktree(clone, Some(base.into()), None, &path, name, "1").await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn worktree_starts_from_fresh_origin() {
+        let (tmp, origin, clone) = stale_clone();
+        let tip = sh(&origin, &["rev-parse", "main"]);
+        assert_ne!(sh(&clone, &["rev-parse", "refs/remotes/origin/main"]), tip);
+        let meta = wt(&clone, "main", "a").await;
+        assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), tip);
+        assert_eq!(meta.base, "main");
+        let up = std::process::Command::new("git").args(["rev-parse", "--abbrev-ref", &format!("{}@{{upstream}}", meta.branch)]).current_dir(&clone).output().unwrap();
+        assert!(!up.status.success());
+        assert_eq!(unmerged_count(&clone, "main", &meta.branch).await.unwrap(), 0);
+        commit(&meta.path, "work");
+        assert_eq!(unmerged_count(&clone, "main", &meta.branch).await.unwrap(), 1);
+        // A remote-tracking base works too.
+        let meta2 = wt(&clone, "origin/main", "b").await;
+        assert_eq!(sh(&meta2.path, &["rev-parse", "HEAD"]), tip);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn worktree_local_only_branch_starts_at_local_tip() {
+        let (tmp, _origin, clone) = stale_clone();
+        sh(&clone, &["switch", "-q", "-c", "local-only"]);
+        commit(&clone, "local");
+        let tip = sh(&clone, &["rev-parse", "local-only"]);
+        let meta = wt(&clone, "local-only", "a").await;
+        assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), tip);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn worktree_without_remote_starts_at_local_branch() {
+        let tmp = std::env::temp_dir().join(format!("harness-wt-{}", uuid::Uuid::now_v7()));
+        let repo = tmp.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        sh(&repo, &["init", "-q", "-b", "main"]);
+        commit(&repo, "one");
+        let tip = sh(&repo, &["rev-parse", "main"]);
+        let meta = wt(&repo, "main", "a").await;
+        assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), tip);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn worktree_with_unreachable_origin_uses_last_known_ref() {
+        let (tmp, _origin, clone) = stale_clone();
+        let known = sh(&clone, &["rev-parse", "refs/remotes/origin/main"]);
+        sh(&clone, &["remote", "set-url", "origin", tmp.join("missing").to_str().unwrap()]);
+        let meta = wt(&clone, "main", "a").await;
+        assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), known);
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

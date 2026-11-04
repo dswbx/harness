@@ -110,8 +110,9 @@ export type Command = { type: "ListAgents" } |
 /**  Primary Workspace Folder (v1: exactly one). */
 folder: string; agent_id: string; frontend_id: string; title: string | null; 
 /**
- *  Branch to work on. With `worktree`, the base of the new Worktree's branch; without,
- *  the folder is checked out to it (refused when the folder has changes).
+ *  Branch to work on. With `worktree`, the base of the new Worktree's branch (started from its
+ *  fetched origin copy when there is one); without, the folder is checked out to it
+ *  (refused when the folder has changes).
  */
 branch?: string | null; 
 /**  Work in a new Worktree on its own `harness/...` branch. */

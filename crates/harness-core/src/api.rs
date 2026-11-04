@@ -57,8 +57,9 @@ pub enum Command {
         agent_id: String,
         frontend_id: String,
         title: Option<String>,
-        /// Branch to work on. With `worktree`, the base of the new Worktree's branch; without,
-        /// the folder is checked out to it (refused when the folder has changes).
+        /// Branch to work on. With `worktree`, the base of the new Worktree's branch (started from its
+        /// fetched origin copy when there is one); without, the folder is checked out to it
+        /// (refused when the folder has changes).
         #[serde(default)]
         branch: Option<String>,
         /// Work in a new Worktree on its own `harness/...` branch.
