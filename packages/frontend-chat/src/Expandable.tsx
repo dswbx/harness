@@ -60,7 +60,6 @@ export function Expandable({
                   {expanded ?? <div className="min-h-0 overflow-auto p-8 pt-12">{children}</div>}
                </InExpanded.Provider>
                <ExportMenu
-                  icon
                   className="absolute top-2.5 right-[2.625rem] flex items-center"
                   formats={formats ? formats(png) : [png()]}
                />

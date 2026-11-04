@@ -25,7 +25,7 @@ import { ArtifactImage, ArtifactPreview, artifactFormats } from "./ArtifactExpor
 import { type Artifact, type ArtifactKind, artifactSource, filterArtifacts } from "./artifacts";
 import { useCapture } from "./Capture";
 import { CopyButton, Frame, useWrapCode, WRAP, WrapButton } from "./CodeBlock";
-import { ExportMenu } from "./ExportMenu";
+import { ExportSubmenu, useExport } from "./ExportMenu";
 import { Highlighted } from "./highlight";
 import { PanelHeader } from "./PanelHeader";
 import type { UiEnv } from "./RenderUi";
@@ -300,7 +300,10 @@ function Inspect({
 }) {
    const [tab, setTab] = useState<"preview" | "image" | "source">("preview");
    const { stage, shoot } = useCapture();
+   const { busy, error, save } = useExport();
    const onKey = (e: KeyboardEvent) => {
+      // A menu's keys are its own (its content is in a portal, but React events still come here).
+      if ((e.target as Element).closest("[role=menu]")) return;
       if (e.key === "Escape" || e.key === "Backspace") {
          e.preventDefault();
          onBack();
@@ -320,7 +323,22 @@ function Inspect({
          onKeyDown={onKey}
          ref={(el) => el?.focus({ preventScroll: true })}
       >
-         <PanelHeader className="gap-1 pl-1.5">
+         <PanelHeader
+            className="gap-1 pl-1.5"
+            menu={
+               <>
+                  <DropdownMenuItem onSelect={onJump}>
+                     <ArrowRight />{" "}
+                     {a.placement === "left" || a.placement === "right"
+                        ? "Open panel"
+                        : a.placement === "inline"
+                          ? "Jump to message"
+                          : "Show"}
+                  </DropdownMenuItem>
+                  <ExportSubmenu formats={artifactFormats(a, env, shoot)} save={save} />
+               </>
+            }
+         >
             <Button
                size="icon"
                variant="ghost"
@@ -377,6 +395,16 @@ function Inspect({
             <div className="flex-1" />
             <span className="truncate text-xs text-muted-foreground">{a.sub}</span>
          </div>
+         {(busy || error) && (
+            <p
+               className={cn(
+                  "px-3.5 pt-2 text-xs text-muted-foreground",
+                  error && "text-destructive",
+               )}
+            >
+               {error ?? "Preparing the download..."}
+            </p>
+         )}
          <ScrollArea className="min-h-0 flex-1">
             <div className="p-3.5">
                {tab === "preview" && <ArtifactPreview a={a} env={env} />}
@@ -404,18 +432,7 @@ function Inspect({
                </dl>
             </div>
          </ScrollArea>
-         <div className="flex gap-2 border-t px-3.5 py-2.5">
-            <Button size="sm" onClick={onJump}>
-               <ArrowRight />{" "}
-               {a.placement === "left" || a.placement === "right"
-                  ? "Open panel"
-                  : a.placement === "inline"
-                    ? "Jump to message"
-                    : "Show"}
-            </Button>
-            <ExportMenu formats={artifactFormats(a, env, shoot)} />
-            {stage}
-         </div>
+         {stage}
       </div>
    );
 }

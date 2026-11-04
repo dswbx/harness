@@ -33,18 +33,20 @@ export type PanelCtx = {
 export const PanelContext = createContext<PanelCtx | null>(null);
 
 /**
- * The header every panel shares: `title`, the panel's own controls (`children`), a menu (Expand, Move to,
- * Hide) and the hide button. Dragging the header drags the panel to another zone.
+ * The header every panel shares: `title`, the panel's own controls (`children`), a menu (the panel's own
+ * entries in `menu`, then Expand, Move to) and the hide button. Dragging the header drags the panel to another zone.
  */
 export function PanelHeader({
    title,
    titleHint,
    children,
+   menu,
    className,
 }: {
    title?: ReactNode;
    titleHint?: string;
    children?: ReactNode;
+   menu?: ReactNode;
    className?: string;
 }) {
    const p = useContext(PanelContext);
@@ -77,6 +79,12 @@ export function PanelHeader({
                      </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
+                     {menu && (
+                        <>
+                           {menu}
+                           <DropdownMenuSeparator />
+                        </>
+                     )}
                      {p.expandable && (
                         <>
                            <DropdownMenuItem onSelect={p.onExpand}>
@@ -102,10 +110,6 @@ export function PanelHeader({
                            ))}
                         </DropdownMenuSubContent>
                      </DropdownMenuSub>
-                     <DropdownMenuSeparator />
-                     <DropdownMenuItem onSelect={p.onHide}>
-                        <Minus /> Hide
-                     </DropdownMenuItem>
                   </DropdownMenuContent>
                </DropdownMenu>
                <Tooltip content="Hide" side="bottom">
