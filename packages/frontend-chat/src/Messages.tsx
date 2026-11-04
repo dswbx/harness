@@ -35,6 +35,7 @@ import {
    type PendingMessage,
    pendingActions,
    usePendingMessages,
+   useSlow,
 } from "./pendingMessages";
 import type { UiEnv } from "./RenderUi";
 import type { ChatState, Item } from "./reducer";
@@ -467,9 +468,6 @@ export function useRows(items: Item[]) {
    return { ui, rows, subagents };
 }
 
-/** The wait below this shows nothing, so a ready Agent does not flash a state. */
-const SLOW_MS = 300;
-
 function pendingStage(state: ChatState): string {
    if (state.restoring)
       return `Reopening session, attempt ${state.restoring.attempt} of ${state.restoring.of}...`;
@@ -487,11 +485,7 @@ function PendingRow({
    state: ChatState;
    composer: string;
 }) {
-   const [slow, setSlow] = useState(false);
-   useEffect(() => {
-      const t = setTimeout(() => setSlow(true), SLOW_MS);
-      return () => clearTimeout(t);
-   }, []);
+   const slow = useSlow(true);
    const failed = item.status === "failed";
    const actions = pendingActions(composer);
    return (
@@ -526,13 +520,7 @@ function PendingRow({
                   </button>
                </>
             ) : (
-               item.status === "sending" &&
-               slow && (
-                  <>
-                     <span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
-                     {pendingStage(state)}
-                  </>
-               )
+               item.status === "sending" && slow && <span>{pendingStage(state)}</span>
             )}
             {item.files.length > 0 && (failed || slow) && (
                <span>{item.files.length === 1 ? "1 file" : `${item.files.length} files`}</span>

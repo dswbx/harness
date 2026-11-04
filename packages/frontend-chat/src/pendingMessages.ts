@@ -1,5 +1,5 @@
 import type { AttachmentInput } from "@harness/api";
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { PendingAttachment } from "./attachments";
 import type { PromptSnapshot } from "./promptMarkdown";
 import type { ReviewComment } from "./reviewComments";
@@ -57,3 +57,17 @@ function subscribe(cb: () => void) {
 
 export const usePendingMessages = (key: string) =>
    useSyncExternalStore(subscribe, () => getPendingMessages(key));
+
+/** True once `active` has lasted a moment, so a ready Agent does not flash a state. */
+export function useSlow(active: boolean) {
+   const [slow, setSlow] = useState(false);
+   useEffect(() => {
+      if (!active) {
+         setSlow(false);
+         return;
+      }
+      const t = setTimeout(() => setSlow(true), 300);
+      return () => clearTimeout(t);
+   }, [active]);
+   return slow;
+}

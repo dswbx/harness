@@ -68,6 +68,7 @@ import {
    toggle,
    type Zone,
 } from "./panelLayout";
+import { usePendingMessages, useSlow } from "./pendingMessages";
 import { PrRefProvider } from "./prRefs";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
@@ -179,7 +180,7 @@ export function View({
 const PROCESS_INFO: Record<string, { title: string; text: string; dot: string }> = {
    starting: {
       title: "Agent starting",
-      text: "The agent process is starting.",
+      text: "Connecting to the agent. Your message goes out when it is ready.",
       dot: "animate-pulse bg-sky-500",
    },
    stopped: {
@@ -533,10 +534,16 @@ function ChatView({
    const refreshKey = `${changeCount}:${running}`;
    // The host's header shows it as a dot on its info icon, explained in that icon's menu; a header
    // of our own (no host header) shows a badge. Archived and deleted Sessions say so elsewhere.
-   const procInfo =
-      proc && proc.message !== "archived" && proc.message !== "deleted"
-         ? PROCESS_INFO[proc.state]
-         : undefined;
+   // Restoring the Agent Session takes longer than starting its process, and the process is
+   // "ready" by then: a message on its way is what says the Agent is not ready yet.
+   const connecting = useSlow(
+      usePendingMessages(api.sessionId).some((p) => p.status === "sending"),
+   );
+   const procInfo = connecting
+      ? PROCESS_INFO.starting
+      : proc && proc.message !== "archived" && proc.message !== "deleted"
+        ? PROCESS_INFO[proc.state]
+        : undefined;
    const dot = procInfo && (
       <span
          role="status"
