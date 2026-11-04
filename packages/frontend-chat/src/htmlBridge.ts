@@ -73,6 +73,7 @@ export function onceEach(report: (message: string) => void, max = 5): (message: 
 
 /** Messages the frame sends to the host. */
 export type FrameMessage =
+   | { type: "ready" }
    | { type: "state"; state: unknown }
    | { type: "actions"; actions: unknown }
    | { type: "patch"; ops: unknown }
