@@ -502,6 +502,7 @@ export class MockTransport implements Transport {
    }
 
    private readOnly = new Set<string>();
+   private restoreFailed = new Set<string>();
    private sideN = 0;
    private sideForked = new Map<string, boolean>();
 
@@ -1115,7 +1116,7 @@ export class MockTransport implements Transport {
                   session_id: sid,
                   thread_id: null,
                   text: cmd.text,
-                  attachments: [],
+                  attachments: cmd.attachments ?? [],
                });
             return { type: "Ok" };
          }
@@ -1136,7 +1137,44 @@ export class MockTransport implements Transport {
                this.readOnly.add(sid);
                this.emit(sid, {
                   type: "ThreadReadOnly",
-                  reason: "agent cannot resume its session",
+                  reason: "The Agent could not reopen its earlier session.",
+                  retryable: false,
+                  errors: [],
+                  transcript: { kept_turns: 18, total_turns: 42 },
+               });
+               throw new Error("The Agent could not reopen its earlier session.");
+            }
+            // Typing "/restorefail" simulates a resume that fails; the next try works.
+            if (cmd.text.trim() === "/restorefail" && !this.restoreFailed.has(sid)) {
+               this.restoreFailed.add(sid);
+               this.emit(sid, { type: "AgentProcessState", state: "starting", message: null });
+               await new Promise((r) => setTimeout(r, 1200));
+               this.emit(sid, { type: "AgentProcessState", state: "ready", message: null });
+               for (const attempt of [1, 2, 3]) {
+                  this.emit(sid, { type: "AgentSessionRestoring", attempt, of: 3 });
+                  await new Promise((r) => setTimeout(r, 1200));
+               }
+               this.emit(sid, {
+                  type: "ThreadReadOnly",
+                  reason: "The Agent could not reopen its earlier session.",
+                  retryable: true,
+                  errors: ["resume: Internal error"],
+                  transcript: { kept_turns: 18, total_turns: 42 },
+               });
+               throw new Error("The Agent could not reopen its earlier session.");
+            }
+            if (cmd.text.trim() === "/restorefail")
+               this.emit(sid, {
+                  type: "AgentSessionStarted",
+                  acp_session_id: `acp-res-${this.logs.get(sid)!.length}`,
+                  boundary: "resumed",
+               });
+            // Typing "/apprestart" simulates reopening the app: the Agent process is gone.
+            if (cmd.text.trim() === "/apprestart") {
+               this.emit(sid, {
+                  type: "AgentProcessState",
+                  state: "stopped",
+                  message: "app_restart",
                });
                return { type: "Ok" };
             }

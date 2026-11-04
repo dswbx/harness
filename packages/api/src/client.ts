@@ -47,8 +47,12 @@ export interface SessionApi {
    cancel(threadId?: string | null): Promise<void>;
    /** Starts the Agent in the background so its models and modes show before the first prompt. */
    warmUp(): Promise<void>;
-   /** Starts a new Agent Session seeded with a summary; prompts `text` right away when given. */
-   continueWithSummary(text: string | null, threadId?: string | null): Promise<void>;
+   /** Starts a new Agent Session seeded with a transcript; prompts `text` right away when given. */
+   continueWithSummary(
+      text: string | null,
+      threadId?: string | null,
+      attachments?: AttachmentInput[],
+   ): Promise<void>;
    /**
     * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
     * Starts in the Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
@@ -177,8 +181,14 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
          const r = await expect({ type: "ReadImageFile", path }, "Attachment");
          return { mime: r.mime, data: r.data };
       },
-      continueWithSummary: (text, threadId = null) =>
-         run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: threadId, text }),
+      continueWithSummary: (text, threadId = null, attachments = []) =>
+         run({
+            type: "ContinueWithSummary",
+            session_id: sessionId,
+            thread_id: threadId,
+            text,
+            attachments,
+         }),
       startSideThread: async ({ seed = null, source } = {}) => {
          const r = await expect(
             { type: "StartSideThread", session_id: sessionId, seed, source },

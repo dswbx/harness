@@ -427,7 +427,7 @@ async fn harness_context_starts_each_agent_session() {
     std::fs::create_dir_all(data.join("prompts")).unwrap();
     std::fs::write(data.join("prompts/harness.md"), "Custom core text.").unwrap();
     std::fs::write(data.join("prompts/chat.md"), "Custom chat text.").unwrap();
-    h.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None }).await.unwrap();
+    h.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None, attachments: vec![] }).await.unwrap();
     let again = shown(ask(&h, &sid, "show-context", None).await);
     assert!(again.starts_with("seededcontext: <harness_context>\nCustom core text.\n\n## Frontend: Chat\n\nCustom chat text."), "{again}");
 }

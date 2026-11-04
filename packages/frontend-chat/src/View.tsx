@@ -68,6 +68,7 @@ import {
    toggle,
    type Zone,
 } from "./panelLayout";
+import { usePendingMessages, useSlow } from "./pendingMessages";
 import { PrRefProvider } from "./prRefs";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
@@ -159,19 +160,45 @@ export function View({
    api,
    toolbar,
    status,
+   indicator,
    menu,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
+   indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
    ) : (
-      <ChatView api={api} toolbar={toolbar} status={status} menu={menu} />
+      <ChatView api={api} toolbar={toolbar} status={status} indicator={indicator} menu={menu} />
    );
 }
+
+/** What an Agent process state means, for the header's status dot. Ready shows nothing. */
+const PROCESS_INFO: Record<string, { title: string; text: string; dot: string }> = {
+   starting: {
+      title: "Agent starting",
+      text: "Connecting to the agent. Your message goes out when it is ready.",
+      dot: "animate-pulse bg-sky-500",
+   },
+   stopped: {
+      title: "Agent stopped",
+      text: "Stopped while idle. It restarts on your next message.",
+      dot: "bg-muted-foreground",
+   },
+   exited: {
+      title: "Agent exited",
+      text: "The agent process ended. It restarts on your next message.",
+      dot: "bg-amber-500",
+   },
+   failed: {
+      title: "Agent failed",
+      text: "The agent process could not start.",
+      dot: "bg-destructive",
+   },
+};
 
 /** Briefly rings an element the user jumped to. */
 function flash(el: Element) {
@@ -203,11 +230,13 @@ function ChatView({
    api,
    toolbar,
    status,
+   indicator,
    menu,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
+   indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
 }) {
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
@@ -503,8 +532,41 @@ function ChatView({
    const running = state.turnId !== null;
    const proc = state.process;
    const refreshKey = `${changeCount}:${running}`;
-   // In the host's Session header when it gives a slot, else in a header of our own.
-   // After the Session title (host's status slot, else in our own header).
+   // The host's header shows it as a dot on its info icon, explained in that icon's menu; a header
+   // of our own (no host header) shows a badge. Archived and deleted Sessions say so elsewhere.
+   // Restoring the Agent Session takes longer than starting its process, and the process is
+   // "ready" by then: a message on its way is what says the Agent is not ready yet.
+   const connecting = useSlow(
+      usePendingMessages(api.sessionId).some((p) => p.status === "sending"),
+   );
+   const procInfo = connecting
+      ? PROCESS_INFO.starting
+      : proc && proc.message !== "archived" && proc.message !== "deleted"
+        ? PROCESS_INFO[proc.state]
+        : undefined;
+   const dot = procInfo && (
+      <span
+         role="status"
+         aria-label={procInfo.title}
+         className={cn("size-2 rounded-full ring-1 ring-background", procInfo.dot)}
+      />
+   );
+   const detail = procInfo && (
+      <div className="flex flex-col gap-1">
+         <div className="flex items-center gap-2 font-medium">
+            <span className={cn("size-2 shrink-0 rounded-full", procInfo.dot)} />
+            {procInfo.title}
+         </div>
+         <p className="text-muted-foreground">
+            {!connecting && proc?.message === "app_restart"
+               ? "The app restarted, so the agent is not running. It starts on your next message."
+               : procInfo.text}
+         </p>
+         {proc?.state === "failed" && proc.message && (
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs">{proc.message}</pre>
+         )}
+      </div>
+   );
    const badge = proc && proc.state !== "ready" && (
       <Tooltip content={proc.message} side="bottom">
          <Badge variant={proc.state === "failed" ? "destructive" : "secondary"}>
@@ -588,8 +650,8 @@ function ChatView({
                {badge}
             </div>
          )}
-         {toolbar && !status && <Portal container={toolbar}>{badge}</Portal>}
-         {toolbar && <Portal container={status}>{badge}</Portal>}
+         <Portal container={indicator}>{dot}</Portal>
+         <Portal container={status}>{detail}</Portal>
          <Portal container={menu}>
             <MenuButton onClick={() => update(resetLayout)}>
                <RotateCcw /> Reset layout

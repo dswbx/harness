@@ -9,6 +9,7 @@ export function ViewHost({
    frontendId,
    toolbar,
    status,
+   indicator,
    menu,
 }: {
    transport: Transport;
@@ -16,11 +17,21 @@ export function ViewHost({
    frontendId: string;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
+   indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
    if (!fe)
       return <div className="p-6 text-sm text-destructive">Unknown Frontend: {frontendId}</div>;
-   return <fe.View key={sessionId} api={api} toolbar={toolbar} status={status} menu={menu} />;
+   return (
+      <fe.View
+         key={sessionId}
+         api={api}
+         toolbar={toolbar}
+         status={status}
+         indicator={indicator}
+         menu={menu}
+      />
+   );
 }

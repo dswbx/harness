@@ -315,12 +315,15 @@ pub enum Command {
     WarmUp {
         session_id: SessionId,
     },
-    /// Starts a new Agent Session for a Thread, seeded with a summary of the Thread so far. The
-    /// way out of a read-only Thread. `text`, when given, is prompted right away.
+    /// Starts a new Agent Session for a Thread, seeded with a transcript of the Thread so far. The
+    /// way out of a Thread whose Agent Session cannot be restored. `text`, when given, is prompted
+    /// right away, with `attachments`.
     ContinueWithSummary {
         session_id: SessionId,
         thread_id: Option<ThreadId>,
         text: Option<String>,
+        #[serde(default)]
+        attachments: Vec<AttachmentInput>,
     },
     /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
     /// prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
@@ -897,15 +900,32 @@ pub enum EventKind {
         methods: Vec<AuthMethodInfo>,
         message: String,
     },
-    /// The Thread's Agent Session cannot be continued; the Thread stays readable and can be
-    /// continued with a summary.
+    /// The Thread's Agent Session could not be restored; the Thread stays readable and can be
+    /// continued from a transcript. `retryable`: the Agent supports resume or load, so the next
+    /// prompt tries again. Logs from before these fields read as not retryable.
     ThreadReadOnly {
         reason: String,
+        #[serde(default)]
+        retryable: bool,
+        /// Why each method failed, for the user.
+        #[serde(default)]
+        errors: Vec<String>,
+        /// What a transcript would hold right now.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transcript: Option<TranscriptSize>,
+    },
+    /// Restoring the Thread's Agent Session failed and is being tried again.
+    AgentSessionRestoring {
+        attempt: u32,
+        of: u32,
     },
     /// A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary.
     AgentSessionStarted {
         acp_session_id: String,
         boundary: Boundary,
+        /// `continued_with_summary`: what its transcript held.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transcript: Option<TranscriptSize>,
     },
     AgentProcessState {
         state: ProcessState,
@@ -1080,6 +1100,13 @@ pub enum EventKind {
     Error {
         message: String,
     },
+}
+
+/// How many of a Thread's Turns fit in a transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TranscriptSize {
+    pub kept_turns: u32,
+    pub total_turns: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

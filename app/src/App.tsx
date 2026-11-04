@@ -70,6 +70,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
    const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
+   const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
    const report = useReportError();
    useEffect(() => {
@@ -106,6 +107,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
             session={session}
             toolbarRef={setToolbar}
             statusRef={setStatus}
+            indicatorRef={setIndicator}
             menuRef={setMenu}
             leading={trafficLights && <div className="w-12 shrink-0" />}
          />
@@ -116,6 +118,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
                frontendId={session.frontend_id}
                toolbar={toolbar}
                status={status}
+               indicator={indicator}
                menu={menu}
             />
          </div>
@@ -257,6 +260,7 @@ function Shell({ transport }: { transport: Transport }) {
    const [sidebarOpen, toggleSidebar] = useSidebarOpen();
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
+   const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
 
    const report = useReportError();
@@ -417,6 +421,7 @@ function Shell({ transport }: { transport: Transport }) {
                      leading={leading}
                      toolbarRef={setToolbar}
                      statusRef={setStatus}
+                     indicatorRef={setIndicator}
                      menuRef={setMenu}
                      onOpenSettings={() => setSettingsSection("appearance")}
                      onOpenWindow={() =>
@@ -433,6 +438,7 @@ function Shell({ transport }: { transport: Transport }) {
                         frontendId={current.frontend_id}
                         toolbar={toolbar}
                         status={status}
+                        indicator={indicator}
                         menu={menu}
                      />
                   </div>

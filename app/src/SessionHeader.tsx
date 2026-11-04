@@ -407,6 +407,7 @@ export function SessionHeader({
    onChooseEditor,
    toolbarRef,
    statusRef,
+   indicatorRef,
    menuRef,
    onOpenSettings,
 }: {
@@ -420,6 +421,7 @@ export function SessionHeader({
    onChooseEditor?: () => void;
    toolbarRef: (el: HTMLDivElement | null) => void;
    statusRef?: (el: HTMLDivElement | null) => void;
+   indicatorRef?: (el: HTMLSpanElement | null) => void;
    menuRef?: (el: HTMLDivElement | null) => void;
    /** Opens Settings; without it the gear menu has no Settings entry. */
    onOpenSettings?: () => void;
@@ -469,8 +471,17 @@ export function SessionHeader({
          <DropdownMenu>
             <DropdownMenuTrigger asChild>
                <Tooltip content="Session info" side="bottom">
-                  <Button size="icon" variant="ghost" className={iconBtn} aria-label="Session info">
+                  <Button
+                     size="icon"
+                     variant="ghost"
+                     className={cn(iconBtn, "relative")}
+                     aria-label="Session info"
+                  >
                      <Info />
+                     <span
+                        ref={indicatorRef}
+                        className="absolute right-0.5 top-0.5 flex empty:hidden"
+                     />
                   </Button>
                </Tooltip>
             </DropdownMenuTrigger>
@@ -479,6 +490,7 @@ export function SessionHeader({
                className="w-96 p-3 text-sm"
                onCloseAutoFocus={(e) => e.preventDefault()}
             >
+               <div ref={statusRef} className="mb-2.5 border-b pb-2.5 empty:hidden" />
                <SessionDetails s={session} />
             </DropdownMenuContent>
          </DropdownMenu>
@@ -523,7 +535,6 @@ export function SessionHeader({
                )}
             </DropdownMenuContent>
          </DropdownMenu>
-         <div ref={statusRef} className="flex min-w-0 items-center gap-1 empty:hidden" />
          <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
          {git && <GitRefButton client={client} session={session} git={git} />}
          <div ref={toolbarRef} className="flex items-center gap-1" />

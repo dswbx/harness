@@ -15,7 +15,8 @@
 //! - a prompt with non-text blocks first answers "blocks: <kinds>" (e.g. `text,image,resource_link`)
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
-//! replays one message chunk ("replayed") before answering. `--no-http-mcp` makes the Harness
+//! replays one message chunk ("replayed") before answering. `--resume-fails=N` fails the first N
+//! resumes of this process. `--no-http-mcp` makes the Harness
 //! use the stdio shim. `--auth` advertises an agent auth
 //! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
 //! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
@@ -35,6 +36,9 @@ fn text(t: &str) -> SessionUpdate {
 }
 
 /// cwd per Agent Session.
+/// How many more resumes must fail (`--resume-fails=N`).
+static RESUME_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 static CWDS: std::sync::Mutex<Vec<(String, std::path::PathBuf)>> = std::sync::Mutex::new(Vec::new());
 
 fn remember_cwd(id: &SessionId, cwd: &std::path::Path) {
@@ -150,6 +154,9 @@ fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> 
 async fn main() -> agent_client_protocol::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let resume = args.iter().any(|a| a == "--resume");
+    if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-fails=")) {
+        RESUME_FAILS.store(n.parse().unwrap(), std::sync::atomic::Ordering::SeqCst);
+    }
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");
     let no_http_mcp = args.iter().any(|a| a == "--no-http-mcp");
@@ -247,6 +254,10 @@ async fn main() -> agent_client_protocol::Result<()> {
         )
         .on_receive_request(
             async move |req: ResumeSessionRequest, responder, _cx| {
+                if RESUME_FAILS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+                    RESUME_FAILS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    return responder.respond_with_error(Error::internal_error());
+                }
                 remember_cwd(&req.session_id, &req.cwd);
                 remember_mcp(&req.session_id, &req.mcp_servers);
                 responder.respond(ResumeSessionResponse::new())

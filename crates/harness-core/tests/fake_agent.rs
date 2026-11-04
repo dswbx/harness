@@ -32,7 +32,11 @@ fn fake_info() -> AgentInfo {
 fn harness(data: &std::path::Path, flags: &[&str], idle: Duration) -> Arc<Harness> {
     let args = flags.iter().map(|f| f.to_string()).collect();
     let agent = AgentInfo { args, ..fake_info() };
-    let options = harness_core::host::Options { idle_timeout: idle, ..Default::default() };
+    let options = harness_core::host::Options {
+        idle_timeout: idle,
+        restore_retries: vec![Duration::from_millis(1); 3],
+        ..Default::default()
+    };
     let h = Harness::with_options(data.to_owned(), vec![agent], options).unwrap();
     h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     h
@@ -268,6 +272,26 @@ async fn restart_resumes_the_agent_session() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn restart_logs_the_agent_as_stopped_without_moving_the_session() {
+    let (h, sid, dir) = setup().await;
+    turn(&h, &sid, None, "hi").await;
+    async fn updated(h: &Harness, sid: &str) -> i64 {
+        let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+        sessions.into_iter().find(|s| s.id == sid).unwrap().updated_ms
+    }
+    let before = updated(&h, &sid).await;
+    let gone = |h: &Harness| {
+        h_events(h, &sid).into_iter().filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, message: Some(m) } if m == "app_restart")).count()
+    };
+    let data = dir.path().join("data");
+    let h2 = harness(&data, &[], Duration::from_secs(900));
+    assert_eq!(gone(&h2), 1);
+    assert_eq!(updated(&h2, &sid).await, before);
+    let h3 = harness(&data, &[], Duration::from_secs(900));
+    assert_eq!(gone(&h3), 1, "only once");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn load_replay_is_not_logged_twice() {
     let (h, sid, dir) = setup_with(&["--load"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "hi").await;
@@ -278,20 +302,57 @@ async fn load_replay_is_not_logged_twice() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn no_continuation_makes_the_thread_read_only_until_continued_with_summary() {
+async fn agent_without_resume_or_load_reports_at_once_until_continued_with_summary() {
     let (h, sid, dir) = setup().await;
     turn(&h, &sid, None, "remember the word banana").await;
     let h2 = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
     let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![] };
     assert!(h2.execute(prompt("again")).await.is_err());
-    assert!(h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { .. })));
-    assert!(h2.execute(prompt("still?")).await.is_err(), "stays read-only");
+    assert!(h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { retryable: false, .. })));
+    assert!(!h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::AgentSessionRestoring { .. })), "no retries");
+    assert!(h2.execute(prompt("still?")).await.is_err(), "still cannot restore");
 
-    h2.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None }).await.unwrap();
+    h2.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None, attachments: vec![] }).await.unwrap();
     assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::ContinuedWithSummary]);
     turn(&h2, &sid, None, "what was the word?").await;
     turn(&h2, &sid, None, "and now?").await;
     assert_eq!(texts(&h2, &sid).iter().filter(|t| t.starts_with("seeded")).count(), 1, "seed is sent once");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_resume_is_retried_on_its_own() {
+    let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hi").await;
+    let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=2"], Duration::from_secs(900));
+    assert_eq!(turn(&h2, &sid, None, "back").await, "end_turn");
+    let attempts: Vec<_> = h_events(&h2, &sid).into_iter().filter_map(|k| match k {
+        EventKind::AgentSessionRestoring { attempt, of } => Some((attempt, of)),
+        _ => None,
+    }).collect();
+    assert_eq!(attempts, vec![(1, 3), (2, 3)]);
+    assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+    assert!(!h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { .. })));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_that_keeps_failing_can_be_tried_again_later() {
+    let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hi").await;
+    // 4 tries fail in this process; the prompt after them succeeds.
+    let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=4"], Duration::from_secs(900));
+    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "back".into(), attachments: vec![] };
+    assert!(h2.execute(prompt).await.is_err());
+    let report = h_events(&h2, &sid).into_iter().find_map(|k| match k {
+        EventKind::ThreadReadOnly { retryable, errors, transcript, .. } => Some((retryable, errors, transcript)),
+        _ => None,
+    }).unwrap();
+    assert!(report.0, "the Agent supports resume");
+    assert_eq!(report.1.len(), 1);
+    assert!(report.1[0].starts_with("resume: "));
+    assert_eq!(report.2, Some(harness_core::api::TranscriptSize { kept_turns: 1, total_turns: 1 }));
+
+    assert_eq!(turn(&h2, &sid, None, "again").await, "end_turn");
+    assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Resumed]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
