@@ -25,7 +25,14 @@ export const isLeftZone = (z: Zone) => z === "leftTop" || z === "leftBottom";
 export const isRightZone = (z: Zone) => z === "rightTop" || z === "rightBottom";
 export const isBottomZone = (z: Zone) => z === "bottomLeft" || z === "bottomRight";
 
-export const BASE_PANELS = ["side", "changes", "terminal", "events", "artifacts"] as const;
+export const BASE_PANELS = [
+   "side",
+   "changes",
+   "terminal",
+   "events",
+   "artifacts",
+   "references",
+] as const;
 /** A panel: one of the built-in ones, or a `render_ui` item placed left or right (`slot:<id>`). */
 export type PanelId = (typeof BASE_PANELS)[number] | `slot:${string}`;
 export const slotPanel = (id: string): PanelId => `slot:${id}`;
@@ -72,6 +79,7 @@ export const DEFAULT_SIZES: Sizes = {
 const DEFAULT_ZONE: Record<(typeof BASE_PANELS)[number], Zone> = {
    changes: "leftTop",
    artifacts: "leftBottom",
+   references: "leftBottom",
    terminal: "bottomLeft",
    events: "bottomRight",
    side: "rightTop",
@@ -90,7 +98,7 @@ export function defaultLayout(): Layout {
    return {
       zones: {
          leftTop: ["changes"],
-         leftBottom: ["artifacts"],
+         leftBottom: ["artifacts", "references"],
          bottomLeft: ["terminal"],
          bottomRight: ["events"],
          rightBottom: [],

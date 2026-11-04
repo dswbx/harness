@@ -89,8 +89,12 @@ One live rendering of a Session by its Frontend, such as a window or pane; a Ses
 _Avoid_: window, tab, subscriber
 
 **Panel**:
-A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, or a `render_ui` item placed left or right; ADR 0019).
+A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, References, or a `render_ui` item placed left or right; ADR 0019).
 _Avoid_: tab, pane, sidebar
+
+**Reference**:
+A PR, file or link named in a Session's user or Agent messages, one per target with its mentions; the chat's References Panel lists those that exist. Derived from the chat Items (`references.ts`).
+_Avoid_: citation, mention (a mention is one place a Reference is named)
 
 **Zone**:
 One of six places a Panel can be docked (left top, left bottom, bottom left, bottom right, right bottom, right top); a Zone shows one Panel at a time and the user can move Panels between Zones.

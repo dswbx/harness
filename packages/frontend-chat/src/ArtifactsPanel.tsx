@@ -33,7 +33,7 @@ import { fullMessageTime, useNow } from "./time";
 import { uiIcons } from "./uiIcons";
 
 /** Short age for a row: "now", "5m", "2h", "3d". */
-function age(ts: number, now: number): string {
+export function age(ts: number, now: number): string {
    const m = Math.floor((now - ts) / 60_000);
    if (m < 1) return "now";
    if (m < 60) return `${m}m`;

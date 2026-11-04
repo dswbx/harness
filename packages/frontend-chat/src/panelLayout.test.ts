@@ -209,7 +209,7 @@ describe("reconcile", () => {
          zones: { ...empty.zones, leftBottom: ["nope", "changes", "artifacts"] as PanelId[] },
       };
       const r = reconcile(l, []);
-      expect(r.zones.leftBottom).toEqual(["artifacts"]);
+      expect(r.zones.leftBottom).toEqual(["artifacts", "references"]);
       expect(r.zones.leftTop).toEqual(["changes"]);
    });
    it("places new slots by placement and leaves placed ones where the user put them", () => {

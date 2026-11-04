@@ -16,6 +16,7 @@ import {
    CircleDashed,
    GitCompare,
    Layers,
+   Link2,
    Loader2,
    MessagesSquare,
    PanelLeft,
@@ -70,6 +71,12 @@ import {
 } from "./panelLayout";
 import { usePendingMessages, useSlow } from "./pendingMessages";
 import { PrRefProvider } from "./prRefs";
+import {
+   NO_REFERENCES,
+   ReferencesPanel,
+   ReferencesProbe,
+   type ResolvedReferences,
+} from "./ReferencesPanel";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
 import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
@@ -217,6 +224,7 @@ const BASE_LABEL: Record<string, string> = {
    terminal: "Terminal",
    events: "Events",
    artifacts: "Artifacts",
+   references: "References",
 };
 const BASE_ICON: Record<string, React.ReactNode> = {
    side: <MessagesSquare />,
@@ -224,6 +232,7 @@ const BASE_ICON: Record<string, React.ReactNode> = {
    terminal: <SquareTerminal />,
    events: <ScrollText />,
    artifacts: <Layers />,
+   references: <Link2 />,
 };
 
 function ChatView({
@@ -385,6 +394,23 @@ function ChatView({
    }, [lastSlot?.id, lastSlot?.ts, openedAt, update]);
    const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
    const list = useRef<VirtualListHandle>(null);
+   /** Scrolls the chat to a row; once the virtual list renders it, flashes what `pick` finds in it. */
+   const jumpToRow = useCallback(
+      (rowId: string, pick: (row: Element) => Element | null | undefined) => {
+         if (!list.current?.scrollToKey(rowId)) return;
+         let tries = 0;
+         const find = () => {
+            const row = document.querySelector(`[data-key="${CSS.escape(rowId)}"]`);
+            const el = row && pick(row);
+            if (el) {
+               el.scrollIntoView({ block: "center" });
+               flash(el);
+            } else if (tries++ < 30) requestAnimationFrame(find);
+         };
+         requestAnimationFrame(find);
+      },
+      [],
+   );
    const jump = useCallback(
       (a: Artifact) => {
          if (a.placement === "right" || a.placement === "left") {
@@ -396,25 +422,20 @@ function ChatView({
             if (el) flash(el);
             return;
          }
-         if (!list.current?.scrollToKey(a.rowId)) return;
-         // The row renders once the virtual list scrolls there; then the diagram or table inside it.
-         let tries = 0;
-         const find = () => {
-            const row = document.querySelector(`[data-key="${CSS.escape(a.rowId!)}"]`);
-            const el =
-               row &&
-               (a.index !== null
-                  ? row.querySelectorAll(`[data-artifact="${a.kind}"]`)[a.index]
-                  : row.firstElementChild);
-            if (el) {
-               el.scrollIntoView({ block: "center" });
-               flash(el);
-            } else if (tries++ < 30) requestAnimationFrame(find);
-         };
-         requestAnimationFrame(find);
+         // The diagram or table inside the row.
+         jumpToRow(a.rowId, (row) =>
+            a.index !== null
+               ? row.querySelectorAll(`[data-artifact="${a.kind}"]`)[a.index]
+               : row.firstElementChild,
+         );
       },
-      [update],
+      [update, jumpToRow],
    );
+   const jumpToMention = useCallback(
+      (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),
+      [jumpToRow],
+   );
+   const [resolved, setResolved] = useState<ResolvedReferences>(NO_REFERENCES);
    const changeCount = useMemo(
       () => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0),
       [state.items],
@@ -437,8 +458,9 @@ function ChatView({
       const a = new Set<PanelId>(["side", "terminal", "events", ...slotById.keys()]);
       if (git) a.add("changes");
       if (artifacts.length > 0 || isOpen(lay, "artifacts")) a.add("artifacts");
+      if (resolved.refs.length > 0 || isOpen(lay, "references")) a.add("references");
       return a;
-   }, [slotById, git, artifacts.length, lay]);
+   }, [slotById, git, artifacts.length, resolved.refs.length, lay]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -486,7 +508,13 @@ function ChatView({
    };
    const tip = (id: PanelId) => (id === "side" ? "Side chats (⇧⌘B new)" : label(id));
    const count = (id: PanelId) =>
-      id === "side" ? sideThreads.length : id === "artifacts" ? artifacts.length : undefined;
+      id === "side"
+         ? sideThreads.length
+         : id === "artifacts"
+           ? artifacts.length
+           : id === "references"
+             ? resolved.refs.length
+             : undefined;
    const shortcut = (id: PanelId) => (id === "terminal" ? ["⌃", "`"] : undefined);
    const group = (zone: Zone): StripeGroup => ({
       zone,
@@ -631,6 +659,12 @@ function ChatView({
          label: "Artifacts",
          children: <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} />,
       });
+   if (open("references"))
+      panels.push({
+         id: "references",
+         label: "References",
+         children: <ReferencesPanel resolved={resolved} onJump={jumpToMention} />,
+      });
    for (const [id, slot] of slotById) {
       if (open(id))
          panels.push({
@@ -722,6 +756,7 @@ function ChatView({
    return (
       <PrRefProvider api={api}>
          <FileRefProvider api={api}>
+            <ReferencesProbe items={state.items} onResolved={setResolved} />
             <div className="relative flex h-full">
                {(!leftEmpty || drag) && (
                   <Stripe
