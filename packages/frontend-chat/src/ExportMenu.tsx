@@ -10,12 +10,14 @@ import { Download, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import type { ExportFormat } from "./exportFormats";
 
-/** A Download button with a menu of file formats. The app's save dialog asks where. */
+/** A Download button with a menu of file formats. The app's save dialog asks where. `icon`: no label, like a dialog's X. */
 export function ExportMenu({
    formats,
+   icon,
    className,
 }: {
    formats: ExportFormat[];
+   icon?: boolean;
    className?: string;
 }) {
    const [busy, setBusy] = useState(false);
@@ -36,9 +38,21 @@ export function ExportMenu({
          {error && <span className="mr-2 text-xs text-destructive">{error}</span>}
          <DropdownMenu>
             <DropdownMenuTrigger asChild>
-               <Button size="sm" variant="outline" disabled={busy}>
-                  {busy ? <LoaderCircle className="animate-spin" /> : <Download />} Download
-               </Button>
+               {icon ? (
+                  <Button
+                     size="icon"
+                     variant="ghost"
+                     className="size-7 opacity-70 hover:opacity-100"
+                     aria-label="Download"
+                     disabled={busy}
+                  >
+                     {busy ? <LoaderCircle className="animate-spin" /> : <Download />}
+                  </Button>
+               ) : (
+                  <Button size="sm" variant="outline" disabled={busy}>
+                     {busy ? <LoaderCircle className="animate-spin" /> : <Download />} Download
+                  </Button>
+               )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
                {formats.map((f) => (
