@@ -10,7 +10,7 @@ use crate::api::{
 };
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
-use crate::session::{Session, SessionMeta, Shared, WorkspaceMeta};
+use crate::session::{Session, Shared, WorkspaceMeta};
 use crate::workspace::WorktreeMeta;
 
 /// Default for `Shared::idle_timeout`.
@@ -95,7 +95,7 @@ impl Harness {
                 Err(e) => tracing::warn!("skipping session {}: {e:#}", dir.display()),
             }
         }
-        scan_repos(&shared, sessions.values().filter_map(|s| repo_folder(&s.meta())).collect());
+        scan_repos(&shared, sessions.values().filter_map(|s| s.meta().repo_folder()).collect());
         let app_events = shared.clone();
         let terminals = crate::terminal::Terminals::new(move |session_id| {
             app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
@@ -229,7 +229,7 @@ impl Harness {
                     mcp_servers,
                     self.shared.clone(),
                 )?;
-                if let Some(folder) = repo_folder(&session.meta()) {
+                if let Some(folder) = session.meta().repo_folder() {
                     let shared = self.shared.clone();
                     tokio::spawn(async move { shared.pr_refs.repo_of(&folder).await });
                 }
@@ -381,7 +381,7 @@ impl Harness {
                 let session = self.session(&session_id)?;
                 let meta = session.meta();
                 let refs = &self.shared.pr_refs;
-                let repo = match repo_folder(&meta) {
+                let repo = match meta.repo_folder() {
                     Some(folder) => refs.repo_of(&folder).await,
                     None => None,
                 };
@@ -395,7 +395,7 @@ impl Harness {
                             refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten()
                         }
                         None => match crate::workspace::current_branch(Path::new(&meta.folder)).await? {
-                            Some(branch) => refs.for_branch(repo, &branch).await?,
+                            Some(branch) => session.pr_watch().lookup(repo, &branch).await?,
                             None => None,
                         },
                     },
@@ -440,12 +440,12 @@ impl Harness {
                     .values()
                     .filter_map(|s| {
                         let meta = s.meta();
-                        Some((repo_folder(&meta)?, s.log().last_ts_ms().unwrap_or(meta.created_ms)))
+                        Some((meta.repo_folder()?, s.log().last_ts_ms().unwrap_or(meta.created_ms)))
                     })
                     .collect();
                 let refs = &self.shared.pr_refs;
                 let (_, me) = tokio::join!(refs.scan(folders.iter().map(|f| f.0.clone()).collect()), refs.me());
-                let session_repo = match repo_folder(&session.meta()) {
+                let session_repo = match session.meta().repo_folder() {
                     Some(folder) => refs.repo_of(&folder).await,
                     None => None,
                 };
@@ -568,7 +568,7 @@ impl Harness {
         let short = &id[id.len() - 6..];
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
         let in_worktree = |wt: WorktreeMeta, pr: Option<u32>| {
-            (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None, pr })
+            (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None, pr, branch_pr: None })
         };
         match start {
             Start::Pr { pr, worktree: true } => {
@@ -592,7 +592,7 @@ impl Harness {
                     "the folder has uncommitted changes; commit or stash them, or use a Worktree"
                 );
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number) }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number), branch_pr: None }))
             }
             Start::Branch { base, new_branch, worktree: true } => {
                 let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
@@ -606,7 +606,7 @@ impl Harness {
                 {
                     crate::workspace::checkout(&root, &b).await?;
                 }
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None, pr: None }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None, pr: None, branch_pr: None }))
             }
         }
     }
@@ -623,11 +623,6 @@ impl Harness {
     fn agent(&self, id: &str) -> anyhow::Result<AgentInfo> {
         self.shared.agents.get(id).ok_or_else(|| anyhow::anyhow!("unknown agent {id}"))
     }
-}
-
-/// The repository a Session works in: a Worktree's main repo (it outlives the Worktree), else the folder's.
-fn repo_folder(meta: &SessionMeta) -> Option<PathBuf> {
-    meta.workspace.worktree.as_ref().map(|w| w.repo_root.clone()).or_else(|| meta.workspace.repo_root.clone())
 }
 
 /// Finds the Sessions' GitHub repos in the background; on a runtime when there is one (the app has none yet).

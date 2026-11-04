@@ -140,6 +140,72 @@ pub struct WorkspaceMeta {
     /// PR number when the Session was started from a PR.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr: Option<u32>,
+    /// The last PR found for the branch the Session works on, when it was not started from a PR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_pr: Option<BranchPrMeta>,
+}
+
+/// A PR found by head branch; only shown while that branch is checked out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BranchPrMeta {
+    pub branch: String,
+    pub number: u32,
+}
+
+/// The PR a Session shows: the one it started from, else the stored one of the branch checked out.
+fn shown_pr(pr: Option<u32>, branch_pr: Option<&BranchPrMeta>, head: Option<&str>) -> Option<u32> {
+    pr.or_else(|| branch_pr.filter(|b| head == Some(b.branch.as_str())).map(|b| b.number))
+}
+
+impl SessionMeta {
+    /// The repository a Session works in: a Worktree's main repo (it outlives the Worktree), else the folder's.
+    pub fn repo_folder(&self) -> Option<PathBuf> {
+        self.workspace.worktree.as_ref().map(|w| w.repo_root.clone()).or_else(|| self.workspace.repo_root.clone())
+    }
+}
+
+/// Owned handle on what finding a Session's branch PR needs, so a spawned task can use it.
+#[derive(Clone)]
+pub struct PrWatch {
+    dir: PathBuf,
+    meta: Arc<std::sync::Mutex<SessionMeta>>,
+    shared: Arc<Shared>,
+}
+
+impl PrWatch {
+    /// Stores the PR of a branch; tells the windows when it changed.
+    fn set(&self, branch_pr: Option<BranchPrMeta>) {
+        {
+            let mut m = self.meta.lock().unwrap();
+            if m.workspace.branch_pr == branch_pr {
+                return;
+            }
+            m.workspace.branch_pr = branch_pr;
+            let _ = write_meta(&self.dir, &m);
+        }
+        self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
+    }
+
+    /// Looks up the PR of `branch` and stores it. An error leaves the stored PR alone.
+    pub async fn lookup(&self, repo: &crate::api::RepoId, branch: &str) -> anyhow::Result<Option<crate::api::PrInfo>> {
+        let pr = self.shared.pr_refs.for_branch(repo, branch).await?;
+        self.set(pr.as_ref().map(|p| BranchPrMeta { branch: branch.to_owned(), number: p.number }));
+        Ok(pr)
+    }
+
+    /// For a Session that may have opened a PR: looks up the PR of its branch, ignoring errors.
+    async fn find(&self) {
+        let m = self.meta.lock().unwrap().clone();
+        let Some(folder) = m.repo_folder().filter(|_| m.workspace.pr.is_none()) else { return };
+        let Some(branch) = crate::workspace::head_branch(Path::new(&m.folder)) else { return };
+        let base = m.workspace.worktree.as_ref().map(|w| &w.base).or(m.workspace.base.as_ref());
+        if base == Some(&branch) {
+            return;
+        }
+        if let Some(repo) = self.shared.pr_refs.repo_of(&folder).await {
+            let _ = self.lookup(&repo, &branch).await;
+        }
+    }
 }
 
 /// Most errors kept per Frontend Tool item, and the longest message (bytes).
@@ -196,7 +262,7 @@ impl FrontendRequests {
 
 pub struct Session {
     dir: PathBuf,
-    meta: std::sync::Mutex<SessionMeta>,
+    meta: Arc<std::sync::Mutex<SessionMeta>>,
     log: SessionLog,
     agent: crate::acp::AgentSlot,
     shared: Arc<Shared>,
@@ -296,7 +362,7 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
-        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared, state_lock: Default::default(), frontend_requests: Default::default() }
+        Self { dir: dir.to_owned(), meta: Arc::new(std::sync::Mutex::new(meta)), log, agent: Default::default(), shared, state_lock: Default::default(), frontend_requests: Default::default() }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -599,6 +665,7 @@ impl Session {
     pub fn summary(&self) -> SessionSummary {
         self.adopt_repo();
         let m = self.meta.lock().unwrap();
+        let branch = crate::workspace::head_branch(Path::new(&m.folder));
         SessionSummary {
             id: m.id.clone(),
             title: m.title.clone(),
@@ -614,8 +681,8 @@ impl Session {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 worktree_branch: m.workspace.worktree.as_ref().map(|w| w.branch.clone()),
                 base_branch: m.workspace.worktree.as_ref().map(|w| w.base.clone()),
-                branch: crate::workspace::head_branch(Path::new(&m.folder)),
-                pr: m.workspace.pr,
+                pr: shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), branch.as_deref()),
+                branch,
             },
         }
     }
@@ -874,6 +941,10 @@ impl Session {
         &self.agent
     }
 
+    pub fn pr_watch(&self) -> PrWatch {
+        PrWatch { dir: self.dir.clone(), meta: self.meta.clone(), shared: self.shared.clone() }
+    }
+
     pub fn set_status(&self, status: SessionStatus) {
         let _ = self.log.append(None, EventKind::SessionStatusChanged { status });
         let (session_id, title) = {
@@ -881,6 +952,13 @@ impl Session {
             (m.id.clone(), m.title.clone())
         };
         self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status });
+        // The Agent may have opened a PR; look in the background (not without a runtime, e.g. sync tests).
+        if status == SessionStatus::Idle
+            && let Ok(rt) = tokio::runtime::Handle::try_current()
+        {
+            let watch = self.pr_watch();
+            drop(rt.spawn(async move { watch.find().await }));
+        }
     }
 }
 
@@ -905,5 +983,31 @@ mod frontend_request_tests {
         let wait = requests.wait(Duration::from_secs(60), |_| {});
         assert!(tokio::time::timeout(Duration::from_millis(1), wait).await.is_err());
         assert!(requests.0.lock().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod branch_pr_tests {
+    use super::*;
+
+    fn stored() -> BranchPrMeta {
+        BranchPrMeta { branch: "feat".into(), number: 7 }
+    }
+
+    #[test]
+    fn a_stored_pr_shows_only_while_its_branch_is_checked_out() {
+        assert_eq!(shown_pr(None, Some(&stored()), Some("feat")), Some(7));
+        assert_eq!(shown_pr(None, Some(&stored()), Some("main")), None);
+        assert_eq!(shown_pr(None, Some(&stored()), None), None);
+        assert_eq!(shown_pr(Some(3), Some(&stored()), Some("feat")), Some(3));
+        assert_eq!(shown_pr(None, None, Some("feat")), None);
+    }
+
+    #[test]
+    fn old_workspace_meta_without_branch_pr_loads() {
+        let m: WorkspaceMeta = serde_json::from_str(r#"{"repo_root":null,"worktree":null,"pr":4}"#).unwrap();
+        assert_eq!(m.pr, Some(4));
+        assert_eq!(m.branch_pr, None);
+        assert!(!serde_json::to_string(&m).unwrap().contains("branch_pr"));
     }
 }

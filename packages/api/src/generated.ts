@@ -661,6 +661,6 @@ export type WorkspaceInfo = {
 	base_branch: string | null,
 	/**  Branch checked out in the Session's folder; None when not a git repo or HEAD is detached. */
 	branch: string | null,
-	/**  PR number when the Session was started from a PR. */
+	/**  The PR the Session started from, else the last PR found for its current branch. */
 	pr: number | null,
 };
