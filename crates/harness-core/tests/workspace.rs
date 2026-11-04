@@ -317,6 +317,24 @@ async fn branch_list_has_tracking_worktree_and_remote_only_branches() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn branch_list_marks_archived_session_branches() {
+    let (_dir, repo, data) = repo();
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, true).await.unwrap();
+    let branch = summary(&h, &sid).await.unwrap().workspace.worktree_branch.unwrap();
+    let state = |b: &harness_core::api::Branches| {
+        let x = b.branches.iter().find(|x| x.name == branch).unwrap();
+        (x.worktree, x.archived)
+    };
+
+    assert_eq!(state(&branches(&h, &repo).await), (true, false));
+    h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(state(&branches(&h, &repo).await), (false, true));
+    h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(state(&branches(&h, &repo).await), (true, false));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn new_branch_in_the_folder_or_as_the_worktree_branch() {
     let (_dir, repo, data) = repo();
     let h = harness(&data);

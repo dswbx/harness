@@ -91,8 +91,8 @@ describe("Quick Sessions", () => {
 });
 
 describe("branchChoices", () => {
-   const br = (name: string, worktree = false) =>
-      ({ name, time: 0, ahead: 0, behind: 0, worktree }) as BranchInfo;
+   const br = (name: string, worktree = false, archived = false) =>
+      ({ name, time: 0, ahead: 0, behind: 0, worktree, archived }) as BranchInfo;
    const repo = (o: Partial<Branches>) =>
       ({
          repo_root: "/r",
@@ -114,6 +114,14 @@ describe("branchChoices", () => {
       const b = repo({ branches: [br("main"), br("wt/x", true), br("y")] });
       expect(names(branchChoices(b, "").local)).toEqual(["y"]);
       expect(names(branchChoices(b, "wt").local)).toEqual(["wt/x"]);
+   });
+
+   it("hides archived branches unless searching or current", () => {
+      const b = repo({ branches: [br("main"), br("old/x", false, true), br("y")] });
+      expect(names(branchChoices(b, "").local)).toEqual(["y"]);
+      expect(names(branchChoices(b, "old").local)).toEqual(["old/x"]);
+      const cur = repo({ current: "old/x", branches: [br("main"), br("old/x", false, true)] });
+      expect(names(branchChoices(cur, "").local)).toEqual(["old/x"]);
    });
 
    it("puts a remote-only default in defaultRemote", () => {

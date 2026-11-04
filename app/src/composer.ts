@@ -88,11 +88,13 @@ export function matches(q: string, ...fields: (string | undefined)[]): boolean {
       .every((w) => hay.includes(w));
 }
 
-/** The branch picker's rows for search `q`: the default branch apart (to pin it on top), then the rest. Branches checked out in another worktree only show when searching. */
+/** The branch picker's rows for search `q`: the default branch apart (to pin it on top), then the rest. Branches checked out in another worktree or left by an archived Session only show when searching (the current one always does). */
 export function branchChoices(b: Branches | null, q: string) {
    const isDefault = (x: BranchInfo) => x.name === b?.default_branch;
    const shown = (x: BranchInfo) =>
-      !isDefault(x) && matches(q, x.name) && (!x.worktree || q.trim() !== "");
+      !isDefault(x) &&
+      matches(q, x.name) &&
+      (!(x.worktree || x.archived) || x.name === b?.current || q.trim() !== "");
    const local = b?.branches ?? [];
    const remote = b?.remote ?? [];
    const pick = (x?: BranchInfo) => (x && matches(q, x.name) ? x : undefined);

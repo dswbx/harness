@@ -368,7 +368,23 @@ impl Harness {
                 CommandResult::Files { files: self.session(&session_id)?.frontend_list(&dir)? }
             }
             Command::ListBranches { folder } => {
-                CommandResult::Branches { branches: crate::workspace::list_branches(Path::new(&folder)).await? }
+                let mut branches = crate::workspace::list_branches(Path::new(&folder)).await?;
+                // Archived Sessions keep their branch but lose the Worktree.
+                let archived: Vec<String> = self
+                    .sessions
+                    .read()
+                    .unwrap()
+                    .values()
+                    .map(|s| s.meta())
+                    .filter(|m| m.archived)
+                    .filter_map(|m| m.workspace.worktree)
+                    .filter(|w| Some(w.repo_root.display().to_string()) == branches.repo_root)
+                    .map(|w| w.branch)
+                    .collect();
+                for b in branches.branches.iter_mut().filter(|b| archived.contains(&b.name)) {
+                    b.archived = true;
+                }
+                CommandResult::Branches { branches }
             }
             Command::ListPullRequests { folder, filter } => {
                 CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? }

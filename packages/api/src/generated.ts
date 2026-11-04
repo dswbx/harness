@@ -77,6 +77,8 @@ export type BranchInfo = {
 	behind: number,
 	/**  Checked out in another Worktree (it can't be checked out again). */
 	worktree: boolean,
+	/**  Branch of an archived Session's removed Worktree. Set by the Host's `ListBranches` only. */
+	archived: boolean,
 };
 
 export type Branches = {

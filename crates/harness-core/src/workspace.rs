@@ -129,7 +129,7 @@ fn parse_branch(line: &str, root: &Path) -> Option<BranchInfo> {
     }
     let wt = f.next().unwrap_or("");
     let worktree = !wt.is_empty() && Path::new(wt) != root;
-    Some(BranchInfo { name, time, ahead, behind, worktree })
+    Some(BranchInfo { name, time, ahead, behind, worktree, archived: false })
 }
 
 /// A Worktree the Harness created for one Session.

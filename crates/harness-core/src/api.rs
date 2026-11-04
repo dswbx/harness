@@ -711,6 +711,8 @@ pub struct BranchInfo {
     pub behind: u32,
     /// Checked out in another Worktree (it can't be checked out again).
     pub worktree: bool,
+    /// Branch of an archived Session's removed Worktree. Set by the Host's `ListBranches` only.
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
