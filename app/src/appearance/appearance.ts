@@ -1,6 +1,7 @@
 import type { HarnessClient } from "@harness/api";
 import type { ImportedTheme } from "./importTheme";
 import { PRESETS, type ThemePreset } from "./presets";
+import { syncWindowBackground } from "./windowBackground";
 
 export const MODES = ["light", "dark", "system"] as const;
 export type Mode = (typeof MODES)[number];
@@ -350,6 +351,12 @@ export function applyAppearance(a: Appearance, doc: Doc = document) {
    applied.set(root, Object.keys(vars));
 }
 
+/** Applies to this document and the native window behind it. */
+function applyToWindow(a: Appearance) {
+   applyAppearance(a);
+   syncWindowBackground();
+}
+
 let current = DEFAULT_APPEARANCE;
 let client: HarnessClient | null = null;
 
@@ -367,7 +374,7 @@ export const getAppearance = () => current;
 export function setAppearance(a: Appearance) {
    current = normalize(a);
    saveAppearance(localStorage, current);
-   applyAppearance(current);
+   applyToWindow(current);
    void client?.setAppSetting("appearance", current);
 }
 
@@ -375,7 +382,7 @@ export function setAppearance(a: Appearance) {
 export async function setImportedThemes(next: Record<string, ImportedTheme>) {
    loadThemes(normalizeThemes(next));
    cache(THEMES_KEY, imported);
-   applyAppearance(current);
+   applyToWindow(current);
    await client?.setAppSetting("themes", imported);
 }
 
@@ -395,17 +402,17 @@ export async function syncAppearance(c: HarnessClient) {
       current = normalize(a);
       saveAppearance(localStorage, current);
    } else await c.setAppSetting("appearance", current);
-   applyAppearance(current);
+   applyToWindow(current);
 }
 
 /** Applies in this window without saving or changing the current appearance (theme picker preview). */
 export function previewAppearance(a: Appearance) {
-   applyAppearance(normalize(a));
+   applyToWindow(normalize(a));
 }
 
 /** Undoes a preview: applies the saved appearance again. */
 export function revertPreview() {
-   applyAppearance(current);
+   applyToWindow(current);
 }
 
 /** Call once per window before the first render. */
@@ -417,9 +424,11 @@ export function initAppearance() {
    }
    current = loadAppearance(localStorage);
    applyAppearance(current);
+   // Windows start hidden: they appear here, on the theme's background.
+   syncWindowBackground(true);
    window
       .matchMedia(DARK_QUERY)
-      .addEventListener("change", () => current.mode === "system" && applyAppearance(current));
+      .addEventListener("change", () => current.mode === "system" && applyToWindow(current));
    window.addEventListener("storage", (e) => {
       if (e.key === THEMES_KEY || e.key === null) {
          try {
@@ -430,6 +439,6 @@ export function initAppearance() {
       }
       if (e.key !== STORAGE_KEY && e.key !== THEMES_KEY && e.key !== null) return;
       current = loadAppearance(localStorage);
-      applyAppearance(current);
+      applyToWindow(current);
    });
 }

@@ -52,6 +52,19 @@ impl Subscriptions {
     }
 }
 
+/// Sets the color behind the webview, which replaces its default white until the page paints.
+/// `show` reveals the window, which starts hidden, after the color is set.
+#[tauri::command]
+fn set_window_background(window: tauri::WebviewWindow, rgb: Option<(u8, u8, u8)>, show: bool) -> Result<(), String> {
+    if let Some((r, g, b)) = rgb {
+        window.set_background_color(Some(tauri::window::Color(r, g, b, 255))).map_err(|e| e.to_string())?;
+    }
+    if show {
+        window.show().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn execute(harness: tauri::State<'_, Arc<Harness>>, cmd: Command) -> Result<CommandResult, String> {
     harness.execute(cmd).await
@@ -253,9 +266,16 @@ pub fn run() {
                     app.state::<Subscriptions>().drop_webview(&harness, webview.label());
                 }
             }
-            // Windows start hidden so the blank (white) webview never shows before the first paint.
+            // Windows start hidden; the page shows them once the theme background is set
+            // (`set_window_background`). This is only for a page that never gets that far.
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
-                let _ = webview.window().show();
+                let window = webview.window();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if !window.is_visible().unwrap_or(true) {
+                        let _ = window.show();
+                    }
+                });
             }
         })
         .on_window_event(|window, event| {
@@ -268,6 +288,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             execute,
+            set_window_background,
             subscribe,
             unsubscribe,
             subscribe_app,
