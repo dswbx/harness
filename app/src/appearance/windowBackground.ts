@@ -13,11 +13,15 @@ function backgroundRgb(): [number, number, number] | null {
    return a === 255 ? [r, g, b] : null;
 }
 
+const reveal = () =>
+   void invoke("reveal_window").catch((e) => console.error("reveal window failed", e));
+
 let last: string | undefined;
 
 /**
  * Gives the native window the theme's background, so it is what shows until the webview paints
- * (never the webview's default white). With `show`, the hidden window appears once that is set.
+ * (never the webview's default white). With `show`, the hidden window goes on screen transparent
+ * once that is set (a webview only renders on screen) and turns opaque after the page has painted.
  */
 export function syncWindowBackground(show = false) {
    if (!inTauri()) return;
@@ -25,7 +29,9 @@ export function syncWindowBackground(show = false) {
    const key = String(rgb);
    if (!show && key === last) return;
    last = key;
-   void invoke("set_window_background", { rgb, show }).catch((e) =>
-      console.error("set window background failed", e),
-   );
+   void invoke("set_window_background", { rgb, show })
+      .then(() => {
+         if (show) requestAnimationFrame(() => requestAnimationFrame(reveal));
+      })
+      .catch((e) => console.error("set window background failed", e));
 }

@@ -53,15 +53,42 @@ impl Subscriptions {
 }
 
 /// Sets the color behind the webview, which replaces its default white until the page paints.
-/// `show` reveals the window, which starts hidden, after the color is set.
+/// `show` puts the window, which starts hidden, on screen after the color is set, still fully
+/// transparent: a webview only renders once on screen, and its first frame can be white. The page
+/// calls `reveal_window` once it has painted.
 #[tauri::command]
 fn set_window_background(window: tauri::WebviewWindow, rgb: Option<(u8, u8, u8)>, show: bool) -> Result<(), String> {
     if let Some((r, g, b)) = rgb {
         window.set_background_color(Some(tauri::window::Color(r, g, b, 255))).map_err(|e| e.to_string())?;
     }
-    if show {
+    // Already visible: a reload, or the fallback got there first.
+    if show && !window.is_visible().map_err(|e| e.to_string())? {
+        set_window_alpha(window.as_ref().window(), 0.0).map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Makes the window opaque: it has painted, or (from the fallback) never will.
+#[tauri::command]
+fn reveal_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    set_window_alpha(window.as_ref().window(), 1.0).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn set_window_alpha(window: tauri::Window, alpha: f64) -> tauri::Result<()> {
+    let target = window.clone();
+    window.run_on_main_thread(move || {
+        let Ok(ns_window) = target.ns_window() else { return };
+        // SAFETY: `ns_window` is this live window's NSWindow, and this runs on the main thread.
+        unsafe {
+            let _: () = objc2::msg_send![ns_window.cast::<objc2::runtime::AnyObject>(), setAlphaValue: alpha];
+        }
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_window_alpha(_window: tauri::Window, _alpha: f64) -> tauri::Result<()> {
     Ok(())
 }
 
@@ -283,12 +310,14 @@ pub fn run() {
                     app.state::<Subscriptions>().drop_webview(&harness, webview.label());
                 }
             }
-            // Windows start hidden; the page shows them once the theme background is set
-            // (`set_window_background`). This is only for a page that never gets that far.
+            // Windows start hidden; the page shows them once it has the theme background and has
+            // painted (`set_window_background`, `reveal_window`). This is only for a page that
+            // never gets that far.
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                 let window = webview.window();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(1));
+                    let _ = set_window_alpha(window.clone(), 1.0);
                     if !window.is_visible().unwrap_or(true) {
                         let _ = window.show();
                     }
@@ -306,6 +335,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             execute,
             set_window_background,
+            reveal_window,
             save_file,
             subscribe,
             unsubscribe,
