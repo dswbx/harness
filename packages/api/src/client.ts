@@ -95,7 +95,9 @@ export interface SessionApi {
    /** Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
    searchPrs(repo: RepoId, query?: string | null): Promise<PrInfo[]>;
    /** The Session's GitHub repo, the PR it works on (started from, else by head branch) and the branch it merges to. */
-   branchPr(): Promise<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>;
+   branchPr(
+      refresh?: boolean,
+   ): Promise<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>;
    /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
    frontendRead(path: string): Promise<string>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
@@ -240,8 +242,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
          (await expect({ type: "LookupPrs", session_id: sessionId, refs }, "PrLookup")).prs,
       searchPrs: async (repo, query = null) =>
          (await expect({ type: "SearchPrs", session_id: sessionId, repo, query }, "PrSearch")).prs,
-      branchPr: async () => {
-         const r = await expect({ type: "BranchPr", session_id: sessionId }, "BranchPr");
+      branchPr: async (refresh = false) => {
+         const r = await expect({ type: "BranchPr", session_id: sessionId, refresh }, "BranchPr");
          return { repo: r.repo, pr: r.pr, base: r.base };
       },
       frontendRead: async (path) =>

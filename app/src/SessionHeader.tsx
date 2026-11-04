@@ -39,6 +39,7 @@ import {
    Loader2,
    MoreHorizontal,
    Plus,
+   RefreshCw,
    Settings,
    X,
    Zap,
@@ -57,6 +58,8 @@ export type GitRef = {
    /** Where the branch merges to: the Worktree's base, else the PR's, else the default branch. */
    base: string | null;
    refresh: () => void;
+   /** A refresh asked for by the user is loading. */
+   refreshing: boolean;
 };
 
 const PR_STYLE: Record<
@@ -179,7 +182,7 @@ function GitRefButton({
          <DropdownMenuTrigger asChild>
             <button
                aria-label={label}
-               disabled={working !== null}
+               disabled={working !== null || git.refreshing}
                className={cn(
                   "flex h-7 max-w-80 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground disabled:cursor-progress disabled:opacity-70",
                )}
@@ -301,6 +304,10 @@ function GitRefButton({
                   <Copy /> Copy PR link
                </DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={git.refresh}>
+               <RefreshCw /> Refresh
+            </DropdownMenuItem>
          </DropdownMenuContent>
       </DropdownMenu>
    );

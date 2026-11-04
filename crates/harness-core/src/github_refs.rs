@@ -51,6 +51,11 @@ impl PrRefs {
         Self { cache: Default::default(), fetch, me: Default::default(), repos: Default::default(), scanned: Default::default() }
     }
 
+    /// Drops a cached PR so the next lookup fetches it again.
+    pub fn forget(&self, repo: &RepoId, number: u32) {
+        self.cache.lock().unwrap().entries.remove(&(repo_key(repo), number));
+    }
+
     /// PRs in the order of `refs`, from the cache or one `gh` call for the rest.
     pub async fn lookup(&self, refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
         let keys: Vec<Key> = refs.iter().map(key).collect();
@@ -480,6 +485,23 @@ mod tests {
         let again = refs.lookup(vec![pr_ref("o", "r", 3), pr_ref("o", "r", 1)]).await.unwrap();
         assert_eq!(again.iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [None, Some(1)]);
         assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn forget_makes_the_next_lookup_fetch() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>| {
+            count.fetch_add(1, Ordering::SeqCst);
+            async move { Ok(refs.iter().map(|r| Some(info(r, PrState::Open))).collect()) }.boxed()
+        }));
+        let r = pr_ref("o", "r", 1);
+        refs.lookup(vec![r.clone()]).await.unwrap();
+        refs.lookup(vec![r.clone()]).await.unwrap();
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+        refs.forget(&r.repo, 1);
+        refs.lookup(vec![r]).await.unwrap();
+        assert_eq!(n.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

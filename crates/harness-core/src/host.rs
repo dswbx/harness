@@ -377,7 +377,7 @@ impl Harness {
                 crate::workspace::update_branch(Path::new(&folder), &branch).await?;
                 CommandResult::Ok
             }
-            Command::BranchPr { session_id } => {
+            Command::BranchPr { session_id, refresh } => {
                 let session = self.session(&session_id)?;
                 let meta = session.meta();
                 let refs = &self.shared.pr_refs;
@@ -388,7 +388,12 @@ impl Harness {
                 let pr = match &repo {
                     None => None,
                     Some(repo) => match meta.workspace.pr {
-                        Some(number) => refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten(),
+                        Some(number) => {
+                            if refresh {
+                                refs.forget(repo, number);
+                            }
+                            refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten()
+                        }
                         None => match crate::workspace::current_branch(Path::new(&meta.folder)).await? {
                             Some(branch) => refs.for_branch(repo, &branch).await?,
                             None => None,

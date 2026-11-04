@@ -169,17 +169,26 @@ export function View({
    status,
    indicator,
    menu,
+   onGitRefresh,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
+   onGitRefresh?: () => void;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
    ) : (
-      <ChatView api={api} toolbar={toolbar} status={status} indicator={indicator} menu={menu} />
+      <ChatView
+         api={api}
+         toolbar={toolbar}
+         status={status}
+         indicator={indicator}
+         menu={menu}
+         onGitRefresh={onGitRefresh}
+      />
    );
 }
 
@@ -241,12 +250,14 @@ function ChatView({
    status,
    indicator,
    menu,
+   onGitRefresh,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
+   onGitRefresh?: () => void;
 }) {
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
    // A Session with nothing in it yet is waiting for a message. The short wait lets the replay arrive.
@@ -671,7 +682,15 @@ function ChatView({
       panels.push({
          id: "changes",
          label: "Changes",
-         children: <DiffPanel api={api} scope={scope} onScope={setScope} refreshKey={refreshKey} />,
+         children: (
+            <DiffPanel
+               api={api}
+               scope={scope}
+               onScope={setScope}
+               refreshKey={refreshKey}
+               onRefresh={onGitRefresh}
+            />
+         ),
       });
    if (terminalOpened) {
       panels.push({

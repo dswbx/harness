@@ -11,6 +11,7 @@ export function ViewHost({
    status,
    indicator,
    menu,
+   onGitRefresh,
 }: {
    transport: Transport;
    sessionId: string;
@@ -19,6 +20,7 @@ export function ViewHost({
    status?: HTMLElement | null;
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
+   onGitRefresh?: () => void;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
@@ -32,6 +34,7 @@ export function ViewHost({
          status={status}
          indicator={indicator}
          menu={menu}
+         onGitRefresh={onGitRefresh}
       />
    );
 }

@@ -269,9 +269,12 @@ pub enum Command {
     /// The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
     /// first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
     /// base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
-    /// remote; `pr` None without `gh`. Cached like PR references.
+    /// remote; `pr` None without `gh`. Cached like PR references, unless `refresh` (drops the cached
+    /// PR the Session started from).
     BranchPr {
         session_id: SessionId,
+        #[serde(default)]
+        refresh: bool,
     },
     /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
     ListTerminals {

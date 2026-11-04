@@ -232,9 +232,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
  *  first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
  *  base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
- *  remote; `pr` None without `gh`. Cached like PR references.
+ *  remote; `pr` None without `gh`. Cached like PR references, unless `refresh` (drops the cached
+ *  PR the Session started from).
  */
-{ type: "BranchPr"; session_id: string } | 
+{ type: "BranchPr"; session_id: string; refresh?: boolean } | 
 /**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
 { type: "ListTerminals"; session_id: string } | 
 /**  A new Terminal tab; its shell starts on the first attach. Returns its id. */
