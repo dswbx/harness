@@ -31,3 +31,4 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - `bun install && bun run dev`: run the app. `bun install` also installs the lefthook pre-commit hook (Biome format + lint on staged files).
 - `bun run lint` / `bun run format`: Biome check / fix (3-space indent, width 100, `biome.json`).
 - Release: run the Release workflow (`gh workflow run release.yml`) from main. Tags `v{year}.{month}.{n}` on that commit, publishes a universal macOS build; installed apps offer it as an opt-in update (`crates/harness-tauri/src/updates.rs`; `?update=<state>` previews the footer in the browser mock). Updater signing key: secret `TAURI_SIGNING_PRIVATE_KEY`.
+- `bun run gen-ts`: regenerate `packages/api/src/generated.ts` after changing `api.rs`.
