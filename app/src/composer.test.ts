@@ -1,6 +1,14 @@
-import type { AgentInfo, SessionSummary } from "@harness/api";
+import type { AgentInfo, Branches, BranchInfo, SessionSummary } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { matches, mergeRecent, quickAgent, relTime, sessionFolders, tildify } from "./composer";
+import {
+   branchChoices,
+   matches,
+   mergeRecent,
+   quickAgent,
+   relTime,
+   sessionFolders,
+   tildify,
+} from "./composer";
 
 describe("composer helpers", () => {
    it("merges recent folders newest first, one per path", () => {
@@ -79,5 +87,57 @@ describe("Quick Sessions", () => {
       expect(quickAgent([session({ agent_id: "gone" })], agents)?.id).toBe("a");
       expect(quickAgent([], agents)?.id).toBe("a");
       expect(quickAgent([], [])).toBeUndefined();
+   });
+});
+
+describe("branchChoices", () => {
+   const br = (name: string, worktree = false) =>
+      ({ name, time: 0, ahead: 0, behind: 0, worktree }) as BranchInfo;
+   const repo = (o: Partial<Branches>) =>
+      ({
+         repo_root: "/r",
+         current: null,
+         default_branch: "main",
+         branches: [],
+         remote: [],
+         ...o,
+      }) as Branches;
+   const names = (l: BranchInfo[]) => l.map((x) => x.name);
+
+   it("pins the default apart, even when not first or checked out elsewhere", () => {
+      const c = branchChoices(repo({ branches: [br("a"), br("main", true), br("b")] }), "");
+      expect(c.defaultLocal?.name).toBe("main");
+      expect(names(c.local)).toEqual(["a", "b"]);
+   });
+
+   it("hides worktree branches unless searching", () => {
+      const b = repo({ branches: [br("main"), br("wt/x", true), br("y")] });
+      expect(names(branchChoices(b, "").local)).toEqual(["y"]);
+      expect(names(branchChoices(b, "wt").local)).toEqual(["wt/x"]);
+   });
+
+   it("puts a remote-only default in defaultRemote", () => {
+      const c = branchChoices(
+         repo({ default_branch: "origin/dev", branches: [br("a")], remote: [br("origin/dev")] }),
+         "",
+      );
+      expect(c.defaultLocal).toBeUndefined();
+      expect(c.defaultRemote?.name).toBe("origin/dev");
+      expect(c.remote).toEqual([]);
+   });
+
+   it("drops the default when the query does not match", () => {
+      const c = branchChoices(repo({ branches: [br("main"), br("feat")] }), "fe");
+      expect(c.defaultLocal).toBeUndefined();
+      expect(names(c.local)).toEqual(["feat"]);
+   });
+
+   it("is empty without branches", () => {
+      expect(branchChoices(null, "")).toEqual({
+         defaultLocal: undefined,
+         defaultRemote: undefined,
+         local: [],
+         remote: [],
+      });
    });
 });

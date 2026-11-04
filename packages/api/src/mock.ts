@@ -711,10 +711,17 @@ export class MockTransport implements Transport {
             return {
                type: "Branches",
                branches: cmd.folder.includes("norepo")
-                  ? { repo_root: null, current: null, branches: [], remote: [] }
+                  ? {
+                       repo_root: null,
+                       current: null,
+                       default_branch: null,
+                       branches: [],
+                       remote: [],
+                    }
                   : {
                        repo_root: cmd.folder,
                        current: "main",
+                       default_branch: "main",
                        branches: MOCK_BRANCHES,
                        remote: MOCK_REMOTE,
                     },

@@ -692,6 +692,8 @@ pub struct Branches {
     pub repo_root: Option<String>,
     /// `None` when HEAD is detached.
     pub current: Option<String>,
+    /// The repo's main line, as named in `branches` (or in `remote` when it has no local branch). `None` when unknown.
+    pub default_branch: Option<String>,
     /// Local branches, most recently committed first.
     pub branches: Vec<BranchInfo>,
     /// Remote branches with no local branch of the same name (`origin/x`), most recent first.

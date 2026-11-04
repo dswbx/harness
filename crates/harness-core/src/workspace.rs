@@ -90,7 +90,7 @@ fn parse_head(content: &str) -> Option<String> {
 
 pub async fn list_branches(folder: &Path) -> anyhow::Result<Branches> {
     let Some(root) = repo_root(folder).await else {
-        return Ok(Branches { repo_root: None, current: None, branches: vec![], remote: vec![] });
+        return Ok(Branches { repo_root: None, current: None, default_branch: None, branches: vec![], remote: vec![] });
     };
     let current = current_branch(&root).await?;
     let fmt = "--format=%(refname:short)%00%(committerdate:unix)%00%(upstream:track,nobracket)%00%(worktreepath)";
@@ -106,7 +106,12 @@ pub async fn list_branches(folder: &Path) -> anyhow::Result<Branches> {
         // `origin/HEAD` shows as just `origin`; skip it and remote branches that have a local one.
         .filter(|b| b.name.split_once('/').is_some_and(|(_, n)| n != "HEAD" && !local.iter().any(|l| l.name == n)))
         .collect();
-    Ok(Branches { repo_root: Some(root.display().to_string()), current, branches: local, remote })
+    // `origin/main` reads as `main` when there is a local `main`.
+    let default = default_branch(&root).await.map(|d| match d.strip_prefix("origin/") {
+        Some(n) if local.iter().any(|l| l.name == n) => n.to_owned(),
+        _ => d,
+    });
+    Ok(Branches { repo_root: Some(root.display().to_string()), current, default_branch: default, branches: local, remote })
 }
 
 /// One `for-each-ref` line: name, commit time, upstream track ("ahead 3, behind 1"), worktree path.

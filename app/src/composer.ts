@@ -1,4 +1,4 @@
-import type { AgentInfo, SessionSummary } from "@harness/api";
+import type { AgentInfo, Branches, BranchInfo, SessionSummary } from "@harness/api";
 
 /** Title of a Quick Session until its first prompt (the core's `QUICK_TITLE`). */
 export const QUICK_TITLE = "New Quick Session";
@@ -86,4 +86,20 @@ export function matches(q: string, ...fields: (string | undefined)[]): boolean {
       .split(/\s+/)
       .filter(Boolean)
       .every((w) => hay.includes(w));
+}
+
+/** The branch picker's rows for search `q`: the default branch apart (to pin it on top), then the rest. Branches checked out in another worktree only show when searching. */
+export function branchChoices(b: Branches | null, q: string) {
+   const isDefault = (x: BranchInfo) => x.name === b?.default_branch;
+   const shown = (x: BranchInfo) =>
+      !isDefault(x) && matches(q, x.name) && (!x.worktree || q.trim() !== "");
+   const local = b?.branches ?? [];
+   const remote = b?.remote ?? [];
+   const pick = (x?: BranchInfo) => (x && matches(q, x.name) ? x : undefined);
+   return {
+      defaultLocal: pick(local.find(isDefault)),
+      defaultRemote: pick(remote.find(isDefault)),
+      local: local.filter(shown),
+      remote: remote.filter(shown),
+   };
 }

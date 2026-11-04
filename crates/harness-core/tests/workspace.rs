@@ -308,6 +308,12 @@ async fn branch_list_has_tracking_worktree_and_remote_only_branches() {
     assert!(main.time > 0);
     assert!(b.branches.iter().find(|x| x.name == wt_branch).unwrap().worktree, "checked out in the Session's Worktree");
     assert_eq!(b.remote.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["origin/only-remote"]);
+
+    assert_eq!(b.default_branch.as_deref(), Some("main"));
+    sh(&repo, &["remote", "set-head", "origin", "only-remote"]);
+    assert_eq!(branches(&h, &repo).await.default_branch.as_deref(), Some("origin/only-remote"));
+    sh(&repo, &["remote", "set-head", "origin", "main"]);
+    assert_eq!(branches(&h, &repo).await.default_branch.as_deref(), Some("main"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
