@@ -458,10 +458,10 @@ export function ReferencesPanel({
    const hasAny = refs.some((r) => r.kind === kind);
    return (
       <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKey}>
-         <PanelHeader className="@container gap-2.5">
-            <span className="hidden truncate text-sm font-medium @[24rem]:inline">References</span>
+         <PanelHeader className="gap-2.5">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">References</span>
             <div
-               className="ml-auto inline-flex shrink-0 gap-0.5 rounded-md bg-muted p-0.5"
+               className="inline-flex shrink-0 gap-0.5 rounded-md bg-muted p-0.5"
                role="tablist"
                aria-label="Kind"
             >
