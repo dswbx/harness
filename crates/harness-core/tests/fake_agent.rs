@@ -912,6 +912,19 @@ async fn session_folder_that_becomes_a_repo_gets_git() {
         panic!("expected GitStatus");
     };
     assert_eq!(status.branch.as_deref(), Some("main"));
+
+    // No commits yet: all changes and uncommitted changes both show every file as added.
+    std::fs::write(std::path::Path::new(&s.folder).join("a.txt"), "hi\n").unwrap();
+    for from in [None, Some("HEAD".to_owned())] {
+        let CommandResult::Diff { diff } = h.execute(Command::GitDiff { session_id: sid.clone(), from, to: None }).await.unwrap() else {
+            panic!("expected Diff");
+        };
+        assert_eq!(diff.files.iter().map(|f| (f.path.as_str(), f.status.as_str())).collect::<Vec<_>>(), [("a.txt", "A")]);
+    }
+    let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid.clone() }).await.unwrap() else {
+        panic!("expected GitLog");
+    };
+    assert!(commits.is_empty());
 }
 
 #[tokio::test]
