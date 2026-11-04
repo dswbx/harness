@@ -65,7 +65,7 @@ import {
 export type { CaretToken };
 
 import type { PrRefKey, SlashCommand } from "@harness/api";
-import { Tooltip } from "@harness/ui";
+import { cn, Tooltip } from "@harness/ui";
 import { usePrRefs } from "./prRefs";
 
 export type PromptEditorHandle = {
@@ -101,6 +101,12 @@ type Props = {
    onSubmit(): void;
    /** Content is taller than the max height and scrolls. */
    onOverflowChange?(overflow: boolean): void;
+   /** The editor's accessible name; default "Message". */
+   label?: string;
+   /** Replaces the default max height of the scrolling area (`max-h-[40vh]`). */
+   maxHeightClassName?: string;
+   /** Replaces the default min height of the content (`min-h-10`). */
+   minHeightClassName?: string;
 };
 
 const theme: InitialConfigType["theme"] = {
@@ -175,16 +181,22 @@ export function PromptEditor(props: Props) {
             <div
                ref={scroller}
                onScroll={measure}
-               className="relative isolate max-h-[40vh] overflow-y-auto"
+               className={cn(
+                  "relative isolate overflow-y-auto",
+                  props.maxHeightClassName ?? "max-h-[40vh]",
+               )}
             >
                <RichTextPlugin
                   contentEditable={
                      <ContentEditable
-                        aria-label="Message"
+                        aria-label={props.label ?? "Message"}
                         spellCheck={false}
                         autoCorrect="off"
                         autoCapitalize="off"
-                        className="min-h-10 px-1 text-sm outline-none"
+                        className={cn(
+                           "px-1 text-sm outline-none",
+                           props.minHeightClassName ?? "min-h-10",
+                        )}
                      />
                   }
                   placeholder={

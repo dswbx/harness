@@ -1,6 +1,7 @@
-import { Button, Textarea } from "@harness/ui";
+import { Button } from "@harness/ui";
 import { MessageSquarePlus } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { addReviewComment, composerKey } from "./reviewComments";
 
 /** Elements whose selected text can be commented on (chat messages). */
@@ -67,7 +68,7 @@ export function SelectionComment({
    const [editing, setEditing] = useState(false);
    const [text, setText] = useState("");
    const box = useRef<HTMLDivElement>(null);
-   const area = useRef<HTMLTextAreaElement>(null);
+   const editor = useRef<PromptEditorHandle>(null);
    const editingRef = useRef(false);
    editingRef.current = editing;
 
@@ -100,14 +101,9 @@ export function SelectionComment({
       return () => void CSS.highlights.delete(HIGHLIGHT);
    }, [editing, spot]);
 
-   // Grow with the text up to max-h-40, then scroll (WebKit has no `field-sizing: content`).
-   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the text changes.
-   useLayoutEffect(() => {
-      const el = area.current;
-      if (!el) return;
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
-   }, [text, editing]);
+   useEffect(() => {
+      if (editing) editor.current?.focus();
+   }, [editing]);
 
    // Close the form on a click outside it.
    useEffect(() => {
@@ -123,11 +119,12 @@ export function SelectionComment({
       setText("");
    };
    const submit = () => {
-      if (!spot || !text.trim()) return;
+      const comment = editor.current?.getMarkdown().trim();
+      if (!spot || !comment) return;
       addReviewComment(composerKey(sessionId, spot.side ? spot.threadId : null), {
          kind: "quote",
          quote: spot.quote,
-         text: text.trim(),
+         text: comment,
       });
       window.getSelection()?.removeAllRanges();
       close();
@@ -158,6 +155,15 @@ export function SelectionComment({
          {editing ? (
             <form
                className="grid gap-2 p-2"
+               onKeyDownCapture={(e) => {
+                  if (e.key !== "Escape") return;
+                  // Cancel: give the reader their selection back.
+                  e.preventDefault();
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(spot.range);
+                  close();
+               }}
                onSubmit={(e) => {
                   e.preventDefault();
                   submit();
@@ -167,28 +173,19 @@ export function SelectionComment({
                   {spot.quote}
                </div>
                <div className="flex items-end gap-2">
-                  <Textarea
-                     ref={area}
-                     autoFocus
-                     rows={1}
-                     value={text}
-                     placeholder="Add a comment"
-                     aria-label="Comment"
-                     className="max-h-40 min-h-8 resize-none border-0 bg-transparent px-0 py-1 text-sm shadow-none focus-visible:ring-0"
-                     onChange={(e) => setText(e.target.value)}
-                     onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                           // Cancel: give the reader their selection back.
-                           const sel = window.getSelection();
-                           sel?.removeAllRanges();
-                           sel?.addRange(spot.range);
-                           close();
-                        } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                           e.preventDefault();
-                           submit();
-                        }
-                     }}
-                  />
+                  <div className="min-w-0 flex-1 py-1.5">
+                     <PromptEditor
+                        ref={editor}
+                        label="Comment"
+                        placeholder="Add a comment"
+                        maxHeightClassName="max-h-40"
+                        minHeightClassName="min-h-5"
+                        menuOpen={false}
+                        onMenuKey={() => {}}
+                        onChange={(_, md) => setText(md)}
+                        onSubmit={submit}
+                     />
+                  </div>
                   <Button
                      type="submit"
                      size="icon"
