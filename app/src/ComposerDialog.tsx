@@ -910,7 +910,8 @@ export function ComposerDialog({
                         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                            <span>
                               {targetInfo.name} is {targetInfo.behind}{" "}
-                              {targetInfo.behind === 1 ? "commit" : "commits"} behind origin.
+                              {targetInfo.behind === 1 ? "commit" : "commits"} behind origin
+                              {wtOn ? "; the new worktree starts from origin." : "."}
                            </span>
                            <UpdateBranch
                               b={targetInfo}

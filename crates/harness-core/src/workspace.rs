@@ -440,14 +440,17 @@ pub async fn push(dir: &Path) -> anyhow::Result<String> {
     Ok(branch)
 }
 
-/// Fast-forwards `branch` to `origin/<branch>`: `pull --ff-only` when it is checked out in `dir`, else a
-/// fetch into the branch (git refuses one checked out in another worktree, and any non-fast-forward).
+/// Fast-forwards `branch` to `origin/<branch>`. Where git says it is checked out (this folder or another
+/// worktree), `pull --ff-only` runs there, as git refuses to fetch into a checked-out branch; that also
+/// refuses non-fast-forwards and local changes it would overwrite. A branch checked out nowhere is fetched into.
 pub async fn update_branch(dir: &Path, branch: &str) -> anyhow::Result<()> {
     anyhow::ensure!(!branch.is_empty() && !branch.starts_with('-'), "invalid branch name");
-    if current_branch(dir).await?.as_deref() == Some(branch) {
-        git(dir, &["pull", "--ff-only", "origin", branch]).await?;
-    } else {
+    let out = git(dir, &["for-each-ref", "--format=%(worktreepath)", &format!("refs/heads/{branch}")]).await?;
+    let checkout = out.trim();
+    if checkout.is_empty() {
         git(dir, &["fetch", "origin", &format!("{branch}:{branch}")]).await?;
+    } else {
+        git(Path::new(checkout), &["pull", "--ff-only", "origin", branch]).await?;
     }
     Ok(())
 }
@@ -562,6 +565,44 @@ mod tests {
         // A remote-tracking base works too.
         let meta2 = wt(&clone, "origin/main", "b").await;
         assert_eq!(sh(&meta2.path, &["rev-parse", "HEAD"]), tip);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_branch_pulls_where_checked_out() {
+        let (tmp, origin, clone) = stale_clone();
+        let tip = sh(&origin, &["rev-parse", "main"]);
+        let meta = wt(&clone, "main", "a").await;
+        let head = sh(&meta.path, &["rev-parse", "HEAD"]);
+        update_branch(&meta.path, "main").await.unwrap();
+        assert_eq!(sh(&clone, &["rev-parse", "main"]), tip);
+        assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), head);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_branch_from_its_own_checkout() {
+        let (tmp, origin, clone) = stale_clone();
+        update_branch(&clone, "main").await.unwrap();
+        assert_eq!(sh(&clone, &["rev-parse", "main"]), sh(&origin, &["rev-parse", "main"]));
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_branch_fetches_when_not_checked_out() {
+        let (tmp, origin, clone) = stale_clone();
+        let other = tmp.join("other");
+        sh(&clone, &["switch", "-q", "-c", "topic"]);
+        sh(&clone, &["push", "-q", "origin", "topic"]);
+        sh(&clone, &["switch", "-q", "main"]);
+        sh(&other, &["fetch", "-q", "origin", "topic"]);
+        sh(&other, &["switch", "-q", "topic"]);
+        commit(&other, "three");
+        sh(&other, &["push", "-q", "origin", "topic"]);
+        let tip = sh(&origin, &["rev-parse", "topic"]);
+        assert_ne!(sh(&clone, &["rev-parse", "topic"]), tip);
+        update_branch(&clone, "topic").await.unwrap();
+        assert_eq!(sh(&clone, &["rev-parse", "topic"]), tip);
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 
