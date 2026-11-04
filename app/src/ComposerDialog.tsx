@@ -575,7 +575,7 @@ export function ComposerDialog({
          <GitBranch className="size-4 shrink-0 text-muted-foreground" />
          <span className="truncate font-mono text-[13px]">{b.name}</span>
          {b.name === branches?.current && <Pill>current</Pill>}
-         {b.worktree && <Pill>worktree</Pill>}
+         {b.worktree && <Pill>checked out elsewhere</Pill>}
          <span className="flex-1" />
          {!remote && <AheadBehind b={b} />}
          <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">

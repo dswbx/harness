@@ -575,10 +575,99 @@ describe("permission policy", () => {
       });
       let s = reduce(initialState(), ev(rule("execute", "echo hi")));
       s = reduce(s, ev(rule("edit", null)));
+      s = reduce(
+         s,
+         ev({
+            ...rule("edit", null),
+            rule: { ...rule("edit", null).rule, scope: { type: "global" } },
+         }),
+      );
       expect(s.items.map((i) => i.type === "notice" && i.text)).toEqual([
          "Remembered for this session: allow `echo hi`",
          "Remembered for this session: allow all edit",
+         "Remembered for all Sessions: allow all edit",
       ]);
+   });
+});
+
+describe("Harness tool approval on the step", () => {
+   const call = (id: string, tool = "git_push", status: string | null = null) =>
+      ev({
+         type: "ToolCall",
+         tool_call_id: id,
+         title: `mcp__harness__${tool}`,
+         kind: null,
+         status,
+         content: [],
+         locations: null,
+         raw_input: {},
+         harness_tool: tool,
+      });
+   const req = (id = "r1", tool = "git_push") =>
+      ev({
+         type: "PermissionRequested",
+         request_id: id,
+         tool_call: { toolCallId: `harness-${id}`, kind: tool },
+         harness_tool: tool,
+         options: [
+            { option_id: "allow", name: "Allow", kind: "allow_once" },
+            { option_id: "always", name: "Always", kind: "allow_always" },
+            { option_id: "reject", name: "Reject", kind: "reject_once" },
+         ],
+      });
+   const resolved = (
+      option_id: string | null,
+      by: "view" | "policy" | "cancelled",
+      rule_id: string | null = null,
+   ) => ev({ type: "PermissionResolved", request_id: "r1", option_id, by, rule_id });
+   const tool = (s: ChatState) => s.items.find((i) => i.type === "tool") as { approval?: string };
+   const perm = (s: ChatState) =>
+      s.items.find((i) => i.type === "permission") as { stepId: string | null };
+
+   it("links the request to the latest unfinished call of the same Harness tool", () => {
+      const s = fold([
+         call("a", "git_push", "completed"),
+         call("b", "git_commit"),
+         call("c", "git_push", "in_progress"),
+         req(),
+      ]);
+      expect(perm(s).stepId).toBe("c");
+      expect(perm(fold([call("a", "git_push", "failed"), req()])).stepId).toBeNull();
+      expect(perm(fold([req()])).stepId).toBeNull();
+   });
+
+   it("sets approval by who answered", () => {
+      const run = (r: Event) => fold([call("c"), req(), r]);
+      expect(tool(run(resolved("allow", "view"))).approval).toBe("you");
+      expect(tool(run(resolved("always", "view"))).approval).toBe("you");
+      expect(tool(run(resolved("reject", "view"))).approval).toBe("denied");
+      expect(tool(run(resolved("reject", "policy", "r"))).approval).toBe("denied");
+      expect(tool(run(resolved("allow", "policy", "rule-1"))).approval).toBe("rule");
+      expect(tool(run(resolved("allow", "policy"))).approval).toBe("auto");
+      expect(tool(run(resolved(null, "cancelled"))).approval).toBeUndefined();
+   });
+
+   it("approval survives later updates and a repeated ToolCall; replay is the same", () => {
+      const events = [
+         call("c"),
+         req(),
+         resolved("allow", "view"),
+         call("c", "git_push", "in_progress"),
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: "c",
+            title: null,
+            kind: null,
+            status: "completed",
+            content: null,
+            locations: null,
+            raw_input: null,
+            raw_output: "x",
+         }),
+      ];
+      const s = fold(events);
+      expect(tool(s).approval).toBe("you");
+      expect(reduceBatch(initialState(), events)).toEqual(s);
    });
 });
 
@@ -624,14 +713,34 @@ describe("git and workspace events", () => {
       expect(s.items).toHaveLength(0);
    });
 
-   it("GitCommitted and GitPushed become notices", () => {
+   it("user's GitCommitted and GitPushed become notices; the first line only, the rest as info", () => {
       const s = fold([
          started(),
-         ev({ type: "GitCommitted", commit: "abcdef1234", message: "fix it" }),
-         ev({ type: "GitPushed", branch: "harness/x-1" }),
+         ev({ type: "GitCommitted", commit: "abcdef1234", message: "fix it", by: "user" }),
+         ev({ type: "GitCommitted", commit: "1234567abc", message: "fix it\n\nwhy", by: "user" }),
+         ev({ type: "GitCommitted", commit: "7654321abc", message: "old log" }),
+         ev({ type: "GitPushed", branch: "harness/x-1", by: "user" }),
       ]);
-      expect(s.items[0]).toMatchObject({ type: "notice", text: "Committed abcdef1: fix it" });
-      expect(s.items[1]).toMatchObject({ type: "notice", text: "Pushed harness/x-1" });
+      expect(s.items[0]).toMatchObject({ type: "notice", text: "You committed abcdef1 fix it" });
+      expect((s.items[0] as { info?: string }).info).toBeUndefined();
+      expect(s.items[1]).toMatchObject({
+         text: "You committed 1234567 fix it",
+         info: "fix it\n\nwhy",
+      });
+      expect(s.items[2]).toMatchObject({ text: "You committed 7654321 old log" });
+      expect(s.items[3]).toMatchObject({
+         type: "notice",
+         text: "You pushed harness/x-1 to origin",
+      });
+   });
+
+   it("the Agent's GitCommitted and GitPushed add no notice", () => {
+      const s = fold([
+         started(),
+         ev({ type: "GitCommitted", commit: "abcdef1234", message: "fix it", by: "agent" }),
+         ev({ type: "GitPushed", branch: "harness/x-1", by: "agent" }),
+      ]);
+      expect(s.items).toHaveLength(0);
    });
 
    it("SessionArchived toggles archived and adds a notice", () => {
@@ -739,6 +848,12 @@ describe("Harness tool helpers", () => {
       ]);
       expect(s.items[0]).toMatchObject({ type: "tool", harnessTool: "git_status" });
    });
+   it("drops the message from the commit title when shown as a step", () => {
+      expect(
+         permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } }, null, true),
+      ).toBe("Commit all changes?");
+   });
+
    it("titles Harness permission requests", () => {
       expect(permissionTitle({ kind: "git_push" })).toBe("Push branch to origin?");
       expect(permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } })).toBe(

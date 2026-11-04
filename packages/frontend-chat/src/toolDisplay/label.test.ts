@@ -17,7 +17,7 @@ const tool = (title: string, kind: string | null, harnessTool: string | null = n
    report: null,
    harnessTool,
 });
-const label = (t: Tool, state: "running" | "done" = "done", sub = false) => {
+const label = (t: Tool, state: "running" | "done" | "failed" = "done", sub = false) => {
    const l = stepLabel(t, state, sub);
    return `${l.verb} | ${l.detail}`;
 };
@@ -45,5 +45,30 @@ describe("stepLabel", () => {
          "Called claude_ai_Linear | get_document",
       );
       expect(label(tool("ToolSearch", null))).toBe("Called | ToolSearch");
+   });
+
+   it("Harness git tools: verb by state, detail from the call", () => {
+      const git = (name: string, rawInput: unknown, rawOutput: unknown = null): Tool => ({
+         ...tool(`mcp__harness__${name}`, null, name),
+         rawInput,
+         rawOutput,
+      });
+      const hex = "b".repeat(40);
+      const commit = git("git_commit", { message: "Fix it\n\nbody" }, [
+         { type: "text", text: `Committed ${hex}` },
+      ]);
+      expect(label(commit, "running")).toBe("Committing | Fix it");
+      expect(label(commit)).toBe("Committed | Fix it");
+      expect(label(commit, "failed")).toBe("Commit failed | Fix it");
+      const push = git("git_push", {}, [{ type: "text", text: "Pushed feat/x." }]);
+      expect(label(push)).toBe("Pushed | feat/x → origin");
+      expect(label(git("git_push", {}), "running")).toBe("Pushing | ");
+      expect(label(git("git_push", {}, "Pushed."))).toBe("Pushed | ");
+      expect(label(git("git_diff", { from: "main", to: "HEAD" }))).toBe("Read diff | main..HEAD");
+      expect(label(git("git_diff", {}), "running")).toBe("Reading diff | working tree");
+      expect(label(git("list_branches", {}), "failed")).toBe("List failed | ");
+      expect(
+         label(git("git_status", {}, [{ type: "text", text: '{"branch":"main","files":[]}' }])),
+      ).toBe("Checked status | main");
    });
 });

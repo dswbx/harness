@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
         if let EventKind::PermissionRequested { request_id, options, .. } = &e.kind {
             let opt = options.iter().find(|o| o.kind.starts_with("allow")).map(|o| o.option_id.clone());
             // Already answered by the Policy when this fails.
-            let _ = h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id: request_id.clone(), option_id: opt }).await;
+            let _ = h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id: request_id.clone(), option_id: opt, global: false }).await;
         }
         if matches!(e.kind, EventKind::TurnEnded { .. }) { break }
     }
@@ -74,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
             let line = serde_json::to_string(&e.kind)?;
             println!("{:>3} {} {}", e.seq, if side { "side" } else { "main" }, &line[..line.len().min(160)]);
             if let EventKind::PermissionRequested { request_id, .. } = &e.kind {
-                let _ = h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id: request_id.clone(), option_id: None }).await;
+                let _ = h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id: request_id.clone(), option_id: None, global: false }).await;
             }
             if side && matches!(e.kind, EventKind::TurnEnded { .. }) { break }
         }

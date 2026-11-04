@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use crate::api::{
-    AttachmentInput, Boundary, Decision, EventKind, ForkPoint, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
+    AttachmentInput, Boundary, Decision, Event, EventKind, ForkPoint, NewPermissionRule, RuleScope, PermissionOption, ProcessState, Resolver,
     SessionStatus, SlashCommand, TaskEntry, ThreadId, ThreadStart,
 };
 use crate::session::Session;
@@ -187,6 +187,7 @@ impl AgentSlot {
         session: &Session,
         request_id: &str,
         option_id: Option<String>,
+        global: bool,
     ) -> anyhow::Result<()> {
         // First answer wins: later answers find nothing pending.
         let mut pending = None;
@@ -201,7 +202,7 @@ impl AgentSlot {
             rule_id: None,
         })?;
         let kind = pending.options.iter().find(|o| Some(&o.option_id) == option_id.as_ref()).map(|o| o.kind.as_str());
-        if let Some(rule) = remembered_rule(session, kind, &pending.facts) {
+        if let Some(rule) = remembered_rule(session, kind, &pending.facts, global) {
             let rule = session.policy().add(rule)?;
             session.log().append(None, EventKind::PermissionRuleAdded { rule })?;
         }
@@ -1243,8 +1244,24 @@ fn on_permission(
     let _ = session.log().sync();
 }
 
+/// The Thread's current Agent mode: the newest of its `ModeChanged` events and the mode option in
+/// its `ConfigOptionsChanged` events (Agents without legacy modes only report the latter).
+fn thread_mode(events: &[Event], thread: &ThreadId) -> Option<String> {
+    events.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match &e.kind {
+        EventKind::ModeChanged { mode_id } => Some(mode_id.clone()),
+        EventKind::ConfigOptionsChanged { options } => {
+            options.as_array()?.iter().find(|o| is_mode(o)).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
+        }
+        _ => None,
+    })
+}
+
 /// Checks a Harness MCP tool call against the Permission Policy, asking the user when the Policy
-/// says so. Errors when denied.
+/// says so. Errors when denied. A default Allow (no rule) is silent. An explicit Allow rule, and a
+/// default Ask (no explicit rule, not a plan approval) in a Thread whose Agent mode decides without
+/// asking (`agent_quirks::auto_mode`, the Agent could do the same through its shell), pass without
+/// asking but log a `PermissionRequested` + `PermissionResolved` (by Policy, option "allow") pair so
+/// the UI can show why.
 pub async fn authorize(
     session: &Arc<Session>,
     thread: &ThreadId,
@@ -1265,9 +1282,6 @@ pub async fn authorize(
     let facts = crate::permissions::facts_of(&tool_call, &folder);
     let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
     let verdict = session.policy().evaluate(&cx, &facts);
-    if verdict.decision == Decision::Allow {
-        return Ok(());
-    }
     let request_id = uuid::Uuid::now_v7().to_string();
     let options = vec![
         PermissionOption { option_id: "allow".into(), name: "Allow".into(), kind: "allow_once".into() },
@@ -1280,6 +1294,26 @@ pub async fn authorize(
         options: options.clone(),
         harness_tool: Some(tool.to_owned()),
     };
+    let passes = match verdict.decision {
+        Decision::Allow => verdict.rule_id.is_some(),
+        Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {
+            session.log().events().ok().and_then(|e| thread_mode(&e, thread)).is_some_and(|m| crate::agent_quirks::auto_mode(&m))
+        }
+        _ => false,
+    };
+    if verdict.decision == Decision::Allow && !passes {
+        return Ok(());
+    }
+    if passes {
+        session.log().append(Some(thread.clone()), requested)?;
+        session.log().append(Some(thread.clone()), EventKind::PermissionResolved {
+            request_id,
+            option_id: Some("allow".into()),
+            by: Resolver::Policy,
+            rule_id: verdict.rule_id,
+        })?;
+        return Ok(());
+    }
     if verdict.decision == Decision::Deny {
         session.log().append(Some(thread.clone()), requested)?;
         session.log().append(Some(thread.clone()), EventKind::PermissionResolved {
@@ -1310,11 +1344,12 @@ fn pick(options: &[PermissionOption], kinds: &[&str]) -> Option<String> {
     kinds.iter().find_map(|k| options.iter().find(|o| o.kind == *k)).map(|o| o.option_id.clone())
 }
 
-/// An "always" answer becomes a Session rule: the exact command for `execute`, else the whole kind.
+/// An "always" answer becomes a Session rule (Global when `global`): the exact command for `execute`, else the whole kind.
 fn remembered_rule(
     session: &Session,
     option_kind: Option<&str>,
     facts: &crate::permissions::ToolFacts,
+    global: bool,
 ) -> Option<NewPermissionRule> {
     let decision = match option_kind? {
         "allow_always" => Decision::Allow,
@@ -1324,7 +1359,7 @@ fn remembered_rule(
     let kind = facts.kind.clone().filter(|k| k != "switch_mode")?;
     let pattern = if kind == "execute" { Some(facts.command.clone()?) } else { None };
     Some(NewPermissionRule {
-        scope: RuleScope::Session { session_id: session.id() },
+        scope: if global { RuleScope::Global } else { RuleScope::Session { session_id: session.id() } },
         tool_kind: Some(kind),
         pattern,
         decision,

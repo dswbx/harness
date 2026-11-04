@@ -32,6 +32,14 @@ pub fn asking_mode<'a>(values: &[&'a str]) -> Option<&'a str> {
     ["read-only", "default"].into_iter().find_map(|m| values.iter().find(|v| **v == m).copied())
 }
 
+/// Whether an Agent's mode is one where the Agent itself decides what runs without asking the user
+/// (Claude "auto" and "bypassPermissions", Codex "agent" and "agent-full-access"). In it the Agent
+/// could run `git push` in a shell unasked, so a Harness MCP tool the Permission Policy would only
+/// ask about by default is allowed too. ACP has no standard for this.
+pub fn auto_mode(mode_id: &str) -> bool {
+    matches!(mode_id, "auto" | "bypassPermissions" | "agent" | "agent-full-access")
+}
+
 /// Claude Agent (claude-agent-acp).
 mod claude {
     use super::*;
@@ -108,6 +116,16 @@ mod tests {
         let mut k = call("SubagentHandback", json!({ "message": "No." }));
         adjust(&json!({}), &mut k);
         assert!(matches!(&k, EventKind::ToolCall { parent_tool_call_id: None, report: None, .. }));
+    }
+
+    #[test]
+    fn auto_modes() {
+        for m in ["auto", "bypassPermissions", "agent", "agent-full-access"] {
+            assert!(auto_mode(m), "{m}");
+        }
+        for m in ["default", "acceptEdits", "plan", "read-only", "workspace-write", ""] {
+            assert!(!auto_mode(m), "{m}");
+        }
     }
 
     #[test]

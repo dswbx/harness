@@ -887,7 +887,12 @@ export class MockTransport implements Transport {
             const commit = `c${++this.commitN}ab12cd`;
             this.committed.add(cmd.session_id);
             this.ahead.set(cmd.session_id, (this.ahead.get(cmd.session_id) ?? 0) + 1);
-            this.emit(cmd.session_id, { type: "GitCommitted", commit, message: cmd.message });
+            this.emit(cmd.session_id, {
+               type: "GitCommitted",
+               commit,
+               message: cmd.message,
+               by: "user",
+            });
             return { type: "Committed", commit };
          }
          case "UpdateBranch": {
@@ -915,6 +920,7 @@ export class MockTransport implements Transport {
             this.emit(cmd.session_id, {
                type: "GitPushed",
                branch: this.session(cmd.session_id).workspace.worktree_branch ?? "main",
+               by: "user",
             });
             return { type: "Ok" };
          }
@@ -1129,7 +1135,7 @@ export class MockTransport implements Transport {
                   (e) =>
                      e.kind.type === "PermissionRequested" && e.kind.request_id === cmd.request_id,
                );
-            if (req)
+            if (req) {
                this.emit(
                   cmd.session_id,
                   {
@@ -1140,6 +1146,23 @@ export class MockTransport implements Transport {
                   },
                   req.thread_id,
                );
+               const asked = req.kind.type === "PermissionRequested" ? req.kind : null;
+               const always = asked?.options.find((o) => o.option_id === cmd.option_id)?.kind;
+               if (always === "allow_always") {
+                  const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
+                  const rule: PermissionRule = {
+                     id: `rule-${++this.ruleN}`,
+                     scope: cmd.global
+                        ? { type: "global" }
+                        : { type: "session", session_id: cmd.session_id },
+                     tool_kind: tool_call.kind ?? null,
+                     pattern: null,
+                     decision: "allow",
+                  };
+                  this.rules.push(rule);
+                  this.emit(cmd.session_id, { type: "PermissionRuleAdded", rule }, req.thread_id);
+               }
+            }
             return { type: "Ok" };
          }
          case "ContinueWithSummary": {

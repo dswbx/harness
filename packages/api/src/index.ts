@@ -3,6 +3,7 @@ export * from "./eventFamily";
 export * from "./files";
 export * from "./frontend";
 export * from "./generated";
+export * from "./gitTool";
 export * from "./hooks";
 export { MockTransport, mockImage, mockRenderUi } from "./mock";
 export * from "./prRefs";

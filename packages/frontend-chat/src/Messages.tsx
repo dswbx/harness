@@ -30,7 +30,7 @@ import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
-import { PermissionCard } from "./Permission";
+import { isStepApproval, PermissionCard } from "./Permission";
 import {
    hasArrived,
    type PendingMessage,
@@ -451,11 +451,20 @@ export function useRows(items: Item[]) {
    // calls that moved to a slot or were replaced by a later call with their id.
    // Subagent tool calls go inside their Task call's card.
    const { rows, subagents } = useMemo(() => {
-      const g = groupSubagents(
-         items.filter(
-            (i) =>
-               !(i.type === "permission" && !i.auto && i.resolved) && ui.inline.get(i.id) !== null,
+      const hidden = new Set(
+         items.flatMap((i) =>
+            i.type === "permission" && !i.resolved && i.stepId && isStepApproval(i) ? i.stepId : [],
          ),
+      );
+      const g = groupSubagents(
+         items.filter((i) => {
+            if (i.type === "permission" && !i.auto && i.resolved) return false;
+            // A Harness tool's approval shows on its step: the policy's answer is the step's own
+            // note, and a pending git approval stands in for the step until it is answered.
+            if (i.type === "permission" && i.auto && i.stepId) return false;
+            if (i.type === "tool" && hidden.has(i.id)) return false;
+            return ui.inline.get(i.id) !== null;
+         }),
          (i) => (i.type === "tool" ? i : null),
       );
       return { rows: groupTools(g.rows), subagents: g.subagents };

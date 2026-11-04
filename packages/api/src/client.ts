@@ -61,8 +61,8 @@ export interface SessionApi {
       seed?: string | null;
       source?: ThreadStart;
    }): Promise<{ thread_id: string; forked: boolean }>;
-   /** `null` answers "cancelled". */
-   resolvePermission(requestId: string, optionId: string | null): Promise<void>;
+   /** `null` answers "cancelled". With an `*_always` option, `global` makes the rule apply to every Session. */
+   resolvePermission(requestId: string, optionId: string | null, global?: boolean): Promise<void>;
    setConfigOption(id: string, value: string, threadId?: string | null): Promise<void>;
    setMode(id: string, threadId?: string | null): Promise<void>;
    /** This Session's Workspace (repo_root null: not a git repository), via a ListSessions lookup. */
@@ -201,8 +201,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       cancel: (threadId = null) =>
          run({ type: "Cancel", session_id: sessionId, thread_id: threadId }),
       warmUp: () => run({ type: "WarmUp", session_id: sessionId }),
-      resolvePermission: (request_id, option_id) =>
-         run({ type: "ResolvePermission", session_id: sessionId, request_id, option_id }),
+      resolvePermission: (request_id, option_id, global = false) =>
+         run({ type: "ResolvePermission", session_id: sessionId, request_id, option_id, global }),
       setConfigOption: (config_id, value, threadId = null) =>
          run({
             type: "SetConfigOption",
