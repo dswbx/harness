@@ -1,6 +1,6 @@
 /*
  * The code theme: one set of syntax colors for every place that shows code (message code blocks,
- * render_ui Code, diffs). All of them use highlight.js token classes (`.hljs-*`): messages through
+ * render_ui Code, diffs, the prompt editor). All of them use highlight.js token classes (`.hljs-*`): messages through
  * rehype-highlight, diffs through @git-diff-view's lowlight. A code theme setting would swap these
  * tokens only.
  */
@@ -65,7 +65,11 @@
 }
 
 /* Diff selectors carry an extra attribute so they beat the library's built-in theme. */
-:is(.typeset, .diff-tailwindcss-wrapper[data-theme][data-theme][data-theme] .diff-line-syntax-raw) {
+:is(
+   .typeset,
+   .code-colors,
+   .diff-tailwindcss-wrapper[data-theme][data-theme][data-theme] .diff-line-syntax-raw
+) {
    &
       :is(
          .hljs-keyword,

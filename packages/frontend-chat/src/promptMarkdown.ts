@@ -112,7 +112,7 @@ export function $insertPlainText(text: string) {
 const $inCode = (n: LexicalNode) => [n, ...n.getParents()].some($isCodeNode);
 
 /** Caret offset of `pt` within the text of `block` (whose children are leaves, as in a code block), or null. */
-function $offsetIn(block: ElementNode, pt: PointType): number | null {
+export function $offsetIn(block: ElementNode, pt: PointType): number | null {
    const node = pt.getNode();
    if (node.is(block))
       return block
