@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectArtifacts, filterArtifacts, markdownArtifacts } from "./artifacts";
+import { collectArtifacts, filterArtifacts, markdownArtifacts, markdownTitle } from "./artifacts";
 import type { Item } from "./reducer";
 import type { RenderUiInput } from "./tools";
 
@@ -24,6 +24,17 @@ const ui = (id: string, value: RenderUiInput): Item => ({
    render: { ok: true, value },
 });
 const md = (text: string) => ({ type: "Markdown" as const, props: { text } });
+
+describe("markdownTitle", () => {
+   const text = "Last runs:\n\n| A |\n| --- |\n| 1 |\n\nFlow:\n\n```mermaid\ngraph TD\n```\n";
+   it("finds the title by kind and source", () => {
+      expect(markdownTitle(text, "table", "| A |\n| --- |\n| 1 |")).toBe("Last runs");
+      expect(markdownTitle(text, "diagram", "graph TD")).toBe("Flow");
+   });
+   it("has none for unknown source", () => {
+      expect(markdownTitle(text, "diagram", "graph LR")).toBeUndefined();
+   });
+});
 
 describe("markdownArtifacts", () => {
    it("finds mermaid fences and tables, named by the prose before them, skipping other code", () => {

@@ -16,6 +16,7 @@ import {
    CircleDashed,
    GitCompare,
    Layers,
+   Link2,
    Loader2,
    MessagesSquare,
    PanelLeft,
@@ -27,7 +28,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
-import { PromptBox } from "./PromptBox";
+import { PromptBox, type PromptBoxHandle } from "./PromptBox";
 import { ScrollUnder } from "./ScrollUnder";
 
 // xterm.js stays out of the main chunk until the Terminal is first opened.
@@ -68,7 +69,14 @@ import {
    toggle,
    type Zone,
 } from "./panelLayout";
+import { usePendingMessages, useSlow } from "./pendingMessages";
 import { PrRefProvider } from "./prRefs";
+import {
+   NO_REFERENCES,
+   ReferencesPanel,
+   ReferencesProbe,
+   type ResolvedReferences,
+} from "./ReferencesPanel";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
 import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
@@ -159,19 +167,45 @@ export function View({
    api,
    toolbar,
    status,
+   indicator,
    menu,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
+   indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
    ) : (
-      <ChatView api={api} toolbar={toolbar} status={status} menu={menu} />
+      <ChatView api={api} toolbar={toolbar} status={status} indicator={indicator} menu={menu} />
    );
 }
+
+/** What an Agent process state means, for the header's status dot. Ready shows nothing. */
+const PROCESS_INFO: Record<string, { title: string; text: string; dot: string }> = {
+   starting: {
+      title: "Agent starting",
+      text: "Connecting to the agent. Your message goes out when it is ready.",
+      dot: "animate-pulse bg-sky-500",
+   },
+   stopped: {
+      title: "Agent stopped",
+      text: "Stopped while idle. It restarts on your next message.",
+      dot: "bg-muted-foreground",
+   },
+   exited: {
+      title: "Agent exited",
+      text: "The agent process ended. It restarts on your next message.",
+      dot: "bg-amber-500",
+   },
+   failed: {
+      title: "Agent failed",
+      text: "The agent process could not start.",
+      dot: "bg-destructive",
+   },
+};
 
 /** Briefly rings an element the user jumped to. */
 function flash(el: Element) {
@@ -190,6 +224,7 @@ const BASE_LABEL: Record<string, string> = {
    terminal: "Terminal",
    events: "Events",
    artifacts: "Artifacts",
+   references: "References",
 };
 const BASE_ICON: Record<string, React.ReactNode> = {
    side: <MessagesSquare />,
@@ -197,20 +232,33 @@ const BASE_ICON: Record<string, React.ReactNode> = {
    terminal: <SquareTerminal />,
    events: <ScrollText />,
    artifacts: <Layers />,
+   references: <Link2 />,
 };
 
 function ChatView({
    api,
    toolbar,
    status,
+   indicator,
    menu,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
    status?: HTMLElement | null;
+   indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
 }) {
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
+   // A Session with nothing in it yet is waiting for a message. The short wait lets the replay arrive.
+   const prompt = useRef<PromptBoxHandle>(null);
+   const hasItems = useRef(false);
+   hasItems.current = state.items.length > 0;
+   useEffect(() => {
+      const t = setTimeout(() => {
+         if (!hasItems.current) prompt.current?.focus();
+      }, 150);
+      return () => clearTimeout(t);
+   }, []);
    const { ui, rows, subagents } = useRows(state.items);
 
    // render_ui items placed left or right are panels. Their default zone follows the placement.
@@ -312,16 +360,33 @@ function ChatView({
    const [archiveError, setArchiveError] = useState<string | null>(null);
    // Changes need git; hidden until the Workspace is known to be a repository.
    const [git, setGit] = useState(false);
+   const turnRunning = state.turnId !== null;
+   // The folder can become a repository later (`git init`): look again after each Turn, and for a
+   // terminal command every 20s and on focus, until it is one.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: turnRunning triggers the check.
    useEffect(() => {
       let off = false;
-      api.workspace().then(
-         (w) => !off && setGit(!!w?.repo_root),
-         () => {},
-      );
+      const check = () => {
+         if (document.hidden) return;
+         api.workspace().then(
+            (w) => !off && setGit(!!w?.repo_root),
+            () => {},
+         );
+      };
+      check();
+      if (git) {
+         return () => {
+            off = true;
+         };
+      }
+      const timer = setInterval(check, 20_000);
+      window.addEventListener("focus", check);
       return () => {
          off = true;
+         clearInterval(timer);
+         window.removeEventListener("focus", check);
       };
-   }, [api]);
+   }, [api, turnRunning, git]);
 
    const openDiff = useCallback(
       (s: DiffScope) => {
@@ -356,6 +421,23 @@ function ChatView({
    }, [lastSlot?.id, lastSlot?.ts, openedAt, update]);
    const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
    const list = useRef<VirtualListHandle>(null);
+   /** Scrolls the chat to a row; once the virtual list renders it, flashes what `pick` finds in it. */
+   const jumpToRow = useCallback(
+      (rowId: string, pick: (row: Element) => Element | null | undefined) => {
+         if (!list.current?.scrollToKey(rowId)) return;
+         let tries = 0;
+         const find = () => {
+            const row = document.querySelector(`[data-key="${CSS.escape(rowId)}"]`);
+            const el = row && pick(row);
+            if (el) {
+               el.scrollIntoView({ block: "center" });
+               flash(el);
+            } else if (tries++ < 30) requestAnimationFrame(find);
+         };
+         requestAnimationFrame(find);
+      },
+      [],
+   );
    const jump = useCallback(
       (a: Artifact) => {
          if (a.placement === "right" || a.placement === "left") {
@@ -367,25 +449,26 @@ function ChatView({
             if (el) flash(el);
             return;
          }
-         if (!list.current?.scrollToKey(a.rowId)) return;
-         // The row renders once the virtual list scrolls there; then the diagram or table inside it.
-         let tries = 0;
-         const find = () => {
-            const row = document.querySelector(`[data-key="${CSS.escape(a.rowId!)}"]`);
-            const el =
-               row &&
-               (a.index !== null
-                  ? row.querySelectorAll(`[data-artifact="${a.kind}"]`)[a.index]
-                  : row.firstElementChild);
-            if (el) {
-               el.scrollIntoView({ block: "center" });
-               flash(el);
-            } else if (tries++ < 30) requestAnimationFrame(find);
-         };
-         requestAnimationFrame(find);
+         // The diagram or table inside the row.
+         jumpToRow(a.rowId, (row) =>
+            a.index !== null
+               ? row.querySelectorAll(`[data-artifact="${a.kind}"]`)[a.index]
+               : row.firstElementChild,
+         );
       },
-      [update],
+      [update, jumpToRow],
    );
+   const jumpToMention = useCallback(
+      (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),
+      [jumpToRow],
+   );
+   const [resolved, setResolved] = useState<ResolvedReferences>(NO_REFERENCES);
+   // References are looked up from the first time their panel opens.
+   const [referencesOpened, setReferencesOpened] = useState(false);
+   const referencesOpen = isOpen(lay, "references");
+   useEffect(() => {
+      if (referencesOpen) setReferencesOpened(true);
+   }, [referencesOpen]);
    const changeCount = useMemo(
       () => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0),
       [state.items],
@@ -405,11 +488,17 @@ function ChatView({
       [slots],
    );
    const available = useMemo(() => {
-      const a = new Set<PanelId>(["side", "terminal", "events", ...slotById.keys()]);
+      const a = new Set<PanelId>([
+         "side",
+         "terminal",
+         "events",
+         "artifacts",
+         "references",
+         ...slotById.keys(),
+      ]);
       if (git) a.add("changes");
-      if (artifacts.length > 0 || isOpen(lay, "artifacts")) a.add("artifacts");
       return a;
-   }, [slotById, git, artifacts.length, lay]);
+   }, [slotById, git]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -457,7 +546,13 @@ function ChatView({
    };
    const tip = (id: PanelId) => (id === "side" ? "Side chats (⇧⌘B new)" : label(id));
    const count = (id: PanelId) =>
-      id === "side" ? sideThreads.length : id === "artifacts" ? artifacts.length : undefined;
+      id === "side"
+         ? sideThreads.length
+         : id === "artifacts"
+           ? artifacts.length
+           : id === "references"
+             ? resolved.count
+             : undefined;
    const shortcut = (id: PanelId) => (id === "terminal" ? ["⌃", "`"] : undefined);
    const group = (zone: Zone): StripeGroup => ({
       zone,
@@ -503,8 +598,41 @@ function ChatView({
    const running = state.turnId !== null;
    const proc = state.process;
    const refreshKey = `${changeCount}:${running}`;
-   // In the host's Session header when it gives a slot, else in a header of our own.
-   // After the Session title (host's status slot, else in our own header).
+   // The host's header shows it as a dot on its info icon, explained in that icon's menu; a header
+   // of our own (no host header) shows a badge. Archived and deleted Sessions say so elsewhere.
+   // Restoring the Agent Session takes longer than starting its process, and the process is
+   // "ready" by then: a message on its way is what says the Agent is not ready yet.
+   const connecting = useSlow(
+      usePendingMessages(api.sessionId).some((p) => p.status === "sending"),
+   );
+   const procInfo = connecting
+      ? PROCESS_INFO.starting
+      : proc && proc.message !== "archived" && proc.message !== "deleted"
+        ? PROCESS_INFO[proc.state]
+        : undefined;
+   const dot = procInfo && (
+      <span
+         role="status"
+         aria-label={procInfo.title}
+         className={cn("size-2 rounded-full ring-1 ring-background", procInfo.dot)}
+      />
+   );
+   const detail = procInfo && (
+      <div className="flex flex-col gap-1">
+         <div className="flex items-center gap-2 font-medium">
+            <span className={cn("size-2 shrink-0 rounded-full", procInfo.dot)} />
+            {procInfo.title}
+         </div>
+         <p className="text-muted-foreground">
+            {!connecting && proc?.message === "app_restart"
+               ? "The app restarted, so the agent is not running. It starts on your next message."
+               : procInfo.text}
+         </p>
+         {proc?.state === "failed" && proc.message && (
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs">{proc.message}</pre>
+         )}
+      </div>
+   );
    const badge = proc && proc.state !== "ready" && (
       <Tooltip content={proc.message} side="bottom">
          <Badge variant={proc.state === "failed" ? "destructive" : "secondary"}>
@@ -569,6 +697,12 @@ function ChatView({
          label: "Artifacts",
          children: <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} />,
       });
+   if (open("references"))
+      panels.push({
+         id: "references",
+         label: "References",
+         children: <ReferencesPanel resolved={resolved} onJump={jumpToMention} />,
+      });
    for (const [id, slot] of slotById) {
       if (open(id))
          panels.push({
@@ -588,8 +722,8 @@ function ChatView({
                {badge}
             </div>
          )}
-         {toolbar && !status && <Portal container={toolbar}>{badge}</Portal>}
-         {toolbar && <Portal container={status}>{badge}</Portal>}
+         <Portal container={indicator}>{dot}</Portal>
+         <Portal container={status}>{detail}</Portal>
          <Portal container={menu}>
             <MenuButton onClick={() => update(resetLayout)}>
                <RotateCcw /> Reset layout
@@ -632,7 +766,7 @@ function ChatView({
                         )}
                      </div>
                   ) : (
-                     <PromptBox api={api} state={state} onSideThread={btw} />
+                     <PromptBox ref={prompt} api={api} state={state} onSideThread={btw} />
                   )}
                </>
             }
@@ -660,6 +794,11 @@ function ChatView({
    return (
       <PrRefProvider api={api}>
          <FileRefProvider api={api}>
+            <ReferencesProbe
+               items={state.items}
+               active={referencesOpened}
+               onResolved={setResolved}
+            />
             <div className="relative flex h-full">
                {(!leftEmpty || drag) && (
                   <Stripe

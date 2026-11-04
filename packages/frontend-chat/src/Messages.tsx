@@ -5,6 +5,9 @@ import {
    Dialog,
    DialogContent,
    DialogTitle,
+   Popover,
+   PopoverContent,
+   PopoverTrigger,
    Tooltip,
    VirtualList,
    type VirtualListHandle,
@@ -20,14 +23,23 @@ import {
 } from "lucide-react";
 import { memo, type Ref, useEffect, useMemo, useState } from "react";
 import { AuthCard } from "./Auth";
+import { CommentChips } from "./CommentChip";
 import { type DiffScope, FileStat } from "./DiffPanel";
 import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
 import { PermissionCard } from "./Permission";
+import {
+   hasArrived,
+   type PendingMessage,
+   pendingActions,
+   usePendingMessages,
+   useSlow,
+} from "./pendingMessages";
 import type { UiEnv } from "./RenderUi";
 import type { ChatState, Item } from "./reducer";
+import { composerKey, parseReviewComments } from "./reviewComments";
 import { quotableAttrs } from "./SelectionComment";
 import { SideReplyFooter } from "./SideReplyFooter";
 import { splitRenderUi } from "./slots";
@@ -108,7 +120,25 @@ function Notice({ item }: { item: Extract<Item, { type: "notice" }> }) {
    return (
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
          <div className="h-px flex-1 bg-border" />
-         <span className="whitespace-pre-wrap text-center">{item.text}</span>
+         <span className="flex items-center gap-1 whitespace-pre-wrap text-center">
+            {item.text}
+            {item.info && (
+               <Popover>
+                  <PopoverTrigger asChild>
+                     <button
+                        type="button"
+                        aria-label="About this notice"
+                        className="grid size-4 place-items-center rounded hover:text-foreground"
+                     >
+                        <Info className="size-3.5" />
+                     </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="center" className="w-72 p-3 text-xs">
+                     {item.info}
+                  </PopoverContent>
+               </Popover>
+            )}
+         </span>
          <div className="h-px flex-1 bg-border" />
       </div>
    );
@@ -239,6 +269,19 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
    );
 }
 
+/** A sent prompt's bubble: its review comments as chips (like the prompt box), then the typed text. */
+function UserText({ text }: { text: string }) {
+   const p = useMemo(() => parseReviewComments(text), [text]);
+   return (
+      <div className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground">
+         {p.comments.length > 0 && (
+            <CommentChips comments={p.comments} className={p.text ? "pb-1.5" : undefined} />
+         )}
+         {p.text && <Markdown breaks>{p.text}</Markdown>}
+      </div>
+   );
+}
+
 /** What the core sent the Agent before this message (`<harness_context>`), on request. */
 function HarnessContext({ text }: { text: string }) {
    const [open, setOpen] = useState(false);
@@ -322,14 +365,7 @@ export const Row = memo(function Row({
                {item.attachments.length > 0 && (
                   <UserAttachments api={api} items={item.attachments} />
                )}
-               {item.text && (
-                  <Markdown
-                     breaks
-                     className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground"
-                  >
-                     {item.text}
-                  </Markdown>
-               )}
+               {item.text && <UserText text={item.text} />}
                <MessageFooter text={item.text} ts={item.ts} align="end">
                   {item.context && <HarnessContext text={item.context} />}
                </MessageFooter>
@@ -432,6 +468,68 @@ export function useRows(items: Item[]) {
    return { ui, rows, subagents };
 }
 
+function pendingStage(state: ChatState): string {
+   if (state.restoring)
+      return `Reopening session, attempt ${state.restoring.attempt} of ${state.restoring.of}...`;
+   if (state.process?.state === "starting") return "Starting agent...";
+   return "Sending...";
+}
+
+/** A message on its way: where its row will be, laid out like it, so nothing moves when that row arrives. */
+function PendingRow({
+   item,
+   state,
+   composer,
+}: {
+   item: PendingMessage;
+   state: ChatState;
+   composer: string;
+}) {
+   const slow = useSlow(true);
+   const failed = item.status === "failed";
+   const actions = pendingActions(composer);
+   return (
+      <div className="flex flex-col items-end pb-6">
+         <div
+            className={cn(
+               "flex w-full flex-col items-end",
+               (failed || (item.status === "sending" && slow)) && "opacity-60",
+            )}
+         >
+            <UserText text={item.prompt} />
+         </div>
+         <div className="mt-1 flex h-6 items-center gap-2 text-xs text-muted-foreground">
+            {failed ? (
+               <>
+                  <span className="text-destructive">Not sent</span>
+                  {!state.recovery && (
+                     <button
+                        type="button"
+                        className="underline hover:text-foreground"
+                        onClick={actions?.retry}
+                     >
+                        Retry
+                     </button>
+                  )}
+                  <button
+                     type="button"
+                     className="underline hover:text-foreground"
+                     onClick={() => actions?.edit(item)}
+                  >
+                     Edit
+                  </button>
+               </>
+            ) : (
+               item.status === "sending" && slow && <span>{pendingStage(state)}</span>
+            )}
+            {item.files.length > 0 && (failed || slow) && (
+               <span>{item.files.length === 1 ? "1 file" : `${item.files.length} files`}</span>
+            )}
+         </div>
+      </div>
+   );
+}
+
 /** The message list of one Thread (the Main Thread's, or a Side Thread's in the panel). */
 export function MessageList({
    handle,
@@ -462,6 +560,13 @@ export function MessageList({
    inset?: number;
 }) {
    const running = state.turnId !== null;
+   const composer = composerKey(api.sessionId, side ? threadId : null);
+   const userCount = useMemo(
+      () => state.items.filter((i) => i.type === "user").length,
+      [state.items],
+   );
+   // Filtered here, not after the fact, so a message never shows twice for a frame.
+   const pending = usePendingMessages(composer).filter((p) => !hasArrived(p, userCount));
    return (
       <VirtualList
          handle={handle}
@@ -472,7 +577,11 @@ export function MessageList({
          className="@container"
          scrollbarClassName="z-10 [&>*]:bg-[color-mix(in_oklch,var(--border),var(--foreground)_6%)]"
          innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
-         empty={<p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>}
+         empty={
+            pending.length === 0 && (
+               <p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>
+            )
+         }
          renderRow={(i) => (
             <Row
                item={rows[i]!}
@@ -489,6 +598,11 @@ export function MessageList({
          )}
          footer={
             <>
+               {/* With no rows yet, the list's top padding is not there. */}
+               {rows.length === 0 && pending.length > 0 && <div className="h-4" />}
+               {pending.map((p) => (
+                  <PendingRow key={p.id} item={p} state={state} composer={composer} />
+               ))}
                <Working since={state.turnStartedAt} />
                <div style={{ height: inset }} />
             </>

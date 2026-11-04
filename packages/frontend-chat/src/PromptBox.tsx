@@ -7,22 +7,30 @@ import {
    sameRepo,
 } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
-import { ArrowUp, FileText, MessageSquare, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
+import { CommentChips } from "./CommentChip";
 import { ConfigBar } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
+import {
+   hasArrived,
+   type PendingMessage,
+   setPendingActions,
+   updatePendingMessages,
+   usePendingMessages,
+} from "./pendingMessages";
 import { repoToken } from "./prMenu";
 import { lineCount } from "./promptMarkdown";
 import { usePrRefs } from "./prRefs";
+import { RecoveryCard } from "./RecoveryCard";
 import type { ChatState } from "./reducer";
 import {
    composerKey,
    getReviewComments,
-   type ReviewComment,
    removeReviewComment,
    setReviewComments,
    useReviewComments,
@@ -58,61 +66,6 @@ function AttachmentChips({
                      className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/att:opacity-100"
                      aria-label={`Remove ${a.name}`}
                      onClick={() => onRemove(a.id)}
-                  >
-                     <X className="size-3" />
-                  </button>
-               </span>
-            </Tooltip>
-         ))}
-      </div>
-   );
-}
-
-/** Review comments from the diff views, sent with the next prompt. */
-function CommentChips({ sessionId, comments }: { sessionId: string; comments: ReviewComment[] }) {
-   return (
-      <div className="flex flex-wrap gap-1 pb-1.5" aria-label="Review comments">
-         {comments.map((c) => (
-            <Tooltip
-               key={c.id}
-               className="max-w-96 whitespace-pre-wrap"
-               content={
-                  c.kind === "quote" ? (
-                     <>
-                        <div className="my-1 border-l-2 pl-2 text-muted-foreground">{c.quote}</div>
-                        <div>{c.text}</div>
-                     </>
-                  ) : (
-                     <>
-                        <div className="font-mono text-muted-foreground">
-                           {c.path}:{c.line} ({c.side})
-                        </div>
-                        <pre className="my-1 overflow-hidden font-mono">{c.code}</pre>
-                        <div>{c.text}</div>
-                     </>
-                  )
-               }
-            >
-               <span className="flex max-w-full items-center gap-1 rounded-md border bg-muted py-0.5 pl-1.5 pr-0.5 text-xs">
-                  <MessageSquare className="size-3 shrink-0 text-muted-foreground" />
-                  {c.kind === "quote" ? (
-                     <span className="min-w-0 max-w-40 shrink-0 truncate text-muted-foreground">
-                        “{c.quote}”
-                     </span>
-                  ) : (
-                     <span className="shrink-0 font-mono text-muted-foreground">
-                        {c.path.split("/").pop()}:{c.line}
-                     </span>
-                  )}
-                  <span className="min-w-0 max-w-64 truncate">{c.text}</span>
-                  <button
-                     className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                     aria-label={
-                        c.kind === "quote"
-                           ? "Remove comment"
-                           : `Remove comment on ${c.path}:${c.line}`
-                     }
-                     onClick={() => removeReviewComment(sessionId, c.id)}
                   >
                      <X className="size-3" />
                   </button>
@@ -250,6 +203,20 @@ export function PromptBox({
 
    const [error, setError] = useState<string | null>(null);
    const readOnly = state.readOnly;
+   const pending = usePendingMessages(key);
+   const userCount = useMemo(
+      () => state.items.filter((i) => i.type === "user").length,
+      [state.items],
+   );
+   // A sent message is replaced by its row in the list once that row has arrived.
+   useEffect(() => {
+      if (pending.some((p) => p.status === "sent" && hasArrived(p, userCount)))
+         updatePendingMessages(key, (cur) =>
+            cur.filter((p) => !(p.status === "sent" && hasArrived(p, userCount))),
+         );
+   }, [key, pending, userCount]);
+   const failed = pending.filter((p) => p.status === "failed");
+   const sending = pending.some((p) => p.status === "sending");
    const comments = useReviewComments(key);
    const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
    const [dragging, setDragging] = useState(false);
@@ -319,11 +286,25 @@ export function PromptBox({
       const btw = threadId || !onSideThread ? null : btwQuestion(t);
       const inputs = files.map((a) => a.input);
       const prompt = withReviewComments(t, sent);
+      if (!btw && !onSend) {
+         void deliver(
+            {
+               id: crypto.randomUUID(),
+               prompt,
+               inputs,
+               files,
+               comments: sent,
+               snap,
+               status: "sending",
+               base: 0,
+            },
+            () => api.prompt(prompt, inputs, threadId),
+         );
+         return;
+      }
       (btw && onSideThread
          ? onSideThread(withReviewComments(btw, sent), inputs)
-         : onSend
-           ? onSend(prompt, inputs)
-           : api.prompt(prompt, inputs, threadId)
+         : (onSend as NonNullable<typeof onSend>)(prompt, inputs)
       ).catch((err) => {
          setError(errorMessage(err));
          ref.current?.restore(snap);
@@ -332,7 +313,67 @@ export function PromptBox({
          setReviewComments(key, [...sent, ...getReviewComments(key)]);
       });
    };
-   const continueWithSummary = () => {
+   /** Shows `item` as sending until `run` settles. True when it was sent. */
+   const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
+      const base = userCount + pending.filter((p) => p.status !== "failed").length;
+      const next: PendingMessage = { ...item, status: "sending", base };
+      updatePendingMessages(key, (cur) =>
+         cur.some((p) => p.id === item.id)
+            ? cur.map((p) => (p.id === item.id ? next : p))
+            : [...cur, next],
+      );
+      const mark = (status: PendingMessage["status"]) =>
+         updatePendingMessages(key, (cur) =>
+            cur.map((p) => (p.id === item.id ? { ...p, status } : p)),
+         );
+      try {
+         await run();
+         mark("sent");
+         // Not every prompt makes a Turn (e.g. a mock command): don't keep it forever.
+         setTimeout(
+            () => updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id)),
+            5000,
+         );
+         return true;
+      } catch (err) {
+         setError(errorMessage(err));
+         mark("failed");
+         return false;
+      }
+   };
+   const retry = async () => {
+      setError(null);
+      for (const p of failed) {
+         if (!(await deliver(p, () => api.prompt(p.prompt, p.inputs, threadId)))) return;
+      }
+   };
+   const editPending = (item: PendingMessage) => {
+      const ed = ref.current;
+      if (!ed) return;
+      if (ed.getMarkdown().trim()) {
+         setError("Clear the prompt box to edit this message.");
+         return;
+      }
+      setError(null);
+      ed.restore(item.snap);
+      setAttachments((cur) => [...item.files, ...cur]);
+      setReviewComments(key, [...item.comments, ...getReviewComments(key)]);
+      updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id));
+   };
+   setPendingActions(key, { retry: () => void retry(), edit: editPending });
+   const continueWithSummary = async () => {
+      const [first, ...rest] = failed;
+      if (first) {
+         setError(null);
+         const ok = await deliver(first, () =>
+            api.continueWithSummary(first.prompt, threadId, first.inputs),
+         );
+         if (!ok) return;
+         for (const p of rest) {
+            if (!(await deliver(p, () => api.prompt(p.prompt, p.inputs, threadId)))) return;
+         }
+         return;
+      }
       const ed = ref.current;
       const t = ed?.getMarkdown().trim() ?? "";
       const snap = ed?.snapshot();
@@ -405,21 +446,15 @@ export function PromptBox({
                onPick={pickPr}
             />
          )}
-         {readOnly && (
-            <div
-               role="alert"
-               className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 px-3 py-2 text-sm"
-            >
-               <span className="flex-1">
-                  The Agent can't continue its earlier session. Continue with a summary of this
-                  conversation?
-               </span>
-               <Button size="sm" onClick={continueWithSummary}>
-                  Continue with summary
-               </Button>
-            </div>
+         {state.recovery && !sending && (
+            <RecoveryCard
+               recovery={state.recovery}
+               canRetry={failed.length > 0}
+               onRetry={() => void retry()}
+               onContinue={() => void continueWithSummary()}
+            />
          )}
-         {error && (
+         {error && !(state.recovery && failed.length > 0) && (
             <div role="alert" className="mb-2 whitespace-pre-wrap text-xs text-destructive">
                {error}
             </div>
@@ -468,15 +503,23 @@ export function PromptBox({
                   onRemove={(id) => setAttachments((cur) => cur.filter((a) => a.id !== id))}
                />
             )}
-            {comments.length > 0 && <CommentChips sessionId={key} comments={comments} />}
+            {comments.length > 0 && (
+               <CommentChips
+                  className="pb-1.5"
+                  comments={comments}
+                  onRemove={(id) => removeReviewComment(key, id)}
+               />
+            )}
             <PromptEditor
                ref={ref}
                placeholder={
                   running
                      ? "Agent is working... (you can still queue a prompt)"
-                     : threadId
-                       ? "Ask in this side thread"
-                       : "Message the Agent. Type / for commands."
+                     : sending && (state.restoring || state.process?.state === "starting")
+                       ? "Agent is starting... (you can still queue a prompt)"
+                       : threadId
+                         ? "Ask in this side thread"
+                         : "Message the Agent. Type / for commands."
                }
                command={used}
                menuOpen={count > 0}

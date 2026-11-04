@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::api::{Event, EventKind, EventSink, EVENT_SCHEMA_VERSION, SessionId, ThreadId};
+use crate::api::{Event, EventKind, EventSink, EVENT_SCHEMA_VERSION, ProcessState, SessionId, ThreadId};
 
 pub type SubscriptionId = u64;
 
@@ -28,6 +28,8 @@ pub struct SessionLog {
     inner: Arc<Mutex<Inner>>,
     /// `ts_ms` of the last Event (0 when empty); kept in memory, read for `SessionSummary.updated_ms`.
     last_ts_ms: AtomicI64,
+    /// When opened, the log's last process state said an Agent was running.
+    agent_was_running: bool,
 }
 
 struct Inner {
@@ -77,6 +79,7 @@ impl SessionLog {
     pub fn open(session_id: SessionId, path: &Path) -> anyhow::Result<Self> {
         let mut next_seq = 0;
         let mut last_ts_ms = 0;
+        let mut agent_was_running = false;
         let mut valid_len = 0u64;
         if path.exists() {
             let mut reader = BufReader::new(File::open(path)?);
@@ -91,6 +94,9 @@ impl SessionLog {
                     Ok(ev) => {
                         next_seq = ev.seq + 1;
                         last_ts_ms = ev.ts_ms;
+                        if let EventKind::AgentProcessState { state, .. } = &ev.kind {
+                            agent_was_running = matches!(state, ProcessState::Starting | ProcessState::Ready);
+                        }
                         valid_len += n as u64;
                     }
                     Err(_) => break,
@@ -107,7 +113,29 @@ impl SessionLog {
             path: path.to_owned(),
             inner: Arc::new(Mutex::new(Inner { file, next_seq, next_sub: 1, subscribers: Vec::new(), pending: None })),
             last_ts_ms: AtomicI64::new(last_ts_ms),
+            agent_was_running,
         })
+    }
+
+    /// Logs that the Agent process of an earlier run of the Harness is gone: quitting logs nothing.
+    /// It keeps the last Event's time, so it does not move the Session up in the list.
+    pub fn note_agent_gone(&self) -> anyhow::Result<()> {
+        if !self.agent_was_running {
+            return Ok(());
+        }
+        let mut inner = self.inner.lock().unwrap();
+        let event = Event {
+            v: EVENT_SCHEMA_VERSION,
+            seq: inner.next_seq,
+            session_id: self.session_id.clone(),
+            thread_id: None,
+            ts_ms: self.last_ts_ms.load(Ordering::Relaxed),
+            kind: EventKind::AgentProcessState {
+                state: ProcessState::Stopped,
+                message: Some("app_restart".to_owned()),
+            },
+        };
+        inner.write(&event)
     }
 
     pub fn append(&self, thread_id: Option<ThreadId>, kind: EventKind) -> anyhow::Result<Event> {
@@ -174,6 +202,14 @@ impl SessionLog {
 
     pub fn unsubscribe(&self, id: SubscriptionId) {
         self.inner.lock().unwrap().subscribers.retain(|(sid, _)| *sid != id);
+    }
+
+    /// `seq` of the newest Event, 0 for an empty log. Flushes a held chunk, so subscribers have
+    /// received this `seq` when the call returns.
+    pub fn last_seq(&self) -> anyhow::Result<u64> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.flush()?;
+        Ok(inner.next_seq.saturating_sub(1))
     }
 
     /// Time of the last appended Event, None for an empty log.

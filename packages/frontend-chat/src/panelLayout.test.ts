@@ -25,7 +25,27 @@ import {
    zoneOf,
 } from "./panelLayout";
 
-const empty = defaultLayout();
+/** A fixed arrangement, so these tests don't follow the defaults. */
+const empty: Layout = {
+   ...defaultLayout(),
+   zones: {
+      leftTop: ["changes"],
+      leftBottom: ["artifacts", "references"],
+      bottomLeft: ["terminal"],
+      bottomRight: ["events"],
+      rightBottom: [],
+      rightTop: ["side"],
+   },
+};
+
+describe("defaultLayout", () => {
+   it("has Artifacts left top, References left bottom, Changes first in right top", () => {
+      const { zones } = defaultLayout();
+      expect(zones.leftTop).toEqual(["artifacts"]);
+      expect(zones.leftBottom).toEqual(["references"]);
+      expect(zones.rightTop).toEqual(["changes", "side"]);
+   });
+});
 const open = (l: Layout, ...ids: PanelId[]) => ids.reduce(show, l);
 
 describe("toggle, show, hide", () => {
@@ -183,7 +203,7 @@ describe("reset", () => {
    it("restores places and sizes but keeps the threads, and shows them", () => {
       const l = resize(move(openThread(empty, "a"), "side", "leftTop"), { left: 500 });
       const r = resetLayout(l);
-      expect(r.zones).toEqual(empty.zones);
+      expect(r.zones).toEqual(defaultLayout().zones);
       expect(r.sizes).toEqual(empty.sizes);
       expect(r.threads).toEqual(["a"]);
       expect(r.open.rightTop).toBe("side");
@@ -201,7 +221,7 @@ describe("reconcile", () => {
       const l = { ...empty, zones: { ...empty.zones, bottomRight: [], leftTop: [] } };
       const r = reconcile(l, []);
       expect(r.zones.bottomRight).toEqual(["events"]);
-      expect(r.zones.leftTop).toEqual(["changes"]);
+      expect(r.zones.rightTop).toEqual(["side", "changes"]);
    });
    it("drops unknown ids and duplicates", () => {
       const l = {
@@ -209,7 +229,7 @@ describe("reconcile", () => {
          zones: { ...empty.zones, leftBottom: ["nope", "changes", "artifacts"] as PanelId[] },
       };
       const r = reconcile(l, []);
-      expect(r.zones.leftBottom).toEqual(["artifacts"]);
+      expect(r.zones.leftBottom).toEqual(["artifacts", "references"]);
       expect(r.zones.leftTop).toEqual(["changes"]);
    });
    it("places new slots by placement and leaves placed ones where the user put them", () => {
@@ -285,10 +305,10 @@ describe("persistence", () => {
       expect(r.expanded).toBeNull();
    });
    it("garbage gives the defaults", () => {
-      expect(parseLayout(null)).toEqual(empty);
-      expect(parseLayout("x")).toEqual(empty);
+      expect(parseLayout(null)).toEqual(defaultLayout());
+      expect(parseLayout("x")).toEqual(defaultLayout());
       expect(parseLayout({ zones: { rightTop: [1, "nope"] }, sizes: { left: "wide" } })).toEqual(
-         empty,
+         defaultLayout(),
       );
    });
    it("drops duplicates, bad open entries and bad sizes", () => {
@@ -321,12 +341,12 @@ describe("migration of the old right panel state", () => {
    });
    it("a slot view opens in right top", () => {
       const l = migratePanel({ threads: [], view: { kind: "slot", id: "notes" } });
-      expect(l.zones.rightTop).toEqual(["side", "slot:notes"]);
+      expect(l.zones.rightTop).toEqual(["changes", "side", "slot:notes"]);
       expect(l.open.rightTop).toBe("slot:notes");
    });
    it("no view or garbage opens nothing", () => {
       expect(migratePanel({ threads: [], view: null }).open).toEqual(empty.open);
-      expect(migratePanel(null)).toEqual(empty);
+      expect(migratePanel(null)).toEqual(defaultLayout());
       expect(migratePanel({ view: { kind: "terminal" } }).open).toEqual(empty.open);
    });
    it("the active thread falls back to the last", () => {

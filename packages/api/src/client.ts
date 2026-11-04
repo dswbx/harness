@@ -9,6 +9,7 @@ import type {
    Diff,
    Editor,
    Event,
+   FrontendAnswer,
    FrontendManifest,
    GitStatus,
    KnownRepo,
@@ -46,8 +47,12 @@ export interface SessionApi {
    cancel(threadId?: string | null): Promise<void>;
    /** Starts the Agent in the background so its models and modes show before the first prompt. */
    warmUp(): Promise<void>;
-   /** Starts a new Agent Session seeded with a summary; prompts `text` right away when given. */
-   continueWithSummary(text: string | null, threadId?: string | null): Promise<void>;
+   /** Starts a new Agent Session seeded with a transcript; prompts `text` right away when given. */
+   continueWithSummary(
+      text: string | null,
+      threadId?: string | null,
+      attachments?: AttachmentInput[],
+   ): Promise<void>;
    /**
     * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
     * Starts in the Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
@@ -89,6 +94,8 @@ export interface SessionApi {
    lookupPrs(refs: PrRefKey[]): Promise<(PrInfo | null)[]>;
    /** Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
    searchPrs(repo: RepoId, query?: string | null): Promise<PrInfo[]>;
+   /** The Session's GitHub repo, the PR it works on (started from, else by head branch) and the branch it merges to. */
+   branchPr(): Promise<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>;
    /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
    frontendRead(path: string): Promise<string>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
@@ -112,6 +119,8 @@ export interface SessionApi {
     * `call_id`. The core logs it (`FrontendError`) so the Agent learns about it; repeats are ignored.
     */
    reportFrontendError(tool: string, item: string, message: string): Promise<void>;
+   /** Answers a `FrontendRequest` AppEvent. The first answer wins; later ones do nothing. */
+   answerFrontendRequest(requestId: string, answer: FrontendAnswer): Promise<void>;
    /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
    frontendReadImage(path: string): Promise<{ mime: string; data: string }>;
    frontendWrite(path: string, content: string): Promise<void>;
@@ -172,8 +181,14 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
          const r = await expect({ type: "ReadImageFile", path }, "Attachment");
          return { mime: r.mime, data: r.data };
       },
-      continueWithSummary: (text, threadId = null) =>
-         run({ type: "ContinueWithSummary", session_id: sessionId, thread_id: threadId, text }),
+      continueWithSummary: (text, threadId = null, attachments = []) =>
+         run({
+            type: "ContinueWithSummary",
+            session_id: sessionId,
+            thread_id: threadId,
+            text,
+            attachments,
+         }),
       startSideThread: async ({ seed = null, source } = {}) => {
          const r = await expect(
             { type: "StartSideThread", session_id: sessionId, seed, source },
@@ -225,6 +240,10 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
          (await expect({ type: "LookupPrs", session_id: sessionId, refs }, "PrLookup")).prs,
       searchPrs: async (repo, query = null) =>
          (await expect({ type: "SearchPrs", session_id: sessionId, repo, query }, "PrSearch")).prs,
+      branchPr: async () => {
+         const r = await expect({ type: "BranchPr", session_id: sessionId }, "BranchPr");
+         return { repo: r.repo, pr: r.pr, base: r.base };
+      },
       frontendRead: async (path) =>
          (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent"))
             .content,
@@ -253,6 +272,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       patchState: (ops) => run({ type: "PatchState", session_id: sessionId, ops }),
       reportFrontendError: (tool, item, message) =>
          run({ type: "ReportFrontendError", session_id: sessionId, tool, item, message }),
+      answerFrontendRequest: (request_id, answer) =>
+         run({ type: "AnswerFrontendRequest", session_id: sessionId, request_id, answer }),
       frontendReadImage: async (path) => {
          const r = await expect(
             { type: "FrontendReadImage", session_id: sessionId, path },
@@ -391,6 +412,23 @@ export class HarnessClient {
       if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
       return r.session_id;
    }
+   /** A Session with no folder from the user: the core makes an empty one for it. */
+   async createQuickSession(args: {
+      agentId: string;
+      frontendId: string;
+      title?: string | null;
+      mcpServers?: string[];
+   }): Promise<string> {
+      const r = await this.transport.execute({
+         type: "CreateQuickSession",
+         agent_id: args.agentId,
+         frontend_id: args.frontendId,
+         title: args.title || null,
+         mcp_servers: args.mcpServers ?? [],
+      });
+      if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
+      return r.session_id;
+   }
    async listBranches(folder: string): Promise<Branches> {
       const r = await this.transport.execute({ type: "ListBranches", folder });
       if (r.type !== "Branches") throw new Error("unexpected result: " + r.type);
@@ -402,6 +440,11 @@ export class HarnessClient {
       if (r.type !== "PullRequests") throw new Error("unexpected result: " + r.type);
       return r.prs;
    }
+
+   /** Fast-forwards a local branch to its `origin` counterpart (a pull when checked out in `folder`). */
+   async updateBranch(folder: string, branch: string): Promise<void> {
+      await this.transport.execute({ type: "UpdateBranch", folder, branch });
+   }
    async archiveSession(sessionId: string): Promise<void> {
       await this.transport.execute({ type: "ArchiveSession", session_id: sessionId });
    }
@@ -411,6 +454,10 @@ export class HarnessClient {
    /** Rejects with the core's reason when work would be lost and `force` is false. */
    async deleteSession(sessionId: string, force = false): Promise<void> {
       await this.transport.execute({ type: "DeleteSession", session_id: sessionId, force });
+   }
+   /** Deletes the Session if it is a Quick Session nobody used; the core decides. */
+   async discardEmptySession(sessionId: string): Promise<void> {
+      await this.transport.execute({ type: "DiscardEmptySession", session_id: sessionId });
    }
    async listMcpServers(): Promise<McpServerDef[]> {
       const r = await this.transport.execute({ type: "ListMcpServers" });

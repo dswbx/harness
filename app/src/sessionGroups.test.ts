@@ -60,6 +60,7 @@ describe("groupSessions", () => {
       expect(g.map((x) => [x.id, ids(x.sessions)])).toEqual([
          ["folder:jsonv", ["b", "d"]],
          ["folder:harness", ["c", "a"]],
+         ["quick", []],
       ]);
    });
    it("groups by date of the sort field, skipping empty groups", () => {
@@ -109,5 +110,43 @@ describe("labels", () => {
    it("folderName and viewChanges", () => {
       expect(folderName("/Users/me/harness/")).toBe("harness");
       expect(viewChanges({ sort: "created", display: "condensed", group: "date" })).toBe(3);
+   });
+});
+
+describe("Quick Sessions", () => {
+   const quick = (id: string, updatedH: number) =>
+      s(id, `/d/.harness/quick/${id}`, updatedH, updatedH, {
+         quick: true,
+         workspace: ws({ repo_root: null, branch: null }),
+      });
+
+   it("groups them last by folder, even when newest", () => {
+      const groups = groupSessions(
+         [quick("q1", 1), s("a", "/p/a", 5, 5), s("b", "/p/b", 3, 3), quick("q2", 2)],
+         { sort: "recent", group: "folder" },
+      );
+      expect(groups.map((g) => g.label)).toEqual(["b", "a", "Quick"]);
+      expect(groups.at(-1)!.sessions.map((x) => x.id)).toEqual(["q1", "q2"]);
+   });
+
+   it("keeps the Quick group when it is empty", () => {
+      const groups = groupSessions([s("a", "/p/a", 5, 5)], { sort: "recent", group: "folder" });
+      expect(groups.map((g) => g.id)).toEqual(["folder:a", "quick"]);
+      expect(groups[1]!.quick).toBe(true);
+      expect(groups[1]!.sessions).toEqual([]);
+   });
+
+   it("sorts them with the others by recency without folder grouping", () => {
+      const list = [s("a", "/p/a", 5, 5), quick("q1", 1), s("b", "/p/b", 3, 3)];
+      const none = groupSessions(list, { sort: "recent", group: "none" });
+      expect(none.map((g) => g.id)).toEqual(["all"]);
+      expect(none[0]!.sessions.map((x) => x.id)).toEqual(["q1", "b", "a"]);
+      const date = groupSessions(list, { sort: "recent", group: "date" }, Date.now());
+      expect(date.flatMap((g) => g.sessions.map((x) => x.id))).toEqual(["q1", "b", "a"]);
+   });
+
+   it("matches 'quick', not the folder's id", () => {
+      expect(matches(quick("q1", 1), "quick")).toBe(true);
+      expect(matches({ ...quick("q1", 1), title: "t" }, "q1")).toBe(false);
    });
 });

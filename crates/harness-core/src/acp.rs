@@ -277,16 +277,15 @@ impl AgentConn {
     }
 }
 
+/// Why a Thread's Agent Session is not available; see `ThreadReadOnly`.
+const NOT_RESTORED: &str = "The Agent could not reopen its earlier session.";
+
 /// Starts a Turn: ensures the Agent process and the Thread's Agent Session, then sends the prompt
 /// in the background. Returns once the Turn has started. Attachments are checked first: a rejected
 /// one fails the prompt before any Turn is logged.
 pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attachments: Vec<AttachmentInput>) -> anyhow::Result<()> {
     let meta = session.meta();
     anyhow::ensure!(!meta.archived, "this Session is archived; unarchive it first");
-    anyhow::ensure!(
-        !meta.read_only_threads.contains(&thread),
-        "this Thread is read-only; continue it with a summary"
-    );
     let folder = std::path::PathBuf::from(&meta.folder);
     let tracked = meta.workspace.repo_root.is_some();
     let before = if tracked { crate::workspace::snapshot(&folder).await.ok() } else { None };
@@ -299,11 +298,7 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         r => r?,
     };
     let Some(acp_session) = acp_session else {
-        let reason = "The Agent could not continue its previous Agent Session.".to_owned();
-        session.update_meta(|m| m.read_only_threads.insert(thread.clone()))?;
-        session.log().append(Some(thread.clone()), EventKind::ThreadReadOnly { reason: reason.clone() })?;
-        session.log().sync()?;
-        anyhow::bail!("{reason} The Thread is read-only; continue it with a summary.");
+        anyhow::bail!("{NOT_RESTORED} Try again, or continue from a transcript.");
     };
     if thread != meta.main_thread_id {
         follow_main_config(&session, &conn, &thread, &acp_session).await;
@@ -437,11 +432,10 @@ async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread: &ThreadId
 async fn live_agent_session(session: &Arc<Session>, thread: &ThreadId) -> anyhow::Result<(Arc<AgentConn>, acp::SessionId)> {
     let meta = session.meta();
     anyhow::ensure!(!meta.archived, "this Session is archived; unarchive it first");
-    anyhow::ensure!(!meta.read_only_threads.contains(thread), "this Thread is read-only; continue it with a summary");
     let conn = ensure_conn(session).await?;
     match ensure_agent_session(session, &conn, thread).await {
         Ok(Some(id)) => Ok((conn, id)),
-        Ok(None) => anyhow::bail!("the Agent could not continue its previous Agent Session; send a message to continue with a summary"),
+        Ok(None) => anyhow::bail!("{NOT_RESTORED} Try again, or continue from a transcript."),
         Err(e) if is_auth_required(&e) => {
             report_auth_required(session, Some(thread), &e.to_string());
             anyhow::bail!("The Agent needs you to sign in first.")
@@ -558,14 +552,15 @@ pub async fn set_mode(session: Arc<Session>, thread: ThreadId, mode_id: String) 
     Ok(())
 }
 
-/// Starts a fresh Agent Session for the Thread whose Context Seed is a summary of the Thread so far.
+/// Starts a fresh Agent Session for the Thread whose Context Seed is a transcript of the Thread so far.
 pub async fn continue_with_summary(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<()> {
-    let summary = crate::summary::summarize(&session.log().events()?, &thread);
+    let events = session.log().events()?;
+    let summary = crate::summary::summarize(&events, &thread);
+    let size = crate::summary::transcript_size(&events, &thread);
     let conn = ensure_conn(&session).await?;
     conn.acp_sessions.lock().unwrap().remove(&thread);
-    new_agent_session(&session, &conn, &thread, Boundary::ContinuedWithSummary).await?;
+    new_agent_session(&session, &conn, &thread, Boundary::ContinuedWithSummary, Some(size)).await?;
     session.update_meta(|m| {
-        m.read_only_threads.remove(&thread);
         m.seeds.insert(thread.clone(), summary);
     })?;
     session.log().sync()?;
@@ -635,20 +630,65 @@ async fn ensure_agent_session(
             })?;
         }
     }
-    Ok(Some(new_agent_session(session, conn, thread, Boundary::Initial).await?))
+    Ok(Some(new_agent_session(session, conn, thread, Boundary::Initial, None).await?))
 }
 
-/// Resumes (else loads) the Thread's previous Agent Session. `None` when the Agent can do neither.
+/// Resumes (else loads) the Thread's previous Agent Session, trying again a few times if that fails.
+/// `None`, logged as `ThreadReadOnly`, when it could not: the Agent can do neither, or every try failed.
 async fn continue_previous(
     session: &Arc<Session>,
     conn: &Arc<AgentConn>,
     thread: &ThreadId,
     prev: String,
 ) -> anyhow::Result<Option<acp::SessionId>> {
+    let caps = &conn.init.agent_capabilities;
+    let retryable = caps.session_capabilities.resume.is_some() || caps.load_session;
+    let prev_id = acp::SessionId::new(prev);
+    let mut errors = Vec::new();
+    if retryable {
+        let retries = &session.shared().restore_retries;
+        let of = retries.len() as u32;
+        for (attempt, wait) in std::iter::once(None).chain(retries.iter().copied().map(Some)).enumerate() {
+            if let Some(wait) = wait {
+                session.log().append(Some(thread.clone()), EventKind::AgentSessionRestoring { attempt: attempt as u32, of })?;
+                tokio::time::sleep(wait).await;
+            }
+            match restore_once(session, conn, thread, &prev_id).await? {
+                Ok(boundary) => {
+                    conn.acp_sessions.lock().unwrap().insert(thread.clone(), prev_id.clone());
+                    session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
+                        acp_session_id: prev_id.to_string(),
+                        boundary,
+                        transcript: None,
+                    })?;
+                    return Ok(Some(prev_id));
+                }
+                Err(e) => errors = e,
+            }
+        }
+    }
+    let transcript = Some(crate::summary::transcript_size(&session.log().events()?, thread));
+    session.log().append(Some(thread.clone()), EventKind::ThreadReadOnly {
+        reason: NOT_RESTORED.to_owned(),
+        retryable,
+        errors,
+        transcript,
+    })?;
+    session.log().sync()?;
+    Ok(None)
+}
+
+/// One try at resume, else load. The inner `Err` holds why each failed; a sign-in error is the outer one.
+async fn restore_once(
+    session: &Arc<Session>,
+    conn: &Arc<AgentConn>,
+    thread: &ThreadId,
+    prev_id: &acp::SessionId,
+) -> anyhow::Result<Result<Boundary, Vec<String>>> {
     let meta = session.meta();
     let cwd = std::path::PathBuf::from(&meta.folder);
     let caps = &conn.init.agent_capabilities;
-    let prev_id = acp::SessionId::new(prev);
+    let mut errors = Vec::new();
     let mut boundary = None;
     if caps.session_capabilities.resume.is_some() {
         match conn.cx
@@ -657,7 +697,10 @@ async fn continue_previous(
             .await {
             Ok(_) => boundary = Some(Boundary::Resumed),
             Err(e) if e.code == agent_client_protocol::ErrorCode::AuthRequired => return Err(e.into()),
-            Err(e) => tracing::warn!("resume failed: {e}"),
+            Err(e) => {
+                tracing::warn!("resume failed: {e}");
+                errors.push(format!("resume: {e}"));
+            }
         }
     }
     if boundary.is_none() && caps.load_session {
@@ -670,16 +713,13 @@ async fn continue_previous(
         match r {
             Ok(_) => boundary = Some(Boundary::Loaded),
             Err(e) if e.code == agent_client_protocol::ErrorCode::AuthRequired => return Err(e.into()),
-            Err(e) => tracing::warn!("load failed: {e}"),
+            Err(e) => {
+                tracing::warn!("load failed: {e}");
+                errors.push(format!("load: {e}"));
+            }
         }
     }
-    let Some(boundary) = boundary else { return Ok(None) };
-    conn.acp_sessions.lock().unwrap().insert(thread.clone(), prev_id.clone());
-    session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
-        acp_session_id: prev_id.to_string(),
-        boundary,
-    })?;
-    Ok(Some(prev_id))
+    Ok(boundary.ok_or(errors))
 }
 
 /// Forks the Main Thread's Agent Session for a Side Thread. `None` (so: seed instead) when the
@@ -747,6 +787,7 @@ async fn fork_agent_session(
     session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
         acp_session_id: id.to_string(),
         boundary: Boundary::Forked,
+        transcript: None,
     })?;
     Ok(Some(id))
 }
@@ -784,6 +825,7 @@ async fn new_agent_session(
     conn: &Arc<AgentConn>,
     thread: &ThreadId,
     boundary: Boundary,
+    transcript: Option<crate::api::TranscriptSize>,
 ) -> anyhow::Result<acp::SessionId> {
     let cwd = std::path::PathBuf::from(session.meta().folder);
     let servers = mcp_servers(session, conn, thread).await?;
@@ -810,6 +852,7 @@ async fn new_agent_session(
     session.log().append(Some(thread.clone()), EventKind::AgentSessionStarted {
         acp_session_id: id.to_string(),
         boundary,
+        transcript,
     })?;
     Ok(id)
 }

@@ -15,6 +15,7 @@ const FAMILY: Record<EventKind["type"], string> = {
    PermissionResolved: "Permissions",
    PermissionRuleAdded: "Permissions",
    AgentSessionStarted: "Agent",
+   AgentSessionRestoring: "Agent",
    AgentProcessState: "Agent",
    AgentCapabilities: "Agent",
    AuthRequired: "Agent",

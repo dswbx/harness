@@ -12,6 +12,7 @@ import {
    stepThreads,
    type TaskEntry,
    type ThreadInfo,
+   type TranscriptSize,
 } from "@harness/api";
 import { RENDER_UI, type RenderUiInput, renderUiSchema } from "./tools";
 
@@ -76,7 +77,14 @@ export type Item =
      }
    /** The Agent refuses to start a session until the user signs in. */
    | { type: "auth"; id: string; message: string; methods: AuthMethodInfo[] }
-   | { type: "notice"; id: string; level: "boundary" | "error" | "info"; text: string }
+   | {
+        type: "notice";
+        id: string;
+        level: "boundary" | "error" | "info";
+        text: string;
+        /** More about it, behind an info icon. */
+        info?: string;
+     }
    /** An Agent's session notice (e.g. hook output): shown apart from its reply. */
    | {
         type: "agent_notice";
@@ -133,8 +141,16 @@ export type ChatState = {
    usage: Usage | null;
    title: string | null;
    process: { state: string; message: string | null } | null;
-   /** Main Thread cannot continue its Agent Session; only ContinueWithSummary works. */
+   /** The Agent can never restore this Thread's Agent Session: only ContinueWithSummary works. */
    readOnly: boolean;
+   /** Restoring the Agent Session failed, and nothing has backed the Thread since. */
+   recovery: {
+      retryable: boolean;
+      errors: string[];
+      transcript: TranscriptSize | null;
+   } | null;
+   /** Restoring the Agent Session is being tried again. */
+   restoring: { attempt: number; of: number } | null;
    /** The last Turn ended with stop_reason "error" (cleared by the next Turn). */
    lastTurnErrored: boolean;
    /** The Session is archived: prompting is disabled until it is unarchived. */
@@ -171,6 +187,8 @@ export const initialState = (): ChatState => ({
    title: null,
    process: null,
    readOnly: false,
+   recovery: null,
+   restoring: null,
    lastTurnErrored: false,
    archived: false,
    promptCaps: null,
@@ -445,12 +463,8 @@ function applyThread(c: Ctx, e: Event) {
       case "AgentProcessState": {
          const wasTurn = d.turnId !== null || d.lastTurnErrored;
          d.process = { state: k.state, message: k.message };
-         if (k.state === "stopped") {
-            // Archived/deleted stops are explained by SessionArchived; only idle needs a hint.
-            if (k.message === "archived" || k.message === "deleted") return;
-            notice("info", "Agent stopped while idle; it restarts on your next message");
-            return;
-         }
+         // A stop needs no action: the header's status dot shows it.
+         if (k.state === "stopped") return;
          if ((k.state === "failed" || k.state === "exited") && wasTurn) {
             d.lastTurnErrored = false;
             // The message may hold multi-line agent stderr after a blank line (rendered as Details).
@@ -471,10 +485,20 @@ function applyThread(c: Ctx, e: Event) {
             d.forkedFrom = k.forked_from ?? null;
          }
          return;
-      case "ThreadReadOnly":
-         d.readOnly = true;
+      case "ThreadReadOnly": {
+         const retryable = k.retryable ?? false;
+         d.readOnly = !retryable;
+         d.recovery = { retryable, errors: k.errors ?? [], transcript: k.transcript ?? null };
+         d.restoring = null;
+         return;
+      }
+      case "AgentSessionRestoring":
+         d.restoring = { attempt: k.attempt, of: k.of };
          return;
       case "AgentSessionStarted":
+         d.readOnly = false;
+         d.recovery = null;
+         d.restoring = null;
          if (d.side && d.startBoundary === null) {
             // A Side Thread's list opens with how it started.
             d.startBoundary = k.boundary;
@@ -490,9 +514,17 @@ function applyThread(c: Ctx, e: Event) {
             return;
          }
          d.startBoundary ??= k.boundary;
-         if (k.boundary === "initial" || k.boundary === "forked") return;
-         if (k.boundary === "continued_with_summary") d.readOnly = false;
-         notice("boundary", boundaryText(k.boundary));
+         // Show a boundary only when what the Agent knows changed.
+         if (["initial", "forked", "resumed", "loaded"].includes(k.boundary)) return;
+         push(c, {
+            type: "notice",
+            id,
+            level: "boundary",
+            text: boundaryText(k.boundary),
+            ...(k.boundary === "continued_with_summary" && {
+               info: transcriptInfo(k.transcript ?? null),
+            }),
+         });
          return;
       case "WorkspaceChanged":
          if (k.files.length === 0) return;
@@ -586,6 +618,15 @@ function applyThread(c: Ctx, e: Event) {
    }
 }
 
+function transcriptInfo(t: TranscriptSize | null): string {
+   const got = !t
+      ? "a transcript of this conversation"
+      : t.kept_turns < t.total_turns
+        ? `the last ${t.kept_turns} of ${t.total_turns} turns`
+        : `all ${t.total_turns} turns`;
+   return `The earlier session could not be reopened, so a new agent session started. It got ${got}, without tool inputs, tool outputs or its earlier thoughts.`;
+}
+
 export function boundaryText(b: string): string {
    switch (b) {
       case "resumed":
@@ -593,7 +634,7 @@ export function boundaryText(b: string): string {
       case "loaded":
          return "Agent session reloaded";
       case "continued_with_summary":
-         return "Continued in a new Agent session with a summary";
+         return "Continued from transcript";
       case "reseeded":
          return "New Agent session started with the earlier context";
       case "agent_switched":

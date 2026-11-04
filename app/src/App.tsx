@@ -1,4 +1,11 @@
-import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
+import type {
+   GitStatus,
+   HarnessClient,
+   PrInfo,
+   RepoId,
+   SessionSummary,
+   Transport,
+} from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import {
    Button,
@@ -14,11 +21,13 @@ import {
    useResizableWidth,
 } from "@harness/ui";
 import { PanelLeft, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
+import { QUICK_TITLE, quickAgent } from "./composer";
+import { FrontendRequests } from "./FrontendRequests";
 import { openViewWindow } from "./openWindow";
-import { SessionHeader, trafficLights } from "./SessionHeader";
+import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
 import { errText, ToastProvider, useReportError } from "./toast";
@@ -52,6 +61,7 @@ export function App() {
          ) : (
             <Shell transport={transport} />
          )}
+         {!params.get("pane") && <FrontendRequests transport={transport} />}
       </ToastProvider>
    );
 }
@@ -61,6 +71,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
    const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
+   const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
    const report = useReportError();
    useEffect(() => {
@@ -97,6 +108,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
             session={session}
             toolbarRef={setToolbar}
             statusRef={setStatus}
+            indicatorRef={setIndicator}
             menuRef={setMenu}
             leading={trafficLights && <div className="w-12 shrink-0" />}
          />
@@ -107,6 +119,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
                frontendId={session.frontend_id}
                toolbar={toolbar}
                status={status}
+               indicator={indicator}
                menu={menu}
             />
          </div>
@@ -186,26 +199,49 @@ const useSidebarWidth = () =>
       edge: "right",
    });
 
-/** The Session's current branch, when its folder is a git repository (refreshed as its status changes). */
-function useBranch(client: HarnessClient, s: SessionSummary | null) {
-   const [branch, setBranch] = useState<string | null>(null);
+/**
+ * The Session's git ref for the header: branch with ahead/behind, its GitHub repo and PR. Reloaded as the
+ * Session's status changes, every minute while the window is visible, when it comes back, and on `refresh`.
+ */
+function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
+   const [status, setStatus] = useState<GitStatus | null>(null);
+   const none = { repo: null, pr: null, base: null };
+   const [gh, setGh] = useState<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>(
+      none,
+   );
+   const [version, setVersion] = useState(0);
    const id = s?.workspace.repo_root ? s.id : null;
-   const status = s?.status;
+   const sessionStatus = s?.status;
    useEffect(() => {
-      if (!id) return setBranch(null);
+      if (!id) {
+         setStatus(null);
+         setGh(none);
+         return;
+      }
       let off = false;
-      client
-         .sessionApi(id)
-         .gitStatus()
-         .then(
-            (g) => !off && setBranch(g.branch),
-            () => !off && setBranch(null),
+      const load = () => {
+         if (document.hidden) return;
+         const api = client.sessionApi(id);
+         api.gitStatus().then(
+            (g) => !off && setStatus(g),
+            () => !off && setStatus(null),
          );
+         api.branchPr().then(
+            (r) => !off && setGh(r),
+            () => !off && setGh(none),
+         );
+      };
+      load();
+      const timer = setInterval(load, 60_000);
+      window.addEventListener("focus", load);
       return () => {
          off = true;
+         clearInterval(timer);
+         window.removeEventListener("focus", load);
       };
-   }, [client, id, status]);
-   return branch;
+   }, [client, id, sessionStatus, version]);
+   const refresh = useCallback(() => setVersion((v) => v + 1), []);
+   return { status, repo: gh.repo, pr: gh.pr, base: gh.base, refresh };
 }
 
 function Shell({ transport }: { transport: Transport }) {
@@ -213,6 +249,8 @@ function Shell({ transport }: { transport: Transport }) {
    const [sessions, setSessions] = useState<SessionSummary[]>([]);
    const [selected, setSelected] = useState<string | null>(null);
    const [composer, setComposer] = useState(false);
+   /** Folder the Composer opens with (the + on a sidebar folder group); null: its own default. */
+   const [composerFolder, setComposerFolder] = useState<string | null>(null);
    const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
    const [agentsVersion, setAgentsVersion] = useState(0);
    const [mcpVersion, setMcpVersion] = useState(0);
@@ -223,6 +261,7 @@ function Shell({ transport }: { transport: Transport }) {
    const [sidebarOpen, toggleSidebar] = useSidebarOpen();
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
+   const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
 
    const report = useReportError();
@@ -289,7 +328,7 @@ function Shell({ transport }: { transport: Transport }) {
    }, [client, report]);
 
    const current = sessions.find((s) => s.id === selected) ?? null;
-   const branch = useBranch(client, current);
+   const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
    const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
    const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
@@ -304,6 +343,38 @@ function Shell({ transport }: { transport: Transport }) {
          .then(refresh)
          .catch((e) => setMenuError(errText(e)));
    };
+   /** The Quick group's +: no dialog. Stays on a Quick Session that is still unused. */
+   const startQuick = async () => {
+      const current = sessions.find((s) => s.id === selected);
+      if (current?.quick && current.title === QUICK_TITLE) return;
+      try {
+         const [agents, frontends] = await Promise.all([
+            client.listAgents(),
+            client.listFrontends(),
+         ]);
+         const agent = quickAgent(sessions, agents);
+         const frontend = frontends.find((f) => f.id === "chat") ?? frontends[0];
+         // No Agent yet: the Composer offers to open the Agents settings.
+         if (!agent || !frontend) return setComposer(true);
+         const id = await client.createQuickSession({ agentId: agent.id, frontendId: frontend.id });
+         setSelected(id);
+         await refresh();
+      } catch (e) {
+         report("Could not start a Quick Session", e);
+      }
+   };
+   // Leaving a Quick Session: the core removes it if it is still unused.
+   const leaving = useRef(selected);
+   useEffect(() => {
+      const prev = leaving.current;
+      leaving.current = selected;
+      if (!prev || prev === selected) return;
+      if (!sessions.find((s) => s.id === prev)?.quick) return;
+      client
+         .discardEmptySession(prev)
+         .then(refresh)
+         .catch((e) => report("Could not remove the empty Quick Session", e));
+   }, [selected]);
    const askDelete = (s: SessionSummary) => {
       setToDelete(s);
       setDeleteError(null);
@@ -359,6 +430,11 @@ function Shell({ transport }: { transport: Transport }) {
                   onSelect={setSelected}
                   onArchive={toggleArchive}
                   onDelete={askDelete}
+                  onNewQuick={() => void startQuick()}
+                  onNewInFolder={(folder) => {
+                     setComposerFolder(folder);
+                     setComposer(true);
+                  }}
                >
                   {menuError && (
                      <p role="alert" className="px-4 pb-2 text-xs text-destructive">
@@ -375,10 +451,11 @@ function Shell({ transport }: { transport: Transport }) {
                   <SessionHeader
                      client={client}
                      session={current}
-                     branch={branch}
+                     git={git}
                      leading={leading}
                      toolbarRef={setToolbar}
                      statusRef={setStatus}
+                     indicatorRef={setIndicator}
                      menuRef={setMenu}
                      onOpenSettings={() => setSettingsSection("appearance")}
                      onOpenWindow={() =>
@@ -395,6 +472,7 @@ function Shell({ transport }: { transport: Transport }) {
                         frontendId={current.frontend_id}
                         toolbar={toolbar}
                         status={status}
+                        indicator={indicator}
                         menu={menu}
                      />
                   </div>
@@ -418,9 +496,11 @@ function Shell({ transport }: { transport: Transport }) {
                   <DialogTitle>Delete Session?</DialogTitle>
                   <DialogDescription>
                      "{toDelete?.title}" and its log will be deleted
-                     {toDelete?.workspace.worktree_branch
-                        ? ", along with its Worktree and branch"
-                        : ""}
+                     {toDelete?.quick
+                        ? ", along with its folder and the files in it"
+                        : toDelete?.workspace.worktree_branch
+                          ? ", along with its Worktree and branch"
+                          : ""}
                      . This cannot be undone.
                   </DialogDescription>
                </DialogHeader>
@@ -457,7 +537,11 @@ function Shell({ transport }: { transport: Transport }) {
          <ComposerDialog
             client={client}
             open={composer}
-            onOpenChange={setComposer}
+            onOpenChange={(o) => {
+               setComposer(o);
+               if (!o) setComposerFolder(null);
+            }}
+            folder={composerFolder}
             agentsVersion={agentsVersion}
             mcpVersion={mcpVersion}
             onManageAgents={() => {

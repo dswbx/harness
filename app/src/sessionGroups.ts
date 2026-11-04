@@ -26,7 +26,7 @@ export function matches(s: SessionSummary, q: string): boolean {
    const ws = s.workspace;
    return [
       s.title,
-      folderName(s.folder),
+      s.quick ? "quick" : folderName(s.folder),
       branchOf(ws) ?? "",
       ws.pr != null ? `#${ws.pr}` : "",
    ].some((t) => t.toLowerCase().includes(q));
@@ -49,7 +49,13 @@ const attentionFirst = (l: SessionSummary[]) => [
    ...l.filter((s) => s.status !== "needs_attention"),
 ];
 
-export type Group = { id: string; label: string; folder?: boolean; sessions: SessionSummary[] };
+export type Group = {
+   id: string;
+   label: string;
+   folder?: boolean;
+   quick?: boolean;
+   sessions: SessionSummary[];
+};
 
 const DAY = 86_400_000;
 const DATE_GROUPS: [id: string, label: string, maxAge: number][] = [
@@ -60,9 +66,10 @@ const DATE_GROUPS: [id: string, label: string, maxAge: number][] = [
 ];
 
 /**
- * Newest first by the sort field, then grouped. Folder groups follow their newest Session; date
- * groups use the sort field's age and skip empty ones. Within each group, Sessions needing
- * attention come first. `none` gives one group with id "all".
+ * Newest first by the sort field, then grouped. Folder groups follow their newest Session, then
+ * the Quick group, always last and also when empty (its + starts a Quick Session). Date groups use
+ * the sort field's age and skip empty ones. Within each group, Sessions needing attention come
+ * first. `none` gives one group with id "all".
  */
 export function groupSessions(
    list: SessionSummary[],
@@ -74,12 +81,16 @@ export function groupSessions(
    if (v.group === "folder") {
       const byName = new Map<string, Group>();
       for (const s of sorted) {
+         if (s.quick) continue;
          const name = folderName(s.folder);
          if (!byName.has(name))
             byName.set(name, { id: `folder:${name}`, label: name, folder: true, sessions: [] });
          byName.get(name)!.sessions.push(s);
       }
-      groups = [...byName.values()];
+      groups = [
+         ...byName.values(),
+         { id: "quick", label: "Quick", quick: true, sessions: sorted.filter((s) => s.quick) },
+      ];
    } else if (v.group === "date") {
       groups = DATE_GROUPS.map(([id, label]) => ({ id: `date:${id}`, label, sessions: [] }));
       for (const s of sorted)

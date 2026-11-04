@@ -127,6 +127,22 @@ impl PrRefs {
         Ok(prs)
     }
 
+    /// The PR whose head is `branch` in `repo`: an open one first, else the most recently updated. Fills the cache.
+    pub async fn for_branch(&self, repo: &RepoId, branch: &str) -> anyhow::Result<Option<PrInfo>> {
+        anyhow::ensure!(valid_repo(repo), "invalid repository {}/{}", repo.owner, repo.name);
+        let full = format!("{}/{}", repo.owner, repo.name);
+        let args = ["pr", "list", "--repo", &full, "--head", branch, "--state", "all", "--limit", "10", "--json", LIST_FIELDS];
+        let list: Vec<Value> = serde_json::from_str(&gh_in(None, &args).await?)?;
+        let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
+        let now = Instant::now();
+        self.cache.lock().unwrap().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
+        prs.sort_by(|a, b| {
+            let open = |p: &PrInfo| matches!(p.state, PrState::Open | PrState::Draft);
+            open(b).cmp(&open(a)).then_with(|| b.updated_at.cmp(&a.updated_at))
+        });
+        Ok(prs.into_iter().next())
+    }
+
     /// The `gh` user; None when `gh` is missing or not signed in.
     pub async fn me(&self) -> Option<String> {
         let cached = self.me.lock().unwrap().clone();

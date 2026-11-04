@@ -1,4 +1,25 @@
+import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "./transport";
+
+/** Lets the user save `data` under a suggested `name`: the native save dialog in Tauri, a browser download otherwise. Returns where it went (in a browser, `name`), or null on cancel. */
+export async function saveFile(name: string, data: Blob): Promise<string | null> {
+   if (!inTauri()) {
+      const url = URL.createObjectURL(data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return name;
+   }
+   const bytes = new Uint8Array(await data.arrayBuffer());
+   let binary = "";
+   // In parts: one call with all bytes as arguments overflows the stack on large files.
+   for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+   }
+   return invoke<string | null>("save_file", { name, data: btoa(binary) });
+}
 
 /** Opens an app URL (e.g. `/?session=..&solo=1`) in a new window. Frontends can't import Tauri, so this lives here. With `pane=...` the host adds no Session header. */
 export async function openWindow(

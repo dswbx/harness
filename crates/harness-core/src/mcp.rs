@@ -233,7 +233,7 @@ impl ServerHandler for Handler {
         let args = Value::Object(request.arguments.clone().unwrap_or_default());
         let name = request.name.to_string();
         let result = match call(&session, &thread, &name, args).await {
-            Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
+            Ok(content) => CallToolResult::success(content),
             Err(e) => CallToolResult::error(vec![ContentBlock::text(format!("{e:#}"))]),
         };
         Ok(result.into())
@@ -241,7 +241,7 @@ impl ServerHandler for Handler {
 }
 
 /// Runs one tool call for the Session, after the Permission Policy agrees.
-async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value) -> anyhow::Result<String> {
+async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value) -> anyhow::Result<Vec<ContentBlock>> {
     let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_owned);
     if let Some((_, desc, _, kind)) = primitives().into_iter().find(|p| p.0 == name) {
         let title = match name {
@@ -250,7 +250,7 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
             _ => desc.to_owned(),
         };
         crate::acp::authorize(session, thread, name, &title, kind, &args).await?;
-        return Ok(match name {
+        return Ok(vec![ContentBlock::text(match name {
             "git_status" => serde_json::to_string_pretty(&session.git_status().await?)?,
             "git_diff" => {
                 let d = session.git_diff(s("from"), s("to")).await?;
@@ -293,7 +293,7 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
             "transcript_read" => crate::transcript::read(session, &args)?,
             "transcript_search" => crate::transcript::search(session, &args)?,
             _ => unreachable!(),
-        });
+        })]);
     }
     let tool = session
         .frontend_tools()
@@ -311,13 +311,23 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
         errors.join("\n"),
         tool.description
     );
+    if tool.replies {
+        crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "read", &args).await?;
+        let answer = session.request_frontend(name, args).await?;
+        if let Some(error) = answer.error {
+            anyhow::bail!("{error}");
+        }
+        let text = answer.text.map(ContentBlock::text);
+        let image = answer.image.map(|i| ContentBlock::image(i.data, i.mime));
+        return Ok(text.into_iter().chain(image).collect());
+    }
     let images = images.lock().unwrap().clone();
     let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
     crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
     let files = crate::frontend_files::store(&session.frontend_dir(), planned)?;
     let path = session.write_frontend_tool_output(thread, name, args, files)?;
     let items = info(session)?["items"].clone();
-    Ok(format!("Done. The Frontend received it ({path}). Live items: {items}"))
+    Ok(vec![ContentBlock::text(format!("Done. The Frontend received it ({path}). Live items: {items}"))])
 }
 
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for

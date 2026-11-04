@@ -27,7 +27,13 @@ export type AppEvent =
  *  A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
  *  Titles and `busy` change silently: poll while a Terminal is shown.
  */
-{ type: "TerminalsChanged"; session_id: string };
+{ type: "TerminalsChanged"; session_id: string } | 
+/**
+ *  The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
+ *  `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
+ *  it. Live only and not logged: Views still render only from the Session Log.
+ */
+{ type: "FrontendRequest"; session_id: string; request_id: string; tool: string; input: unknown; last_seq: number };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes";
@@ -122,6 +128,13 @@ new_branch?: string | null;
  */
 pr?: number | null; 
 /**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
+mcp_servers?: string[] } | 
+/**
+ *  Creates a Quick Session: a Session with no folder from the user. The core makes an empty
+ *  folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
+ */
+{ type: "CreateQuickSession"; agent_id: string; frontend_id: string; title: string | null; 
+/**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
 mcp_servers?: string[] } | { type: "ListMcpServers" } | 
 /**
  *  Adds or replaces an MCP Library server. `secrets` holds values for `secret_keys`; they go
@@ -134,6 +147,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetAppSetting"; key: AppSettingKey } | 
 /**  Saves an app setting; null removes it. */
 { type: "SetAppSetting"; key: AppSettingKey; value: unknown | null } | 
+/**
+ *  Answers a `FrontendRequest` AppEvent. The first answer wins; an answer for an unknown
+ *  `request_id` does nothing (several windows may answer).
+ */
+{ type: "AnswerFrontendRequest"; session_id: string; request_id: string; answer: FrontendAnswer } | 
 /**  Reads the JSON at an https URL, e.g. a theme's shadcn registry item (tweakcn), for the app to import. */
 { type: "FetchJson"; url: string } | 
 /**  The user's editor for "Open in editor" (None until chosen). */
@@ -168,6 +186,12 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  `gh` is missing, not signed in, or the folder has no GitHub remote.
  */
 { type: "ListPullRequests"; folder: string; filter?: PrFilter } | 
+/**
+ *  Fast-forwards a local `branch` of the repository containing `folder` to its `origin` counterpart:
+ *  a pull when it is checked out in `folder`, else a fetch into the branch (fails when it is checked
+ *  out elsewhere or has diverged).
+ */
+{ type: "UpdateBranch"; folder: string; branch: string } | 
 /**  Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept. */
 { type: "ArchiveSession"; session_id: string } | 
 /**  Restores an archived Session's Worktree. */
@@ -176,7 +200,12 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  Deletes the Session and its Worktree and branch. Refuses unmerged or uncommitted work
  *  unless `force`.
  */
-{ type: "DeleteSession"; session_id: string; force?: boolean } | { type: "GitStatus"; session_id: string } | 
+{ type: "DeleteSession"; session_id: string; force?: boolean } | 
+/**
+ *  Deletes a Quick Session that nobody used: no prompt was sent and its folder is empty.
+ *  Does nothing for any other Session or an unknown id, so an out-of-date caller loses no work.
+ */
+{ type: "DiscardEmptySession"; session_id: string } | { type: "GitStatus"; session_id: string } | 
 /**
  *  Diff of the Workspace. `from` defaults to where the Session's changes start (merge base
  *  with the Worktree's base branch, else HEAD); `to` defaults to the working tree now.
@@ -199,6 +228,13 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "LookupPrs"; session_id: string; refs: PrRefKey[] } | 
 /**  Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. */
 { type: "SearchPrs"; session_id: string; repo: RepoId; query: string | null } | 
+/**
+ *  The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+ *  first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+ *  base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+ *  remote; `pr` None without `gh`. Cached like PR references.
+ */
+{ type: "BranchPr"; session_id: string } | 
 /**  The Session's Terminal tabs (a first one exists implicitly; ADR 0017). */
 { type: "ListTerminals"; session_id: string } | 
 /**  A new Terminal tab; its shell starts on the first attach. Returns its id. */
@@ -226,10 +262,11 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
  */
 { type: "WarmUp"; session_id: string } | 
 /**
- *  Starts a new Agent Session for a Thread, seeded with a summary of the Thread so far. The
- *  way out of a read-only Thread. `text`, when given, is prompted right away.
+ *  Starts a new Agent Session for a Thread, seeded with a transcript of the Thread so far. The
+ *  way out of a Thread whose Agent Session cannot be restored. `text`, when given, is prompted
+ *  right away, with `attachments`.
  */
-{ type: "ContinueWithSummary"; session_id: string; thread_id: string | null; text: string | null } | 
+{ type: "ContinueWithSummary"; session_id: string; thread_id: string | null; text: string | null; attachments?: AttachmentInput[] } | 
 /**
  *  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
  *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
@@ -253,7 +290,7 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
  */
 { type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | 
 /**  `me`: the `gh` user, None when `gh` is not signed in. */
-{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
+{ type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
@@ -307,12 +344,21 @@ forked_from?: ForkPoint | null } |
 /**  The Agent needs the user to sign in before it can work. */
 { type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
 /**
- *  The Thread's Agent Session cannot be continued; the Thread stays readable and can be
- *  continued with a summary.
+ *  The Thread's Agent Session could not be restored; the Thread stays readable and can be
+ *  continued from a transcript. `retryable`: the Agent supports resume or load, so the next
+ *  prompt tries again. Logs from before these fields read as not retryable.
  */
-{ type: "ThreadReadOnly"; reason: string } | 
+{ type: "ThreadReadOnly"; reason: string; retryable?: boolean; 
+/**  Why each method failed, for the user. */
+errors?: string[]; 
+/**  What a transcript would hold right now. */
+transcript?: TranscriptSize | null } | 
+/**  Restoring the Thread's Agent Session failed and is being tried again. */
+{ type: "AgentSessionRestoring"; attempt: number; of: number } | 
 /**  A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary. */
-{ type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
+{ type: "AgentSessionStarted"; acp_session_id: string; boundary: Boundary; 
+/**  `continued_with_summary`: what its transcript held. */
+transcript?: TranscriptSize | null } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
 /**  What the Agent accepts in prompts, from its `initialize` answer. */
 { type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[]; 
 /**  The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session. */
@@ -388,6 +434,22 @@ export type ForkPoint = {
 	seq: number,
 };
 
+/**
+ *  A Frontend's answer to a `FrontendRequest`. `error` makes it a tool error for the Agent; else
+ *  the Agent gets `text` then `image`.
+ */
+export type FrontendAnswer = {
+	text?: string | null,
+	image?: FrontendImage | null,
+	error?: string | null,
+};
+
+export type FrontendImage = {
+	mime: string,
+	/**  Base64 (standard alphabet, no `data:` prefix). */
+	data: string,
+};
+
 export type FrontendManifest = {
 	id: string,
 	name: string,
@@ -401,6 +463,8 @@ export type FrontendToolDecl = {
 	name: string,
 	description: string,
 	input_schema: unknown,
+	/**  The Frontend answers the call: the result goes back to the Agent, nothing goes in the Session Log. */
+	replies?: boolean,
 };
 
 export type GitStatus = {
@@ -543,6 +607,8 @@ export type SessionSummary = {
 	updated_ms: number,
 	status: SessionStatus,
 	archived: boolean,
+	/**  A Quick Session: `folder` is a folder the Harness made for it. */
+	quick: boolean,
 	workspace: WorkspaceInfo,
 };
 
@@ -580,6 +646,12 @@ export type TerminalInfo = {
  *  fork, the Main Thread has no Agent Session or is mid-Turn, or the fork fails.
  */
 export type ThreadStart = "fork" | "seed";
+
+/**  How many of a Thread's Turns fit in a transcript. */
+export type TranscriptSize = {
+	kept_turns: number,
+	total_turns: number,
+};
 
 export type WorkspaceInfo = {
 	repo_root: string | null,

@@ -17,6 +17,8 @@ pub struct Shared {
     /// How long an Agent process may sit with no Turn, no pending request and no View before it
     /// is stopped.
     pub idle_timeout: Duration,
+    /// The waits before each new try at restoring an Agent Session whose resume and load failed.
+    pub restore_retries: Vec<Duration>,
     pub agents: crate::agents::Agents,
     pub frontends: std::sync::RwLock<Vec<crate::api::FrontendManifest>>,
     pub mcp: crate::mcp::HarnessMcp,
@@ -72,9 +74,6 @@ pub struct SessionMeta {
     /// Last Agent Session id per Thread, used to resume or load.
     #[serde(default)]
     pub agent_sessions: HashMap<ThreadId, String>,
-    /// Threads whose Agent Session could not be continued.
-    #[serde(default)]
-    pub read_only_threads: HashSet<ThreadId>,
     /// Context Seeds waiting to be sent with a Thread's next prompt.
     #[serde(default)]
     pub seeds: HashMap<ThreadId, String>,
@@ -98,6 +97,29 @@ pub struct SessionMeta {
     /// The title was taken from the log's `SessionInfoUpdated` events once (Sessions from before titles were kept here).
     #[serde(default)]
     pub title_backfilled: bool,
+    /// A Quick Session: the Harness made `folder` for it and deletes it with the Session.
+    #[serde(default)]
+    pub quick: bool,
+    /// Quick Session with no prompt yet on any Thread. It can be discarded (`is_discardable`).
+    #[serde(default)]
+    pub awaiting_first_prompt: bool,
+    /// The title is a placeholder: the first Main Thread prompt replaces it.
+    #[serde(default)]
+    pub title_from_prompt: bool,
+}
+
+/// Title of a Quick Session until its first prompt.
+pub const QUICK_TITLE: &str = "New Quick Session";
+
+/// A title from the first line of a prompt: up to 40 characters.
+fn title_from_text(text: &str) -> Option<String> {
+    const MAX: usize = 40;
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let mut title: String = line.chars().take(MAX).collect();
+    if line.chars().count() > MAX {
+        title = format!("{}…", title.trim_end());
+    }
+    Some(title)
 }
 
 /// How a Side Thread starts.
@@ -134,6 +156,44 @@ pub struct FrontendErrorEntry {
     pub message: String,
 }
 
+/// How long a Frontend Tool that `replies` waits for a window.
+const FRONTEND_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Frontend requests waiting for their answer: request id -> who waits.
+#[derive(Default)]
+struct FrontendRequests(std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<crate::api::FrontendAnswer>>>);
+
+/// Removes a request from `FrontendRequests` when the wait ends in any way, also when the future is dropped.
+struct PendingFrontendRequest<'a>(&'a FrontendRequests, String);
+
+impl Drop for PendingFrontendRequest<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().unwrap().remove(&self.1);
+    }
+}
+
+impl FrontendRequests {
+    /// Adds a request, calls `emit` with its id, and waits for the answer.
+    async fn wait(&self, timeout: Duration, emit: impl FnOnce(String)) -> anyhow::Result<crate::api::FrontendAnswer> {
+        let request_id = uuid::Uuid::now_v7().to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.0.lock().unwrap().insert(request_id.clone(), tx);
+        let _pending = PendingFrontendRequest(self, request_id.clone());
+        emit(request_id);
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(answer) => Ok(answer?),
+            Err(_) => anyhow::bail!("No app window answered in time. The window may be closed or the Mac asleep."),
+        }
+    }
+
+    /// The first answer wins; later ones and unknown ids do nothing.
+    fn answer(&self, request_id: &str, answer: crate::api::FrontendAnswer) {
+        if let Some(tx) = self.0.lock().unwrap().remove(request_id) {
+            let _ = tx.send(answer);
+        }
+    }
+}
+
 pub struct Session {
     dir: PathBuf,
     meta: std::sync::Mutex<SessionMeta>,
@@ -142,6 +202,7 @@ pub struct Session {
     shared: Arc<Shared>,
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: std::sync::Mutex<()>,
+    frontend_requests: FrontendRequests,
 }
 
 impl Session {
@@ -168,7 +229,6 @@ impl Session {
             main_thread_id: uuid::Uuid::now_v7().to_string(),
             side_threads: Vec::new(),
             agent_sessions: Default::default(),
-            read_only_threads: Default::default(),
             seeds: Default::default(),
             context_pending: Default::default(),
             fork_note_pending: Default::default(),
@@ -177,6 +237,9 @@ impl Session {
             archived: false,
             mcp_servers,
             title_backfilled: true,
+            quick: false,
+            awaiting_first_prompt: false,
+            title_from_prompt: false,
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
@@ -198,6 +261,7 @@ impl Session {
     pub fn open(dir: &Path, shared: Arc<Shared>) -> anyhow::Result<Self> {
         let meta: SessionMeta = serde_json::from_slice(&std::fs::read(dir.join("session.json"))?)?;
         let log = SessionLog::open(meta.id.clone(), &dir.join("log.jsonl"))?;
+        log.note_agent_gone()?;
         let session = Self::from_parts(dir, meta, log, shared);
         if !session.meta.lock().unwrap().title_backfilled {
             let title = session.log.events()?.into_iter().rev().find_map(|e| match e.kind {
@@ -232,7 +296,7 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
-        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared, state_lock: Default::default() }
+        Self { dir: dir.to_owned(), meta: std::sync::Mutex::new(meta), log, agent: Default::default(), shared, state_lock: Default::default(), frontend_requests: Default::default() }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -253,6 +317,26 @@ impl Session {
     pub fn frontend_tools(&self) -> Vec<crate::api::FrontendToolDecl> {
         let id = self.meta.lock().unwrap().frontend_id.clone();
         self.shared.frontends.read().unwrap().iter().find(|f| f.id == id).map(|f| f.frontend_tools.clone()).unwrap_or_default()
+    }
+
+    /// Asks the Session's windows to answer a Frontend Tool call (`FrontendToolDecl::replies`).
+    pub async fn request_frontend(&self, tool: &str, input: serde_json::Value) -> anyhow::Result<crate::api::FrontendAnswer> {
+        let last_seq = self.log.last_seq()?;
+        self.frontend_requests
+            .wait(FRONTEND_REQUEST_TIMEOUT, |request_id| {
+                self.shared.app_events.emit(crate::api::AppEvent::FrontendRequest {
+                    session_id: self.id(),
+                    request_id,
+                    tool: tool.to_owned(),
+                    input,
+                    last_seq,
+                });
+            })
+            .await
+    }
+
+    pub fn answer_frontend_request(&self, request_id: &str, answer: crate::api::FrontendAnswer) {
+        self.frontend_requests.answer(request_id, answer);
     }
 
     /// Stores a validated Frontend Tool call under `frontend/tools/<tool>/<call id>.json` and
@@ -497,7 +581,23 @@ impl Session {
         Ok(r)
     }
 
+    /// A folder can become a repository after the Session started (`git init`, by the Agent or
+    /// in the terminal), so a Session with no repository looks again each time it is asked.
+    fn adopt_repo(&self) {
+        let folder = {
+            let m = self.meta.lock().unwrap();
+            if m.workspace.repo_root.is_some() {
+                return;
+            }
+            PathBuf::from(&m.folder)
+        };
+        if let Some(root) = crate::workspace::find_repo_root(&folder) {
+            let _ = self.update_meta(|m| m.workspace.repo_root = Some(root));
+        }
+    }
+
     pub fn summary(&self) -> SessionSummary {
+        self.adopt_repo();
         let m = self.meta.lock().unwrap();
         SessionSummary {
             id: m.id.clone(),
@@ -509,6 +609,7 @@ impl Session {
             updated_ms: self.log.last_ts_ms().unwrap_or(m.created_ms),
             status: self.agent.status(),
             archived: m.archived,
+            quick: m.quick,
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 worktree_branch: m.workspace.worktree.as_ref().map(|w| w.branch.clone()),
@@ -535,7 +636,55 @@ impl Session {
         attachments: Vec<crate::api::AttachmentInput>,
     ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
+        self.note_first_prompt(&thread, &text)?;
+        self.adopt_repo();
         crate::acp::prompt(self.clone(), thread, text, attachments).await
+    }
+
+    /// A Quick Session is used from its first prompt on, and takes its title from the first one
+    /// on the Main Thread. The Agent's own title replaces that later (`set_agent_title`).
+    fn note_first_prompt(&self, thread: &ThreadId, text: &str) -> anyhow::Result<()> {
+        let is_main = self.is_main(Some(thread));
+        let m = self.meta();
+        if !m.awaiting_first_prompt && !(m.title_from_prompt && is_main) {
+            return Ok(());
+        }
+        let title = if is_main && m.title_from_prompt { title_from_text(text) } else { None };
+        self.update_meta(|m| {
+            m.awaiting_first_prompt = false;
+            if is_main && title.is_some() {
+                m.title_from_prompt = false;
+            }
+            if let Some(t) = &title {
+                m.title = t.clone();
+            }
+        })?;
+        if let Some(title) = title {
+            let session_id = self.id();
+            self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status: self.agent.status() });
+        }
+        Ok(())
+    }
+
+    /// A Quick Session nobody used: no prompt, nothing in its folder, not archived.
+    pub fn is_discardable(&self) -> bool {
+        let m = self.meta();
+        m.quick
+            && m.awaiting_first_prompt
+            && !m.archived
+            && std::fs::read_dir(&m.folder).map(|mut d| d.next().is_none()).unwrap_or(true)
+    }
+
+    /// Removes the Session Directory and, for a Quick Session, the folder the Harness made.
+    /// The folder's name must be the Session id, so bad metadata can never delete another folder.
+    pub fn remove_files(&self) -> anyhow::Result<()> {
+        let m = self.meta();
+        std::fs::remove_dir_all(&self.dir)?;
+        let folder = Path::new(&m.folder);
+        if m.quick && folder.file_name().is_some_and(|n| n == m.id.as_str()) && folder.exists() {
+            std::fs::remove_dir_all(folder)?;
+        }
+        Ok(())
     }
 
     /// A stored attachment as `(mime, base64)`.
@@ -547,11 +696,12 @@ impl Session {
         self: &Arc<Self>,
         thread_id: Option<ThreadId>,
         text: Option<String>,
+        attachments: Vec<crate::api::AttachmentInput>,
     ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         crate::acp::continue_with_summary(self.clone(), thread.clone()).await?;
         if let Some(text) = text {
-            crate::acp::prompt(self.clone(), thread, text, Vec::new()).await?;
+            crate::acp::prompt(self.clone(), thread, text, attachments).await?;
         }
         Ok(())
     }
@@ -560,7 +710,7 @@ impl Session {
     /// Only for a Thread that never had one: resuming waits for the next prompt.
     pub fn warm_up(self: &Arc<Self>) {
         let m = self.meta();
-        if m.archived || m.read_only_threads.contains(&m.main_thread_id) || m.agent_sessions.contains_key(&m.main_thread_id) {
+        if m.archived || m.agent_sessions.contains_key(&m.main_thread_id) {
             return;
         }
         let session = self.clone();
@@ -624,6 +774,7 @@ impl Session {
     }
 
     fn folder(&self) -> anyhow::Result<PathBuf> {
+        self.adopt_repo();
         let m = self.meta.lock().unwrap();
         anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
         Ok(PathBuf::from(&m.folder))
@@ -738,4 +889,21 @@ fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
     std::fs::write(&tmp, serde_json::to_vec_pretty(meta)?)?;
     std::fs::rename(tmp, dir.join("session.json"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod frontend_request_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_timeout_or_a_dropped_wait_removes_the_request() {
+        let requests = FrontendRequests::default();
+        let err = requests.wait(Duration::from_millis(1), |_| {}).await.unwrap_err();
+        assert_eq!(err.to_string(), "No app window answered in time. The window may be closed or the Mac asleep.");
+        assert!(requests.0.lock().unwrap().is_empty());
+
+        let wait = requests.wait(Duration::from_secs(60), |_| {});
+        assert!(tokio::time::timeout(Duration::from_millis(1), wait).await.is_err());
+        assert!(requests.0.lock().unwrap().is_empty());
+    }
 }

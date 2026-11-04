@@ -12,8 +12,8 @@ import {
    useRef,
    useState,
 } from "react";
-import { useWrapCode, WRAP, WrapButton } from "./CodeBlock";
-import { type FileRef, lineLabel, parseFileRefKey, refWindow } from "./fileRefs";
+import { Frame, useWrapCode, WRAP, WrapButton } from "./CodeBlock";
+import { type FileRef, fileRefKey, lineLabel, parseFileRefKey, refWindow } from "./fileRefs";
 import { chipClick, chipOpen, chipPopover, closedChip } from "./prChip";
 
 const lowlight = createLowlight(common);
@@ -235,6 +235,18 @@ function FileRefView({
             <FileLines reader={reader} base={slice} fileRef={ref} />
          </PopoverContent>
       </Popover>
+   );
+}
+
+/** A ref's lines in a frame, for a panel: nothing until the file is read, or when there is no such file. */
+export function FilePreview({ reader, fileRef: ref }: { reader: FileReader; fileRef: FileRef }) {
+   const win = refWindow(ref);
+   const slice = useFileSlice(reader, ref.path, win.from, win.to);
+   if (!slice) return null;
+   return (
+      <Frame label={lineLabel(ref) ?? "Start of file"} action={<WrapButton />}>
+         <FileLines key={fileRefKey(ref)} reader={reader} base={slice} fileRef={ref} />
+      </Frame>
    );
 }
 

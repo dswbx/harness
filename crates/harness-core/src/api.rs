@@ -77,6 +77,16 @@ pub enum Command {
         #[serde(default)]
         mcp_servers: Vec<String>,
     },
+    /// Creates a Quick Session: a Session with no folder from the user. The core makes an empty
+    /// folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
+    CreateQuickSession {
+        agent_id: String,
+        frontend_id: String,
+        title: Option<String>,
+        /// MCP Library servers (ids) to give the Agent, besides the Harness MCP.
+        #[serde(default)]
+        mcp_servers: Vec<String>,
+    },
     ListMcpServers,
     /// Adds or replaces an MCP Library server. `secrets` holds values for `secret_keys`; they go
     /// to the Keychain, never to disk. A missing secret keeps the stored one.
@@ -102,6 +112,13 @@ pub enum Command {
         key: AppSettingKey,
         #[specta(type = Option<specta_typescript::Unknown>)]
         value: Option<Json>,
+    },
+    /// Answers a `FrontendRequest` AppEvent. The first answer wins; an answer for an unknown
+    /// `request_id` does nothing (several windows may answer).
+    AnswerFrontendRequest {
+        session_id: SessionId,
+        request_id: String,
+        answer: FrontendAnswer,
     },
     /// Reads the JSON at an https URL, e.g. a theme's shadcn registry item (tweakcn), for the app to import.
     FetchJson {
@@ -177,6 +194,13 @@ pub enum Command {
         #[serde(default)]
         filter: PrFilter,
     },
+    /// Fast-forwards a local `branch` of the repository containing `folder` to its `origin` counterpart:
+    /// a pull when it is checked out in `folder`, else a fetch into the branch (fails when it is checked
+    /// out elsewhere or has diverged).
+    UpdateBranch {
+        folder: String,
+        branch: String,
+    },
     /// Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept.
     ArchiveSession {
         session_id: SessionId,
@@ -191,6 +215,11 @@ pub enum Command {
         session_id: SessionId,
         #[serde(default)]
         force: bool,
+    },
+    /// Deletes a Quick Session that nobody used: no prompt was sent and its folder is empty.
+    /// Does nothing for any other Session or an unknown id, so an out-of-date caller loses no work.
+    DiscardEmptySession {
+        session_id: SessionId,
     },
     GitStatus {
         session_id: SessionId,
@@ -236,6 +265,13 @@ pub enum Command {
         session_id: SessionId,
         repo: RepoId,
         query: Option<String>,
+    },
+    /// The Session's GitHub repo, the PR it works on (the one it started from, else the newest PR, open
+    /// first, whose head is the current branch) and `base`, where the branch merges to: the Worktree's
+    /// base, else the PR's, else the remote's default branch. `repo` and `pr` None without a GitHub
+    /// remote; `pr` None without `gh`. Cached like PR references.
+    BranchPr {
+        session_id: SessionId,
     },
     /// The Session's Terminal tabs (a first one exists implicitly; ADR 0017).
     ListTerminals {
@@ -294,12 +330,15 @@ pub enum Command {
     WarmUp {
         session_id: SessionId,
     },
-    /// Starts a new Agent Session for a Thread, seeded with a summary of the Thread so far. The
-    /// way out of a read-only Thread. `text`, when given, is prompted right away.
+    /// Starts a new Agent Session for a Thread, seeded with a transcript of the Thread so far. The
+    /// way out of a Thread whose Agent Session cannot be restored. `text`, when given, is prompted
+    /// right away, with `attachments`.
     ContinueWithSummary {
         session_id: SessionId,
         thread_id: Option<ThreadId>,
         text: Option<String>,
+        #[serde(default)]
+        attachments: Vec<AttachmentInput>,
     },
     /// Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
     /// prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
@@ -446,6 +485,7 @@ pub enum CommandResult {
     PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
     PrLookup { prs: Vec<Option<PrInfo>> },
     PrSearch { prs: Vec<PrInfo> },
+    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo>, base: Option<String> },
     GitStatus { status: GitStatus },
     GitLog { commits: Vec<Commit> },
     Terminals { terminals: Vec<TerminalInfo> },
@@ -576,6 +616,28 @@ pub struct FrontendToolDecl {
     pub description: String,
     #[specta(type = specta_typescript::Unknown)]
     pub input_schema: Json,
+    /// The Frontend answers the call: the result goes back to the Agent, nothing goes in the Session Log.
+    #[serde(default)]
+    pub replies: bool,
+}
+
+/// A Frontend's answer to a `FrontendRequest`. `error` makes it a tool error for the Agent; else
+/// the Agent gets `text` then `image`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct FrontendAnswer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<FrontendImage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct FrontendImage {
+    pub mime: String,
+    /// Base64 (standard alphabet, no `data:` prefix).
+    pub data: String,
 }
 
 /// An MCP server in the MCP Library.
@@ -800,6 +862,8 @@ pub struct SessionSummary {
     pub updated_ms: i64,
     pub status: SessionStatus,
     pub archived: bool,
+    /// A Quick Session: `folder` is a folder the Harness made for it.
+    pub quick: bool,
     pub workspace: WorkspaceInfo,
 }
 
@@ -853,15 +917,32 @@ pub enum EventKind {
         methods: Vec<AuthMethodInfo>,
         message: String,
     },
-    /// The Thread's Agent Session cannot be continued; the Thread stays readable and can be
-    /// continued with a summary.
+    /// The Thread's Agent Session could not be restored; the Thread stays readable and can be
+    /// continued from a transcript. `retryable`: the Agent supports resume or load, so the next
+    /// prompt tries again. Logs from before these fields read as not retryable.
     ThreadReadOnly {
         reason: String,
+        #[serde(default)]
+        retryable: bool,
+        /// Why each method failed, for the user.
+        #[serde(default)]
+        errors: Vec<String>,
+        /// What a transcript would hold right now.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transcript: Option<TranscriptSize>,
+    },
+    /// Restoring the Thread's Agent Session failed and is being tried again.
+    AgentSessionRestoring {
+        attempt: u32,
+        of: u32,
     },
     /// A new Agent Session now backs the Thread. Anything but `initial` is a visible boundary.
     AgentSessionStarted {
         acp_session_id: String,
         boundary: Boundary,
+        /// `continued_with_summary`: what its transcript held.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transcript: Option<TranscriptSize>,
     },
     AgentProcessState {
         state: ProcessState,
@@ -1038,6 +1119,13 @@ pub enum EventKind {
     },
 }
 
+/// How many of a Thread's Turns fit in a transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TranscriptSize {
+    pub kept_turns: u32,
+    pub total_turns: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Boundary {
@@ -1133,6 +1221,18 @@ pub enum AppEvent {
     /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
     /// Titles and `busy` change silently: poll while a Terminal is shown.
     TerminalsChanged { session_id: SessionId },
+    /// The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
+    /// `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
+    /// it. Live only and not logged: Views still render only from the Session Log.
+    FrontendRequest {
+        session_id: SessionId,
+        request_id: String,
+        tool: String,
+        #[specta(type = specta_typescript::Unknown)]
+        input: Json,
+        #[specta(type = specta_typescript::Number)]
+        last_seq: u64,
+    },
 }
 
 /// Receives Events for one subscription. Returns `false` once the receiver is gone.

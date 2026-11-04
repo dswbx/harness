@@ -1,7 +1,7 @@
 import { common, createLowlight } from "lowlight";
 import { localPref } from "./localPref";
 
-const lowlight = createLowlight(common);
+export const lowlight = createLowlight(common);
 
 type Node = {
    type: string;

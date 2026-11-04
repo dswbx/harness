@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_core::api::{
-    AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, StatePatchOp, StateWriter, FrontendToolDecl, McpServerDef, McpTransport,
+    AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, StatePatchOp, StateWriter, FrontendToolDecl, McpServerDef, McpTransport,
 };
 use harness_core::host::Options;
 use harness_core::Harness;
@@ -52,6 +52,7 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
                 "required": ["title"],
                 "additionalProperties": false
             }),
+            replies: false,
         }],
     });
     h
@@ -208,6 +209,87 @@ async fn frontend_tool_is_validated_and_stored() {
     assert!(h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "/tmp/x".into(), content: "".into() }).await.is_err());
 }
 
+/// Registers a Frontend Tool that `replies`, and answers each `FrontendRequest` with all of `answers`
+/// in order (several windows). Returns the requests seen and the newest log `seq` at each of them.
+fn answer_requests(h: &Arc<Harness>, answers: Vec<FrontendAnswer>) -> Arc<Mutex<Vec<(AppEvent, u64)>>> {
+    h.register_frontend(FrontendManifest {
+        id: "chat".into(),
+        name: "Chat".into(),
+        version: "0".into(),
+        instructions: None,
+        frontend_tools: vec![FrontendToolDecl {
+            name: "snapshot".into(),
+            description: "Render to an image".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+            replies: true,
+        }],
+    });
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if matches!(e, AppEvent::FrontendRequest { .. }) {
+            let _ = tx.send(e.clone());
+        }
+        true
+    }));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (h, log) = (h.clone(), seen.clone());
+    tokio::spawn(async move {
+        while let Some(e) = rx.recv().await {
+            let AppEvent::FrontendRequest { session_id, request_id, .. } = &e else { unreachable!() };
+            let newest = events(&h, session_id).last().unwrap().seq;
+            for answer in &answers {
+                let cmd = Command::AnswerFrontendRequest { session_id: session_id.clone(), request_id: request_id.clone(), answer: answer.clone() };
+                assert!(matches!(h.execute(cmd).await, Ok(CommandResult::Ok)));
+            }
+            log.lock().unwrap().push((e, newest));
+        }
+    });
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn frontend_answer_returns_to_the_agent_without_a_log_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    let image = FrontendImage { mime: "image/png".into(), data: "cG5n".into() };
+    let first = FrontendAnswer { text: Some("Rendered.".into()), image: Some(image), error: None };
+    let second = FrontendAnswer { text: Some("Too late.".into()), ..Default::default() };
+    let seen = answer_requests(&h, vec![first, second]);
+
+    let bad = ask(&h, &sid, "mcp snapshot {}", None).await;
+    assert!(bad.starts_with("mcp error: invalid input for snapshot") && bad.contains("How to call snapshot:\nRender to an image"), "{bad}");
+    assert!(seen.lock().unwrap().is_empty(), "invalid input asks no window");
+
+    let reply = ask(&h, &sid, r#"mcp snapshot {"id":"chart"}"#, None).await;
+    assert_eq!(reply, "mcp: Rendered.\nimage image/png cG5n", "text, then the image; the second answer is ignored");
+
+    let seen = seen.lock().unwrap();
+    let [(AppEvent::FrontendRequest { session_id, tool, input, last_seq, .. }, newest)] = seen.as_slice() else { panic!("{seen:?}") };
+    assert_eq!((session_id, tool.as_str(), input), (&sid, "snapshot", &serde_json::json!({ "id": "chart" })));
+    assert_eq!(last_seq, newest);
+    let logged = events(&h, &sid);
+    assert!(!logged.iter().any(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })));
+    assert!(!logged.iter().any(|e| matches!(e.kind, EventKind::PermissionRequested { .. })), "no prompt for the user");
+
+    let unknown = Command::AnswerFrontendRequest { session_id: sid.clone(), request_id: "nope".into(), answer: FrontendAnswer::default() };
+    assert!(matches!(h.execute(unknown).await, Ok(CommandResult::Ok)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn frontend_error_answer_is_a_tool_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    answer_requests(&h, vec![FrontendAnswer { error: Some("no such artifact".into()), text: Some("ignored".into()), image: None }]);
+    assert_eq!(ask(&h, &sid, r#"mcp snapshot {"id":"chart"}"#, None).await, "mcp error: no such artifact");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn editor_setting_and_open_guard() {
     use harness_core::api::Editor;
@@ -345,7 +427,7 @@ async fn harness_context_starts_each_agent_session() {
     std::fs::create_dir_all(data.join("prompts")).unwrap();
     std::fs::write(data.join("prompts/harness.md"), "Custom core text.").unwrap();
     std::fs::write(data.join("prompts/chat.md"), "Custom chat text.").unwrap();
-    h.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None }).await.unwrap();
+    h.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None, attachments: vec![] }).await.unwrap();
     let again = shown(ask(&h, &sid, "show-context", None).await);
     assert!(again.starts_with("seededcontext: <harness_context>\nCustom core text.\n\n## Frontend: Chat\n\nCustom chat text."), "{again}");
 }

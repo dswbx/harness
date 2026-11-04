@@ -11,6 +11,7 @@ import type {
    Event,
    EventKind,
    FileChange,
+   FrontendAnswer,
    FrontendToolDecl,
    KnownRepo,
    McpServerDef,
@@ -36,7 +37,7 @@ const isModeOption = (o: { id: string; category?: string }) =>
    o.category === "mode" || o.id === "mode";
 const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
 const MOCK_BRANCHES: BranchInfo[] = [
-   { name: "main", time: ago(0.1), ahead: 0, behind: 0, worktree: false },
+   { name: "main", time: ago(0.1), ahead: 0, behind: 21, worktree: false },
    { name: "feature/login", time: ago(4), ahead: 3, behind: 1, worktree: false },
    { name: "feature/compact-header", time: ago(50), ahead: 0, behind: 0, worktree: true },
 ];
@@ -323,6 +324,17 @@ export function mockRenderUi(srcs: string[]) {
    };
 }
 
+declare global {
+   interface Window {
+      /** Manual testing in the browser mock: asks the UI to answer a Frontend Tool that `replies`. */
+      __harnessMockFrontendRequest?: (
+         sessionId: string,
+         tool: string,
+         input: unknown,
+      ) => Promise<FrontendAnswer>;
+   }
+}
+
 export class MockTransport implements Transport {
    private logs = new Map<string, Event[]>();
    private sessions: SessionSummary[] = [];
@@ -369,6 +381,10 @@ export class MockTransport implements Transport {
          frontend_tools?: FrontendToolDecl[];
       }[],
    ) {
+      if (typeof window !== "undefined") {
+         window.__harnessMockFrontendRequest = (sessionId, tool, input) =>
+            this.frontendRequest(sessionId, tool, input);
+      }
       this.addSession("mock-1", "Mock session (fixture replay)", "chat");
       // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
       const h = 3600e3;
@@ -444,7 +460,32 @@ export class MockTransport implements Transport {
          s.updated_ms = Date.now() - u * h;
          if (status) s.status = status;
       });
+      const quick: [string, number][] = [
+         ["Compare SQLite and libSQL", 3],
+         ["Convert seconds to hours", 50],
+      ];
+      quick.forEach(([title, age], i) => {
+         this.addQuickSession(`mock-q${i + 1}`, title, "chat");
+         const s = this.sessions.at(-1)!;
+         s.created_ms = Date.now() - age * h;
+         s.updated_ms = s.created_ms;
+      });
    }
+
+   private addQuickSession(id: string, title: string, frontend_id: string) {
+      const workspace: WorkspaceInfo = {
+         repo_root: null,
+         worktree_branch: null,
+         base_branch: null,
+         branch: null,
+         pr: null,
+      };
+      this.addSession(id, title, frontend_id, false, `/Users/me/.harness/quick/${id}`, workspace);
+      this.sessions.at(-1)!.quick = true;
+   }
+
+   /** Quick Sessions with no prompt yet. */
+   private unusedQuick = new Set<string>();
 
    private addSession(
       id: string,
@@ -464,6 +505,7 @@ export class MockTransport implements Transport {
          updated_ms: Date.now(),
          status: "idle",
          archived: false,
+         quick: false,
          workspace: workspace ?? {
             repo_root: folder,
             worktree_branch: null,
@@ -486,6 +528,7 @@ export class MockTransport implements Transport {
    }
 
    private readOnly = new Set<string>();
+   private restoreFailed = new Set<string>();
    private sideN = 0;
    private sideForked = new Map<string, boolean>();
 
@@ -506,6 +549,21 @@ export class MockTransport implements Transport {
    }
 
    /** Defaults to the session's Main Thread (fixture logs carry real ids). */
+   private frontendRequest(sessionId: string, tool: string, input: unknown) {
+      const request_id = `mock-request-${++this.n}`;
+      return new Promise<FrontendAnswer>((resolve) => {
+         this.frontendRequests.set(request_id, resolve);
+         this.emitApp({
+            type: "FrontendRequest",
+            session_id: sessionId,
+            request_id,
+            tool,
+            input,
+            last_seq: this.logs.get(sessionId)?.at(-1)?.seq ?? 0,
+         });
+      });
+   }
+
    private emit(sessionId: string, kind: EventKind, thread_id?: string | null) {
       const log = this.logs.get(sessionId)!;
       if (thread_id === undefined) {
@@ -526,6 +584,10 @@ export class MockTransport implements Transport {
 
    async execute(cmd: Command): Promise<CommandResult> {
       switch (cmd.type) {
+         case "AnswerFrontendRequest":
+            this.frontendRequests.get(cmd.request_id)?.(cmd.answer);
+            this.frontendRequests.delete(cmd.request_id);
+            return { type: "Ok" };
          case "ListAgents":
             return { type: "Agents", agents: [...this.installed] };
          case "ListRegistry":
@@ -594,7 +656,7 @@ export class MockTransport implements Transport {
                })),
             };
          case "ListSessions":
-            return { type: "Sessions", sessions: this.sessions };
+            return { type: "Sessions", sessions: [...this.sessions] };
          case "CreateSession": {
             const id = `mock-${++this.n + 1}`;
             const isRepo = !cmd.folder.includes("norepo");
@@ -630,6 +692,20 @@ export class MockTransport implements Transport {
             this.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
             this.emitApp({ type: "SessionsChanged" });
             return { type: "SessionCreated", session_id: id };
+         }
+         case "CreateQuickSession": {
+            const id = `mock-${++this.n + 1}`;
+            this.addQuickSession(id, cmd.title ?? "New Quick Session", cmd.frontend_id);
+            this.unusedQuick.add(id);
+            this.emitApp({ type: "SessionsChanged" });
+            return { type: "SessionCreated", session_id: id };
+         }
+         case "DiscardEmptySession": {
+            if (this.unusedQuick.delete(cmd.session_id)) {
+               this.sessions = this.sessions.filter((x) => x.id !== cmd.session_id);
+               this.emitApp({ type: "SessionsChanged" });
+            }
+            return { type: "Ok" };
          }
          case "ListBranches":
             return {
@@ -714,7 +790,12 @@ export class MockTransport implements Transport {
                   branch: this.session(cmd.session_id).workspace.worktree_branch ?? "main",
                   upstream: null,
                   ahead: this.ahead.get(cmd.session_id) ?? 0,
-                  behind: 0,
+                  behind:
+                     MOCK_BRANCHES.find(
+                        (b) =>
+                           b.name ===
+                           (this.session(cmd.session_id).workspace.worktree_branch ?? "main"),
+                     )?.behind ?? 0,
                   files: this.committed.has(cmd.session_id) ? [] : MOCK_FILES,
                },
             };
@@ -808,6 +889,26 @@ export class MockTransport implements Transport {
             this.ahead.set(cmd.session_id, (this.ahead.get(cmd.session_id) ?? 0) + 1);
             this.emit(cmd.session_id, { type: "GitCommitted", commit, message: cmd.message });
             return { type: "Committed", commit };
+         }
+         case "UpdateBranch": {
+            if (cmd.folder.includes("norepo")) throw new Error("not a git repository");
+            await new Promise((r) => setTimeout(r, 600));
+            const b = MOCK_BRANCHES.find((b) => b.name === cmd.branch);
+            if (!b) throw new Error(`fatal: couldn't find remote ref ${cmd.branch}`);
+            b.behind = 0;
+            return { type: "Ok" };
+         }
+         case "BranchPr": {
+            const s = this.session(cmd.session_id);
+            const base = s.workspace.base_branch ?? "main";
+            if (!s.workspace.repo_root || s.folder.includes("nogh"))
+               return { type: "BranchPr", repo: null, pr: null, base };
+            const repo = folderRepo(s.folder);
+            if (!repo) return { type: "BranchPr", repo: null, pr: null, base };
+            const pr =
+               MOCK_PR_INFOS.find((p) => sameRepo(p.repo, repo) && p.number === s.workspace.pr) ??
+               (s.workspace.worktree_branch ? (MOCK_PR_INFOS[0] ?? null) : null);
+            return { type: "BranchPr", repo, pr, base };
          }
          case "GitPush": {
             this.ahead.set(cmd.session_id, 0);
@@ -1055,7 +1156,7 @@ export class MockTransport implements Transport {
                   session_id: sid,
                   thread_id: null,
                   text: cmd.text,
-                  attachments: [],
+                  attachments: cmd.attachments ?? [],
                });
             return { type: "Ok" };
          }
@@ -1068,6 +1169,19 @@ export class MockTransport implements Transport {
          }
          case "Prompt": {
             const sid = cmd.session_id;
+            if (this.unusedQuick.delete(sid) && !cmd.thread_id) {
+               const s = this.session(sid);
+               const line = cmd.text.trim().split("\n")[0] ?? "";
+               if (s.title === "New Quick Session" && line) {
+                  s.title = line.length > 40 ? `${line.slice(0, 40).trimEnd()}…` : line;
+                  this.emitApp({
+                     type: "SessionStatus",
+                     session_id: sid,
+                     title: s.title,
+                     status: s.status,
+                  });
+               }
+            }
             if (cmd.thread_id) return this.promptSide(sid, cmd.thread_id, cmd.text);
             if (this.readOnly.has(sid))
                throw new Error("Thread is read-only: continue with a summary first");
@@ -1076,7 +1190,44 @@ export class MockTransport implements Transport {
                this.readOnly.add(sid);
                this.emit(sid, {
                   type: "ThreadReadOnly",
-                  reason: "agent cannot resume its session",
+                  reason: "The Agent could not reopen its earlier session.",
+                  retryable: false,
+                  errors: [],
+                  transcript: { kept_turns: 18, total_turns: 42 },
+               });
+               throw new Error("The Agent could not reopen its earlier session.");
+            }
+            // Typing "/restorefail" simulates a resume that fails; the next try works.
+            if (cmd.text.trim() === "/restorefail" && !this.restoreFailed.has(sid)) {
+               this.restoreFailed.add(sid);
+               this.emit(sid, { type: "AgentProcessState", state: "starting", message: null });
+               await new Promise((r) => setTimeout(r, 1200));
+               this.emit(sid, { type: "AgentProcessState", state: "ready", message: null });
+               for (const attempt of [1, 2, 3]) {
+                  this.emit(sid, { type: "AgentSessionRestoring", attempt, of: 3 });
+                  await new Promise((r) => setTimeout(r, 1200));
+               }
+               this.emit(sid, {
+                  type: "ThreadReadOnly",
+                  reason: "The Agent could not reopen its earlier session.",
+                  retryable: true,
+                  errors: ["resume: Internal error"],
+                  transcript: { kept_turns: 18, total_turns: 42 },
+               });
+               throw new Error("The Agent could not reopen its earlier session.");
+            }
+            if (cmd.text.trim() === "/restorefail")
+               this.emit(sid, {
+                  type: "AgentSessionStarted",
+                  acp_session_id: `acp-res-${this.logs.get(sid)!.length}`,
+                  boundary: "resumed",
+               });
+            // Typing "/apprestart" simulates reopening the app: the Agent process is gone.
+            if (cmd.text.trim() === "/apprestart") {
+               this.emit(sid, {
+                  type: "AgentProcessState",
+                  state: "stopped",
+                  message: "app_restart",
                });
                return { type: "Ok" };
             }
@@ -1410,6 +1561,7 @@ export class MockTransport implements Transport {
    }
 
    private appSubs = new Set<(e: AppEvent) => void>();
+   private frontendRequests = new Map<string, (answer: FrontendAnswer) => void>();
    private emitApp(e: AppEvent) {
       this.appSubs.forEach((f) => f(e));
    }

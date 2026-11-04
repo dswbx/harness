@@ -44,6 +44,10 @@ _Avoid_: task list, spec
 An Agent mode in which it drafts a Plan instead of acting.
 _Avoid_: planning mode, read-only mode
 
+**Quick Session**:
+A Session with no folder from the user; the Harness makes an empty folder for it, which goes with the Session (ADR 0020).
+_Avoid_: chat, scratch session
+
 **Archived Session**:
 A Session set aside by the user: its work is preserved and it can be restored, but its Worktrees no longer occupy disk.
 _Avoid_: closed session, inactive session
@@ -89,8 +93,12 @@ One live rendering of a Session by its Frontend, such as a window or pane; a Ses
 _Avoid_: window, tab, subscriber
 
 **Panel**:
-A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, or a `render_ui` item placed left or right; ADR 0019).
+A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, References, or a `render_ui` item placed left or right; ADR 0019).
 _Avoid_: tab, pane, sidebar
+
+**Reference**:
+A PR, file or link named in a Session's user or Agent messages, one per target with its mentions; the chat's References Panel lists those that exist. Derived from the chat Items (`references.ts`).
+_Avoid_: citation, mention (a mention is one place a Reference is named)
 
 **Zone**:
 One of six places a Panel can be docked (left top, left bottom, bottom left, bottom right, right bottom, right top); a Zone shows one Panel at a time and the user can move Panels between Zones.
@@ -115,7 +123,7 @@ The set of folders one Session's Agents work in, defined for that Session alone 
 _Avoid_: project, working directory, repo
 
 **Workspace Folder**:
-One folder in a Workspace: either an existing folder used as is (which other Sessions may also use) or a Worktree.
+One folder in a Workspace: an existing folder used as is (which other Sessions may also use), a Worktree, or the folder the Harness makes for a Quick Session.
 _Avoid_: root, mount, directory
 
 **Worktree**:
@@ -141,7 +149,7 @@ A shared capability the Harness owns (e.g. git status, create worktree), offered
 _Avoid_: command, action, API (alone)
 
 **Frontend Tool**:
-A tool a Frontend declares for its Sessions; when the Agent calls it, the Harness records the call's output in the Session Directory and the Frontend interprets it whenever a View renders (e.g. `render_ui`).
+A tool a Frontend declares for its Sessions; when the Agent calls it, the Harness records the call's output in the Session Directory and the Frontend interprets it whenever a View renders (e.g. `render_ui`). One that `replies` is a request instead: nothing is recorded, a window of the app answers, and the Agent gets the answer (e.g. `view_artifact`).
 _Avoid_: custom tool, plugin tool
 
 **Harness MCP**:
