@@ -260,6 +260,21 @@ fn unsubscribe(
     }
 }
 
+/// Same as `HTML_CSP` in the Chat Frontend's `htmlBridge.ts`.
+const FRAME_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src 'none'";
+
+/// Loader of an Html frame (ADR 0013 addendum): takes its document from the host and writes it over itself.
+const FRAME_LOADER: &str = r#"<!doctype html><script>addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="doc"){document.open();document.write(e.data.html);document.close()}});parent.postMessage({type:"ready"},"*")</script>"#;
+
+/// A `srcdoc` frame inherits the app's CSP, which blocks its scripts. A document from this scheme has its own.
+fn frame_response() -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Content-Security-Policy", FRAME_CSP)
+        .body(FRAME_LOADER.as_bytes().to_vec())
+        .expect("static response")
+}
+
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -270,6 +285,7 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        .register_uri_scheme_protocol("harness-frame", |_ctx, _request| frame_response())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())

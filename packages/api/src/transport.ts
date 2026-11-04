@@ -1,4 +1,4 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { AppEvent, Command, CommandResult, Event } from "./generated";
 
 export type Unsubscribe = () => void;
@@ -28,6 +28,14 @@ export interface Transport {
 
 export function inTauri(): boolean {
    return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * Where an Html frame loads in Tauri: a document of its own with its own CSP (harness-tauri `frame_response`).
+ * A `srcdoc` frame inherits the app's CSP, which blocks its scripts. `null` outside Tauri: `srcdoc` works there.
+ */
+export function htmlFrameUrl(): string | null {
+   return inTauri() ? convertFileSrc("", "harness-frame") : null;
 }
 
 export const tauriTransport: Transport = {

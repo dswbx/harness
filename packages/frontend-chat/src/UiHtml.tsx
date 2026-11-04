@@ -1,10 +1,12 @@
-import type { StatePatchOp } from "@harness/api";
+import { htmlFrameUrl, type StatePatchOp } from "@harness/api";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { InExpanded } from "./Expandable";
 import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
 import { renderUiSchema } from "./tools";
 
 const MAX_HEIGHT = 2000;
+/** Set in Tauri: the frame loads this and asks for its document. Otherwise the document goes in `srcdoc`. */
+const FRAME_URL = htmlFrameUrl();
 /** Last height by HTML: the chat's virtual list remounts rows; keep their height. */
 const heights = new Map<string, number>();
 
@@ -64,18 +66,27 @@ export function UiHtml(p: Props) {
       [p.html],
    );
 
+   const doc = useRef(srcdoc);
+   doc.current = srcdoc;
+   // The document the frame has asked for: its first load event is only the loader's.
+   const sent = useRef<string | null>(null);
+
    // A frame paints white until its document loads (its first, empty document has no dark color scheme).
    const [loaded, setLoaded] = useState<string | null>(null);
 
    const post = (m: unknown) => frame.current?.contentWindow?.postMessage(m, "*");
 
+   // biome-ignore lint/correctness/useExhaustiveDependencies: post reads the ref
    useEffect(() => {
       const onMessage = (e: MessageEvent) => {
          if (!frame.current || e.source !== frame.current.contentWindow) return;
          const m = e.data as FrameMessage;
          const cur = latest.current;
          const fail = (x: unknown) => setError(x instanceof Error ? x.message : String(x));
-         if (m?.type === "height" && typeof m.px === "number") {
+         if (m?.type === "ready") {
+            sent.current = doc.current;
+            post({ type: "doc", html: doc.current });
+         } else if (m?.type === "height" && typeof m.px === "number") {
             const px = Math.min(Math.max(m.px, 20), MAX_HEIGHT);
             heights.set(cur.html, px);
             setAuto(px);
@@ -111,11 +122,14 @@ export function UiHtml(p: Props) {
    return (
       <div className="min-w-0">
          <iframe
+            // New HTML, new frame: once the loader has written the document, nothing there takes another.
+            key={srcdoc}
             ref={frame}
             title={p.title ?? "HTML"}
             sandbox="allow-scripts"
-            srcDoc={srcdoc}
+            {...(FRAME_URL ? { src: FRAME_URL } : { srcDoc: srcdoc })}
             onLoad={() => {
+               if (FRAME_URL && sent.current !== srcdoc) return;
                setLoaded(srcdoc);
                post({ type: "state", state: latest.current.state });
             }}
