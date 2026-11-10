@@ -898,7 +898,8 @@ async fn warm_up_does_not_resume_a_stopped_agent() {
     h.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
-    assert_eq!(turn(&h, &sid, None, "back").await, "end_turn");
+    let back = turn(&h, &sid, None, "back").await;
+    assert_eq!(back, "end_turn", "{:#?}", h_events(&h, &sid));
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
 }
 
