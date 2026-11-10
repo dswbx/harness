@@ -68,10 +68,10 @@ function ChangesRow({
    return (
       <button
          type="button"
-         className="flex w-full items-center gap-x-2.5 border-t pt-3 text-left text-[13px] text-muted-foreground hover:text-foreground"
+         className="flex w-full items-baseline gap-x-2.5 border-t pt-3 text-left text-[13px] text-muted-foreground hover:text-foreground"
          onClick={onOpen}
       >
-         <Diff className="size-4 shrink-0" />
+         <Diff className="size-4 shrink-0 self-center" />
          <span className="shrink-0 font-medium text-foreground">
             {n} {n === 1 ? "file" : "files"} changed
          </span>
@@ -82,7 +82,7 @@ function ChangesRow({
             </span>
          )}
          <span className="min-w-0 flex-1 truncate font-mono text-xs">{names}</span>
-         <ChevronRight className="size-3.5 shrink-0" />
+         <ChevronRight className="size-3.5 shrink-0 self-center" />
       </button>
    );
 }
