@@ -69,7 +69,13 @@ fn set(doc: &mut Value, path: &str, value: Value, insert: bool) -> anyhow::Resul
         Value::Array(a) => {
             let i: usize = last.parse().map_err(|_| anyhow::anyhow!("{path}: {last} is not an array index"))?;
             anyhow::ensure!(i <= a.len(), "{path}: index {i} is out of range");
-            if insert { a.insert(i, value) } else if i == a.len() { a.push(value) } else { a[i] = value }
+            if insert {
+                a.insert(i, value)
+            } else if i == a.len() {
+                a.push(value)
+            } else {
+                a[i] = value
+            }
         }
         _ => anyhow::bail!("{path}: the parent is not an object or array"),
     }
@@ -117,8 +123,8 @@ fn index(t: &str, len: usize) -> anyhow::Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use StatePatchOp::*;
+    use serde_json::json;
 
     fn p(path: &str) -> String {
         path.to_owned()
@@ -127,17 +133,21 @@ mod tests {
     #[test]
     fn lenient_json_patch() {
         let doc = json!({});
-        let doc = apply(&doc, &[
-            Add { path: p("/quiz/score"), value: json!(0) },
-            Add { path: p("/quiz/answers"), value: json!([]) },
-            Add { path: p("/quiz/answers/-"), value: json!("B") },
-            Add { path: p("/quiz/answers/0"), value: json!("A") },
-            Replace { path: p("/quiz/score"), value: json!(1) },
-            Replace { path: p("/a~1b"), value: json!(true) },
-        ])
+        let doc = apply(
+            &doc,
+            &[
+                Add { path: p("/quiz/score"), value: json!(0) },
+                Add { path: p("/quiz/answers"), value: json!([]) },
+                Add { path: p("/quiz/answers/-"), value: json!("B") },
+                Add { path: p("/quiz/answers/0"), value: json!("A") },
+                Replace { path: p("/quiz/score"), value: json!(1) },
+                Replace { path: p("/a~1b"), value: json!(true) },
+            ],
+        )
         .unwrap();
         assert_eq!(doc, json!({ "quiz": { "score": 1, "answers": ["A", "B"] }, "a/b": true }));
-        let doc = apply(&doc, &[Remove { path: p("/quiz/answers/0") }, Remove { path: p("/missing/x") }, Test { path: p("/quiz/score"), value: json!(1) }]).unwrap();
+        let doc =
+            apply(&doc, &[Remove { path: p("/quiz/answers/0") }, Remove { path: p("/missing/x") }, Test { path: p("/quiz/score"), value: json!(1) }]).unwrap();
         assert_eq!(doc["quiz"]["answers"], json!(["B"]));
         // All or nothing.
         let err = apply(&doc, &[Replace { path: p("/quiz/score"), value: json!(5) }, Test { path: p("/quiz/score"), value: json!(1) }]).unwrap_err();
@@ -146,7 +156,8 @@ mod tests {
         assert!(apply(&doc, &[Add { path: p("quiz"), value: json!(1) }]).is_err());
         assert!(apply(&doc, &[Replace { path: p("/quiz/answers/3"), value: json!(1) }]).is_err());
         // `replace` at an index sets it (or appends at the length); `add` inserts.
-        let doc = apply(&json!({ "r": [null, null] }), &[Replace { path: p("/r/0"), value: json!(true) }, Replace { path: p("/r/2"), value: json!(false) }]).unwrap();
+        let doc =
+            apply(&json!({ "r": [null, null] }), &[Replace { path: p("/r/0"), value: json!(true) }, Replace { path: p("/r/2"), value: json!(false) }]).unwrap();
         assert_eq!(doc["r"], json!([true, null, false]));
     }
 }

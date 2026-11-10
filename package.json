@@ -13,6 +13,8 @@
       "gen-ts": "cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts && bun run gen-manifests",
       "typecheck": "bun run --filter '*' typecheck && bun run check-boundaries",
       "test": "vitest run",
+      "check:rust": "cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked",
+      "check:generated": "bun run gen-ts && git diff --exit-code -- packages/api/src/generated.ts packages/*/manifest.json",
       "check-boundaries": "bun scripts/check-boundaries.ts && bun scripts/gen-manifests.ts --check",
       "gen-manifests": "bun scripts/gen-manifests.ts",
       "lint": "biome check .",

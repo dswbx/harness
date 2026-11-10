@@ -1,3 +1,4 @@
+import { CommandError, toCommandError } from "./errors";
 import type {
    AgentInfo,
    AppEvent,
@@ -13,6 +14,7 @@ import type {
    FileChange,
    FrontendAnswer,
    FrontendToolDecl,
+   InstallInfo,
    KnownRepo,
    McpServerDef,
    PermissionRule,
@@ -361,6 +363,7 @@ export class MockTransport implements Transport {
    private logs = new Map<string, Event[]>();
    private sessions: SessionSummary[] = [];
    private subs = new Map<string, Set<(e: Event) => void>>();
+   private lagHandlers = new Map<(e: Event) => void, () => void>();
    private n = 0;
    private rules: PermissionRule[] = [];
    private ruleN = 0;
@@ -545,7 +548,7 @@ export class MockTransport implements Transport {
 
    private session(id: string) {
       const s = this.sessions.find((x) => x.id === id);
-      if (!s) throw new Error("no such session");
+      if (!s) throw new CommandError("not_found", "no such session");
       return s;
    }
 
@@ -605,6 +608,14 @@ export class MockTransport implements Transport {
    }
 
    async execute(cmd: Command): Promise<CommandResult> {
+      try {
+         return await this.executeInner(cmd);
+      } catch (e) {
+         throw toCommandError(e);
+      }
+   }
+
+   private async executeInner(cmd: Command): Promise<CommandResult> {
       switch (cmd.type) {
          case "AnswerFrontendRequest":
             this.frontendRequests.get(cmd.request_id)?.(cmd.answer);
@@ -634,6 +645,19 @@ export class MockTransport implements Transport {
                source: { type: "registry", registry_id: entry.id },
                version: entry.version,
                icon: entry.icon,
+               install: {
+                  sha256: null,
+                  unverified: false,
+                  previous: null,
+                  held: false,
+                  check: {
+                     version: entry.version,
+                     passed: true,
+                     auth_required: false,
+                     error: null,
+                     at_ms: Date.now(),
+                  },
+               },
             };
             this.installed = [...this.installed.filter((a) => a.id !== agent.id), agent];
             this.installedVersions.set(entry.id, entry.version);
@@ -655,8 +679,40 @@ export class MockTransport implements Transport {
                source: { type: "custom" },
                version: null,
                icon: null,
+               install: {
+                  sha256: null,
+                  unverified: false,
+                  previous: null,
+                  held: false,
+                  check: null,
+               },
             };
             this.installed = [...this.installed.filter((a) => a.id !== agent.id), agent];
+            this.emitApp({ type: "AgentsChanged" });
+            return { type: "AgentInstalled", agent };
+         }
+         case "HoldAgentVersion": {
+            const cur = this.installed.find((a) => a.id === cmd.agent_id);
+            if (!cur) throw new Error(`unknown Agent ${cmd.agent_id}`);
+            const agent = { ...cur, install: { ...cur.install, held: cmd.hold } as InstallInfo };
+            this.installed = this.installed.map((a) => (a.id === agent.id ? agent : a));
+            this.emitApp({ type: "AgentsChanged" });
+            return { type: "AgentInstalled", agent };
+         }
+         case "RollbackAgent": {
+            const cur = this.installed.find((a) => a.id === cmd.agent_id);
+            const prev = cur?.install?.previous;
+            if (!cur || !prev) throw new Error("no previous version");
+            const agent: AgentInfo = {
+               ...cur,
+               version: prev.version,
+               command: prev.command,
+               args: prev.args,
+               env: prev.env,
+               install: { ...cur.install, previous: null, held: true, check: null } as InstallInfo,
+            };
+            this.installed = this.installed.map((a) => (a.id === agent.id ? agent : a));
+            this.installedVersions.set(agent.id, prev.version);
             this.emitApp({ type: "AgentsChanged" });
             return { type: "AgentInstalled", agent };
          }
@@ -995,7 +1051,8 @@ export class MockTransport implements Transport {
             this.editor = cmd.editor;
             return { type: "Ok" };
          case "OpenInEditor":
-            if (!this.editor) throw new Error("choose an editor in Settings first");
+            if (!this.editor)
+               throw new CommandError("invalid", "choose an editor in Settings first");
             this.opened.push({ path: cmd.path ?? null, line: cmd.line ?? null });
             console.info(
                "[mock] open in editor",
@@ -1236,7 +1293,10 @@ export class MockTransport implements Transport {
             }
             if (cmd.thread_id) return this.promptSide(sid, cmd.thread_id, cmd.text);
             if (this.readOnly.has(sid))
-               throw new Error("Thread is read-only: continue with a summary first");
+               throw new CommandError(
+                  "agent_unavailable",
+                  "Thread is read-only: continue with a summary first",
+               );
             // Typing "/readonly" in the mock simulates an Agent that lost its session.
             if (cmd.text.trim() === "/readonly") {
                this.readOnly.add(sid);
@@ -1247,7 +1307,10 @@ export class MockTransport implements Transport {
                   errors: [],
                   transcript: { kept_turns: 18, total_turns: 42 },
                });
-               throw new Error("The Agent could not reopen its earlier session.");
+               throw new CommandError(
+                  "agent_unavailable",
+                  "The Agent could not reopen its earlier session.",
+               );
             }
             // Typing "/restorefail" simulates a resume that fails; the next try works.
             if (cmd.text.trim() === "/restorefail" && !this.restoreFailed.has(sid)) {
@@ -1298,7 +1361,7 @@ export class MockTransport implements Transport {
                      { id: "login", name: "Codex login", description: null, kind: "terminal" },
                   ],
                });
-               throw new Error("The Agent needs you to sign in first.");
+               throw new CommandError("auth_required", "The Agent needs you to sign in first.");
             }
             // Typing "/quiz" simulates an Agent building a practice test with Session State and slots.
             if (cmd.text.trim() === "/quiz") {
@@ -1693,13 +1756,30 @@ export class MockTransport implements Transport {
       sessionId: string,
       fromSeq: number,
       onEvent: (e: Event) => void,
+      onLagged?: () => void,
    ): Promise<Unsubscribe> {
       const log = this.logs.get(sessionId) ?? [];
       log.filter((e) => e.seq >= fromSeq).forEach(onEvent);
       let set = this.subs.get(sessionId);
       if (!set) this.subs.set(sessionId, (set = new Set()));
       set.add(onEvent);
-      return () => set.delete(onEvent);
+      if (onLagged) this.lagHandlers.set(onEvent, onLagged);
+      return () => {
+         set.delete(onEvent);
+         this.lagHandlers.delete(onEvent);
+      };
+   }
+
+   /** Test hook: the core drops every subscriber of the Session as lagging (like a slow View). */
+   dropSubscribersAsLagged(sessionId: string): void {
+      const set = this.subs.get(sessionId);
+      if (!set) return;
+      for (const f of [...set]) {
+         set.delete(f);
+         const lagged = this.lagHandlers.get(f);
+         this.lagHandlers.delete(f);
+         lagged?.();
+      }
    }
 }
 

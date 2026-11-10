@@ -1,16 +1,16 @@
 //! ACP Registry installs, Custom Agents and Agent auth, offline (file:// registry and archives).
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
+use harness_core::Harness;
 use harness_core::api::{AgentInfo, AgentSource, Command, CommandResult, Event, EventKind, FrontendManifest};
 use harness_core::host::Options;
-use harness_core::Harness;
 use sha2::{Digest, Sha256};
-
 
 fn harness(data: &Path, registry: &Path, fixed: Vec<AgentInfo>) -> Arc<Harness> {
     let options = Options { registry_url: format!("file://{}", registry.display()), ..Default::default() };
@@ -54,15 +54,7 @@ fn registry(dir: &Path, tgz: &Path, sha: &str) -> PathBuf {
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 async fn create(h: &Harness, folder: &Path, agent_id: &str) -> String {
@@ -83,7 +75,7 @@ async fn create(h: &Harness, folder: &Path, agent_id: &str) -> String {
 
 async fn turn_ends(h: &Harness, sid: &str, text: &str) -> Result<(), String> {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await?;
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.map_err(|e| e.message)?;
     for _ in 0..400 {
         if events(h, sid)[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
             return Ok(());
@@ -105,9 +97,10 @@ async fn registry_binary_install_runs_and_survives_restart() {
     let methods: Vec<_> = agents.iter().map(|a| (a.id.as_str(), a.install_method.as_deref())).collect();
     assert_eq!(methods, vec![("fake-acp", Some("binary")), ("npm-only", Some("npx")), ("linux-only", None)], "unparseable entries are skipped");
 
-    let CommandResult::AgentInstalled { agent } =
-        h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::AgentInstalled { agent } = h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified: false }).await.unwrap()
+    else {
+        panic!()
+    };
     assert_eq!((agent.version.as_deref(), &agent.source), (Some("1.2.3"), &AgentSource::Registry { registry_id: "fake-acp".into() }));
     assert!(agent.command.ends_with("agents/fake-acp/1.2.3/bin/run"), "{}", agent.command);
 
@@ -115,6 +108,7 @@ async fn registry_binary_install_runs_and_survives_restart() {
     turn_ends(&h, &sid, "hi").await.unwrap();
 
     // Persisted: a new Harness on the same data dir lists it and the registry marks it installed.
+    drop(h);
     let h2 = harness(&data, &reg, vec![]);
     let CommandResult::Agents { agents } = h2.execute(Command::ListAgents).await.unwrap() else { panic!() };
     assert_eq!(agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["fake-acp"]);
@@ -132,8 +126,8 @@ async fn checksum_mismatch_is_refused() {
     let reg = registry(dir.path(), &tgz, &"0".repeat(64));
     let data = dir.path().join("data");
     let h = harness(&data, &reg, vec![]);
-    let err = h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap_err();
-    assert!(err.contains("checksum mismatch"), "{err}");
+    let err = h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified: false }).await.unwrap_err();
+    assert!(err.message.contains("checksum mismatch"), "{err}");
     let CommandResult::Agents { agents } = h.execute(Command::ListAgents).await.unwrap() else { panic!() };
     assert!(agents.is_empty());
     assert!(!data.join("agents/fake-acp/1.2.3").exists());
@@ -169,6 +163,7 @@ async fn auth_required_until_the_user_signs_in() {
         source: AgentSource::Custom,
         version: None,
         icon: None,
+        install: Default::default(),
     };
     let h = harness(&dir.path().join("data"), &dir.path().join("none.json"), vec![fake]);
     let sid = create(&h, dir.path(), "fake").await;

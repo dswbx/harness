@@ -1,5 +1,6 @@
+import { baseName, CommandError } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { baseName, fitWithin, fromPath, fromPickedPath, isImageName } from "./attachments";
+import { fitWithin, fromPath, fromPickedPath, isImageName } from "./attachments";
 
 describe("attachments", () => {
    it("fits the longer side within the max, never upscales", () => {
@@ -42,7 +43,7 @@ describe("attachments", () => {
       });
       await expect(
          fromPickedPath("/a/big.png", async () => {
-            throw new Error("/a/big.png is too large (25 MB max)");
+            throw new CommandError("invalid", "/a/big.png is too large (25 MB max)");
          }),
       ).rejects.toThrow("too large");
    });

@@ -28,7 +28,12 @@ import type {
    ThreadStart,
    WorkspaceInfo,
 } from "./generated";
-import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
+import {
+   subscribeResilient,
+   type TerminalOutput,
+   type Transport,
+   type Unsubscribe,
+} from "./transport";
 
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
 export interface SessionApi {
@@ -169,7 +174,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
    };
    return {
       sessionId,
-      subscribe: (onEvent, fromSeq = 0) => transport.subscribe(sessionId, fromSeq, onEvent),
+      subscribe: (onEvent, fromSeq = 0) =>
+         subscribeResilient(transport, sessionId, fromSeq, onEvent),
       prompt: (text, attachments = [], threadId = null) =>
          run({ type: "Prompt", session_id: sessionId, thread_id: threadId, text, attachments }),
       readAttachment: async (path) => {
@@ -331,9 +337,29 @@ export class HarnessClient {
       const r = await this.transport.execute({ type: "ListRegistry", refresh });
       return r.type === "Registry" ? r.agents : [];
    }
-   /** Slow on first use (downloads Node/uv + package). Also updates an installed Agent. */
-   async installAgent(registryId: string): Promise<AgentInfo> {
-      const r = await this.transport.execute({ type: "InstallAgent", registry_id: registryId });
+   /**
+    * Slow on first use (downloads Node/uv + package). Also updates an installed Agent: the update
+    * is installed side by side and kept only if the conformance check passes. A download the
+    * registry lists no sha256 for is refused unless `allowUnverified`.
+    */
+   async installAgent(registryId: string, allowUnverified = false): Promise<AgentInfo> {
+      const r = await this.transport.execute({
+         type: "InstallAgent",
+         registry_id: registryId,
+         allow_unverified: allowUnverified,
+      });
+      if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+      return r.agent;
+   }
+   /** Back to the previous version (and held there). */
+   async rollbackAgent(agentId: string): Promise<AgentInfo> {
+      const r = await this.transport.execute({ type: "RollbackAgent", agent_id: agentId });
+      if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+      return r.agent;
+   }
+   /** Held Agents stay at their current version. */
+   async holdAgentVersion(agentId: string, hold: boolean): Promise<AgentInfo> {
+      const r = await this.transport.execute({ type: "HoldAgentVersion", agent_id: agentId, hold });
       if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
       return r.agent;
    }

@@ -15,7 +15,8 @@ export type TreeRow<T> =
 type Node<T> = { dirs: Map<string, Node<T>>; files: T[] };
 
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
-const baseName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+/** The part of a tree path after its last `/` (no fallback: tree paths are relative, never end in `/`). */
+const leafName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
 /**
  * Changed files as a folder tree: folders first, then files, each sorted by name; a folder holding only one folder
@@ -68,10 +69,10 @@ export function fileTree<T extends Changed>(
             rows.push({ kind: "dir", key, name: label, depth, open, additions, deletions });
          walk(child, depth + 1, key + "/", visible && open);
       }
-      for (const f of [...n.files].sort((a, b) => byName(baseName(a.path), baseName(b.path)))) {
+      for (const f of [...n.files].sort((a, b) => byName(leafName(a.path), leafName(b.path)))) {
          order.push(f);
          if (visible)
-            rows.push({ kind: "file", key: f.path, name: baseName(f.path), depth, file: f });
+            rows.push({ kind: "file", key: f.path, name: leafName(f.path), depth, file: f });
       }
    };
    walk(root, 0, "", true);

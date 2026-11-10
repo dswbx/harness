@@ -3,9 +3,9 @@
  * no `allow-same-origin`). The frame talks to the host only with postMessage, through the bridge below.
  */
 
-/** No network, no external scripts or styles; inline only. Images from data: or https. */
+/** No network at all, no external scripts or styles; inline only. Images only from data: or blob: (an https image URL would leak data through its query string). */
 export const HTML_CSP =
-   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src 'none'";
+   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'";
 
 /** The app's theme tokens the frame gets as CSS variables (packages/ui styles.css). */
 export const THEME_VARS = [

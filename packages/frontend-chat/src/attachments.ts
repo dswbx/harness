@@ -1,4 +1,4 @@
-import type { AttachmentInput } from "@harness/api";
+import { type AttachmentInput, baseName, isCommandError } from "@harness/api";
 
 /** An attachment waiting in the prompt box. `preview`: data URL for pasted/picked image bytes. */
 export type PendingAttachment = {
@@ -16,7 +16,6 @@ export const FILE_MAX_BYTES = 5 * 1024 * 1024;
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
 
-export const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
 export const isImageName = (name: string) => IMAGE_EXT.test(name);
 
 let n = 0;
@@ -61,6 +60,9 @@ async function downscale(file: File, dataUrl: string): Promise<string> {
    return canvas.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.9);
 }
 
+/** A file over the size limit, found while scaling or reading it here. */
+class TooLargeError extends Error {}
+
 /**
  * A picked or dropped file path. Images are read (via `read`) and handled like pasted ones, so
  * they get a preview and are scaled down; if reading fails they are sent by path.
@@ -76,7 +78,7 @@ export async function fromPickedPath(
       return await fromFile(new File([bytes], baseName(path), { type: mime }));
    } catch (err) {
       // Too large after scaling is a real error; anything else (e.g. no file access) falls back to the path.
-      if (err instanceof Error && err.message.includes("too large")) throw err;
+      if (err instanceof TooLargeError || isCommandError(err, "invalid")) throw err;
       return fromPath(path);
    }
 }
@@ -93,7 +95,7 @@ export async function fromFile(file: File): Promise<PendingAttachment> {
    const mime = head!.slice(5).split(";")[0] || file.type || "application/octet-stream";
    const bytes = Math.floor((data.length * 3) / 4);
    const max = image ? IMAGE_MAX_BYTES : FILE_MAX_BYTES;
-   if (bytes > max) throw new Error(`${name} is too large (max ${max / 1024 / 1024} MB).`);
+   if (bytes > max) throw new TooLargeError(`${name} is too large (max ${max / 1024 / 1024} MB).`);
    return {
       id: nextId(),
       name,

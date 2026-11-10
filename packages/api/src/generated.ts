@@ -11,6 +11,8 @@ export type AgentInfo = {
 	source?: AgentSource,
 	version: string | null,
 	icon: string | null,
+	/**  Hash, previous version, hold and last check of an installed Agent (ADR 0007). */
+	install?: InstallInfo,
 };
 
 export type AgentSource = { type: "registry"; registry_id: string } | { type: "custom" };
@@ -100,8 +102,16 @@ export type Command = { type: "ListAgents" } |
 /**
  *  Installs (or updates) an Agent from the ACP Registry onto the managed toolchain. Slow:
  *  may download a runtime and the Agent's package.
+ * 
+ *  A binary without a sha256 in the registry is refused unless `allow_unverified`. An update
+ *  is installed side by side and switched to only if the headless conformance check passes;
+ *  the previous version is kept for `RollbackAgent`. A held Agent is not updated.
  */
-{ type: "InstallAgent"; registry_id: string } | { type: "AddCustomAgent"; name: string; command: string; args?: string[]; env?: { [key in string]: string } } | 
+{ type: "InstallAgent"; registry_id: string; allow_unverified?: boolean } | 
+/**  Switches an Agent back to its previous version (and holds it there). */
+{ type: "RollbackAgent"; agent_id: string } | 
+/**  Holds an Agent at its current version (`hold`) or releases it. */
+{ type: "HoldAgentVersion"; agent_id: string; hold: boolean } | { type: "AddCustomAgent"; name: string; command: string; args?: string[]; env?: { [key in string]: string } } | 
 /**
  *  Removes an installed or Custom Agent. Sessions using it keep their own copy of its launch
  *  spec until next started.
@@ -319,6 +329,17 @@ export type Commit = {
 	time: number,
 };
 
+/**  Result of the headless conformance check of one Agent version. */
+export type ConformanceCheck = {
+	version: string | null,
+	passed: boolean,
+	/**  The Agent needs sign-in: spawn and protocol passed, `session/new` was not completed. */
+	auth_required: boolean,
+	/**  Why it failed, with the stderr tail. */
+	error: string | null,
+	at_ms: number,
+};
+
 export type Decision = "allow" | "ask" | "deny";
 
 export type Diff = {
@@ -334,6 +355,23 @@ export type Diff = {
  *  (`{path}`, `{line}`), or the system default app (no line).
  */
 export type Editor = { type: "vscode" } | { type: "cursor" } | { type: "windsurf" } | { type: "zed" } | { type: "custom"; template: string } | { type: "system" };
+
+/**  Why a Command failed, so Frontends branch on a code and never on the message text. */
+export type ErrorCode = 
+/**  The Agent needs the user to sign in first. */
+"auth_required" | 
+/**  A Session, Thread, Agent or other id the Command names does not exist. */
+"not_found" | 
+/**  The Command conflicts with the current state (already exists, archived, unmerged work). */
+"conflict" | 
+/**  The Permission Policy or a sandbox rule forbids it (a path outside the Session's folder). */
+"policy_denied" | 
+/**  The Agent is not running, not installed or its Agent Session could not be restored. */
+"agent_unavailable" | 
+/**  The Command's input is wrong (empty, malformed, not supported here). */
+"invalid" | 
+/**  Anything else. */
+"internal";
 
 /**  One entry of a Session Log, as delivered to Views. */
 export type Event = {
@@ -378,7 +416,13 @@ parent_tool_call_id?: string | null;
 /**  This call hands the subagent's final report to its parent: the text. */
 report?: string | null; 
 /**  The Harness MCP tool this calls (`git_status`), when it is one. */
-harness_tool?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+harness_tool?: string | null; 
+/**  A plan the Agent asks to be approved (a mode switch carrying one): Markdown. */
+plan?: string | null; 
+/**  This call starts a subagent: what it was asked to do. */
+subagent?: SubagentInfo | null; 
+/**  `git_commit`: the commit message. */
+commit_message?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
 raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null; 
 /**
@@ -387,11 +431,23 @@ raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: str
  */
 background?: boolean; 
 /**  Set when the update changes the title to a Harness MCP tool. */
-harness_tool?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+harness_tool?: string | null; 
+/**  Set when the update carries the plan (see `ToolCall`). */
+plan?: string | null; 
+/**  Set when the update carries the subagent's task (see `ToolCall`). */
+subagent?: SubagentInfo | null; 
+/**  Set when the update carries the commit message (see `ToolCall`). */
+commit_message?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
 /**  The Harness MCP tool the request is for, when it is one. */
-harness_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
+harness_tool?: string | null; 
+/**  The request approves a plan (Plan Mode): Markdown. */
+plan?: string | null; 
+/**  `git_commit`: the commit message. */
+commit_message?: string | null; 
+/**  The request is for a Frontend Tool: its name. */
+frontend_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */
 rule_id?: string | null } | 
 /**  The user's "always" answer was remembered as a Session-scoped rule. */
@@ -425,7 +481,14 @@ files?: { [key in string]: string } } |
  */
 { type: "AgentNotice"; severity: string; title: string; description: string | null } | 
 /**  An ACP update the Harness does not normalize yet; kept so nothing is lost. */
-{ type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string };
+{ type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string } | 
+/**
+ *  Stands in for a line whose `type` this build does not know (written by a newer build) or
+ *  whose fields do not parse, so `seq` stays contiguous. The Session Log file keeps the
+ *  original line; the Harness never writes this. Not `#[serde(other)]`: specta cannot export
+ *  that on an internally tagged enum, so `log.rs` substitutes it when parsing.
+ */
+{ type: "Unknown" };
 
 export type FileChange = {
 	path: string,
@@ -486,6 +549,26 @@ export type GitStatus = {
 	files: FileChange[],
 };
 
+/**  The error of a Command: a code to branch on and a message for the user. */
+export type HarnessError = {
+	code: ErrorCode,
+	message: string,
+};
+
+/**  What the Harness knows about an installed Agent's files. */
+export type InstallInfo = {
+	/**  sha256 of the downloaded artifact (binary installs); `None` for npx/uvx. */
+	sha256?: string | null,
+	/**  The registry listed no sha256: installed on the user's say-so. */
+	unverified?: boolean,
+	/**  The version kept for rollback. */
+	previous?: PreviousInstall | null,
+	/**  Not updated while held. */
+	held?: boolean,
+	/**  The last conformance check (of this version, or of an update that was refused). */
+	check?: ConformanceCheck | null,
+};
+
 /**  A GitHub repository some Sessions work in. `score` adds up each Session's recency (1 now, halving every ~3 weeks). */
 export type KnownRepo = {
 	repo: RepoId,
@@ -493,6 +576,15 @@ export type KnownRepo = {
 	score: number,
 	/**  Last activity of its Sessions. */
 	last_ms: number,
+};
+
+/**
+ *  The View fell too far behind and its subscription was dropped. Events up to `last_seq` were
+ *  delivered (`null`: none yet); resubscribe from `last_seq + 1` (from the first `from_seq`
+ *  when `null`).
+ */
+export type Lagged = {
+	last_seq: number | null,
 };
 
 /**  An MCP server in the MCP Library. */
@@ -565,6 +657,16 @@ export type PrRefKey = {
 
 export type PrState = "open" | "draft" | "merged" | "closed";
 
+/**  Launch spec of the version an Agent can roll back to. */
+export type PreviousInstall = {
+	version: string,
+	command: string,
+	args: string[],
+	env?: { [key in string]: string },
+	sha256?: string | null,
+	unverified?: boolean,
+};
+
 export type ProcessState = "starting" | "ready" | 
 /**  Stopped by the Harness (idle); restarted on the next prompt. */
 "stopped" | "exited" | "failed";
@@ -605,6 +707,9 @@ export type Resolver = "policy" | "view" | "cancelled";
 
 export type RuleScope = { type: "global" } | { type: "agent"; agent_id: string } | { type: "session"; session_id: string };
 
+/**  What a Session subscription delivers to a View: Events, then possibly one `Lagged`. */
+export type SessionMessage = Event | Lagged;
+
 export type SessionStatus = "idle" | "working" | "needs_attention";
 
 export type SessionSummary = {
@@ -634,6 +739,11 @@ export type StatePatchOp = { op: "add"; path: string; value: unknown } | { op: "
 
 /**  Who changed the Session State. */
 export type StateWriter = "agent" | "user";
+
+/**  What a tool call that starts a subagent asked it to do. */
+export type SubagentInfo = {
+	prompt: string,
+};
 
 export type TaskEntry = {
 	content: string,

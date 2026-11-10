@@ -6,7 +6,7 @@ import type {
    SessionSummary,
    Transport,
 } from "@harness/api";
-import { HarnessClient as Client } from "@harness/api";
+import { HarnessClient as Client, errText } from "@harness/api";
 import {
    Button,
    cn,
@@ -30,7 +30,7 @@ import { openViewWindow } from "./openWindow";
 import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
-import { errText, ToastProvider, useReportError } from "./toast";
+import { ToastProvider, useReportError } from "./toast";
 import { makeTransport } from "./transport";
 import { UpdateFooter } from "./UpdateFooter";
 import { useUpdate } from "./updates";

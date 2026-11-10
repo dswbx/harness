@@ -1,5 +1,5 @@
 import { applyStatePatch, type StatePatchOp } from "@harness/api";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildSrcdoc, HTML_CSP, themeCss } from "./htmlBridge";
 import {
    isVisible,
@@ -10,7 +10,7 @@ import {
    stackClasses,
    tableRows,
 } from "./RenderUi";
-import { loadJs, runJs } from "./sandbox";
+import { JS_LIMIT_MS, loadJs, runJs, setJsLimit } from "./sandbox";
 import { calculatorExample, components, renderUiSchema } from "./tools";
 
 describe("render_ui binding", () => {
@@ -301,17 +301,28 @@ describe("render_ui Table and Stack", () => {
 });
 
 describe("render_ui JavaScript (sandboxed)", () => {
-   it("evaluates $js against the state, without host globals or endless loops", async () => {
+   // The time limit is for endless loops; a loaded machine must not fail normal runs on it.
+   beforeEach(() => setJsLimit(5000));
+   afterEach(() => setJsLimit());
+   it("evaluates $js against the state, without host globals", async () => {
       await loadJs();
       expect(resolveValue({ $js: "state.a * 2" }, { a: 21 })).toBe(42);
       expect(resolveValue({ $js: "const x = state.a; return { x };" }, { a: 1 })).toEqual({ x: 1 });
       expect(runJs("typeof fetch + typeof window + typeof setTimeout", {})).toEqual({
          value: "undefinedundefinedundefined",
       });
+      expect(runJs("nope(", {})).toMatchObject({ error: expect.stringContaining("SyntaxError") });
+   });
+   it("interrupts an endless loop at the production limit", async () => {
+      await loadJs();
+      setJsLimit();
+      expect(JS_LIMIT_MS).toBe(50);
+      const t0 = performance.now();
       expect(runJs("(() => { while (true) {} })()", {})).toMatchObject({
          error: expect.stringContaining("interrupted"),
       });
-      expect(runJs("nope(", {})).toMatchObject({ error: expect.stringContaining("SyntaxError") });
+      // Stopped by the limit, not left running.
+      expect(performance.now() - t0).toBeLessThan(2000);
    });
    it("runs a calculator: each press builds on the last, = evaluates", async () => {
       let state: unknown = { calc: { expr: "" } };

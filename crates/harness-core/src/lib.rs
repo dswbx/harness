@@ -2,13 +2,16 @@
 
 mod acp;
 mod agent_quirks;
-mod app_settings;
 pub mod agents;
 pub mod api;
+mod app_settings;
 mod attachments;
+mod conformance;
 mod editor;
 mod env;
+pub mod error;
 mod frontend_files;
+mod fsutil;
 mod github;
 mod github_refs;
 mod harness_context;
@@ -18,11 +21,13 @@ pub mod log;
 pub mod mcp;
 pub mod permissions;
 pub mod session;
+mod shell;
 mod state;
 mod summary;
-mod transcript;
 pub mod terminal;
+mod tool_facts;
 pub mod toolchain;
+mod transcript;
 pub mod workspace;
 
 pub use host::Harness;

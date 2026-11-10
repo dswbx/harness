@@ -23,8 +23,23 @@ pub enum Command {
     },
     /// Installs (or updates) an Agent from the ACP Registry onto the managed toolchain. Slow:
     /// may download a runtime and the Agent's package.
+    ///
+    /// A binary without a sha256 in the registry is refused unless `allow_unverified`. An update
+    /// is installed side by side and switched to only if the headless conformance check passes;
+    /// the previous version is kept for `RollbackAgent`. A held Agent is not updated.
     InstallAgent {
         registry_id: String,
+        #[serde(default)]
+        allow_unverified: bool,
+    },
+    /// Switches an Agent back to its previous version (and holds it there).
+    RollbackAgent {
+        agent_id: String,
+    },
+    /// Holds an Agent at its current version (`hold`) or releases it.
+    HoldAgentVersion {
+        agent_id: String,
+        hold: bool,
     },
     AddCustomAgent {
         name: String,
@@ -486,48 +501,113 @@ pub enum AttachmentKind {
 #[serde(tag = "type")]
 pub enum CommandResult {
     Ok,
-    Agents { agents: Vec<AgentInfo> },
-    Registry { agents: Vec<RegistryAgent> },
-    AgentInstalled { agent: AgentInfo },
-    Frontends { frontends: Vec<FrontendManifest> },
-    Sessions { sessions: Vec<SessionSummary> },
-    SessionCreated { session_id: SessionId },
+    Agents {
+        agents: Vec<AgentInfo>,
+    },
+    Registry {
+        agents: Vec<RegistryAgent>,
+    },
+    AgentInstalled {
+        agent: AgentInfo,
+    },
+    Frontends {
+        frontends: Vec<FrontendManifest>,
+    },
+    Sessions {
+        sessions: Vec<SessionSummary>,
+    },
+    SessionCreated {
+        session_id: SessionId,
+    },
     /// `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
     /// `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
-    ThreadStarted { thread_id: ThreadId, forked: bool },
-    Branches { branches: Branches },
-    PullRequests { prs: Vec<PullRequest> },
+    ThreadStarted {
+        thread_id: ThreadId,
+        forked: bool,
+    },
+    Branches {
+        branches: Branches,
+    },
+    PullRequests {
+        prs: Vec<PullRequest>,
+    },
     /// `me`: the `gh` user, None when `gh` is not signed in.
-    PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
-    PrLookup { prs: Vec<Option<PrInfo>> },
-    PrSearch { prs: Vec<PrInfo> },
-    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo>, base: Option<String> },
-    GitStatus { status: GitStatus },
-    GitLog { commits: Vec<Commit> },
-    Terminals { terminals: Vec<TerminalInfo> },
-    TerminalOpened { terminal_id: u32 },
-    Diff { diff: Diff },
-    Committed { commit: String },
-    McpServers { servers: Vec<McpServerDef> },
-    McpServerSaved { server: McpServerDef },
-    FileContent { content: String },
+    PrContext {
+        session_repo: Option<RepoId>,
+        known_repos: Vec<KnownRepo>,
+        me: Option<String>,
+    },
+    PrLookup {
+        prs: Vec<Option<PrInfo>>,
+    },
+    PrSearch {
+        prs: Vec<PrInfo>,
+    },
+    BranchPr {
+        repo: Option<RepoId>,
+        pr: Option<PrInfo>,
+        base: Option<String>,
+    },
+    GitStatus {
+        status: GitStatus,
+    },
+    GitLog {
+        commits: Vec<Commit>,
+    },
+    Terminals {
+        terminals: Vec<TerminalInfo>,
+    },
+    TerminalOpened {
+        terminal_id: u32,
+    },
+    Diff {
+        diff: Diff,
+    },
+    Committed {
+        commit: String,
+    },
+    McpServers {
+        servers: Vec<McpServerDef>,
+    },
+    McpServerSaved {
+        server: McpServerDef,
+    },
+    FileContent {
+        content: String,
+    },
     /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
-    FileLines { path: String, start: u32, lines: Vec<String>, total: u32 },
+    FileLines {
+        path: String,
+        start: u32,
+        lines: Vec<String>,
+        total: u32,
+    },
     State {
         #[specta(type = specta_typescript::Unknown)]
         state: Json,
     },
-    Editor { editor: Option<Editor> },
+    Editor {
+        editor: Option<Editor>,
+    },
     /// An app setting's value, or fetched JSON (`FetchJson`).
     Json {
         #[specta(type = Option<specta_typescript::Unknown>)]
         value: Option<Json>,
     },
-    Files { files: Vec<String> },
-    PermissionRules { rules: Vec<PermissionRule> },
-    PermissionRuleAdded { rule: PermissionRule },
+    Files {
+        files: Vec<String>,
+    },
+    PermissionRules {
+        rules: Vec<PermissionRule>,
+    },
+    PermissionRuleAdded {
+        rule: PermissionRule,
+    },
     /// `data` is base64.
-    Attachment { mime: String, data: String },
+    Attachment {
+        mime: String,
+        data: String,
+    },
 }
 
 /// A Permission Policy rule. The narrowest matching scope wins, then the more specific rule
@@ -580,6 +660,56 @@ pub struct AgentInfo {
     pub source: AgentSource,
     pub version: Option<String>,
     pub icon: Option<String>,
+    /// Hash, previous version, hold and last check of an installed Agent (ADR 0007).
+    #[serde(default)]
+    pub install: InstallInfo,
+}
+
+/// What the Harness knows about an installed Agent's files.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct InstallInfo {
+    /// sha256 of the downloaded artifact (binary installs); `None` for npx/uvx.
+    #[serde(default)]
+    pub sha256: Option<String>,
+    /// The registry listed no sha256: installed on the user's say-so.
+    #[serde(default)]
+    pub unverified: bool,
+    /// The version kept for rollback.
+    #[serde(default)]
+    pub previous: Option<PreviousInstall>,
+    /// Not updated while held.
+    #[serde(default)]
+    pub held: bool,
+    /// The last conformance check (of this version, or of an update that was refused).
+    #[serde(default)]
+    pub check: Option<ConformanceCheck>,
+}
+
+/// Launch spec of the version an Agent can roll back to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct PreviousInstall {
+    pub version: String,
+    pub command: String,
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub unverified: bool,
+}
+
+/// Result of the headless conformance check of one Agent version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ConformanceCheck {
+    pub version: Option<String>,
+    pub passed: bool,
+    /// The Agent needs sign-in: spawn and protocol passed, `session/new` was not completed.
+    pub auth_required: bool,
+    /// Why it failed, with the stderr tail.
+    pub error: Option<String>,
+    #[specta(type = specta_typescript::Number)]
+    pub at_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1009,9 +1139,19 @@ pub enum EventKind {
         parent_tool_call_id: Option<String>,
         /// This call hands the subagent's final report to its parent: the text.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        report: Option<String>,        /// The Harness MCP tool this calls (`git_status`), when it is one.
+        report: Option<String>,
+        /// The Harness MCP tool this calls (`git_status`), when it is one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
+        /// A plan the Agent asks to be approved (a mode switch carrying one): Markdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
+        /// This call starts a subagent: what it was asked to do.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent: Option<SubagentInfo>,
+        /// `git_commit`: the commit message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit_message: Option<String>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -1032,9 +1172,19 @@ pub enum EventKind {
         /// The call finished but its work goes on in the background (a background subagent,
         /// done when its report arrives).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        background: bool,        /// Set when the update changes the title to a Harness MCP tool.
+        background: bool,
+        /// Set when the update changes the title to a Harness MCP tool.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
+        /// Set when the update carries the plan (see `ToolCall`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
+        /// Set when the update carries the subagent's task (see `ToolCall`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent: Option<SubagentInfo>,
+        /// Set when the update carries the commit message (see `ToolCall`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit_message: Option<String>,
     },
     TaskListUpdated {
         entries: Vec<TaskEntry>,
@@ -1065,6 +1215,15 @@ pub enum EventKind {
         /// The Harness MCP tool the request is for, when it is one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
+        /// The request approves a plan (Plan Mode): Markdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
+        /// `git_commit`: the commit message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit_message: Option<String>,
+        /// The request is for a Frontend Tool: its name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frontend_tool: Option<String>,
     },
     PermissionResolved {
         request_id: String,
@@ -1141,6 +1300,17 @@ pub enum EventKind {
     Error {
         message: String,
     },
+    /// Stands in for a line whose `type` this build does not know (written by a newer build) or
+    /// whose fields do not parse, so `seq` stays contiguous. The Session Log file keeps the
+    /// original line; the Harness never writes this. Not `#[serde(other)]`: specta cannot export
+    /// that on an internally tagged enum, so `log.rs` substitutes it when parsing.
+    Unknown,
+}
+
+/// What a tool call that starts a subagent asked it to do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SubagentInfo {
+    pub prompt: String,
 }
 
 /// How many of a Thread's Turns fit in a transcript.
@@ -1244,7 +1414,9 @@ pub enum AppEvent {
     AgentsChanged,
     /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
     /// Titles and `busy` change silently: poll while a Terminal is shown.
-    TerminalsChanged { session_id: SessionId },
+    TerminalsChanged {
+        session_id: SessionId,
+    },
     /// The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
     /// `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
     /// it. Live only and not logged: Views still render only from the Session Log.
@@ -1259,9 +1431,64 @@ pub enum AppEvent {
     },
 }
 
+/// Why a Command failed, so Frontends branch on a code and never on the message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    /// The Agent needs the user to sign in first.
+    AuthRequired,
+    /// A Session, Thread, Agent or other id the Command names does not exist.
+    NotFound,
+    /// The Command conflicts with the current state (already exists, archived, unmerged work).
+    Conflict,
+    /// The Permission Policy or a sandbox rule forbids it (a path outside the Session's folder).
+    PolicyDenied,
+    /// The Agent is not running, not installed or its Agent Session could not be restored.
+    AgentUnavailable,
+    /// The Command's input is wrong (empty, malformed, not supported here).
+    Invalid,
+    /// Anything else.
+    Internal,
+}
+
+/// The error of a Command: a code to branch on and a message for the user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct HarnessError {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl std::fmt::Display for HarnessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HarnessError {}
+
+/// What a Session subscription delivers to a View: Events, then possibly one `Lagged`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(untagged)]
+#[allow(clippy::large_enum_variant, reason = "built per delivery, never stored")]
+pub enum SessionMessage {
+    Event(Event),
+    Lagged(Lagged),
+}
+
+/// The View fell too far behind and its subscription was dropped. Events up to `last_seq` were
+/// delivered (`null`: none yet); resubscribe from `last_seq + 1` (from the first `from_seq`
+/// when `null`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct Lagged {
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub last_seq: Option<u64>,
+}
+
 /// Receives Events for one subscription. Returns `false` once the receiver is gone.
 pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &Event) -> bool;
+    /// The subscription was dropped because the receiver was too slow (see `Lagged`).
+    fn lagged(&self, _last_seq: Option<u64>) {}
 }
 
 impl<F: Fn(&Event) -> bool + Send + Sync + 'static> EventSink for F {
@@ -1276,6 +1503,8 @@ pub fn types() -> specta::Types {
         .register::<CommandResult>()
         .register::<Event>()
         .register::<AppEvent>()
+        .register::<HarnessError>()
+        .register::<SessionMessage>()
 }
 
 pub fn export_ts() -> String {

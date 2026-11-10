@@ -6,7 +6,6 @@ import {
    type ChatState,
    initialState,
    permissionTitle,
-   planOf,
    reduce,
    reduceBatch,
    threadState,
@@ -492,7 +491,7 @@ describe("permissions (synthetic, shape from codex plan spike)", () => {
    it("surfaces a plan approval and hides it once resolved", () => {
       let s = fold([plan]);
       const p = s.items[0]!;
-      expect(p.type === "permission" && planOf(p.toolCall)).toBe("# Plan\n- step");
+      expect(p.type === "permission" && p.plan).toBe("# Plan\n- step");
       expect(p).toMatchObject({ resolved: false });
       s = reduce(
          s,
@@ -506,9 +505,44 @@ describe("permissions (synthetic, shape from codex plan spike)", () => {
       expect(s.items[0]).toMatchObject({ resolved: true });
    });
 
-   it("planOf is null for ordinary permission requests", () => {
-      expect(planOf({ kind: "execute", rawInput: { plan: "x" } })).toBeNull();
-      expect(planOf({ kind: "switch_mode", rawInput: {} })).toBeNull();
+   it("an ordinary permission request has no plan, even with a plan-shaped input", () => {
+      const s = fold([
+         ev({
+            type: "PermissionRequested",
+            request_id: "r2",
+            tool_call: { kind: "execute", rawInput: { plan: "x" } },
+            options: [],
+         }),
+         ev({
+            type: "PermissionRequested",
+            request_id: "r3",
+            tool_call: { kind: "switch_mode", rawInput: {} },
+            options: [],
+         }),
+      ]);
+      expect(s.items.map((i) => i.type === "permission" && i.plan)).toEqual([null, null]);
+   });
+
+   it("takes the plan from the typed field, and from rawInput in old logs", () => {
+      const typed = fold([
+         ev({
+            type: "PermissionRequested",
+            request_id: "r4",
+            tool_call: { kind: "switch_mode" },
+            options: [],
+            plan: "typed",
+         }),
+      ]);
+      expect(typed.items[0]).toMatchObject({ plan: "typed" });
+      const old = fold([
+         ev({
+            type: "PermissionRequested",
+            request_id: "r5",
+            tool_call: { kind: "switch_mode", rawInput: { plan: "from raw" } },
+            options: [],
+         }),
+      ]);
+      expect(old.items[0]).toMatchObject({ plan: "from raw" });
    });
 });
 
@@ -849,22 +883,22 @@ describe("Harness tool helpers", () => {
       expect(s.items[0]).toMatchObject({ type: "tool", harnessTool: "git_status" });
    });
    it("drops the message from the commit title when shown as a step", () => {
-      expect(
-         permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } }, null, true),
-      ).toBe("Commit all changes?");
+      expect(permissionTitle({ kind: "git_commit" }, { commitMessage: "fix" }, true)).toBe(
+         "Commit all changes?",
+      );
    });
 
    it("titles Harness permission requests", () => {
       expect(permissionTitle({ kind: "git_push" })).toBe("Push branch to origin?");
-      expect(permissionTitle({ kind: "git_commit", rawInput: { message: "fix" } })).toBe(
+      expect(permissionTitle({ kind: "git_commit" }, { commitMessage: "fix" })).toBe(
          'Commit all changes: "fix"?',
       );
-      expect(permissionTitle({ kind: "frontend_tool", title: "Frontend tool: render_ui" })).toBe(
+      expect(permissionTitle({ kind: "frontend_tool" }, { frontendTool: "render_ui" })).toBe(
          "Let the Agent use Frontend tool render_ui?",
       );
-      expect(
-         permissionTitle({ kind: "frontend_tool", title: "mcp__harness__render_ui" }, "render_ui"),
-      ).toBe("Let the Agent use Frontend tool render_ui?");
+      expect(permissionTitle({ kind: "frontend_tool" }, { frontendTool: "render_ui" })).toBe(
+         "Let the Agent use Frontend tool render_ui?",
+      );
       expect(permissionTitle({ kind: "execute" })).toBeNull();
    });
 });
@@ -914,5 +948,93 @@ describe("attachments and prompt capabilities", () => {
       ]);
       expect(s.promptCaps).toEqual({ image: true, embeddedContext: false });
       expect(s.items.map((i) => i.type === "user" && i.attachments)).toEqual([[img], []]);
+   });
+});
+
+describe("typed tool facts", () => {
+   const base = { kind: null, status: null, content: [], locations: [], title: "t" };
+   it("keeps the subagent prompt and commit message from the Event fields", () => {
+      const s = fold([
+         ev({
+            type: "ToolCall",
+            tool_call_id: "a",
+            ...base,
+            raw_input: {},
+            subagent: { prompt: "P" },
+         }),
+         ev({
+            type: "ToolCall",
+            tool_call_id: "b",
+            ...base,
+            raw_input: {},
+            harness_tool: "git_commit",
+            commit_message: "Fix",
+         }),
+      ]);
+      expect(s.items[0]).toMatchObject({ subagentPrompt: "P" });
+      expect(s.items[1]).toMatchObject({ commitMessage: "Fix" });
+   });
+
+   it("an update carrying the fields fills them in; later updates keep them", () => {
+      const s = fold([
+         ev({ type: "ToolCall", tool_call_id: "a", ...base, raw_input: {} }),
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: "a",
+            title: null,
+            kind: null,
+            status: null,
+            content: null,
+            locations: null,
+            raw_input: null,
+            raw_output: null,
+            subagent: { prompt: "P" },
+         }),
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: "a",
+            title: null,
+            kind: null,
+            status: "completed",
+            content: null,
+            locations: null,
+            raw_input: null,
+            raw_output: null,
+         }),
+      ]);
+      expect(s.items[0]).toMatchObject({ subagentPrompt: "P", status: "completed" });
+   });
+
+   it("old logs without the fields fall back to the shared derivation", () => {
+      const s = fold([
+         ev({
+            type: "ToolCall",
+            tool_call_id: "a",
+            ...base,
+            raw_input: { prompt: "Old", subagent_type: "Explore" },
+         }),
+      ]);
+      expect(s.items[0]).toMatchObject({ subagentPrompt: "Old" });
+   });
+});
+
+describe("Unknown events", () => {
+   it("are ignored by the reducer and leave the state unchanged", () => {
+      const base = reduceBatch(initialState(), [
+         {
+            v: 1,
+            seq: 0,
+            session_id: "s",
+            thread_id: "t",
+            ts_ms: 0,
+            kind: { type: "ThreadStarted", agent_id: "a", main: true },
+         },
+      ]);
+      const next = reduceBatch(base, [
+         { v: 2, seq: 1, session_id: "s", thread_id: "t", ts_ms: 1, kind: { type: "Unknown" } },
+         { v: 1, seq: 2, session_id: "s", thread_id: null, ts_ms: 1, kind: { type: "Unknown" } },
+      ]);
+      expect(next.items).toEqual(base.items);
+      expect(next.mainThreadId).toBe(base.mainThreadId);
    });
 });

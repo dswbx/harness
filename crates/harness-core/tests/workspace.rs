@@ -1,15 +1,15 @@
 //! Workspaces and git Primitives against temp repositories and the scripted `fake-agent`.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;
 use std::path::{Path, PathBuf};
 use std::process::Command as Proc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use harness_core::api::{AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
 use harness_core::Harness;
-
+use harness_core::api::{AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
 
 fn harness(data: &Path) -> Arc<Harness> {
     let args = vec!["--resume".to_owned()];
@@ -22,6 +22,7 @@ fn harness(data: &Path) -> Arc<Harness> {
         source: Default::default(),
         version: None,
         icon: None,
+        install: Default::default(),
     };
     let h = Harness::with_agents(data.to_owned(), vec![agent]).unwrap();
     h.register_frontend(FrontendManifest { id: "chat".into(), name: "C".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
@@ -63,7 +64,8 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
             pr: None,
             mcp_servers: vec![],
         })
-        .await?
+        .await
+        .map_err(|e| e.message)?
     {
         CommandResult::SessionCreated { session_id } => Ok(session_id),
         r => panic!("{r:?}"),
@@ -71,15 +73,7 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 async fn turn(h: &Harness, sid: &str, text: &str) {
@@ -103,9 +97,7 @@ async fn summary(h: &Harness, sid: &str) -> Option<SessionSummary> {
 async fn worktree_session_lifecycle() {
     let (_dir, repo, data) = repo();
     let h = harness(&data);
-    let CommandResult::Branches { branches } =
-        h.execute(Command::ListBranches { folder: repo.display().to_string() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Branches { branches } = h.execute(Command::ListBranches { folder: repo.display().to_string() }).await.unwrap() else { panic!() };
     let names = branches.branches.iter().map(|b| b.name.as_str()).collect::<Vec<_>>();
     assert_eq!((branches.current.as_deref(), names), (Some("main"), vec!["main"]));
 
@@ -136,7 +128,7 @@ async fn worktree_session_lifecycle() {
 
     let delete = |force| Command::DeleteSession { session_id: sid.clone(), force };
     let err = h.execute(delete(false)).await.unwrap_err();
-    assert!(err.contains("uncommitted"), "{err}");
+    assert!(err.message.contains("uncommitted"), "{err}");
 
     // Archive: WIP commit, Worktree removed, branch kept.
     h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
@@ -145,15 +137,15 @@ async fn worktree_session_lifecycle() {
     assert_eq!(sh(&repo, &["log", "-1", "--format=%s", &branch]), "WIP (archived by Harness)");
     assert!(h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.is_err());
     let err = h.execute(delete(false)).await.unwrap_err();
-    assert!(err.contains("1 commit(s) not on main"), "{err}");
+    assert!(err.message.contains("1 commit(s) not on main"), "{err}");
 
     // Unarchive restores the Worktree; commit from the Harness.
     h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
     assert_eq!(std::fs::read_to_string(wt.join("fake.txt")).unwrap(), "hello\n");
     turn(&h, &sid, "write more").await;
-    let CommandResult::Committed { commit } =
-        h.execute(Command::GitCommit { session_id: sid.clone(), message: "Add fake".into() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Committed { commit } = h.execute(Command::GitCommit { session_id: sid.clone(), message: "Add fake".into() }).await.unwrap() else {
+        panic!()
+    };
     assert_eq!(sh(&wt, &["rev-parse", "HEAD"]), commit);
     let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid.clone() }).await.unwrap() else { panic!() };
     // Newest first: ours, then the archive WIP commit; never the base's "init".
@@ -259,9 +251,7 @@ async fn git_log_without_worktree() {
 }
 
 async fn branches(h: &Harness, folder: &Path) -> harness_core::api::Branches {
-    let CommandResult::Branches { branches } =
-        h.execute(Command::ListBranches { folder: folder.display().to_string() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Branches { branches } = h.execute(Command::ListBranches { folder: folder.display().to_string() }).await.unwrap() else { panic!() };
     branches
 }
 
@@ -278,7 +268,8 @@ async fn create_new_branch(h: &Harness, folder: &Path, base: Option<&str>, new_b
             pr: None,
             mcp_servers: vec![],
         })
-        .await?
+        .await
+        .map_err(|e| e.message)?
     {
         CommandResult::SessionCreated { session_id } => Ok(session_id),
         r => panic!("{r:?}"),

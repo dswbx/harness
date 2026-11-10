@@ -36,7 +36,7 @@ const GIT_VERBS: Record<string, [string, string, string]> = {
 
 /** What a Harness git step did (null for any other call). */
 export function gitSummary(tool: Tool): GitToolSummary | null {
-   return gitToolSummary(tool.harnessTool, tool.rawInput, tool.rawOutput, tool.content);
+   return gitToolSummary(tool);
 }
 
 function gitDetail(name: string, g: GitToolSummary): string {

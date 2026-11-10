@@ -21,15 +21,49 @@ jobs:
            with:
               bun-version: 1.3.13
 
-         - uses: dtolnay/rust-toolchain@stable
+         - uses: dtolnay/rust-toolchain@master
+           with:
+              toolchain: 1.99.1 # same as rust-toolchain.toml
+              components: clippy, rustfmt
 
          - uses: Swatinem/rust-cache@v2
 
          - run: bun install --frozen-lockfile
 
-         - name: Check
+         - name: TypeScript
            run: |
               bun run lint
               bun run typecheck
               bun run test
-              cargo test -p harness-core
+
+         - name: Rust (fmt, clippy -D warnings, workspace tests)
+           run: bun run check:rust
+
+         # Generated files are committed; fail when they are stale.
+         - name: Generated files
+           run: bun run check:generated
+
+   # The core is UI- and platform-agnostic (ADR 0001); keep it building and passing on Linux.
+   core-linux:
+      runs-on: ubuntu-24.04
+      steps:
+         - uses: actions/checkout@v4
+
+         - uses: dtolnay/rust-toolchain@master
+           with:
+              toolchain: 1.99.1 # same as rust-toolchain.toml
+              components: clippy
+
+         - uses: Swatinem/rust-cache@v2
+
+         - run: cargo build --locked -p fake-agent
+         - run: cargo clippy --locked -p harness-core --all-targets -- -D warnings
+         - run: cargo test --locked -p harness-core
+
+   deny:
+      runs-on: ubuntu-24.04
+      steps:
+         - uses: actions/checkout@v4
+         - uses: EmbarkStudios/cargo-deny-action@v2
+           with:
+              command: check advisories bans licenses sources

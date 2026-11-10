@@ -36,13 +36,7 @@ fn uv_pin() -> anyhow::Result<Pin> {
         a => anyhow::bail!("unsupported architecture {a}"),
     };
     let top = format!("uv-{target}");
-    Ok(Pin {
-        name: "uv",
-        url: format!("https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{top}.tar.gz"),
-        sha256,
-        top,
-        bin: "",
-    })
+    Ok(Pin { name: "uv", url: format!("https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{top}.tar.gz"), sha256, top, bin: "" })
 }
 
 /// Registry platform key of this machine.
@@ -107,13 +101,8 @@ impl Toolchain {
 
     /// PATH for Agents and their tools: installed runtimes first, then the login-shell PATH.
     pub fn path(&self) -> String {
-        let mut parts: Vec<String> = [node_pin(), uv_pin()]
-            .into_iter()
-            .flatten()
-            .map(|p| self.dir(&p).join(p.bin))
-            .filter(|b| b.exists())
-            .map(|b| b.display().to_string())
-            .collect();
+        let mut parts: Vec<String> =
+            [node_pin(), uv_pin()].into_iter().flatten().map(|p| self.dir(&p).join(p.bin)).filter(|b| b.exists()).map(|b| b.display().to_string()).collect();
         parts.push(crate::env::login_path().to_owned());
         parts.join(":")
     }
@@ -124,20 +113,16 @@ fn intact(pin: &Pin, bin: &Path) -> bool {
     pin.name != "node" || ["npm", "npx"].iter().all(|f| bin.join(f).is_symlink())
 }
 
-/// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given.
-pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<()> {
-    let out = tokio::process::Command::new("curl")
-        .args(["-fsSL", "--retry", "2", "-o"])
-        .arg(dest)
-        .arg(url)
-        .output()
-        .await?;
+/// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given. Returns the
+/// sha256 of what was downloaded.
+pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
+    let out = tokio::process::Command::new("curl").args(["-fsSL", "--retry", "2", "-o"]).arg(dest).arg(url).output().await?;
     anyhow::ensure!(out.status.success(), "download {url}: {}", String::from_utf8_lossy(&out.stderr).trim());
+    let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
     if let Some(expected) = sha256 {
-        let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
         anyhow::ensure!(actual.eq_ignore_ascii_case(expected), "checksum mismatch for {url}: expected {expected}, got {actual}");
     }
-    Ok(())
+    Ok(actual)
 }
 
 pub async fn unpack(archive: &Path, into: &Path) -> anyhow::Result<()> {

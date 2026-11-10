@@ -5,8 +5,16 @@
 //! - contains "write": appends a line to `fake.txt` in the session's cwd
 //! - starts with "mcp <tool> <json>": calls `<tool>` on the `harness` MCP server it was given and
 //!   answers "mcp: <result text>" (or "mcp error: ..."); "mcp-list" answers the tool names
+//! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`)
+//!   with that title, asking for permission under that title; answers "spoof: allowed" or
+//!   "spoof: rejected"
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
+//! - "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn carries on
+//! - "fault-hang": never answers the prompt (and ignores `session/cancel`)
+//! - "fault-big": a `tool_call_update` with a 10 MB `rawOutput`, then the Turn ends
+//! - "fault-late-permission": waits for `session/cancel`, then asks for permission and answers the
+//!   prompt `cancelled` once the request is answered
 //! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
 //! - a `<harness_context>` block is not part of the prompt text; "show-context" answers
 //!   "context: <the block>" (or "context: none")
@@ -16,15 +24,16 @@
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
 //! replays one message chunk ("replayed") before answering. `--resume-fails=N` fails the first N
-//! resumes of this process. `--no-http-mcp` makes the Harness
+//! resumes of this process; `--resume-delay-ms=N` makes each resume take N ms. `--no-http-mcp` makes the Harness
 //! use the stdio shim. `--auth` advertises an agent auth
 //! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
 //! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
 //! embedded-context prompt capabilities. `--fork` advertises `session/fork` (new id, copy of the
-//! source's history); with `--fork-fail` the request is refused.
+//! source's history); with `--fork-fail` the request is refused. `--exit` prints a line to stderr
+//! and exits at startup (Agent conformance check tests).
 
-use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
 
 fn update(cx: &ConnectionTo<Client>, session: &SessionId, u: SessionUpdate) -> agent_client_protocol::Result<()> {
@@ -36,6 +45,9 @@ fn text(t: &str) -> SessionUpdate {
 }
 
 /// cwd per Agent Session.
+/// How long `session/resume` takes (`--resume-delay-ms=N`).
+static RESUME_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// How many more resumes must fail (`--resume-fails=N`).
 static RESUME_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -97,6 +109,9 @@ async fn harness_mcp(id: &SessionId, tool: Option<&str>, args: serde_json::Value
     out
 }
 
+/// Agent Sessions that got a `session/cancel`.
+static CANCELLED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 /// Prompts per Agent Session.
 static HISTORY: std::sync::Mutex<Vec<(String, Vec<String>)>> = std::sync::Mutex::new(Vec::new());
 
@@ -134,12 +149,7 @@ fn set_config(id: &SessionId, config: (String, String)) -> Vec<SessionConfigOpti
 /// A model option, and a mode option whose "default" asks before writes and "auto" does not.
 fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> {
     vec![
-        SessionConfigOption::select(
-            "model",
-            "Model",
-            model.clone(),
-            vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")],
-        ),
+        SessionConfigOption::select("model", "Model", model.clone(), vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")]),
         SessionConfigOption::select(
             "mode",
             "Mode",
@@ -150,12 +160,73 @@ fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> 
     ]
 }
 
+/// The `fault-*` scripts: Agent misbehaviour for fault-injection tests.
+async fn fault(
+    cx: &ConnectionTo<Client>,
+    sid: &SessionId,
+    command: &str,
+    responder: agent_client_protocol::Responder<PromptResponse>,
+) -> agent_client_protocol::Result<()> {
+    update(cx, sid, text("partial"))?;
+    match command {
+        "fault-malformed" => {
+            {
+                use std::io::Write;
+                let mut out = std::io::stdout().lock();
+                let _ = out.write_all(b"{this is not json\n");
+                let _ = out.flush();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            update(cx, sid, text(" after"))?;
+            responder.respond(PromptResponse::new(StopReason::EndTurn))
+        }
+        "fault-hang" => {
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            responder.respond(PromptResponse::new(StopReason::EndTurn))
+        }
+        "fault-big" => {
+            update(cx, sid, SessionUpdate::ToolCall(ToolCall::new("big-1", "Big output").kind(ToolKind::Execute).status(ToolCallStatus::InProgress)))?;
+            let big = serde_json::json!({ "stdout": "x".repeat(10 * 1024 * 1024) });
+            update(
+                cx,
+                sid,
+                SessionUpdate::ToolCallUpdate(ToolCallUpdate::new("big-1", ToolCallUpdateFields::new().status(ToolCallStatus::Completed).raw_output(big))),
+            )?;
+            responder.respond(PromptResponse::new(StopReason::EndTurn))
+        }
+        "fault-late-permission" => {
+            update(cx, sid, SessionUpdate::ToolCall(ToolCall::new("late-1", "Late tool").kind(ToolKind::Execute).status(ToolCallStatus::Pending)))?;
+            for _ in 0..500 {
+                if CANCELLED.lock().unwrap().contains(&sid.to_string()) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let options = vec![
+                PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
+                PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
+            ];
+            let ask = RequestPermissionRequest::new(sid.clone(), ToolCallUpdate::new("late-1", ToolCallUpdateFields::new().title("Late tool")), options);
+            let _ = cx.send_request(ask).block_task().await?;
+            responder.respond(PromptResponse::new(StopReason::Cancelled))
+        }
+        _ => responder.respond(PromptResponse::new(StopReason::EndTurn)),
+    }
+}
+
 #[tokio::main]
 async fn main() -> agent_client_protocol::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let resume = args.iter().any(|a| a == "--resume");
     if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-fails=")) {
         RESUME_FAILS.store(n.parse().unwrap(), std::sync::atomic::Ordering::SeqCst);
+    }
+    if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-delay-ms=")) {
+        RESUME_DELAY_MS.store(n.parse().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+    }
+    if args.iter().any(|a| a == "--exit") {
+        eprintln!("fake-agent: exiting on purpose");
+        std::process::exit(3);
     }
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");
@@ -247,13 +318,21 @@ async fn main() -> agent_client_protocol::Result<()> {
                 let value = serde_json::to_value(&req.value).unwrap_or_default();
                 let value = value.get("value").and_then(|v| v.as_str()).unwrap_or("a").to_owned();
                 let (mut model, mut mode) = config_of(&req.session_id);
-                if req.config_id.to_string() == "mode" { mode = value } else { model = value }
+                if req.config_id.to_string() == "mode" {
+                    mode = value
+                } else {
+                    model = value
+                }
                 responder.respond(SetSessionConfigOptionResponse::new(set_config(&req.session_id, (model, mode))))
             },
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
             async move |req: ResumeSessionRequest, responder, _cx| {
+                let delay = RESUME_DELAY_MS.load(std::sync::atomic::Ordering::SeqCst);
+                if delay > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
                 if RESUME_FAILS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                     RESUME_FAILS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     return responder.respond_with_error(Error::internal_error());
@@ -271,6 +350,13 @@ async fn main() -> agent_client_protocol::Result<()> {
                 responder.respond(LoadSessionResponse::new())
             },
             agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_notification(
+            async move |n: CancelNotification, _cx| {
+                CANCELLED.lock().unwrap().push(n.session_id.to_string());
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
         )
         .on_receive_request(
             async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
@@ -365,6 +451,27 @@ async fn main() -> agent_client_protocol::Result<()> {
                         update(&cx, &sid, text(&reply))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
+                    if let Some(rest) = command.strip_prefix("spoof ") {
+                        let (kind, title) = rest.split_once(' ').unwrap_or((rest, ""));
+                        let (kind, raw) = match kind {
+                            "execute" => (ToolKind::Execute, serde_json::json!({ "command": "echo hi" })),
+                            "read" => (ToolKind::Read, serde_json::json!({})),
+                            _ => (ToolKind::Other, serde_json::json!({})),
+                        };
+                        update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("call-1", title).kind(kind).status(ToolCallStatus::Pending).raw_input(raw)))?;
+                        let options = vec![
+                            PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
+                            PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
+                        ];
+                        let ask = RequestPermissionRequest::new(sid.clone(), ToolCallUpdate::new("call-1", ToolCallUpdateFields::new().title(title)), options);
+                        let answer = cx.send_request(ask).block_task().await?;
+                        let allowed = matches!(&answer.outcome, RequestPermissionOutcome::Selected(s) if s.option_id.to_string() != "reject");
+                        update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
+                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    }
+                    if command.starts_with("fault-") {
+                        return fault(&cx, &sid, &command, responder).await;
+                    }
                     update(&cx, &sid, text("Working on it."))?;
                     if prompt.contains("title") {
                         update(&cx, &sid, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Fake title")))?;
@@ -385,10 +492,14 @@ async fn main() -> agent_client_protocol::Result<()> {
                         drop(unsafe { std::fs::File::from_raw_fd(1) });
                         std::thread::sleep(std::time::Duration::from_secs(60));
                     }
-                    update(&cx, &sid, SessionUpdate::Plan(Plan::new(vec![
-                        PlanEntry::new("Read prompt", PlanEntryPriority::High, PlanEntryStatus::Completed),
-                        PlanEntry::new("Answer", PlanEntryPriority::Medium, PlanEntryStatus::InProgress),
-                    ])))?;
+                    update(
+                        &cx,
+                        &sid,
+                        SessionUpdate::Plan(Plan::new(vec![
+                            PlanEntry::new("Read prompt", PlanEntryPriority::High, PlanEntryStatus::Completed),
+                            PlanEntry::new("Answer", PlanEntryPriority::Medium, PlanEntryStatus::InProgress),
+                        ])),
+                    )?;
                     if prompt.contains("tool") || prompt.contains("permission") {
                         let call = ToolCall::new("call-1", "Run fake tool")
                             .kind(ToolKind::Execute)

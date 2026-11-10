@@ -1,4 +1,10 @@
-import type { AgentInfo, HarnessClient, RegistryAgent } from "@harness/api";
+import {
+   type AgentInfo,
+   errText,
+   type HarnessClient,
+   isCommandError,
+   type RegistryAgent,
+} from "@harness/api";
 import {
    Badge,
    Button,
@@ -20,8 +26,21 @@ import { SectionHeader } from "./SectionHeader";
 
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
-const errText = (e: unknown) =>
-   e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
+/** One line on an installed Agent's last conformance check. */
+function checkLine(a: AgentInfo): { text: string; ok: boolean } | null {
+   const c = a.install?.check;
+   if (!c) return null;
+   if (c.passed) {
+      return {
+         ok: true,
+         text: c.auth_required
+            ? `v${c.version} check passed (sign-in needed)`
+            : `v${c.version} check passed`,
+      };
+   }
+   const first = (c.error ?? "").split("\n")[0];
+   return { ok: false, text: `Update to v${c.version} was refused, check failed: ${first}` };
+}
 
 export function AgentIcon({
    icon,
@@ -74,6 +93,7 @@ export function AgentsPanel({
    const [installing, setInstalling] = useState<Set<string>>(new Set());
    const [errors, setErrors] = useState<Record<string, string>>({});
    const [listError, setListError] = useState<string | null>(null);
+   const [unverified, setUnverified] = useState<{ id: string; name: string } | null>(null);
    const [toRemove, setToRemove] = useState<AgentInfo | null>(null);
    const [removeError, setRemoveError] = useState<string | null>(null);
    const [name, setName] = useState("");
@@ -107,15 +127,21 @@ export function AgentsPanel({
       setRefreshing(false);
    };
 
-   const install = async (id: string) => {
+   const install = async (id: string, allowUnverified = false) => {
       setInstalling((s) => new Set(s).add(id));
       setErrors((e) => ({ ...e, [id]: "" }));
       try {
-         await client.installAgent(id);
+         await client.installAgent(id, allowUnverified);
          await load(false);
          onChanged?.();
       } catch (e) {
-         setErrors((x) => ({ ...x, [id]: errText(e) }));
+         const message = errText(e);
+         if (!allowUnverified && isCommandError(e, "policy_denied")) {
+            // Ask before retrying without a checksum to verify against.
+            setUnverified({ id, name: registry.find((r) => r.id === id)?.name ?? id });
+         } else {
+            setErrors((x) => ({ ...x, [id]: message }));
+         }
       } finally {
          setInstalling((s) => {
             const n = new Set(s);
@@ -123,6 +149,18 @@ export function AgentsPanel({
             return n;
          });
       }
+   };
+
+   const act = async (id: string, regId: string, run: () => Promise<unknown>) => {
+      setErrors((e) => ({ ...e, [regId]: "" }));
+      try {
+         await run();
+         await load(false);
+         onChanged?.();
+      } catch (e) {
+         setErrors((x) => ({ ...x, [regId]: errText(e) }));
+      }
+      void id;
    };
 
    const remove = async () => {
@@ -197,6 +235,9 @@ export function AgentsPanel({
                      const canUpdate =
                         !!reg && !!a.version && reg.version !== a.version && !!reg.install_method;
                      const id = reg?.id ?? "";
+                     const line = checkLine(a);
+                     const held = !!a.install?.held;
+                     const previous = a.install?.previous;
                      return (
                         <li key={a.id} className="flex items-center gap-3 px-3 py-2">
                            <AgentIcon icon={a.icon} name={a.name} />
@@ -212,13 +253,61 @@ export function AgentsPanel({
                                     </span>
                                  )}
                               </div>
+                              {(held || a.install?.unverified) && (
+                                 <div className="mt-1 flex gap-1">
+                                    {held && <Badge variant="outline">held</Badge>}
+                                    {a.install?.unverified && (
+                                       <Badge variant="warning">unverified download</Badge>
+                                    )}
+                                 </div>
+                              )}
+                              {line && (
+                                 <p
+                                    className={cn(
+                                       "line-clamp-2 text-xs",
+                                       line.ok ? "text-muted-foreground" : "text-destructive",
+                                    )}
+                                 >
+                                    {line.text}
+                                 </p>
+                              )}
+                              {previous && (
+                                 <p className="text-xs text-muted-foreground">
+                                    Previous: v{previous.version}
+                                 </p>
+                              )}
                               {id && errors[id] && (
                                  <p role="alert" className="text-xs text-destructive">
                                     {errors[id]}
                                  </p>
                               )}
                            </div>
-                           {canUpdate && (
+                           {previous && (
+                              <Button
+                                 size="sm"
+                                 variant="outline"
+                                 onClick={() =>
+                                    void act(a.id, id || a.id, () => client.rollbackAgent(a.id))
+                                 }
+                              >
+                                 Roll back to v{previous.version}
+                              </Button>
+                           )}
+                           {a.source?.type === "registry" && (
+                              <Button
+                                 size="sm"
+                                 variant={held ? "secondary" : "ghost"}
+                                 aria-pressed={held}
+                                 onClick={() =>
+                                    void act(a.id, id || a.id, () =>
+                                       client.holdAgentVersion(a.id, !held),
+                                    )
+                                 }
+                              >
+                                 {held ? "Release hold" : "Hold"}
+                              </Button>
+                           )}
+                           {canUpdate && !held && (
                               <Button
                                  size="sm"
                                  variant="outline"
@@ -371,6 +460,34 @@ export function AgentsPanel({
                </div>
             </section>
          </div>
+         <Dialog open={unverified !== null} onOpenChange={(o) => !o && setUnverified(null)}>
+            <DialogContent>
+               <DialogHeader>
+                  <DialogTitle>Install without verification?</DialogTitle>
+                  <DialogDescription>
+                     The ACP Registry lists no checksum for "{unverified?.name}", so the Harness
+                     cannot check that the download is the file its author published. Only continue
+                     if you trust the source. The download will run on your Mac with your
+                     permissions.
+                  </DialogDescription>
+               </DialogHeader>
+               <DialogFooter>
+                  <Button variant="outline" onClick={() => setUnverified(null)}>
+                     Cancel
+                  </Button>
+                  <Button
+                     variant="destructive"
+                     onClick={() => {
+                        const id = unverified?.id;
+                        setUnverified(null);
+                        if (id) void install(id, true);
+                     }}
+                  >
+                     Install unverified
+                  </Button>
+               </DialogFooter>
+            </DialogContent>
+         </Dialog>
          <Dialog open={toRemove !== null} onOpenChange={(o) => !o && setToRemove(null)}>
             <DialogContent>
                <DialogHeader>

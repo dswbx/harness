@@ -2,11 +2,12 @@
 //! Terminal byte stream, plus macOS niceties (dock badge, notifications) and opt-in self-update.
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
 use harness_core::Harness;
+use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, Lagged, SessionMessage, SessionStatus};
 use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
@@ -14,10 +15,7 @@ use tauri::{Manager, Webview};
 mod updates;
 
 /// Frontend Manifests of the built-in Frontends, registered with core at boot.
-const MANIFESTS: &[&str] = &[
-    include_str!("../../../packages/frontend-chat/manifest.json"),
-    include_str!("../../../packages/frontend-inspector/manifest.json"),
-];
+const MANIFESTS: &[&str] = &[include_str!("../../../packages/frontend-chat/manifest.json"), include_str!("../../../packages/frontend-inspector/manifest.json")];
 
 /// `$HARNESS_HOME`, else `~/.harness` (`~/.harness-dev` for dev builds, so they never touch real data).
 fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
@@ -27,6 +25,9 @@ fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
     }
 }
 
+/// (session id, terminal id, terminal attach id).
+type TerminalAttach = (String, u32, u64);
+
 #[derive(Default)]
 struct Subscriptions {
     /// Webview label -> (session id, subscription id).
@@ -34,19 +35,19 @@ struct Subscriptions {
     /// Webview label -> app subscription ids.
     app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
     /// Webview label -> (session id, terminal id, terminal attach id).
-    terminals_by_webview: Mutex<HashMap<String, Vec<(String, u32, u64)>>>,
+    terminals_by_webview: Mutex<HashMap<String, Vec<TerminalAttach>>>,
 }
 
 impl Subscriptions {
     fn drop_webview(&self, harness: &Harness, label: &str) {
-        let subs = self.by_webview.lock().unwrap().remove(label).unwrap_or_default();
+        let subs = self.by_webview.lock().remove(label).unwrap_or_default();
         for (session_id, id) in subs {
             harness.unsubscribe_session(&session_id, id);
         }
-        for id in self.app_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
+        for id in self.app_by_webview.lock().remove(label).unwrap_or_default() {
             harness.unsubscribe_app(id);
         }
-        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
+        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().remove(label).unwrap_or_default() {
             harness.terminal_detach(&session_id, terminal_id, id);
         }
     }
@@ -93,7 +94,7 @@ fn set_window_alpha(_window: tauri::Window, _alpha: f64) -> tauri::Result<()> {
 }
 
 #[tauri::command]
-async fn execute(harness: tauri::State<'_, Arc<Harness>>, cmd: Command) -> Result<CommandResult, String> {
+async fn execute(harness: tauri::State<'_, Arc<Harness>>, cmd: Command) -> Result<CommandResult, HarnessError> {
     harness.execute(cmd).await
 }
 
@@ -114,6 +115,19 @@ async fn save_file(app: tauri::AppHandle, name: String, data: String) -> Result<
     Ok(Some(path.display().to_string()))
 }
 
+/// Session Log sink for one webview: Events, then `Lagged` if the core drops it for being too slow.
+struct ViewSink(Channel<SessionMessage>);
+
+impl EventSink for ViewSink {
+    fn send(&self, event: &Event) -> bool {
+        self.0.send(SessionMessage::Event(event.clone())).is_ok()
+    }
+
+    fn lagged(&self, last_seq: Option<u64>) {
+        let _ = self.0.send(SessionMessage::Lagged(Lagged { last_seq }));
+    }
+}
+
 #[tauri::command]
 fn subscribe(
     webview: Webview,
@@ -121,38 +135,25 @@ fn subscribe(
     subs: tauri::State<'_, Subscriptions>,
     session_id: String,
     from_seq: u64,
-    channel: Channel<Event>,
+    channel: Channel<SessionMessage>,
 ) -> Result<u64, String> {
-    let id = harness.subscribe_session(
-        &session_id,
-        from_seq,
-        Box::new(move |e: &Event| channel.send(e.clone()).is_ok()),
-    )?;
-    subs.by_webview
-        .lock()
-        .unwrap()
-        .entry(webview.label().to_owned())
-        .or_default()
-        .push((session_id, id));
+    let id = harness.subscribe_session(&session_id, from_seq, Box::new(ViewSink(channel)))?;
+    subs.by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, id));
     Ok(id)
 }
 
 /// Harness-wide events (session list, attention) for this webview.
 #[tauri::command]
-fn subscribe_app(
-    webview: Webview,
-    harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
-    channel: Channel<AppEvent>,
-) -> u64 {
+fn subscribe_app(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, channel: Channel<AppEvent>) -> u64 {
     let id = harness.subscribe_app(Box::new(move |e: &AppEvent| channel.send(e.clone()).is_ok()));
-    subs.app_by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push(id);
+    subs.app_by_webview.lock().entry(webview.label().to_owned()).or_default().push(id);
     id
 }
 
 /// A Terminal tab of the Session: the replay as raw bytes then `{"replayed": true}`, live output as raw
 /// bytes (an `ArrayBuffer` in JS, no JSON), then `{"exit": code}` when the shell ends.
 #[tauri::command]
+#[allow(clippy::too_many_arguments, reason = "Tauri maps each IPC argument to a parameter")]
 fn terminal_attach(
     webview: Webview,
     harness: tauri::State<'_, Arc<Harness>>,
@@ -182,12 +183,7 @@ fn terminal_attach(
             }),
         )
         .map_err(|e| format!("{e:#}"))?;
-    subs.terminals_by_webview
-        .lock()
-        .unwrap()
-        .entry(webview.label().to_owned())
-        .or_default()
-        .push((session_id, terminal_id, id));
+    subs.terminals_by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, terminal_id, id));
     Ok(id)
 }
 
@@ -201,7 +197,7 @@ fn terminal_detach(
     id: u64,
 ) {
     harness.terminal_detach(&session_id, terminal_id, id);
-    if let Some(list) = subs.terminals_by_webview.lock().unwrap().get_mut(webview.label()) {
+    if let Some(list) = subs.terminals_by_webview.lock().get_mut(webview.label()) {
         list.retain(|(s, t, i)| !(s == &session_id && *t == terminal_id && *i == id));
     }
 }
@@ -229,7 +225,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
         }
         let AppEvent::SessionStatus { session_id, title, status } = e else { return true };
         let count = {
-            let mut w = waiting.lock().unwrap();
+            let mut w = waiting.lock();
             let newly = *status == SessionStatus::NeedsAttention && w.insert(session_id.clone());
             if *status != SessionStatus::NeedsAttention {
                 w.remove(session_id);
@@ -247,21 +243,15 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
 }
 
 #[tauri::command]
-fn unsubscribe(
-    webview: Webview,
-    harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
-    session_id: String,
-    id: u64,
-) {
+fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, session_id: String, id: u64) {
     harness.unsubscribe_session(&session_id, id);
-    if let Some(list) = subs.by_webview.lock().unwrap().get_mut(webview.label()) {
+    if let Some(list) = subs.by_webview.lock().get_mut(webview.label()) {
         list.retain(|(s, i)| !(s == &session_id && *i == id));
     }
 }
 
 /// Same as `HTML_CSP` in the Chat Frontend's `htmlBridge.ts`.
-const FRAME_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src 'none'";
+const FRAME_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'";
 
 /// Loader of an Html frame (ADR 0013 addendum): takes its document from the host and writes it over itself.
 const FRAME_LOADER: &str = r#"<!doctype html><script>addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="doc"){document.open();document.write(e.data.html);document.close()}});parent.postMessage({type:"ready"},"*")</script>"#;
@@ -277,10 +267,7 @@ fn frame_response() -> tauri::http::Response<Vec<u8>> {
 
 pub fn run() {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,agent_stderr=off".into()),
-        )
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,agent_stderr=off".into()))
         .with_writer(std::io::stderr)
         .init();
 
@@ -302,10 +289,7 @@ pub fn run() {
         .setup(|app| {
             let data_dir = data_dir(app.path().home_dir()?);
             let exe = std::env::current_exe()?.display().to_string();
-            let options = harness_core::host::Options {
-                mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])),
-                ..Default::default()
-            };
+            let options = harness_core::host::Options { mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])), ..Default::default() };
             let harness = Harness::with_options(data_dir, Vec::new(), options)?;
             for raw in MANIFESTS {
                 harness.register_frontend(serde_json::from_str::<FrontendManifest>(raw)?);
@@ -365,4 +349,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Harness");
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::FRAME_CSP;
+
+    #[test]
+    fn frame_csp_allows_no_network() {
+        assert!(!FRAME_CSP.contains("http:") && !FRAME_CSP.contains("https:"), "{FRAME_CSP}");
+        assert!(FRAME_CSP.contains("connect-src 'none'"));
+        assert!(FRAME_CSP.contains("img-src data: blob:;"));
+    }
 }

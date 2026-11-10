@@ -1,4 +1,5 @@
 //! Harness MCP end to end: the scripted `fake-agent` is the MCP client (HTTP and stdio shim).
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;
@@ -7,12 +8,12 @@ use std::process::Command as Proc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use harness_core::Harness;
 use harness_core::api::{
-    AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, NewPermissionRule, Decision, Resolver, RuleScope, StatePatchOp, StateWriter, FrontendToolDecl, McpServerDef, McpTransport,
+    AgentInfo, AppEvent, Command, CommandResult, Decision, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, FrontendToolDecl, McpServerDef,
+    McpTransport, NewPermissionRule, Resolver, RuleScope, StatePatchOp, StateWriter,
 };
 use harness_core::host::Options;
-use harness_core::Harness;
-
 
 fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
     let agent = AgentInfo {
@@ -24,6 +25,7 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
         source: Default::default(),
         version: None,
         icon: None,
+        install: Default::default(),
     };
     let options = Options {
         secrets: Box::new(harness_core::library::MemorySecrets::default()),
@@ -94,15 +96,7 @@ async fn create(h: &Harness, folder: &Path, mcp_servers: Vec<String>) -> String 
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 /// Sends `text`, answering permission prompts with `answer`, and returns the Agent's reply.
@@ -146,7 +140,10 @@ async fn primitives_over_http() {
     set_mode(&h, &sid, "default").await;
 
     let tools = ask(&h, &sid, "mcp-list", None).await;
-    assert_eq!(tools, "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,threads_list,transcript_outline,transcript_read,transcript_search,json_render");
+    assert_eq!(
+        tools,
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
+    );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
     let status = ask(&h, &sid, "mcp git_status {}", None).await;
@@ -159,9 +156,7 @@ async fn primitives_over_http() {
     assert!(commit.starts_with("mcp: Committed "), "{commit}");
     let push = ask(&h, &sid, "mcp git_push {}", Some("reject")).await;
     assert_eq!(push, "mcp error: the user denied this");
-    let asked = events(&h, &sid).into_iter().any(|e| {
-        matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push")
-    });
+    let asked = events(&h, &sid).into_iter().any(|e| matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push"));
     assert!(asked);
 }
 
@@ -221,10 +216,14 @@ async fn explicit_allow_rule_passes_and_is_logged() {
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, &repo, vec![]).await;
     let CommandResult::PermissionRuleAdded { rule } = h
-        .execute(Command::AddPermissionRule { rule: NewPermissionRule { scope: RuleScope::Global, tool_kind: Some("git_push".into()), pattern: None, decision: Decision::Allow } })
+        .execute(Command::AddPermissionRule {
+            rule: NewPermissionRule { scope: RuleScope::Global, tool_kind: Some("git_push".into()), pattern: None, decision: Decision::Allow },
+        })
         .await
         .unwrap()
-    else { panic!() };
+    else {
+        panic!()
+    };
     let push = ask(&h, &sid, "mcp git_push {}", None).await;
     assert!(!push.contains("denied") && !push.contains("cancelled"), "{push}");
     assert_eq!(push_resolutions(&h, &sid), vec![(Resolver::Policy, Some(rule.id), Some("allow".into()))]);
@@ -258,18 +257,17 @@ async fn frontend_tool_is_validated_and_stored() {
     assert_eq!(input["image"], "shot.png", "the input stays as the Agent sent it");
     assert!(path.starts_with("tools/json_render/") && path.ends_with(".json"));
     let copy = files.get("shot.png").expect("copied image").clone();
-    let CommandResult::Attachment { mime, data } =
-        h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: copy.clone() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Attachment { mime, data } = h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: copy.clone() }).await.unwrap() else {
+        panic!()
+    };
     assert_eq!((mime.as_str(), data.as_str()), ("image/png", "cG5n"));
     assert!(h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: path.clone() }).await.is_err(), "not an image");
 
-    let CommandResult::FileContent { content } =
-        h.execute(Command::FrontendRead { session_id: sid.clone(), path: path.clone() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::FileContent { content } = h.execute(Command::FrontendRead { session_id: sid.clone(), path: path.clone() }).await.unwrap() else {
+        panic!()
+    };
     assert_eq!(serde_json::from_str::<serde_json::Value>(&content).unwrap()["title"], "Hi");
-    let CommandResult::Files { files } = h.execute(Command::FrontendList { session_id: sid.clone(), dir: String::new() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Files { files } = h.execute(Command::FrontendList { session_id: sid.clone(), dir: String::new() }).await.unwrap() else { panic!() };
     assert_eq!(files, vec![copy, path]);
     h.execute(Command::FrontendWrite { session_id: sid.clone(), path: "state/view.json".into(), content: "{}".into() }).await.unwrap();
     assert!(h.execute(Command::FrontendRead { session_id: sid.clone(), path: "../session.json".into() }).await.is_err());
@@ -336,10 +334,12 @@ async fn frontend_answer_returns_to_the_agent_without_a_log_entry() {
     let reply = ask(&h, &sid, r#"mcp snapshot {"id":"chart"}"#, None).await;
     assert_eq!(reply, "mcp: Rendered.\nimage image/png cG5n", "text, then the image; the second answer is ignored");
 
-    let seen = seen.lock().unwrap();
-    let [(AppEvent::FrontendRequest { session_id, tool, input, last_seq, .. }, newest)] = seen.as_slice() else { panic!("{seen:?}") };
-    assert_eq!((session_id, tool.as_str(), input), (&sid, "snapshot", &serde_json::json!({ "id": "chart" })));
-    assert_eq!(last_seq, newest);
+    {
+        let seen = seen.lock().unwrap();
+        let [(AppEvent::FrontendRequest { session_id, tool, input, last_seq, .. }, newest)] = seen.as_slice() else { panic!("{seen:?}") };
+        assert_eq!((session_id, tool.as_str(), input), (&sid, "snapshot", &serde_json::json!({ "id": "chart" })));
+        assert_eq!(last_seq, newest);
+    }
     let logged = events(&h, &sid);
     assert!(!logged.iter().any(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })));
     assert!(!logged.iter().any(|e| matches!(e.kind, EventKind::PermissionRequested { .. })), "no prompt for the user");
@@ -367,7 +367,7 @@ async fn editor_setting_and_open_guard() {
 
     let CommandResult::Editor { editor } = h.execute(Command::GetEditor).await.unwrap() else { panic!() };
     assert_eq!(editor, None);
-    assert!(h.execute(open("a.txt")).await.unwrap_err().contains("choose an editor"));
+    assert!(h.execute(open("a.txt")).await.unwrap_err().message.contains("choose an editor"));
 
     let custom = Editor::Custom { template: "x://{path}:{line}".into() };
     h.execute(Command::SetEditor { editor: Some(custom.clone()) }).await.unwrap();
@@ -384,17 +384,16 @@ async fn session_state_and_harness_info() {
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, dir.path(), vec![]).await;
 
-    let r = ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"add","path":"/quiz/score","value":0},{"op":"add","path":"/quiz/answers","value":[]}]}"#, None).await;
+    let r =
+        ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"add","path":"/quiz/score","value":0},{"op":"add","path":"/quiz/answers","value":[]}]}"#, None).await;
     assert!(r.starts_with("mcp: {") && r.contains("\"score\": 0"), "{r}");
-    let bad = ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"replace","path":"/quiz/score","value":9},{"op":"test","path":"/quiz/score","value":0}]}"#, None).await;
+    let bad =
+        ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"replace","path":"/quiz/score","value":9},{"op":"test","path":"/quiz/score","value":0}]}"#, None).await;
     assert!(bad.starts_with("mcp error: test failed at /quiz/score"), "{bad}");
     // The user (a bound UI component) changes it too.
-    h.execute(Command::PatchState {
-        session_id: sid.clone(),
-        ops: vec![StatePatchOp::Add { path: "/quiz/answers/-".into(), value: serde_json::json!("B") }],
-    })
-    .await
-    .unwrap();
+    h.execute(Command::PatchState { session_id: sid.clone(), ops: vec![StatePatchOp::Add { path: "/quiz/answers/-".into(), value: serde_json::json!("B") }] })
+        .await
+        .unwrap();
     let got = ask(&h, &sid, r#"mcp state_get {"statePath":"/quiz"}"#, None).await;
     assert!(got.contains("\"answers\": [\n    \"B\"\n  ]") && got.contains("\"score\": 0"), "{got}");
     let CommandResult::State { state } = h.execute(Command::GetState { session_id: sid.clone() }).await.unwrap() else { panic!() };
@@ -518,11 +517,7 @@ async fn library_servers_are_given_to_the_agent_with_secrets() {
     let def = McpServerDef {
         id: String::new(),
         name: "Docs".into(),
-        transport: McpTransport::Stdio {
-            command: "/usr/bin/true".into(),
-            args: vec![],
-            env: [("PLAIN".to_owned(), "1".to_owned())].into(),
-        },
+        transport: McpTransport::Stdio { command: "/usr/bin/true".into(), args: vec![], env: [("PLAIN".to_owned(), "1".to_owned())].into() },
         secret_keys: vec!["API_KEY".into()],
     };
     let save = Command::SaveMcpServer { server: def, secrets: [("API_KEY".to_owned(), "s3cret".to_owned())].into() };
@@ -572,15 +567,17 @@ async fn server_refuses_missing_tokens_and_browser_origins() {
 #[test]
 fn generated_chat_manifest_validates_in_core() {
     use serde_json::json;
-    let manifest: FrontendManifest =
-        serde_json::from_str(include_str!("../../../packages/frontend-chat/manifest.json")).unwrap();
+    let manifest: FrontendManifest = serde_json::from_str(include_str!("../../../packages/frontend-chat/manifest.json")).unwrap();
     let tool = manifest.frontend_tools.iter().find(|t| t.name == "render_ui").expect("render_ui");
     let v = jsonschema::options().with_format("harness-image", |_: &str| true).should_validate_formats(true).build(&tool.input_schema).unwrap();
     let errors = |i: serde_json::Value| v.iter_errors(&i).map(|e| format!("{}: {e}", e.instance_path)).collect::<Vec<_>>().join("\n");
-    assert_eq!(errors(json!({ "root": { "type": "Stack", "children": [
+    assert_eq!(
+        errors(json!({ "root": { "type": "Stack", "children": [
         { "type": "Card", "props": { "title": "Done", "tone": "success" }, "children": [{ "type": "Markdown", "props": { "text": "ok" } }] },
         { "type": "Carousel", "props": { "images": [{ "src": "a.png", "alt": "A" }] } }
-    ] } })), "");
+    ] } })),
+        ""
+    );
     let e = errors(json!({ "root": { "type": "Stack", "children": [{ "type": "Image", "props": { "alt": "x" } }] } }));
     assert!(e.contains("/root/children/0/props") && e.contains("\"src\" is a required property"), "{e}");
     let e = errors(json!({ "root": { "type": "Badge", "props": { "text": "x", "tone": "loud" } } }));
@@ -590,23 +587,57 @@ fn generated_chat_manifest_validates_in_core() {
     let e = errors(json!({ "root": { "type": "Markdown", "props": { "text": "x" }, "children": [{ "type": "Markdown", "props": { "text": "y" } }] } }));
     assert!(e.contains("/root/children"), "{e}");
     // Placements, bindings and actions.
-    assert_eq!(errors(json!({ "id": "score", "placement": "bottom", "root": { "type": "Stat", "props": { "label": "Score", "value": { "$template": "${/quiz/score} / 5" } } } })), "");
+    assert_eq!(
+        errors(
+            json!({ "id": "score", "placement": "bottom", "root": { "type": "Stat", "props": { "label": "Score", "value": { "$template": "${/quiz/score} / 5" } } } })
+        ),
+        ""
+    );
     assert_eq!(errors(json!({ "id": "score", "remove": true })), "");
-    assert_eq!(errors(json!({ "root": { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" }, "options": [{ "value": "a", "label": "A" }] },
-        "on": { "change": { "action": "sendMessage", "params": { "text": { "$template": "Answer: ${/a/q1}" } } } } } })), "");
+    assert_eq!(
+        errors(json!({ "root": { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" }, "options": [{ "value": "a", "label": "A" }] },
+        "on": { "change": { "action": "sendMessage", "params": { "text": { "$template": "Answer: ${/a/q1}" } } } } } })),
+        ""
+    );
     assert!(errors(json!({ "placement": "right", "root": { "type": "Markdown", "props": { "text": "x" } } })).contains("\"id\" is a required property"));
-    assert_eq!(errors(json!({ "id": "test", "placement": "right", "title": "Test", "root": { "type": "Stepper", "props": { "steps": ["Q1"] },
+    assert_eq!(
+        errors(json!({ "id": "test", "placement": "right", "title": "Test", "root": { "type": "Stepper", "props": { "steps": ["Q1"] },
         "on": { "finish": { "action": "sendMessage", "params": { "text": "done" } } },
-        "children": [{ "type": "Choice", "props": { "value": { "$bindState": "/q/a1" }, "result": { "$bindState": "/q/r/q1" }, "answer": "a", "options": [{ "value": "a", "label": "A" }] } }] } })), "");
-    assert_eq!(errors(json!({ "root": { "type": "Stat", "props": { "label": "Score", "value": { "$computed": "count", "args": { "values": { "$state": "/q/r" }, "eq": true } } } } })), "");
-    assert!(!errors(json!({ "root": { "type": "Stat", "props": { "label": "S", "value": { "$computed": "average", "args": { "values": [] } } } } })).is_empty());
-    assert_eq!(errors(json!({ "root": { "type": "Button", "props": { "label": "Continue" }, "visible": { "$and": [{ "$state": "/q/a1" }, { "$state": "/q/step", "eq": 0 }] } } })), "");
+        "children": [{ "type": "Choice", "props": { "value": { "$bindState": "/q/a1" }, "result": { "$bindState": "/q/r/q1" }, "answer": "a", "options": [{ "value": "a", "label": "A" }] } }] } })),
+        ""
+    );
+    assert_eq!(
+        errors(
+            json!({ "root": { "type": "Stat", "props": { "label": "Score", "value": { "$computed": "count", "args": { "values": { "$state": "/q/r" }, "eq": true } } } } })
+        ),
+        ""
+    );
+    assert!(
+        !errors(json!({ "root": { "type": "Stat", "props": { "label": "S", "value": { "$computed": "average", "args": { "values": [] } } } } })).is_empty()
+    );
+    assert_eq!(
+        errors(
+            json!({ "root": { "type": "Button", "props": { "label": "Continue" }, "visible": { "$and": [{ "$state": "/q/a1" }, { "$state": "/q/step", "eq": 0 }] } } })
+        ),
+        ""
+    );
     assert!(!errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "visible": { "$state": 1 } } })).is_empty());
-    assert!(!errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "setState", "params": { "value": 1 } } } } })).is_empty());
+    assert!(
+        !errors(json!({ "root": { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "setState", "params": { "value": 1 } } } } }))
+            .is_empty()
+    );
     // Repeat scope (json-render's $item, $index, $bindItem) and rich Table rows.
-    assert_eq!(errors(json!({ "root": { "type": "Repeat", "props": { "items": { "$state": "/t" } }, "children": [
+    assert_eq!(
+        errors(json!({ "root": { "type": "Repeat", "props": { "items": { "$state": "/t" } }, "children": [
         { "type": "Checkbox", "props": { "label": { "$item": "title" }, "value": { "$bindItem": "done" } }, "visible": { "$item": "open" } },
         { "type": "Button", "props": { "label": "x" }, "on": { "press": { "action": "removeState", "params": { "statePath": "/t", "index": { "$index": true } } } } }
-    ] } })), "");
-    assert_eq!(errors(json!({ "root": { "type": "Table", "props": { "columns": ["A"], "rows": [["x"], { "cells": [{ "text": "y", "tone": "error" }], "tone": "warning" }] } } })), "");
+    ] } })),
+        ""
+    );
+    assert_eq!(
+        errors(
+            json!({ "root": { "type": "Table", "props": { "columns": ["A"], "rows": [["x"], { "cells": [{ "text": "y", "tone": "error" }], "tone": "warning" }] } } })
+        ),
+        ""
+    );
 }

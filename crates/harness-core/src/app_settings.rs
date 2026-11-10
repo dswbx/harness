@@ -22,9 +22,7 @@ pub fn save(data_dir: &Path, key: AppSettingKey, value: Option<&Json>) -> anyhow
     match value {
         Some(v) => {
             // Write then rename: a crash never leaves half a file.
-            let tmp = path.with_extension("json.tmp");
-            std::fs::write(&tmp, serde_json::to_vec_pretty(v)?)?;
-            std::fs::rename(tmp, path)?;
+            crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(v)?)?;
         }
         None => {
             let _ = std::fs::remove_file(path);

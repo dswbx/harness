@@ -60,8 +60,6 @@ export function sessionFolders(sessions: SessionSummary[]): RecentFolder[] {
       .map((s) => ({ path: s.folder, at: s.created_ms }));
 }
 
-export const baseName = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
-
 /** `/Users/me/x` → `~/x` (display only). */
 export const tildify = (p: string) => p.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
 

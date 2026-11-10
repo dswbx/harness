@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{AgentInfo, EventKind, GitActor, SessionId, SessionStatus, SessionSummary, ThreadId};
-use crate::log::{now_ms, SessionLog};
+use crate::log::{SessionLog, now_ms};
 use crate::permissions::Policy;
 
 /// Harness-wide state every Session shares.
@@ -19,8 +19,10 @@ pub struct Shared {
     pub idle_timeout: Duration,
     /// The waits before each new try at restoring an Agent Session whose resume and load failed.
     pub restore_retries: Vec<Duration>,
+    /// How long an Agent may take to end a Turn after a Cancel before its process is stopped.
+    pub cancel_grace: Duration,
     pub agents: crate::agents::Agents,
-    pub frontends: std::sync::RwLock<Vec<crate::api::FrontendManifest>>,
+    pub frontends: parking_lot::RwLock<Vec<crate::api::FrontendManifest>>,
     pub mcp: crate::mcp::HarnessMcp,
     pub library: crate::library::Library,
     /// How Agents without HTTP MCP start the stdio shim: command and args (the shim reads
@@ -38,12 +40,12 @@ type AppSink = Box<dyn Fn(&crate::api::AppEvent) -> bool + Send + Sync>;
 /// Fan-out of `AppEvent`s to subscribers (the app's windows).
 #[derive(Default)]
 pub struct AppEvents {
-    subs: std::sync::Mutex<(u64, Vec<(u64, AppSink)>)>,
+    subs: parking_lot::Mutex<(u64, Vec<(u64, AppSink)>)>,
 }
 
 impl AppEvents {
     pub fn subscribe(&self, sink: AppSink) -> u64 {
-        let mut s = self.subs.lock().unwrap();
+        let mut s = self.subs.lock();
         s.0 += 1;
         let id = s.0;
         s.1.push((id, sink));
@@ -51,11 +53,11 @@ impl AppEvents {
     }
 
     pub fn unsubscribe(&self, id: u64) {
-        self.subs.lock().unwrap().1.retain(|(i, _)| *i != id);
+        self.subs.lock().1.retain(|(i, _)| *i != id);
     }
 
     pub fn emit(&self, event: crate::api::AppEvent) {
-        self.subs.lock().unwrap().1.retain(|(_, sink)| sink(&event));
+        self.subs.lock().1.retain(|(_, sink)| sink(&event));
     }
 }
 
@@ -168,7 +170,7 @@ impl SessionMeta {
 #[derive(Clone)]
 pub struct PrWatch {
     dir: PathBuf,
-    meta: Arc<std::sync::Mutex<SessionMeta>>,
+    meta: Arc<parking_lot::Mutex<SessionMeta>>,
     shared: Arc<Shared>,
 }
 
@@ -176,7 +178,7 @@ impl PrWatch {
     /// Stores the PR of a branch; tells the windows when it changed.
     fn set(&self, branch_pr: Option<BranchPrMeta>) {
         {
-            let mut m = self.meta.lock().unwrap();
+            let mut m = self.meta.lock();
             if m.workspace.branch_pr == branch_pr {
                 return;
             }
@@ -195,7 +197,7 @@ impl PrWatch {
 
     /// For a Session that may have opened a PR: looks up the PR of its branch, ignoring errors.
     async fn find(&self) {
-        let m = self.meta.lock().unwrap().clone();
+        let m = self.meta.lock().clone();
         let Some(folder) = m.repo_folder().filter(|_| m.workspace.pr.is_none()) else { return };
         let Some(branch) = crate::workspace::head_branch(Path::new(&m.folder)) else { return };
         let base = m.workspace.worktree.as_ref().map(|w| &w.base).or(m.workspace.base.as_ref());
@@ -213,6 +215,9 @@ pub const MAX_FRONTEND_ERRORS: usize = 5;
 pub const MAX_FRONTEND_ERROR_LEN: usize = 300;
 
 /// A `FrontendError` not cleared yet.
+/// Frontend Tool items by `(tool, item id)`, with the Thread of their latest call.
+type FrontendItems = HashMap<(String, String), ThreadId>;
+
 #[derive(Debug, Clone)]
 pub struct FrontendErrorEntry {
     pub seq: u64,
@@ -227,14 +232,14 @@ const FRONTEND_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Frontend requests waiting for their answer: request id -> who waits.
 #[derive(Default)]
-struct FrontendRequests(std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<crate::api::FrontendAnswer>>>);
+struct FrontendRequests(parking_lot::Mutex<HashMap<String, tokio::sync::oneshot::Sender<crate::api::FrontendAnswer>>>);
 
 /// Removes a request from `FrontendRequests` when the wait ends in any way, also when the future is dropped.
 struct PendingFrontendRequest<'a>(&'a FrontendRequests, String);
 
 impl Drop for PendingFrontendRequest<'_> {
     fn drop(&mut self) {
-        self.0.0.lock().unwrap().remove(&self.1);
+        self.0.0.lock().remove(&self.1);
     }
 }
 
@@ -243,7 +248,7 @@ impl FrontendRequests {
     async fn wait(&self, timeout: Duration, emit: impl FnOnce(String)) -> anyhow::Result<crate::api::FrontendAnswer> {
         let request_id = uuid::Uuid::now_v7().to_string();
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.0.lock().unwrap().insert(request_id.clone(), tx);
+        self.0.lock().insert(request_id.clone(), tx);
         let _pending = PendingFrontendRequest(self, request_id.clone());
         emit(request_id);
         match tokio::time::timeout(timeout, rx).await {
@@ -254,7 +259,7 @@ impl FrontendRequests {
 
     /// The first answer wins; later ones and unknown ids do nothing.
     fn answer(&self, request_id: &str, answer: crate::api::FrontendAnswer) {
-        if let Some(tx) = self.0.lock().unwrap().remove(request_id) {
+        if let Some(tx) = self.0.lock().remove(request_id) {
             let _ = tx.send(answer);
         }
     }
@@ -262,12 +267,12 @@ impl FrontendRequests {
 
 pub struct Session {
     dir: PathBuf,
-    meta: Arc<std::sync::Mutex<SessionMeta>>,
+    meta: Arc<parking_lot::Mutex<SessionMeta>>,
     log: SessionLog,
     agent: crate::acp::AgentSlot,
     shared: Arc<Shared>,
     /// Serializes Session State writes (`state.json` + `StateChanged`).
-    state_lock: std::sync::Mutex<()>,
+    state_lock: parking_lot::Mutex<()>,
     frontend_requests: FrontendRequests,
 }
 
@@ -309,17 +314,8 @@ impl Session {
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
-        log.append(None, EventKind::SessionCreated {
-            title,
-            frontend_id,
-            agent_id: agent.id.clone(),
-            folder,
-        })?;
-        log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted {
-            agent_id: agent.id,
-            main: true,
-            forked_from: None,
-        })?;
+        log.append(None, EventKind::SessionCreated { title, frontend_id, agent_id: agent.id.clone(), folder })?;
+        log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted { agent_id: agent.id, main: true, forked_from: None })?;
         log.sync()?;
         Ok(Self::from_parts(dir, meta, log, shared))
     }
@@ -329,11 +325,8 @@ impl Session {
         let log = SessionLog::open(meta.id.clone(), &dir.join("log.jsonl"))?;
         log.note_agent_gone()?;
         let session = Self::from_parts(dir, meta, log, shared);
-        if !session.meta.lock().unwrap().title_backfilled {
-            let title = session.log.events()?.into_iter().rev().find_map(|e| match e.kind {
-                EventKind::SessionInfoUpdated { title } if session.is_main(e.thread_id.as_ref()) => title.filter(|t| !t.trim().is_empty()),
-                _ => None,
-            });
+        if !session.meta.lock().title_backfilled {
+            let title = session.log.agent_title(&session.meta.lock().main_thread_id.clone())?;
             session.update_meta(|m| {
                 if let Some(t) = title {
                     m.title = t;
@@ -345,7 +338,7 @@ impl Session {
     }
 
     pub(crate) fn is_main(&self, thread: Option<&ThreadId>) -> bool {
-        thread.is_none_or(|t| *t == self.meta.lock().unwrap().main_thread_id)
+        thread.is_none_or(|t| *t == self.meta.lock().main_thread_id)
     }
 
     /// Keeps the Agent's title for the Session (`session_info_update` on the main Thread).
@@ -362,7 +355,15 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
-        Self { dir: dir.to_owned(), meta: Arc::new(std::sync::Mutex::new(meta)), log, agent: Default::default(), shared, state_lock: Default::default(), frontend_requests: Default::default() }
+        Self {
+            dir: dir.to_owned(),
+            meta: Arc::new(parking_lot::Mutex::new(meta)),
+            log,
+            agent: Default::default(),
+            shared,
+            state_lock: Default::default(),
+            frontend_requests: Default::default(),
+        }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -375,14 +376,14 @@ impl Session {
 
     /// The Session's Frontend.
     pub fn frontend(&self) -> Option<crate::api::FrontendManifest> {
-        let id = self.meta.lock().unwrap().frontend_id.clone();
-        self.shared.frontends.read().unwrap().iter().find(|f| f.id == id).cloned()
+        let id = self.meta.lock().frontend_id.clone();
+        self.shared.frontends.read().iter().find(|f| f.id == id).cloned()
     }
 
     /// Frontend Tools of the Session's Frontend.
     pub fn frontend_tools(&self) -> Vec<crate::api::FrontendToolDecl> {
-        let id = self.meta.lock().unwrap().frontend_id.clone();
-        self.shared.frontends.read().unwrap().iter().find(|f| f.id == id).map(|f| f.frontend_tools.clone()).unwrap_or_default()
+        let id = self.meta.lock().frontend_id.clone();
+        self.shared.frontends.read().iter().find(|f| f.id == id).map(|f| f.frontend_tools.clone()).unwrap_or_default()
     }
 
     /// Asks the Session's windows to answer a Frontend Tool call (`FrontendToolDecl::replies`).
@@ -417,15 +418,9 @@ impl Session {
         let call_id = uuid::Uuid::now_v7().to_string();
         let rel = format!("tools/{tool}/{call_id}.json");
         let path = self.dir.join("frontend").join(&rel);
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
         std::fs::write(&path, serde_json::to_vec_pretty(&input)?)?;
-        self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput {
-            tool: tool.to_owned(),
-            call_id,
-            path: rel.clone(),
-            input,
-            files,
-        })?;
+        self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput { tool: tool.to_owned(), call_id, path: rel.clone(), input, files })?;
         Ok(rel)
     }
 
@@ -455,11 +450,9 @@ impl Session {
     /// Applies `ops` to the Session State (all or nothing), stores it and logs `StateChanged`.
     pub fn patch_state(&self, thread: Option<ThreadId>, ops: Vec<crate::api::StatePatchOp>, by: crate::api::StateWriter) -> anyhow::Result<serde_json::Value> {
         anyhow::ensure!(!ops.is_empty(), "no operations");
-        let _guard = self.state_lock.lock().unwrap();
+        let _guard = self.state_lock.lock();
         let next = crate::state::apply(&self.state()?, &ops)?;
-        let tmp = self.dir.join("state.json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&next)?)?;
-        std::fs::rename(tmp, self.dir.join("state.json"))?;
+        crate::fsutil::write_atomic(&self.dir.join("state.json"), &serde_json::to_vec_pretty(&next)?)?;
         self.log.append(thread, EventKind::StateChanged { ops, by })?;
         Ok(next)
     }
@@ -487,8 +480,8 @@ impl Session {
     /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since: a
     /// new call with the item's id, or its removal, clears them. Also the items errors can be
     /// reported for, with the Thread of their latest call.
-    fn frontend_error_scan(&self) -> anyhow::Result<(HashMap<(String, String), ThreadId>, Vec<FrontendErrorEntry>)> {
-        let mut items: HashMap<(String, String), ThreadId> = HashMap::new();
+    fn frontend_error_scan(&self) -> anyhow::Result<(FrontendItems, Vec<FrontendErrorEntry>)> {
+        let mut items: FrontendItems = HashMap::new();
         let mut errors: Vec<FrontendErrorEntry> = Vec::new();
         for e in self.log.events()? {
             match e.kind {
@@ -509,13 +502,9 @@ impl Session {
                         }
                     }
                 }
-                EventKind::FrontendError { tool, item, message } => errors.push(FrontendErrorEntry {
-                    seq: e.seq,
-                    thread: e.thread_id.unwrap_or_default(),
-                    tool,
-                    item,
-                    message,
-                }),
+                EventKind::FrontendError { tool, item, message } => {
+                    errors.push(FrontendErrorEntry { seq: e.seq, thread: e.thread_id.unwrap_or_default(), tool, item, message })
+                }
                 _ => {}
             }
         }
@@ -563,10 +552,8 @@ impl Session {
     pub fn frontend_write(&self, rel: &str, content: &str) -> anyhow::Result<()> {
         let path = self.frontend_path(rel)?;
         anyhow::ensure!(!rel.trim().is_empty(), "path is required");
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        let tmp = path.with_extension("tmp-write");
-        std::fs::write(&tmp, content)?;
-        std::fs::rename(tmp, path)?;
+        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        crate::fsutil::write_atomic(&path, content.as_bytes())?;
         Ok(())
     }
 
@@ -608,8 +595,7 @@ impl Session {
             script.push_str(&format!("export {k}={}\n", quote(v)));
         }
         script.push_str(&format!("cd {}\n", quote(&self.meta().folder)));
-        let argv: Vec<String> =
-            std::iter::once(&agent.command).chain(agent.args.iter()).chain(extra_args.iter()).map(|a| quote(a)).collect();
+        let argv: Vec<String> = std::iter::once(&agent.command).chain(agent.args.iter()).chain(extra_args.iter()).map(|a| quote(a)).collect();
         script.push_str(&format!("exec {}\n", argv.join(" ")));
         let path = std::env::temp_dir().join(format!("harness-auth-{}.command", uuid::Uuid::now_v7()));
         std::fs::write(&path, script)?;
@@ -625,7 +611,7 @@ impl Session {
     }
 
     pub fn id(&self) -> SessionId {
-        self.meta.lock().unwrap().id.clone()
+        self.meta.lock().id.clone()
     }
 
     pub fn dir(&self) -> &Path {
@@ -637,11 +623,11 @@ impl Session {
     }
 
     pub fn meta(&self) -> SessionMeta {
-        self.meta.lock().unwrap().clone()
+        self.meta.lock().clone()
     }
 
     pub fn update_meta<R>(&self, f: impl FnOnce(&mut SessionMeta) -> R) -> anyhow::Result<R> {
-        let mut meta = self.meta.lock().unwrap();
+        let mut meta = self.meta.lock();
         let r = f(&mut meta);
         write_meta(&self.dir, &meta)?;
         Ok(r)
@@ -651,7 +637,7 @@ impl Session {
     /// in the terminal), so a Session with no repository looks again each time it is asked.
     fn adopt_repo(&self) {
         let folder = {
-            let m = self.meta.lock().unwrap();
+            let m = self.meta.lock();
             if m.workspace.repo_root.is_some() {
                 return;
             }
@@ -664,7 +650,7 @@ impl Session {
 
     pub fn summary(&self) -> SessionSummary {
         self.adopt_repo();
-        let m = self.meta.lock().unwrap();
+        let m = self.meta.lock();
         let branch = crate::workspace::head_branch(Path::new(&m.folder));
         SessionSummary {
             id: m.id.clone(),
@@ -688,20 +674,15 @@ impl Session {
     }
 
     fn thread(&self, thread_id: Option<ThreadId>) -> anyhow::Result<ThreadId> {
-        let m = self.meta.lock().unwrap();
+        let m = self.meta.lock();
         match thread_id {
             None => Ok(m.main_thread_id.clone()),
             Some(t) if t == m.main_thread_id || m.side_threads.contains(&t) => Ok(t),
-            Some(t) => anyhow::bail!("unknown thread {t}"),
+            Some(t) => Err(crate::error::not_found(format!("unknown thread {t}"))),
         }
     }
 
-    pub async fn prompt(
-        self: &Arc<Self>,
-        thread_id: Option<ThreadId>,
-        text: String,
-        attachments: Vec<crate::api::AttachmentInput>,
-    ) -> anyhow::Result<()> {
+    pub async fn prompt(self: &Arc<Self>, thread_id: Option<ThreadId>, text: String, attachments: Vec<crate::api::AttachmentInput>) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         self.note_first_prompt(&thread, &text)?;
         self.adopt_repo();
@@ -736,16 +717,15 @@ impl Session {
     /// A Quick Session nobody used: no prompt, nothing in its folder, not archived.
     pub fn is_discardable(&self) -> bool {
         let m = self.meta();
-        m.quick
-            && m.awaiting_first_prompt
-            && !m.archived
-            && std::fs::read_dir(&m.folder).map(|mut d| d.next().is_none()).unwrap_or(true)
+        m.quick && m.awaiting_first_prompt && !m.archived && std::fs::read_dir(&m.folder).map(|mut d| d.next().is_none()).unwrap_or(true)
     }
 
     /// Removes the Session Directory and, for a Quick Session, the folder the Harness made.
     /// The folder's name must be the Session id, so bad metadata can never delete another folder.
     pub fn remove_files(&self) -> anyhow::Result<()> {
         let m = self.meta();
+        // Stop the log first: an Agent's late exit must not write into the directory being removed.
+        self.log.close();
         std::fs::remove_dir_all(&self.dir)?;
         let folder = Path::new(&m.folder);
         if m.quick && folder.file_name().is_some_and(|n| n == m.id.as_str()) && folder.exists() {
@@ -790,11 +770,7 @@ impl Session {
 
     /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
     /// whether that will be a fork of the Main Thread's Agent Session.
-    pub fn start_side_thread(
-        &self,
-        seed: Option<String>,
-        source: crate::api::ThreadStart,
-    ) -> anyhow::Result<(ThreadId, bool)> {
+    pub fn start_side_thread(&self, seed: Option<String>, source: crate::api::ThreadStart) -> anyhow::Result<(ThreadId, bool)> {
         let thread = uuid::Uuid::now_v7().to_string();
         let main = self.meta().main_thread_id;
         let point = crate::summary::last_finished_turn(&self.log.events()?, &main);
@@ -807,15 +783,11 @@ impl Session {
             m.origins.insert(thread.clone(), SideOrigin { point: point.clone(), source });
             m.agent.id.clone()
         })?;
-        self.log.append(Some(thread.clone()), EventKind::ThreadStarted {
-            agent_id,
-            main: false,
-            forked_from: Some(point),
-        })?;
+        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false, forked_from: Some(point) })?;
         Ok((thread, forked))
     }
 
-    pub async fn cancel(&self, thread_id: Option<ThreadId>) -> anyhow::Result<()> {
+    pub async fn cancel(self: &Arc<Self>, thread_id: Option<ThreadId>) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         self.agent.cancel(self, &thread).await
     }
@@ -842,7 +814,7 @@ impl Session {
 
     fn folder(&self) -> anyhow::Result<PathBuf> {
         self.adopt_repo();
-        let m = self.meta.lock().unwrap();
+        let m = self.meta.lock();
         anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
         Ok(PathBuf::from(&m.folder))
     }
@@ -889,7 +861,9 @@ impl Session {
     }
 
     pub async fn archive(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.meta().archived, "already archived");
+        if self.meta().archived {
+            return Err(crate::error::conflict("already archived"));
+        }
         self.agent.shutdown("archived");
         if let Some(wt) = self.meta().workspace.worktree {
             if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
@@ -904,7 +878,9 @@ impl Session {
     }
 
     pub async fn unarchive(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(self.meta().archived, "not archived");
+        if !self.meta().archived {
+            return Err(crate::error::conflict("not archived"));
+        }
         if let Some(wt) = self.meta().workspace.worktree {
             crate::workspace::restore_worktree(&wt).await?;
         }
@@ -918,12 +894,13 @@ impl Session {
     pub async fn delete_workspace(&self, force: bool) -> anyhow::Result<()> {
         if let Some(wt) = self.meta().workspace.worktree {
             if !force {
-                anyhow::ensure!(
-                    !(wt.path.exists() && crate::workspace::is_dirty(&wt.path).await?),
-                    "the Worktree has uncommitted changes"
-                );
+                if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
+                    return Err(crate::error::conflict("the Worktree has uncommitted changes"));
+                }
                 let n = crate::workspace::unmerged_count(&wt.repo_root, &wt.base, &wt.branch).await?;
-                anyhow::ensure!(n == 0, "branch {} has {n} commit(s) not on {}", wt.branch, wt.base);
+                if n != 0 {
+                    return Err(crate::error::conflict(format!("branch {} has {n} commit(s) not on {}", wt.branch, wt.base)));
+                }
             }
             self.agent.shutdown("deleted");
             crate::workspace::remove_worktree(&wt).await?;
@@ -948,7 +925,7 @@ impl Session {
     pub fn set_status(&self, status: SessionStatus) {
         let _ = self.log.append(None, EventKind::SessionStatusChanged { status });
         let (session_id, title) = {
-            let m = self.meta.lock().unwrap();
+            let m = self.meta.lock();
             (m.id.clone(), m.title.clone())
         };
         self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status });
@@ -963,10 +940,7 @@ impl Session {
 }
 
 fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
-    let tmp = dir.join("session.json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(meta)?)?;
-    std::fs::rename(tmp, dir.join("session.json"))?;
-    Ok(())
+    crate::fsutil::write_atomic(&dir.join("session.json"), &serde_json::to_vec_pretty(meta)?)
 }
 
 #[cfg(test)]
@@ -978,11 +952,11 @@ mod frontend_request_tests {
         let requests = FrontendRequests::default();
         let err = requests.wait(Duration::from_millis(1), |_| {}).await.unwrap_err();
         assert_eq!(err.to_string(), "No app window answered in time. The window may be closed or the Mac asleep.");
-        assert!(requests.0.lock().unwrap().is_empty());
+        assert!(requests.0.lock().is_empty());
 
         let wait = requests.wait(Duration::from_secs(60), |_| {});
         assert!(tokio::time::timeout(Duration::from_millis(1), wait).await.is_err());
-        assert!(requests.0.lock().unwrap().is_empty());
+        assert!(requests.0.lock().is_empty());
     }
 }
 

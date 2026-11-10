@@ -26,9 +26,11 @@ jobs:
            with:
               bun-version: 1.3.13
 
-         - uses: dtolnay/rust-toolchain@stable
+         - uses: dtolnay/rust-toolchain@master
            with:
+              toolchain: 1.99.1 # same as rust-toolchain.toml
               targets: aarch64-apple-darwin,x86_64-apple-darwin
+              components: clippy, rustfmt
 
          - uses: Swatinem/rust-cache@v2
 
@@ -36,9 +38,11 @@ jobs:
 
          - name: Check
            run: |
+              bun run lint
               bun run typecheck
               bun run test
-              cargo test -p harness-core
+              bun run check:rust
+              bun run check:generated
 
          - name: Compute version
            id: version

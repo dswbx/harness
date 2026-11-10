@@ -16,6 +16,8 @@ const tool = (id: string): Tool => ({
    background: false,
    report: null,
    harnessTool: null,
+   subagentPrompt: null,
+   commitMessage: null,
 });
 const thought = (id: string) => ({ type: "thought", id, text: id, ts: 0 }) as Item;
 const agent = (id: string) => ({ type: "agent", id, text: id }) as unknown as Item;

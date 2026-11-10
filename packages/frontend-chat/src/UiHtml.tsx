@@ -2,7 +2,6 @@ import { htmlFrameUrl, type StatePatchOp } from "@harness/api";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { InExpanded } from "./Expandable";
 import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
-import { renderUiSchema } from "./tools";
 
 const MAX_HEIGHT = 2000;
 /** Set in Tauri: the frame loads this and asks for its document. Otherwise the document goes in `srcdoc`. */
@@ -22,15 +21,9 @@ type Props = {
    run: (actions: unknown) => Promise<void>;
    /** Tells the core about an error (script, invalid action or patch), so the Agent learns about it. */
    report?: (message: string) => void;
+   /** Actions from the frame are not checked by the core: an error message when invalid, else null. */
+   checkActions: (actions: unknown) => string | null;
 };
-
-/** Actions from the frame are not checked by the core: check them with the render_ui schema. */
-function checkActions(actions: unknown): string | null {
-   const r = renderUiSchema.validate({
-      root: { type: "Button", props: { label: "x" }, on: { press: actions } },
-   });
-   return r.valid ? null : `Invalid actions: ${r.errors[0]?.error ?? "unknown"}`;
-}
 
 const isOps = (x: unknown): x is StatePatchOp[] =>
    Array.isArray(x) &&
@@ -92,7 +85,7 @@ export function UiHtml(p: Props) {
             setAuto(px);
          } else if (m?.type === "error") setError(String(m.message));
          else if (m?.type === "actions") {
-            const bad = checkActions(m.actions);
+            const bad = latest.current.checkActions(m.actions);
             if (bad) setError(bad);
             else cur.run(m.actions).catch(fail);
          } else if (m?.type === "patch") {

@@ -1,4 +1,10 @@
-import type { AgentInfo, Decision, HarnessClient, PermissionRule } from "@harness/api";
+import {
+   type AgentInfo,
+   type Decision,
+   errText,
+   type HarnessClient,
+   type PermissionRule,
+} from "@harness/api";
 import {
    Badge,
    Button,
@@ -16,8 +22,6 @@ import { SectionHeader } from "./SectionHeader";
 import { FILTERS, type Filter, filterRules, parseScope, scopeLabel } from "./settings";
 
 const KINDS = ["read", "edit", "delete", "move", "search", "execute", "fetch", "other"];
-const errText = (e: unknown) =>
-   e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
 
 const sel = "h-8 px-2 text-xs";
 

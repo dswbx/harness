@@ -1,4 +1,5 @@
 export * from "./client";
+export * from "./errors";
 export * from "./eventFamily";
 export * from "./files";
 export * from "./frontend";
@@ -6,10 +7,12 @@ export * from "./generated";
 export * from "./gitTool";
 export * from "./hooks";
 export { MockTransport, mockImage, mockRenderUi } from "./mock";
+export * from "./paths";
 export * from "./prRefs";
 export * from "./prStore";
 export * from "./state";
 export * from "./subagents";
 export * from "./threads";
+export * from "./toolFacts";
 export * from "./transport";
 export * from "./window";

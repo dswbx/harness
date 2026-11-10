@@ -5,13 +5,13 @@
 //!
 //! Installs are cached in `target/live-data` across runs. Each test: fresh git repo, ask the
 //! Agent to create a file (permissions auto-allowed), then to call the Harness MCP `git_status`.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harness_core::api::{Command, CommandResult, Event, EventKind, FrontendManifest};
 use harness_core::Harness;
+use harness_core::api::{Command, CommandResult, Event, EventKind, FrontendManifest};
 
 fn live() -> bool {
     std::env::var("HARNESS_LIVE").is_ok_and(|v| v == "1")
@@ -33,15 +33,7 @@ fn repo(dir: &Path) -> PathBuf {
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 /// Runs a Turn, allowing every permission request; returns its events.
@@ -56,9 +48,7 @@ async fn turn(h: &Harness, sid: &str, text: &str) -> Vec<Event> {
                 && answered.insert(request_id.clone())
             {
                 let allow = options.iter().find(|o| o.kind == "allow_once").or(options.first()).map(|o| o.option_id.clone());
-                let _ = h
-                    .execute(Command::ResolvePermission { session_id: sid.into(), request_id: request_id.clone(), option_id: allow, global: false })
-                    .await;
+                let _ = h.execute(Command::ResolvePermission { session_id: sid.into(), request_id: request_id.clone(), option_id: allow, global: false }).await;
             }
         }
         if evs[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
@@ -78,7 +68,7 @@ async fn smoke(registry_id: &str) {
     h.register_frontend(serde_json::from_str::<FrontendManifest>(include_str!("../../../packages/frontend-chat/manifest.json")).unwrap());
     let CommandResult::Agents { agents } = h.execute(Command::ListAgents).await.unwrap() else { panic!() };
     if !agents.iter().any(|a| a.id == registry_id) {
-        h.execute(Command::InstallAgent { registry_id: registry_id.into() }).await.unwrap();
+        h.execute(Command::InstallAgent { registry_id: registry_id.into(), allow_unverified: false }).await.unwrap();
     }
     let dir = tempfile::tempdir().unwrap();
     let folder = repo(dir.path());

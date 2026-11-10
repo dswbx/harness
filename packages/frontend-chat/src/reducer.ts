@@ -13,6 +13,8 @@ import {
    type TaskEntry,
    type ThreadInfo,
    type TranscriptSize,
+   toolFacts,
+   toolFactsOfCall,
 } from "@harness/api";
 import { RENDER_UI, type RenderUiInput, renderUiSchema } from "./tools";
 
@@ -62,6 +64,10 @@ export type Item =
         report: string | null;
         /** The Harness MCP tool this calls (`git_status`), when it is one. */
         harnessTool: string | null;
+        /** What this call started a subagent for: its task. */
+        subagentPrompt: string | null;
+        /** git_commit: the commit message. */
+        commitMessage: string | null;
         /** How a Harness tool call got through its approval: you answered, a rule, the Agent's auto mode, or it was denied. */
         approval?: "you" | "denied" | "rule" | "auto";
      }
@@ -72,6 +78,12 @@ export type Item =
         toolCall: ToolCallRef;
         /** The Harness MCP tool the request is for, when it is one. */
         harnessTool: string | null;
+        /** A plan to approve (Plan Mode): Markdown. */
+        plan: string | null;
+        /** git_commit: the commit message. */
+        commitMessage: string | null;
+        /** The Frontend Tool the request is for: its name. */
+        frontendTool: string | null;
         /** The tool call this approves (a Harness tool's step in the Trace), when there is one. */
         stepId: string | null;
         options: PermissionOption[];
@@ -126,7 +138,6 @@ export type ToolCallRef = {
    toolCallId?: string;
    title?: string;
    kind?: string;
-   rawInput?: Record<string, unknown>;
    content?: ContentBlock[];
 };
 
@@ -208,12 +219,6 @@ export const initialState = (): ChatState => ({
 export function threadState(state: ChatState, threadId: string | null): ChatState | null {
    if (threadId === null || threadId === state.mainThreadId) return state;
    return state.threads[threadId] ?? null;
-}
-
-/** Plan Mode approval: a permission request for a `switch_mode` tool call carrying a plan. */
-export function planOf(toolCall: ToolCallRef): string | null {
-   const plan = toolCall.rawInput?.plan;
-   return toolCall.kind === "switch_mode" && typeof plan === "string" ? plan : null;
 }
 
 type Tool = Extract<Item, { type: "tool" }>;
@@ -384,6 +389,12 @@ function applyThread(c: Ctx, e: Event) {
       case "ToolCall": {
          const idx = toolIndex(c);
          const existing = idx.get(k.tool_call_id);
+         const facts = toolFacts({
+            kind: k.kind,
+            title: k.title,
+            harnessTool: k.harness_tool,
+            rawInput: k.raw_input,
+         });
          const item: Tool = {
             type: "tool",
             id: k.tool_call_id,
@@ -400,6 +411,8 @@ function applyThread(c: Ctx, e: Event) {
             background: existing !== undefined ? (d.items[existing] as Tool).background : false,
             report: k.report ?? null,
             harnessTool: k.harness_tool ?? null,
+            subagentPrompt: k.subagent?.prompt ?? facts.subagentPrompt,
+            commitMessage: k.commit_message ?? facts.commitMessage,
             ...(existing !== undefined &&
                (d.items[existing] as Tool).approval && {
                   approval: (d.items[existing] as Tool).approval,
@@ -430,7 +443,15 @@ function applyThread(c: Ctx, e: Event) {
             background: false,
             report: null,
             harnessTool: null,
+            subagentPrompt: null,
+            commitMessage: null,
          };
+         const facts = toolFacts({
+            kind: k.kind ?? base.kind,
+            title: k.title ?? base.title,
+            harnessTool: k.harness_tool ?? base.harnessTool,
+            rawInput: k.raw_input,
+         });
          const next: Tool = {
             ...base,
             title: k.title ?? base.title,
@@ -443,6 +464,8 @@ function applyThread(c: Ctx, e: Event) {
             parent: k.parent_tool_call_id ?? base.parent,
             background: k.background || base.background,
             harnessTool: k.harness_tool ?? base.harnessTool,
+            subagentPrompt: k.subagent?.prompt ?? facts.subagentPrompt ?? base.subagentPrompt,
+            commitMessage: k.commit_message ?? facts.commitMessage ?? base.commitMessage,
          };
          if (at === undefined) {
             idx.set(next.id, own(c).length);
@@ -620,12 +643,17 @@ function applyThread(c: Ctx, e: Event) {
                }
             }
          }
+         const call = (k.tool_call ?? {}) as ToolCallRef;
+         const facts = toolFactsOfCall(k.tool_call, k.harness_tool);
          push(c, {
             type: "permission",
             id,
             requestId: k.request_id,
-            toolCall: (k.tool_call ?? {}) as ToolCallRef,
+            toolCall: call,
             harnessTool: k.harness_tool ?? null,
+            plan: k.plan ?? facts.plan,
+            commitMessage: k.commit_message ?? facts.commitMessage,
+            frontendTool: k.frontend_tool ?? facts.frontendTool,
             stepId,
             options: k.options,
             resolved: false,
@@ -724,21 +752,19 @@ export function describeRule(r: PermissionRule): string {
 /** Readable title for Harness MCP permission requests; null for other requests. */
 export function permissionTitle(
    toolCall: ToolCallRef,
-   harnessTool: string | null = null,
+   facts: { commitMessage?: string | null; frontendTool?: string | null } = {},
    /** Shown as a step: the message goes in the detail, not the title. */
    step = false,
 ): string | null {
-   const input = toolCall.rawInput ?? {};
    switch (toolCall.kind) {
       case "git_push":
          return "Push branch to origin?";
       case "git_commit": {
-         const msg = typeof input.message === "string" ? input.message : null;
+         const msg = facts.commitMessage;
          return msg && !step ? `Commit all changes: "${msg}"?` : "Commit all changes?";
       }
       case "frontend_tool": {
-         // The core titles these "Frontend tool: <name>".
-         const name = /^Frontend tool:\s*(.+)$/.exec(toolCall.title ?? "")?.[1] ?? harnessTool;
+         const name = facts.frontendTool;
          return name
             ? `Let the Agent use Frontend tool ${name}?`
             : "Let the Agent use a Frontend tool?";

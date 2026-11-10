@@ -25,7 +25,9 @@ pub fn resolve(folder: &Path, path: Option<&str>) -> anyhow::Result<PathBuf> {
     let root = std::fs::canonicalize(folder)?;
     let Some(p) = path.filter(|p| !p.trim().is_empty()) else { return Ok(root) };
     let p = std::fs::canonicalize(root.join(p)).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
-    anyhow::ensure!(p.starts_with(&root), "{} is outside the Session's folder", p.display());
+    if !p.starts_with(&root) {
+        return Err(crate::error::policy_denied(format!("{} is outside the Session's folder", p.display())));
+    }
     Ok(p)
 }
 
@@ -84,7 +86,7 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
                 if !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()) {
                     dirs.push(dir.join(&name));
                 }
-            } else if kind.is_file() && name == *want.last().unwrap() {
+            } else if kind.is_file() && want.last().is_some_and(|w| name == *w) {
                 let rel = dir.join(&name);
                 let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
                 if parts.len() >= want.len() && parts[parts.len() - want.len()..].iter().zip(&want).all(|(a, b)| a == b) {
@@ -95,7 +97,7 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
     }
     match found.len() {
         0 => anyhow::bail!("{suffix}: No such file"),
-        1 => Ok(found.pop().unwrap()),
+        1 => Ok(found.swap_remove(0)),
         n => anyhow::bail!("{suffix}: {n} files match"),
     }
 }
