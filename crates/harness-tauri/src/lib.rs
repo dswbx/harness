@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use harness_core::Harness;
-use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
+use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, HarnessError, SessionStatus};
 use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
@@ -94,7 +94,7 @@ fn set_window_alpha(_window: tauri::Window, _alpha: f64) -> tauri::Result<()> {
 }
 
 #[tauri::command]
-async fn execute(harness: tauri::State<'_, Arc<Harness>>, cmd: Command) -> Result<CommandResult, String> {
+async fn execute(harness: tauri::State<'_, Arc<Harness>>, cmd: Command) -> Result<CommandResult, HarnessError> {
     harness.execute(cmd).await
 }
 

@@ -122,7 +122,9 @@ pub fn read_image(path: &str) -> anyhow::Result<(String, String)> {
     let mime = guess_mime(p);
     anyhow::ensure!(is_image(mime), "{path} is not an image");
     let len = std::fs::metadata(p).map_err(|e| anyhow::anyhow!("{path}: {e}"))?.len();
-    anyhow::ensure!(len <= MAX_IMAGE_READ, "{path} is too large ({} MB max)", MAX_IMAGE_READ / 1024 / 1024);
+    if len > MAX_IMAGE_READ {
+        return Err(crate::error::invalid(format!("{path} is too large ({} MB max)", MAX_IMAGE_READ / 1024 / 1024)));
+    }
     Ok((mime.to_owned(), B64.encode(std::fs::read(p)?)))
 }
 

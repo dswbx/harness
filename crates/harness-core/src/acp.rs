@@ -180,7 +180,7 @@ impl AgentSlot {
         let mut pending = None;
         self.update(session, |s| pending = s.pending.remove(request_id));
         let Some(pending) = pending else {
-            anyhow::bail!("permission request {request_id} is not pending");
+            return Err(crate::error::not_found(format!("permission request {request_id} is not pending")));
         };
         session.log().append(
             pending.thread.clone(),
@@ -221,7 +221,7 @@ impl AgentSlot {
 
 impl AgentSlot {
     pub async fn authenticate(&self, session: &Session, method_id: String) -> anyhow::Result<()> {
-        let conn = self.conn().ok_or_else(|| anyhow::anyhow!("the Agent is not running; send a message first"))?;
+        let conn = self.conn().ok_or_else(|| crate::error::agent_unavailable("the Agent is not running; send a message first"))?;
         conn.cx.send_request(acp::AuthenticateRequest::new(method_id.clone())).block_task().await?;
         session.log().append(None, EventKind::AgentUpdate { update: serde_json::json!({ "harness": "authenticated", "methodId": method_id }) })?;
         Ok(())
@@ -267,7 +267,9 @@ const NOT_RESTORED: &str = "The Agent could not reopen its earlier session.";
 /// one fails the prompt before any Turn is logged.
 pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attachments: Vec<AttachmentInput>) -> anyhow::Result<()> {
     let meta = session.meta();
-    anyhow::ensure!(!meta.archived, "this Session is archived; unarchive it first");
+    if meta.archived {
+        return Err(crate::error::conflict("this Session is archived; unarchive it first"));
+    }
     let folder = std::path::PathBuf::from(&meta.folder);
     let tracked = meta.workspace.repo_root.is_some();
     let before = if tracked { crate::workspace::snapshot(&folder).await.ok() } else { None };
@@ -275,12 +277,12 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
     let acp_session = match ensure_agent_session(&session, &conn, &thread).await {
         Err(e) if is_auth_required(&e) => {
             report_auth_required(&session, Some(&thread), &e.to_string());
-            anyhow::bail!("The Agent needs you to sign in first.");
+            return Err(crate::error::auth_required("The Agent needs you to sign in first."));
         }
         r => r?,
     };
     let Some(acp_session) = acp_session else {
-        anyhow::bail!("{NOT_RESTORED} Try again, or continue from a transcript.");
+        return Err(crate::error::agent_unavailable(format!("{NOT_RESTORED} Try again, or continue from a transcript.")));
     };
     if thread != meta.main_thread_id {
         follow_main_config(&session, &conn, &thread, &acp_session).await;
@@ -410,14 +412,16 @@ async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread: &ThreadId
 /// The Thread's Agent Session, starting the Agent (and resuming its session) if needed.
 async fn live_agent_session(session: &Arc<Session>, thread: &ThreadId) -> anyhow::Result<(Arc<AgentConn>, acp::SessionId)> {
     let meta = session.meta();
-    anyhow::ensure!(!meta.archived, "this Session is archived; unarchive it first");
+    if meta.archived {
+        return Err(crate::error::conflict("this Session is archived; unarchive it first"));
+    }
     let conn = ensure_conn(session).await?;
     match ensure_agent_session(session, &conn, thread).await {
         Ok(Some(id)) => Ok((conn, id)),
-        Ok(None) => anyhow::bail!("{NOT_RESTORED} Try again, or continue from a transcript."),
+        Ok(None) => Err(crate::error::agent_unavailable(format!("{NOT_RESTORED} Try again, or continue from a transcript."))),
         Err(e) if is_auth_required(&e) => {
             report_auth_required(session, Some(thread), &e.to_string());
-            anyhow::bail!("The Agent needs you to sign in first.")
+            Err(crate::error::auth_required("The Agent needs you to sign in first."))
         }
         Err(e) => Err(e),
     }
@@ -1048,37 +1052,54 @@ fn merge(base: &mut Value, update: &Value) {
 }
 
 /// Maps an ACP `session/update` (as JSON, camelCase) to a Harness event.
-fn normalize(u: &Value) -> EventKind {
+pub(crate) fn normalize(u: &Value) -> EventKind {
     let s = |k: &str| u.get(k).and_then(Value::as_str).map(str::to_owned);
     let text = || u.pointer("/content/text").and_then(Value::as_str).map(str::to_owned);
+    let tool = || {
+        let harness_tool = s("title").as_deref().and_then(crate::mcp::harness_tool_name).map(str::to_owned);
+        let facts = crate::tool_facts::tool_facts(u, harness_tool.as_deref());
+        (harness_tool, facts)
+    };
     match s("sessionUpdate").as_deref() {
         Some("agent_message_chunk") if let Some(text) = text() => EventKind::AgentMessageChunk { text },
         Some("agent_thought_chunk") if let Some(text) = text() => EventKind::AgentThoughtChunk { text },
-        Some("tool_call") => EventKind::ToolCall {
-            tool_call_id: s("toolCallId").unwrap_or_default(),
-            title: s("title").unwrap_or_default(),
-            kind: s("kind"),
-            status: s("status"),
-            content: u.get("content").cloned().unwrap_or(Value::Array(vec![])),
-            locations: u.get("locations").cloned().unwrap_or(Value::Array(vec![])),
-            raw_input: u.get("rawInput").cloned(),
-            parent_tool_call_id: None,
-            report: None,
-            harness_tool: s("title").as_deref().and_then(crate::mcp::harness_tool_name).map(str::to_owned),
-        },
-        Some("tool_call_update") => EventKind::ToolCallUpdate {
-            tool_call_id: s("toolCallId").unwrap_or_default(),
-            title: s("title"),
-            kind: s("kind"),
-            status: s("status"),
-            content: u.get("content").cloned(),
-            locations: u.get("locations").cloned(),
-            raw_input: u.get("rawInput").cloned(),
-            raw_output: u.get("rawOutput").cloned(),
-            parent_tool_call_id: None,
-            background: false,
-            harness_tool: s("title").as_deref().and_then(crate::mcp::harness_tool_name).map(str::to_owned),
-        },
+        Some("tool_call") => {
+            let (harness_tool, facts) = tool();
+            EventKind::ToolCall {
+                tool_call_id: s("toolCallId").unwrap_or_default(),
+                title: s("title").unwrap_or_default(),
+                kind: s("kind"),
+                status: s("status"),
+                content: u.get("content").cloned().unwrap_or(Value::Array(vec![])),
+                locations: u.get("locations").cloned().unwrap_or(Value::Array(vec![])),
+                raw_input: u.get("rawInput").cloned(),
+                parent_tool_call_id: None,
+                report: None,
+                harness_tool,
+                plan: facts.plan,
+                subagent: facts.subagent,
+                commit_message: facts.commit_message,
+            }
+        }
+        Some("tool_call_update") => {
+            let (harness_tool, facts) = tool();
+            EventKind::ToolCallUpdate {
+                tool_call_id: s("toolCallId").unwrap_or_default(),
+                title: s("title"),
+                kind: s("kind"),
+                status: s("status"),
+                content: u.get("content").cloned(),
+                locations: u.get("locations").cloned(),
+                raw_input: u.get("rawInput").cloned(),
+                raw_output: u.get("rawOutput").cloned(),
+                parent_tool_call_id: None,
+                background: false,
+                harness_tool,
+                plan: facts.plan,
+                subagent: facts.subagent,
+                commit_message: facts.commit_message,
+            }
+        }
         Some("notice") => EventKind::AgentNotice {
             severity: s("severity").unwrap_or_else(|| "info".into()),
             title: s("title").unwrap_or_default(),
@@ -1122,6 +1143,20 @@ fn normalize(u: &Value) -> EventKind {
     }
 }
 
+/// A `PermissionRequested` Event with its typed facts read from the (merged) tool call.
+fn permission_requested(request_id: String, tool_call: Value, options: Vec<PermissionOption>, harness_tool: Option<String>) -> EventKind {
+    let f = crate::tool_facts::tool_facts(&tool_call, harness_tool.as_deref());
+    EventKind::PermissionRequested {
+        request_id,
+        tool_call,
+        options,
+        harness_tool,
+        plan: f.plan,
+        commit_message: f.commit_message,
+        frontend_tool: f.frontend_tool,
+    }
+}
+
 fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, responder: Responder<acp::RequestPermissionResponse>) {
     let request_id = uuid::Uuid::now_v7().to_string();
     let thread = thread_of(session, &req.session_id);
@@ -1152,9 +1187,7 @@ fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, res
     };
 
     if let Some(option_id) = auto {
-        let _ = session
-            .log()
-            .append(thread.clone(), EventKind::PermissionRequested { request_id: request_id.clone(), tool_call, options: options.clone(), harness_tool });
+        let _ = session.log().append(thread.clone(), permission_requested(request_id.clone(), tool_call, options.clone(), harness_tool));
         let _ = session.log().append(
             thread.clone(),
             EventKind::PermissionResolved { request_id, option_id: Some(option_id.clone()), by: Resolver::Policy, rule_id: verdict.rule_id },
@@ -1165,7 +1198,7 @@ fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, res
     }
     let pending = Pending { thread: thread.clone(), responder: Answer::Acp(responder), options: options.clone(), facts };
     slot.add_pending(session, request_id.clone(), pending, || {
-        let _ = session.log().append(thread, EventKind::PermissionRequested { request_id, tool_call, options, harness_tool });
+        let _ = session.log().append(thread, permission_requested(request_id, tool_call, options, harness_tool));
     });
     let _ = session.log().sync();
 }
@@ -1207,7 +1240,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
         PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into() },
         PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into() },
     ];
-    let requested = EventKind::PermissionRequested { request_id: request_id.clone(), tool_call, options: options.clone(), harness_tool: Some(tool.to_owned()) };
+    let requested = permission_requested(request_id.clone(), tool_call, options.clone(), Some(tool.to_owned()));
     let passes = match verdict.decision {
         Decision::Allow => verdict.rule_id.is_some(),
         Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {

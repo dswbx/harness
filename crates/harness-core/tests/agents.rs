@@ -88,7 +88,7 @@ async fn create(h: &Harness, folder: &Path, agent_id: &str) -> String {
 
 async fn turn_ends(h: &Harness, sid: &str, text: &str) -> Result<(), String> {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await?;
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.map_err(|e| e.message)?;
     for _ in 0..400 {
         if events(h, sid)[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
             return Ok(());
@@ -136,7 +136,7 @@ async fn checksum_mismatch_is_refused() {
     let data = dir.path().join("data");
     let h = harness(&data, &reg, vec![]);
     let err = h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap_err();
-    assert!(err.contains("checksum mismatch"), "{err}");
+    assert!(err.message.contains("checksum mismatch"), "{err}");
     let CommandResult::Agents { agents } = h.execute(Command::ListAgents).await.unwrap() else { panic!() };
     assert!(agents.is_empty());
     assert!(!data.join("agents/fake-acp/1.2.3").exists());

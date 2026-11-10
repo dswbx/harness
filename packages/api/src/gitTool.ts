@@ -56,12 +56,16 @@ function parseJson(text: string): unknown {
    }
 }
 
-export function gitToolSummary(
-   harnessTool: string | null,
-   rawInput: unknown,
-   rawOutput: unknown,
-   content?: unknown,
-): GitToolSummary | null {
+/** The parts of a tool call (as a Frontend keeps it) a git summary is read from. */
+export type GitToolCall = {
+   harnessTool: string | null;
+   rawInput: unknown;
+   rawOutput: unknown;
+   content?: unknown;
+};
+
+export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
+   const { harnessTool, rawInput, rawOutput, content } = tool;
    if (
       !harnessTool ||
       !["git_commit", "git_push", "git_status", "git_diff", "list_branches"].includes(harnessTool)

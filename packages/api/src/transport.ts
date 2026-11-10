@@ -1,4 +1,5 @@
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { toCommandError } from "./errors";
 import type { AppEvent, Command, CommandResult, Event } from "./generated";
 
 export type Unsubscribe = () => void;
@@ -39,7 +40,10 @@ export function htmlFrameUrl(): string | null {
 }
 
 export const tauriTransport: Transport = {
-   execute: (cmd) => invoke<CommandResult>("execute", { cmd }),
+   execute: (cmd) =>
+      invoke<CommandResult>("execute", { cmd }).catch((e) => {
+         throw toCommandError(e);
+      }),
    async subscribe(sessionId, fromSeq, onEvent) {
       const channel = new Channel<Event>();
       channel.onmessage = onEvent;

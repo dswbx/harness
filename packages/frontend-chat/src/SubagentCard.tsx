@@ -12,7 +12,7 @@ type Tool = Extract<Item, { type: "tool" }>;
 export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagent<Tool> }) {
    const [open, setOpen] = useState(false);
    const state = subagentState(task, subagent);
-   const prompt = (task.rawInput as { prompt?: unknown } | null)?.prompt;
+   const prompt = task.subagentPrompt;
    const n = subagent.calls.length;
    return (
       <div className="rounded-lg border bg-card text-card-foreground">

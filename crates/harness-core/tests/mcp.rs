@@ -379,7 +379,7 @@ async fn editor_setting_and_open_guard() {
 
     let CommandResult::Editor { editor } = h.execute(Command::GetEditor).await.unwrap() else { panic!() };
     assert_eq!(editor, None);
-    assert!(h.execute(open("a.txt")).await.unwrap_err().contains("choose an editor"));
+    assert!(h.execute(open("a.txt")).await.unwrap_err().message.contains("choose an editor"));
 
     let custom = Editor::Custom { template: "x://{path}:{line}".into() };
     h.execute(Command::SetEditor { editor: Some(custom.clone()) }).await.unwrap();

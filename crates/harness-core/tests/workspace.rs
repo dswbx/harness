@@ -63,7 +63,8 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
             pr: None,
             mcp_servers: vec![],
         })
-        .await?
+        .await
+        .map_err(|e| e.message)?
     {
         CommandResult::SessionCreated { session_id } => Ok(session_id),
         r => panic!("{r:?}"),
@@ -139,7 +140,7 @@ async fn worktree_session_lifecycle() {
 
     let delete = |force| Command::DeleteSession { session_id: sid.clone(), force };
     let err = h.execute(delete(false)).await.unwrap_err();
-    assert!(err.contains("uncommitted"), "{err}");
+    assert!(err.message.contains("uncommitted"), "{err}");
 
     // Archive: WIP commit, Worktree removed, branch kept.
     h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
@@ -148,7 +149,7 @@ async fn worktree_session_lifecycle() {
     assert_eq!(sh(&repo, &["log", "-1", "--format=%s", &branch]), "WIP (archived by Harness)");
     assert!(h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.is_err());
     let err = h.execute(delete(false)).await.unwrap_err();
-    assert!(err.contains("1 commit(s) not on main"), "{err}");
+    assert!(err.message.contains("1 commit(s) not on main"), "{err}");
 
     // Unarchive restores the Worktree; commit from the Harness.
     h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
@@ -279,7 +280,8 @@ async fn create_new_branch(h: &Harness, folder: &Path, base: Option<&str>, new_b
             pr: None,
             mcp_servers: vec![],
         })
-        .await?
+        .await
+        .map_err(|e| e.message)?
     {
         CommandResult::SessionCreated { session_id } => Ok(session_id),
         r => panic!("{r:?}"),
