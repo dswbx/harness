@@ -9,7 +9,14 @@ let runtime: QuickJSRuntime | null = null;
 let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
-const LIMIT_MS = 50;
+/** What one run may take, evaluation only (ADR 0016). */
+export const JS_LIMIT_MS = 50;
+let limitMs = JS_LIMIT_MS;
+
+/** Tests only: a slow machine can take longer than the production limit for a trivial run. */
+export function setJsLimit(ms: number = JS_LIMIT_MS) {
+   limitMs = ms;
+}
 
 export function loadJs(): Promise<void> {
    loading ??= Promise.all([
@@ -47,10 +54,11 @@ export function runJs(code: string, state: unknown): JsResult | undefined {
       void loadJs();
       return undefined;
    }
-   const deadline = Date.now() + LIMIT_MS;
-   runtime.setInterruptHandler(() => Date.now() > deadline);
    const ctx = runtime.newContext();
    try {
+      // The clock starts when the code does: not for the context above, nor the engine's load.
+      const deadline = Date.now() + limitMs;
+      runtime.setInterruptHandler(() => Date.now() > deadline);
       const r = ctx.evalCode(wrap(code, state));
       if (r.error) {
          const e = ctx.dump(r.error) as { name?: string; message?: string } | string;
