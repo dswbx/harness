@@ -25,6 +25,7 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
         source: Default::default(),
         version: None,
         icon: None,
+        install: Default::default(),
     };
     let options = Options {
         secrets: Box::new(harness_core::library::MemorySecrets::default()),

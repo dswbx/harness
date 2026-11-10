@@ -21,7 +21,8 @@
 //! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
 //! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
 //! embedded-context prompt capabilities. `--fork` advertises `session/fork` (new id, copy of the
-//! source's history); with `--fork-fail` the request is refused.
+//! source's history); with `--fork-fail` the request is refused. `--exit` prints a line to stderr
+//! and exits at startup (Agent conformance check tests).
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::*;
@@ -151,6 +152,10 @@ async fn main() -> agent_client_protocol::Result<()> {
     let resume = args.iter().any(|a| a == "--resume");
     if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-fails=")) {
         RESUME_FAILS.store(n.parse().unwrap(), std::sync::atomic::Ordering::SeqCst);
+    }
+    if args.iter().any(|a| a == "--exit") {
+        eprintln!("fake-agent: exiting on purpose");
+        std::process::exit(3);
     }
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");

@@ -123,7 +123,11 @@ impl Harness {
             Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => {
                 Some(AppEvent::SessionsChanged)
             }
-            Command::InstallAgent { .. } | Command::AddCustomAgent { .. } | Command::RemoveAgent { .. } => Some(AppEvent::AgentsChanged),
+            Command::InstallAgent { .. }
+            | Command::AddCustomAgent { .. }
+            | Command::RemoveAgent { .. }
+            | Command::RollbackAgent { .. }
+            | Command::HoldAgentVersion { .. } => Some(AppEvent::AgentsChanged),
             _ => None,
         };
         let result = self.execute_inner(cmd).await.map_err(|e| format!("{e:#}"));
@@ -157,7 +161,11 @@ impl Harness {
         Ok(match cmd {
             Command::ListAgents => CommandResult::Agents { agents: self.shared.agents.list() },
             Command::ListRegistry { refresh } => CommandResult::Registry { agents: self.shared.agents.registry(refresh).await? },
-            Command::InstallAgent { registry_id } => CommandResult::AgentInstalled { agent: self.shared.agents.install(&registry_id).await? },
+            Command::InstallAgent { registry_id, allow_unverified } => {
+                CommandResult::AgentInstalled { agent: self.shared.agents.install(&registry_id, allow_unverified).await? }
+            }
+            Command::RollbackAgent { agent_id } => CommandResult::AgentInstalled { agent: self.shared.agents.rollback(&agent_id).await? },
+            Command::HoldAgentVersion { agent_id, hold } => CommandResult::AgentInstalled { agent: self.shared.agents.hold(&agent_id, hold)? },
             Command::AddCustomAgent { name, command, args, env } => {
                 CommandResult::AgentInstalled { agent: self.shared.agents.add_custom(name, command, args, env)? }
             }

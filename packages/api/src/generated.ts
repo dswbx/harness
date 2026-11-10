@@ -11,6 +11,8 @@ export type AgentInfo = {
 	source?: AgentSource,
 	version: string | null,
 	icon: string | null,
+	/**  Hash, previous version, hold and last check of an installed Agent (ADR 0007). */
+	install?: InstallInfo,
 };
 
 export type AgentSource = { type: "registry"; registry_id: string } | { type: "custom" };
@@ -100,8 +102,16 @@ export type Command = { type: "ListAgents" } |
 /**
  *  Installs (or updates) an Agent from the ACP Registry onto the managed toolchain. Slow:
  *  may download a runtime and the Agent's package.
+ * 
+ *  A binary without a sha256 in the registry is refused unless `allow_unverified`. An update
+ *  is installed side by side and switched to only if the headless conformance check passes;
+ *  the previous version is kept for `RollbackAgent`. A held Agent is not updated.
  */
-{ type: "InstallAgent"; registry_id: string } | { type: "AddCustomAgent"; name: string; command: string; args?: string[]; env?: { [key in string]: string } } | 
+{ type: "InstallAgent"; registry_id: string; allow_unverified?: boolean } | 
+/**  Switches an Agent back to its previous version (and holds it there). */
+{ type: "RollbackAgent"; agent_id: string } | 
+/**  Holds an Agent at its current version (`hold`) or releases it. */
+{ type: "HoldAgentVersion"; agent_id: string; hold: boolean } | { type: "AddCustomAgent"; name: string; command: string; args?: string[]; env?: { [key in string]: string } } | 
 /**
  *  Removes an installed or Custom Agent. Sessions using it keep their own copy of its launch
  *  spec until next started.
@@ -319,6 +329,17 @@ export type Commit = {
 	time: number,
 };
 
+/**  Result of the headless conformance check of one Agent version. */
+export type ConformanceCheck = {
+	version: string | null,
+	passed: boolean,
+	/**  The Agent needs sign-in: spawn and protocol passed, `session/new` was not completed. */
+	auth_required: boolean,
+	/**  Why it failed, with the stderr tail. */
+	error: string | null,
+	at_ms: number,
+};
+
 export type Decision = "allow" | "ask" | "deny";
 
 export type Diff = {
@@ -486,6 +507,20 @@ export type GitStatus = {
 	files: FileChange[],
 };
 
+/**  What the Harness knows about an installed Agent's files. */
+export type InstallInfo = {
+	/**  sha256 of the downloaded artifact (binary installs); `None` for npx/uvx. */
+	sha256?: string | null,
+	/**  The registry listed no sha256: installed on the user's say-so. */
+	unverified?: boolean,
+	/**  The version kept for rollback. */
+	previous?: PreviousInstall | null,
+	/**  Not updated while held. */
+	held?: boolean,
+	/**  The last conformance check (of this version, or of an update that was refused). */
+	check?: ConformanceCheck | null,
+};
+
 /**  A GitHub repository some Sessions work in. `score` adds up each Session's recency (1 now, halving every ~3 weeks). */
 export type KnownRepo = {
 	repo: RepoId,
@@ -564,6 +599,16 @@ export type PrRefKey = {
 };
 
 export type PrState = "open" | "draft" | "merged" | "closed";
+
+/**  Launch spec of the version an Agent can roll back to. */
+export type PreviousInstall = {
+	version: string,
+	command: string,
+	args: string[],
+	env?: { [key in string]: string },
+	sha256?: string | null,
+	unverified?: boolean,
+};
 
 export type ProcessState = "starting" | "ready" | 
 /**  Stopped by the Harness (idle); restarted on the next prompt. */

@@ -13,6 +13,7 @@ import type {
    FileChange,
    FrontendAnswer,
    FrontendToolDecl,
+   InstallInfo,
    KnownRepo,
    McpServerDef,
    PermissionRule,
@@ -634,6 +635,19 @@ export class MockTransport implements Transport {
                source: { type: "registry", registry_id: entry.id },
                version: entry.version,
                icon: entry.icon,
+               install: {
+                  sha256: null,
+                  unverified: false,
+                  previous: null,
+                  held: false,
+                  check: {
+                     version: entry.version,
+                     passed: true,
+                     auth_required: false,
+                     error: null,
+                     at_ms: Date.now(),
+                  },
+               },
             };
             this.installed = [...this.installed.filter((a) => a.id !== agent.id), agent];
             this.installedVersions.set(entry.id, entry.version);
@@ -655,8 +669,40 @@ export class MockTransport implements Transport {
                source: { type: "custom" },
                version: null,
                icon: null,
+               install: {
+                  sha256: null,
+                  unverified: false,
+                  previous: null,
+                  held: false,
+                  check: null,
+               },
             };
             this.installed = [...this.installed.filter((a) => a.id !== agent.id), agent];
+            this.emitApp({ type: "AgentsChanged" });
+            return { type: "AgentInstalled", agent };
+         }
+         case "HoldAgentVersion": {
+            const cur = this.installed.find((a) => a.id === cmd.agent_id);
+            if (!cur) throw new Error(`unknown Agent ${cmd.agent_id}`);
+            const agent = { ...cur, install: { ...cur.install, held: cmd.hold } as InstallInfo };
+            this.installed = this.installed.map((a) => (a.id === agent.id ? agent : a));
+            this.emitApp({ type: "AgentsChanged" });
+            return { type: "AgentInstalled", agent };
+         }
+         case "RollbackAgent": {
+            const cur = this.installed.find((a) => a.id === cmd.agent_id);
+            const prev = cur?.install?.previous;
+            if (!cur || !prev) throw new Error("no previous version");
+            const agent: AgentInfo = {
+               ...cur,
+               version: prev.version,
+               command: prev.command,
+               args: prev.args,
+               env: prev.env,
+               install: { ...cur.install, previous: null, held: true, check: null } as InstallInfo,
+            };
+            this.installed = this.installed.map((a) => (a.id === agent.id ? agent : a));
+            this.installedVersions.set(agent.id, prev.version);
             this.emitApp({ type: "AgentsChanged" });
             return { type: "AgentInstalled", agent };
          }

@@ -113,15 +113,16 @@ fn intact(pin: &Pin, bin: &Path) -> bool {
     pin.name != "node" || ["npm", "npx"].iter().all(|f| bin.join(f).is_symlink())
 }
 
-/// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given.
-pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<()> {
+/// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given. Returns the
+/// sha256 of what was downloaded.
+pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
     let out = tokio::process::Command::new("curl").args(["-fsSL", "--retry", "2", "-o"]).arg(dest).arg(url).output().await?;
     anyhow::ensure!(out.status.success(), "download {url}: {}", String::from_utf8_lossy(&out.stderr).trim());
+    let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
     if let Some(expected) = sha256 {
-        let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
         anyhow::ensure!(actual.eq_ignore_ascii_case(expected), "checksum mismatch for {url}: expected {expected}, got {actual}");
     }
-    Ok(())
+    Ok(actual)
 }
 
 pub async fn unpack(archive: &Path, into: &Path) -> anyhow::Result<()> {

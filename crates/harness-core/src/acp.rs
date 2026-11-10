@@ -22,7 +22,7 @@ use crate::session::Session;
 /// Agent stderr lines kept for error reports.
 const STDERR_TAIL: usize = 30;
 
-fn with_tail(message: String, tail: &Mutex<std::collections::VecDeque<String>>) -> String {
+pub(crate) fn with_tail(message: String, tail: &Mutex<std::collections::VecDeque<String>>) -> String {
     let t = tail.lock();
     if t.is_empty() { message } else { format!("{message}\n\nAgent output (stderr):\n{}", t.iter().cloned().collect::<Vec<_>>().join("\n")) }
 }
@@ -817,6 +817,30 @@ async fn new_agent_session(
     Ok(id)
 }
 
+/// `env` arguments that launch `spec` the way the Harness runs Agents: `env -u` strips leaked
+/// host vars; PATH puts the managed toolchain before the login-shell PATH; `overrides` go last.
+pub(crate) fn launch_args(spec: &crate::api::AgentInfo, path: &str, overrides: &[(String, String)]) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    for var in crate::agent_quirks::stripped_env() {
+        args.push("-u".into());
+        args.push(var);
+    }
+    args.push(format!("PATH={path}"));
+    // Quirk env goes before `spec.env` so a Custom Agent can override it.
+    for (k, v) in crate::agent_quirks::extra_env() {
+        args.push(format!("{k}={v}"));
+    }
+    for (k, v) in &spec.env {
+        args.push(format!("{k}={v}"));
+    }
+    for (k, v) in overrides {
+        args.push(format!("{k}={v}"));
+    }
+    args.push(spec.command.clone());
+    args.extend(spec.args.iter().cloned());
+    args
+}
+
 async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let meta = session.meta();
     let log = |kind| {
@@ -828,22 +852,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let stderr: Arc<Mutex<std::collections::VecDeque<String>>> = Default::default();
     // The current install wins over the launch spec the Session was created with (updates).
     let spec = session.agents().get(&meta.agent.id).unwrap_or(meta.agent.clone());
-    // `env -u` strips leaked host vars; PATH puts the managed toolchain before the login-shell PATH.
-    let mut args: Vec<String> = Vec::new();
-    for var in crate::agent_quirks::stripped_env() {
-        args.push("-u".into());
-        args.push(var);
-    }
-    args.push(format!("PATH={}", session.agents().toolchain.path()));
-    // Quirk env goes before `spec.env` so a Custom Agent can override it.
-    for (k, v) in crate::agent_quirks::extra_env() {
-        args.push(format!("{k}={v}"));
-    }
-    for (k, v) in &spec.env {
-        args.push(format!("{k}={v}"));
-    }
-    args.push(spec.command.clone());
-    args.extend(spec.args.iter().cloned());
+    let args = launch_args(&spec, &session.agents().toolchain.path(), &[]);
     let agent = AcpAgent::new(agent_client_protocol::AcpAgentConfig::new("/usr/bin/env").args(args)).with_debug({
         let tail = stderr.clone();
         move |line, dir| {

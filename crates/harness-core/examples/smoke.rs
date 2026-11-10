@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     let frontend_id = std::env::var("SMOKE_FRONTEND").unwrap_or_else(|_| "inspector".into());
     if std::env::var("SMOKE_INSTALL").is_ok() {
         let t = std::time::Instant::now();
-        let r = h.execute(Command::InstallAgent { registry_id: agent_id.clone() }).await.map_err(anyhow::Error::msg)?;
+        let r = h.execute(Command::InstallAgent { registry_id: agent_id.clone(), allow_unverified: false }).await.map_err(anyhow::Error::msg)?;
         println!("installed in {:?}: {r:?}", t.elapsed());
     }
     let session_id = match std::env::var("SMOKE_SESSION") {

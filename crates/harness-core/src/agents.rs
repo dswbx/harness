@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::api::{AgentInfo, AgentSource, RegistryAgent};
+use crate::api::{AgentInfo, AgentSource, InstallInfo, PreviousInstall, RegistryAgent};
 use crate::toolchain::Toolchain;
 
 pub const REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
@@ -191,62 +191,150 @@ impl Agents {
         Ok(index.agents.into_iter().filter_map(|a| serde_json::from_value(a).ok()).collect())
     }
 
-    /// Installs (or updates to) the registry's current version of `registry_id`.
-    pub async fn install(&self, registry_id: &str) -> anyhow::Result<AgentInfo> {
+    /// The installed (not fixed) record of `id`.
+    fn installed_agent(&self, id: &str) -> Option<AgentInfo> {
+        self.installed.read().iter().find(|a| a.id == id).cloned()
+    }
+
+    /// Installs (or updates to) the registry's current version of `registry_id`, side by side
+    /// with the current one. The Agent switches to it only if the conformance check passes; the
+    /// current version stays as the rollback target. A binary without a sha256 in the registry
+    /// is refused unless `allow_unverified`.
+    pub async fn install(&self, registry_id: &str, allow_unverified: bool) -> anyhow::Result<AgentInfo> {
         let entry =
             self.entries(false).await?.into_iter().find(|e| e.id == registry_id).ok_or_else(|| anyhow::anyhow!("{registry_id} is not in the ACP Registry"))?;
         let _guard = self.install_lock.lock().await;
+        let existing = self.installed_agent(&entry.id);
+        if let Some(cur) = &existing {
+            if cur.version.as_deref() == Some(entry.version.as_str()) {
+                return Ok(cur.clone());
+            }
+            anyhow::ensure!(!cur.install.held, "{} is held at v{}; release the hold to update", entry.name, cur.version.as_deref().unwrap_or("?"));
+        }
         let dir = self.data_dir.join("agents").join(&entry.id).join(&entry.version);
         if dir.exists() {
             std::fs::remove_dir_all(&dir)?;
         }
+        // The directory held the rollback target (after a rollback): that target is gone now.
+        let dir_was_previous = existing.as_ref().is_some_and(|c| c.install.previous.as_ref().is_some_and(|p| p.version == entry.version));
         std::fs::create_dir_all(&dir)?;
-        let result = self.install_into(&entry, &dir).await;
-        let (command, args, env) = match result {
+        let result = self.install_into(&entry, &dir, allow_unverified).await;
+        let installed = match result {
             Ok(r) => r,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&dir);
+                if dir_was_previous {
+                    self.drop_previous(&entry.id);
+                }
                 return Err(e.context(format!("installing {}", entry.name)));
             }
         };
-        let agent = AgentInfo {
+        let mut agent = AgentInfo {
             id: entry.id.clone(),
             name: entry.name.clone(),
-            command: command.display().to_string(),
-            args,
-            env,
+            command: installed.command.display().to_string(),
+            args: installed.args,
+            env: installed.env,
             source: AgentSource::Registry { registry_id: entry.id.clone() },
             version: Some(entry.version.clone()),
             icon: entry.icon.clone(),
+            install: InstallInfo { sha256: installed.sha256, unverified: installed.unverified, ..Default::default() },
         };
-        // Older versions are replaced; running Agents keep their files until they exit.
-        let previous = self.get(&agent.id).and_then(|a| a.version);
-        self.upsert(agent.clone())?;
-        if let Some(prev) = previous.filter(|p| *p != entry.version) {
-            let _ = std::fs::remove_dir_all(self.data_dir.join("agents").join(&entry.id).join(prev));
+        let check = crate::conformance::check(&agent, &self.toolchain.path(), crate::conformance::CHECK_TIMEOUT).await;
+        if !check.passed {
+            let _ = std::fs::remove_dir_all(&dir);
+            let why = check.error.clone().unwrap_or_default();
+            if let Some(mut cur) = existing {
+                // Keep the current version, and show why the update was refused.
+                if dir_was_previous {
+                    cur.install.previous = None;
+                }
+                cur.install.check = Some(check);
+                self.upsert(cur)?;
+            }
+            anyhow::bail!("{} v{} failed the conformance check and was not installed: {why}", entry.name, entry.version);
         }
+        agent.install.check = Some(check);
+        agent.install.previous = existing.and_then(|c| previous_of(&c));
+        let keep: Vec<String> = [Some(entry.version.clone()), agent.install.previous.as_ref().map(|p| p.version.clone())].into_iter().flatten().collect();
+        self.upsert(agent.clone())?;
+        // Versions older than the previous one go; running Agents keep their files until they exit.
+        self.prune(&entry.id, &keep);
         Ok(agent)
     }
 
-    async fn install_into(&self, entry: &Entry, dir: &Path) -> anyhow::Result<(PathBuf, Vec<String>, BTreeMap<String, String>)> {
+    fn drop_previous(&self, id: &str) {
+        let mut all = self.installed.write();
+        if let Some(a) = all.iter_mut().find(|a| a.id == id) {
+            a.install.previous = None;
+            let _ = self.save(&all);
+        }
+    }
+
+    /// Removes the version directories of `id` that are not in `keep`.
+    fn prune(&self, id: &str, keep: &[String]) {
+        let Ok(entries) = std::fs::read_dir(self.data_dir.join("agents").join(id)) else { return };
+        for e in entries.flatten() {
+            if !keep.iter().any(|k| e.file_name() == k.as_str()) {
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
+    }
+
+    /// Switches back to the previous version and holds the Agent there; the version rolled back
+    /// from becomes the new previous.
+    pub async fn rollback(&self, id: &str) -> anyhow::Result<AgentInfo> {
+        let _guard = self.install_lock.lock().await;
+        let cur = self.installed_agent(id).ok_or_else(|| anyhow::anyhow!("unknown Agent {id}"))?;
+        let prev = cur.install.previous.clone().ok_or_else(|| anyhow::anyhow!("{} has no previous version", cur.name))?;
+        anyhow::ensure!(Path::new(&prev.command).exists(), "the files of {} v{} are gone", cur.name, prev.version);
+        let agent = AgentInfo {
+            command: prev.command,
+            args: prev.args,
+            env: prev.env,
+            version: Some(prev.version),
+            install: InstallInfo { sha256: prev.sha256, unverified: prev.unverified, previous: previous_of(&cur), held: true, check: None },
+            ..cur
+        };
+        self.upsert(agent.clone())?;
+        Ok(agent)
+    }
+
+    /// Holds an installed Agent at its current version, or releases it.
+    pub fn hold(&self, id: &str, hold: bool) -> anyhow::Result<AgentInfo> {
+        let mut all = self.installed.write();
+        let a = all.iter_mut().find(|a| a.id == id).ok_or_else(|| anyhow::anyhow!("unknown Agent {id}"))?;
+        a.install.held = hold;
+        let agent = a.clone();
+        self.save(&all)?;
+        Ok(agent)
+    }
+
+    async fn install_into(&self, entry: &Entry, dir: &Path, allow_unverified: bool) -> anyhow::Result<Installed> {
         let d = &entry.distribution;
         match entry.method() {
             Some("binary") => {
                 let b = &d.binary[crate::toolchain::platform()];
+                anyhow::ensure!(
+                    b.sha256.is_some() || allow_unverified,
+                    "{} lists no sha256 in the ACP Registry, so the download cannot be verified",
+                    entry.name
+                );
+                let sha256;
                 if crate::toolchain::is_archive(&b.archive) {
                     let name = b.archive.rsplit('/').next().unwrap_or("archive").split('?').next().unwrap_or("archive");
                     let archive = dir.join(format!(".download-{name}"));
-                    crate::toolchain::download(&b.archive, &archive, b.sha256.as_deref()).await?;
+                    sha256 = crate::toolchain::download(&b.archive, &archive, b.sha256.as_deref()).await?;
                     crate::toolchain::unpack(&archive, dir).await?;
                     std::fs::remove_file(&archive)?;
                 } else {
                     let target = dir.join(b.cmd.trim_start_matches("./"));
-                    crate::toolchain::download(&b.archive, &target, b.sha256.as_deref()).await?;
+                    sha256 = crate::toolchain::download(&b.archive, &target, b.sha256.as_deref()).await?;
                 }
                 let cmd = dir.join(b.cmd.trim_start_matches("./"));
                 anyhow::ensure!(cmd.exists(), "{} not found in the downloaded archive", b.cmd);
                 make_executable(&cmd)?;
-                Ok((cmd, b.args.clone(), b.env.clone()))
+                Ok(Installed { command: cmd, args: b.args.clone(), env: b.env.clone(), sha256: Some(sha256), unverified: b.sha256.is_none() })
             }
             Some("npx") => {
                 let p = d.npx.as_ref().ok_or_else(|| anyhow::anyhow!("registry entry has no npx distribution"))?;
@@ -258,7 +346,7 @@ impl Agents {
                     .env("PATH", self.toolchain.path()))
                 .await?;
                 let bin = npm_bin(dir, &package_name(&p.package))?;
-                Ok((bin, p.args.clone(), p.env.clone()))
+                Ok(Installed { command: bin, args: p.args.clone(), env: p.env.clone(), sha256: None, unverified: false })
             }
             Some("uvx") => {
                 let p = d.uvx.as_ref().ok_or_else(|| anyhow::anyhow!("registry entry has no uvx distribution"))?;
@@ -281,7 +369,7 @@ impl Agents {
                     anyhow::ensure!(entries.len() == 1, "cannot tell which executable {} provides", p.package);
                     entries.remove(0)
                 };
-                Ok((bin, p.args.clone(), p.env.clone()))
+                Ok(Installed { command: bin, args: p.args.clone(), env: p.env.clone(), sha256: None, unverified: false })
             }
             _ => anyhow::bail!("{} has no distribution for {}", entry.name, crate::toolchain::platform()),
         }
@@ -297,6 +385,7 @@ impl Agents {
             source: AgentSource::Custom,
             version: None,
             icon: None,
+            install: Default::default(),
         };
         anyhow::ensure!(self.get(&agent.id).is_none(), "an Agent with id {} already exists", agent.id);
         self.upsert(agent.clone())?;
@@ -312,6 +401,28 @@ impl Agents {
         let _ = std::fs::remove_dir_all(self.data_dir.join("agents").join(id));
         Ok(())
     }
+}
+
+/// What an install produced.
+struct Installed {
+    command: PathBuf,
+    args: Vec<String>,
+    env: BTreeMap<String, String>,
+    /// Hash of the downloaded artifact (binary installs).
+    sha256: Option<String>,
+    unverified: bool,
+}
+
+/// The launch spec of `a` as a rollback target (registry installs with a version only).
+fn previous_of(a: &AgentInfo) -> Option<PreviousInstall> {
+    Some(PreviousInstall {
+        version: a.version.clone()?,
+        command: a.command.clone(),
+        args: a.args.clone(),
+        env: a.env.clone(),
+        sha256: a.install.sha256.clone(),
+        unverified: a.install.unverified,
+    })
 }
 
 async fn run(cmd: &mut tokio::process::Command) -> anyhow::Result<()> {

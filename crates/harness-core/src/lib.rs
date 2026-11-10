@@ -6,6 +6,7 @@ pub mod agents;
 pub mod api;
 mod app_settings;
 mod attachments;
+mod conformance;
 mod editor;
 mod env;
 mod frontend_files;

@@ -1,0 +1,23 @@
+# Installs the current ACP Registry versions of the Claude and Codex Agents and runs the headless
+# conformance check on them, so a broken adapter release is seen before users see it. No secrets,
+# no sign-in: an Agent that asks to sign in passes the check.
+name: Agents nightly
+
+on:
+   schedule:
+      - cron: "17 4 * * *"
+   workflow_dispatch:
+
+jobs:
+   conformance:
+      runs-on: macos-latest
+      timeout-minutes: 30
+      steps:
+         - uses: actions/checkout@v4
+
+         - uses: dtolnay/rust-toolchain@stable
+
+         - uses: Swatinem/rust-cache@v2
+
+         - name: Conformance check (Claude, Codex)
+           run: cargo run -q -p harness-core --example conformance -- claude-acp codex-acp
