@@ -1,13 +1,13 @@
 import { fromSchema, type Schema, type Static, s } from "jsonv-ts";
-import * as charts from "./renderUi/charts";
-import * as code from "./renderUi/code";
-import * as data from "./renderUi/data";
-import * as disclosure from "./renderUi/disclosure";
-import * as forms from "./renderUi/forms";
-import * as layout from "./renderUi/layout";
-import * as media from "./renderUi/media";
+import * as charts from "./renderUi/charts.spec";
+import * as code from "./renderUi/code.spec";
+import * as data from "./renderUi/data.spec";
+import * as disclosure from "./renderUi/disclosure.spec";
+import * as forms from "./renderUi/forms.spec";
+import * as layout from "./renderUi/layout.spec";
+import * as media from "./renderUi/media.spec";
 import { type Entry, ICONS } from "./renderUi/shared";
-import * as text from "./renderUi/text";
+import * as text from "./renderUi/text.spec";
 
 /**
  * Frontend Tools of the chat Frontend. Serialized into manifest.json by `bun run gen-manifests`.
@@ -20,7 +20,7 @@ import * as text from "./renderUi/text";
  * repeat scope: `{ "$item": "field" }`, `{ "$index": true }`, `{ "$bindItem": "field" }`, `${field}`.
  */
 
-export { calculatorExample } from "./renderUi/layout";
+export { calculatorExample } from "./renderUi/layout.spec";
 export { ICONS } from "./renderUi/shared";
 
 /** The catalog is the groups' specs together: `renderUi/` has one file per group, spec and renderer side by side. */
