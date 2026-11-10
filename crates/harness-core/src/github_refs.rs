@@ -137,9 +137,10 @@ impl PrRefs {
     pub async fn for_branch(&self, repo: &RepoId, branch: &str) -> anyhow::Result<Option<PrInfo>> {
         anyhow::ensure!(valid_repo(repo), "invalid repository {}/{}", repo.owner, repo.name);
         let full = format!("{}/{}", repo.owner, repo.name);
-        let args = ["pr", "list", "--repo", &full, "--head", branch, "--state", "all", "--limit", "10", "--json", LIST_FIELDS];
+        let fields = format!("{LIST_FIELDS},isCrossRepository");
+        let args = ["pr", "list", "--repo", &full, "--head", branch, "--state", "all", "--limit", "10", "--json", &fields];
         let list: Vec<Value> = serde_json::from_str(&gh_in(None, &args).await?)?;
-        let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
+        let mut prs = branch_prs(repo, &list);
         let now = Instant::now();
         self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
         prs.sort_by(|a, b| {
@@ -293,6 +294,11 @@ fn parse_lookup(refs: &[PrRefKey], repos: &[String], body: &str) -> anyhow::Resu
         .collect())
 }
 
+/// PRs of a `gh pr list --head` result, minus fork PRs: `--head` matches the branch name in any fork (a fork's `main` too).
+fn branch_prs(repo: &RepoId, list: &[Value]) -> Vec<PrInfo> {
+    list.iter().filter(|v| v["isCrossRepository"] != true).filter_map(|v| pr_info(repo, v)).collect()
+}
+
 /// A PR from GraphQL (checks under `commits`) or `gh pr list --json` (checks in `statusCheckRollup`).
 fn pr_info(repo: &RepoId, v: &Value) -> Option<PrInfo> {
     let rollup =
@@ -431,6 +437,16 @@ mod tests {
         .unwrap();
         assert_eq!((p.author.as_str(), p.checks, p.checks_passed, p.checks_total), ("ghost", PrChecks::Pending, 1, 2));
         assert_eq!(pr_info(&r, &Value::Null), None);
+    }
+
+    #[test]
+    fn branch_prs_skip_forks() {
+        let r = repo("tursodatabase", "turso");
+        let list = [
+            json!({"number": 11497, "state": "CLOSED", "isCrossRepository": true}),
+            json!({"number": 12, "state": "OPEN", "isCrossRepository": false}),
+        ];
+        assert_eq!(branch_prs(&r, &list).iter().map(|p| p.number).collect::<Vec<_>>(), [12]);
     }
 
     #[test]
