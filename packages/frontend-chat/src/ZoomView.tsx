@@ -1,11 +1,11 @@
-import { Button, Tooltip } from "@harness/ui";
+import { Button, clamp, Tooltip } from "@harness/ui";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 type View = { scale: number; x: number; y: number };
 const MIN = 0.1;
 const MAX = 8;
-const clamp = (s: number) => Math.min(MAX, Math.max(MIN, s));
+const clampScale = (s: number) => clamp(s, MIN, MAX);
 
 /**
  * Pan and zoom over content of a known size: drag or scroll to pan, pinch / Cmd+scroll to zoom
@@ -28,7 +28,7 @@ export function ZoomView({
       const el = box.current;
       if (!el) return;
       const { clientWidth: w, clientHeight: h } = el;
-      const scale = clamp(Math.min((w - 48) / width, (h - 48) / height, 2));
+      const scale = clampScale(Math.min((w - 48) / width, (h - 48) / height, 2));
       setView({ scale, x: (w - width * scale) / 2, y: (h - height * scale) / 2 });
    }, [width, height]);
 
@@ -41,7 +41,7 @@ export function ZoomView({
          if (!v || !el) return v;
          const cx = px ?? el.clientWidth / 2;
          const cy = py ?? el.clientHeight / 2;
-         const scale = clamp(v.scale * k);
+         const scale = clampScale(v.scale * k);
          const r = scale / v.scale;
          return { scale, x: cx - (cx - v.x) * r, y: cy - (cy - v.y) * r };
       });

@@ -1,4 +1,4 @@
-import { type AttachmentInput, isCommandError } from "@harness/api";
+import { type AttachmentInput, baseName, isCommandError } from "@harness/api";
 
 /** An attachment waiting in the prompt box. `preview`: data URL for pasted/picked image bytes. */
 export type PendingAttachment = {
@@ -16,7 +16,6 @@ export const FILE_MAX_BYTES = 5 * 1024 * 1024;
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
 
-export const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
 export const isImageName = (name: string) => IMAGE_EXT.test(name);
 
 let n = 0;

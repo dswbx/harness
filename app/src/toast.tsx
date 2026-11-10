@@ -1,3 +1,4 @@
+import { errText } from "@harness/api";
 import { AlertTriangle, X } from "lucide-react";
 import {
    createContext,
@@ -8,9 +9,6 @@ import {
    useRef,
    useState,
 } from "react";
-
-export const errText = (e: unknown) =>
-   e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
 
 type Toast = { id: number; text: string };
 type Report = (what: string, err: unknown) => void;

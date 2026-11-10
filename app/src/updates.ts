@@ -1,6 +1,5 @@
-import { inTauri } from "@harness/api";
+import { errText, inTauri } from "@harness/api";
 import { useCallback, useEffect, useState } from "react";
-import { errText } from "./toast";
 
 /** Mirrors `UpdateState` in the Tauri adapter (`updates.rs`). */
 export type UpdateState =

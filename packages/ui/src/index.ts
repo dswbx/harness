@@ -15,4 +15,4 @@ export * from "./components/textarea";
 export * from "./components/tooltip";
 export * from "./components/trace";
 export * from "./components/virtual-list";
-export { cn } from "./lib/utils";
+export { clamp, cn } from "./lib/utils";

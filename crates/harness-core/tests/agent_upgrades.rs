@@ -112,6 +112,8 @@ async fn archive_without_sha256_needs_an_explicit_allow() {
     let sha = env.publish("1.0.0", "", false).await;
     let err = env.install(false).await.unwrap_err();
     assert!(err.contains("cannot be verified"), "{err}");
+    let coded = env.h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified: false }).await.unwrap_err();
+    assert_eq!(coded.code, harness_core::api::ErrorCode::PolicyDenied, "the UI asks before installing unverified");
     assert!(!exists(&env.data().join("agents/fake-acp/1.0.0")));
     let CommandResult::Agents { agents } = env.h.execute(Command::ListAgents).await.unwrap() else { panic!() };
     assert!(agents.is_empty());

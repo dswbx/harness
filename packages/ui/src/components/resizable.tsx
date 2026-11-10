@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "../lib/utils";
+import { clamp, cn } from "../lib/utils";
 
 type DragOptions = {
    cursor: "col-resize" | "row-resize";
@@ -46,7 +46,6 @@ type Options = {
 
 /** A panel width dragged from one of its edges (double-click resets), remembered per viewer. */
 export function useResizableWidth({ storageKey, initial, min, max, edge }: Options) {
-   const clamp = (w: number) => Math.min(max, Math.max(min, w));
    const [width, setWidth] = React.useState(() => {
       try {
          const w = Number(localStorage.getItem(storageKey));
@@ -71,7 +70,7 @@ export function useResizableWidth({ storageKey, initial, min, max, edge }: Optio
          last.current = width;
       },
       onDelta: (dx) => {
-         last.current = clamp(edge === "right" ? start.current + dx : start.current - dx);
+         last.current = clamp(edge === "right" ? start.current + dx : start.current - dx, min, max);
          setWidth(last.current);
       },
       onEnd: () => save(last.current),

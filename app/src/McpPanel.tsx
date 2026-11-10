@@ -1,4 +1,4 @@
-import type { HarnessClient, McpServerDef } from "@harness/api";
+import { errText, type HarnessClient, type McpServerDef } from "@harness/api";
 import {
    Badge,
    Button,
@@ -14,9 +14,6 @@ import { Lock, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { SectionHeader } from "./SectionHeader";
 import { type Form, fromForm, type Row, summary } from "./settings";
-
-const errText = (e: unknown) =>
-   e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
 
 const emptyForm = (): Form => ({
    id: "",

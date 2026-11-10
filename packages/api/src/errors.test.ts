@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HarnessClient } from "./client";
-import { CommandError, isCommandError, toCommandError } from "./errors";
+import { CommandError, errText, isCommandError, toCommandError } from "./errors";
 import { MockTransport } from "./mock";
 import type { Transport } from "./transport";
 
@@ -19,6 +19,16 @@ describe("CommandError", () => {
       expect(toCommandError({ code: "nope", message: "m" }).code).toBe("internal");
       const same = new CommandError("conflict", "c");
       expect(toCommandError(same)).toBe(same);
+   });
+
+   it("errText: the message of any failure", () => {
+      expect(errText(new CommandError("conflict", "taken"))).toBe("taken");
+      expect(errText({ code: "not_found", message: "unknown session x" })).toBe(
+         "unknown session x",
+      );
+      expect(errText(new Error("bad"))).toBe("bad");
+      expect(errText("boom")).toBe("boom");
+      expect(errText({ a: 1 })).toBe('{"a":1}');
    });
 
    it("the mock transport rejects with codes", async () => {

@@ -1,6 +1,6 @@
-import { CommandError } from "@harness/api";
+import { baseName, CommandError } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { baseName, fitWithin, fromPath, fromPickedPath, isImageName } from "./attachments";
+import { fitWithin, fromPath, fromPickedPath, isImageName } from "./attachments";
 
 describe("attachments", () => {
    it("fits the longer side within the max, never upscales", () => {

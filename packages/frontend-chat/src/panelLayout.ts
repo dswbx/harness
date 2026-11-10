@@ -1,3 +1,5 @@
+import { clamp } from "@harness/ui";
+
 /**
  * Where the chat's panels sit: six zones, one open panel per zone, sizes, and the open Side Threads.
  * Pure, so the rules (and the geometry the dock draws from) are testable. ADR 0019.
@@ -272,8 +274,6 @@ const MIN_RIGHT = 220;
 const MIN_BOTTOM = 120;
 /** Height the chat keeps above the bottom zones. */
 const MIN_CHAT_H = 220;
-
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 export type Geometry = {
    /** Rect per zone that has an open panel. */

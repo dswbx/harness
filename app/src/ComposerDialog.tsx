@@ -2,6 +2,7 @@ import {
    type AgentInfo,
    type Branches,
    type BranchInfo,
+   baseName,
    type FrontendManifest,
    type HarnessClient,
    inTauri,
@@ -41,7 +42,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { AgentIcon } from "./AgentsPanel";
 import {
-   baseName,
    branchChoices,
    loadRecent,
    matches,

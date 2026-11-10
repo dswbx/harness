@@ -1,4 +1,10 @@
-import type { AgentInfo, HarnessClient, RegistryAgent } from "@harness/api";
+import {
+   type AgentInfo,
+   errText,
+   type HarnessClient,
+   isCommandError,
+   type RegistryAgent,
+} from "@harness/api";
 import {
    Badge,
    Button,
@@ -19,12 +25,6 @@ import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
 
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
-
-const errText = (e: unknown) =>
-   e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
-
-/** The core refuses a binary the registry lists no sha256 for with this text (ADR 0007). */
-const isUnverified = (message: string) => message.includes("cannot be verified");
 
 /** One line on an installed Agent's last conformance check. */
 function checkLine(a: AgentInfo): { text: string; ok: boolean } | null {
@@ -136,7 +136,7 @@ export function AgentsPanel({
          onChanged?.();
       } catch (e) {
          const message = errText(e);
-         if (!allowUnverified && isUnverified(message)) {
+         if (!allowUnverified && isCommandError(e, "policy_denied")) {
             // Ask before retrying without a checksum to verify against.
             setUnverified({ id, name: registry.find((r) => r.id === id)?.name ?? id });
          } else {

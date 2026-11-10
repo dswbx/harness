@@ -7,6 +7,7 @@ export * from "./generated";
 export * from "./gitTool";
 export * from "./hooks";
 export { MockTransport, mockImage, mockRenderUi } from "./mock";
+export * from "./paths";
 export * from "./prRefs";
 export * from "./prStore";
 export * from "./state";

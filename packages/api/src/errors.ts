@@ -47,3 +47,6 @@ export function toCommandError(e: unknown): CommandError {
 export function isCommandError(e: unknown, code?: ErrorCode): e is CommandError {
    return e instanceof CommandError && (code === undefined || e.code === code);
 }
+
+/** A failure as text for the user (a Command's `message`; anything else as it reads). */
+export const errText = (e: unknown): string => toCommandError(e).message;

@@ -309,11 +309,9 @@ impl Agents {
         match entry.method() {
             Some("binary") => {
                 let b = &d.binary[crate::toolchain::platform()];
-                anyhow::ensure!(
-                    b.sha256.is_some() || allow_unverified,
-                    "{} lists no sha256 in the ACP Registry, so the download cannot be verified",
-                    entry.name
-                );
+                if b.sha256.is_none() && !allow_unverified {
+                    return Err(crate::error::policy_denied(format!("{} lists no sha256 in the ACP Registry, so the download cannot be verified", entry.name)));
+                }
                 let sha256;
                 if crate::toolchain::is_archive(&b.archive) {
                     let name = b.archive.rsplit('/').next().unwrap_or("archive").split('?').next().unwrap_or("archive");
