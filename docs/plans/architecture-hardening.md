@@ -1,6 +1,6 @@
 # Architecture hardening
 
-Status: proposal, 2026-11-10. Works in `crates/harness-core`, `crates/harness-tauri`, `packages/api`, `packages/frontend-chat`, `scripts/`, `.github/workflows/`.
+Status: done, 2026-11-10 (see Outcome). Works in `crates/harness-core`, `crates/harness-tauri`, `packages/api`, `packages/frontend-chat`, `scripts/`, `.github/workflows/`.
 
 ## Goal
 
@@ -151,10 +151,21 @@ New ADRs: event schema evolution (10), log storage and fan-out (6, 7, 8, replaci
 | Rust↔TS types                   | generated, unchecked in CI               | generated, checked                                   |
 | Agent upgrades                  | install and switch                       | verified, with rollback and hold                     |
 
-## Open questions
+## Decisions
 
-- ADR 0010 SQLite catalog: build or amend? Suggest: amend, `session.json` is the catalog plus checkpoint.
-- Html frames: drop remote images entirely, or allow per render with a prompt? Suggest: drop by default, opt-in later if someone needs it.
-- Linux: CI the core only, or target the app? Suggest: core only for now.
-- `parking_lot` as a dependency: fine? Suggest: yes.
-- Keep `raw_*` in Events at all? Suggest: yes, for the Inspector and debugging, but no Frontend logic may read them.
+- ADR 0010 SQLite catalog: amended, `session.json` is the catalog plus `log.checkpoint.json` (ADR 0021).
+- Html frames: no network at all; images only from `data:`/`blob:`.
+- Linux: CI builds and tests the core only.
+- `parking_lot` for all core and adapter locks.
+- `raw_*` stay in Events for the Inspector and the raw JSON view; Frontend logic may not read them (guard script).
+
+## Outcome
+
+All items landed with tests. Found and fixed on the way: a Turn's end was visible before the Session left Working; a new tool call reusing an id kept the old call's `kind`; Cancel never ended a Turn whose Agent hung; a permission request after Cancel stayed pending; an advisory in `rmcp` (RUSTSEC-2026-0462); an import cycle that made the render_ui catalog pull in renderers.
+
+Left for later:
+
+- The ACP Registry index itself is fetched without an integrity check; npx/uvx installs record no artifact hash.
+- `normalize` tests use hand-written ACP JSON, not recordings of real Agent runs.
+- No property tests for the Session Log yet (crash and torn-line cases are covered by example tests).
+- Tauri commands other than `execute` still return string errors.
