@@ -324,10 +324,7 @@ impl Session {
         log.note_agent_gone()?;
         let session = Self::from_parts(dir, meta, log, shared);
         if !session.meta.lock().title_backfilled {
-            let title = session.log.events()?.into_iter().rev().find_map(|e| match e.kind {
-                EventKind::SessionInfoUpdated { title } if session.is_main(e.thread_id.as_ref()) => title.filter(|t| !t.trim().is_empty()),
-                _ => None,
-            });
+            let title = session.log.agent_title(&session.meta.lock().main_thread_id.clone())?;
             session.update_meta(|m| {
                 if let Some(t) = title {
                     m.title = t;
@@ -453,9 +450,7 @@ impl Session {
         anyhow::ensure!(!ops.is_empty(), "no operations");
         let _guard = self.state_lock.lock();
         let next = crate::state::apply(&self.state()?, &ops)?;
-        let tmp = self.dir.join("state.json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&next)?)?;
-        std::fs::rename(tmp, self.dir.join("state.json"))?;
+        crate::fsutil::write_atomic(&self.dir.join("state.json"), &serde_json::to_vec_pretty(&next)?)?;
         self.log.append(thread, EventKind::StateChanged { ops, by })?;
         Ok(next)
     }
@@ -556,9 +551,7 @@ impl Session {
         let path = self.frontend_path(rel)?;
         anyhow::ensure!(!rel.trim().is_empty(), "path is required");
         std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
-        let tmp = path.with_extension("tmp-write");
-        std::fs::write(&tmp, content)?;
-        std::fs::rename(tmp, path)?;
+        crate::fsutil::write_atomic(&path, content.as_bytes())?;
         Ok(())
     }
 
@@ -943,10 +936,7 @@ impl Session {
 }
 
 fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
-    let tmp = dir.join("session.json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(meta)?)?;
-    std::fs::rename(tmp, dir.join("session.json"))?;
-    Ok(())
+    crate::fsutil::write_atomic(&dir.join("session.json"), &serde_json::to_vec_pretty(meta)?)
 }
 
 #[cfg(test)]

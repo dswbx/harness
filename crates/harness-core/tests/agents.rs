@@ -4,7 +4,7 @@
 mod common;
 use common::fake_agent_bin;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use harness_core::Harness;
@@ -54,20 +54,7 @@ fn registry(dir: &Path, tgz: &Path, sha: &str) -> PathBuf {
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h
-        .subscribe_session(
-            sid,
-            0,
-            Box::new(move |e: &Event| {
-                a.lock().unwrap().push(e.clone());
-                true
-            }),
-        )
-        .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 async fn create(h: &Harness, folder: &Path, agent_id: &str) -> String {
@@ -121,6 +108,7 @@ async fn registry_binary_install_runs_and_survives_restart() {
     turn_ends(&h, &sid, "hi").await.unwrap();
 
     // Persisted: a new Harness on the same data dir lists it and the registry marks it installed.
+    drop(h);
     let h2 = harness(&data, &reg, vec![]);
     let CommandResult::Agents { agents } = h2.execute(Command::ListAgents).await.unwrap() else { panic!() };
     assert_eq!(agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["fake-acp"]);

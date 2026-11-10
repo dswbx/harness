@@ -14,7 +14,7 @@ use serde_json::Value;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
 use crate::api::{
-    AttachmentInput, Boundary, Decision, Event, EventKind, ForkPoint, NewPermissionRule, PermissionOption, ProcessState, Resolver, RuleScope, SessionStatus,
+    AttachmentInput, Boundary, Decision, EventKind, ForkPoint, NewPermissionRule, PermissionOption, ProcessState, Resolver, RuleScope, SessionStatus,
     SlashCommand, TaskEntry, ThreadId, ThreadStart,
 };
 use crate::session::Session;
@@ -350,12 +350,9 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         {
             let _ = session.log().append(Some(thread.clone()), EventKind::WorkspaceChanged { turn_id: turn_id.clone(), from_tree, to_tree, files: diff.files });
         }
-        let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
-        let meta = session.meta();
-        session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, title: meta.title, stop_reason });
-        let _ = session.log().sync();
-        let slot = session.agent_slot();
-        slot.update(&session, |s| {
+        // The Turn stops counting before `TurnEnded` is logged, so a View that sees the end never
+        // reads the Session as still working.
+        session.agent_slot().update(&session, |s| {
             if let Some(n) = s.turns.get_mut(&thread) {
                 *n = n.saturating_sub(1);
             }
@@ -363,6 +360,10 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
                 s.tool_calls.clear();
             }
         });
+        let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
+        let meta = session.meta();
+        session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, title: meta.title, stop_reason });
+        let _ = session.log().sync();
     });
     Ok(())
 }
@@ -460,7 +461,7 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
 
 /// A config option that is the Agent's mode (ACP category `mode`).
 fn is_mode(option: &Value) -> bool {
-    option["category"] == "mode" || option["id"] == "mode"
+    crate::log::is_mode_option(option)
 }
 
 /// The legacy mode after config options were applied: the mode option's value when it names one of
@@ -1046,7 +1047,13 @@ fn on_update(session: &Session, n: &acp::SessionNotification) {
 fn track_tool_call(session: &Session, u: &Value) {
     let Some(id) = u.get("toolCallId").and_then(Value::as_str) else { return };
     let mut state = session.agent_slot().state.lock();
-    merge(state.tool_calls.entry(id.to_owned()).or_insert_with(|| Value::Object(Default::default())), u);
+    // A new `tool_call` starts over, even with an id seen before: merging would keep fields it
+    // leaves out as defaults (e.g. a `kind` of `other`), and the Policy would judge stale facts.
+    if u.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call") {
+        state.tool_calls.insert(id.to_owned(), u.clone());
+    } else {
+        merge(state.tool_calls.entry(id.to_owned()).or_insert_with(|| Value::Object(Default::default())), u);
+    }
 }
 
 /// Overlays the non-null fields of `update` onto `base`.
@@ -1214,18 +1221,6 @@ fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, res
     let _ = session.log().sync();
 }
 
-/// The Thread's current Agent mode: the newest of its `ModeChanged` events and the mode option in
-/// its `ConfigOptionsChanged` events (Agents without legacy modes only report the latter).
-fn thread_mode(events: &[Event], thread: &ThreadId) -> Option<String> {
-    events.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match &e.kind {
-        EventKind::ModeChanged { mode_id } => Some(mode_id.clone()),
-        EventKind::ConfigOptionsChanged { options } => {
-            options.as_array()?.iter().find(|o| is_mode(o)).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
-        }
-        _ => None,
-    })
-}
-
 /// Checks a Harness MCP tool call against the Permission Policy, asking the user when the Policy
 /// says so. Errors when denied. A default Allow (no rule) is silent. An explicit Allow rule, and a
 /// default Ask (no explicit rule, not a plan approval) in a Thread whose Agent mode decides without
@@ -1255,7 +1250,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
     let passes = match verdict.decision {
         Decision::Allow => verdict.rule_id.is_some(),
         Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {
-            session.log().events().ok().and_then(|e| thread_mode(&e, thread)).is_some_and(|m| crate::agent_quirks::auto_mode(&m))
+            session.log().thread_mode(thread).ok().flatten().is_some_and(|m| crate::agent_quirks::auto_mode(&m))
         }
         _ => false,
     };

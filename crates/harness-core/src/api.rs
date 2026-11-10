@@ -1300,6 +1300,11 @@ pub enum EventKind {
     Error {
         message: String,
     },
+    /// Stands in for a line whose `type` this build does not know (written by a newer build) or
+    /// whose fields do not parse, so `seq` stays contiguous. The Session Log file keeps the
+    /// original line; the Harness never writes this. Not `#[serde(other)]`: specta cannot export
+    /// that on an internally tagged enum, so `log.rs` substitutes it when parsing.
+    Unknown,
 }
 
 /// What a tool call that starts a subagent asked it to do.
@@ -1461,9 +1466,29 @@ impl std::fmt::Display for HarnessError {
 
 impl std::error::Error for HarnessError {}
 
+/// What a Session subscription delivers to a View: Events, then possibly one `Lagged`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(untagged)]
+#[allow(clippy::large_enum_variant, reason = "built per delivery, never stored")]
+pub enum SessionMessage {
+    Event(Event),
+    Lagged(Lagged),
+}
+
+/// The View fell too far behind and its subscription was dropped. Events up to `last_seq` were
+/// delivered (`null`: none yet); resubscribe from `last_seq + 1` (from the first `from_seq`
+/// when `null`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct Lagged {
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub last_seq: Option<u64>,
+}
+
 /// Receives Events for one subscription. Returns `false` once the receiver is gone.
 pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &Event) -> bool;
+    /// The subscription was dropped because the receiver was too slow (see `Lagged`).
+    fn lagged(&self, _last_seq: Option<u64>) {}
 }
 
 impl<F: Fn(&Event) -> bool + Send + Sync + 'static> EventSink for F {
@@ -1473,7 +1498,13 @@ impl<F: Fn(&Event) -> bool + Send + Sync + 'static> EventSink for F {
 }
 
 pub fn types() -> specta::Types {
-    specta::Types::default().register::<Command>().register::<CommandResult>().register::<Event>().register::<AppEvent>().register::<HarnessError>()
+    specta::Types::default()
+        .register::<Command>()
+        .register::<CommandResult>()
+        .register::<Event>()
+        .register::<AppEvent>()
+        .register::<HarnessError>()
+        .register::<SessionMessage>()
 }
 
 pub fn export_ts() -> String {

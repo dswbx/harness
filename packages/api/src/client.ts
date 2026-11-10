@@ -28,7 +28,12 @@ import type {
    ThreadStart,
    WorkspaceInfo,
 } from "./generated";
-import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
+import {
+   subscribeResilient,
+   type TerminalOutput,
+   type Transport,
+   type Unsubscribe,
+} from "./transport";
 
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
 export interface SessionApi {
@@ -169,7 +174,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
    };
    return {
       sessionId,
-      subscribe: (onEvent, fromSeq = 0) => transport.subscribe(sessionId, fromSeq, onEvent),
+      subscribe: (onEvent, fromSeq = 0) =>
+         subscribeResilient(transport, sessionId, fromSeq, onEvent),
       prompt: (text, attachments = [], threadId = null) =>
          run({ type: "Prompt", session_id: sessionId, thread_id: threadId, text, attachments }),
       readAttachment: async (path) => {

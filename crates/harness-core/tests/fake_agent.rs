@@ -67,6 +67,7 @@ fn collect(h: &Harness, sid: &str) -> (Arc<Mutex<Vec<Event>>>, tokio::sync::mpsc
     let all = Arc::new(Mutex::new(Vec::new()));
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let a = all.clone();
+    let replayed = events(h, sid).len();
     h.subscribe_session(
         sid,
         0,
@@ -77,6 +78,13 @@ fn collect(h: &Harness, sid: &str) -> (Arc<Mutex<Vec<Event>>>, tokio::sync::mpsc
         }),
     )
     .unwrap();
+    // Replay is delivered from a thread of its own: wait until the history so far has arrived.
+    for _ in 0..400 {
+        if all.lock().unwrap().len() >= replayed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     (all, rx)
 }
 
@@ -301,20 +309,7 @@ fn h_events(h: &Harness, sid: &str) -> Vec<EventKind> {
 
 /// A snapshot of the log that does not stay subscribed (so it never counts as an open View).
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h
-        .subscribe_session(
-            sid,
-            0,
-            Box::new(move |e: &Event| {
-                a.lock().unwrap().push(e.clone());
-                true
-            }),
-        )
-        .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 /// Prompts and waits for the Turn's end; returns its stop reason.
@@ -359,6 +354,7 @@ fn texts(h: &Harness, sid: &str) -> Vec<String> {
 async fn restart_resumes_the_agent_session() {
     let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
     assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    drop(h);
     let h2 = harness(&dir.path().join("data"), &["--resume"], Duration::from_secs(900));
     assert_eq!(turn(&h2, &sid, None, "again").await, "end_turn");
     assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -380,9 +376,11 @@ async fn restart_logs_the_agent_as_stopped_without_moving_the_session() {
             .count()
     };
     let data = dir.path().join("data");
+    drop(h);
     let h2 = harness(&data, &[], Duration::from_secs(900));
     assert_eq!(gone(&h2), 1);
     assert_eq!(updated(&h2, &sid).await, before);
+    drop(h2);
     let h3 = harness(&data, &[], Duration::from_secs(900));
     assert_eq!(gone(&h3), 1, "only once");
 }
@@ -391,6 +389,7 @@ async fn restart_logs_the_agent_as_stopped_without_moving_the_session() {
 async fn load_replay_is_not_logged_twice() {
     let (h, sid, dir) = setup_with(&["--load"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "hi").await;
+    drop(h);
     let h2 = harness(&dir.path().join("data"), &["--load"], Duration::from_secs(900));
     assert_eq!(turn(&h2, &sid, None, "again").await, "end_turn");
     assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Loaded]);
@@ -401,6 +400,7 @@ async fn load_replay_is_not_logged_twice() {
 async fn agent_without_resume_or_load_reports_at_once_until_continued_with_summary() {
     let (h, sid, dir) = setup().await;
     turn(&h, &sid, None, "remember the word banana").await;
+    drop(h);
     let h2 = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
     let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![] };
     assert!(h2.execute(prompt("again")).await.is_err());
@@ -419,6 +419,7 @@ async fn agent_without_resume_or_load_reports_at_once_until_continued_with_summa
 async fn failed_resume_is_retried_on_its_own() {
     let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "hi").await;
+    drop(h);
     let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=2"], Duration::from_secs(900));
     assert_eq!(turn(&h2, &sid, None, "back").await, "end_turn");
     let attempts: Vec<_> = h_events(&h2, &sid)
@@ -438,6 +439,7 @@ async fn resume_that_keeps_failing_can_be_tried_again_later() {
     let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "hi").await;
     // 4 tries fail in this process; the prompt after them succeeds.
+    drop(h);
     let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=4"], Duration::from_secs(900));
     let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "back".into(), attachments: vec![] };
     assert!(h2.execute(prompt).await.is_err());

@@ -66,3 +66,31 @@ describe("MockTransport PR references", () => {
       expect(mine).toEqual([...mine].sort((a, b) => Number(b) - Number(a)));
    });
 });
+
+describe("Session subscription lag recovery", () => {
+   it("resubscribes from the next unseen seq after the core drops the View", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const id = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const api = createSessionApi(transport, id);
+      const seqs: number[] = [];
+      const off = await api.subscribe((e) => seqs.push(e.seq));
+      const before = seqs.length;
+      await client.archiveSession(id);
+      expect(seqs.length).toBe(before + 1);
+      transport.dropSubscribersAsLagged(id);
+      // Events appended while dropped are replayed by the new subscription, exactly once.
+      await client.unarchiveSession(id);
+      await client.archiveSession(id);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(seqs).toEqual(seqs.map((_, i) => seqs[0] + i));
+      expect(seqs.length).toBe(before + 3);
+      off();
+      await client.unarchiveSession(id);
+      expect(seqs.length).toBe(before + 3);
+   });
+});

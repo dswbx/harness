@@ -1017,3 +1017,24 @@ describe("typed tool facts", () => {
       expect(s.items[0]).toMatchObject({ subagentPrompt: "Old" });
    });
 });
+
+describe("Unknown events", () => {
+   it("are ignored by the reducer and leave the state unchanged", () => {
+      const base = reduceBatch(initialState(), [
+         {
+            v: 1,
+            seq: 0,
+            session_id: "s",
+            thread_id: "t",
+            ts_ms: 0,
+            kind: { type: "ThreadStarted", agent_id: "a", main: true },
+         },
+      ]);
+      const next = reduceBatch(base, [
+         { v: 2, seq: 1, session_id: "s", thread_id: "t", ts_ms: 1, kind: { type: "Unknown" } },
+         { v: 1, seq: 2, session_id: "s", thread_id: null, ts_ms: 1, kind: { type: "Unknown" } },
+      ]);
+      expect(next.items).toEqual(base.items);
+      expect(next.mainThreadId).toBe(base.mainThreadId);
+   });
+});

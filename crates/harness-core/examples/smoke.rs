@@ -49,20 +49,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // Only print what this run adds.
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let c = count.clone();
-    let probe = h
-        .subscribe_session(
-            &session_id,
-            0,
-            Box::new(move |_: &Event| {
-                c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                true
-            }),
-        )
-        .map_err(anyhow::Error::msg)?;
-    h.unsubscribe_session(&session_id, probe);
-    let from_seq = count.load(std::sync::atomic::Ordering::SeqCst);
+    let from_seq = h.session_events(&session_id).map_err(anyhow::Error::msg)?.len() as u64;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
     h.subscribe_session(&session_id, from_seq, Box::new(move |e: &Event| tx.send(e.clone()).is_ok())).map_err(anyhow::Error::msg)?;
     h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: prompt, attachments: vec![] }).await.map_err(anyhow::Error::msg)?;

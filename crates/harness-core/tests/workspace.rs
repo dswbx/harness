@@ -5,7 +5,7 @@ mod common;
 use common::fake_agent_bin;
 use std::path::{Path, PathBuf};
 use std::process::Command as Proc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use harness_core::Harness;
@@ -73,20 +73,7 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h
-        .subscribe_session(
-            sid,
-            0,
-            Box::new(move |e: &Event| {
-                a.lock().unwrap().push(e.clone());
-                true
-            }),
-        )
-        .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 async fn turn(h: &Harness, sid: &str, text: &str) {

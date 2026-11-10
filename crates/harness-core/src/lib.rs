@@ -11,6 +11,7 @@ mod editor;
 mod env;
 pub mod error;
 mod frontend_files;
+mod fsutil;
 mod github;
 mod github_refs;
 mod harness_context;

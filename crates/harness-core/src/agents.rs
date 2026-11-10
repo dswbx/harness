@@ -127,10 +127,7 @@ impl Agents {
 
     fn save(&self, agents: &[AgentInfo]) -> anyhow::Result<()> {
         let path = self.data_dir.join("agents.json");
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(agents)?)?;
-        std::fs::rename(tmp, path)?;
-        Ok(())
+        crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(agents)?)
     }
 
     /// Config option values last picked for the Agent (id -> value).
@@ -143,10 +140,7 @@ impl Agents {
         let mut all = self.config.write();
         all.entry(agent_id.to_owned()).or_default().insert(config_id.to_owned(), value.to_owned());
         let path = self.data_dir.join("agent-config.json");
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&*all)?)?;
-        std::fs::rename(tmp, path)?;
-        Ok(())
+        crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(&*all)?)
     }
 
     fn upsert(&self, agent: AgentInfo) -> anyhow::Result<()> {

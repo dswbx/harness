@@ -36,6 +36,7 @@ const FAMILY: Record<EventKind["type"], string> = {
    GitCommitted: "Session",
    GitPushed: "Session",
    Error: "Errors",
+   Unknown: "Other",
 };
 
 /** The family an Event kind belongs to ("Messages", "Tools", …); "Other" for kinds this build does not know. */
