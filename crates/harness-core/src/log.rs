@@ -421,6 +421,11 @@ pub struct SessionLog {
     read_only: Option<String>,
     /// `byte_len` of the checkpoint on disk; held while writing one.
     checkpointed_len: Mutex<Option<u64>>,
+    /// `close` ran: no more checkpoints (the directory may be on its way out).
+    closed: AtomicBool,
+    /// Tests: runs right before a checkpoint is written.
+    #[cfg(test)]
+    before_checkpoint: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 struct Inner {
@@ -567,6 +572,9 @@ impl SessionLog {
                 closed: false,
             })),
             checkpointed_len: Mutex::new(checkpoint.map(|c| c.byte_len)),
+            closed: AtomicBool::new(false),
+            #[cfg(test)]
+            before_checkpoint: Mutex::new(None),
             last_ts_ms: AtomicI64::new(last_ts_ms),
             agent_was_running: running,
             read_only,
@@ -654,8 +662,16 @@ impl SessionLog {
             .recv()
             .map_err(|_| anyhow::anyhow!("the Session Log writer stopped"))?
             .map_err(|e| anyhow::anyhow!("writing the Session Log failed: {e}"))?;
-        // One writer at a time, and never an older checkpoint over a newer one.
+        // One writer at a time, and never an older checkpoint over a newer one. Written outside the
+        // log lock, so `close` waits on this lock for a write in flight, and none starts after it.
         let mut written = self.checkpointed_len.lock();
+        if self.closed.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.before_checkpoint.lock().as_ref() {
+            hook();
+        }
         if written.is_none_or(|w| w < byte_len) {
             crate::fsutil::write_atomic(&checkpoint_path(&self.path), &serde_json::to_vec(&Checkpoint { byte_len, ..cp })?)?;
             *written = Some(byte_len);
@@ -755,6 +771,9 @@ impl SessionLog {
     /// Writes what is queued, stops the writer and refuses later appends (they error), so files can
     /// be removed without a late Event (an Agent's exit) writing into the directory again.
     pub fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        // A `sync` past the log lock may be writing the checkpoint: wait for it to finish.
+        drop(self.checkpointed_len.lock());
         let mut inner = self.inner.lock();
         let _ = inner.flush();
         inner.closed = true;
@@ -893,6 +912,38 @@ mod tests {
         tokio::time::sleep(COALESCE * 3).await;
         eventually("timer flush", || seen.lock().len() == 4);
         assert_eq!(*seen.lock(), vec![0, 1, 2, 3]);
+    }
+
+    /// An Agent's exit logs and syncs while a delete closes the log and removes the directory: the
+    /// checkpoint is written outside the log lock, so `close` must wait for one in flight, or the
+    /// file lands in the directory being removed ("Directory not empty").
+    #[test]
+    fn close_waits_for_a_checkpoint_in_flight() {
+        let dir = tempfile::tempdir().unwrap();
+        let sdir = dir.path().join("s");
+        std::fs::create_dir_all(&sdir).unwrap();
+        let log = Arc::new(SessionLog::open("s".into(), &sdir.join("log.jsonl")).unwrap());
+        log.append(None, msg("a")).unwrap();
+        let (at_write, writing) = std::sync::mpsc::channel::<()>();
+        let (go, wait_go) = std::sync::mpsc::channel::<()>();
+        let wait_go = Mutex::new(wait_go);
+        *log.before_checkpoint.lock() = Some(Box::new(move || {
+            let _ = at_write.send(());
+            let _ = wait_go.lock().recv();
+        }));
+        let l = log.clone();
+        let syncing = std::thread::spawn(move || l.sync());
+        writing.recv().unwrap();
+        let l = log.clone();
+        let closing = std::thread::spawn(move || l.close());
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!closing.is_finished(), "close waits for the checkpoint being written");
+        go.send(()).unwrap();
+        closing.join().unwrap();
+        syncing.join().unwrap().unwrap();
+        std::fs::remove_dir_all(&sdir).unwrap();
+        log.sync().unwrap_err();
+        assert!(!sdir.exists(), "nothing is written after close");
     }
 
     #[test]
