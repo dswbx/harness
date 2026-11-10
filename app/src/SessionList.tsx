@@ -510,7 +510,12 @@ export function SessionList({
                               {g.folder && onNewInFolder && g.sessions[0] && (
                                  <button
                                     aria-label={`New Session in ${g.label}`}
-                                    onClick={() => onNewInFolder(g.sessions[0]!.folder)}
+                                    onClick={() =>
+                                       onNewInFolder(
+                                          g.sessions[0]!.workspace.source_folder ||
+                                             g.sessions[0]!.folder,
+                                       )
+                                    }
                                     className="absolute right-1 grid size-5 place-items-center rounded text-muted-foreground opacity-0 transition hover:bg-accent hover:text-accent-foreground group-hover/hdr:opacity-100 group-has-focus-visible/hdr:opacity-100 focus-visible:opacity-100"
                                  >
                                     <Plus className="size-3.5" />

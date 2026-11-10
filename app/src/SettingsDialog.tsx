@@ -1,7 +1,7 @@
 import type { HarnessClient } from "@harness/api";
 import { RenderUiGallery } from "@harness/frontend-chat";
 import { cn, Dialog, DialogContent, DialogDescription, DialogTitle, ScrollArea } from "@harness/ui";
-import { Bot, Code, Info, LayoutGrid, Palette, Plug, Shield } from "lucide-react";
+import { Bot, Code, FolderGit2, Info, LayoutGrid, Palette, Plug, Shield } from "lucide-react";
 import { useRef } from "react";
 import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
@@ -9,10 +9,12 @@ import { AppearancePanel } from "./AppearancePanel";
 import { EditorPanel } from "./EditorPanel";
 import { McpPanel } from "./McpPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
+import { WorktreesPanel } from "./WorktreesPanel";
 
 export type SettingsSection =
    | "appearance"
    | "editor"
+   | "worktrees"
    | "permissions"
    | "agents"
    | "mcp"
@@ -22,6 +24,7 @@ export type SettingsSection =
 const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
    { id: "appearance", label: "Appearance", icon: Palette },
    { id: "editor", label: "Editor", icon: Code },
+   { id: "worktrees", label: "Worktrees", icon: FolderGit2 },
    { id: "permissions", label: "Permissions", icon: Shield },
    { id: "agents", label: "Agents", icon: Bot },
    { id: "mcp", label: "MCP servers", icon: Plug },
@@ -71,8 +74,8 @@ export function SettingsDialog({
             <div className="flex shrink-0 items-center gap-4 border-b bg-muted/30 py-3 pl-4 pr-12">
                <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
                <DialogDescription className="sr-only">
-                  Appearance, Editor, Permission rules, Agents, MCP servers, UI components and
-                  About.
+                  Appearance, Editor, Worktrees, Permission rules, Agents, MCP servers, UI
+                  components and About.
                </DialogDescription>
             </div>
             <div className="flex min-h-0 flex-1">
@@ -103,6 +106,7 @@ export function SettingsDialog({
                   <div className="p-6">
                      {section === "appearance" && <AppearancePanel client={client} />}
                      {section === "editor" && <EditorPanel client={client} />}
+                     {section === "worktrees" && <WorktreesPanel client={client} />}
                      {section === "permissions" && (
                         <PermissionsPanel
                            client={client}

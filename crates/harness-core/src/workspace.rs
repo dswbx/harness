@@ -222,6 +222,66 @@ pub async fn remove_worktree(wt: &WorktreeMeta) -> anyhow::Result<()> {
         git(&wt.repo_root, &["worktree", "remove", "--force", &wt.path.display().to_string()]).await?;
     }
     git(&wt.repo_root, &["worktree", "prune"]).await?;
+    // The Session's `<base>/<id>` folder, when now empty.
+    if let Some(parent) = wt.path.parent() {
+        let _ = std::fs::remove_dir(parent);
+    }
+    Ok(())
+}
+
+/// Where new Worktrees go when not set: a folder in the repository.
+pub const DEFAULT_WORKTREE_DIR: &str = ".harness";
+
+/// The Worktree folder setting (`<data dir>/worktree_dir.json`), else `DEFAULT_WORKTREE_DIR`.
+pub fn worktree_dir(data_dir: &Path) -> String {
+    std::fs::read(data_dir.join("worktree_dir.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<String>(&b).ok())
+        .filter(|d| !d.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_WORKTREE_DIR.to_owned())
+}
+
+pub fn set_worktree_dir(data_dir: &Path, dir: Option<&str>) -> anyhow::Result<()> {
+    let path = data_dir.join("worktree_dir.json");
+    match dir.map(str::trim).filter(|d| !d.is_empty() && *d != DEFAULT_WORKTREE_DIR) {
+        Some(d) => crate::fsutil::write_atomic(&path, &serde_json::to_vec(d)?)?,
+        None => {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    Ok(())
+}
+
+/// The folder for new Worktrees of the repository at `root`: `dir` relative to `root`, or
+/// absolute (`~` is the home folder). Each Worktree goes in `<base>/<session id>/<repo name>`.
+pub fn worktree_base(root: &Path, dir: &str) -> PathBuf {
+    let dir = dir.trim();
+    if (dir == "~" || dir.starts_with("~/"))
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(dir[1..].trim_start_matches('/'));
+    }
+    root.join(dir)
+}
+
+/// Keeps Worktrees inside the repository out of its status: adds `/<base>/` to `info/exclude`.
+pub async fn exclude_in_repo(root: &Path, base: &Path) -> anyhow::Result<()> {
+    let Ok(rel) = base.strip_prefix(root) else { return Ok(()) };
+    if rel.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let common = git(root, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
+    let file = PathBuf::from(common.trim()).join("info").join("exclude");
+    let line = format!("/{}/", rel.display());
+    let cur = std::fs::read_to_string(&file).unwrap_or_default();
+    if cur.lines().any(|l| l.trim() == line) {
+        return Ok(());
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let sep = if cur.is_empty() || cur.ends_with('\n') { "" } else { "\n" };
+    std::fs::write(&file, format!("{cur}{sep}{line}\n"))?;
     Ok(())
 }
 
@@ -478,6 +538,15 @@ pub fn slug(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn worktree_base_resolves_relative_absolute_and_home() {
+        let root = Path::new("/r/proj");
+        assert_eq!(worktree_base(root, ".harness"), PathBuf::from("/r/proj/.harness"));
+        assert_eq!(worktree_base(root, "/tmp/wt"), PathBuf::from("/tmp/wt"));
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        assert_eq!(worktree_base(root, "~/wt"), home.join("wt"));
+    }
+
     use super::*;
 
     #[test]

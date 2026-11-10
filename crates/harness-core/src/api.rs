@@ -140,6 +140,12 @@ pub enum Command {
     FetchJson {
         url: String,
     },
+    /// Where new Worktrees go (`WorktreeDir`).
+    GetWorktreeDir,
+    /// `dir`: relative to the repository folder, or absolute (`~` is home). None resets to `.harness`.
+    SetWorktreeDir {
+        dir: Option<String>,
+    },
     /// The user's editor for "Open in editor" (None until chosen).
     GetEditor,
     SetEditor {
@@ -589,6 +595,10 @@ pub enum CommandResult {
     Editor {
         editor: Option<Editor>,
     },
+    /// Where new Worktrees go: relative to the repository folder, or absolute (`~` is home).
+    WorktreeDir {
+        dir: String,
+    },
     /// An app setting's value, or fetched JSON (`FetchJson`).
     Json {
         #[specta(type = Option<specta_typescript::Unknown>)]
@@ -977,6 +987,9 @@ pub struct Diff {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct WorkspaceInfo {
     pub repo_root: Option<String>,
+    /// The folder the Session was started in: for a Worktree Session the same folder in the
+    /// repository the Worktree came from, else the Session's folder.
+    pub source_folder: String,
     /// The Session's own `harness/...` branch when it has a Worktree.
     pub worktree_branch: Option<String>,
     pub base_branch: Option<String>,

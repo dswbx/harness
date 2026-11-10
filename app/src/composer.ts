@@ -53,11 +53,21 @@ export function mergeRecent(...lists: RecentFolder[][]): RecentFolder[] {
       .slice(0, MAX_RECENT);
 }
 
-/** Folders of Sessions that work in the folder itself (a Worktree Session's folder is the Worktree). */
+/** Folders the Sessions started in (a Worktree Session's source folder, not the Worktree). */
 export function sessionFolders(sessions: SessionSummary[]): RecentFolder[] {
    return sessions
-      .filter((s) => !s.workspace.worktree_branch && !s.quick)
-      .map((s) => ({ path: s.folder, at: s.created_ms }));
+      .filter((s) => !s.quick)
+      .map((s) => ({ path: s.workspace.source_folder || s.folder, at: s.created_ms }));
+}
+
+/** `list` with Worktree folders of known Sessions replaced by their source folders. */
+export function sourceFolders(list: RecentFolder[], sessions: SessionSummary[]): RecentFolder[] {
+   const source = new Map(
+      sessions
+         .filter((s) => s.workspace.source_folder && s.workspace.source_folder !== s.folder)
+         .map((s) => [s.folder.replace(/\/+$/, ""), s.workspace.source_folder]),
+   );
+   return list.map((r) => ({ ...r, path: source.get(r.path.replace(/\/+$/, "")) ?? r.path }));
 }
 
 /** `/Users/me/x` → `~/x` (display only). */

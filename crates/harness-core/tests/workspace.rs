@@ -107,7 +107,10 @@ async fn worktree_session_lifecycle() {
     assert!(branch.starts_with("harness/fix-the-parser-"), "{branch}");
     assert_eq!(s.workspace.base_branch.as_deref(), Some("main"));
     let wt = PathBuf::from(&s.folder);
-    assert!(wt.starts_with(data.canonicalize().unwrap_or(data.clone())) || wt.starts_with(&data));
+    // By default in the repository's `.harness` folder, kept out of its status.
+    assert!(wt.starts_with(repo.join(".harness")), "{}", wt.display());
+    assert_eq!(s.workspace.source_folder, repo.display().to_string());
+    assert_eq!(sh(&repo, &["status", "--porcelain"]), "");
     assert_eq!(sh(&wt, &["branch", "--show-current"]), branch);
 
     // A Turn that edits a file reports it.
@@ -394,4 +397,21 @@ async fn diff_base_finds_a_prs_base_locally_or_on_origin() {
     commit("pr3");
     assert_eq!(base("release/1").await, release);
     assert_eq!(sh(&repo, &["rev-parse", "refs/remotes/upstream/release/1"]), release);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worktree_dir_setting() {
+    let (dir, repo, data) = repo();
+    let h = harness(&data);
+    let CommandResult::WorktreeDir { dir: d } = h.execute(Command::GetWorktreeDir).await.unwrap() else { panic!() };
+    assert_eq!(d, ".harness");
+    let abs = dir.path().join("wts");
+    h.execute(Command::SetWorktreeDir { dir: Some(abs.display().to_string()) }).await.unwrap();
+    let sid = create(&h, &repo, None, true).await.unwrap();
+    let s = summary(&h, &sid).await.unwrap();
+    assert!(PathBuf::from(&s.folder).starts_with(&abs), "{}", s.folder);
+    assert_eq!(s.workspace.source_folder, repo.display().to_string());
+    h.execute(Command::SetWorktreeDir { dir: None }).await.unwrap();
+    let CommandResult::WorktreeDir { dir: d } = h.execute(Command::GetWorktreeDir).await.unwrap() else { panic!() };
+    assert_eq!(d, ".harness");
 }

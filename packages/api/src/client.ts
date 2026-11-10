@@ -387,6 +387,16 @@ export class HarnessClient {
       if (r.type !== "Json") throw new Error("unexpected result: " + r.type);
       return r.value;
    }
+   /** Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
+   async getWorktreeDir(): Promise<string> {
+      const r = await this.transport.execute({ type: "GetWorktreeDir" });
+      if (r.type !== "WorktreeDir") throw new Error("unexpected result: " + r.type);
+      return r.dir;
+   }
+   /** null resets to the default (`.harness` in the repository). */
+   async setWorktreeDir(dir: string | null): Promise<void> {
+      await this.transport.execute({ type: "SetWorktreeDir", dir });
+   }
    /** The editor for "Open in editor"; null until chosen. */
    async getEditor(): Promise<Editor | null> {
       const r = await this.transport.execute({ type: "GetEditor" });

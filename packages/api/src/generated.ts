@@ -169,6 +169,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "AnswerFrontendRequest"; session_id: string; request_id: string; answer: FrontendAnswer } | 
 /**  Reads the JSON at an https URL, e.g. a theme's shadcn registry item (tweakcn), for the app to import. */
 { type: "FetchJson"; url: string } | 
+/**  Where new Worktrees go (`WorktreeDir`). */
+{ type: "GetWorktreeDir" } | 
+/**  `dir`: relative to the repository folder, or absolute (`~` is home). None resets to `.harness`. */
+{ type: "SetWorktreeDir"; dir: string | null } | 
 /**  The user's editor for "Open in editor" (None until chosen). */
 { type: "GetEditor" } | { type: "SetEditor"; editor: Editor | null } | 
 /**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
@@ -311,6 +315,8 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
 { type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+/**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
+{ type: "WorktreeDir"; dir: string } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
@@ -776,6 +782,11 @@ export type TranscriptSize = {
 
 export type WorkspaceInfo = {
 	repo_root: string | null,
+	/**
+	 *  The folder the Session was started in: for a Worktree Session the same folder in the
+	 *  repository the Worktree came from, else the Session's folder.
+	 */
+	source_folder: string,
 	/**  The Session's own `harness/...` branch when it has a Worktree. */
 	worktree_branch: string | null,
 	base_branch: string | null,

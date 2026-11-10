@@ -303,6 +303,11 @@ impl Harness {
                 CommandResult::Ok
             }
             Command::FetchJson { url } => CommandResult::Json { value: Some(crate::app_settings::fetch_json(&url).await?) },
+            Command::GetWorktreeDir => CommandResult::WorktreeDir { dir: crate::workspace::worktree_dir(&self.data_dir) },
+            Command::SetWorktreeDir { dir } => {
+                crate::workspace::set_worktree_dir(&self.data_dir, dir.as_deref())?;
+                CommandResult::Ok
+            }
             Command::GetEditor => CommandResult::Editor { editor: crate::editor::load(&self.data_dir) },
             Command::SetEditor { editor } => {
                 crate::editor::save(&self.data_dir, editor.as_ref())?;
@@ -542,7 +547,13 @@ impl Harness {
             return Ok((folder.display().to_string(), WorkspaceMeta::default()));
         };
         let repo_name = root.file_name().map(|n| n.to_owned()).unwrap_or_else(|| "repo".into());
-        let dest = self.data_dir.join("worktrees").join(id).join(repo_name);
+        let base = crate::workspace::worktree_base(&root, &crate::workspace::worktree_dir(&self.data_dir));
+        let dest = base.join(id).join(repo_name);
+        if matches!(start, Start::Pr { worktree: true, .. } | Start::Branch { worktree: true, .. })
+            && let Err(e) = crate::workspace::exclude_in_repo(&root, &base).await
+        {
+            tracing::warn!("could not exclude {} from git: {e:#}", base.display());
+        }
         let short = &id[id.len() - 6..];
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
         let in_worktree = |wt: WorktreeMeta, pr: Option<u32>| {

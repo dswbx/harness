@@ -665,6 +665,15 @@ impl Session {
             quick: m.quick,
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
+                source_folder: m
+                    .workspace
+                    .worktree
+                    .as_ref()
+                    .and_then(|w| {
+                        let rel = Path::new(&m.folder).strip_prefix(&w.path).ok()?;
+                        Some(if rel.as_os_str().is_empty() { w.repo_root.clone() } else { w.repo_root.join(rel) })
+                    })
+                    .map_or_else(|| m.folder.clone(), |p| p.display().to_string()),
                 worktree_branch: m.workspace.worktree.as_ref().map(|w| w.branch.clone()),
                 base_branch: m.workspace.worktree.as_ref().map(|w| w.base.clone()),
                 pr: shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), branch.as_deref()),

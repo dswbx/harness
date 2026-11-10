@@ -7,6 +7,7 @@ import {
    quickAgent,
    relTime,
    sessionFolders,
+   sourceFolders,
    tildify,
 } from "./composer";
 
@@ -28,15 +29,29 @@ describe("composer helpers", () => {
       ]);
    });
 
-   it("takes Session folders but not Worktree ones", () => {
-      const s = (folder: string, wt: string | null, created_ms: number) =>
+   it("takes Session folders, a Worktree Session's source folder instead of the Worktree", () => {
+      const s = (folder: string, source: string, created_ms: number) =>
          ({
             folder,
             created_ms,
-            workspace: { repo_root: null, worktree_branch: wt, base_branch: null },
+            workspace: { repo_root: null, source_folder: source, base_branch: null },
          }) as SessionSummary;
-      expect(sessionFolders([s("/x", null, 3), s("/data/wt/x", "harness/a", 4)])).toEqual([
+      const list = [s("/x", "/x", 3), s("/x/.harness/1/x", "/x", 4)];
+      expect(sessionFolders(list)).toEqual([
          { path: "/x", at: 3 },
+         { path: "/x", at: 4 },
+      ]);
+      expect(
+         sourceFolders(
+            [
+               { path: "/x/.harness/1/x/", at: 9 },
+               { path: "/y", at: 1 },
+            ],
+            list,
+         ),
+      ).toEqual([
+         { path: "/x", at: 9 },
+         { path: "/y", at: 1 },
       ]);
    });
 
