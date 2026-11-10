@@ -99,7 +99,7 @@ pub fn store(resolved: &[Resolved]) -> anyhow::Result<()> {
     for r in resolved {
         if let Some(bytes) = &r.store {
             let path = Path::new(&r.attachment.path);
-            std::fs::create_dir_all(path.parent().unwrap())?;
+            std::fs::create_dir_all(crate::env::parent_of(path)?)?;
             std::fs::write(path, bytes)?;
         }
     }

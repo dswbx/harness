@@ -3,6 +3,7 @@
 //! `SMOKE_FRONTEND=chat` uses the chat Frontend (its Frontend Tools reach the Agent).
 //! `SMOKE_INSTALL=1` first installs `<agent_id>` from the ACP Registry (e.g. `claude-acp`).
 //! `SMOKE_SIDE="<question>"` then opens a Side Thread (fork if the Agent can) and asks it.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 use harness_core::api::{Command, CommandResult, Event, EventKind, FrontendManifest};
 use std::time::Duration;

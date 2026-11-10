@@ -1,4 +1,5 @@
 //! Workspaces and git Primitives against temp repositories and the scripted `fake-agent`.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;

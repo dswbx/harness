@@ -3,9 +3,10 @@
 //! `src -> copy` (relative to `frontend/`) on the event, so a View shows it after the Workspace is
 //! gone. The input stays as the Agent sent it. `https:` and `data:image/` URLs are not copied.
 
+use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use jsonschema::Validator;
 use serde_json::Value;
@@ -22,7 +23,7 @@ pub fn validator(schema: &Value) -> anyhow::Result<(Validator, Arc<Mutex<Vec<Str
     let s = seen.clone();
     let v = jsonschema::options()
         .with_format(IMAGE_FORMAT, move |src: &str| {
-            s.lock().unwrap().push(src.to_owned());
+            s.lock().push(src.to_owned());
             true
         })
         .should_validate_formats(true)
@@ -56,7 +57,7 @@ pub fn store(frontend_dir: &Path, planned: Vec<(String, PathBuf)>) -> anyhow::Re
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let rel = format!("{DIR}/{}", stored_name(&name));
         let dest = frontend_dir.join(&rel);
-        std::fs::create_dir_all(dest.parent().unwrap())?;
+        std::fs::create_dir_all(crate::env::parent_of(&dest)?)?;
         std::fs::copy(&file, &dest)?;
         files.insert(src, rel);
     }
@@ -77,7 +78,7 @@ mod tests {
         let (v, seen) = validator(&schema).unwrap();
         let input = json!({ "imgs": ["shot.png", "https://x.test/a.png", "shot.png"], "label": "x" });
         assert!(v.is_valid(&input));
-        let srcs = seen.lock().unwrap().clone();
+        let srcs = seen.lock().clone();
         let planned = plan(dir.path(), &srcs).unwrap();
         assert_eq!(planned.len(), 1);
         let fe = dir.path().join("frontend");

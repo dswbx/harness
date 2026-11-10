@@ -3,9 +3,9 @@
 //! `agents/<id>/<version>/`. The config option values last picked per Agent are in
 //! `agent-config.json` and given to each new Session's Agent.
 
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -117,7 +117,7 @@ impl Agents {
 
     pub fn list(&self) -> Vec<AgentInfo> {
         let mut all = self.fixed.clone();
-        all.extend(self.installed.read().unwrap().iter().cloned());
+        all.extend(self.installed.read().iter().cloned());
         all
     }
 
@@ -135,12 +135,12 @@ impl Agents {
 
     /// Config option values last picked for the Agent (id -> value).
     pub fn remembered_config(&self, agent_id: &str) -> BTreeMap<String, String> {
-        self.config.read().unwrap().get(agent_id).cloned().unwrap_or_default()
+        self.config.read().get(agent_id).cloned().unwrap_or_default()
     }
 
     /// Records a picked config option value, so new Sessions with this Agent start with it.
     pub fn remember_config(&self, agent_id: &str, config_id: &str, value: &str) -> anyhow::Result<()> {
-        let mut all = self.config.write().unwrap();
+        let mut all = self.config.write();
         all.entry(agent_id.to_owned()).or_default().insert(config_id.to_owned(), value.to_owned());
         let path = self.data_dir.join("agent-config.json");
         let tmp = path.with_extension("json.tmp");
@@ -150,7 +150,7 @@ impl Agents {
     }
 
     fn upsert(&self, agent: AgentInfo) -> anyhow::Result<()> {
-        let mut all = self.installed.write().unwrap();
+        let mut all = self.installed.write();
         all.retain(|a| a.id != agent.id);
         all.push(agent);
         self.save(&all)
@@ -249,7 +249,7 @@ impl Agents {
                 Ok((cmd, b.args.clone(), b.env.clone()))
             }
             Some("npx") => {
-                let p = d.npx.as_ref().unwrap();
+                let p = d.npx.as_ref().ok_or_else(|| anyhow::anyhow!("registry entry has no npx distribution"))?;
                 let node_bin = self.toolchain.node().await?;
                 run(tokio::process::Command::new(node_bin.join("npm"))
                     .args(["install", "--no-audit", "--no-fund", "--loglevel=error", "--prefix"])
@@ -261,7 +261,7 @@ impl Agents {
                 Ok((bin, p.args.clone(), p.env.clone()))
             }
             Some("uvx") => {
-                let p = d.uvx.as_ref().unwrap();
+                let p = d.uvx.as_ref().ok_or_else(|| anyhow::anyhow!("registry entry has no uvx distribution"))?;
                 let uv_bin = self.toolchain.uv().await?;
                 let tc = self.toolchain.root();
                 run(tokio::process::Command::new(uv_bin.join("uv"))
@@ -304,7 +304,7 @@ impl Agents {
     }
 
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
-        let mut all = self.installed.write().unwrap();
+        let mut all = self.installed.write();
         let before = all.len();
         all.retain(|a| a.id != id);
         anyhow::ensure!(all.len() != before, "unknown Agent {id}");
@@ -339,7 +339,7 @@ fn npm_bin(prefix: &Path, package: &str) -> anyhow::Result<PathBuf> {
     let short = package.rsplit('/').next().unwrap_or(package);
     let name = match manifest.get("bin") {
         Some(Value::String(_)) => short.to_owned(),
-        Some(Value::Object(m)) if m.len() == 1 => m.keys().next().unwrap().clone(),
+        Some(Value::Object(m)) if let (1, Some(k)) = (m.len(), m.keys().next()) => k.clone(),
         Some(Value::Object(m)) => {
             m.keys().find(|k| k.as_str() == short).or_else(|| m.keys().next()).cloned().ok_or_else(|| anyhow::anyhow!("{package} declares no executable"))?
         }

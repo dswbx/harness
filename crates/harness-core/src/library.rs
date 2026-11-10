@@ -1,9 +1,9 @@
 //! MCP Library: user-defined MCP servers, selectable per Session. Definitions live in
 //! `mcp.json`; secret env values and headers live in a `Secrets` store (the Keychain).
 
+use parking_lot::{Mutex, RwLock};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
 
 use crate::api::{McpServerDef, McpTransport};
 
@@ -45,16 +45,16 @@ pub struct MemorySecrets(Mutex<HashMap<String, String>>);
 
 impl Secrets for MemorySecrets {
     fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
-        Ok(self.0.lock().unwrap().get(key).cloned())
+        Ok(self.0.lock().get(key).cloned())
     }
 
     fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
-        self.0.lock().unwrap().insert(key.to_owned(), value.to_owned());
+        self.0.lock().insert(key.to_owned(), value.to_owned());
         Ok(())
     }
 
     fn delete(&self, key: &str) -> anyhow::Result<()> {
-        self.0.lock().unwrap().remove(key);
+        self.0.lock().remove(key);
         Ok(())
     }
 }
@@ -80,7 +80,7 @@ impl Library {
     }
 
     pub fn list(&self) -> Vec<McpServerDef> {
-        self.servers.read().unwrap().clone()
+        self.servers.read().clone()
     }
 
     pub fn save(&self, mut server: McpServerDef, secrets: BTreeMap<String, String>) -> anyhow::Result<McpServerDef> {
@@ -98,7 +98,7 @@ impl Library {
             anyhow::ensure!(server.secret_keys.contains(k), "{k} is not one of the server's secret keys");
             self.secrets.set(&secret_key(&server.id, k), v)?;
         }
-        let mut all = self.servers.write().unwrap();
+        let mut all = self.servers.write();
         if let Some(old) = all.iter().find(|s| s.id == server.id) {
             for k in old.secret_keys.iter().filter(|k| !server.secret_keys.contains(k)) {
                 self.secrets.delete(&secret_key(&server.id, k))?;
@@ -111,7 +111,7 @@ impl Library {
     }
 
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
-        let mut all = self.servers.write().unwrap();
+        let mut all = self.servers.write();
         let Some(server) = all.iter().find(|s| s.id == id).cloned() else {
             anyhow::bail!("unknown MCP server {id}");
         };

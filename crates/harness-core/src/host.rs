@@ -1,8 +1,9 @@
 //! The Harness entry point: owns Sessions and dispatches Commands.
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::api::{AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey, SessionId, SessionSummary};
 use crate::log::SubscriptionId;
@@ -103,7 +104,7 @@ impl Harness {
     }
 
     pub fn register_frontend(&self, manifest: FrontendManifest) {
-        let mut frontends = self.shared.frontends.write().unwrap();
+        let mut frontends = self.shared.frontends.write();
         frontends.retain(|f| f.id != manifest.id);
         frontends.push(manifest);
     }
@@ -112,7 +113,7 @@ impl Harness {
         let session = self.session(session_id)?;
         self.terminals.kill_all(session_id);
         session.delete_workspace(force).await?;
-        self.sessions.write().unwrap().remove(session_id);
+        self.sessions.write().remove(session_id);
         session.remove_files()?;
         self.shared.policy.forget_session(session_id)
     }
@@ -172,15 +173,15 @@ impl Harness {
                 self.session(&session_id)?.open_auth_terminal(&method_id).await?;
                 CommandResult::Ok
             }
-            Command::ListFrontends => CommandResult::Frontends { frontends: self.shared.frontends.read().unwrap().clone() },
+            Command::ListFrontends => CommandResult::Frontends { frontends: self.shared.frontends.read().clone() },
             Command::ListSessions => {
-                let mut sessions: Vec<SessionSummary> = self.sessions.read().unwrap().values().map(|s| s.summary()).collect();
+                let mut sessions: Vec<SessionSummary> = self.sessions.read().values().map(|s| s.summary()).collect();
                 sessions.sort_by_key(|s| std::cmp::Reverse(s.created_ms));
                 CommandResult::Sessions { sessions }
             }
             Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
                 let agent = self.agent(&agent_id)?;
-                anyhow::ensure!(self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
+                anyhow::ensure!(self.shared.frontends.read().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
                 let id = uuid::Uuid::now_v7().to_string();
                 let dir = self.data_dir.join("sessions").join(&id);
                 let start = match pr {
@@ -200,12 +201,12 @@ impl Harness {
                     let shared = self.shared.clone();
                     tokio::spawn(async move { shared.pr_refs.repo_of(&folder).await });
                 }
-                self.sessions.write().unwrap().insert(id.clone(), Arc::new(session));
+                self.sessions.write().insert(id.clone(), Arc::new(session));
                 CommandResult::SessionCreated { session_id: id }
             }
             Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
                 let agent = self.agent(&agent_id)?;
-                anyhow::ensure!(self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
+                anyhow::ensure!(self.shared.frontends.read().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
                 for m in &mcp_servers {
                     self.shared.library.resolve(m)?;
                 }
@@ -230,7 +231,7 @@ impl Harness {
                     m.awaiting_first_prompt = true;
                     m.title_from_prompt = title_from_prompt;
                 })?;
-                self.sessions.write().unwrap().insert(id.clone(), Arc::new(session));
+                self.sessions.write().insert(id.clone(), Arc::new(session));
                 CommandResult::SessionCreated { session_id: id }
             }
             Command::Prompt { session_id, thread_id, text, attachments } => {
@@ -330,7 +331,6 @@ impl Harness {
                 let archived: Vec<String> = self
                     .sessions
                     .read()
-                    .unwrap()
                     .values()
                     .map(|s| s.meta())
                     .filter(|m| m.archived)
@@ -391,7 +391,7 @@ impl Harness {
                 CommandResult::Ok
             }
             Command::DiscardEmptySession { session_id } => {
-                let discardable = self.sessions.read().unwrap().get(&session_id).is_some_and(|s| s.is_discardable());
+                let discardable = self.sessions.read().get(&session_id).is_some_and(|s| s.is_discardable());
                 if discardable {
                     self.delete_session(&session_id, false).await?;
                 }
@@ -403,7 +403,6 @@ impl Harness {
                 let folders: Vec<(PathBuf, i64)> = self
                     .sessions
                     .read()
-                    .unwrap()
                     .values()
                     .filter_map(|s| {
                         let meta = s.meta();
@@ -565,7 +564,7 @@ impl Harness {
     }
 
     fn session(&self, id: &str) -> anyhow::Result<Arc<Session>> {
-        self.sessions.read().unwrap().get(id).cloned().ok_or_else(|| anyhow::anyhow!("unknown session {id}"))
+        self.sessions.read().get(id).cloned().ok_or_else(|| anyhow::anyhow!("unknown session {id}"))
     }
 
     fn agent(&self, id: &str) -> anyhow::Result<AgentInfo> {

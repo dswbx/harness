@@ -8,11 +8,12 @@
 //! append, a subscribe, a read or a sync flushes it first, so ordering is unchanged. Agents that
 //! stream token by token would otherwise write one event per token.
 
+use parking_lot::Mutex;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::api::{EVENT_SCHEMA_VERSION, Event, EventKind, EventSink, ProcessState, SessionId, ThreadId};
@@ -123,7 +124,7 @@ impl SessionLog {
         if !self.agent_was_running {
             return Ok(());
         }
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         let event = Event {
             v: EVENT_SCHEMA_VERSION,
             seq: inner.next_seq,
@@ -136,7 +137,7 @@ impl SessionLog {
     }
 
     pub fn append(&self, thread_id: Option<ThreadId>, kind: EventKind) -> anyhow::Result<Event> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         self.last_ts_ms.store(now_ms(), Ordering::Relaxed);
         if let Some(p) = inner.pending.as_mut()
             && merge_chunk(p, &thread_id, &kind)
@@ -154,7 +155,7 @@ impl SessionLog {
                 rt.spawn(async move {
                     tokio::time::sleep(COALESCE).await;
                     if let Some(inner) = weak.upgrade() {
-                        let mut inner = inner.lock().unwrap();
+                        let mut inner = inner.lock();
                         if inner.pending.as_ref().is_some_and(|p| p.seq == seq) {
                             let _ = inner.flush();
                         }
@@ -168,7 +169,7 @@ impl SessionLog {
 
     /// Flushes to disk; called at Turn end and on permission events.
     pub fn sync(&self) -> anyhow::Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.flush()?;
         inner.file.sync_data()?;
         Ok(())
@@ -176,7 +177,7 @@ impl SessionLog {
 
     /// Replays events with `seq >= from_seq`, then delivers live events until unsubscribed.
     pub fn subscribe(&self, from_seq: u64, sink: Box<dyn EventSink>) -> anyhow::Result<SubscriptionId> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.flush()?;
         inner.file.flush()?;
         for event in read_events(&self.path)? {
@@ -191,13 +192,13 @@ impl SessionLog {
     }
 
     pub fn unsubscribe(&self, id: SubscriptionId) {
-        self.inner.lock().unwrap().subscribers.retain(|(sid, _)| *sid != id);
+        self.inner.lock().subscribers.retain(|(sid, _)| *sid != id);
     }
 
     /// `seq` of the newest Event, 0 for an empty log. Flushes a held chunk, so subscribers have
     /// received this `seq` when the call returns.
     pub fn last_seq(&self) -> anyhow::Result<u64> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.flush()?;
         Ok(inner.next_seq.saturating_sub(1))
     }
@@ -209,11 +210,11 @@ impl SessionLog {
 
     /// Live subscribers, i.e. open Views.
     pub fn subscriber_count(&self) -> usize {
-        self.inner.lock().unwrap().subscribers.len()
+        self.inner.lock().subscribers.len()
     }
 
     pub fn events(&self) -> anyhow::Result<Vec<Event>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.flush()?;
         read_events(&self.path)
     }
@@ -221,7 +222,7 @@ impl SessionLog {
 
 impl Drop for SessionLog {
     fn drop(&mut self) {
-        let _ = self.inner.lock().unwrap().flush();
+        let _ = self.inner.lock().flush();
     }
 }
 
@@ -249,14 +250,15 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex as StdMutex};
+    use parking_lot::Mutex as StdMutex;
+    use std::sync::Arc;
 
     fn collector() -> (Box<dyn EventSink>, Arc<StdMutex<Vec<u64>>>) {
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let s = seen.clone();
         (
             Box::new(move |e: &Event| {
-                s.lock().unwrap().push(e.seq);
+                s.lock().push(e.seq);
                 true
             }),
             seen,
@@ -277,7 +279,7 @@ mod tests {
         let (sink, seen) = collector();
         log.subscribe(2, sink).unwrap();
         log.append(None, msg("x")).unwrap();
-        assert_eq!(*seen.lock().unwrap(), vec![2, 3, 4, 5]);
+        assert_eq!(*seen.lock(), vec![2, 3, 4, 5]);
     }
 
     #[test]
@@ -322,7 +324,7 @@ mod tests {
         for t in ["Hel", "lo", " world"] {
             log.append(Some("t".into()), msg(t)).unwrap();
         }
-        assert!(seen.lock().unwrap().is_empty(), "held back");
+        assert!(seen.lock().is_empty(), "held back");
         log.append(Some("u".into()), msg("other thread")).unwrap();
         log.append(None, EventKind::Error { message: "x".into() }).unwrap();
         let events = log.events().unwrap();
@@ -333,7 +335,7 @@ mod tests {
         // A lone chunk is flushed by the timer.
         log.append(None, msg("tail")).unwrap();
         tokio::time::sleep(COALESCE * 3).await;
-        assert_eq!(*seen.lock().unwrap(), vec![0, 1, 2, 3]);
+        assert_eq!(*seen.lock(), vec![0, 1, 2, 3]);
     }
 
     #[test]
@@ -342,6 +344,6 @@ mod tests {
         let log = SessionLog::open("s".into(), &dir.path().join("log.jsonl")).unwrap();
         log.subscribe(0, Box::new(|_: &Event| false)).unwrap();
         log.append(None, msg("a")).unwrap();
-        assert!(log.inner.lock().unwrap().subscribers.is_empty());
+        assert!(log.inner.lock().subscribers.is_empty());
     }
 }

@@ -1,4 +1,5 @@
 //! Drives the Harness against the scripted `fake-agent` binary.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;

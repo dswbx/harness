@@ -1,6 +1,7 @@
 [package]
 name = "harness-tauri"
 edition.workspace = true
+publish = false
 version.workspace = true
 default-run = "harness"
 
@@ -25,6 +26,7 @@ tauri-plugin-notification = "2"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+parking_lot.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-updater = "2"
@@ -32,3 +34,7 @@ tauri-plugin-window-state = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+
+# Not the workspace lints: the macOS window code needs `unsafe` (objc2).
+[lints.clippy]
+unwrap_used = "warn"

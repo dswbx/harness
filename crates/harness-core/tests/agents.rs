@@ -1,4 +1,5 @@
 //! ACP Registry installs, Custom Agents and Agent auth, offline (file:// registry and archives).
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;

@@ -1,9 +1,10 @@
 //! ACP client side: one Agent process per Session (shared by its Threads), normalized into the
 //! Session Log. See docs/spikes/acp-client.md for the crate's behaviour.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::ProtocolVersion;
@@ -22,7 +23,7 @@ use crate::session::Session;
 const STDERR_TAIL: usize = 30;
 
 fn with_tail(message: String, tail: &Mutex<std::collections::VecDeque<String>>) -> String {
-    let t = tail.lock().unwrap();
+    let t = tail.lock();
     if t.is_empty() { message } else { format!("{message}\n\nAgent output (stderr):\n{}", t.iter().cloned().collect::<Vec<_>>().join("\n")) }
 }
 
@@ -102,7 +103,7 @@ struct AgentConn {
 
 impl AgentSlot {
     pub fn status(&self) -> SessionStatus {
-        Self::status_of(&self.state.lock().unwrap())
+        Self::status_of(&self.state.lock())
     }
 
     fn status_of(s: &SlotState) -> SessionStatus {
@@ -118,7 +119,7 @@ impl AgentSlot {
     /// Applies `f` to the slot state and logs the Session status if it changed.
     fn update(&self, session: &Session, f: impl FnOnce(&mut SlotState)) {
         let (before, after) = {
-            let mut s = self.state.lock().unwrap();
+            let mut s = self.state.lock();
             let before = Self::status_of(&s);
             f(&mut s);
             s.last_active = Some(Instant::now());
@@ -134,7 +135,7 @@ impl AgentSlot {
     /// the status follows the request in the log.
     fn add_pending(&self, session: &Session, request_id: String, pending: Pending, announce: impl FnOnce()) {
         let before = {
-            let mut s = self.state.lock().unwrap();
+            let mut s = self.state.lock();
             let before = Self::status_of(&s);
             s.pending.insert(request_id, pending);
             s.last_active = Some(Instant::now());
@@ -148,12 +149,12 @@ impl AgentSlot {
     }
 
     fn conn(&self) -> Option<Arc<AgentConn>> {
-        self.state.lock().unwrap().conn.clone()
+        self.state.lock().conn.clone()
     }
 
     pub async fn cancel(&self, session: &Session, thread: &ThreadId) -> anyhow::Result<()> {
         let Some(conn) = self.conn() else { return Ok(()) };
-        let id = conn.acp_sessions.lock().unwrap().get(thread).cloned();
+        let id = conn.acp_sessions.lock().get(thread).cloned();
         if let Some(id) = id {
             conn.cx.send_notification(acp::CancelNotification::new(id))?;
         }
@@ -162,7 +163,9 @@ impl AgentSlot {
         self.update(session, |s| {
             let ids: Vec<String> = s.pending.iter().filter(|(_, p)| p.thread.as_ref() == Some(thread)).map(|(id, _)| id.clone()).collect();
             for id in ids {
-                cancelled.push((id.clone(), s.pending.remove(&id).unwrap()));
+                if let Some(p) = s.pending.remove(&id) {
+                    cancelled.push((id, p));
+                }
             }
         });
         for (request_id, p) in cancelled {
@@ -203,7 +206,7 @@ impl AgentSlot {
     /// that process is gone, ending its watchdog.
     fn stop_if_idle(&self, session: &Session, generation: u64) -> bool {
         let conn = {
-            let s = self.state.lock().unwrap();
+            let s = self.state.lock();
             let Some(conn) = s.conn.as_ref().filter(|c| c.generation == generation) else { return false };
             let idle = s.pending.is_empty() && s.turns.values().all(|n| *n == 0) && s.last_active.is_none_or(|t| t.elapsed() >= session.idle_timeout());
             if !idle || session.log().subscriber_count() > 0 {
@@ -226,7 +229,7 @@ impl AgentSlot {
 
     /// The launch spec plus the extra args and env of a terminal auth method.
     pub fn terminal_auth(&self, session: &Session, method_id: &str) -> anyhow::Result<(crate::api::AgentInfo, Vec<String>, HashMap<String, String>)> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock();
         let m = state
             .auth_methods
             .iter()
@@ -249,8 +252,8 @@ impl AgentSlot {
 
 impl AgentConn {
     fn stop(&self, reason: &str) {
-        *self.stop_reason.lock().unwrap() = Some(reason.to_owned());
-        if let Some(tx) = self.shutdown.lock().unwrap().take() {
+        *self.stop_reason.lock() = Some(reason.to_owned());
+        if let Some(tx) = self.shutdown.lock().take() {
             let _ = tx.send(());
         }
     }
@@ -538,7 +541,7 @@ pub async fn continue_with_summary(session: Arc<Session>, thread: ThreadId) -> a
     let summary = crate::summary::summarize(&events, &thread);
     let size = crate::summary::transcript_size(&events, &thread);
     let conn = ensure_conn(&session).await?;
-    conn.acp_sessions.lock().unwrap().remove(&thread);
+    conn.acp_sessions.lock().remove(&thread);
     new_agent_session(&session, &conn, &thread, Boundary::ContinuedWithSummary, Some(size)).await?;
     session.update_meta(|m| {
         m.seeds.insert(thread.clone(), summary);
@@ -581,7 +584,7 @@ fn spawn_watchdog(session: Weak<Session>, generation: u64) {
 /// `None` when a previous Agent Session cannot be continued.
 async fn ensure_agent_session(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId) -> anyhow::Result<Option<acp::SessionId>> {
     let _guard = session.agent_slot().setup.lock().await;
-    if let Some(id) = conn.acp_sessions.lock().unwrap().get(thread) {
+    if let Some(id) = conn.acp_sessions.lock().get(thread) {
         return Ok(Some(id.clone()));
     }
     let meta = session.meta();
@@ -626,7 +629,7 @@ async fn continue_previous(session: &Arc<Session>, conn: &Arc<AgentConn>, thread
             }
             match restore_once(session, conn, thread, &prev_id).await? {
                 Ok(boundary) => {
-                    conn.acp_sessions.lock().unwrap().insert(thread.clone(), prev_id.clone());
+                    conn.acp_sessions.lock().insert(thread.clone(), prev_id.clone());
                     session
                         .log()
                         .append(Some(thread.clone()), EventKind::AgentSessionStarted { acp_session_id: prev_id.to_string(), boundary, transcript: None })?;
@@ -694,10 +697,10 @@ async fn fork_agent_session(session: &Arc<Session>, conn: &Arc<AgentConn>, threa
     if conn.init.agent_capabilities.session_capabilities.fork.is_none() {
         return Ok(None);
     }
-    if session.agent_slot().state.lock().unwrap().turns.get(main).is_some_and(|n| *n > 0) {
+    if session.agent_slot().state.lock().turns.get(main).is_some_and(|n| *n > 0) {
         return Ok(None);
     }
-    let live = conn.acp_sessions.lock().unwrap().get(main).cloned();
+    let live = conn.acp_sessions.lock().get(main).cloned();
     let source = match live {
         Some(id) => id,
         None => {
@@ -738,7 +741,7 @@ async fn fork_agent_session(session: &Arc<Session>, conn: &Arc<AgentConn>, threa
         session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
     }
     let id = r.session_id;
-    conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
+    conn.acp_sessions.lock().insert(thread.clone(), id.clone());
     session.update_meta(|m| {
         m.agent_sessions.insert(thread.clone(), id.to_string());
         m.fork_note_pending.insert(thread.clone());
@@ -805,7 +808,7 @@ async fn new_agent_session(
         session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
     }
     let id = r.session_id;
-    conn.acp_sessions.lock().unwrap().insert(thread.clone(), id.clone());
+    conn.acp_sessions.lock().insert(thread.clone(), id.clone());
     session.update_meta(|m| {
         m.agent_sessions.insert(thread.clone(), id.to_string());
         m.context_pending.insert(thread.clone());
@@ -846,7 +849,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
         move |line, dir| {
             if matches!(dir, LineDirection::Stderr) {
                 tracing::debug!(target: "agent_stderr", "{line}");
-                let mut t = tail.lock().unwrap();
+                let mut t = tail.lock();
                 if t.len() == STDERR_TAIL {
                     t.pop_front();
                 }
@@ -920,7 +923,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
                 Ok(())
             })
             .await;
-        let stopped = stop_reason_exit.lock().unwrap().clone();
+        let stopped = stop_reason_exit.lock().clone();
         let error = result.err().map(|e| with_tail(e.to_string(), &stderr_exit));
         on_exit(&s_exit, generation, stopped, error);
     });
@@ -944,7 +947,7 @@ async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let prompt_caps = &init.agent_capabilities.prompt_capabilities;
     log(EventKind::AgentCapabilities { image: prompt_caps.image, embedded_context: prompt_caps.embedded_context });
     let methods = init.auth_methods.iter().filter_map(|m| serde_json::to_value(m).ok()).collect();
-    session.agent_slot().state.lock().unwrap().auth_methods = methods;
+    session.agent_slot().state.lock().auth_methods = methods;
     Ok(Arc::new(AgentConn {
         generation,
         cx,
@@ -997,7 +1000,6 @@ fn report_auth_required(session: &Session, thread: Option<&ThreadId>, message: &
         .agent_slot()
         .state
         .lock()
-        .unwrap()
         .auth_methods
         .iter()
         .map(|m| crate::api::AuthMethodInfo {
@@ -1030,7 +1032,7 @@ fn on_update(session: &Session, n: &acp::SessionNotification) {
 
 fn track_tool_call(session: &Session, u: &Value) {
     let Some(id) = u.get("toolCallId").and_then(Value::as_str) else { return };
-    let mut state = session.agent_slot().state.lock().unwrap();
+    let mut state = session.agent_slot().state.lock();
     merge(state.tool_calls.entry(id.to_owned()).or_insert_with(|| Value::Object(Default::default())), u);
 }
 
@@ -1050,8 +1052,8 @@ fn normalize(u: &Value) -> EventKind {
     let s = |k: &str| u.get(k).and_then(Value::as_str).map(str::to_owned);
     let text = || u.pointer("/content/text").and_then(Value::as_str).map(str::to_owned);
     match s("sessionUpdate").as_deref() {
-        Some("agent_message_chunk") if text().is_some() => EventKind::AgentMessageChunk { text: text().unwrap() },
-        Some("agent_thought_chunk") if text().is_some() => EventKind::AgentThoughtChunk { text: text().unwrap() },
+        Some("agent_message_chunk") if let Some(text) = text() => EventKind::AgentMessageChunk { text },
+        Some("agent_thought_chunk") if let Some(text) = text() => EventKind::AgentThoughtChunk { text },
         Some("tool_call") => EventKind::ToolCall {
             tool_call_id: s("toolCallId").unwrap_or_default(),
             title: s("title").unwrap_or_default(),
@@ -1130,7 +1132,7 @@ fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, res
     let mut tool_call = requested
         .get("toolCallId")
         .and_then(Value::as_str)
-        .and_then(|id| slot.state.lock().unwrap().tool_calls.get(id).cloned())
+        .and_then(|id| slot.state.lock().tool_calls.get(id).cloned())
         .unwrap_or_else(|| Value::Object(Default::default()));
     merge(&mut tool_call, &requested);
 

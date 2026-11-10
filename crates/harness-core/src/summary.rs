@@ -64,7 +64,8 @@ pub fn turns(events: &[Event], thread: &ThreadId, upto_seq: Option<u64>) -> Vec<
             EventKind::AgentMessageChunk { text } => reply.push_str(text),
             EventKind::ToolCall { tool_call_id, title, raw_input, .. } if !out.is_empty() => {
                 flush(&mut out, &mut reply);
-                out.last_mut().unwrap().parts.push(Part::Tool { id: tool_call_id.clone(), title: title.clone(), input: raw_input.clone(), output: None });
+                let Some(last) = out.last_mut() else { continue };
+                last.parts.push(Part::Tool { id: tool_call_id.clone(), title: title.clone(), input: raw_input.clone(), output: None });
             }
             EventKind::ToolCallUpdate { tool_call_id, title: new_title, raw_input: new_input, raw_output: new_output, .. } => {
                 if let Some(Part::Tool { title, input, output, .. }) =

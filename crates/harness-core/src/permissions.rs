@@ -2,8 +2,8 @@
 //! Rules live in `permissions.json` in the app data dir. Plan approvals (`switch_mode`) are always
 //! put to the user.
 
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
 use crate::api::{Decision, NewPermissionRule, PermissionRule, RuleScope};
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,7 @@ impl Policy {
     }
 
     pub fn list(&self) -> Vec<PermissionRule> {
-        self.rules.read().unwrap().clone()
+        self.rules.read().clone()
     }
 
     pub fn add(&self, new: NewPermissionRule) -> anyhow::Result<PermissionRule> {
@@ -63,14 +63,14 @@ impl Policy {
         }
         let rule =
             PermissionRule { id: uuid::Uuid::now_v7().to_string(), scope: new.scope, tool_kind: new.tool_kind, pattern: new.pattern, decision: new.decision };
-        let mut rules = self.rules.write().unwrap();
+        let mut rules = self.rules.write();
         rules.push(rule.clone());
         self.save(&rules)?;
         Ok(rule)
     }
 
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
-        let mut rules = self.rules.write().unwrap();
+        let mut rules = self.rules.write();
         let before = rules.len();
         rules.retain(|r| r.id != id);
         anyhow::ensure!(rules.len() != before, "unknown permission rule {id}");
@@ -79,7 +79,7 @@ impl Policy {
 
     /// Drops rules scoped to a Session that no longer exists.
     pub fn forget_session(&self, session_id: &str) -> anyhow::Result<()> {
-        let mut rules = self.rules.write().unwrap();
+        let mut rules = self.rules.write();
         rules.retain(|r| !matches!(&r.scope, RuleScope::Session { session_id: s } if s == session_id));
         self.save(&rules)
     }
@@ -95,7 +95,7 @@ impl Policy {
         if facts.kind.as_deref() == Some("switch_mode") {
             return Verdict { decision: Decision::Ask, rule_id: None };
         }
-        let rules = self.rules.read().unwrap();
+        let rules = self.rules.read();
         let best = rules.iter().filter_map(|r| rank(r, cx, facts).map(|k| (k, r))).max_by_key(|(k, _)| *k);
         match best {
             Some((_, r)) => Verdict { decision: r.decision, rule_id: Some(r.id.clone()) },

@@ -3,7 +3,7 @@
 //! download (`update_install`), then restarts when they like. The app shell follows
 //! `update-state`. Dev builds never update.
 
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -42,7 +42,7 @@ pub struct Updates {
 
 fn set(app: &AppHandle, state: UpdateState, update: Option<Update>) {
     let updates = app.state::<Updates>();
-    let mut s = updates.state.lock().unwrap();
+    let mut s = updates.state.lock();
     if update.is_some() {
         s.1 = update;
     }
@@ -51,7 +51,7 @@ fn set(app: &AppHandle, state: UpdateState, update: Option<Update>) {
 }
 
 fn current(app: &AppHandle) -> UpdateState {
-    app.state::<Updates>().state.lock().unwrap().0.clone()
+    app.state::<Updates>().state.lock().0.clone()
 }
 
 /// Looks for a newer release; marks it available without downloading. Leaves a download in
@@ -103,7 +103,7 @@ pub async fn update_check(app: AppHandle) -> Result<UpdateState, String> {
 pub async fn update_install(app: AppHandle) -> Result<(), String> {
     let updates = app.state::<Updates>();
     let _busy = updates.busy.lock().await;
-    let Some(update) = updates.state.lock().unwrap().1.clone() else {
+    let Some(update) = updates.state.lock().1.clone() else {
         return Err("No update available".into());
     };
     let version = update.version.clone();

@@ -1,4 +1,5 @@
 //! Shared by the integration tests.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

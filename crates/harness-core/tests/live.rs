@@ -5,6 +5,7 @@
 //!
 //! Installs are cached in `target/live-data` across runs. Each test: fresh git repo, ask the
 //! Agent to create a file (permissions auto-allowed), then to call the Harness MCP `git_status`.
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

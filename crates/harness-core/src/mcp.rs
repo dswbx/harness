@@ -10,8 +10,9 @@ pub fn harness_tool_name(title: &str) -> Option<&str> {
     ["mcp__harness__", "mcp.harness."].iter().find_map(|p| title.strip_prefix(p)).filter(|n| !n.is_empty())
 }
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
 
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
@@ -73,14 +74,14 @@ impl HarnessMcp {
     /// A fresh token for one Agent Session of a Thread.
     pub fn issue(&self, session: &Arc<Session>, thread: &ThreadId) -> String {
         let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-        self.tokens.write().unwrap().insert(token.clone(), Target { session: Arc::downgrade(session), thread: thread.clone() });
+        self.tokens.write().insert(token.clone(), Target { session: Arc::downgrade(session), thread: thread.clone() });
         token
     }
 
     /// Forgets every token of a Session (its Agent process ended).
     pub fn revoke(&self, session: &Session) {
         let id = session.id();
-        self.tokens.write().unwrap().retain(|_, t| t.session.upgrade().is_some_and(|s| s.id() != id));
+        self.tokens.write().retain(|_, t| t.session.upgrade().is_some_and(|s| s.id() != id));
     }
 }
 
@@ -94,7 +95,7 @@ async fn auth(State(tokens): State<Tokens>, mut req: Request, next: Next) -> Res
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let target = tokens.read().unwrap().get(token).cloned().ok_or(StatusCode::UNAUTHORIZED)?;
+    let target = tokens.read().get(token).cloned().ok_or(StatusCode::UNAUTHORIZED)?;
     req.extensions_mut().insert(target);
     Ok(next.run(req).await)
 }
@@ -298,7 +299,7 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
         let image = answer.image.map(|i| ContentBlock::image(i.data, i.mime));
         return Ok(text.into_iter().chain(image).collect());
     }
-    let images = images.lock().unwrap().clone();
+    let images = images.lock().clone();
     let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
     crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
     let files = crate::frontend_files::store(&session.frontend_dir(), planned)?;

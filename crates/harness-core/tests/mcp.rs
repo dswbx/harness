@@ -1,4 +1,5 @@
 //! Harness MCP end to end: the scripted `fake-agent` is the MCP client (HTTP and stdio shim).
+#![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
 use common::fake_agent_bin;
@@ -345,10 +346,12 @@ async fn frontend_answer_returns_to_the_agent_without_a_log_entry() {
     let reply = ask(&h, &sid, r#"mcp snapshot {"id":"chart"}"#, None).await;
     assert_eq!(reply, "mcp: Rendered.\nimage image/png cG5n", "text, then the image; the second answer is ignored");
 
-    let seen = seen.lock().unwrap();
-    let [(AppEvent::FrontendRequest { session_id, tool, input, last_seq, .. }, newest)] = seen.as_slice() else { panic!("{seen:?}") };
-    assert_eq!((session_id, tool.as_str(), input), (&sid, "snapshot", &serde_json::json!({ "id": "chart" })));
-    assert_eq!(last_seq, newest);
+    {
+        let seen = seen.lock().unwrap();
+        let [(AppEvent::FrontendRequest { session_id, tool, input, last_seq, .. }, newest)] = seen.as_slice() else { panic!("{seen:?}") };
+        assert_eq!((session_id, tool.as_str(), input), (&sid, "snapshot", &serde_json::json!({ "id": "chart" })));
+        assert_eq!(last_seq, newest);
+    }
     let logged = events(&h, &sid);
     assert!(!logged.iter().any(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })));
     assert!(!logged.iter().any(|e| matches!(e.kind, EventKind::PermissionRequested { .. })), "no prompt for the user");

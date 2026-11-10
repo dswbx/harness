@@ -2,8 +2,9 @@
 //! Terminal byte stream, plus macOS niceties (dock badge, notifications) and opt-in self-update.
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use harness_core::Harness;
 use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
@@ -24,6 +25,9 @@ fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
     }
 }
 
+/// (session id, terminal id, terminal attach id).
+type TerminalAttach = (String, u32, u64);
+
 #[derive(Default)]
 struct Subscriptions {
     /// Webview label -> (session id, subscription id).
@@ -31,19 +35,19 @@ struct Subscriptions {
     /// Webview label -> app subscription ids.
     app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
     /// Webview label -> (session id, terminal id, terminal attach id).
-    terminals_by_webview: Mutex<HashMap<String, Vec<(String, u32, u64)>>>,
+    terminals_by_webview: Mutex<HashMap<String, Vec<TerminalAttach>>>,
 }
 
 impl Subscriptions {
     fn drop_webview(&self, harness: &Harness, label: &str) {
-        let subs = self.by_webview.lock().unwrap().remove(label).unwrap_or_default();
+        let subs = self.by_webview.lock().remove(label).unwrap_or_default();
         for (session_id, id) in subs {
             harness.unsubscribe_session(&session_id, id);
         }
-        for id in self.app_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
+        for id in self.app_by_webview.lock().remove(label).unwrap_or_default() {
             harness.unsubscribe_app(id);
         }
-        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().unwrap().remove(label).unwrap_or_default() {
+        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().remove(label).unwrap_or_default() {
             harness.terminal_detach(&session_id, terminal_id, id);
         }
     }
@@ -121,7 +125,7 @@ fn subscribe(
     channel: Channel<Event>,
 ) -> Result<u64, String> {
     let id = harness.subscribe_session(&session_id, from_seq, Box::new(move |e: &Event| channel.send(e.clone()).is_ok()))?;
-    subs.by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push((session_id, id));
+    subs.by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, id));
     Ok(id)
 }
 
@@ -129,13 +133,14 @@ fn subscribe(
 #[tauri::command]
 fn subscribe_app(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, channel: Channel<AppEvent>) -> u64 {
     let id = harness.subscribe_app(Box::new(move |e: &AppEvent| channel.send(e.clone()).is_ok()));
-    subs.app_by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push(id);
+    subs.app_by_webview.lock().entry(webview.label().to_owned()).or_default().push(id);
     id
 }
 
 /// A Terminal tab of the Session: the replay as raw bytes then `{"replayed": true}`, live output as raw
 /// bytes (an `ArrayBuffer` in JS, no JSON), then `{"exit": code}` when the shell ends.
 #[tauri::command]
+#[allow(clippy::too_many_arguments, reason = "Tauri maps each IPC argument to a parameter")]
 fn terminal_attach(
     webview: Webview,
     harness: tauri::State<'_, Arc<Harness>>,
@@ -165,7 +170,7 @@ fn terminal_attach(
             }),
         )
         .map_err(|e| format!("{e:#}"))?;
-    subs.terminals_by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push((session_id, terminal_id, id));
+    subs.terminals_by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, terminal_id, id));
     Ok(id)
 }
 
@@ -179,7 +184,7 @@ fn terminal_detach(
     id: u64,
 ) {
     harness.terminal_detach(&session_id, terminal_id, id);
-    if let Some(list) = subs.terminals_by_webview.lock().unwrap().get_mut(webview.label()) {
+    if let Some(list) = subs.terminals_by_webview.lock().get_mut(webview.label()) {
         list.retain(|(s, t, i)| !(s == &session_id && *t == terminal_id && *i == id));
     }
 }
@@ -207,7 +212,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
         }
         let AppEvent::SessionStatus { session_id, title, status } = e else { return true };
         let count = {
-            let mut w = waiting.lock().unwrap();
+            let mut w = waiting.lock();
             let newly = *status == SessionStatus::NeedsAttention && w.insert(session_id.clone());
             if *status != SessionStatus::NeedsAttention {
                 w.remove(session_id);
@@ -227,7 +232,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
 #[tauri::command]
 fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, session_id: String, id: u64) {
     harness.unsubscribe_session(&session_id, id);
-    if let Some(list) = subs.by_webview.lock().unwrap().get_mut(webview.label()) {
+    if let Some(list) = subs.by_webview.lock().get_mut(webview.label()) {
         list.retain(|(s, i)| !(s == &session_id && *i == id));
     }
 }

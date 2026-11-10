@@ -300,7 +300,7 @@ pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
             // "1 XY sub mH mI mW hH hI path" / "2 XY ... Xscore path\torig"
             let fields: Vec<&str> = line.splitn(if line.starts_with('1') { 9 } else { 10 }, ' ').collect();
             let xy = fields[1];
-            let path = fields.last().unwrap().split('\t').next().unwrap_or_default();
+            let path = fields.last().and_then(|f| f.split('\t').next()).unwrap_or_default();
             let code = xy.strip_prefix('.').unwrap_or(&xy[..1]);
             st.files.push(FileChange { path: path.to_owned(), status: code.into(), additions: None, deletions: None });
         }

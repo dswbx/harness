@@ -56,3 +56,8 @@ fn read_login_path() -> Option<String> {
     let path = out[begin..end].trim();
     (!path.is_empty()).then(|| path.to_owned())
 }
+
+/// The parent directory of a path the Harness built itself (always below a data directory).
+pub fn parent_of(path: &std::path::Path) -> anyhow::Result<&std::path::Path> {
+    path.parent().ok_or_else(|| anyhow::anyhow!("{} has no parent directory", path.display()))
+}

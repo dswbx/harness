@@ -1,10 +1,11 @@
 //! PR references (`#17`, `owner/repo#17`): PRs of any GitHub repository via `gh`, cached for all Sessions, and the
 //! GitHub repos the Sessions work in.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::future::{BoxFuture, FutureExt, Shared};
@@ -53,7 +54,7 @@ impl PrRefs {
 
     /// Drops a cached PR so the next lookup fetches it again.
     pub fn forget(&self, repo: &RepoId, number: u32) {
-        self.cache.lock().unwrap().entries.remove(&(repo_key(repo), number));
+        self.cache.lock().entries.remove(&(repo_key(repo), number));
     }
 
     /// PRs in the order of `refs`, from the cache or one `gh` call for the rest.
@@ -62,7 +63,7 @@ impl PrRefs {
         let mut out = vec![None; refs.len()];
         let mut batches = vec![];
         {
-            let mut c = self.cache.lock().unwrap();
+            let mut c = self.cache.lock();
             let mut missing: Vec<PrRefKey> = vec![];
             for (i, (r, k)) in refs.iter().zip(&keys).enumerate() {
                 if let Some((at, pr)) = c.entries.get(k)
@@ -98,7 +99,7 @@ impl PrRefs {
         let task_keys = keys.clone();
         let task = tokio::spawn(async move {
             let result = fetch.await;
-            let mut c = cache.lock().unwrap();
+            let mut c = cache.lock();
             for k in &task_keys {
                 c.inflight.remove(k);
             }
@@ -128,7 +129,7 @@ impl PrRefs {
         let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
         prs.sort_by_key(|p| me.as_deref() != Some(p.author.as_str()));
         let now = Instant::now();
-        self.cache.lock().unwrap().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
+        self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
         Ok(prs)
     }
 
@@ -140,7 +141,7 @@ impl PrRefs {
         let list: Vec<Value> = serde_json::from_str(&gh_in(None, &args).await?)?;
         let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
         let now = Instant::now();
-        self.cache.lock().unwrap().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
+        self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
         prs.sort_by(|a, b| {
             let open = |p: &PrInfo| matches!(p.state, PrState::Open | PrState::Draft);
             open(b).cmp(&open(a)).then_with(|| b.updated_at.cmp(&a.updated_at))
@@ -150,14 +151,14 @@ impl PrRefs {
 
     /// The `gh` user; None when `gh` is missing or not signed in.
     pub async fn me(&self) -> Option<String> {
-        let cached = self.me.lock().unwrap().clone();
+        let cached = self.me.lock().clone();
         if let Some((at, me)) = cached
             && (me.is_some() || at.elapsed() < NOT_FOUND_TTL)
         {
             return me;
         }
         let me = gh_in(None, &["api", "user", "--jq", ".login"]).await.ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
-        *self.me.lock().unwrap() = Some((Instant::now(), me.clone()));
+        *self.me.lock() = Some((Instant::now(), me.clone()));
         me
     }
 
@@ -172,25 +173,25 @@ impl PrRefs {
                     (f, repo)
                 }))
                 .await;
-                self.repos.lock().unwrap().extend(found);
+                self.repos.lock().extend(found);
             })
             .await;
     }
 
     /// The GitHub repo of `folder`, cached.
     pub async fn repo_of(&self, folder: &Path) -> Option<RepoId> {
-        let cached = self.repos.lock().unwrap().get(folder).cloned();
+        let cached = self.repos.lock().get(folder).cloned();
         if let Some(repo) = cached {
             return repo;
         }
         let repo = crate::workspace::origin_repo(folder).await;
-        self.repos.lock().unwrap().insert(folder.to_owned(), repo.clone());
+        self.repos.lock().insert(folder.to_owned(), repo.clone());
         repo
     }
 
     /// Repos of the Sessions' folders (with their last activity) found so far, best first.
     pub fn known_repos(&self, folders: &[(PathBuf, i64)], now_ms: i64) -> Vec<KnownRepo> {
-        let repos = self.repos.lock().unwrap();
+        let repos = self.repos.lock();
         rank(folders.iter().filter_map(|(f, t)| Some((repos.get(f)?.clone()?, *t))), now_ms)
     }
 }
@@ -467,7 +468,7 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::<Vec<u32>>::new()));
         let seen = calls.clone();
         let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>| {
-            seen.lock().unwrap().push(refs.iter().map(|r| r.number).collect());
+            seen.lock().push(refs.iter().map(|r| r.number).collect());
             async move {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 Ok(refs.iter().map(|r| (r.number != 3).then(|| info(r, PrState::Merged))).collect())
@@ -477,11 +478,11 @@ mod tests {
         let (a, b) = tokio::join!(refs.lookup(vec![pr_ref("o", "r", 1), pr_ref("o", "r", 2)]), refs.lookup(vec![pr_ref("o", "r", 2), pr_ref("O", "R", 3)]),);
         assert_eq!(a.unwrap().iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [Some(1), Some(2)]);
         assert_eq!(b.unwrap().iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [Some(2), None]);
-        assert_eq!(*calls.lock().unwrap(), [vec![1, 2], vec![3]]);
+        assert_eq!(*calls.lock(), [vec![1, 2], vec![3]]);
 
         let again = refs.lookup(vec![pr_ref("o", "r", 3), pr_ref("o", "r", 1)]).await.unwrap();
         assert_eq!(again.iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [None, Some(1)]);
-        assert_eq!(calls.lock().unwrap().len(), 2);
+        assert_eq!(calls.lock().len(), 2);
     }
 
     #[tokio::test]
