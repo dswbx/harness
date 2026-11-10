@@ -110,7 +110,10 @@ async fn registry_binary_install_runs_and_survives_restart() {
     let methods: Vec<_> = agents.iter().map(|a| (a.id.as_str(), a.install_method.as_deref())).collect();
     assert_eq!(methods, vec![("fake-acp", Some("binary")), ("npm-only", Some("npx")), ("linux-only", None)], "unparseable entries are skipped");
 
-    let CommandResult::AgentInstalled { agent } = h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap() else { panic!() };
+    let CommandResult::AgentInstalled { agent } = h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified: false }).await.unwrap()
+    else {
+        panic!()
+    };
     assert_eq!((agent.version.as_deref(), &agent.source), (Some("1.2.3"), &AgentSource::Registry { registry_id: "fake-acp".into() }));
     assert!(agent.command.ends_with("agents/fake-acp/1.2.3/bin/run"), "{}", agent.command);
 
@@ -135,7 +138,7 @@ async fn checksum_mismatch_is_refused() {
     let reg = registry(dir.path(), &tgz, &"0".repeat(64));
     let data = dir.path().join("data");
     let h = harness(&data, &reg, vec![]);
-    let err = h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap_err();
+    let err = h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified: false }).await.unwrap_err();
     assert!(err.contains("checksum mismatch"), "{err}");
     let CommandResult::Agents { agents } = h.execute(Command::ListAgents).await.unwrap() else { panic!() };
     assert!(agents.is_empty());
@@ -172,6 +175,7 @@ async fn auth_required_until_the_user_signs_in() {
         source: AgentSource::Custom,
         version: None,
         icon: None,
+        install: Default::default(),
     };
     let h = harness(&dir.path().join("data"), &dir.path().join("none.json"), vec![fake]);
     let sid = create(&h, dir.path(), "fake").await;

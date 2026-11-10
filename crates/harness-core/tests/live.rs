@@ -82,7 +82,7 @@ async fn smoke(registry_id: &str) {
     h.register_frontend(serde_json::from_str::<FrontendManifest>(include_str!("../../../packages/frontend-chat/manifest.json")).unwrap());
     let CommandResult::Agents { agents } = h.execute(Command::ListAgents).await.unwrap() else { panic!() };
     if !agents.iter().any(|a| a.id == registry_id) {
-        h.execute(Command::InstallAgent { registry_id: registry_id.into() }).await.unwrap();
+        h.execute(Command::InstallAgent { registry_id: registry_id.into(), allow_unverified: false }).await.unwrap();
     }
     let dir = tempfile::tempdir().unwrap();
     let folder = repo(dir.path());

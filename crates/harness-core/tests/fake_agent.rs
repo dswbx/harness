@@ -26,6 +26,7 @@ fn fake_info() -> AgentInfo {
         source: Default::default(),
         version: None,
         icon: None,
+        install: Default::default(),
     }
 }
 

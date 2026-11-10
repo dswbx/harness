@@ -23,8 +23,23 @@ pub enum Command {
     },
     /// Installs (or updates) an Agent from the ACP Registry onto the managed toolchain. Slow:
     /// may download a runtime and the Agent's package.
+    ///
+    /// A binary without a sha256 in the registry is refused unless `allow_unverified`. An update
+    /// is installed side by side and switched to only if the headless conformance check passes;
+    /// the previous version is kept for `RollbackAgent`. A held Agent is not updated.
     InstallAgent {
         registry_id: String,
+        #[serde(default)]
+        allow_unverified: bool,
+    },
+    /// Switches an Agent back to its previous version (and holds it there).
+    RollbackAgent {
+        agent_id: String,
+    },
+    /// Holds an Agent at its current version (`hold`) or releases it.
+    HoldAgentVersion {
+        agent_id: String,
+        hold: bool,
     },
     AddCustomAgent {
         name: String,
@@ -645,6 +660,56 @@ pub struct AgentInfo {
     pub source: AgentSource,
     pub version: Option<String>,
     pub icon: Option<String>,
+    /// Hash, previous version, hold and last check of an installed Agent (ADR 0007).
+    #[serde(default)]
+    pub install: InstallInfo,
+}
+
+/// What the Harness knows about an installed Agent's files.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct InstallInfo {
+    /// sha256 of the downloaded artifact (binary installs); `None` for npx/uvx.
+    #[serde(default)]
+    pub sha256: Option<String>,
+    /// The registry listed no sha256: installed on the user's say-so.
+    #[serde(default)]
+    pub unverified: bool,
+    /// The version kept for rollback.
+    #[serde(default)]
+    pub previous: Option<PreviousInstall>,
+    /// Not updated while held.
+    #[serde(default)]
+    pub held: bool,
+    /// The last conformance check (of this version, or of an update that was refused).
+    #[serde(default)]
+    pub check: Option<ConformanceCheck>,
+}
+
+/// Launch spec of the version an Agent can roll back to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct PreviousInstall {
+    pub version: String,
+    pub command: String,
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub unverified: bool,
+}
+
+/// Result of the headless conformance check of one Agent version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ConformanceCheck {
+    pub version: Option<String>,
+    pub passed: bool,
+    /// The Agent needs sign-in: spawn and protocol passed, `session/new` was not completed.
+    pub auth_required: bool,
+    /// Why it failed, with the stderr tail.
+    pub error: Option<String>,
+    #[specta(type = specta_typescript::Number)]
+    pub at_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
