@@ -5,3 +5,7 @@ pre-commit:
          glob: "*.{ts,tsx,js,mjs,json,jsonc,css,yml,yaml}"
          run: bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
          stage_fixed: true
+      rustfmt:
+         glob: "*.rs"
+         run: rustfmt --edition 2024 {staged_files}
+         stage_fixed: true

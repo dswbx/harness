@@ -140,16 +140,16 @@ New ADRs: event schema evolution (10), log storage and fan-out (6, 7, 8, replaci
 
 ## Scorecard: done means
 
-| | Today | Target |
-|---|---|---|
-| Rust gates in CI | tests only | fmt, clippy -D, deny, forbid unsafe, workspace tests |
-| Platforms in CI | macOS | macOS + Linux (core) |
-| Known security bugs | 3 (items 1, 2, 4) | 0 |
-| Data-loss paths in persistence | truncation on bad line, no fsync on meta | none known |
-| History cost per permission Ask | O(log size) from disk | O(1) |
-| Frontend reads raw agent shapes | yes | no, CI-enforced |
-| Rust↔TS types | generated, unchecked in CI | generated, checked |
-| Agent upgrades | install and switch | verified, with rollback and hold |
+|                                 | Today                                    | Target                                               |
+| ------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| Rust gates in CI                | tests only                               | fmt, clippy -D, deny, forbid unsafe, workspace tests |
+| Platforms in CI                 | macOS                                    | macOS + Linux (core)                                 |
+| Known security bugs             | 3 (items 1, 2, 4)                        | 0                                                    |
+| Data-loss paths in persistence  | truncation on bad line, no fsync on meta | none known                                           |
+| History cost per permission Ask | O(log size) from disk                    | O(1)                                                 |
+| Frontend reads raw agent shapes | yes                                      | no, CI-enforced                                      |
+| Rust↔TS types                   | generated, unchecked in CI               | generated, checked                                   |
+| Agent upgrades                  | install and switch                       | verified, with rollback and hold                     |
 
 ## Open questions
 
