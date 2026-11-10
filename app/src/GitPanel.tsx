@@ -6,8 +6,8 @@ import { useReportError } from "./toast";
 
 const DEFAULT = ".harness";
 
-/** Settings > Worktrees: the folder new Worktrees go in. */
-export function WorktreesPanel({ client }: { client: HarnessClient }) {
+/** Settings > Git: git settings; for now where new Worktrees go. */
+export function GitPanel({ client }: { client: HarnessClient }) {
    const report = useReportError();
    const [saved, setSaved] = useState<string | undefined>(undefined);
    const [dir, setDir] = useState("");
@@ -32,10 +32,12 @@ export function WorktreesPanel({ client }: { client: HarnessClient }) {
    if (saved === undefined) return null;
    return (
       <div>
-         <SectionHeader
-            title="Worktrees"
-            description="Where new Worktrees go. Each Session gets its own folder in it. Existing Worktrees stay where they are."
-         />
+         <SectionHeader title="Git" description="How Sessions use git." />
+         <h3 className="text-sm font-medium">Worktrees</h3>
+         <p className="mb-3 text-sm text-muted-foreground">
+            Where new Worktrees go. Each Session gets its own folder in it. Existing Worktrees stay
+            where they are.
+         </p>
          <label className="grid max-w-lg grid-cols-1 gap-1.5 text-sm">
             <span className="text-muted-foreground">Folder</span>
             <Input
