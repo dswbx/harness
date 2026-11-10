@@ -40,6 +40,22 @@ pub fn auto_mode(mode_id: &str) -> bool {
     matches!(mode_id, "auto" | "bypassPermissions" | "agent" | "agent-full-access")
 }
 
+/// How Agents prefix the title of a Harness MCP tool call: Claude `mcp__harness__git_status`,
+/// Codex `mcp.harness.git_status`. Titles are the Agent's own text, so they only name a tool; they
+/// never vouch for it (`mcp::trusted_harness_call`).
+pub fn harness_tool_prefixes() -> &'static [&'static str] {
+    &["mcp__harness__", "mcp.harness."]
+}
+
+/// A tool call's `command` given as an argv array, as one command line. Codex wraps commands as
+/// `["bash", "-lc", "<script>"]`; the script is what the Permission Policy must see.
+pub fn command_from_parts(parts: &[&str]) -> String {
+    match parts {
+        [_, flag, script] if flag.starts_with('-') && flag.ends_with('c') => (*script).to_owned(),
+        _ => parts.join(" "),
+    }
+}
+
 /// Claude Agent (claude-agent-acp).
 mod claude {
     use super::*;

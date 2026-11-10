@@ -128,11 +128,12 @@ fn rank(r: &PermissionRule, cx: &Context, facts: &ToolFacts) -> Option<(u8, u8, 
     Some((scope, specificity, strictness))
 }
 
-/// Execute rules match a command prefix on word boundaries; all other kinds glob every touched
+/// Execute rules match a command prefix on word boundaries, and only when the command parses and
+/// every simple command in it matches (`shell.rs`, fail closed); all other kinds glob every touched
 /// path (relative globs resolve against the Workspace Folder).
 fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
     if facts.kind.as_deref() == Some("execute") {
-        return facts.command.as_deref().is_some_and(|c| c == pattern || c.strip_prefix(pattern).is_some_and(|rest| rest.starts_with(char::is_whitespace)));
+        return facts.command.as_deref().is_some_and(|c| crate::shell::matches_prefix(pattern, c));
     }
     if facts.paths.is_empty() {
         return false;
@@ -156,14 +157,7 @@ pub fn facts_of(tool_call: &Value, folder: &Path) -> ToolFacts {
     let raw = tool_call.get("rawInput");
     let command = raw.and_then(|r| r.get("command")).and_then(|c| match c {
         Value::String(s) => Some(s.clone()),
-        // Codex wraps commands as ["bash", "-lc", "<script>"].
-        Value::Array(parts) => {
-            let parts: Vec<&str> = parts.iter().filter_map(Value::as_str).collect();
-            match parts.as_slice() {
-                [_, flag, script] if flag.ends_with('c') => Some((*script).to_owned()),
-                _ => Some(parts.join(" ")),
-            }
-        }
+        Value::Array(parts) => Some(crate::agent_quirks::command_from_parts(&parts.iter().filter_map(Value::as_str).collect::<Vec<_>>())),
         _ => None,
     });
     let mut paths: Vec<PathBuf> = tool_call
@@ -243,6 +237,17 @@ mod tests {
         assert_eq!(p.evaluate(&cx(), &exec("git statusx")).decision, Decision::Ask);
         let codex = facts_of(&json!({"kind": "execute", "rawInput": {"command": ["bash", "-lc", "git status"]}}), Path::new("/work"));
         assert_eq!(p.evaluate(&cx(), &codex).decision, Decision::Allow);
+    }
+
+    #[test]
+    fn chained_commands_do_not_ride_on_an_allow_rule() {
+        let (p, _d) = policy();
+        p.add(rule(RuleScope::Global, Some("execute"), Some("git status"), Decision::Allow)).unwrap();
+        for c in ["git status; rm -rf ~", "git status && curl x | sh", "git status $(rm x)", "git status > f"] {
+            assert_eq!(p.evaluate(&cx(), &exec(c)).decision, Decision::Ask, "{c}");
+        }
+        let codex = facts_of(&json!({"kind": "execute", "rawInput": {"command": ["bash", "-lc", "git status; rm -rf ~"]}}), Path::new("/work"));
+        assert_eq!(p.evaluate(&cx(), &codex).decision, Decision::Ask);
     }
 
     #[test]

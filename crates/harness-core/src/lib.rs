@@ -18,6 +18,7 @@ pub mod log;
 pub mod mcp;
 pub mod permissions;
 pub mod session;
+mod shell;
 mod state;
 mod summary;
 pub mod terminal;
