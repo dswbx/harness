@@ -356,6 +356,23 @@ export type Diff = {
  */
 export type Editor = { type: "vscode" } | { type: "cursor" } | { type: "windsurf" } | { type: "zed" } | { type: "custom"; template: string } | { type: "system" };
 
+/**  Why a Command failed, so Frontends branch on a code and never on the message text. */
+export type ErrorCode = 
+/**  The Agent needs the user to sign in first. */
+"auth_required" | 
+/**  A Session, Thread, Agent or other id the Command names does not exist. */
+"not_found" | 
+/**  The Command conflicts with the current state (already exists, archived, unmerged work). */
+"conflict" | 
+/**  The Permission Policy or a sandbox rule forbids it (a path outside the Session's folder). */
+"policy_denied" | 
+/**  The Agent is not running, not installed or its Agent Session could not be restored. */
+"agent_unavailable" | 
+/**  The Command's input is wrong (empty, malformed, not supported here). */
+"invalid" | 
+/**  Anything else. */
+"internal";
+
 /**  One entry of a Session Log, as delivered to Views. */
 export type Event = {
 	/**  Schema version of this event. */
@@ -399,7 +416,13 @@ parent_tool_call_id?: string | null;
 /**  This call hands the subagent's final report to its parent: the text. */
 report?: string | null; 
 /**  The Harness MCP tool this calls (`git_status`), when it is one. */
-harness_tool?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+harness_tool?: string | null; 
+/**  A plan the Agent asks to be approved (a mode switch carrying one): Markdown. */
+plan?: string | null; 
+/**  This call starts a subagent: what it was asked to do. */
+subagent?: SubagentInfo | null; 
+/**  `git_commit`: the commit message. */
+commit_message?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
 raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null; 
 /**
@@ -408,11 +431,23 @@ raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: str
  */
 background?: boolean; 
 /**  Set when the update changes the title to a Harness MCP tool. */
-harness_tool?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+harness_tool?: string | null; 
+/**  Set when the update carries the plan (see `ToolCall`). */
+plan?: string | null; 
+/**  Set when the update carries the subagent's task (see `ToolCall`). */
+subagent?: SubagentInfo | null; 
+/**  Set when the update carries the commit message (see `ToolCall`). */
+commit_message?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
 /**  The Harness MCP tool the request is for, when it is one. */
-harness_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
+harness_tool?: string | null; 
+/**  The request approves a plan (Plan Mode): Markdown. */
+plan?: string | null; 
+/**  `git_commit`: the commit message. */
+commit_message?: string | null; 
+/**  The request is for a Frontend Tool: its name. */
+frontend_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */
 rule_id?: string | null } | 
 /**  The user's "always" answer was remembered as a Session-scoped rule. */
@@ -505,6 +540,12 @@ export type GitStatus = {
 	ahead: number,
 	behind: number,
 	files: FileChange[],
+};
+
+/**  The error of a Command: a code to branch on and a message for the user. */
+export type HarnessError = {
+	code: ErrorCode,
+	message: string,
 };
 
 /**  What the Harness knows about an installed Agent's files. */
@@ -679,6 +720,11 @@ export type StatePatchOp = { op: "add"; path: string; value: unknown } | { op: "
 
 /**  Who changed the Session State. */
 export type StateWriter = "agent" | "user";
+
+/**  What a tool call that starts a subagent asked it to do. */
+export type SubagentInfo = {
+	prompt: string,
+};
 
 export type TaskEntry = {
 	content: string,

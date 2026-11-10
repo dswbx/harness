@@ -56,9 +56,32 @@ pub fn command_from_parts(parts: &[&str]) -> String {
     }
 }
 
+/// The plan an Agent asks to have approved: Markdown. ACP has no field for it.
+pub fn plan(kind: Option<&str>, raw_input: Option<&Value>) -> Option<String> {
+    claude::plan(kind, raw_input)
+}
+
+/// What a tool call that starts a subagent asked it to do. ACP has no notion of subagents.
+pub fn subagent_prompt(raw_input: Option<&Value>) -> Option<String> {
+    claude::subagent_prompt(raw_input)
+}
+
 /// Claude Agent (claude-agent-acp).
 mod claude {
     use super::*;
+
+    /// Plan Mode: the exit-plan tool is a `switch_mode` call with the plan in `rawInput.plan`.
+    pub fn plan(kind: Option<&str>, raw_input: Option<&Value>) -> Option<String> {
+        let plan = raw_input?.get("plan")?.as_str()?;
+        (kind == Some("switch_mode") && !plan.is_empty()).then(|| plan.to_owned())
+    }
+
+    /// The Task tool: `rawInput` is `{ description, prompt, subagent_type }`.
+    pub fn subagent_prompt(raw_input: Option<&Value>) -> Option<String> {
+        let i = raw_input?;
+        let prompt = i.get("prompt")?.as_str()?;
+        (i.get("subagent_type").is_some() || i.get("description").is_some()).then(|| prompt.to_owned())
+    }
 
     /// When the Harness itself runs under another agent app (e.g. launched from a Claude desktop
     /// terminal), `CLAUDE*` vars make a spawned Claude Code use the host's auth and IPC instead of
@@ -118,6 +141,9 @@ mod tests {
             parent_tool_call_id: None,
             report: None,
             harness_tool: None,
+            plan: None,
+            subagent: None,
+            commit_message: None,
         }
     }
 
@@ -145,6 +171,24 @@ mod tests {
     }
 
     #[test]
+    fn claude_plan_and_subagent_prompt() {
+        let plan = json!({ "plan": "# Plan\n- a" });
+        assert_eq!(plan_of(Some("switch_mode"), &plan).as_deref(), Some("# Plan\n- a"));
+        assert_eq!(plan_of(Some("execute"), &plan), None);
+        assert_eq!(plan_of(Some("switch_mode"), &json!({})), None);
+
+        let task = json!({ "description": "Find it", "prompt": "Look for X", "subagent_type": "Explore" });
+        assert_eq!(subagent_prompt(Some(&task)).as_deref(), Some("Look for X"));
+        // A bare `prompt` is not a subagent task.
+        assert_eq!(subagent_prompt(Some(&json!({ "prompt": "hi" }))), None);
+        assert_eq!(subagent_prompt(None), None);
+    }
+
+    fn plan_of(kind: Option<&str>, i: &Value) -> Option<String> {
+        plan(kind, Some(i))
+    }
+
+    #[test]
     fn claude_thinking_display() {
         assert!(extra_env().contains(&("CLAUDE_CODE_THINKING_DISPLAY", "summarized")));
     }
@@ -163,6 +207,9 @@ mod tests {
             parent_tool_call_id: None,
             background: false,
             harness_tool: None,
+            plan: None,
+            subagent: None,
+            commit_message: None,
         };
         adjust(&json!({}), &mut k);
         assert!(matches!(k, EventKind::ToolCallUpdate { background: true, .. }));

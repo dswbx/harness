@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::api::{AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey, SessionId, SessionSummary};
+use crate::api::{
+    AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, HarnessError, PrRefKey, SessionId, SessionSummary,
+};
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared, WorkspaceMeta};
@@ -118,7 +120,7 @@ impl Harness {
         self.shared.policy.forget_session(session_id)
     }
 
-    pub async fn execute(&self, cmd: Command) -> Result<CommandResult, String> {
+    pub async fn execute(&self, cmd: Command) -> Result<CommandResult, HarnessError> {
         let changes = match &cmd {
             Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => {
                 Some(AppEvent::SessionsChanged)
@@ -130,7 +132,7 @@ impl Harness {
             | Command::HoldAgentVersion { .. } => Some(AppEvent::AgentsChanged),
             _ => None,
         };
-        let result = self.execute_inner(cmd).await.map_err(|e| format!("{e:#}"));
+        let result = self.execute_inner(cmd).await.map_err(HarnessError::from);
         if let (Ok(_), Some(event)) = (&result, changes) {
             self.shared.app_events.emit(event);
         }
@@ -299,7 +301,7 @@ impl Harness {
                 CommandResult::Ok
             }
             Command::OpenInEditor { session_id, path, line } => {
-                let editor = crate::editor::load(&self.data_dir).ok_or_else(|| anyhow::anyhow!("choose an editor in Settings first"))?;
+                let editor = crate::editor::load(&self.data_dir).ok_or_else(|| crate::error::invalid("choose an editor in Settings first"))?;
                 let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
                 let file = crate::editor::resolve(&folder, path.as_deref())?;
                 let target = crate::editor::target(&editor, &file, line);
@@ -572,11 +574,11 @@ impl Harness {
     }
 
     fn session(&self, id: &str) -> anyhow::Result<Arc<Session>> {
-        self.sessions.read().get(id).cloned().ok_or_else(|| anyhow::anyhow!("unknown session {id}"))
+        self.sessions.read().get(id).cloned().ok_or_else(|| crate::error::not_found(format!("unknown session {id}")))
     }
 
     fn agent(&self, id: &str) -> anyhow::Result<AgentInfo> {
-        self.shared.agents.get(id).ok_or_else(|| anyhow::anyhow!("unknown agent {id}"))
+        self.shared.agents.get(id).ok_or_else(|| crate::error::not_found(format!("unknown agent {id}")))
     }
 }
 

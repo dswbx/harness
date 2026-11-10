@@ -68,7 +68,7 @@ impl Env {
     }
 
     async fn install(&self, allow_unverified: bool) -> Result<AgentInfo, String> {
-        match self.h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified }).await? {
+        match self.h.execute(Command::InstallAgent { registry_id: "fake-acp".into(), allow_unverified }).await.map_err(|e| e.message)? {
             CommandResult::AgentInstalled { agent } => Ok(agent),
             _ => panic!(),
         }

@@ -683,7 +683,7 @@ impl Session {
         match thread_id {
             None => Ok(m.main_thread_id.clone()),
             Some(t) if t == m.main_thread_id || m.side_threads.contains(&t) => Ok(t),
-            Some(t) => anyhow::bail!("unknown thread {t}"),
+            Some(t) => Err(crate::error::not_found(format!("unknown thread {t}"))),
         }
     }
 
@@ -864,7 +864,9 @@ impl Session {
     }
 
     pub async fn archive(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.meta().archived, "already archived");
+        if self.meta().archived {
+            return Err(crate::error::conflict("already archived"));
+        }
         self.agent.shutdown("archived");
         if let Some(wt) = self.meta().workspace.worktree {
             if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
@@ -879,7 +881,9 @@ impl Session {
     }
 
     pub async fn unarchive(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(self.meta().archived, "not archived");
+        if !self.meta().archived {
+            return Err(crate::error::conflict("not archived"));
+        }
         if let Some(wt) = self.meta().workspace.worktree {
             crate::workspace::restore_worktree(&wt).await?;
         }
@@ -893,9 +897,13 @@ impl Session {
     pub async fn delete_workspace(&self, force: bool) -> anyhow::Result<()> {
         if let Some(wt) = self.meta().workspace.worktree {
             if !force {
-                anyhow::ensure!(!(wt.path.exists() && crate::workspace::is_dirty(&wt.path).await?), "the Worktree has uncommitted changes");
+                if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
+                    return Err(crate::error::conflict("the Worktree has uncommitted changes"));
+                }
                 let n = crate::workspace::unmerged_count(&wt.repo_root, &wt.base, &wt.branch).await?;
-                anyhow::ensure!(n == 0, "branch {} has {n} commit(s) not on {}", wt.branch, wt.base);
+                if n != 0 {
+                    return Err(crate::error::conflict(format!("branch {} has {n} commit(s) not on {}", wt.branch, wt.base)));
+                }
             }
             self.agent.shutdown("deleted");
             crate::workspace::remove_worktree(&wt).await?;

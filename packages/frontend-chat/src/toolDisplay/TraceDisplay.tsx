@@ -195,11 +195,7 @@ const Step = memo(function Step({
          {metas.map((m, i) => m && <TraceDescription key={i}>{m}</TraceDescription>)}
       </TraceLine>
    );
-   const message =
-      tool.harnessTool === "git_commit" &&
-      typeof (tool.rawInput as { message?: unknown } | null)?.message === "string"
-         ? (tool.rawInput as { message: string }).message.trim()
-         : "";
+   const message = tool.commitMessage ?? "";
    const hasBody =
       !!subagent ||
       !!message ||
@@ -264,7 +260,7 @@ function SubagentBody({
    subagent: Subagent<Tool>;
    active: boolean;
 }) {
-   const prompt = (task.rawInput as { prompt?: unknown } | null)?.prompt;
+   const prompt = task.subagentPrompt;
    return (
       <>
          {typeof prompt === "string" && (

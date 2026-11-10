@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { gitToolSummary } from "./gitTool";
+import { type GitToolCall, gitToolSummary as summarize } from "./gitTool";
+
+const gitToolSummary = (
+   harnessTool: string | null,
+   rawInput: unknown,
+   rawOutput: unknown,
+   content?: unknown,
+) => summarize({ harnessTool, rawInput, rawOutput, content } satisfies GitToolCall);
 
 const blocks = (text: string) => [{ type: "text", text }];
 const content = (text: string) => [{ type: "content", content: { type: "text", text } }];

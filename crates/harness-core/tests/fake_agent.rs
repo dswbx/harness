@@ -819,7 +819,7 @@ async fn agent_that_fails_to_start_reports_its_stderr() {
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
     let err = h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.unwrap_err();
-    assert!(err.contains("exited during startup") && err.contains("config missing: API_KEY"), "{err}");
+    assert!(err.message.contains("exited during startup") && err.message.contains("config missing: API_KEY"), "{err}");
     assert!(h_events(&h, &session_id).iter().any(|k| matches!(k,
         EventKind::AgentProcessState { state: ProcessState::Failed, message: Some(m) } if m.contains("config missing"))));
 }
@@ -954,7 +954,7 @@ async fn image_is_refused_when_the_agent_does_not_accept_images() {
     let (h, sid, dir) = setup().await;
     let image = AttachmentInput::Data { name: "a.png".into(), mime: "image/png".into(), data: b64(b"png") };
     let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "look".into(), attachments: vec![image] }).await.unwrap_err();
-    assert!(err.contains("Fake does not accept images."), "{err}");
+    assert!(err.message.contains("Fake does not accept images."), "{err}");
     assert!(!h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::TurnStarted { .. })));
     assert!(!dir.path().join("data/sessions").join(&sid).join("attachments").exists());
     assert!(h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentCapabilities { image: false, .. })));
@@ -979,7 +979,7 @@ async fn files_are_linked_inside_the_folder_and_embedded_outside() {
 
     let missing = AttachmentInput::Path { path: dir.path().join("nope.txt").display().to_string() };
     let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "x".into(), attachments: vec![missing] }).await.unwrap_err();
-    assert!(err.contains("nope.txt"), "{err}");
+    assert!(err.message.contains("nope.txt"), "{err}");
 }
 
 async fn quick_session(h: &Harness) -> String {

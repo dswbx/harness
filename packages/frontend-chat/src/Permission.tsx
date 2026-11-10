@@ -21,7 +21,7 @@ import { ChevronDown, ClipboardList, ShieldQuestion } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "./errors";
 import { Markdown } from "./Markdown";
-import { type Item, permissionTitle, planOf } from "./reducer";
+import { type Item, permissionTitle } from "./reducer";
 
 type Perm = Extract<Item, { type: "permission" }>;
 
@@ -97,12 +97,8 @@ export function PermissionActions({ item, api }: { item: Perm; api: SessionApi }
 
 /** A pending git commit / push: a Trace line in amber with the answers below, where the step will be. */
 function PermissionStep({ item, api }: { item: Perm; api: SessionApi }) {
-   const verb = permissionTitle(item.toolCall, item.harnessTool, true) ?? "Permission requested";
-   const message = item.toolCall.rawInput?.message;
-   const detail =
-      item.harnessTool === "git_commit" && typeof message === "string"
-         ? (message.trim().split("\n")[0] ?? "")
-         : "";
+   const verb = permissionTitle(item.toolCall, item, true) ?? "Permission requested";
+   const detail = item.commitMessage?.split("\n")[0] ?? "";
    return (
       <Trace className="text-ui-step">
          <TraceLine className="text-amber-500">
@@ -125,8 +121,8 @@ function PermissionStep({ item, api }: { item: Perm; api: SessionApi }) {
 /** Inline permission prompt. A switch_mode request carrying a plan renders as a Plan card (Plan Mode approval). */
 export function PermissionCard({ item, api }: { item: Perm; api: SessionApi }) {
    if (isStepApproval(item)) return <PermissionStep item={item} api={api} />;
-   const plan = planOf(item.toolCall);
-   const friendly = permissionTitle(item.toolCall, item.harnessTool);
+   const plan = item.plan;
+   const friendly = permissionTitle(item.toolCall, item);
    const title = friendly ?? item.toolCall.title ?? "Permission requested";
    const harness = item.harnessTool;
    return (

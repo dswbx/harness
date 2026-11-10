@@ -25,7 +25,9 @@ pub fn resolve(folder: &Path, path: Option<&str>) -> anyhow::Result<PathBuf> {
     let root = std::fs::canonicalize(folder)?;
     let Some(p) = path.filter(|p| !p.trim().is_empty()) else { return Ok(root) };
     let p = std::fs::canonicalize(root.join(p)).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
-    anyhow::ensure!(p.starts_with(&root), "{} is outside the Session's folder", p.display());
+    if !p.starts_with(&root) {
+        return Err(crate::error::policy_denied(format!("{} is outside the Session's folder", p.display())));
+    }
     Ok(p)
 }
 

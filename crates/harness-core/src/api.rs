@@ -1143,6 +1143,15 @@ pub enum EventKind {
         /// The Harness MCP tool this calls (`git_status`), when it is one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
+        /// A plan the Agent asks to be approved (a mode switch carrying one): Markdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
+        /// This call starts a subagent: what it was asked to do.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent: Option<SubagentInfo>,
+        /// `git_commit`: the commit message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit_message: Option<String>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -1167,6 +1176,15 @@ pub enum EventKind {
         /// Set when the update changes the title to a Harness MCP tool.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
+        /// Set when the update carries the plan (see `ToolCall`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
+        /// Set when the update carries the subagent's task (see `ToolCall`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent: Option<SubagentInfo>,
+        /// Set when the update carries the commit message (see `ToolCall`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit_message: Option<String>,
     },
     TaskListUpdated {
         entries: Vec<TaskEntry>,
@@ -1197,6 +1215,15 @@ pub enum EventKind {
         /// The Harness MCP tool the request is for, when it is one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
+        /// The request approves a plan (Plan Mode): Markdown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
+        /// `git_commit`: the commit message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit_message: Option<String>,
+        /// The request is for a Frontend Tool: its name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frontend_tool: Option<String>,
     },
     PermissionResolved {
         request_id: String,
@@ -1273,6 +1300,12 @@ pub enum EventKind {
     Error {
         message: String,
     },
+}
+
+/// What a tool call that starts a subagent asked it to do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SubagentInfo {
+    pub prompt: String,
 }
 
 /// How many of a Thread's Turns fit in a transcript.
@@ -1393,6 +1426,41 @@ pub enum AppEvent {
     },
 }
 
+/// Why a Command failed, so Frontends branch on a code and never on the message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    /// The Agent needs the user to sign in first.
+    AuthRequired,
+    /// A Session, Thread, Agent or other id the Command names does not exist.
+    NotFound,
+    /// The Command conflicts with the current state (already exists, archived, unmerged work).
+    Conflict,
+    /// The Permission Policy or a sandbox rule forbids it (a path outside the Session's folder).
+    PolicyDenied,
+    /// The Agent is not running, not installed or its Agent Session could not be restored.
+    AgentUnavailable,
+    /// The Command's input is wrong (empty, malformed, not supported here).
+    Invalid,
+    /// Anything else.
+    Internal,
+}
+
+/// The error of a Command: a code to branch on and a message for the user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct HarnessError {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl std::fmt::Display for HarnessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HarnessError {}
+
 /// Receives Events for one subscription. Returns `false` once the receiver is gone.
 pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &Event) -> bool;
@@ -1405,7 +1473,7 @@ impl<F: Fn(&Event) -> bool + Send + Sync + 'static> EventSink for F {
 }
 
 pub fn types() -> specta::Types {
-    specta::Types::default().register::<Command>().register::<CommandResult>().register::<Event>().register::<AppEvent>()
+    specta::Types::default().register::<Command>().register::<CommandResult>().register::<Event>().register::<AppEvent>().register::<HarnessError>()
 }
 
 pub fn export_ts() -> String {
