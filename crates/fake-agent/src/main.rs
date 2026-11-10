@@ -24,7 +24,7 @@
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
 //! replays one message chunk ("replayed") before answering. `--resume-fails=N` fails the first N
-//! resumes of this process. `--no-http-mcp` makes the Harness
+//! resumes of this process; `--resume-delay-ms=N` makes each resume take N ms. `--no-http-mcp` makes the Harness
 //! use the stdio shim. `--auth` advertises an agent auth
 //! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
 //! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
@@ -45,6 +45,9 @@ fn text(t: &str) -> SessionUpdate {
 }
 
 /// cwd per Agent Session.
+/// How long `session/resume` takes (`--resume-delay-ms=N`).
+static RESUME_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// How many more resumes must fail (`--resume-fails=N`).
 static RESUME_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -218,6 +221,9 @@ async fn main() -> agent_client_protocol::Result<()> {
     if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-fails=")) {
         RESUME_FAILS.store(n.parse().unwrap(), std::sync::atomic::Ordering::SeqCst);
     }
+    if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-delay-ms=")) {
+        RESUME_DELAY_MS.store(n.parse().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+    }
     if args.iter().any(|a| a == "--exit") {
         eprintln!("fake-agent: exiting on purpose");
         std::process::exit(3);
@@ -323,6 +329,10 @@ async fn main() -> agent_client_protocol::Result<()> {
         )
         .on_receive_request(
             async move |req: ResumeSessionRequest, responder, _cx| {
+                let delay = RESUME_DELAY_MS.load(std::sync::atomic::Ordering::SeqCst);
+                if delay > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
                 if RESUME_FAILS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                     RESUME_FAILS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     return responder.respond_with_error(Error::internal_error());

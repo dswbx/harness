@@ -885,6 +885,23 @@ async fn warm_up_delivers_config_options_before_the_first_prompt() {
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
 }
 
+/// Resuming can take longer than the idle timeout: the watchdog must not stop the Agent a prompt is
+/// still starting (it did, so the prompt failed with "error" on slow machines).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slow_resume_is_not_stopped_as_idle() {
+    let (h, sid, _dir) = setup_with(&["--resume", "--resume-delay-ms=600"], Duration::from_millis(200)).await;
+    turn(&h, &sid, None, "hi").await;
+    for _ in 0..100 {
+        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let back = turn(&h, &sid, None, "back").await;
+    assert_eq!(back, "end_turn", "{:#?}", h_events(&h, &sid));
+    assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn warm_up_does_not_resume_a_stopped_agent() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_millis(200)).await;

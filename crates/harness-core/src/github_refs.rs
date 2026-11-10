@@ -442,10 +442,7 @@ mod tests {
     #[test]
     fn branch_prs_skip_forks() {
         let r = repo("tursodatabase", "turso");
-        let list = [
-            json!({"number": 11497, "state": "CLOSED", "isCrossRepository": true}),
-            json!({"number": 12, "state": "OPEN", "isCrossRepository": false}),
-        ];
+        let list = [json!({"number": 11497, "state": "CLOSED", "isCrossRepository": true}), json!({"number": 12, "state": "OPEN", "isCrossRepository": false})];
         assert_eq!(branch_prs(&r, &list).iter().map(|p| p.number).collect::<Vec<_>>(), [12]);
     }
 

@@ -43,6 +43,8 @@ pub(super) struct SlotState {
     pub(super) conn: Option<Arc<AgentConn>>,
     /// Turns in flight, per Thread.
     pub(super) turns: HashMap<ThreadId, usize>,
+    /// Prompts still starting the Agent or its Agent Session: not a Turn yet, but not idle either.
+    pub(super) preparing: usize,
     /// Threads with a Cancel in flight: a permission request from the Agent meanwhile is answered
     /// "cancelled", and the Turn that ends is not reported as an error.
     pub(super) cancelling: std::collections::HashSet<ThreadId>,
@@ -53,6 +55,16 @@ pub(super) struct SlotState {
     pub(super) last_active: Option<Instant>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,
+}
+
+pub(super) struct Preparing<'a>(&'a AgentSlot);
+
+impl Drop for Preparing<'_> {
+    fn drop(&mut self) {
+        let mut s = self.0.state.lock();
+        s.preparing = s.preparing.saturating_sub(1);
+        s.last_active = Some(Instant::now());
+    }
 }
 
 pub(super) struct Pending {
@@ -227,13 +239,26 @@ impl AgentSlot {
         Ok(())
     }
 
+    /// Marks a prompt as starting until the returned guard drops, so the idle watchdog never stops
+    /// an Agent that a prompt is still starting or resuming (that can take longer than the idle
+    /// timeout).
+    pub(super) fn preparing(&self) -> Preparing<'_> {
+        let mut s = self.state.lock();
+        s.preparing += 1;
+        s.last_active = Some(Instant::now());
+        Preparing(self)
+    }
+
     /// Stops the process of `generation` if it has been idle long enough. Returns `false` once
     /// that process is gone, ending its watchdog.
     pub(super) fn stop_if_idle(&self, session: &Session, generation: u64) -> bool {
         let conn = {
             let s = self.state.lock();
             let Some(conn) = s.conn.as_ref().filter(|c| c.generation == generation) else { return false };
-            let idle = s.pending.is_empty() && s.turns.values().all(|n| *n == 0) && s.last_active.is_none_or(|t| t.elapsed() >= session.idle_timeout());
+            let idle = s.pending.is_empty()
+                && s.preparing == 0
+                && s.turns.values().all(|n| *n == 0)
+                && s.last_active.is_none_or(|t| t.elapsed() >= session.idle_timeout());
             if !idle || session.log().subscriber_count() > 0 {
                 return true;
             }

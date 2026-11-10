@@ -37,6 +37,9 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
     }
     let folder = std::path::PathBuf::from(&meta.folder);
     let tracked = meta.workspace.repo_root.is_some();
+    // Held until the Turn counts (or the prompt fails): starting or resuming the Agent is not idle.
+    let slot = session.agent_slot();
+    let preparing = slot.preparing();
     let before = if tracked { crate::workspace::snapshot(&folder).await.ok() } else { None };
     let conn = ensure_conn(&session).await?;
     let acp_session = match ensure_agent_session(&session, &conn, &thread).await {
@@ -77,8 +80,8 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
             context: context.clone(),
         },
     )?;
-    let slot = session.agent_slot();
     slot.update(&session, |s| *s.turns.entry(thread.clone()).or_default() += 1);
+    drop(preparing);
     tokio::spawn(async move {
         let mut blocks = Vec::new();
         if let Some(context) = context {
