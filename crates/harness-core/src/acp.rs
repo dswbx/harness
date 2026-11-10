@@ -1140,11 +1140,13 @@ fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, res
     let folder = std::path::PathBuf::from(&meta.folder);
     let facts = crate::permissions::facts_of(&tool_call, &folder);
     let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
-    // Calls to the Harness MCP pass the Policy inside the Harness MCP itself; don't ask twice.
+    // Calls to the Harness MCP pass the Policy inside the Harness MCP itself; don't ask twice. The
+    // title is the Agent's own text: it skips the Policy only for a tool the Harness MCP really
+    // serves for this Session and a call that is not a command, edit or fetch.
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default();
     let harness_tool = crate::mcp::harness_tool_name(title).map(str::to_owned);
-    let verdict =
-        if harness_tool.is_some() { crate::permissions::Verdict { decision: Decision::Allow, rule_id: None } } else { session.policy().evaluate(&cx, &facts) };
+    let trusted = harness_tool.as_deref().is_some_and(|n| crate::mcp::trusted_harness_call(crate::mcp::serves_tool(session, n), &facts));
+    let verdict = if trusted { crate::permissions::Verdict { decision: Decision::Allow, rule_id: None } } else { session.policy().evaluate(&cx, &facts) };
     let auto = match verdict.decision {
         Decision::Allow => pick(&options, &["allow_once", "allow_always"]),
         Decision::Deny => pick(&options, &["reject_once", "reject_always"]),

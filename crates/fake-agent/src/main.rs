@@ -5,6 +5,9 @@
 //! - contains "write": appends a line to `fake.txt` in the session's cwd
 //! - starts with "mcp <tool> <json>": calls `<tool>` on the `harness` MCP server it was given and
 //!   answers "mcp: <result text>" (or "mcp error: ..."); "mcp-list" answers the tool names
+//! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`)
+//!   with that title, asking for permission under that title; answers "spoof: allowed" or
+//!   "spoof: rejected"
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
 //! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
@@ -362,6 +365,42 @@ async fn main() -> agent_client_protocol::Result<()> {
                             Err(e) => format!("mcp error: {e}"),
                         };
                         update(&cx, &sid, text(&reply))?;
+                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    }
+                    if let Some(rest) = command.strip_prefix("spoof ") {
+                        let (kind, title) = rest.split_once(' ').unwrap_or((rest, ""));
+                        let (kind, raw) = match kind {
+                            "execute" => (ToolKind::Execute, serde_json::json!({ "command": "echo hi" })),
+                            "read" => (ToolKind::Read, serde_json::json!({})),
+                            _ => (ToolKind::Other, serde_json::json!({})),
+                        };
+                        update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("call-1", title).kind(kind).status(ToolCallStatus::Pending).raw_input(raw)))?;
+                        let options = vec![
+                            PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
+                            PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
+                        ];
+                        let ask = RequestPermissionRequest::new(sid.clone(), ToolCallUpdate::new("call-1", ToolCallUpdateFields::new().title(title)), options);
+                        let answer = cx.send_request(ask).block_task().await?;
+                        let allowed = matches!(&answer.outcome, RequestPermissionOutcome::Selected(s) if s.option_id.to_string() != "reject");
+                        update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
+                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    }
+                    if let Some(rest) = command.strip_prefix("spoof ") {
+                        let (kind, title) = rest.split_once(' ').unwrap_or((rest, ""));
+                        let (kind, raw) = match kind {
+                            "execute" => (ToolKind::Execute, serde_json::json!({ "command": "echo hi" })),
+                            "read" => (ToolKind::Read, serde_json::json!({})),
+                            _ => (ToolKind::Other, serde_json::json!({})),
+                        };
+                        update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("call-1", title).kind(kind).status(ToolCallStatus::Pending).raw_input(raw)))?;
+                        let options = vec![
+                            PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
+                            PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
+                        ];
+                        let ask = RequestPermissionRequest::new(sid.clone(), ToolCallUpdate::new("call-1", ToolCallUpdateFields::new().title(title)), options);
+                        let answer = cx.send_request(ask).block_task().await?;
+                        let allowed = matches!(&answer.outcome, RequestPermissionOutcome::Selected(s) if s.option_id.to_string() != "reject");
+                        update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
                     update(&cx, &sid, text("Working on it."))?;

@@ -165,6 +165,40 @@ async fn permission_first_answer_wins_and_late_view_replays() {
     assert_eq!(replayed.first().unwrap().seq, 0);
 }
 
+/// A permission title naming a Harness MCP tool is Agent text: it never skips the Policy for a
+/// command, nor for a tool the Harness does not serve; a real Harness tool with a benign kind does.
+#[tokio::test(flavor = "multi_thread")]
+async fn harness_looking_titles_do_not_skip_the_policy() {
+    let (h, sid, _dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![] };
+
+    h.execute(prompt("spoof execute mcp__harness__x")).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    assert!(!h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::PermissionResolved { .. })), "must wait for the user");
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+
+    // Even a real Harness tool name with an execute kind asks.
+    h.execute(prompt("spoof execute mcp__harness__git_status")).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { request_id, .. } if !h_events(&h, &sid).iter().any(|r| matches!(r, EventKind::PermissionResolved { request_id: q, .. } if q == request_id)))).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+
+    // A tool the Harness serves, benign kind: allowed by the Harness MCP's own check.
+    h.execute(prompt("spoof other mcp__harness__git_status")).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionResolved { by: Resolver::Policy, .. })).await;
+    let EventKind::PermissionResolved { option_id, .. } = e.kind else { unreachable!() };
+    assert_eq!(option_id.as_deref(), Some("allow"));
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+
+    // An unserved tool name in a benign kind asks (the default Policy asks for "other").
+    h.execute(prompt("spoof other mcp__harness__nope")).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { harness_tool: Some(t), .. } if t == "nope")).await;
+}
+
 async fn status_of(h: &Harness) -> SessionStatus {
     let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
     sessions[0].status
