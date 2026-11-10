@@ -1435,7 +1435,7 @@ export const components = {
       props: s.object({
          html: s.string({
             description:
-               "Body content: HTML or SVG with inline <style> and <script>. No network; images from data: or https URLs. Theme colors: var(--foreground), --muted-foreground, --card, --border, --primary, --chart-1 to --chart-5.",
+               "Body content: HTML or SVG with inline <style> and <script>. No network at all: no remote images or fonts; images only as data: URIs or inline SVG (use the image node for files and URLs). Theme colors: var(--foreground), --muted-foreground, --card, --border, --primary, --chart-1 to --chart-5.",
          }),
          height: s
             .number({

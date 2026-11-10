@@ -238,7 +238,7 @@ fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: 
 }
 
 /// Same as `HTML_CSP` in the Chat Frontend's `htmlBridge.ts`.
-const FRAME_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src 'none'";
+const FRAME_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'";
 
 /// Loader of an Html frame (ADR 0013 addendum): takes its document from the host and writes it over itself.
 const FRAME_LOADER: &str = r#"<!doctype html><script>addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="doc"){document.open();document.write(e.data.html);document.close()}});parent.postMessage({type:"ready"},"*")</script>"#;
@@ -336,4 +336,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Harness");
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::FRAME_CSP;
+
+    #[test]
+    fn frame_csp_allows_no_network() {
+        assert!(!FRAME_CSP.contains("http:") && !FRAME_CSP.contains("https:"), "{FRAME_CSP}");
+        assert!(FRAME_CSP.contains("connect-src 'none'"));
+        assert!(FRAME_CSP.contains("img-src data: blob:;"));
+    }
 }
