@@ -4,7 +4,7 @@ import { artifactPng } from "./ArtifactExport";
 import { type Artifact, collectArtifacts } from "./artifacts";
 import { useCapture } from "./Capture";
 import { mermaidSvg } from "./exportFormats";
-import type { UiEnv } from "./RenderUi";
+import { checkActions, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduceBatch } from "./reducer";
 import { svgToPng } from "./toPng";
 import { UiHtml } from "./UiHtml";
@@ -115,6 +115,7 @@ export function ArtifactRequest({ api, request, onDone }: FrontendRequestProps) 
                         send={async () => {}}
                         run={async () => {}}
                         report={report}
+                        checkActions={checkActions}
                      />
                   ),
                   { ...opts, maxEdge },
