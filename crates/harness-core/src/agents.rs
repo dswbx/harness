@@ -193,12 +193,8 @@ impl Agents {
 
     /// Installs (or updates to) the registry's current version of `registry_id`.
     pub async fn install(&self, registry_id: &str) -> anyhow::Result<AgentInfo> {
-        let entry = self
-            .entries(false)
-            .await?
-            .into_iter()
-            .find(|e| e.id == registry_id)
-            .ok_or_else(|| anyhow::anyhow!("{registry_id} is not in the ACP Registry"))?;
+        let entry =
+            self.entries(false).await?.into_iter().find(|e| e.id == registry_id).ok_or_else(|| anyhow::anyhow!("{registry_id} is not in the ACP Registry"))?;
         let _guard = self.install_lock.lock().await;
         let dir = self.data_dir.join("agents").join(&entry.id).join(&entry.version);
         if dir.exists() {
@@ -232,11 +228,7 @@ impl Agents {
         Ok(agent)
     }
 
-    async fn install_into(
-        &self,
-        entry: &Entry,
-        dir: &Path,
-    ) -> anyhow::Result<(PathBuf, Vec<String>, BTreeMap<String, String>)> {
+    async fn install_into(&self, entry: &Entry, dir: &Path) -> anyhow::Result<(PathBuf, Vec<String>, BTreeMap<String, String>)> {
         let d = &entry.distribution;
         match entry.method() {
             Some("binary") => {
@@ -259,13 +251,11 @@ impl Agents {
             Some("npx") => {
                 let p = d.npx.as_ref().unwrap();
                 let node_bin = self.toolchain.node().await?;
-                run(
-                    tokio::process::Command::new(node_bin.join("npm"))
-                        .args(["install", "--no-audit", "--no-fund", "--loglevel=error", "--prefix"])
-                        .arg(dir)
-                        .arg(&p.package)
-                        .env("PATH", self.toolchain.path()),
-                )
+                run(tokio::process::Command::new(node_bin.join("npm"))
+                    .args(["install", "--no-audit", "--no-fund", "--loglevel=error", "--prefix"])
+                    .arg(dir)
+                    .arg(&p.package)
+                    .env("PATH", self.toolchain.path()))
                 .await?;
                 let bin = npm_bin(dir, &package_name(&p.package))?;
                 Ok((bin, p.args.clone(), p.env.clone()))
@@ -274,15 +264,13 @@ impl Agents {
                 let p = d.uvx.as_ref().unwrap();
                 let uv_bin = self.toolchain.uv().await?;
                 let tc = self.toolchain.root();
-                run(
-                    tokio::process::Command::new(uv_bin.join("uv"))
-                        .args(["tool", "install", &p.package])
-                        .env("UV_TOOL_DIR", dir.join("tools"))
-                        .env("UV_TOOL_BIN_DIR", dir.join("bin"))
-                        .env("UV_PYTHON_INSTALL_DIR", tc.join("python"))
-                        .env("UV_CACHE_DIR", tc.join("uv-cache"))
-                        .env("PATH", self.toolchain.path()),
-                )
+                run(tokio::process::Command::new(uv_bin.join("uv"))
+                    .args(["tool", "install", &p.package])
+                    .env("UV_TOOL_DIR", dir.join("tools"))
+                    .env("UV_TOOL_BIN_DIR", dir.join("bin"))
+                    .env("UV_PYTHON_INSTALL_DIR", tc.join("python"))
+                    .env("UV_CACHE_DIR", tc.join("uv-cache"))
+                    .env("PATH", self.toolchain.path()))
                 .await?;
                 let bin_dir = dir.join("bin");
                 let wanted = bin_dir.join(python_name(&p.package));
@@ -299,13 +287,7 @@ impl Agents {
         }
     }
 
-    pub fn add_custom(
-        &self,
-        name: String,
-        command: String,
-        args: Vec<String>,
-        env: BTreeMap<String, String>,
-    ) -> anyhow::Result<AgentInfo> {
+    pub fn add_custom(&self, name: String, command: String, args: Vec<String>, env: BTreeMap<String, String>) -> anyhow::Result<AgentInfo> {
         let agent = AgentInfo {
             id: format!("custom-{}", crate::workspace::slug(&name)),
             name,
@@ -334,11 +316,7 @@ impl Agents {
 
 async fn run(cmd: &mut tokio::process::Command) -> anyhow::Result<()> {
     let out = cmd.stdin(std::process::Stdio::null()).output().await?;
-    anyhow::ensure!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr }).trim()
-    );
+    anyhow::ensure!(out.status.success(), "{}", String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr }).trim());
     Ok(())
 }
 
@@ -357,18 +335,14 @@ fn python_name(spec: &str) -> String {
 
 /// The executable an npm package installs: its only `bin`, or the one named after the package.
 fn npm_bin(prefix: &Path, package: &str) -> anyhow::Result<PathBuf> {
-    let manifest: Value =
-        serde_json::from_slice(&std::fs::read(prefix.join("node_modules").join(package).join("package.json"))?)?;
+    let manifest: Value = serde_json::from_slice(&std::fs::read(prefix.join("node_modules").join(package).join("package.json"))?)?;
     let short = package.rsplit('/').next().unwrap_or(package);
     let name = match manifest.get("bin") {
         Some(Value::String(_)) => short.to_owned(),
         Some(Value::Object(m)) if m.len() == 1 => m.keys().next().unwrap().clone(),
-        Some(Value::Object(m)) => m
-            .keys()
-            .find(|k| k.as_str() == short)
-            .or_else(|| m.keys().next())
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("{package} declares no executable"))?,
+        Some(Value::Object(m)) => {
+            m.keys().find(|k| k.as_str() == short).or_else(|| m.keys().next()).cloned().ok_or_else(|| anyhow::anyhow!("{package} declares no executable"))?
+        }
         _ => anyhow::bail!("{package} declares no executable"),
     };
     let bin = prefix.join("node_modules").join(".bin").join(name);

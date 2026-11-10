@@ -17,16 +17,15 @@ use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
+use rmcp::ErrorData;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult, PaginatedRequestParams,
-    ServerCapabilities, ServerConfig, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
-use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::api::{GitActor, ThreadId};
 use crate::session::Session;
@@ -57,9 +56,7 @@ impl HarnessMcp {
                     // No allowed origins: any Origin header is refused (browsers always send one).
                     StreamableHttpServerConfig::default().enforce_origin_validation(),
                 );
-                let app = axum::Router::new()
-                    .nest_service("/mcp", svc)
-                    .layer(axum::middleware::from_fn_with_state(tokens, auth));
+                let app = axum::Router::new().nest_service("/mcp", svc).layer(axum::middleware::from_fn_with_state(tokens, auth));
                 let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
                 let addr = listener.local_addr()?;
                 tokio::spawn(async move {
@@ -76,10 +73,7 @@ impl HarnessMcp {
     /// A fresh token for one Agent Session of a Thread.
     pub fn issue(&self, session: &Arc<Session>, thread: &ThreadId) -> String {
         let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-        self.tokens
-            .write()
-            .unwrap()
-            .insert(token.clone(), Target { session: Arc::downgrade(session), thread: thread.clone() });
+        self.tokens.write().unwrap().insert(token.clone(), Target { session: Arc::downgrade(session), thread: thread.clone() });
         token
     }
 
@@ -206,29 +200,21 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
 
 impl ServerHandler for Handler {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Tools of the Harness hosting this conversation: git for its Workspace, and tools of its Frontend (the UI showing this conversation).")
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+            "Tools of the Harness hosting this conversation: git for its Workspace, and tools of its Frontend (the UI showing this conversation).",
+        )
     }
 
-    async fn list_tools(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        cx: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, ErrorData> {
+    async fn list_tools(&self, _request: Option<PaginatedRequestParams>, cx: RequestContext<RoleServer>) -> Result<ListToolsResult, ErrorData> {
         let (session, _) = target(&cx)?;
-        let mut tools: Vec<Tool> =
-            primitives().into_iter().map(|(name, desc, input, _)| Tool::new(name, desc, schema(input))).collect();
+        let mut tools: Vec<Tool> = primitives().into_iter().map(|(name, desc, input, _)| Tool::new(name, desc, schema(input))).collect();
         for t in session.frontend_tools() {
             tools.push(Tool::new(t.name.clone(), t.description.clone(), schema(t.input_schema.clone())));
         }
         Ok(ListToolsResult { tools, ..Default::default() })
     }
 
-    async fn call_tool(
-        &self,
-        request: CallToolRequestParams,
-        cx: RequestContext<RoleServer>,
-    ) -> Result<CallToolResponse, ErrorData> {
+    async fn call_tool(&self, request: CallToolRequestParams, cx: RequestContext<RoleServer>) -> Result<CallToolResponse, ErrorData> {
         let (session, thread) = target(&cx)?;
         let args = Value::Object(request.arguments.clone().unwrap_or_default());
         let name = request.name.to_string();
@@ -295,22 +281,13 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
             _ => unreachable!(),
         })]);
     }
-    let tool = session
-        .frontend_tools()
-        .into_iter()
-        .find(|t| t.name == name)
-        .ok_or_else(|| anyhow::anyhow!("unknown tool {name}"))?;
-    let (validator, images) = crate::frontend_files::validator(&tool.input_schema)
-        .map_err(|e| anyhow::anyhow!("the Frontend's schema for {name} is invalid: {e}"))?;
+    let tool = session.frontend_tools().into_iter().find(|t| t.name == name).ok_or_else(|| anyhow::anyhow!("unknown tool {name}"))?;
+    let (validator, images) =
+        crate::frontend_files::validator(&tool.input_schema).map_err(|e| anyhow::anyhow!("the Frontend's schema for {name} is invalid: {e}"))?;
     let errors: Vec<String> = validator.iter_errors(&args).map(|e| format!("{}: {e}", e.instance_path)).collect();
     // Agents may call a tool before they have seen its schema (some load schemas on demand), so
     // the error carries the description: enough to get the next call right.
-    anyhow::ensure!(
-        errors.is_empty(),
-        "invalid input for {name}:\n{}\n\nHow to call {name}:\n{}",
-        errors.join("\n"),
-        tool.description
-    );
+    anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{}\n\nHow to call {name}:\n{}", errors.join("\n"), tool.description);
     if tool.replies {
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "read", &args).await?;
         let answer = session.request_frontend(name, args).await?;
@@ -370,12 +347,8 @@ pub async fn run_shim() -> anyhow::Result<()> {
         if line.trim().is_empty() {
             continue;
         }
-        let mut rb = http
-            .post(&url)
-            .bearer_auth(&token)
-            .header("accept", "application/json, text/event-stream")
-            .header("content-type", "application/json")
-            .body(line);
+        let mut rb =
+            http.post(&url).bearer_auth(&token).header("accept", "application/json, text/event-stream").header("content-type", "application/json").body(line);
         if let Some(s) = &session {
             rb = rb.header("mcp-session-id", s);
         }
@@ -416,6 +389,9 @@ mod harness_tool_tests {
     #[test]
     fn names_harness_tools_in_each_agent_format() {
         use super::harness_tool_name as n;
-        assert_eq!([n("mcp__harness__git_status"), n("mcp.harness.git_commit"), n("mcp__other__x"), n("mcp__harness__")], [Some("git_status"), Some("git_commit"), None, None]);
+        assert_eq!(
+            [n("mcp__harness__git_status"), n("mcp.harness.git_commit"), n("mcp__other__x"), n("mcp__harness__")],
+            [Some("git_status"), Some("git_commit"), None, None]
+        );
     }
 }

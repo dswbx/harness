@@ -486,48 +486,113 @@ pub enum AttachmentKind {
 #[serde(tag = "type")]
 pub enum CommandResult {
     Ok,
-    Agents { agents: Vec<AgentInfo> },
-    Registry { agents: Vec<RegistryAgent> },
-    AgentInstalled { agent: AgentInfo },
-    Frontends { frontends: Vec<FrontendManifest> },
-    Sessions { sessions: Vec<SessionSummary> },
-    SessionCreated { session_id: SessionId },
+    Agents {
+        agents: Vec<AgentInfo>,
+    },
+    Registry {
+        agents: Vec<RegistryAgent>,
+    },
+    AgentInstalled {
+        agent: AgentInfo,
+    },
+    Frontends {
+        frontends: Vec<FrontendManifest>,
+    },
+    Sessions {
+        sessions: Vec<SessionSummary>,
+    },
+    SessionCreated {
+        session_id: SessionId,
+    },
     /// `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
     /// `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
-    ThreadStarted { thread_id: ThreadId, forked: bool },
-    Branches { branches: Branches },
-    PullRequests { prs: Vec<PullRequest> },
+    ThreadStarted {
+        thread_id: ThreadId,
+        forked: bool,
+    },
+    Branches {
+        branches: Branches,
+    },
+    PullRequests {
+        prs: Vec<PullRequest>,
+    },
     /// `me`: the `gh` user, None when `gh` is not signed in.
-    PrContext { session_repo: Option<RepoId>, known_repos: Vec<KnownRepo>, me: Option<String> },
-    PrLookup { prs: Vec<Option<PrInfo>> },
-    PrSearch { prs: Vec<PrInfo> },
-    BranchPr { repo: Option<RepoId>, pr: Option<PrInfo>, base: Option<String> },
-    GitStatus { status: GitStatus },
-    GitLog { commits: Vec<Commit> },
-    Terminals { terminals: Vec<TerminalInfo> },
-    TerminalOpened { terminal_id: u32 },
-    Diff { diff: Diff },
-    Committed { commit: String },
-    McpServers { servers: Vec<McpServerDef> },
-    McpServerSaved { server: McpServerDef },
-    FileContent { content: String },
+    PrContext {
+        session_repo: Option<RepoId>,
+        known_repos: Vec<KnownRepo>,
+        me: Option<String>,
+    },
+    PrLookup {
+        prs: Vec<Option<PrInfo>>,
+    },
+    PrSearch {
+        prs: Vec<PrInfo>,
+    },
+    BranchPr {
+        repo: Option<RepoId>,
+        pr: Option<PrInfo>,
+        base: Option<String>,
+    },
+    GitStatus {
+        status: GitStatus,
+    },
+    GitLog {
+        commits: Vec<Commit>,
+    },
+    Terminals {
+        terminals: Vec<TerminalInfo>,
+    },
+    TerminalOpened {
+        terminal_id: u32,
+    },
+    Diff {
+        diff: Diff,
+    },
+    Committed {
+        commit: String,
+    },
+    McpServers {
+        servers: Vec<McpServerDef>,
+    },
+    McpServerSaved {
+        server: McpServerDef,
+    },
+    FileContent {
+        content: String,
+    },
     /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
-    FileLines { path: String, start: u32, lines: Vec<String>, total: u32 },
+    FileLines {
+        path: String,
+        start: u32,
+        lines: Vec<String>,
+        total: u32,
+    },
     State {
         #[specta(type = specta_typescript::Unknown)]
         state: Json,
     },
-    Editor { editor: Option<Editor> },
+    Editor {
+        editor: Option<Editor>,
+    },
     /// An app setting's value, or fetched JSON (`FetchJson`).
     Json {
         #[specta(type = Option<specta_typescript::Unknown>)]
         value: Option<Json>,
     },
-    Files { files: Vec<String> },
-    PermissionRules { rules: Vec<PermissionRule> },
-    PermissionRuleAdded { rule: PermissionRule },
+    Files {
+        files: Vec<String>,
+    },
+    PermissionRules {
+        rules: Vec<PermissionRule>,
+    },
+    PermissionRuleAdded {
+        rule: PermissionRule,
+    },
     /// `data` is base64.
-    Attachment { mime: String, data: String },
+    Attachment {
+        mime: String,
+        data: String,
+    },
 }
 
 /// A Permission Policy rule. The narrowest matching scope wins, then the more specific rule
@@ -1009,7 +1074,8 @@ pub enum EventKind {
         parent_tool_call_id: Option<String>,
         /// This call hands the subagent's final report to its parent: the text.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        report: Option<String>,        /// The Harness MCP tool this calls (`git_status`), when it is one.
+        report: Option<String>,
+        /// The Harness MCP tool this calls (`git_status`), when it is one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
     },
@@ -1032,7 +1098,8 @@ pub enum EventKind {
         /// The call finished but its work goes on in the background (a background subagent,
         /// done when its report arrives).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        background: bool,        /// Set when the update changes the title to a Harness MCP tool.
+        background: bool,
+        /// Set when the update changes the title to a Harness MCP tool.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
     },
@@ -1244,7 +1311,9 @@ pub enum AppEvent {
     AgentsChanged,
     /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
     /// Titles and `busy` change silently: poll while a Terminal is shown.
-    TerminalsChanged { session_id: SessionId },
+    TerminalsChanged {
+        session_id: SessionId,
+    },
     /// The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
     /// `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
     /// it. Live only and not logged: Views still render only from the Session Log.
@@ -1271,11 +1340,7 @@ impl<F: Fn(&Event) -> bool + Send + Sync + 'static> EventSink for F {
 }
 
 pub fn types() -> specta::Types {
-    specta::Types::default()
-        .register::<Command>()
-        .register::<CommandResult>()
-        .register::<Event>()
-        .register::<AppEvent>()
+    specta::Types::default().register::<Command>().register::<CommandResult>().register::<Event>().register::<AppEvent>()
 }
 
 pub fn export_ts() -> String {

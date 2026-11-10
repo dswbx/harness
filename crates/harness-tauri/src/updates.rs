@@ -17,10 +17,20 @@ const EVERY: Duration = Duration::from_secs(60 * 60);
 pub enum UpdateState {
     #[default]
     Idle,
-    Available { version: String },
-    Downloading { version: String, percent: Option<u8> },
-    Ready { version: String },
-    Failed { version: String, error: String },
+    Available {
+        version: String,
+    },
+    Downloading {
+        version: String,
+        percent: Option<u8>,
+    },
+    Ready {
+        version: String,
+    },
+    Failed {
+        version: String,
+        error: String,
+    },
 }
 
 #[derive(Default)]

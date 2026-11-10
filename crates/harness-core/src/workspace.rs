@@ -94,11 +94,8 @@ pub async fn list_branches(folder: &Path) -> anyhow::Result<Branches> {
     };
     let current = current_branch(&root).await?;
     let fmt = "--format=%(refname:short)%00%(committerdate:unix)%00%(upstream:track,nobracket)%00%(worktreepath)";
-    let local: Vec<BranchInfo> = git(&root, &["for-each-ref", "--sort=-committerdate", fmt, "refs/heads"])
-        .await?
-        .lines()
-        .filter_map(|l| parse_branch(l, &root))
-        .collect();
+    let local: Vec<BranchInfo> =
+        git(&root, &["for-each-ref", "--sort=-committerdate", fmt, "refs/heads"]).await?.lines().filter_map(|l| parse_branch(l, &root)).collect();
     let remote = git(&root, &["for-each-ref", "--sort=-committerdate", fmt, "refs/remotes"])
         .await?
         .lines()
@@ -176,7 +173,11 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
     }
     let remotes = git(repo_root, &["remote"]).await.unwrap_or_default();
     let tracking = match base.split_once('/') {
-        Some((r, b)) if remotes.lines().any(|l| l == r) && git(repo_root, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{base}")]).await.is_ok() => Some((r, b)),
+        Some((r, b))
+            if remotes.lines().any(|l| l == r) && git(repo_root, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{base}")]).await.is_ok() =>
+        {
+            Some((r, b))
+        }
         _ => None,
     };
     let (remote, branch) = tracking.unwrap_or(("origin", base));
@@ -562,7 +563,11 @@ mod tests {
         let meta = wt(&clone, "main", "a").await;
         assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), tip);
         assert_eq!(meta.base, "main");
-        let up = std::process::Command::new("git").args(["rev-parse", "--abbrev-ref", &format!("{}@{{upstream}}", meta.branch)]).current_dir(&clone).output().unwrap();
+        let up = std::process::Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", &format!("{}@{{upstream}}", meta.branch)])
+            .current_dir(&clone)
+            .output()
+            .unwrap();
         assert!(!up.status.success());
         assert_eq!(unmerged_count(&clone, "main", &meta.branch).await.unwrap(), 0);
         commit(&meta.path, "work");

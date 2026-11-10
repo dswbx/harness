@@ -33,13 +33,7 @@ enum Source {
 
 /// Checks and resolves `inputs` without writing anything, so a rejected prompt leaves no trace.
 /// `folder` is the Workspace Folder: files inside it are linked, the Agent can read them.
-pub fn resolve(
-    session_dir: &Path,
-    folder: &Path,
-    agent: &str,
-    caps: &acp::PromptCapabilities,
-    inputs: Vec<AttachmentInput>,
-) -> anyhow::Result<Vec<Resolved>> {
+pub fn resolve(session_dir: &Path, folder: &Path, agent: &str, caps: &acp::PromptCapabilities, inputs: Vec<AttachmentInput>) -> anyhow::Result<Vec<Resolved>> {
     if inputs.is_empty() {
         return Ok(Vec::new());
     }
@@ -89,9 +83,9 @@ pub fn resolve(
                 }
             };
             let block = match text {
-                Some(text) => acp::ContentBlock::Resource(acp::EmbeddedResource::new(
-                    acp::EmbeddedResourceResource::TextResourceContents(acp::TextResourceContents::new(text, uri).mime_type(mime.as_str())),
-                )),
+                Some(text) => acp::ContentBlock::Resource(acp::EmbeddedResource::new(acp::EmbeddedResourceResource::TextResourceContents(
+                    acp::TextResourceContents::new(text, uri).mime_type(mime.as_str()),
+                ))),
                 None => acp::ContentBlock::ResourceLink(acp::ResourceLink::new(name.as_str(), uri).mime_type(mime.as_str())),
             };
             Resolved { attachment: attachment(name, mime, &path, AttachmentKind::File), block, store: bytes }
@@ -143,10 +137,7 @@ pub(crate) fn is_image(mime: &str) -> bool {
 
 /// `<uuid v7>-<name>`, with the name reduced to safe characters.
 pub(crate) fn stored_name(name: &str) -> String {
-    let safe: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
-        .collect();
+    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
     let safe = safe.trim_start_matches('.');
     let safe = if safe.is_empty() { "attachment" } else { safe };
     let skip = safe.len().saturating_sub(80);
@@ -178,8 +169,8 @@ pub(crate) fn guess_mime(path: &Path) -> &'static str {
         "md" | "markdown" => "text/markdown",
         "html" | "htm" => "text/html",
         "csv" => "text/csv",
-        "txt" | "log" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "toml" | "yaml" | "yml" | "sh" | "css" | "xml"
-        | "c" | "h" | "cpp" | "java" | "swift" | "rb" | "sql" => "text/plain",
+        "txt" | "log" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "toml" | "yaml" | "yml" | "sh" | "css" | "xml" | "c" | "h" | "cpp" | "java"
+        | "swift" | "rb" | "sql" => "text/plain",
         _ => "application/octet-stream",
     }
 }

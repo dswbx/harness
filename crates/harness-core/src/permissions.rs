@@ -5,9 +5,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+use crate::api::{Decision, NewPermissionRule, PermissionRule, RuleScope};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::api::{Decision, NewPermissionRule, PermissionRule, RuleScope};
 
 /// What the policy knows about one requested tool call.
 #[derive(Debug, Default, Clone)]
@@ -61,13 +61,8 @@ impl Policy {
         {
             globset::Glob::new(p)?;
         }
-        let rule = PermissionRule {
-            id: uuid::Uuid::now_v7().to_string(),
-            scope: new.scope,
-            tool_kind: new.tool_kind,
-            pattern: new.pattern,
-            decision: new.decision,
-        };
+        let rule =
+            PermissionRule { id: uuid::Uuid::now_v7().to_string(), scope: new.scope, tool_kind: new.tool_kind, pattern: new.pattern, decision: new.decision };
         let mut rules = self.rules.write().unwrap();
         rules.push(rule.clone());
         self.save(&rules)?;
@@ -101,10 +96,7 @@ impl Policy {
             return Verdict { decision: Decision::Ask, rule_id: None };
         }
         let rules = self.rules.read().unwrap();
-        let best = rules
-            .iter()
-            .filter_map(|r| rank(r, cx, facts).map(|k| (k, r)))
-            .max_by_key(|(k, _)| *k);
+        let best = rules.iter().filter_map(|r| rank(r, cx, facts).map(|k| (k, r))).max_by_key(|(k, _)| *k);
         match best {
             Some((_, r)) => Verdict { decision: r.decision, rule_id: Some(r.id.clone()) },
             None => Verdict { decision: default_decision(cx, facts), rule_id: None },
@@ -140,9 +132,7 @@ fn rank(r: &PermissionRule, cx: &Context, facts: &ToolFacts) -> Option<(u8, u8, 
 /// path (relative globs resolve against the Workspace Folder).
 fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
     if facts.kind.as_deref() == Some("execute") {
-        return facts.command.as_deref().is_some_and(|c| {
-            c == pattern || c.strip_prefix(pattern).is_some_and(|rest| rest.starts_with(char::is_whitespace))
-        });
+        return facts.command.as_deref().is_some_and(|c| c == pattern || c.strip_prefix(pattern).is_some_and(|rest| rest.starts_with(char::is_whitespace)));
     }
     if facts.paths.is_empty() {
         return false;
@@ -158,11 +148,7 @@ fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
 /// everything else (edits, commands, fetches, pushes) asks.
 fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
     let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
-    if safe && facts.paths.iter().all(|p| p.starts_with(cx.folder)) {
-        Decision::Allow
-    } else {
-        Decision::Ask
-    }
+    if safe && facts.paths.iter().all(|p| p.starts_with(cx.folder)) { Decision::Allow } else { Decision::Ask }
 }
 
 /// Extracts kind, command and paths from an ACP tool call (JSON, camelCase).
@@ -193,10 +179,7 @@ pub fn facts_of(tool_call: &Value, folder: &Path) -> ToolFacts {
             paths.push(PathBuf::from(p));
         }
     }
-    let paths = paths
-        .into_iter()
-        .map(|p| normalize(&if p.is_absolute() { p } else { folder.join(p) }))
-        .collect();
+    let paths = paths.into_iter().map(|p| normalize(&if p.is_absolute() { p } else { folder.join(p) })).collect();
     ToolFacts { kind: tool_call.get("kind").and_then(Value::as_str).map(str::to_owned), command, paths }
 }
 

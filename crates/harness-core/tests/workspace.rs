@@ -7,9 +7,8 @@ use std::process::Command as Proc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harness_core::api::{AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
 use harness_core::Harness;
-
+use harness_core::api::{AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
 
 fn harness(data: &Path) -> Arc<Harness> {
     let args = vec!["--resume".to_owned()];
@@ -73,11 +72,16 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
     let all = Arc::new(Mutex::new(Vec::new()));
     let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
+    let id = h
+        .subscribe_session(
+            sid,
+            0,
+            Box::new(move |e: &Event| {
+                a.lock().unwrap().push(e.clone());
+                true
+            }),
+        )
+        .unwrap();
     h.unsubscribe_session(sid, id);
     all.lock().unwrap().clone()
 }
@@ -103,9 +107,7 @@ async fn summary(h: &Harness, sid: &str) -> Option<SessionSummary> {
 async fn worktree_session_lifecycle() {
     let (_dir, repo, data) = repo();
     let h = harness(&data);
-    let CommandResult::Branches { branches } =
-        h.execute(Command::ListBranches { folder: repo.display().to_string() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Branches { branches } = h.execute(Command::ListBranches { folder: repo.display().to_string() }).await.unwrap() else { panic!() };
     let names = branches.branches.iter().map(|b| b.name.as_str()).collect::<Vec<_>>();
     assert_eq!((branches.current.as_deref(), names), (Some("main"), vec!["main"]));
 
@@ -151,9 +153,9 @@ async fn worktree_session_lifecycle() {
     h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
     assert_eq!(std::fs::read_to_string(wt.join("fake.txt")).unwrap(), "hello\n");
     turn(&h, &sid, "write more").await;
-    let CommandResult::Committed { commit } =
-        h.execute(Command::GitCommit { session_id: sid.clone(), message: "Add fake".into() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Committed { commit } = h.execute(Command::GitCommit { session_id: sid.clone(), message: "Add fake".into() }).await.unwrap() else {
+        panic!()
+    };
     assert_eq!(sh(&wt, &["rev-parse", "HEAD"]), commit);
     let CommandResult::GitLog { commits } = h.execute(Command::GitLog { session_id: sid.clone() }).await.unwrap() else { panic!() };
     // Newest first: ours, then the archive WIP commit; never the base's "init".
@@ -259,9 +261,7 @@ async fn git_log_without_worktree() {
 }
 
 async fn branches(h: &Harness, folder: &Path) -> harness_core::api::Branches {
-    let CommandResult::Branches { branches } =
-        h.execute(Command::ListBranches { folder: folder.display().to_string() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::Branches { branches } = h.execute(Command::ListBranches { folder: folder.display().to_string() }).await.unwrap() else { panic!() };
     branches
 }
 

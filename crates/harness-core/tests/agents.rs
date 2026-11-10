@@ -6,11 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use harness_core::Harness;
 use harness_core::api::{AgentInfo, AgentSource, Command, CommandResult, Event, EventKind, FrontendManifest};
 use harness_core::host::Options;
-use harness_core::Harness;
 use sha2::{Digest, Sha256};
-
 
 fn harness(data: &Path, registry: &Path, fixed: Vec<AgentInfo>) -> Arc<Harness> {
     let options = Options { registry_url: format!("file://{}", registry.display()), ..Default::default() };
@@ -56,11 +55,16 @@ fn registry(dir: &Path, tgz: &Path, sha: &str) -> PathBuf {
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
     let all = Arc::new(Mutex::new(Vec::new()));
     let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
+    let id = h
+        .subscribe_session(
+            sid,
+            0,
+            Box::new(move |e: &Event| {
+                a.lock().unwrap().push(e.clone());
+                true
+            }),
+        )
+        .unwrap();
     h.unsubscribe_session(sid, id);
     all.lock().unwrap().clone()
 }
@@ -105,9 +109,7 @@ async fn registry_binary_install_runs_and_survives_restart() {
     let methods: Vec<_> = agents.iter().map(|a| (a.id.as_str(), a.install_method.as_deref())).collect();
     assert_eq!(methods, vec![("fake-acp", Some("binary")), ("npm-only", Some("npx")), ("linux-only", None)], "unparseable entries are skipped");
 
-    let CommandResult::AgentInstalled { agent } =
-        h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap()
-    else { panic!() };
+    let CommandResult::AgentInstalled { agent } = h.execute(Command::InstallAgent { registry_id: "fake-acp".into() }).await.unwrap() else { panic!() };
     assert_eq!((agent.version.as_deref(), &agent.source), (Some("1.2.3"), &AgentSource::Registry { registry_id: "fake-acp".into() }));
     assert!(agent.command.ends_with("agents/fake-acp/1.2.3/bin/run"), "{}", agent.command);
 

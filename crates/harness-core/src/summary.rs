@@ -64,17 +64,11 @@ pub fn turns(events: &[Event], thread: &ThreadId, upto_seq: Option<u64>) -> Vec<
             EventKind::AgentMessageChunk { text } => reply.push_str(text),
             EventKind::ToolCall { tool_call_id, title, raw_input, .. } if !out.is_empty() => {
                 flush(&mut out, &mut reply);
-                out.last_mut().unwrap().parts.push(Part::Tool {
-                    id: tool_call_id.clone(),
-                    title: title.clone(),
-                    input: raw_input.clone(),
-                    output: None,
-                });
+                out.last_mut().unwrap().parts.push(Part::Tool { id: tool_call_id.clone(), title: title.clone(), input: raw_input.clone(), output: None });
             }
             EventKind::ToolCallUpdate { tool_call_id, title: new_title, raw_input: new_input, raw_output: new_output, .. } => {
-                if let Some(Part::Tool { title, input, output, .. }) = out
-                    .last_mut()
-                    .and_then(|t| t.parts.iter_mut().rev().find(|p| matches!(p, Part::Tool { id, .. } if id == tool_call_id)))
+                if let Some(Part::Tool { title, input, output, .. }) =
+                    out.last_mut().and_then(|t| t.parts.iter_mut().rev().find(|p| matches!(p, Part::Tool { id, .. } if id == tool_call_id)))
                 {
                     if let Some(t) = new_title {
                         *title = t.clone();
@@ -186,10 +180,7 @@ fn seed_of(turns: &[Turn], intro: &str) -> String {
 
 /// Renders the Thread's Turns as a plain transcript: user prompts, Agent replies and tool titles.
 pub fn summarize(events: &[Event], thread: &ThreadId) -> String {
-    seed_of(
-        &turns(events, thread, None),
-        "This conversation continues an earlier one whose Agent Session could not be resumed. Transcript so far:",
-    )
+    seed_of(&turns(events, thread, None), "This conversation continues an earlier one whose Agent Session could not be resumed. Transcript so far:")
 }
 
 /// How many of the Thread's Turns `summarize` would keep.
@@ -223,30 +214,36 @@ mod tests {
     #[test]
     fn renders_turns_of_one_thread() {
         let events = vec![
-            ev("t", EventKind::TurnStarted {
-                turn_id: "1".into(),
-                text: "add a README".into(),
-                attachments: vec![crate::api::Attachment {
-                    name: "shot.png".into(),
-                    mime: "image/png".into(),
-                    path: "/s/attachments/x-shot.png".into(),
-                    kind: AttachmentKind::Image,
-                }],
-                context: None,
-            }),
+            ev(
+                "t",
+                EventKind::TurnStarted {
+                    turn_id: "1".into(),
+                    text: "add a README".into(),
+                    attachments: vec![crate::api::Attachment {
+                        name: "shot.png".into(),
+                        mime: "image/png".into(),
+                        path: "/s/attachments/x-shot.png".into(),
+                        kind: AttachmentKind::Image,
+                    }],
+                    context: None,
+                },
+            ),
             ev("t", EventKind::AgentMessageChunk { text: "Sure, ".into() }),
-            ev("t", EventKind::ToolCall {
-                tool_call_id: "c".into(),
-                title: "Write README.md".into(),
-                kind: Some("edit".into()),
-                status: None,
-                content: serde_json::json!([]),
-                locations: serde_json::json!([]),
-                raw_input: None,
-                parent_tool_call_id: None,
-                report: None,
-                harness_tool: None,
-            }),
+            ev(
+                "t",
+                EventKind::ToolCall {
+                    tool_call_id: "c".into(),
+                    title: "Write README.md".into(),
+                    kind: Some("edit".into()),
+                    status: None,
+                    content: serde_json::json!([]),
+                    locations: serde_json::json!([]),
+                    raw_input: None,
+                    parent_tool_call_id: None,
+                    report: None,
+                    harness_tool: None,
+                },
+            ),
             ev("t", EventKind::AgentMessageChunk { text: "done.".into() }),
             ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![], context: None }),
         ];

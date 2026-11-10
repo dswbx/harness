@@ -5,12 +5,11 @@ use common::fake_agent_bin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harness_core::api::{
-    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, ForkPoint, FrontendManifest, NewPermissionRule, Resolver, RuleScope, ThreadStart,
-    ProcessState, SessionStatus,
-};
 use harness_core::Harness;
-
+use harness_core::api::{
+    AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, ForkPoint, FrontendManifest,
+    NewPermissionRule, ProcessState, Resolver, RuleScope, SessionStatus, ThreadStart,
+};
 
 async fn setup() -> (Arc<Harness>, String, tempfile::TempDir) {
     setup_with(&[], Duration::from_secs(900)).await
@@ -32,11 +31,7 @@ fn fake_info() -> AgentInfo {
 fn harness(data: &std::path::Path, flags: &[&str], idle: Duration) -> Arc<Harness> {
     let args = flags.iter().map(|f| f.to_string()).collect();
     let agent = AgentInfo { args, ..fake_info() };
-    let options = harness_core::host::Options {
-        idle_timeout: idle,
-        restore_retries: vec![Duration::from_millis(1); 3],
-        ..Default::default()
-    };
+    let options = harness_core::host::Options { idle_timeout: idle, restore_retries: vec![Duration::from_millis(1); 3], ..Default::default() };
     let h = Harness::with_options(data.to_owned(), vec![agent], options).unwrap();
     h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     h
@@ -47,10 +42,22 @@ async fn setup_with(flags: &[&str], idle: Duration) -> (Arc<Harness>, String, te
     let h = harness(&dir.path().join("data"), flags, idle);
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
+        .execute(Command::CreateSession {
+            folder,
+            agent_id: "fake".into(),
+            frontend_id: "inspector".into(),
+            title: None,
+            branch: None,
+            worktree: false,
+            new_branch: None,
+            pr: None,
+            mcp_servers: vec![],
+        })
         .await
         .unwrap()
-    else { panic!() };
+    else {
+        panic!()
+    };
     (h, session_id, dir)
 }
 
@@ -58,11 +65,15 @@ fn collect(h: &Harness, sid: &str) -> (Arc<Mutex<Vec<Event>>>, tokio::sync::mpsc
     let all = Arc::new(Mutex::new(Vec::new()));
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let a = all.clone();
-    h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        let _ = tx.send(e.clone());
-        true
-    }))
+    h.subscribe_session(
+        sid,
+        0,
+        Box::new(move |e: &Event| {
+            a.lock().unwrap().push(e.clone());
+            let _ = tx.send(e.clone());
+            true
+        }),
+    )
     .unwrap();
     (all, rx)
 }
@@ -87,7 +98,17 @@ async fn turn_streams_into_session_log() {
     h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "use a tool".into(), attachments: vec![] }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     let k = kinds(&all.lock().unwrap());
-    for expected in ["SessionCreated", "ThreadStarted", "AgentSessionStarted", "TurnStarted", "AgentMessageChunk", "TaskListUpdated", "ToolCall", "ToolCallUpdate", "TurnEnded"] {
+    for expected in [
+        "SessionCreated",
+        "ThreadStarted",
+        "AgentSessionStarted",
+        "TurnStarted",
+        "AgentMessageChunk",
+        "TaskListUpdated",
+        "ToolCall",
+        "ToolCallUpdate",
+        "TurnEnded",
+    ] {
         assert!(k.iter().any(|x| x == expected), "missing {expected} in {k:?}");
     }
     let seqs: Vec<u64> = all.lock().unwrap().iter().map(|e| e.seq).collect();
@@ -149,9 +170,7 @@ async fn status_of(h: &Harness) -> SessionStatus {
 }
 
 fn rule(scope: RuleScope, pattern: &str, decision: Decision) -> Command {
-    Command::AddPermissionRule {
-        rule: NewPermissionRule { scope, tool_kind: Some("execute".into()), pattern: Some(pattern.into()), decision },
-    }
+    Command::AddPermissionRule { rule: NewPermissionRule { scope, tool_kind: Some("execute".into()), pattern: Some(pattern.into()), decision } }
 }
 
 /// Runs one "needs permission" Turn; returns how it was resolved and the tool call's final status.
@@ -220,10 +239,22 @@ async fn global_always_allow_applies_to_other_sessions() {
 
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id: second } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
+        .execute(Command::CreateSession {
+            folder,
+            agent_id: "fake".into(),
+            frontend_id: "inspector".into(),
+            title: None,
+            branch: None,
+            worktree: false,
+            new_branch: None,
+            pr: None,
+            mcp_servers: vec![],
+        })
         .await
         .unwrap()
-    else { panic!() };
+    else {
+        panic!()
+    };
     let (by, rule_id, status) = permission_turn(&h, &second).await;
     assert_eq!((by, rule_id, status.as_str()), (Resolver::Policy, Some(rule.id), "completed"));
 }
@@ -236,11 +267,16 @@ fn h_events(h: &Harness, sid: &str) -> Vec<EventKind> {
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
     let all = Arc::new(Mutex::new(Vec::new()));
     let a = all.clone();
-    let id = h.subscribe_session(sid, 0, Box::new(move |e: &Event| {
-        a.lock().unwrap().push(e.clone());
-        true
-    }))
-    .unwrap();
+    let id = h
+        .subscribe_session(
+            sid,
+            0,
+            Box::new(move |e: &Event| {
+                a.lock().unwrap().push(e.clone());
+                true
+            }),
+        )
+        .unwrap();
     h.unsubscribe_session(sid, id);
     all.lock().unwrap().clone()
 }
@@ -255,9 +291,7 @@ async fn turn_with(h: &Harness, sid: &str, thread_id: Option<String>, text: &str
     h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into(), attachments }).await.unwrap();
     for _ in 0..400 {
         let evs = events(h, sid);
-        if let Some(EventKind::TurnEnded { stop_reason, .. }) =
-            evs[before..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::TurnEnded { .. }))
-        {
+        if let Some(EventKind::TurnEnded { stop_reason, .. }) = evs[before..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::TurnEnded { .. })) {
             return stop_reason.clone();
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -304,7 +338,10 @@ async fn restart_logs_the_agent_as_stopped_without_moving_the_session() {
     }
     let before = updated(&h, &sid).await;
     let gone = |h: &Harness| {
-        h_events(h, &sid).into_iter().filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, message: Some(m) } if m == "app_restart")).count()
+        h_events(h, &sid)
+            .into_iter()
+            .filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, message: Some(m) } if m == "app_restart"))
+            .count()
     };
     let data = dir.path().join("data");
     let h2 = harness(&data, &[], Duration::from_secs(900));
@@ -348,10 +385,13 @@ async fn failed_resume_is_retried_on_its_own() {
     turn(&h, &sid, None, "hi").await;
     let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=2"], Duration::from_secs(900));
     assert_eq!(turn(&h2, &sid, None, "back").await, "end_turn");
-    let attempts: Vec<_> = h_events(&h2, &sid).into_iter().filter_map(|k| match k {
-        EventKind::AgentSessionRestoring { attempt, of } => Some((attempt, of)),
-        _ => None,
-    }).collect();
+    let attempts: Vec<_> = h_events(&h2, &sid)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::AgentSessionRestoring { attempt, of } => Some((attempt, of)),
+            _ => None,
+        })
+        .collect();
     assert_eq!(attempts, vec![(1, 3), (2, 3)]);
     assert_eq!(boundaries(&h2, &sid), vec![Boundary::Initial, Boundary::Resumed]);
     assert!(!h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { .. })));
@@ -365,10 +405,13 @@ async fn resume_that_keeps_failing_can_be_tried_again_later() {
     let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=4"], Duration::from_secs(900));
     let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "back".into(), attachments: vec![] };
     assert!(h2.execute(prompt).await.is_err());
-    let report = h_events(&h2, &sid).into_iter().find_map(|k| match k {
-        EventKind::ThreadReadOnly { retryable, errors, transcript, .. } => Some((retryable, errors, transcript)),
-        _ => None,
-    }).unwrap();
+    let report = h_events(&h2, &sid)
+        .into_iter()
+        .find_map(|k| match k {
+            EventKind::ThreadReadOnly { retryable, errors, transcript, .. } => Some((retryable, errors, transcript)),
+            _ => None,
+        })
+        .unwrap();
     assert!(report.0, "the Agent supports resume");
     assert_eq!(report.1.len(), 1);
     assert!(report.1[0].starts_with("resume: "));
@@ -404,9 +447,7 @@ async fn agent_hanging_up_without_exiting_is_replaced_on_next_prompt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_millis(200)).await;
-    let stopped = |h: &Harness| {
-        h_events(h, &sid).iter().filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })).count()
-    };
+    let stopped = |h: &Harness| h_events(h, &sid).iter().filter(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })).count();
     let view = h.subscribe_session(&sid, 0, Box::new(|_: &Event| true)).unwrap();
     turn(&h, &sid, None, "hi").await;
     tokio::time::sleep(Duration::from_millis(800)).await;
@@ -420,11 +461,11 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
 }
 
 async fn start_side(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart) -> (String, bool) {
-    let CommandResult::ThreadStarted { thread_id, forked } = h
-        .execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source })
-        .await
-        .unwrap()
-    else { panic!() };
+    let CommandResult::ThreadStarted { thread_id, forked } =
+        h.execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source }).await.unwrap()
+    else {
+        panic!()
+    };
     (thread_id, forked)
 }
 
@@ -648,9 +689,7 @@ async fn transcript_tools_read_threads_of_the_session() {
 async fn config_change_starts_the_agent_and_logs_the_answer() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
     // No prompt yet: the Agent is not running.
-    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "b".into() })
-        .await
-        .unwrap();
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "b".into() }).await.unwrap();
     let current: Vec<String> = h_events(&h, &sid)
         .into_iter()
         .filter_map(|k| match k {
@@ -676,16 +715,26 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
             .collect()
     };
     assert_eq!(turn(&h, &first, None, "hi").await, "end_turn");
-    h.execute(Command::SetConfigOption { session_id: first.clone(), thread_id: None, config_id: "model".into(), value: "b".into() })
-        .await
-        .unwrap();
+    h.execute(Command::SetConfigOption { session_id: first.clone(), thread_id: None, config_id: "model".into(), value: "b".into() }).await.unwrap();
 
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id: second } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
+        .execute(Command::CreateSession {
+            folder,
+            agent_id: "fake".into(),
+            frontend_id: "inspector".into(),
+            title: None,
+            branch: None,
+            worktree: false,
+            new_branch: None,
+            pr: None,
+            mcp_servers: vec![],
+        })
         .await
         .unwrap()
-    else { panic!() };
+    else {
+        panic!()
+    };
     assert_eq!(turn(&h, &second, None, "hi").await, "end_turn");
     assert_eq!(models(&h, &second), vec!["b"], "starts with the remembered model, logged once");
     assert_eq!(models(&h, &first), vec!["a", "b"], "the first Session is unchanged");
@@ -695,10 +744,22 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
     let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
     let folder = dir.path().display().to_string();
     let CommandResult::SessionCreated { session_id: third } = h
-        .execute(Command::CreateSession { folder, agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, branch: None, worktree: false, new_branch: None, pr: None, mcp_servers: vec![] })
+        .execute(Command::CreateSession {
+            folder,
+            agent_id: "fake".into(),
+            frontend_id: "inspector".into(),
+            title: None,
+            branch: None,
+            worktree: false,
+            new_branch: None,
+            pr: None,
+            mcp_servers: vec![],
+        })
         .await
         .unwrap()
-    else { panic!() };
+    else {
+        panic!()
+    };
     assert_eq!(turn(&h, &third, None, "hi").await, "end_turn");
     assert_eq!(models(&h, &third), vec!["b"]);
 }
@@ -856,10 +917,7 @@ async fn pasted_image_is_stored_and_sent() {
 async fn image_is_refused_when_the_agent_does_not_accept_images() {
     let (h, sid, dir) = setup().await;
     let image = AttachmentInput::Data { name: "a.png".into(), mime: "image/png".into(), data: b64(b"png") };
-    let err = h
-        .execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "look".into(), attachments: vec![image] })
-        .await
-        .unwrap_err();
+    let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "look".into(), attachments: vec![image] }).await.unwrap_err();
     assert!(err.contains("Fake does not accept images."), "{err}");
     assert!(!h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::TurnStarted { .. })));
     assert!(!dir.path().join("data/sessions").join(&sid).join("attachments").exists());
@@ -884,19 +942,16 @@ async fn files_are_linked_inside_the_folder_and_embedded_outside() {
     assert_eq!(got[0].mime, "text/markdown");
 
     let missing = AttachmentInput::Path { path: dir.path().join("nope.txt").display().to_string() };
-    let err = h
-        .execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "x".into(), attachments: vec![missing] })
-        .await
-        .unwrap_err();
+    let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "x".into(), attachments: vec![missing] }).await.unwrap_err();
     assert!(err.contains("nope.txt"), "{err}");
 }
 
 async fn quick_session(h: &Harness) -> String {
-    let CommandResult::SessionCreated { session_id } = h
-        .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, mcp_servers: vec![] })
-        .await
-        .unwrap()
-    else { panic!() };
+    let CommandResult::SessionCreated { session_id } =
+        h.execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, mcp_servers: vec![] }).await.unwrap()
+    else {
+        panic!()
+    };
     session_id
 }
 
@@ -973,7 +1028,9 @@ async fn quick_session_with_a_given_title_keeps_it() {
         .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: Some("Mine".into()), mcp_servers: vec![] })
         .await
         .unwrap()
-    else { panic!() };
+    else {
+        panic!()
+    };
     turn(&h, &sid, None, "hello").await;
     assert_eq!(summary(&h, &sid).await.unwrap().title, "Mine");
 }

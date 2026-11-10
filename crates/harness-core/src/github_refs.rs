@@ -294,11 +294,8 @@ fn parse_lookup(refs: &[PrRefKey], repos: &[String], body: &str) -> anyhow::Resu
 
 /// A PR from GraphQL (checks under `commits`) or `gh pr list --json` (checks in `statusCheckRollup`).
 fn pr_info(repo: &RepoId, v: &Value) -> Option<PrInfo> {
-    let rollup = if v["statusCheckRollup"].is_array() {
-        &v["statusCheckRollup"]
-    } else {
-        &v["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
-    };
+    let rollup =
+        if v["statusCheckRollup"].is_array() { &v["statusCheckRollup"] } else { &v["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"] };
     let rollup = rollup.as_array().map_or(&[][..], Vec::as_slice);
     let (checks_passed, checks_total) = check_counts(rollup);
     let num = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
@@ -425,8 +422,11 @@ mod tests {
         assert_eq!(state("MERGED", false), PrState::Merged);
         assert_eq!(state("CLOSED", true), PrState::Closed);
         // `gh pr list --json` shape.
-        let p = pr_info(&r, &json!({"number": 4, "state": "OPEN", "isDraft": false, "author": null,
-            "statusCheckRollup": [{"conclusion": "SUCCESS"}, {"status": "IN_PROGRESS", "conclusion": ""}]}))
+        let p = pr_info(
+            &r,
+            &json!({"number": 4, "state": "OPEN", "isDraft": false, "author": null,
+            "statusCheckRollup": [{"conclusion": "SUCCESS"}, {"status": "IN_PROGRESS", "conclusion": ""}]}),
+        )
         .unwrap();
         assert_eq!((p.author.as_str(), p.checks, p.checks_passed, p.checks_total), ("ghost", PrChecks::Pending, 1, 2));
         assert_eq!(pr_info(&r, &Value::Null), None);
@@ -474,10 +474,7 @@ mod tests {
             }
             .boxed()
         }));
-        let (a, b) = tokio::join!(
-            refs.lookup(vec![pr_ref("o", "r", 1), pr_ref("o", "r", 2)]),
-            refs.lookup(vec![pr_ref("o", "r", 2), pr_ref("O", "R", 3)]),
-        );
+        let (a, b) = tokio::join!(refs.lookup(vec![pr_ref("o", "r", 1), pr_ref("o", "r", 2)]), refs.lookup(vec![pr_ref("o", "r", 2), pr_ref("O", "R", 3)]),);
         assert_eq!(a.unwrap().iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [Some(1), Some(2)]);
         assert_eq!(b.unwrap().iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [Some(2), None]);
         assert_eq!(*calls.lock().unwrap(), [vec![1, 2], vec![3]]);

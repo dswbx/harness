@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
 use harness_core::Harness;
+use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
 use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
@@ -14,10 +14,7 @@ use tauri::{Manager, Webview};
 mod updates;
 
 /// Frontend Manifests of the built-in Frontends, registered with core at boot.
-const MANIFESTS: &[&str] = &[
-    include_str!("../../../packages/frontend-chat/manifest.json"),
-    include_str!("../../../packages/frontend-inspector/manifest.json"),
-];
+const MANIFESTS: &[&str] = &[include_str!("../../../packages/frontend-chat/manifest.json"), include_str!("../../../packages/frontend-inspector/manifest.json")];
 
 /// `$HARNESS_HOME`, else `~/.harness` (`~/.harness-dev` for dev builds, so they never touch real data).
 fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
@@ -123,28 +120,14 @@ fn subscribe(
     from_seq: u64,
     channel: Channel<Event>,
 ) -> Result<u64, String> {
-    let id = harness.subscribe_session(
-        &session_id,
-        from_seq,
-        Box::new(move |e: &Event| channel.send(e.clone()).is_ok()),
-    )?;
-    subs.by_webview
-        .lock()
-        .unwrap()
-        .entry(webview.label().to_owned())
-        .or_default()
-        .push((session_id, id));
+    let id = harness.subscribe_session(&session_id, from_seq, Box::new(move |e: &Event| channel.send(e.clone()).is_ok()))?;
+    subs.by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push((session_id, id));
     Ok(id)
 }
 
 /// Harness-wide events (session list, attention) for this webview.
 #[tauri::command]
-fn subscribe_app(
-    webview: Webview,
-    harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
-    channel: Channel<AppEvent>,
-) -> u64 {
+fn subscribe_app(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, channel: Channel<AppEvent>) -> u64 {
     let id = harness.subscribe_app(Box::new(move |e: &AppEvent| channel.send(e.clone()).is_ok()));
     subs.app_by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push(id);
     id
@@ -182,12 +165,7 @@ fn terminal_attach(
             }),
         )
         .map_err(|e| format!("{e:#}"))?;
-    subs.terminals_by_webview
-        .lock()
-        .unwrap()
-        .entry(webview.label().to_owned())
-        .or_default()
-        .push((session_id, terminal_id, id));
+    subs.terminals_by_webview.lock().unwrap().entry(webview.label().to_owned()).or_default().push((session_id, terminal_id, id));
     Ok(id)
 }
 
@@ -247,13 +225,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
 }
 
 #[tauri::command]
-fn unsubscribe(
-    webview: Webview,
-    harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
-    session_id: String,
-    id: u64,
-) {
+fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, session_id: String, id: u64) {
     harness.unsubscribe_session(&session_id, id);
     if let Some(list) = subs.by_webview.lock().unwrap().get_mut(webview.label()) {
         list.retain(|(s, i)| !(s == &session_id && *i == id));
@@ -277,10 +249,7 @@ fn frame_response() -> tauri::http::Response<Vec<u8>> {
 
 pub fn run() {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,agent_stderr=off".into()),
-        )
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,agent_stderr=off".into()))
         .with_writer(std::io::stderr)
         .init();
 
@@ -302,10 +271,7 @@ pub fn run() {
         .setup(|app| {
             let data_dir = data_dir(app.path().home_dir()?);
             let exe = std::env::current_exe()?.display().to_string();
-            let options = harness_core::host::Options {
-                mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])),
-                ..Default::default()
-            };
+            let options = harness_core::host::Options { mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])), ..Default::default() };
             let harness = Harness::with_options(data_dir, Vec::new(), options)?;
             for raw in MANIFESTS {
                 harness.register_frontend(serde_json::from_str::<FrontendManifest>(raw)?);

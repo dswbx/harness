@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::api::{Event, EventKind, EventSink, EVENT_SCHEMA_VERSION, ProcessState, SessionId, ThreadId};
+use crate::api::{EVENT_SCHEMA_VERSION, Event, EventKind, EventSink, ProcessState, SessionId, ThreadId};
 
 pub type SubscriptionId = u64;
 
@@ -130,10 +130,7 @@ impl SessionLog {
             session_id: self.session_id.clone(),
             thread_id: None,
             ts_ms: self.last_ts_ms.load(Ordering::Relaxed),
-            kind: EventKind::AgentProcessState {
-                state: ProcessState::Stopped,
-                message: Some("app_restart".to_owned()),
-            },
+            kind: EventKind::AgentProcessState { state: ProcessState::Stopped, message: Some("app_restart".to_owned()) },
         };
         inner.write(&event)
     }
@@ -147,14 +144,7 @@ impl SessionLog {
             return Ok(p.clone());
         }
         inner.flush()?;
-        let event = Event {
-            v: EVENT_SCHEMA_VERSION,
-            seq: inner.next_seq,
-            session_id: self.session_id.clone(),
-            thread_id,
-            ts_ms: now_ms(),
-            kind,
-        };
+        let event = Event { v: EVENT_SCHEMA_VERSION, seq: inner.next_seq, session_id: self.session_id.clone(), thread_id, ts_ms: now_ms(), kind };
         let chunk = matches!(event.kind, EventKind::AgentMessageChunk { .. } | EventKind::AgentThoughtChunk { .. });
         match tokio::runtime::Handle::try_current() {
             Ok(rt) if chunk => {
@@ -253,10 +243,7 @@ fn read_events(path: &Path) -> anyhow::Result<Vec<Event>> {
 }
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -267,10 +254,13 @@ mod tests {
     fn collector() -> (Box<dyn EventSink>, Arc<StdMutex<Vec<u64>>>) {
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let s = seen.clone();
-        (Box::new(move |e: &Event| {
-            s.lock().unwrap().push(e.seq);
-            true
-        }), seen)
+        (
+            Box::new(move |e: &Event| {
+                s.lock().unwrap().push(e.seq);
+                true
+            }),
+            seen,
+        )
     }
 
     fn msg(t: &str) -> EventKind {

@@ -4,10 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use crate::api::{
-    AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey,
-    SessionId, SessionSummary,
-};
+use crate::api::{AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey, SessionId, SessionSummary};
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared, WorkspaceMeta};
@@ -16,11 +13,8 @@ use crate::workspace::WorktreeMeta;
 /// Default for `Shared::idle_timeout`.
 pub const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 /// Default for `Shared::restore_retries`.
-pub const RESTORE_RETRIES: [std::time::Duration; 3] = [
-    std::time::Duration::from_secs(2),
-    std::time::Duration::from_secs(5),
-    std::time::Duration::from_secs(15),
-];
+pub const RESTORE_RETRIES: [std::time::Duration; 3] =
+    [std::time::Duration::from_secs(2), std::time::Duration::from_secs(5), std::time::Duration::from_secs(15)];
 
 pub struct Options {
     pub idle_timeout: std::time::Duration,
@@ -125,10 +119,10 @@ impl Harness {
 
     pub async fn execute(&self, cmd: Command) -> Result<CommandResult, String> {
         let changes = match &cmd {
-            Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => Some(AppEvent::SessionsChanged),
-            Command::InstallAgent { .. } | Command::AddCustomAgent { .. } | Command::RemoveAgent { .. } => {
-                Some(AppEvent::AgentsChanged)
+            Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => {
+                Some(AppEvent::SessionsChanged)
             }
+            Command::InstallAgent { .. } | Command::AddCustomAgent { .. } | Command::RemoveAgent { .. } => Some(AppEvent::AgentsChanged),
             _ => None,
         };
         let result = self.execute_inner(cmd).await.map_err(|e| format!("{e:#}"));
@@ -149,14 +143,7 @@ impl Harness {
 
     /// Attaches to a Terminal tab of the Session (a shell in its Workspace Folder, started if none runs):
     /// the replay buffer, then live output until the sink returns `false` or `terminal_detach`.
-    pub fn terminal_attach(
-        &self,
-        session_id: &str,
-        terminal_id: u32,
-        cols: u16,
-        rows: u16,
-        sink: crate::terminal::TerminalSink,
-    ) -> anyhow::Result<u64> {
+    pub fn terminal_attach(&self, session_id: &str, terminal_id: u32, cols: u16, rows: u16, sink: crate::terminal::TerminalSink) -> anyhow::Result<u64> {
         let folder = PathBuf::from(self.session(session_id)?.meta().folder);
         self.terminals.attach(session_id, terminal_id, &folder, cols, rows, sink)
     }
@@ -168,12 +155,8 @@ impl Harness {
     async fn execute_inner(&self, cmd: Command) -> anyhow::Result<CommandResult> {
         Ok(match cmd {
             Command::ListAgents => CommandResult::Agents { agents: self.shared.agents.list() },
-            Command::ListRegistry { refresh } => {
-                CommandResult::Registry { agents: self.shared.agents.registry(refresh).await? }
-            }
-            Command::InstallAgent { registry_id } => {
-                CommandResult::AgentInstalled { agent: self.shared.agents.install(&registry_id).await? }
-            }
+            Command::ListRegistry { refresh } => CommandResult::Registry { agents: self.shared.agents.registry(refresh).await? },
+            Command::InstallAgent { registry_id } => CommandResult::AgentInstalled { agent: self.shared.agents.install(&registry_id).await? },
             Command::AddCustomAgent { name, command, args, env } => {
                 CommandResult::AgentInstalled { agent: self.shared.agents.add_custom(name, command, args, env)? }
             }
@@ -189,21 +172,15 @@ impl Harness {
                 self.session(&session_id)?.open_auth_terminal(&method_id).await?;
                 CommandResult::Ok
             }
-            Command::ListFrontends => {
-                CommandResult::Frontends { frontends: self.shared.frontends.read().unwrap().clone() }
-            }
+            Command::ListFrontends => CommandResult::Frontends { frontends: self.shared.frontends.read().unwrap().clone() },
             Command::ListSessions => {
-                let mut sessions: Vec<SessionSummary> =
-                    self.sessions.read().unwrap().values().map(|s| s.summary()).collect();
+                let mut sessions: Vec<SessionSummary> = self.sessions.read().unwrap().values().map(|s| s.summary()).collect();
                 sessions.sort_by_key(|s| std::cmp::Reverse(s.created_ms));
                 CommandResult::Sessions { sessions }
             }
             Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
                 let agent = self.agent(&agent_id)?;
-                anyhow::ensure!(
-                    self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id),
-                    "unknown frontend {frontend_id}"
-                );
+                anyhow::ensure!(self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
                 let id = uuid::Uuid::now_v7().to_string();
                 let dir = self.data_dir.join("sessions").join(&id);
                 let start = match pr {
@@ -218,17 +195,7 @@ impl Harness {
                 for m in &mcp_servers {
                     self.shared.library.resolve(m)?;
                 }
-                let session = Session::create(
-                    &dir,
-                    id.clone(),
-                    title,
-                    folder,
-                    agent,
-                    frontend_id,
-                    workspace,
-                    mcp_servers,
-                    self.shared.clone(),
-                )?;
+                let session = Session::create(&dir, id.clone(), title, folder, agent, frontend_id, workspace, mcp_servers, self.shared.clone())?;
                 if let Some(folder) = session.meta().repo_folder() {
                     let shared = self.shared.clone();
                     tokio::spawn(async move { shared.pr_refs.repo_of(&folder).await });
@@ -238,10 +205,7 @@ impl Harness {
             }
             Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
                 let agent = self.agent(&agent_id)?;
-                anyhow::ensure!(
-                    self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id),
-                    "unknown frontend {frontend_id}"
-                );
+                anyhow::ensure!(self.shared.frontends.read().unwrap().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
                 for m in &mcp_servers {
                     self.shared.library.resolve(m)?;
                 }
@@ -308,16 +272,12 @@ impl Harness {
                 CommandResult::ThreadStarted { thread_id, forked }
             }
             Command::ListMcpServers => CommandResult::McpServers { servers: self.shared.library.list() },
-            Command::SaveMcpServer { server, secrets } => {
-                CommandResult::McpServerSaved { server: self.shared.library.save(server, secrets)? }
-            }
+            Command::SaveMcpServer { server, secrets } => CommandResult::McpServerSaved { server: self.shared.library.save(server, secrets)? },
             Command::RemoveMcpServer { server_id } => {
                 self.shared.library.remove(&server_id)?;
                 CommandResult::Ok
             }
-            Command::FrontendRead { session_id, path } => {
-                CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? }
-            }
+            Command::FrontendRead { session_id, path } => CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? },
             Command::GetAppSetting { key } => CommandResult::Json { value: crate::app_settings::load(&self.data_dir, key) },
             Command::SetAppSetting { key, value } => {
                 crate::app_settings::save(&self.data_dir, key, value.as_ref())?;
@@ -339,8 +299,7 @@ impl Harness {
             }
             Command::ReadSessionFile { session_id, path, start, end } => {
                 let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
-                let (path, start, lines, total) =
-                    tokio::task::spawn_blocking(move || crate::editor::read_lines(&folder, &path, start, end)).await??;
+                let (path, start, lines, total) = tokio::task::spawn_blocking(move || crate::editor::read_lines(&folder, &path, start, end)).await??;
                 CommandResult::FileLines { path, start, lines, total }
             }
             Command::GetState { session_id } => CommandResult::State { state: self.session(&session_id)?.state()? },
@@ -364,9 +323,7 @@ impl Harness {
                 self.session(&session_id)?.frontend_write(&path, &content)?;
                 CommandResult::Ok
             }
-            Command::FrontendList { session_id, dir } => {
-                CommandResult::Files { files: self.session(&session_id)?.frontend_list(&dir)? }
-            }
+            Command::FrontendList { session_id, dir } => CommandResult::Files { files: self.session(&session_id)?.frontend_list(&dir)? },
             Command::ListBranches { folder } => {
                 let mut branches = crate::workspace::list_branches(Path::new(&folder)).await?;
                 // Archived Sessions keep their branch but lose the Worktree.
@@ -386,9 +343,7 @@ impl Harness {
                 }
                 CommandResult::Branches { branches }
             }
-            Command::ListPullRequests { folder, filter } => {
-                CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? }
-            }
+            Command::ListPullRequests { folder, filter } => CommandResult::PullRequests { prs: crate::github::list_prs(Path::new(&folder), filter).await? },
             Command::UpdateBranch { folder, branch } => {
                 crate::workspace::update_branch(Path::new(&folder), &branch).await?;
                 CommandResult::Ok
@@ -418,9 +373,7 @@ impl Harness {
                 };
                 let base = match meta.workspace.worktree.as_ref().map(|w| w.base.clone()).or_else(|| meta.workspace.base.clone()) {
                     Some(b) => Some(b),
-                    None => crate::workspace::default_branch(Path::new(&meta.folder))
-                        .await
-                        .map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned()),
+                    None => crate::workspace::default_branch(Path::new(&meta.folder)).await.map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned()),
                 };
                 CommandResult::BranchPr { repo, pr, base }
             }
@@ -444,9 +397,7 @@ impl Harness {
                 }
                 CommandResult::Ok
             }
-            Command::GitStatus { session_id } => {
-                CommandResult::GitStatus { status: self.session(&session_id)?.git_status().await? }
-            }
+            Command::GitStatus { session_id } => CommandResult::GitStatus { status: self.session(&session_id)?.git_status().await? },
             Command::PrContext { session_id } => {
                 let session = self.session(&session_id)?;
                 let folders: Vec<(PathBuf, i64)> = self
@@ -475,12 +426,8 @@ impl Harness {
                 self.session(&session_id)?;
                 CommandResult::PrSearch { prs: self.shared.pr_refs.search(&repo, query.as_deref()).await? }
             }
-            Command::GitDiff { session_id, from, to } => {
-                CommandResult::Diff { diff: self.session(&session_id)?.git_diff(from, to).await? }
-            }
-            Command::GitLog { session_id } => {
-                CommandResult::GitLog { commits: self.session(&session_id)?.git_log().await? }
-            }
+            Command::GitDiff { session_id, from, to } => CommandResult::Diff { diff: self.session(&session_id)?.git_diff(from, to).await? },
+            Command::GitLog { session_id } => CommandResult::GitLog { commits: self.session(&session_id)?.git_log().await? },
             Command::ListTerminals { session_id } => {
                 self.session(&session_id)?;
                 let terminals = self.terminals.clone();
@@ -527,9 +474,7 @@ impl Harness {
                 CommandResult::Ok
             }
             Command::ListPermissionRules => CommandResult::PermissionRules { rules: self.shared.policy.list() },
-            Command::AddPermissionRule { rule } => {
-                CommandResult::PermissionRuleAdded { rule: self.shared.policy.add(rule)? }
-            }
+            Command::AddPermissionRule { rule } => CommandResult::PermissionRuleAdded { rule: self.shared.policy.add(rule)? },
             Command::RemovePermissionRule { rule_id } => {
                 self.shared.policy.remove(&rule_id)?;
                 CommandResult::Ok
@@ -545,12 +490,7 @@ impl Harness {
         })
     }
 
-    pub fn subscribe_session(
-        &self,
-        session_id: &str,
-        from_seq: u64,
-        sink: Box<dyn EventSink>,
-    ) -> Result<SubscriptionId, String> {
+    pub fn subscribe_session(&self, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<SubscriptionId, String> {
         let session = self.session(session_id).map_err(|e| e.to_string())?;
         session.log().subscribe(from_seq, sink).map_err(|e| format!("{e:#}"))
     }
@@ -603,10 +543,7 @@ impl Harness {
                 Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }, Some(pr.number)))
             }
             Start::Pr { pr, worktree: false } => {
-                anyhow::ensure!(
-                    !crate::workspace::is_dirty(&root).await?,
-                    "the folder has uncommitted changes; commit or stash them, or use a Worktree"
-                );
+                anyhow::ensure!(!crate::workspace::is_dirty(&root).await?, "the folder has uncommitted changes; commit or stash them, or use a Worktree");
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
                 Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number), branch_pr: None }))
             }
@@ -628,12 +565,7 @@ impl Harness {
     }
 
     fn session(&self, id: &str) -> anyhow::Result<Arc<Session>> {
-        self.sessions
-            .read()
-            .unwrap()
-            .get(id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("unknown session {id}"))
+        self.sessions.read().unwrap().get(id).cloned().ok_or_else(|| anyhow::anyhow!("unknown session {id}"))
     }
 
     fn agent(&self, id: &str) -> anyhow::Result<AgentInfo> {
@@ -647,17 +579,12 @@ fn scan_repos(shared: &Arc<Shared>, folders: Vec<PathBuf>) {
     let scan = async move { shared.pr_refs.scan(folders).await };
     match tokio::runtime::Handle::try_current() {
         Ok(rt) => drop(rt.spawn(scan)),
-        Err(_) => drop(std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread().enable_all().build().map(|rt| rt.block_on(scan))
-        })),
+        Err(_) => drop(std::thread::spawn(move || tokio::runtime::Builder::new_current_thread().enable_all().build().map(|rt| rt.block_on(scan)))),
     }
 }
 
 fn folder_name(folder: &str) -> String {
-    std::path::Path::new(folder)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| folder.to_owned())
+    std::path::Path::new(folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.to_owned())
 }
 
 /// Where a new Session's work starts.

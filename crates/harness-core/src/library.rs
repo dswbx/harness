@@ -85,10 +85,7 @@ impl Library {
 
     pub fn save(&self, mut server: McpServerDef, secrets: BTreeMap<String, String>) -> anyhow::Result<McpServerDef> {
         anyhow::ensure!(!server.name.trim().is_empty(), "the server needs a name");
-        anyhow::ensure!(
-            crate::workspace::slug(&server.name) != "harness" || !server.id.is_empty(),
-            "\"harness\" is reserved for the Harness MCP"
-        );
+        anyhow::ensure!(crate::workspace::slug(&server.name) != "harness" || !server.id.is_empty(), "\"harness\" is reserved for the Harness MCP");
         if server.id.is_empty() {
             server.id = crate::workspace::slug(&server.name);
         }
@@ -134,11 +131,7 @@ impl Library {
 
     /// The server with its secrets filled in, ready to hand to an Agent.
     pub fn resolve(&self, id: &str) -> anyhow::Result<McpServerDef> {
-        let mut server = self
-            .list()
-            .into_iter()
-            .find(|s| s.id == id)
-            .ok_or_else(|| anyhow::anyhow!("unknown MCP server {id}"))?;
+        let mut server = self.list().into_iter().find(|s| s.id == id).ok_or_else(|| anyhow::anyhow!("unknown MCP server {id}"))?;
         let mut filled = BTreeMap::new();
         for k in &server.secret_keys {
             let v = self.secrets.get(&secret_key(id, k))?.ok_or_else(|| anyhow::anyhow!("{}: secret {k} is not set", server.name))?;

@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{AgentInfo, EventKind, GitActor, SessionId, SessionStatus, SessionSummary, ThreadId};
-use crate::log::{now_ms, SessionLog};
+use crate::log::{SessionLog, now_ms};
 use crate::permissions::Policy;
 
 /// Harness-wide state every Session shares.
@@ -309,17 +309,8 @@ impl Session {
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
-        log.append(None, EventKind::SessionCreated {
-            title,
-            frontend_id,
-            agent_id: agent.id.clone(),
-            folder,
-        })?;
-        log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted {
-            agent_id: agent.id,
-            main: true,
-            forked_from: None,
-        })?;
+        log.append(None, EventKind::SessionCreated { title, frontend_id, agent_id: agent.id.clone(), folder })?;
+        log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted { agent_id: agent.id, main: true, forked_from: None })?;
         log.sync()?;
         Ok(Self::from_parts(dir, meta, log, shared))
     }
@@ -362,7 +353,15 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
-        Self { dir: dir.to_owned(), meta: Arc::new(std::sync::Mutex::new(meta)), log, agent: Default::default(), shared, state_lock: Default::default(), frontend_requests: Default::default() }
+        Self {
+            dir: dir.to_owned(),
+            meta: Arc::new(std::sync::Mutex::new(meta)),
+            log,
+            agent: Default::default(),
+            shared,
+            state_lock: Default::default(),
+            frontend_requests: Default::default(),
+        }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -419,13 +418,7 @@ impl Session {
         let path = self.dir.join("frontend").join(&rel);
         std::fs::create_dir_all(path.parent().unwrap())?;
         std::fs::write(&path, serde_json::to_vec_pretty(&input)?)?;
-        self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput {
-            tool: tool.to_owned(),
-            call_id,
-            path: rel.clone(),
-            input,
-            files,
-        })?;
+        self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput { tool: tool.to_owned(), call_id, path: rel.clone(), input, files })?;
         Ok(rel)
     }
 
@@ -509,13 +502,9 @@ impl Session {
                         }
                     }
                 }
-                EventKind::FrontendError { tool, item, message } => errors.push(FrontendErrorEntry {
-                    seq: e.seq,
-                    thread: e.thread_id.unwrap_or_default(),
-                    tool,
-                    item,
-                    message,
-                }),
+                EventKind::FrontendError { tool, item, message } => {
+                    errors.push(FrontendErrorEntry { seq: e.seq, thread: e.thread_id.unwrap_or_default(), tool, item, message })
+                }
                 _ => {}
             }
         }
@@ -608,8 +597,7 @@ impl Session {
             script.push_str(&format!("export {k}={}\n", quote(v)));
         }
         script.push_str(&format!("cd {}\n", quote(&self.meta().folder)));
-        let argv: Vec<String> =
-            std::iter::once(&agent.command).chain(agent.args.iter()).chain(extra_args.iter()).map(|a| quote(a)).collect();
+        let argv: Vec<String> = std::iter::once(&agent.command).chain(agent.args.iter()).chain(extra_args.iter()).map(|a| quote(a)).collect();
         script.push_str(&format!("exec {}\n", argv.join(" ")));
         let path = std::env::temp_dir().join(format!("harness-auth-{}.command", uuid::Uuid::now_v7()));
         std::fs::write(&path, script)?;
@@ -696,12 +684,7 @@ impl Session {
         }
     }
 
-    pub async fn prompt(
-        self: &Arc<Self>,
-        thread_id: Option<ThreadId>,
-        text: String,
-        attachments: Vec<crate::api::AttachmentInput>,
-    ) -> anyhow::Result<()> {
+    pub async fn prompt(self: &Arc<Self>, thread_id: Option<ThreadId>, text: String, attachments: Vec<crate::api::AttachmentInput>) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         self.note_first_prompt(&thread, &text)?;
         self.adopt_repo();
@@ -736,10 +719,7 @@ impl Session {
     /// A Quick Session nobody used: no prompt, nothing in its folder, not archived.
     pub fn is_discardable(&self) -> bool {
         let m = self.meta();
-        m.quick
-            && m.awaiting_first_prompt
-            && !m.archived
-            && std::fs::read_dir(&m.folder).map(|mut d| d.next().is_none()).unwrap_or(true)
+        m.quick && m.awaiting_first_prompt && !m.archived && std::fs::read_dir(&m.folder).map(|mut d| d.next().is_none()).unwrap_or(true)
     }
 
     /// Removes the Session Directory and, for a Quick Session, the folder the Harness made.
@@ -790,11 +770,7 @@ impl Session {
 
     /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
     /// whether that will be a fork of the Main Thread's Agent Session.
-    pub fn start_side_thread(
-        &self,
-        seed: Option<String>,
-        source: crate::api::ThreadStart,
-    ) -> anyhow::Result<(ThreadId, bool)> {
+    pub fn start_side_thread(&self, seed: Option<String>, source: crate::api::ThreadStart) -> anyhow::Result<(ThreadId, bool)> {
         let thread = uuid::Uuid::now_v7().to_string();
         let main = self.meta().main_thread_id;
         let point = crate::summary::last_finished_turn(&self.log.events()?, &main);
@@ -807,11 +783,7 @@ impl Session {
             m.origins.insert(thread.clone(), SideOrigin { point: point.clone(), source });
             m.agent.id.clone()
         })?;
-        self.log.append(Some(thread.clone()), EventKind::ThreadStarted {
-            agent_id,
-            main: false,
-            forked_from: Some(point),
-        })?;
+        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false, forked_from: Some(point) })?;
         Ok((thread, forked))
     }
 
@@ -918,10 +890,7 @@ impl Session {
     pub async fn delete_workspace(&self, force: bool) -> anyhow::Result<()> {
         if let Some(wt) = self.meta().workspace.worktree {
             if !force {
-                anyhow::ensure!(
-                    !(wt.path.exists() && crate::workspace::is_dirty(&wt.path).await?),
-                    "the Worktree has uncommitted changes"
-                );
+                anyhow::ensure!(!(wt.path.exists() && crate::workspace::is_dirty(&wt.path).await?), "the Worktree has uncommitted changes");
                 let n = crate::workspace::unmerged_count(&wt.repo_root, &wt.base, &wt.branch).await?;
                 anyhow::ensure!(n == 0, "branch {} has {n} commit(s) not on {}", wt.branch, wt.base);
             }

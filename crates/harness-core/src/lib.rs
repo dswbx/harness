@@ -2,9 +2,9 @@
 
 mod acp;
 mod agent_quirks;
-mod app_settings;
 pub mod agents;
 pub mod api;
+mod app_settings;
 mod attachments;
 mod editor;
 mod env;
@@ -20,9 +20,9 @@ pub mod permissions;
 pub mod session;
 mod state;
 mod summary;
-mod transcript;
 pub mod terminal;
 pub mod toolchain;
+mod transcript;
 pub mod workspace;
 
 pub use host::Harness;

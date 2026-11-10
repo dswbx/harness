@@ -23,8 +23,8 @@
 //! embedded-context prompt capabilities. `--fork` advertises `session/fork` (new id, copy of the
 //! source's history); with `--fork-fail` the request is refused.
 
-use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
 
 fn update(cx: &ConnectionTo<Client>, session: &SessionId, u: SessionUpdate) -> agent_client_protocol::Result<()> {
@@ -134,12 +134,7 @@ fn set_config(id: &SessionId, config: (String, String)) -> Vec<SessionConfigOpti
 /// A model option, and a mode option whose "default" asks before writes and "auto" does not.
 fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> {
     vec![
-        SessionConfigOption::select(
-            "model",
-            "Model",
-            model.clone(),
-            vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")],
-        ),
+        SessionConfigOption::select("model", "Model", model.clone(), vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")]),
         SessionConfigOption::select(
             "mode",
             "Mode",
@@ -247,7 +242,11 @@ async fn main() -> agent_client_protocol::Result<()> {
                 let value = serde_json::to_value(&req.value).unwrap_or_default();
                 let value = value.get("value").and_then(|v| v.as_str()).unwrap_or("a").to_owned();
                 let (mut model, mut mode) = config_of(&req.session_id);
-                if req.config_id.to_string() == "mode" { mode = value } else { model = value }
+                if req.config_id.to_string() == "mode" {
+                    mode = value
+                } else {
+                    model = value
+                }
                 responder.respond(SetSessionConfigOptionResponse::new(set_config(&req.session_id, (model, mode))))
             },
             agent_client_protocol::on_receive_request!(),
@@ -385,10 +384,14 @@ async fn main() -> agent_client_protocol::Result<()> {
                         drop(unsafe { std::fs::File::from_raw_fd(1) });
                         std::thread::sleep(std::time::Duration::from_secs(60));
                     }
-                    update(&cx, &sid, SessionUpdate::Plan(Plan::new(vec![
-                        PlanEntry::new("Read prompt", PlanEntryPriority::High, PlanEntryStatus::Completed),
-                        PlanEntry::new("Answer", PlanEntryPriority::Medium, PlanEntryStatus::InProgress),
-                    ])))?;
+                    update(
+                        &cx,
+                        &sid,
+                        SessionUpdate::Plan(Plan::new(vec![
+                            PlanEntry::new("Read prompt", PlanEntryPriority::High, PlanEntryStatus::Completed),
+                            PlanEntry::new("Answer", PlanEntryPriority::Medium, PlanEntryStatus::InProgress),
+                        ])),
+                    )?;
                     if prompt.contains("tool") || prompt.contains("permission") {
                         let call = ToolCall::new("call-1", "Run fake tool")
                             .kind(ToolKind::Execute)
