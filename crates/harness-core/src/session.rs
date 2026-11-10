@@ -19,6 +19,8 @@ pub struct Shared {
     pub idle_timeout: Duration,
     /// The waits before each new try at restoring an Agent Session whose resume and load failed.
     pub restore_retries: Vec<Duration>,
+    /// How long an Agent may take to end a Turn after a Cancel before its process is stopped.
+    pub cancel_grace: Duration,
     pub agents: crate::agents::Agents,
     pub frontends: parking_lot::RwLock<Vec<crate::api::FrontendManifest>>,
     pub mcp: crate::mcp::HarnessMcp,
@@ -722,6 +724,8 @@ impl Session {
     /// The folder's name must be the Session id, so bad metadata can never delete another folder.
     pub fn remove_files(&self) -> anyhow::Result<()> {
         let m = self.meta();
+        // Stop the log first: an Agent's late exit must not write into the directory being removed.
+        self.log.close();
         std::fs::remove_dir_all(&self.dir)?;
         let folder = Path::new(&m.folder);
         if m.quick && folder.file_name().is_some_and(|n| n == m.id.as_str()) && folder.exists() {
@@ -783,7 +787,7 @@ impl Session {
         Ok((thread, forked))
     }
 
-    pub async fn cancel(&self, thread_id: Option<ThreadId>) -> anyhow::Result<()> {
+    pub async fn cancel(self: &Arc<Self>, thread_id: Option<ThreadId>) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         self.agent.cancel(self, &thread).await
     }

@@ -438,10 +438,13 @@ struct Inner {
     subscribers: Vec<Sub>,
     /// A chunk not yet written; its `seq` is `next_seq`.
     pending: Option<Event>,
+    /// `close` ran: the file may be gone, so nothing is written any more.
+    closed: bool,
 }
 
 impl Inner {
     fn writer(&mut self) -> anyhow::Result<&Writer> {
+        anyhow::ensure!(!self.closed, "the Session Log is closed");
         if self.writer.is_none() {
             self.writer = Some(Writer::spawn(self.path.clone(), self.start_len)?);
         }
@@ -561,6 +564,7 @@ impl SessionLog {
                 next_sub: 1,
                 subscribers: Vec::new(),
                 pending: None,
+                closed: false,
             })),
             checkpointed_len: Mutex::new(checkpoint.map(|c| c.byte_len)),
             last_ts_ms: AtomicI64::new(last_ts_ms),
@@ -747,10 +751,13 @@ impl SessionLog {
     }
 }
 
-impl Drop for SessionLog {
-    fn drop(&mut self) {
+impl SessionLog {
+    /// Writes what is queued, stops the writer and refuses later appends (they error), so files can
+    /// be removed without a late Event (an Agent's exit) writing into the directory again.
+    pub fn close(&self) {
         let mut inner = self.inner.lock();
         let _ = inner.flush();
+        inner.closed = true;
         // Closing the channel lets the writer finish what is queued; wait for it.
         let writer = inner.writer.take();
         inner.subscribers.clear();
@@ -762,6 +769,12 @@ impl Drop for SessionLog {
                 let _ = h.join();
             }
         }
+    }
+}
+
+impl Drop for SessionLog {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -880,6 +893,20 @@ mod tests {
         tokio::time::sleep(COALESCE * 3).await;
         eventually("timer flush", || seen.lock().len() == 4);
         assert_eq!(*seen.lock(), vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_closed_log_writes_nothing_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let log = SessionLog::open("s".into(), &path).unwrap();
+        log.append(None, msg("a")).unwrap();
+        log.close();
+        let len = std::fs::metadata(&path).unwrap().len();
+        assert!(len > 0, "queued Events are written before the writer stops");
+        std::fs::remove_dir_all(dir.path()).unwrap();
+        assert!(log.append(None, EventKind::Error { message: "late".into() }).is_err());
+        assert!(!dir.path().exists(), "a late append does not recreate the directory");
     }
 
     #[test]

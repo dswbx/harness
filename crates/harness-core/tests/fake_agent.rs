@@ -33,7 +33,12 @@ fn fake_info() -> AgentInfo {
 fn harness(data: &std::path::Path, flags: &[&str], idle: Duration) -> Arc<Harness> {
     let args = flags.iter().map(|f| f.to_string()).collect();
     let agent = AgentInfo { args, ..fake_info() };
-    let options = harness_core::host::Options { idle_timeout: idle, restore_retries: vec![Duration::from_millis(1); 3], ..Default::default() };
+    let options = harness_core::host::Options {
+        idle_timeout: idle,
+        restore_retries: vec![Duration::from_millis(1); 3],
+        cancel_grace: Duration::from_millis(500),
+        ..Default::default()
+    };
     let h = Harness::with_options(data.to_owned(), vec![agent], options).unwrap();
     h.register_frontend(FrontendManifest { id: "inspector".into(), name: "I".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
     h
@@ -1164,4 +1169,115 @@ async fn startup_removes_unused_quick_sessions_only() {
     let kept = summary(&h, &used).await.unwrap();
     assert!(kept.quick);
     assert_eq!(kept.title, "hello");
+}
+
+// Fault injection: an Agent that misbehaves must never wedge or corrupt the Session.
+
+/// Waits (up to a few seconds) until `f` holds for the Session's log.
+async fn wait_for(h: &Harness, sid: &str, what: &str, f: impl Fn(&[EventKind]) -> bool) {
+    for _ in 0..200 {
+        if f(&h_events(h, sid)) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+fn turn_ends(log: &[EventKind]) -> usize {
+    log.iter().filter(|k| matches!(k, EventKind::TurnEnded { .. })).count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_json_from_the_agent_ends_the_turn_and_the_session_recovers() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    // By design a line that is not JSON-RPC is skipped by the ACP connection, so the Turn goes on
+    // and ends normally; nothing after it is lost.
+    assert_eq!(turn(&h, &sid, None, "fault-malformed").await, "end_turn");
+    assert!(texts(&h, &sid).concat().contains(" after"));
+    // The Session is usable.
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    assert_eq!(status_of(&h).await, SessionStatus::Idle);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_ends_a_turn_the_agent_never_answers() {
+    let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "fault-hang".into(), attachments: vec![] }).await.unwrap();
+    wait_for(&h, &sid, "the Turn to be under way", |l| l.iter().any(|k| matches!(k, EventKind::AgentMessageChunk { .. }))).await;
+    assert_eq!(status_of(&h).await, SessionStatus::Working);
+    h.execute(Command::Cancel { session_id: sid.clone(), thread_id: None }).await.unwrap();
+    wait_for(&h, &sid, "the Turn to end", |l| turn_ends(l) == 1).await;
+    let stop = h_events(&h, &sid).into_iter().find_map(|k| if let EventKind::TurnEnded { stop_reason, .. } = k { Some(stop_reason) } else { None });
+    assert_eq!(stop.as_deref(), Some("cancelled"));
+    assert_eq!(status_of(&h).await, SessionStatus::Idle);
+    // The stopped Agent comes back with the next prompt.
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn huge_tool_output_is_logged_and_the_session_stays_responsive() {
+    let (h, sid, _dir) = setup().await;
+    assert_eq!(turn(&h, &sid, None, "fault-big").await, "end_turn");
+    let size = h_events(&h, &sid)
+        .iter()
+        .find_map(|k| match k {
+            EventKind::ToolCallUpdate { raw_output: Some(o), .. } => o["stdout"].as_str().map(str::len),
+            _ => None,
+        })
+        .expect("the update is logged");
+    assert_eq!(size, 10 * 1024 * 1024);
+    let started = std::time::Instant::now();
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    assert!(started.elapsed() < Duration::from_secs(5), "the next Turn is not slowed down");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn permission_request_after_cancel_does_not_stay_pending() {
+    let (h, sid, _dir) = setup().await;
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "fault-late-permission".into(), attachments: vec![] }).await.unwrap();
+    wait_for(&h, &sid, "the tool call", |l| l.iter().any(|k| matches!(k, EventKind::ToolCall { .. }))).await;
+    h.execute(Command::Cancel { session_id: sid.clone(), thread_id: None }).await.unwrap();
+    // The Agent asks only now. Nobody is left to answer: the Harness answers "cancelled" itself.
+    wait_for(&h, &sid, "the Turn to end", |l| turn_ends(l) == 1).await;
+    assert_eq!(status_of(&h).await, SessionStatus::Idle);
+    let log = h_events(&h, &sid);
+    let requested = log.iter().filter(|k| matches!(k, EventKind::PermissionRequested { .. })).count();
+    let resolved = log.iter().filter(|k| matches!(k, EventKind::PermissionResolved { .. })).count();
+    assert_eq!(requested, resolved, "no request is left unanswered in the log");
+    assert!(!log.iter().any(|k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })));
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_log_survives_a_crash_mid_append() {
+    let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
+    let before = events(&h, &sid);
+    let last_seq = before.last().unwrap().seq;
+    drop(h);
+
+    // A crash mid-append leaves a final line without its newline.
+    let log_path = dir.path().join("data/sessions").join(&sid).join("log.jsonl");
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log_path).unwrap();
+        write!(f, "{{\"seq\":{},\"ts_ms\":1,\"kind\":{{\"type\":\"AgentMessageCh", last_seq + 1).unwrap();
+    }
+    let h2 = harness(&dir.path().join("data"), &["--resume"], Duration::from_secs(900));
+    let after = events(&h2, &sid);
+    // Every complete Event, nothing else; opening a log whose Agent was running adds its `Stopped`.
+    let seqs = |evs: &[Event]| evs.iter().map(|e| e.seq).collect::<Vec<_>>();
+    assert_eq!(seqs(&after[..before.len()]), seqs(&before));
+    assert_eq!(kinds(&after[..before.len()]), kinds(&before));
+    assert!(after[before.len()..].iter().all(|e| matches!(e.kind, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })));
+    assert_eq!(after.len(), before.len() + 1);
+    // Appends continue with the next seq, on a clean line.
+    assert_eq!(turn(&h2, &sid, None, "again").await, "end_turn");
+    let seqs: Vec<u64> = events(&h2, &sid).iter().map(|e| e.seq).collect();
+    assert_eq!(seqs, (0..seqs.len() as u64).collect::<Vec<_>>(), "contiguous seq");
+    assert_eq!(seqs[before.len()], last_seq + 1, "the seq continues after the last complete Event");
+    drop(h2);
+    let text = std::fs::read_to_string(&log_path).unwrap();
+    assert!(text.ends_with('\n') && text.lines().all(|l| serde_json::from_str::<serde_json::Value>(l).is_ok()), "the file holds only whole lines");
 }

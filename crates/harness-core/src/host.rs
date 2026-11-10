@@ -15,6 +15,8 @@ use crate::workspace::WorktreeMeta;
 
 /// Default for `Shared::idle_timeout`.
 pub const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// Default for `Shared::cancel_grace`.
+pub const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 /// Default for `Shared::restore_retries`.
 pub const RESTORE_RETRIES: [std::time::Duration; 3] =
     [std::time::Duration::from_secs(2), std::time::Duration::from_secs(5), std::time::Duration::from_secs(15)];
@@ -22,6 +24,7 @@ pub const RESTORE_RETRIES: [std::time::Duration; 3] =
 pub struct Options {
     pub idle_timeout: std::time::Duration,
     pub restore_retries: Vec<std::time::Duration>,
+    pub cancel_grace: std::time::Duration,
     pub registry_url: String,
     /// Where MCP Library secrets live; the Keychain by default.
     pub secrets: Box<dyn crate::library::Secrets>,
@@ -34,6 +37,7 @@ impl Default for Options {
         Self {
             idle_timeout: IDLE_TIMEOUT,
             restore_retries: RESTORE_RETRIES.to_vec(),
+            cancel_grace: CANCEL_GRACE,
             registry_url: crate::agents::REGISTRY_URL.to_owned(),
             secrets: Box::new(crate::library::Keychain),
             mcp_shim: None,
@@ -70,6 +74,7 @@ impl Harness {
             policy: Policy::open(data_dir.join("permissions.json"))?,
             idle_timeout: options.idle_timeout,
             restore_retries: options.restore_retries,
+            cancel_grace: options.cancel_grace,
             agents: crate::agents::Agents::open(&data_dir, options.registry_url, agents)?,
             frontends: RwLock::new(Vec::new()),
             mcp: Default::default(),

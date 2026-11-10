@@ -10,6 +10,11 @@
 //!   "spoof: rejected"
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
+//! - "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn carries on
+//! - "fault-hang": never answers the prompt (and ignores `session/cancel`)
+//! - "fault-big": a `tool_call_update` with a 10 MB `rawOutput`, then the Turn ends
+//! - "fault-late-permission": waits for `session/cancel`, then asks for permission and answers the
+//!   prompt `cancelled` once the request is answered
 //! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
 //! - a `<harness_context>` block is not part of the prompt text; "show-context" answers
 //!   "context: <the block>" (or "context: none")
@@ -101,6 +106,9 @@ async fn harness_mcp(id: &SessionId, tool: Option<&str>, args: serde_json::Value
     out
 }
 
+/// Agent Sessions that got a `session/cancel`.
+static CANCELLED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 /// Prompts per Agent Session.
 static HISTORY: std::sync::Mutex<Vec<(String, Vec<String>)>> = std::sync::Mutex::new(Vec::new());
 
@@ -147,6 +155,60 @@ fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> 
         )
         .category(SessionConfigOptionCategory::Mode),
     ]
+}
+
+/// The `fault-*` scripts: Agent misbehaviour for fault-injection tests.
+async fn fault(
+    cx: &ConnectionTo<Client>,
+    sid: &SessionId,
+    command: &str,
+    responder: agent_client_protocol::Responder<PromptResponse>,
+) -> agent_client_protocol::Result<()> {
+    update(cx, sid, text("partial"))?;
+    match command {
+        "fault-malformed" => {
+            {
+                use std::io::Write;
+                let mut out = std::io::stdout().lock();
+                let _ = out.write_all(b"{this is not json\n");
+                let _ = out.flush();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            update(cx, sid, text(" after"))?;
+            responder.respond(PromptResponse::new(StopReason::EndTurn))
+        }
+        "fault-hang" => {
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            responder.respond(PromptResponse::new(StopReason::EndTurn))
+        }
+        "fault-big" => {
+            update(cx, sid, SessionUpdate::ToolCall(ToolCall::new("big-1", "Big output").kind(ToolKind::Execute).status(ToolCallStatus::InProgress)))?;
+            let big = serde_json::json!({ "stdout": "x".repeat(10 * 1024 * 1024) });
+            update(
+                cx,
+                sid,
+                SessionUpdate::ToolCallUpdate(ToolCallUpdate::new("big-1", ToolCallUpdateFields::new().status(ToolCallStatus::Completed).raw_output(big))),
+            )?;
+            responder.respond(PromptResponse::new(StopReason::EndTurn))
+        }
+        "fault-late-permission" => {
+            update(cx, sid, SessionUpdate::ToolCall(ToolCall::new("late-1", "Late tool").kind(ToolKind::Execute).status(ToolCallStatus::Pending)))?;
+            for _ in 0..500 {
+                if CANCELLED.lock().unwrap().contains(&sid.to_string()) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let options = vec![
+                PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
+                PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
+            ];
+            let ask = RequestPermissionRequest::new(sid.clone(), ToolCallUpdate::new("late-1", ToolCallUpdateFields::new().title("Late tool")), options);
+            let _ = cx.send_request(ask).block_task().await?;
+            responder.respond(PromptResponse::new(StopReason::Cancelled))
+        }
+        _ => responder.respond(PromptResponse::new(StopReason::EndTurn)),
+    }
 }
 
 #[tokio::main]
@@ -279,6 +341,13 @@ async fn main() -> agent_client_protocol::Result<()> {
             },
             agent_client_protocol::on_receive_request!(),
         )
+        .on_receive_notification(
+            async move |n: CancelNotification, _cx| {
+                CANCELLED.lock().unwrap().push(n.session_id.to_string());
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
         .on_receive_request(
             async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
                 // Run the Turn off the dispatch loop so we can await the client's answers.
@@ -390,23 +459,8 @@ async fn main() -> agent_client_protocol::Result<()> {
                         update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
-                    if let Some(rest) = command.strip_prefix("spoof ") {
-                        let (kind, title) = rest.split_once(' ').unwrap_or((rest, ""));
-                        let (kind, raw) = match kind {
-                            "execute" => (ToolKind::Execute, serde_json::json!({ "command": "echo hi" })),
-                            "read" => (ToolKind::Read, serde_json::json!({})),
-                            _ => (ToolKind::Other, serde_json::json!({})),
-                        };
-                        update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("call-1", title).kind(kind).status(ToolCallStatus::Pending).raw_input(raw)))?;
-                        let options = vec![
-                            PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
-                            PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
-                        ];
-                        let ask = RequestPermissionRequest::new(sid.clone(), ToolCallUpdate::new("call-1", ToolCallUpdateFields::new().title(title)), options);
-                        let answer = cx.send_request(ask).block_task().await?;
-                        let allowed = matches!(&answer.outcome, RequestPermissionOutcome::Selected(s) if s.option_id.to_string() != "reject");
-                        update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
-                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    if command.starts_with("fault-") {
+                        return fault(&cx, &sid, &command, responder).await;
                     }
                     update(&cx, &sid, text("Working on it."))?;
                     if prompt.contains("title") {
