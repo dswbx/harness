@@ -233,7 +233,11 @@ export function DiffViewer({
       <div
          ref={split.box}
          // `isolate`: git-diff-view's sticky line-number cells use `z-[1]`; keep that from painting over the composer.
-         className={cn("harness-diff isolate", showHandle && "harness-diff-resizable relative", className)}
+         className={cn(
+            "harness-diff isolate",
+            showHandle && "harness-diff-resizable relative",
+            className,
+         )}
          style={
             showHandle
                ? ({ "--harness-split-left": `${split.left}px` } as React.CSSProperties)
