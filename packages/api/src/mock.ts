@@ -361,6 +361,7 @@ export class MockTransport implements Transport {
    private logs = new Map<string, Event[]>();
    private sessions: SessionSummary[] = [];
    private subs = new Map<string, Set<(e: Event) => void>>();
+   private lagHandlers = new Map<(e: Event) => void, () => void>();
    private n = 0;
    private rules: PermissionRule[] = [];
    private ruleN = 0;
@@ -1693,13 +1694,30 @@ export class MockTransport implements Transport {
       sessionId: string,
       fromSeq: number,
       onEvent: (e: Event) => void,
+      onLagged?: () => void,
    ): Promise<Unsubscribe> {
       const log = this.logs.get(sessionId) ?? [];
       log.filter((e) => e.seq >= fromSeq).forEach(onEvent);
       let set = this.subs.get(sessionId);
       if (!set) this.subs.set(sessionId, (set = new Set()));
       set.add(onEvent);
-      return () => set.delete(onEvent);
+      if (onLagged) this.lagHandlers.set(onEvent, onLagged);
+      return () => {
+         set.delete(onEvent);
+         this.lagHandlers.delete(onEvent);
+      };
+   }
+
+   /** Test hook: the core drops every subscriber of the Session as lagging (like a slow View). */
+   dropSubscribersAsLagged(sessionId: string): void {
+      const set = this.subs.get(sessionId);
+      if (!set) return;
+      for (const f of [...set]) {
+         set.delete(f);
+         const lagged = this.lagHandlers.get(f);
+         this.lagHandlers.delete(f);
+         lagged?.();
+      }
    }
 }
 

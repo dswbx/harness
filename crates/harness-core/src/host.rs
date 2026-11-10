@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::api::{AgentInfo, AppEvent, Command, CommandResult, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey, SessionId, SessionSummary};
+use crate::api::{AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, EventSink, FrontendManifest, GitActor, PrRefKey, SessionId, SessionSummary};
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared, WorkspaceMeta};
@@ -44,6 +44,8 @@ pub struct Harness {
     shared: Arc<Shared>,
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
     terminals: crate::terminal::Terminals,
+    /// Holds the data directory lock for as long as the Harness lives.
+    _lock: std::fs::File,
 }
 
 impl Harness {
@@ -61,6 +63,7 @@ impl Harness {
         crate::env::warm_up();
         let sessions_dir = data_dir.join("sessions");
         std::fs::create_dir_all(&sessions_dir)?;
+        let lock = crate::fsutil::lock_dir(&data_dir)?;
         let shared = Arc::new(Shared {
             policy: Policy::open(data_dir.join("permissions.json"))?,
             idle_timeout: options.idle_timeout,
@@ -95,7 +98,7 @@ impl Harness {
         let terminals = crate::terminal::Terminals::new(move |session_id| {
             app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
         });
-        Ok(Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals }))
+        Ok(Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, _lock: lock }))
     }
 
     /// URL of the Harness MCP (starts it). For diagnostics and tests.
@@ -492,6 +495,11 @@ impl Harness {
     pub fn subscribe_session(&self, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<SubscriptionId, String> {
         let session = self.session(session_id).map_err(|e| e.to_string())?;
         session.log().subscribe(from_seq, sink).map_err(|e| format!("{e:#}"))
+    }
+
+    /// A snapshot of a Session's Events (no subscription, so it never counts as an open View).
+    pub fn session_events(&self, session_id: &str) -> Result<Vec<Event>, String> {
+        self.session(session_id).map_err(|e| e.to_string())?.log().events().map_err(|e| format!("{e:#}"))
     }
 
     pub fn unsubscribe_session(&self, session_id: &str, sub: SubscriptionId) {

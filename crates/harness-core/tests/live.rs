@@ -34,20 +34,7 @@ fn repo(dir: &Path) -> PathBuf {
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
-    let all = Arc::new(Mutex::new(Vec::new()));
-    let a = all.clone();
-    let id = h
-        .subscribe_session(
-            sid,
-            0,
-            Box::new(move |e: &Event| {
-                a.lock().unwrap().push(e.clone());
-                true
-            }),
-        )
-        .unwrap();
-    h.unsubscribe_session(sid, id);
-    all.lock().unwrap().clone()
+    h.session_events(sid).unwrap()
 }
 
 /// Runs a Turn, allowing every permission request; returns its events.

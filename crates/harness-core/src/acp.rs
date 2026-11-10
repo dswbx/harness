@@ -14,7 +14,7 @@ use serde_json::Value;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
 use crate::api::{
-    AttachmentInput, Boundary, Decision, Event, EventKind, ForkPoint, NewPermissionRule, PermissionOption, ProcessState, Resolver, RuleScope, SessionStatus,
+    AttachmentInput, Boundary, Decision, EventKind, ForkPoint, NewPermissionRule, PermissionOption, ProcessState, Resolver, RuleScope, SessionStatus,
     SlashCommand, TaskEntry, ThreadId, ThreadStart,
 };
 use crate::session::Session;
@@ -456,7 +456,7 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
 
 /// A config option that is the Agent's mode (ACP category `mode`).
 fn is_mode(option: &Value) -> bool {
-    option["category"] == "mode" || option["id"] == "mode"
+    crate::log::is_mode_option(option)
 }
 
 /// The legacy mode after config options were applied: the mode option's value when it names one of
@@ -1170,18 +1170,6 @@ fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, res
     let _ = session.log().sync();
 }
 
-/// The Thread's current Agent mode: the newest of its `ModeChanged` events and the mode option in
-/// its `ConfigOptionsChanged` events (Agents without legacy modes only report the latter).
-fn thread_mode(events: &[Event], thread: &ThreadId) -> Option<String> {
-    events.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match &e.kind {
-        EventKind::ModeChanged { mode_id } => Some(mode_id.clone()),
-        EventKind::ConfigOptionsChanged { options } => {
-            options.as_array()?.iter().find(|o| is_mode(o)).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
-        }
-        _ => None,
-    })
-}
-
 /// Checks a Harness MCP tool call against the Permission Policy, asking the user when the Policy
 /// says so. Errors when denied. A default Allow (no rule) is silent. An explicit Allow rule, and a
 /// default Ask (no explicit rule, not a plan approval) in a Thread whose Agent mode decides without
@@ -1211,7 +1199,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
     let passes = match verdict.decision {
         Decision::Allow => verdict.rule_id.is_some(),
         Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {
-            session.log().events().ok().and_then(|e| thread_mode(&e, thread)).is_some_and(|m| crate::agent_quirks::auto_mode(&m))
+            session.log().thread_mode(thread).ok().flatten().is_some_and(|m| crate::agent_quirks::auto_mode(&m))
         }
         _ => false,
     };

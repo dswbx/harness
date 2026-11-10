@@ -85,10 +85,7 @@ impl Policy {
     }
 
     fn save(&self, rules: &[PermissionRule]) -> anyhow::Result<()> {
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&File { rules: rules.to_vec() })?)?;
-        std::fs::rename(tmp, &self.path)?;
-        Ok(())
+        crate::fsutil::write_atomic(&self.path, &serde_json::to_vec_pretty(&File { rules: rules.to_vec() })?)
     }
 
     pub fn evaluate(&self, cx: &Context, facts: &ToolFacts) -> Verdict {

@@ -425,7 +425,14 @@ files?: { [key in string]: string } } |
  */
 { type: "AgentNotice"; severity: string; title: string; description: string | null } | 
 /**  An ACP update the Harness does not normalize yet; kept so nothing is lost. */
-{ type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string };
+{ type: "AgentUpdate"; update: unknown } | { type: "Error"; message: string } | 
+/**
+ *  Stands in for a line whose `type` this build does not know (written by a newer build) or
+ *  whose fields do not parse, so `seq` stays contiguous. The Session Log file keeps the
+ *  original line; the Harness never writes this. Not `#[serde(other)]`: specta cannot export
+ *  that on an internally tagged enum, so `log.rs` substitutes it when parsing.
+ */
+{ type: "Unknown" };
 
 export type FileChange = {
 	path: string,
@@ -493,6 +500,15 @@ export type KnownRepo = {
 	score: number,
 	/**  Last activity of its Sessions. */
 	last_ms: number,
+};
+
+/**
+ *  The View fell too far behind and its subscription was dropped. Events up to `last_seq` were
+ *  delivered (`null`: none yet); resubscribe from `last_seq + 1` (from the first `from_seq`
+ *  when `null`).
+ */
+export type Lagged = {
+	last_seq: number | null,
 };
 
 /**  An MCP server in the MCP Library. */
@@ -604,6 +620,9 @@ export type RepoId = {
 export type Resolver = "policy" | "view" | "cancelled";
 
 export type RuleScope = { type: "global" } | { type: "agent"; agent_id: string } | { type: "session"; session_id: string };
+
+/**  What a Session subscription delivers to a View: Events, then possibly one `Lagged`. */
+export type SessionMessage = Event | Lagged;
 
 export type SessionStatus = "idle" | "working" | "needs_attention";
 

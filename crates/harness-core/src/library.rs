@@ -123,10 +123,7 @@ impl Library {
     }
 
     fn write(&self, servers: &[McpServerDef]) -> anyhow::Result<()> {
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(servers)?)?;
-        std::fs::rename(tmp, &self.path)?;
-        Ok(())
+        crate::fsutil::write_atomic(&self.path, &serde_json::to_vec_pretty(servers)?)
     }
 
     /// The server with its secrets filled in, ready to hand to an Agent.

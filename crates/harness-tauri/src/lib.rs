@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use harness_core::Harness;
-use harness_core::api::{AppEvent, Command, CommandResult, Event, FrontendManifest, SessionStatus};
+use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, Lagged, SessionMessage, SessionStatus};
 use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
@@ -115,6 +115,19 @@ async fn save_file(app: tauri::AppHandle, name: String, data: String) -> Result<
     Ok(Some(path.display().to_string()))
 }
 
+/// Session Log sink for one webview: Events, then `Lagged` if the core drops it for being too slow.
+struct ViewSink(Channel<SessionMessage>);
+
+impl EventSink for ViewSink {
+    fn send(&self, event: &Event) -> bool {
+        self.0.send(SessionMessage::Event(event.clone())).is_ok()
+    }
+
+    fn lagged(&self, last_seq: Option<u64>) {
+        let _ = self.0.send(SessionMessage::Lagged(Lagged { last_seq }));
+    }
+}
+
 #[tauri::command]
 fn subscribe(
     webview: Webview,
@@ -122,9 +135,9 @@ fn subscribe(
     subs: tauri::State<'_, Subscriptions>,
     session_id: String,
     from_seq: u64,
-    channel: Channel<Event>,
+    channel: Channel<SessionMessage>,
 ) -> Result<u64, String> {
-    let id = harness.subscribe_session(&session_id, from_seq, Box::new(move |e: &Event| channel.send(e.clone()).is_ok()))?;
+    let id = harness.subscribe_session(&session_id, from_seq, Box::new(ViewSink(channel)))?;
     subs.by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, id));
     Ok(id)
 }

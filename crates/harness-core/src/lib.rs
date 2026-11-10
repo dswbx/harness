@@ -9,6 +9,7 @@ mod attachments;
 mod editor;
 mod env;
 mod frontend_files;
+mod fsutil;
 mod github;
 mod github_refs;
 mod harness_context;
