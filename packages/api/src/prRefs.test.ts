@@ -4,6 +4,7 @@ import {
    displayRef,
    findPrRefs,
    fuzzyRank,
+   isExplicit,
    type PrRefContext,
    parsePrRef,
    qualify,
@@ -43,7 +44,7 @@ describe("findPrRefs", () => {
          ["supabase/spark", 9],
       ]);
       const [m] = findPrRefs("x #23.", ctx);
-      expect(m).toMatchObject({ start: 2, end: 5, raw: "#23" });
+      expect(m).toMatchObject({ start: 2, end: 5, raw: "#23", prefixed: false });
       expect(raws("https://github.com/o/r/pull/3")).toEqual(["https://github.com/o/r/pull/3"]);
    });
 
@@ -68,6 +69,20 @@ describe("findPrRefs", () => {
          "#4",
          "o/r#5",
       ]);
+   });
+});
+
+it("marks `PR #N` as an explicit ref to the Session's repo", () => {
+   const explicit = (t: string) =>
+      findPrRefs(t, ctx)
+         .filter(isExplicit)
+         .map((m) => m.raw);
+   expect(explicit("PR #12, (PR #13) see PR #14.")).toEqual(["#12", "#13", "#14"]);
+   expect(explicit("#1 step #2 xPR #3 PR  #4 pr #5 PR#6")).toEqual([]);
+   expect(explicit("spark#17 #4")).toEqual(["spark#17"]);
+   expect(qualify(findPrRefs("PR #12", ctx)[0]!, ctx)).toEqual({
+      repo: repo("dswbx/harness"),
+      number: 12,
    });
 });
 

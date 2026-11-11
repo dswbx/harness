@@ -1,4 +1,4 @@
-// PR references in text (`#17`, `spark#17`, `supabase/spark#17`, PR URLs): finding, resolving the repo, display.
+// PR references in text (`#17`, `PR #17`, `spark#17`, `supabase/spark#17`, PR URLs): finding, resolving the repo, display.
 // Pure, shared by every Frontend that shows PR chips (ADR 0012).
 import type { KnownRepo, PrRefKey, RepoId } from "./generated";
 
@@ -12,7 +12,16 @@ export type PrRefMatch = {
    raw: string;
    repo: string | null;
    number: number;
+   /** A bare `#17` right after `PR ` (`PR #17`): an explicit ref to the Session's repo. */
+   prefixed: boolean;
 };
+
+/** A ref is "explicit" when it names its repo, is a URL, or is written `PR #17`. Messages chip only these: a bare
+ * `#3` is too often a list item or step. */
+export const isExplicit = (m: PrRefMatch) => m.repo !== null || m.prefixed;
+
+/** `PR ` right before a bare ref (`PR#17` is the repo `PR`, not this). */
+const PR_PREFIX = /(?:^|[\s(])PR $/;
 
 export type RepoResolution =
    | { kind: "one"; repo: RepoId }
@@ -68,7 +77,9 @@ export function findPrRefs(
          if (resolveRepo(name, ctx, opts).kind !== "one") continue;
          repo = name;
       }
-      out.push({ start: m.index, end: m.index + raw.length, raw, repo, number });
+      const prefixed =
+         repo === null && PR_PREFIX.test(text.slice(Math.max(0, m.index - 4), m.index));
+      out.push({ start: m.index, end: m.index + raw.length, raw, repo, number, prefixed });
    }
    return out;
 }
