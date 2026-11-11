@@ -152,12 +152,17 @@ export function SideDraft({
                   </ToggleGroup>
                   <p className="max-w-72 text-[13px] text-muted-foreground">{START_TEXT[source]}</p>
                </div>
-               <SelectionHint />
-               <p className="max-w-60 text-xs text-muted-foreground">
-                  Or select text in the chat and pick{" "}
-                  <span className="font-medium text-foreground">Ask in side thread</span> to start
-                  one with a quote.
-               </p>
+               {/* Starting from a selection always uses the conversation: hint only for that choice. */}
+               {source === "fork" && (
+                  <>
+                     <SelectionHint />
+                     <p className="max-w-60 text-xs text-muted-foreground">
+                        Or select text in the chat and pick{" "}
+                        <span className="font-medium text-foreground">Ask in side thread</span> to
+                        start one with a quote.
+                     </p>
+                  </>
+               )}
             </div>
          </ScrollArea>
          <PromptBox
