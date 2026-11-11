@@ -38,10 +38,7 @@ export function ThreadView({
    }, [focusKey]);
 
    return (
-      <aside
-         className="flex h-full w-full min-w-0 flex-col border-l bg-background"
-         aria-label="Side chat"
-      >
+      <aside className="flex h-full w-full min-w-0 flex-col bg-background" aria-label="Side chat">
          <ScrollUnder
             bottom={<PromptBox ref={prompt} api={api} state={thread} threadId={threadId} />}
          >
@@ -132,7 +129,7 @@ export function SideDraft({
    }, [focusKey]);
    return (
       <aside
-         className="flex h-full w-full min-w-0 flex-col border-l bg-background"
+         className="flex h-full w-full min-w-0 flex-col bg-background"
          aria-label="New side chat"
       >
          <ScrollArea className="min-h-0 flex-1">
