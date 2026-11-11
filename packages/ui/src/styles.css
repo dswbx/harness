@@ -166,6 +166,13 @@
    }
 }
 
+/* Quick overlay cards (ADR 0022): soft, and inside the window's 20px transparent margin, so no edge cuts it. */
+@utility shadow-overlay {
+   box-shadow:
+      0 6px 16px -2px rgb(0 0 0 / 0.25),
+      0 2px 4px -1px rgb(0 0 0 / 0.12);
+}
+
 /* render_ui sizes: relative to the chat font size (Appearance), so nesting never compounds them. */
 @utility text-ui {
    font-size: var(--chat-font-size, 14px);

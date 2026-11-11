@@ -1,7 +1,7 @@
 import type { HarnessClient } from "@harness/api";
 import { RenderUiGallery } from "@harness/frontend-chat";
 import { cn, Dialog, DialogContent, DialogDescription, DialogTitle, ScrollArea } from "@harness/ui";
-import { Bot, Code, GitBranch, Info, LayoutGrid, Palette, Plug, Shield } from "lucide-react";
+import { Bot, Code, GitBranch, Info, LayoutGrid, Palette, Plug, Shield, Zap } from "lucide-react";
 import { useRef } from "react";
 import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
@@ -9,12 +9,14 @@ import { AppearancePanel } from "./AppearancePanel";
 import { EditorPanel } from "./EditorPanel";
 import { GitPanel } from "./GitPanel";
 import { McpPanel } from "./McpPanel";
+import { OverlayPanel } from "./OverlayPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 
 export type SettingsSection =
    | "appearance"
    | "editor"
    | "git"
+   | "overlay"
    | "permissions"
    | "agents"
    | "mcp"
@@ -25,6 +27,7 @@ const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
    { id: "appearance", label: "Appearance", icon: Palette },
    { id: "editor", label: "Editor", icon: Code },
    { id: "git", label: "Git", icon: GitBranch },
+   { id: "overlay", label: "Quick overlay", icon: Zap },
    { id: "permissions", label: "Permissions", icon: Shield },
    { id: "agents", label: "Agents", icon: Bot },
    { id: "mcp", label: "MCP servers", icon: Plug },
@@ -74,8 +77,8 @@ export function SettingsDialog({
             <div className="flex shrink-0 items-center gap-4 border-b bg-muted/30 py-3 pl-4 pr-12">
                <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
                <DialogDescription className="sr-only">
-                  Appearance, Editor, Git, Permission rules, Agents, MCP servers, UI components and
-                  About.
+                  Appearance, Editor, Git, Quick overlay, Permission rules, Agents, MCP servers, UI
+                  components and About.
                </DialogDescription>
             </div>
             <div className="flex min-h-0 flex-1">
@@ -107,6 +110,7 @@ export function SettingsDialog({
                      {section === "appearance" && <AppearancePanel client={client} />}
                      {section === "editor" && <EditorPanel client={client} />}
                      {section === "git" && <GitPanel client={client} />}
+                     {section === "overlay" && <OverlayPanel />}
                      {section === "permissions" && (
                         <PermissionsPanel
                            client={client}

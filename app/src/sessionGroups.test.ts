@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
    folderName,
    groupSessions,
+   hideUnusedQuick,
    highlight,
    matches,
    refTitle,
@@ -150,4 +151,15 @@ describe("Quick Sessions", () => {
       expect(matches(quick("q1", 1), "quick")).toBe(true);
       expect(matches({ ...quick("q1", 1), title: "t" }, "q1")).toBe(false);
    });
+});
+
+describe("hideUnusedQuick", () => {
+   const draft = s("draft", "/q/draft", 0, 0, { quick: true, title: "New Quick Session" });
+   const used = s("used", "/q/used", 1, 1, { quick: true, title: "Convert a CSV" });
+   const named = s("named", "/p/x", 1, 1, { title: "New Quick Session" });
+   const l = [draft, used, named, ...list];
+   it("hides Quick Sessions nobody wrote in yet (the overlay's draft)", () =>
+      expect(ids(hideUnusedQuick(l, null))).toEqual(["used", "named", "a", "b", "c", "d"]));
+   it("keeps the one this window has selected", () =>
+      expect(ids(hideUnusedQuick(l, "draft"))).toEqual(ids(l)));
 });

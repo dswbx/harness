@@ -1,6 +1,6 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { SessionApi } from "./client";
-import type { AppEvent, FrontendManifest } from "./generated";
+import type { AppEvent, AttachmentInput, FrontendManifest } from "./generated";
 
 /** A call of a Frontend Tool with `replies`: the Frontend answers it, and the Agent gets the answer. */
 export type FrontendRequest = Extract<AppEvent, { type: "FrontendRequest" }>;
@@ -10,6 +10,49 @@ export type FrontendRequestProps = {
    request: FrontendRequest;
    onDone: () => void;
 };
+
+/**
+ * The Quick overlay's Agent > model menu. Before the first message the user can pick another Agent
+ * (the draft Session is replaced); after it the menu stays the same but is `locked`.
+ */
+export type AgentSwitch = {
+   agents: { id: string; name: string }[];
+   current: string;
+   /** The Session has started: other Agents show disabled (close the overlay to switch). */
+   locked?: boolean;
+   /** The host replaces the draft Session with one of this Agent. */
+   onPick: (agentId: string) => void;
+};
+
+/**
+ * What the user is looking at in another app while the Quick overlay is open (ADR 0022 Phase 3), as a
+ * removable chip in the prompt box. While the chip shows, each message sends `attachment` with it (the
+ * typed text stays as it is); nothing is sent once removed.
+ */
+export type PromptContext = {
+   /** Short, e.g. "Chrome · github.com/dswbx/harness/pull/52". */
+   label: string;
+   /** All details, for the tooltip. */
+   detail?: string;
+   /** Sent with each message while the chip shows (a Markdown file). */
+   attachment: AttachmentInput;
+   onRemove: () => void;
+   /** A small link in the chip, e.g. "Allow more context". */
+   action?: { label: string; onClick: () => void };
+};
+
+/** Widths (logical px) of what the Quick overlay's View shows left and right of its chat: open panels and stripes. */
+export type PanelWidth = { left: number; right: number };
+
+/**
+ * The Quick overlay's chat geometry (logical px): the chat card's fixed width, and the room the window has
+ * beside it now (`room`, granted by the host after `onPanelWidth`). The View draws a side's panels only once
+ * the room is there, and never sizes the card from the window's width.
+ */
+export type OverlayFrame = { card: number; room: PanelWidth };
+
+/** `full`: a main or pop-out window. `overlay`: the Quick overlay's small floating window (ADR 0022). */
+export type ViewVariant = "full" | "overlay";
 
 /** What a Frontend package exports: its Manifest and the View that renders a Session. */
 export interface Frontend {
@@ -28,6 +71,21 @@ export interface Frontend {
       indicator?: HTMLElement | null;
       menu?: HTMLElement | null;
       onGitRefresh?: () => void;
+      /**
+       * `overlay`: no header of its own (the host draws it), only side panel zones (ADR 0022 Phase 2);
+       * before the first message, only the prompt box. Default `full`.
+       */
+      variant?: ViewVariant;
+      /** Overlay only: wraps the chat column in the host's card (header, border, resize grip). Panels and stripes stay outside it. */
+      chatFrame?: (chat: ReactNode) => ReactNode;
+      /** Overlay only: the room the panels and stripes want beside the chat; the host widens its window by that much. */
+      onPanelWidth?: (width: PanelWidth) => void;
+      /** Overlay only: the chat card's width and the room beside it. */
+      overlayFrame?: OverlayFrame;
+      /** Shown as a two-level Agent > model menu in the prompt box (Quick overlay only). */
+      agentSwitch?: AgentSwitch;
+      /** Quick overlay only: a context chip in the prompt box; each message sends its attachment. */
+      context?: PromptContext;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

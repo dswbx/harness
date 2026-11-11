@@ -19,7 +19,7 @@ export type StripeItem = {
    dot: boolean;
 };
 
-/** Zones of a stripe, top to bottom: upper, lower, then the bottom corner (after the spacer). */
+/** Zones of a stripe, top to bottom: upper, lower, then the bottom corner (after the spacer; none in the Quick overlay). */
 export type StripeGroup = { zone: Zone; items: StripeItem[] };
 
 /**
@@ -36,7 +36,7 @@ export function Stripe({
    onPress,
 }: {
    side: "left" | "right";
-   groups: [StripeGroup, StripeGroup, StripeGroup];
+   groups: [StripeGroup, StripeGroup, StripeGroup?];
    drag: DragState | null;
    overlay?: boolean;
    onToggle: (id: PanelId) => void;
@@ -125,8 +125,12 @@ export function Stripe({
             <div className="m-px h-px w-5 shrink-0 bg-border" />
          )}
          {group(groups[1])}
-         <div className="flex-1" />
-         {group(groups[2])}
+         {groups[2] && (
+            <>
+               <div className="flex-1" />
+               {group(groups[2])}
+            </>
+         )}
       </nav>
    );
 }

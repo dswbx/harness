@@ -5,7 +5,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 ## Layout
 
 - `crates/harness-core`: UI-agnostic Rust core (no Tauri dependency, ADR 0001). Commands in, Events out (`src/api.rs`).
-- `crates/harness-tauri`: thin Tauri adapter: `execute`, `subscribe`/`unsubscribe` (Session Logs), `subscribe_app` (AppEvents), `terminal_attach`/`terminal_detach` (Terminal bytes, ADR 0017), `save_file` (save dialog, then writes the file); `harness-frame` scheme (Html frames, ADR 0013); dock badge + notifications for Sessions needing attention; `harness mcp-shim` subcommand.
+- `crates/harness-tauri`: thin Tauri adapter: `execute`, `subscribe`/`unsubscribe` (Session Logs), `subscribe_app` (AppEvents), `terminal_attach`/`terminal_detach` (Terminal bytes, ADR 0017), `save_file` (save dialog, then writes the file); `harness-frame` scheme (Html frames, ADR 0013); dock badge + notifications for Sessions needing attention; the Quick Overlay window and its global shortcut (`overlay.rs`, ADR 0022) and its Window Context (`context.rs`); `harness mcp-shim` subcommand.
 - `crates/fake-agent`: scripted ACP agent for deterministic tests.
 - `packages/api`: `@harness/api`; `src/generated.ts` is generated from Rust, never edit by hand.
 - `packages/ui`, `packages/frontend-*`, `app/`: TS side. Frontends import only `@harness/api` and `@harness/ui`.

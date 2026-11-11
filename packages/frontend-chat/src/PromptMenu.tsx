@@ -1,7 +1,16 @@
 import { type PrEntry, type PrInfo, type PrRefKey, repoName } from "@harness/api";
 import { cn, ScrollArea } from "@harness/ui";
 import { Book } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+   type ReactNode,
+   useEffect,
+   useLayoutEffect,
+   useMemo,
+   useRef,
+   useState,
+   useSyncExternalStore,
+} from "react";
+import type { MenuSide } from "./ConfigBar";
 import {
    exactNumber,
    type PrMenuRow,
@@ -17,12 +26,14 @@ import { prStateVisual } from "./UiPullRequest";
 
 /**
  * A popup above the prompt box, out of the flow (the slash and `#` menus): a listbox that scrolls past `maxHeight`, with
- * an optional header and footer that stay put.
+ * an optional header and footer that stay put. `side="bottom"` opens it below the box, unless the window has more room
+ * above (checked once, when it opens).
  */
 export function PromptMenu({
    label,
    className,
    maxHeight = "max-h-72",
+   side = "top",
    header,
    footer,
    children,
@@ -31,13 +42,29 @@ export function PromptMenu({
    /** Width. */
    className: string;
    maxHeight?: string;
+   side?: MenuSide;
    header?: ReactNode;
    footer?: ReactNode;
    children: ReactNode;
 }) {
+   const ref = useRef<HTMLDivElement>(null);
+   const [below, setBelow] = useState(side === "bottom");
+   // biome-ignore lint/correctness/useExhaustiveDependencies: once per open; the window grows for the menu after this.
+   useLayoutEffect(() => {
+      const box = ref.current?.parentElement?.getBoundingClientRect();
+      if (side === "bottom" && box) setBelow(window.innerHeight - box.bottom >= box.top);
+   }, []);
    return (
       // Radix sets an inline `position: relative` on the ScrollArea root, so the wrapper takes the popup out of the flow.
-      <div className={cn("absolute bottom-full left-6 mb-1 max-w-[calc(100%-3rem)]", className)}>
+      // Below: past the wrapper's `pb-3.5`, 4px under the box.
+      <div
+         ref={ref}
+         className={cn(
+            "absolute left-6 max-w-[calc(100%-3rem)]",
+            below ? "top-full -mt-2.5" : "bottom-full mb-1",
+            className,
+         )}
+      >
          <div className="overflow-hidden rounded-lg border bg-popover shadow-md">
             {header}
             <ScrollArea className={maxHeight} viewportClassName="max-h-[inherit]">
@@ -155,12 +182,14 @@ export function PrMenuPopup({
    menu,
    refs,
    sel,
+   side,
    onSelect,
    onPick,
 }: {
    menu: PrMenu;
    refs: PrRefs;
    sel: number;
+   side?: MenuSide;
    onSelect(i: number): void;
    onPick(i: number): void;
 }) {
@@ -171,6 +200,7 @@ export function PrMenuPopup({
       <PromptMenu
          label="Pull requests"
          className="w-[440px]"
+         side={side}
          maxHeight="max-h-[12.5rem]"
          header={
             <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-xs text-muted-foreground">

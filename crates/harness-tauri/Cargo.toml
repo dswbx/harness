@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 harness-core = { path = "../harness-core" }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
@@ -31,9 +31,12 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+# The Quick overlay as a non-activating NSPanel (`overlay.rs`). Pinned: v2.1 branch.
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "3ffa93ed14e0f8e857e43619b4157f2a685d35a4" }
 
 # Not the workspace lints: the macOS window code needs `unsafe` (objc2).
 [lints.clippy]
