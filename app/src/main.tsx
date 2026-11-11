@@ -13,6 +13,10 @@ import { TooltipProvider } from "@harness/ui";
 import { App } from "./App";
 import { initAppearance } from "./appearance/appearance";
 
+// The Quick overlay's window is transparent: only its card paints (ADR 0022).
+if (new URLSearchParams(window.location.search).get("overlay") === "1")
+   document.documentElement.classList.add("overlay");
+
 // Every window (main and View windows) boots through this entry, so the theme applies everywhere.
 initAppearance();
 

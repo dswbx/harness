@@ -1,4 +1,4 @@
-import { createSessionApi, type Transport } from "@harness/api";
+import { type AgentSwitch, createSessionApi, type Transport, type ViewVariant } from "@harness/api";
 import { useMemo } from "react";
 import { registry } from "./registry";
 
@@ -12,6 +12,8 @@ export function ViewHost({
    indicator,
    menu,
    onGitRefresh,
+   variant,
+   agentSwitch,
 }: {
    transport: Transport;
    sessionId: string;
@@ -21,6 +23,8 @@ export function ViewHost({
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
    onGitRefresh?: () => void;
+   variant?: ViewVariant;
+   agentSwitch?: AgentSwitch;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
@@ -35,6 +39,8 @@ export function ViewHost({
          indicator={indicator}
          menu={menu}
          onGitRefresh={onGitRefresh}
+         variant={variant}
+         agentSwitch={agentSwitch}
       />
    );
 }

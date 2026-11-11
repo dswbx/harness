@@ -16,6 +16,7 @@
       "frontendDist": "../../app/dist"
    },
    "app": {
+      "macOSPrivateApi": true,
       "windows": [
          {
             "label": "main",

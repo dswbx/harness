@@ -38,7 +38,9 @@ export type AppEvent =
 { type: "FrontendRequest"; session_id: string; request_id: string; tool: string; input: unknown; last_seq: number };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
-export type AppSettingKey = "appearance" | "themes";
+export type AppSettingKey = "appearance" | "themes" | 
+/**  `OverlaySettings`: the Quick overlay's global shortcut and where it opens. */
+"overlay";
 
 /**  An attachment as sent with a Turn. */
 export type Attachment = {
@@ -604,6 +606,19 @@ export type NewPermissionRule = {
 	tool_kind: string | null,
 	pattern: string | null,
 	decision: Decision,
+};
+
+/**  Where the overlay's prompt box opens: at the mouse, or at the bottom center of that screen. */
+export type OverlayPosition = "cursor" | "bottom";
+
+/**
+ *  The Quick overlay's settings (`AppSettingKey::Overlay`, `overlay.json`). Missing fields take
+ *  their defaults, so an older or hand-edited file still loads.
+ */
+export type OverlaySettings = {
+	/**  Global shortcut in the `global-hotkey` format, e.g. `Alt+Space`, `CmdOrCtrl+Shift+K`. */
+	shortcut?: string,
+	position?: OverlayPosition,
 };
 
 export type PermissionOption = {

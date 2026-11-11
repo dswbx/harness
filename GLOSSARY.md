@@ -48,6 +48,10 @@ _Avoid_: planning mode, read-only mode
 A Session with no folder from the user; the Harness makes an empty folder for it, which goes with the Session (ADR 0020).
 _Avoid_: chat, scratch session
 
+**Quick Overlay**:
+A floating, always-on-top window that a global shortcut opens over any app: its prompt box starts a Quick Session, which then stays on top as a small chat (ADR 0022).
+_Avoid_: popup, HUD, launcher, spotlight
+
 **Archived Session**:
 A Session set aside by the user: its work is preserved and it can be restored, but its Worktrees no longer occupy disk.
 _Avoid_: closed session, inactive session

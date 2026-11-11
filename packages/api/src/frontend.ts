@@ -11,6 +11,17 @@ export type FrontendRequestProps = {
    onDone: () => void;
 };
 
+/** Lets the user pick another Agent for a Session that has not started (the Quick overlay's draft). */
+export type AgentSwitch = {
+   agents: { id: string; name: string }[];
+   current: string;
+   /** The host replaces the draft Session with one of this Agent. */
+   onPick: (agentId: string) => void;
+};
+
+/** `full`: a main or pop-out window. `overlay`: the Quick overlay's small floating window (ADR 0022). */
+export type ViewVariant = "full" | "overlay";
+
 /** What a Frontend package exports: its Manifest and the View that renders a Session. */
 export interface Frontend {
    manifest: FrontendManifest;
@@ -28,6 +39,13 @@ export interface Frontend {
       indicator?: HTMLElement | null;
       menu?: HTMLElement | null;
       onGitRefresh?: () => void;
+      /**
+       * `overlay`: no Panels or Stripes and no header of its own (the host draws it); before the
+       * first message, only the prompt box. Default `full`.
+       */
+      variant?: ViewVariant;
+      /** Shown as a two-level Agent > model menu in the prompt box (overlay drafts only). */
+      agentSwitch?: AgentSwitch;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

@@ -1,4 +1,4 @@
-import type { AttachmentInput, SessionApi } from "@harness/api";
+import type { AgentSwitch, AttachmentInput, SessionApi, ViewVariant } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
    Badge,
@@ -170,6 +170,8 @@ export function View({
    indicator,
    menu,
    onGitRefresh,
+   variant = "full",
+   agentSwitch,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -177,6 +179,8 @@ export function View({
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
    onGitRefresh?: () => void;
+   variant?: ViewVariant;
+   agentSwitch?: AgentSwitch;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -188,6 +192,8 @@ export function View({
          indicator={indicator}
          menu={menu}
          onGitRefresh={onGitRefresh}
+         variant={variant}
+         agentSwitch={agentSwitch}
       />
    );
 }
@@ -251,6 +257,8 @@ function ChatView({
    indicator,
    menu,
    onGitRefresh,
+   variant,
+   agentSwitch,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -258,7 +266,10 @@ function ChatView({
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
    onGitRefresh?: () => void;
+   variant: ViewVariant;
+   agentSwitch?: AgentSwitch;
 }) {
+   const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
    // A Session with nothing in it yet is waiting for a message. The short wait lets the replay arrive.
    const prompt = useRef<PromptBoxHandle>(null);
@@ -613,9 +624,8 @@ function ChatView({
    // of our own (no host header) shows a badge. Archived and deleted Sessions say so elsewhere.
    // Restoring the Agent Session takes longer than starting its process, and the process is
    // "ready" by then: a message on its way is what says the Agent is not ready yet.
-   const connecting = useSlow(
-      usePendingMessages(api.sessionId).some((p) => p.status === "sending"),
-   );
+   const pending = usePendingMessages(api.sessionId);
+   const connecting = useSlow(pending.some((p) => p.status === "sending"));
    const procInfo = connecting
       ? PROCESS_INFO.starting
       : proc && proc.message !== "archived" && proc.message !== "deleted"
@@ -731,9 +741,19 @@ function ChatView({
          });
    }
 
+   const promptBox = (
+      <PromptBox
+         ref={prompt}
+         api={api}
+         state={state}
+         onSideThread={btw}
+         agentSwitch={agentSwitch}
+         elevated={overlay}
+      />
+   );
    const chat = (
       <>
-         {!toolbar && (
+         {!toolbar && !overlay && (
             <div className="flex h-13 shrink-0 items-center gap-2 border-b px-5">
                <span className="truncate text-sm font-semibold">
                   {state.title ?? "New Session"}
@@ -785,7 +805,7 @@ function ChatView({
                         )}
                      </div>
                   ) : (
-                     <PromptBox ref={prompt} api={api} state={state} onSideThread={btw} />
+                     promptBox
                   )}
                </>
             }
@@ -809,6 +829,21 @@ function ChatView({
          </ScrollUnder>
       </>
    );
+
+   // The Quick overlay: just the chat column. Before the first message only the prompt box, at the
+   // bottom of the transparent window (ADR 0022).
+   if (overlay) {
+      const draft = state.items.length === 0 && pending.length === 0;
+      return (
+         <PrRefProvider api={api}>
+            <FileRefProvider api={api}>
+               <div className={cn("relative flex h-full flex-col", draft && "justify-end")}>
+                  {draft ? promptBox : chat}
+               </div>
+            </FileRefProvider>
+         </PrRefProvider>
+      );
+   }
 
    return (
       <PrRefProvider api={api}>
