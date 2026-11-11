@@ -12,7 +12,7 @@ import { ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { CommentChips } from "./CommentChip";
-import { ConfigBar } from "./ConfigBar";
+import { ConfigBar, type MenuSide } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { errorMessage } from "./errors";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
@@ -157,6 +157,7 @@ export function PromptBox({
    onSend,
    agentSwitch,
    elevated = false,
+   menuSide = "top",
    ref: handle,
 }: {
    api: SessionApi;
@@ -170,6 +171,8 @@ export function PromptBox({
    agentSwitch?: AgentSwitch;
    /** Floats over other apps (Quick overlay): the overlay's shadow. */
    elevated?: boolean;
+   /** Where its menus open (below: the Quick overlay's draft, which has room only below). */
+   menuSide?: MenuSide;
    ref?: Ref<PromptBoxHandle>;
 }) {
    const [text, setText] = useState("");
@@ -409,7 +412,7 @@ export function PromptBox({
    return (
       <div className="relative mx-auto w-full max-w-3xl px-6 pb-3.5">
          {open?.kind === "slash" && (
-            <PromptMenu label="Commands" className="w-72">
+            <PromptMenu label="Commands" className="w-72" side={menuSide}>
                {open.items.map((c, i) => (
                   <Tooltip
                      key={c.name}
@@ -449,6 +452,7 @@ export function PromptBox({
                menu={open.menu}
                refs={refs}
                sel={index}
+               side={menuSide}
                onSelect={setSel}
                onPick={pickPr}
             />
@@ -574,6 +578,7 @@ export function PromptBox({
                   compact={narrow}
                   modeOnly={!!threadId}
                   agentSwitch={agentSwitch}
+                  side={menuSide}
                   options={state.configOptions}
                   onChange={(id, value) => {
                      setError(null);

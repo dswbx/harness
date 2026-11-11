@@ -39,6 +39,9 @@ import type { ConfigOption } from "./reducer";
 
 type OnChange = (id: string, value: string) => void;
 
+/** Where the menus open: above the prompt box, or below it (the Quick overlay's draft, ADR 0022). Radix flips a menu with no room. */
+export type MenuSide = "top" | "bottom";
+
 const trigger =
    "inline-flex h-7 max-w-56 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground";
 
@@ -49,6 +52,7 @@ export function ConfigBar({
    compact = false,
    modeOnly = false,
    agentSwitch,
+   side = "top",
 }: {
    options: ConfigOption[];
    onChange: OnChange;
@@ -58,22 +62,31 @@ export function ConfigBar({
    modeOnly?: boolean;
    /** Quick overlay: one Agent > model menu, then the Mode chip (same before and after send). */
    agentSwitch?: AgentSwitch;
+   side?: MenuSide;
 }) {
    const g = useMemo(() => groupConfigOptions(options), [options]);
    const label = chipLabel(g);
    if (modeOnly)
-      return g.mode ? <ModePicker o={g.mode} onChange={onChange} compact={compact} /> : null;
+      return g.mode ? (
+         <ModePicker o={g.mode} onChange={onChange} compact={compact} side={side} />
+      ) : null;
    if (agentSwitch)
       return (
          <>
-            <AgentModelMenu g={g} label={label} agentSwitch={agentSwitch} onChange={onChange} />
-            {g.mode && <ModePicker o={g.mode} onChange={onChange} compact />}
+            <AgentModelMenu
+               g={g}
+               label={label}
+               agentSwitch={agentSwitch}
+               onChange={onChange}
+               side={side}
+            />
+            {g.mode && <ModePicker o={g.mode} onChange={onChange} compact side={side} />}
          </>
       );
-   if (compact) return <CompactBar g={g} label={label} onChange={onChange} />;
+   if (compact) return <CompactBar g={g} label={label} onChange={onChange} side={side} />;
    return (
       <>
-         {g.mode && <ModePicker o={g.mode} onChange={onChange} />}
+         {g.mode && <ModePicker o={g.mode} onChange={onChange} side={side} />}
          {g.model && label && (
             <DropdownMenu>
                <DropdownMenuTrigger className={trigger} aria-label={`${g.model.name}: ${label}`}>
@@ -86,7 +99,7 @@ export function ConfigBar({
                   )}
                   <ChevronDown className="size-3 shrink-0 opacity-60" />
                </DropdownMenuTrigger>
-               <DropdownMenuContent side="top" align="start" className="w-64">
+               <DropdownMenuContent side={side} align="start" className="w-64">
                   <OptionHeader o={g.model} />
                   <Values o={g.model} onChange={onChange} />
                   {(g.effort || g.chipSubmenus.length > 0 || g.chipToggles.length > 0) && (
@@ -109,7 +122,7 @@ export function ConfigBar({
                      <MoreHorizontal className="size-4" />
                   </DropdownMenuTrigger>
                </Tooltip>
-               <DropdownMenuContent side="top" align="start" className="w-64">
+               <DropdownMenuContent side={side} align="start" className="w-64">
                   {g.more.map((o) => (
                      <OptionRow key={o.id} o={o} onChange={onChange} />
                   ))}
@@ -125,10 +138,12 @@ function ModePicker({
    o,
    onChange,
    compact = false,
+   side,
 }: {
    o: ConfigOption;
    onChange: OnChange;
    compact?: boolean;
+   side: MenuSide;
 }) {
    return (
       <DropdownMenu>
@@ -140,7 +155,7 @@ function ModePicker({
             <span className="truncate">{valueName(o)}</span>
             <ChevronDown className="size-3 shrink-0 opacity-60" />
          </DropdownMenuTrigger>
-         <DropdownMenuContent side="top" align="start" className="w-72">
+         <DropdownMenuContent side={side} align="start" className="w-72">
             <OptionHeader o={o} />
             <Values o={o} onChange={onChange} />
          </DropdownMenuContent>
@@ -157,11 +172,13 @@ function AgentModelMenu({
    label,
    agentSwitch,
    onChange,
+   side,
 }: {
    g: ConfigGroups;
    label: string | null;
    agentSwitch: AgentSwitch;
    onChange: OnChange;
+   side: MenuSide;
 }) {
    const current = agentSwitch.agents.find((a) => a.id === agentSwitch.current);
    const name = current?.name ?? "Agent";
@@ -184,7 +201,7 @@ function AgentModelMenu({
             )}
             <ChevronDown className="size-3 shrink-0 opacity-60" />
          </DropdownMenuTrigger>
-         <DropdownMenuContent side="top" align="start" className="w-72">
+         <DropdownMenuContent side={side} align="start" className="w-72">
             <DropdownMenuLabel>Agent</DropdownMenuLabel>
             {agentSwitch.agents.map((a) =>
                a.id === agentSwitch.current ? (
@@ -240,10 +257,12 @@ function CompactBar({
    g,
    label,
    onChange,
+   side,
 }: {
    g: ConfigGroups;
    label: string | null;
    onChange: OnChange;
+   side: MenuSide;
 }) {
    if (!g.mode && !g.model && g.more.length === 0) return null;
    return (
@@ -264,7 +283,7 @@ function CompactBar({
                <ChevronDown className="size-3 shrink-0 opacity-60" />
             </DropdownMenuTrigger>
          </Tooltip>
-         <DropdownMenuContent side="top" align="start" className="w-64">
+         <DropdownMenuContent side={side} align="start" className="w-64">
             {g.mode && <OptionSub o={g.mode} onChange={onChange} />}
             {g.model && <OptionSub o={g.model} onChange={onChange} />}
             {g.effort && <OptionSub o={g.effort} label="Effort" onChange={onChange} />}

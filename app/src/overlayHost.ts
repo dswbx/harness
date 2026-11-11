@@ -12,19 +12,16 @@ const run = (cmd: string, args?: Record<string, unknown>) => {
    invoke(cmd, args).catch((e) => console.error(`${cmd} failed`, e));
 };
 
-/** Space the host added on each side of the window (logical px). */
-export type Insets = { top: number; right: number; bottom: number; left: number };
-
-export const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
-
 /** Which card edge stays in place (`overlay-shown`): top below the mouse, bottom at the screen's bottom. */
 export type OverlayAnchor = "top" | "bottom";
 
 export const overlayHost = {
    setMode: (mode: OverlayMode) => run("overlay_set_mode", { mode }),
-   /** Grows the window around the card while a menu is open (`open`), or back. */
+   /** Grows the window right and down while a menu is open (`open`), or back; resolves once done. */
    setMenuRoom: (open: boolean) =>
-      inTauri() ? invoke<Insets>("overlay_set_menu_room", { open }) : Promise.resolve(NO_INSETS),
+      inTauri() ? invoke<void>("overlay_set_menu_room", { open }) : Promise.resolve(),
+   /** The chat's resize grip: the window's new size (logical px), its top-left kept. */
+   resize: (width: number, height: number) => run("overlay_resize", { width, height }),
    hide: () => run("overlay_hide"),
    /** Opens the Session in the main window and hides the overlay. */
    merge: (sessionId: string) =>

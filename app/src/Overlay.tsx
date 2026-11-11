@@ -12,7 +12,7 @@ import {
    useState,
 } from "react";
 import { QUICK_TITLE, quickAgent } from "./composer";
-import { listenHost, NO_INSETS, type OverlayAnchor, overlayHost } from "./overlayHost";
+import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
 import { INITIAL_OVERLAY, overlayReducer } from "./overlayMode";
 import { useReportError } from "./toast";
 import { ViewHost } from "./ViewHost";
@@ -112,20 +112,43 @@ export function Overlay({ transport }: { transport: Transport }) {
    }, [s.visible]);
 
    // A web page cannot draw outside its window: while a menu is open the host grows the window
-   // around the card, and the page pads the card by the same amount so it stays in place.
-   const menuOpen = useMenuOpen();
-   const [room, setRoom] = useState(NO_INSETS);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: a show or a mode change drops the room on the host side; ask again.
+   // right and down (its top-left stays, so the card does not move). The card keeps its size: it is
+   // pinned to the window size from before, then unpinned once the window is back.
+   const want = useMenuOpen() && s.visible;
+   const [pin, setPin] = useState<{ w: number; h: number } | null>(null);
+   // One host call at a time; `held`: no new room until the menus close (after a show or mode change).
+   const room = useRef({ busy: false, grown: false, held: false });
+   const [synced, setSynced] = useState(0);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: a show or a mode change drops the room on the host side.
    useEffect(() => {
-      let stale = false;
-      overlayHost.setMenuRoom(menuOpen && s.visible).then(
-         (r) => !stale && setRoom(r),
-         (e) => console.error("overlay_set_menu_room failed", e),
-      );
-      return () => {
-         stale = true;
+      room.current.grown = false;
+      room.current.held = true;
+      setPin(null);
+   }, [s.mode, shown]);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `synced` re-runs it after each host call.
+   useEffect(() => {
+      const r = room.current;
+      if (!want) r.held = false;
+      if (r.busy) return;
+      const call = (open: boolean) => {
+         r.busy = true;
+         overlayHost
+            .setMenuRoom(open)
+            .catch((e) => console.error("overlay_set_menu_room failed", e))
+            .finally(() => {
+               r.busy = false;
+               r.grown = open;
+               if (!open) setPin(null);
+               setSynced((n) => n + 1);
+            });
       };
-   }, [menuOpen, s.visible, s.mode, shown]);
+      if (want && !r.grown && !r.held) {
+         // The pin is on the page before the window grows.
+         if (pin) call(true);
+         else setPin({ w: window.innerWidth, h: window.innerHeight });
+      } else if (!want && r.grown) call(false);
+      else if (!want && pin) setPin(null);
+   }, [want, pin, synced]);
 
    // A draft Quick Session as soon as the overlay is on screen, started right away so the prompt
    // box has the Agent's models and modes. The core removes it if nothing is sent.
@@ -263,9 +286,7 @@ export function Overlay({ transport }: { transport: Transport }) {
    return (
       <div
          className="h-full"
-         style={{
-            padding: `${SHADOW + room.top}px ${SHADOW + room.right}px ${SHADOW + room.bottom}px ${SHADOW + room.left}px`,
-         }}
+         style={{ padding: SHADOW, ...(pin && { width: pin.w, height: pin.h }) }}
       >
          {s.mode === "mini" && (
             <MiniBar
@@ -279,7 +300,7 @@ export function Overlay({ transport }: { transport: Transport }) {
             className={cn(
                "flex h-full flex-col",
                s.mode === "chat" &&
-                  "overflow-hidden rounded-xl border bg-background shadow-overlay",
+                  "relative overflow-hidden rounded-xl border bg-background shadow-overlay",
                s.mode === "mini" && "hidden",
             )}
          >
@@ -335,7 +356,63 @@ export function Overlay({ transport }: { transport: Transport }) {
                   )
                )}
             </div>
+            {s.mode === "chat" && <ResizeGrip />}
          </div>
+      </div>
+   );
+}
+
+/**
+ * The chat's resize corner. A borderless macOS window has no resize edges, so the drag is here:
+ * screen deltas from the window size at the start, one host call per frame (top-left kept).
+ */
+function ResizeGrip() {
+   const drag = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+   const next = useRef<[number, number] | null>(null);
+   const frame = useRef(0);
+   const send = () => {
+      frame.current = 0;
+      if (next.current) overlayHost.resize(...next.current);
+      next.current = null;
+   };
+   const end = () => {
+      drag.current = null;
+      cancelAnimationFrame(frame.current);
+      send();
+   };
+   return (
+      <div
+         role="separator"
+         aria-label="Resize"
+         className="absolute right-0 bottom-0 z-10 flex size-4 cursor-nwse-resize touch-none items-end justify-end p-0.5 text-muted-foreground/60 hover:text-muted-foreground"
+         onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            drag.current = {
+               x: e.screenX,
+               y: e.screenY,
+               w: window.innerWidth,
+               h: window.innerHeight,
+            };
+         }}
+         onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d) return;
+            next.current = [d.w + e.screenX - d.x, d.h + e.screenY - d.y];
+            if (!frame.current) frame.current = requestAnimationFrame(send);
+         }}
+         onPointerUp={end}
+         onPointerCancel={end}
+      >
+         <svg viewBox="0 0 10 10" className="size-2.5" aria-hidden="true">
+            <path
+               d="M9 3 3 9M9 6.5 6.5 9"
+               stroke="currentColor"
+               strokeWidth="1.2"
+               strokeLinecap="round"
+            />
+         </svg>
       </div>
    );
 }

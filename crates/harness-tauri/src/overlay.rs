@@ -45,17 +45,10 @@ impl Mode {
         let (w, h) = self.card();
         (w + 2.0 * SHADOW, h + 2.0 * SHADOW)
     }
-
-    /// Only the chat can be resized by the user (its size is kept for the app session).
-    fn resizable(self) -> bool {
-        self == Mode::Chat
-    }
-
-    /// Logical minimum window size while the user resizes.
-    fn min_size(self) -> Option<(f64, f64)> {
-        (self == Mode::Chat).then_some((380.0 + 2.0 * SHADOW, 300.0 + 2.0 * SHADOW))
-    }
 }
+
+/// Smallest chat window the user can resize to (logical px): a 380x300 card plus the `SHADOW` margin.
+const CHAT_MIN: (f64, f64) = (380.0 + 2.0 * SHADOW, 300.0 + 2.0 * SHADOW);
 
 /// Which edge of the card stays at the anchor point: the top for "at the mouse" (the window opens
 /// below the mouse and the chat grows down), the bottom for "bottom center" (it grows up).
@@ -76,8 +69,8 @@ const MARGIN: f64 = 8.0;
 const BELOW_CURSOR: f64 = 12.0;
 /// `OverlayPosition::Bottom`: the card's bottom edge this far above the screen's bottom (logical px).
 const ABOVE_BOTTOM: f64 = 96.0;
-/// While a menu is open, the window grows by this much on each side (logical px), so menus and
-/// submenus are not cut at the window edge. The card stays where it is on screen.
+/// While a menu is open, the window grows by this much to the right and down (logical px), so menus
+/// and submenus are not cut at the window edge. Its top-left stays, so the card does not move.
 const MENU_ROOM: f64 = 320.0;
 
 #[derive(Default)]
@@ -85,6 +78,7 @@ pub struct Overlay {
     mode: Mutex<Mode>,
     anchor: Mutex<Anchor>,
     /// The chat's window size after the user resized it (logical px), for this app session.
+    /// Only `overlay_resize` sets it.
     chat_size: Mutex<Option<(f64, f64)>>,
     /// The window frame (physical px) before it grew for an open menu.
     menu_base: Mutex<Option<Rect>>,
@@ -112,15 +106,6 @@ pub struct Rect {
     pub h: f64,
 }
 
-/// Space added on each side of the window, in one unit.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
-pub struct Insets {
-    pub top: f64,
-    pub right: f64,
-    pub bottom: f64,
-    pub left: f64,
-}
-
 /// The point of `frame` that `anchor` keeps in place: its top or bottom center.
 pub fn anchor_point(frame: Rect, anchor: Anchor) -> (f64, f64) {
     let x = frame.x + frame.w / 2.0;
@@ -143,18 +128,21 @@ pub fn place(point: (f64, f64), anchor: Anchor, size: (f64, f64), screen: Rect, 
     (x, y)
 }
 
-/// `frame` grown by `room` on each side, but not past `screen`. Returns the new frame and what
-/// was added on each side (the page moves its card by that much, so it stays in place).
-pub fn grow(frame: Rect, room: f64, screen: Rect) -> (Rect, Insets) {
+/// `frame` grown by `room` to the right and down, but not past `screen`. The top-left stays, so
+/// the page's card does not move and the page needs no offset.
+pub fn grow(frame: Rect, room: f64, screen: Rect) -> Rect {
     let side = |space: f64| room.min(space).max(0.0);
-    let i = Insets {
-        top: side(frame.y - screen.y),
-        right: side(screen.x + screen.w - frame.x - frame.w),
-        bottom: side(screen.y + screen.h - frame.y - frame.h),
-        left: side(frame.x - screen.x),
-    };
-    let r = Rect { x: frame.x - i.left, y: frame.y - i.top, w: frame.w + i.left + i.right, h: frame.h + i.top + i.bottom };
-    (r, i)
+    let right = side(screen.x + screen.w - frame.x - frame.w);
+    let down = side(screen.y + screen.h - frame.y - frame.h);
+    Rect { w: frame.w + right, h: frame.h + down, ..frame }
+}
+
+/// `frame` at `size` with its top-left kept: not smaller than `min`, not past `screen` less
+/// `margin` (the minimum wins on a tiny screen).
+pub fn sized(frame: Rect, size: (f64, f64), min: (f64, f64), screen: Rect, margin: f64) -> Rect {
+    let w = size.0.min(screen.x + screen.w - margin - frame.x).max(min.0);
+    let h = size.1.min(screen.y + screen.h - margin - frame.y).max(min.1);
+    Rect { w, h, ..frame }
 }
 
 fn work_area(m: &tauri::Monitor) -> Rect {
@@ -171,18 +159,6 @@ fn frame(window: &WebviewWindow) -> tauri::Result<Rect> {
 fn set_frame(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
     window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
     window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))
-}
-
-/// Resizable and minimum size for `mode`, then the frame (physical px). The minimum is cleared
-/// first, so a smaller mode (mini) is not held at the chat's minimum.
-fn apply(window: &WebviewWindow, mode: Mode, r: Rect) -> tauri::Result<()> {
-    window.set_min_size(None::<tauri::Size>)?;
-    window.set_resizable(mode.resizable())?;
-    set_frame(window, r)?;
-    if let Some((w, h)) = mode.min_size() {
-        window.set_min_size(Some(tauri::LogicalSize::new(w, h)))?;
-    }
-    Ok(())
 }
 
 /// Reads `overlay.json` through the core, registers the shortcut. Call once in `setup`.
@@ -265,23 +241,18 @@ fn show(app: &AppHandle) -> tauri::Result<()> {
             Anchor::Bottom => (screen.x + screen.w / 2.0, screen.y + screen.h - (ABOVE_BOTTOM - SHADOW) * scale),
         };
         let (x, y) = place(point, anchor, size, screen, MARGIN * scale);
-        apply(&window, mode, Rect { x, y, w: size.0, h: size.1 })?;
+        set_frame(&window, Rect { x, y, w: size.0, h: size.1 })?;
     }
     native_show(&window);
     let _ = app.emit_to(LABEL, "overlay-shown", anchor);
     Ok(())
 }
 
-/// The chat's current size is the user's: kept for the next chat (and expand after minimize).
-fn remember_chat_size(state: &Overlay, frame: Rect, scale: f64) {
-    *state.chat_size.lock() = Some((frame.w / scale, frame.h / scale));
-}
-
 /// New size for `mode`, keeping the top (or bottom) center where it is: the chat grows down from
 /// the prompt box (up, at the bottom of the screen).
 fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
     let state = app.state::<Overlay>();
-    let old = std::mem::replace(&mut *state.mode.lock(), mode);
+    *state.mode.lock() = mode;
     let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
     let scale = window.scale_factor()?;
     // An open menu's room is dropped (the page drops it on a mode change too).
@@ -289,9 +260,6 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
         Some(r) => r,
         None => frame(&window)?,
     };
-    if old == Mode::Chat && mode != Mode::Chat {
-        remember_chat_size(&state, current, scale);
-    }
     let (w, h) = state.size(mode);
     let size = (w * scale, h * scale);
     let anchor = *state.anchor.lock();
@@ -300,34 +268,49 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
         Some(m) => place(point, anchor, size, work_area(&m), MARGIN * scale),
         None => (point.0 - size.0 / 2.0, if anchor == Anchor::Top { point.1 } else { point.1 - size.1 }),
     };
-    apply(&window, mode, Rect { x, y, w: size.0, h: size.1 })
+    set_frame(&window, Rect { x, y, w: size.0, h: size.1 })
 }
 
-/// Grows the window by `MENU_ROOM` on each side (`open`), or back to its size before. Returns
-/// what was added on each side, in logical px: the page pads its card by that much.
-fn menu_room(app: &AppHandle, open: bool) -> tauri::Result<Insets> {
+/// The user drags the chat's resize grip: the window becomes `size` (logical px), its top-left
+/// kept, within `CHAT_MIN` and the screen. The size is kept for the next chat and expand.
+/// A borderless macOS window has no resize edges, so the page draws the grip and sends sizes.
+fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<()> {
     let state = app.state::<Overlay>();
-    let Some(window) = app.get_webview_window(LABEL) else { return Ok(Insets::default()) };
+    if *state.mode.lock() != Mode::Chat || state.menu_base.lock().is_some() {
+        return Ok(());
+    }
+    let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
+    let Some(m) = window.current_monitor()? else { return Ok(()) };
     let scale = window.scale_factor()?;
+    let current = frame(&window)?;
+    let min = (CHAT_MIN.0 * scale, CHAT_MIN.1 * scale);
+    let r = sized(current, (size.0 * scale, size.1 * scale), min, work_area(&m), MARGIN * scale);
+    window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
+    *state.chat_size.lock() = Some((r.w / scale, r.h / scale));
+    Ok(())
+}
+
+/// Grows the window by `MENU_ROOM` to the right and down (`open`), or back to its size before.
+/// The top-left never moves, so the card stays in place with no page offset.
+fn menu_room(app: &AppHandle, open: bool) -> tauri::Result<()> {
+    let state = app.state::<Overlay>();
+    let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
     let mut base = state.menu_base.lock();
     if !open {
         if let Some(r) = base.take() {
-            apply(&window, *state.mode.lock(), r)?;
+            set_frame(&window, r)?;
         }
-        return Ok(Insets::default());
+        return Ok(());
     }
-    let current = match *base {
-        Some(r) => r,
-        None => frame(&window)?,
-    };
-    let Some(m) = window.current_monitor()? else { return Ok(Insets::default()) };
-    let (grown, i) = grow(current, MENU_ROOM * scale, work_area(&m));
-    // The user cannot resize the window while it has the menu room (its edges are not the card's).
-    window.set_min_size(None::<tauri::Size>)?;
-    window.set_resizable(false)?;
-    set_frame(&window, grown)?;
+    if base.is_some() {
+        return Ok(());
+    }
+    let Some(m) = window.current_monitor()? else { return Ok(()) };
+    let scale = window.scale_factor()?;
+    let current = frame(&window)?;
+    set_frame(&window, grow(current, MENU_ROOM * scale, work_area(&m)))?;
     *base = Some(current);
-    Ok(Insets { top: i.top / scale, right: i.right / scale, bottom: i.bottom / scale, left: i.left / scale })
+    Ok(())
 }
 
 fn native_show(window: &WebviewWindow) {
@@ -365,9 +348,20 @@ pub fn overlay_set_mode(app: AppHandle, mode: Mode) {
     });
 }
 
-/// A menu opened (`open`) or all closed in the overlay page. Returns the room added on each side.
+/// The chat's resize grip was dragged to `width` x `height` (logical window px).
 #[tauri::command]
-pub async fn overlay_set_menu_room(app: AppHandle, open: bool) -> Result<Insets, String> {
+pub fn overlay_resize(app: AppHandle, width: f64, height: f64) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Err(e) = user_resize(&handle, (width, height)) {
+            tracing::warn!("overlay user resize: {e}");
+        }
+    });
+}
+
+/// A menu opened (`open`) or all closed in the overlay page. Resolves once the window has its size.
+#[tauri::command]
+pub async fn overlay_set_menu_room(app: AppHandle, open: bool) -> Result<(), String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
@@ -391,14 +385,8 @@ pub fn overlay_merge(app: AppHandle, session_id: String) -> Result<(), String> {
     app.run_on_main_thread(move || {
         hide(&handle);
         let state = handle.state::<Overlay>();
-        let base = state.menu_base.lock().take();
-        let old = std::mem::replace(&mut *state.mode.lock(), Mode::Prompt);
-        if old == Mode::Chat
-            && let Some(w) = handle.get_webview_window(LABEL)
-            && let (Ok(scale), Some(r)) = (w.scale_factor(), base.or_else(|| frame(&w).ok()))
-        {
-            remember_chat_size(&state, r, scale);
-        }
+        *state.menu_base.lock() = None;
+        *state.mode.lock() = Mode::Prompt;
         if let Some(main) = handle.get_webview_window("main") {
             let _ = main.unminimize();
             let _ = main.show();
@@ -503,7 +491,7 @@ mod panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anchor, Insets, Rect, anchor_point, grow, place};
+    use super::{Anchor, Rect, anchor_point, grow, place, sized};
 
     const SCREEN: Rect = Rect { x: 0.0, y: 25.0, w: 1440.0, h: 875.0 };
 
@@ -560,22 +548,30 @@ mod tests {
     }
 
     #[test]
-    fn grow_adds_room_on_every_side_with_space() {
+    fn grow_adds_room_right_and_down_only() {
         let card = Rect { x: 500.0, y: 400.0, w: 400.0, h: 200.0 };
-        let (r, i) = grow(card, 100.0, SCREEN);
-        assert_eq!(i, Insets { top: 100.0, right: 100.0, bottom: 100.0, left: 100.0 });
-        assert_eq!(r, Rect { x: 400.0, y: 300.0, w: 600.0, h: 400.0 });
+        assert_eq!(grow(card, 100.0, SCREEN), Rect { x: 500.0, y: 400.0, w: 500.0, h: 300.0 });
     }
 
     #[test]
     fn grow_stops_at_the_screen_edges() {
-        // Near the top-right corner: little room up and right, the menus flip to the other sides.
-        let card = Rect { x: 1000.0, y: 45.0, w: 400.0, h: 200.0 };
-        let (r, i) = grow(card, 100.0, SCREEN);
-        assert_eq!(i, Insets { top: 20.0, right: 40.0, bottom: 100.0, left: 100.0 });
-        assert_eq!(r, Rect { x: 900.0, y: 25.0, w: 540.0, h: 320.0 });
-        // A frame already past the edge gets no room there (never negative).
-        let off = Rect { x: -10.0, y: 400.0, w: 400.0, h: 200.0 };
-        assert_eq!(grow(off, 100.0, SCREEN).1.left, 0.0);
+        // Near the bottom-right corner: little room right and down, Radix flips or shifts the menus.
+        let card = Rect { x: 1000.0, y: 620.0, w: 400.0, h: 200.0 };
+        assert_eq!(grow(card, 100.0, SCREEN), Rect { x: 1000.0, y: 620.0, w: 440.0, h: 280.0 });
+        // A frame already past the edge gets no room there (never smaller).
+        let off = Rect { x: 1100.0, y: 400.0, w: 400.0, h: 200.0 };
+        assert_eq!(grow(off, 100.0, SCREEN).w, 400.0);
+    }
+
+    #[test]
+    fn sized_keeps_the_top_left_and_clamps() {
+        let chat = Rect { x: 500.0, y: 100.0, w: 580.0, h: 600.0 };
+        let min = (420.0, 340.0);
+        // Free: the asked size, top-left kept.
+        assert_eq!(sized(chat, (700.0, 650.0), min, SCREEN, 8.0), Rect { x: 500.0, y: 100.0, w: 700.0, h: 650.0 });
+        // Not smaller than the minimum.
+        assert_eq!(sized(chat, (100.0, 100.0), min, SCREEN, 8.0), Rect { w: 420.0, h: 340.0, ..chat });
+        // Not past the screen less the margin.
+        assert_eq!(sized(chat, (5000.0, 5000.0), min, SCREEN, 8.0), Rect { w: 1440.0 - 8.0 - 500.0, h: 900.0 - 8.0 - 100.0, ..chat });
     }
 }

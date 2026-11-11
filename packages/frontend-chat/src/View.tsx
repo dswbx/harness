@@ -741,6 +741,9 @@ function ChatView({
          });
    }
 
+   // The Quick overlay's draft: before the first message the window has room only below the box
+   // (it grows right and down for menus, ADR 0022).
+   const overlayDraft = overlay && state.items.length === 0 && pending.length === 0;
    const promptBox = (
       <PromptBox
          ref={prompt}
@@ -749,6 +752,7 @@ function ChatView({
          onSideThread={btw}
          agentSwitch={agentSwitch}
          elevated={overlay}
+         menuSide={overlayDraft ? "bottom" : "top"}
       />
    );
    const chat = (
@@ -833,12 +837,11 @@ function ChatView({
    // The Quick overlay: just the chat column. Before the first message only the prompt box, at the
    // bottom of the transparent window (ADR 0022).
    if (overlay) {
-      const draft = state.items.length === 0 && pending.length === 0;
       return (
          <PrRefProvider api={api}>
             <FileRefProvider api={api}>
-               <div className={cn("relative flex h-full flex-col", draft && "justify-end")}>
-                  {draft ? promptBox : chat}
+               <div className={cn("relative flex h-full flex-col", overlayDraft && "justify-end")}>
+                  {overlayDraft ? promptBox : chat}
                </div>
             </FileRefProvider>
          </PrRefProvider>
