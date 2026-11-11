@@ -1,7 +1,8 @@
 import type { AttachmentInput, SessionApi } from "@harness/api";
-import { ScrollArea } from "@harness/ui";
+import { ScrollArea, ToggleGroup, ToggleGroupItem } from "@harness/ui";
 import { MessagesSquare } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { groupConfigOptions } from "./configGroups";
 import type { DiffScope } from "./DiffPanel";
 import { MessageList, useRows } from "./Messages";
 import { PromptBox, type PromptBoxHandle } from "./PromptBox";
@@ -85,20 +86,47 @@ function SelectionHint() {
    );
 }
 
-/** A side chat not started yet: its Side Thread forks from Main on the first message, so opening one costs nothing. */
+/** How a side chat starts: from the conversation so far, or without it. */
+export type SideStart = { source: "fork" | "fresh"; mode?: string };
+
+const START_TEXT: Record<SideStart["source"], string> = {
+   fork: "Knows what the Main Thread read and decided. Not added to the Main Thread's context.",
+   fresh: "New agent session in the same workspace, without this conversation. Good for an independent review.",
+};
+
+/**
+ * A side chat not started yet: its Side Thread starts on the first message, so opening one costs nothing.
+ * What it starts from and its mode are picked here and stay local until then.
+ */
 export function SideDraft({
    api,
+   main,
    draftId,
    onSend,
    focusKey,
 }: {
    api: SessionApi;
+   /** The Main Thread: its mode option and the Agent's asking mode (the default here). */
+   main: ChatState;
    draftId: string;
-   onSend: (text: string, attachments: AttachmentInput[]) => Promise<void>;
+   onSend: (text: string, attachments: AttachmentInput[], start: SideStart) => Promise<void>;
    focusKey: number;
 }) {
    const prompt = useRef<PromptBoxHandle>(null);
-   const empty = useMemo(initialState, []);
+   const [source, setSource] = useState<SideStart["source"]>("fork");
+   const [picked, setPicked] = useState<string | null>(null);
+   const mainMode = useMemo(
+      () => groupConfigOptions(main.configOptions).mode,
+      [main.configOptions],
+   );
+   const mode = mainMode ? (picked ?? main.sideMode ?? mainMode.currentValue) : undefined;
+   const draft = useMemo<ChatState>(
+      () => ({
+         ...initialState(),
+         configOptions: mainMode && mode ? [{ ...mainMode, currentValue: mode }] : [],
+      }),
+      [mainMode, mode],
+   );
    useEffect(() => {
       if (focusKey) prompt.current?.focus();
    }, [focusKey]);
@@ -109,12 +137,20 @@ export function SideDraft({
       >
          <ScrollArea className="min-h-0 flex-1">
             <div className="flex min-h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
-               <div className="grid gap-1">
+               <div className="grid justify-items-center gap-3">
                   <p className="text-sm font-medium">Ask on the side</p>
-                  <p className="text-[13px] text-muted-foreground">
-                     Your first message starts this chat from the conversation so far. The Main
-                     Thread never sees it.
-                  </p>
+                  <ToggleGroup
+                     type="single"
+                     aria-label="Start from"
+                     value={source}
+                     onValueChange={(v) => {
+                        if (v) setSource(v as SideStart["source"]);
+                     }}
+                  >
+                     <ToggleGroupItem value="fork">Full conversation</ToggleGroupItem>
+                     <ToggleGroupItem value="fresh">Nothing</ToggleGroupItem>
+                  </ToggleGroup>
+                  <p className="max-w-72 text-[13px] text-muted-foreground">{START_TEXT[source]}</p>
                </div>
                <SelectionHint />
                <p className="max-w-60 text-xs text-muted-foreground">
@@ -124,7 +160,14 @@ export function SideDraft({
                </p>
             </div>
          </ScrollArea>
-         <PromptBox ref={prompt} api={api} state={empty} threadId={draftId} onSend={onSend} />
+         <PromptBox
+            ref={prompt}
+            api={api}
+            state={draft}
+            threadId={draftId}
+            onSend={(text, files) => onSend(text, files, { source, ...(mode && { mode }) })}
+            onConfigChange={(_, value) => setPicked(value)}
+         />
       </aside>
    );
 }

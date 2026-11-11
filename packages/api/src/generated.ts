@@ -287,10 +287,15 @@ attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread
 { type: "ContinueWithSummary"; session_id: string; thread_id: string | null; text: string | null; attachments?: AttachmentInput[] } | 
 /**
  *  Opens a Side Thread on the Session's Agent. `seed` is given to the Agent with its first
- *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, else a
- *  text seed of the Main Thread's transcript).
+ *  prompt. `source` says how its Agent Session starts (a fork of the Main Thread's, a text
+ *  seed of the Main Thread's transcript, or fresh without it).
  */
-{ type: "StartSideThread"; session_id: string; seed?: string | null; source?: ThreadStart } | { type: "ResolvePermission"; session_id: string; request_id: string; 
+{ type: "StartSideThread"; session_id: string; seed?: string | null; source?: ThreadStart; 
+/**
+ *  The mode option value the Side Thread starts in. `None`, or a value the Agent does not
+ *  offer, starts it in the mode that asks before writes.
+ */
+mode?: string | null } | { type: "ResolvePermission"; session_id: string; request_id: string; 
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
 option_id: string | null; 
 /**  With an `*_always` option, the rule applies to every Session (Global scope) instead of this Session. */
@@ -387,7 +392,10 @@ export type Event = {
 };
 
 export type EventKind = { type: "SessionCreated"; title: string; frontend_id: string; agent_id: string; folder: string } | { type: "SessionStatusChanged"; status: SessionStatus } | { type: "ThreadStarted"; agent_id: string; main: boolean; 
-/**  Side Threads: the Main Thread's last finished Turn when this one started. */
+/**
+ *  Side Threads: the Main Thread's last finished Turn when this one started. `None` for the
+ *  Main Thread and a fresh Side Thread.
+ */
 forked_from?: ForkPoint | null } | 
 /**  The Agent needs the user to sign in before it can work. */
 { type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
@@ -441,7 +449,12 @@ subagent?: SubagentInfo | null;
 /**  Set when the update carries the commit message (see `ToolCall`). */
 commit_message?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
-{ type: "ConfigOptionsChanged"; options: unknown } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
+{ type: "ConfigOptionsChanged"; options: unknown; 
+/**
+ *  The mode option's value a new Side Thread starts in by default (the one that asks
+ *  before writes), so Views can show it before the Side Thread exists.
+ */
+side_mode?: string | null } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
 /**  The Harness MCP tool the request is for, when it is one. */
 harness_tool?: string | null; 
 /**  The request approves a plan (Plan Mode): Markdown. */
@@ -786,7 +799,12 @@ export type TerminalInfo = {
  *  How a Side Thread's Agent Session starts. `Fork` falls back to `Seed` when the Agent cannot
  *  fork, the Main Thread has no Agent Session or is mid-Turn, or the fork fails.
  */
-export type ThreadStart = "fork" | "seed";
+export type ThreadStart = "fork" | "seed" | 
+/**
+ *  A new Agent Session without the Main Thread's conversation (same Workspace). Transcript
+ *  tools are not offered.
+ */
+"fresh";
 
 /**  How many of a Thread's Turns fit in a transcript. */
 export type TranscriptSize = {

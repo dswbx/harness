@@ -12,6 +12,7 @@ export * from "./components/scroll-area";
 export * from "./components/select";
 export * from "./components/separator";
 export * from "./components/textarea";
+export * from "./components/toggle-group";
 export * from "./components/tooltip";
 export * from "./components/trace";
 export * from "./components/virtual-list";

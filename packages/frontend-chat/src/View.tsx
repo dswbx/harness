@@ -107,6 +107,7 @@ import { SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import type { Slot } from "./slots";
+import type { SideStart } from "./ThreadView";
 import { RENDER_UI } from "./tools";
 import { uiIcons } from "./uiIcons";
 
@@ -369,13 +370,16 @@ function ChatView({
    const [sideError, setSideError] = useState<string | null>(null);
    const layRef = useRef(lay);
    layRef.current = lay;
-   /** Starts a Side Thread now (forked from Main when the Agent can), in place of tab `draft` or as a new tab, and sends it `text`. */
+   /**
+    * Starts a Side Thread now (forked from Main when the Agent can; `start` from a draft tab can pick fresh and a mode),
+    * in place of tab `draft` or as a new tab, and sends it `text`.
+    */
    const startSideThread = useCallback(
-      async (text: string, attachments: AttachmentInput[], draft?: string) => {
+      async (text: string, attachments: AttachmentInput[], draft?: string, start?: SideStart) => {
          setSideError(null);
          let thread_id: string;
          try {
-            ({ thread_id } = await api.startSideThread());
+            ({ thread_id } = await api.startSideThread(start));
          } catch (e) {
             setSideError(errorMessage(e));
             throw e;
@@ -739,7 +743,7 @@ function ChatView({
                   update((l) => closeThread(l, id));
                }}
                onNew={newSideThread}
-               onSendDraft={(id, text, files) => startSideThread(text, files, id)}
+               onSendDraft={(id, text, files, start) => startSideThread(text, files, id, start)}
                onOpenDiff={openDiff}
             />
          ),

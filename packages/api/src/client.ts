@@ -60,11 +60,13 @@ export interface SessionApi {
    ): Promise<void>;
    /**
     * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
-    * Starts in the Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
+    * `source: "fresh"` starts a new Agent Session without the conversation. Starts in `mode` when given, else in the
+    * Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
     */
    startSideThread(args?: {
       seed?: string | null;
       source?: ThreadStart;
+      mode?: string | null;
    }): Promise<{ thread_id: string; forked: boolean }>;
    /** `null` answers "cancelled". With an `*_always` option, `global` makes the rule apply to every Session. */
    resolvePermission(requestId: string, optionId: string | null, global?: boolean): Promise<void>;
@@ -197,9 +199,9 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             text,
             attachments,
          }),
-      startSideThread: async ({ seed = null, source } = {}) => {
+      startSideThread: async ({ seed = null, source, mode = null } = {}) => {
          const r = await expect(
-            { type: "StartSideThread", session_id: sessionId, seed, source },
+            { type: "StartSideThread", session_id: sessionId, seed, source, mode },
             "ThreadStarted",
          );
          return { thread_id: r.thread_id, forked: r.forked };

@@ -504,8 +504,12 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
 }
 
 async fn start_side(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart) -> (String, bool) {
+    start_side_in(h, sid, seed, source, None).await
+}
+
+async fn start_side_in(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart, mode: Option<&str>) -> (String, bool) {
     let CommandResult::ThreadStarted { thread_id, forked } =
-        h.execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source }).await.unwrap()
+        h.execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source, mode: mode.map(Into::into) }).await.unwrap()
     else {
         panic!()
     };
@@ -581,6 +585,74 @@ async fn seed_source_never_forks() {
     assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
 }
 
+/// The newest value of a config option the Thread logged.
+fn thread_config(h: &Harness, sid: &str, thread: &str, id: &str) -> Option<String> {
+    thread_kinds(h, sid, thread).into_iter().rev().find_map(|k| match k {
+        EventKind::ConfigOptionsChanged { options, .. } => {
+            options.as_array()?.iter().find(|o| o["id"] == id).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
+        }
+        _ => None,
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fresh_side_thread_starts_without_the_main_conversation() {
+    let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main secret").await;
+    let (side, forked) = start_side(&h, &sid, Some("review the diff"), ThreadStart::Fresh).await;
+    assert!(!forked);
+    let reply = ask_in(&h, &sid, &side, "echo-prompt history").await;
+    assert!(!reply.contains("main secret"), "no Main Thread transcript: {reply}");
+    assert!(reply.contains("review the diff"), "the user's own seed stays: {reply}");
+
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
+    let kinds = thread_kinds(&h, &sid, &side);
+    assert!(matches!(kinds[0], EventKind::ThreadStarted { main: false, forked_from: None, .. }));
+    let context = kinds
+        .iter()
+        .find_map(|k| match k {
+            EventKind::TurnStarted { context, .. } => context.clone(),
+            _ => None,
+        })
+        .expect("the first prompt carries the Harness context");
+    assert!(context.contains("without the Main Thread's conversation"), "{context}");
+    assert!(!context.contains("transcript tools read the Main Thread"), "{context}");
+    assert_eq!(thread_config(&h, &sid, &side, "mode").as_deref(), Some("default"), "starts in the asking mode");
+    let side_mode = events(&h, &sid).into_iter().find_map(|e| match e.kind {
+        EventKind::ConfigOptionsChanged { side_mode, .. } => side_mode,
+        _ => None,
+    });
+    assert_eq!(side_mode.as_deref(), Some("default"), "Views learn the Side Thread default from core");
+
+    // Transcript tools are neither listed nor callable.
+    let tools = ask_in(&h, &sid, &side, "mcp-list").await;
+    assert!(tools.contains("git_status"), "{tools}");
+    for t in ["threads_list", "transcript_outline", "transcript_read", "transcript_search"] {
+        assert!(!tools.contains(t), "{t} listed: {tools}");
+    }
+    let read = ask_in(&h, &sid, &side, "mcp transcript_read {}").await;
+    assert!(read.contains("not available") && !read.contains("main secret"), "{read}");
+    // A Main Thread still has them.
+    let main = main_thread(&h, &sid);
+    assert!(ask_in(&h, &sid, &main, "mcp-list").await.contains("transcript_read"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn side_thread_starts_in_the_chosen_mode() {
+    for (flags, source) in [(&["--fork"][..], ThreadStart::Fork), (&[][..], ThreadStart::Seed), (&["--fork"][..], ThreadStart::Fresh)] {
+        let (h, sid, _dir) = setup_with(flags, Duration::from_secs(900)).await;
+        turn(&h, &sid, None, "main").await;
+        h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "default".into() }).await.unwrap();
+        let (side, _) = start_side_in(&h, &sid, None, source, Some("auto")).await;
+        ask_in(&h, &sid, &side, "hi").await;
+        assert_eq!(thread_config(&h, &sid, &side, "mode").as_deref(), Some("auto"), "{source:?}");
+        // A mode the Agent does not offer: the asking mode.
+        let (side, _) = start_side_in(&h, &sid, None, source, Some("yolo")).await;
+        ask_in(&h, &sid, &side, "hi").await;
+        assert_eq!(thread_config(&h, &sid, &side, "mode").as_deref(), Some("default"), "{source:?}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn side_thread_forks_the_main_agent_session() {
     let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
@@ -652,7 +724,7 @@ async fn side_threads_follow_the_main_threads_config_except_the_mode() {
         ask_in(&h, &sid, &side, "hi").await;
         let config = |h: &Harness, id: &str| {
             thread_kinds(h, &sid, &side).into_iter().rev().find_map(|k| match k {
-                EventKind::ConfigOptionsChanged { options } => {
+                EventKind::ConfigOptionsChanged { options, .. } => {
                     options.as_array().unwrap().iter().find(|o| o["id"] == id).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
                 }
                 _ => None,
@@ -736,7 +808,7 @@ async fn config_change_starts_the_agent_and_logs_the_answer() {
     let current: Vec<String> = h_events(&h, &sid)
         .into_iter()
         .filter_map(|k| match k {
-            EventKind::ConfigOptionsChanged { options } => options[0]["currentValue"].as_str().map(str::to_owned),
+            EventKind::ConfigOptionsChanged { options, .. } => options[0]["currentValue"].as_str().map(str::to_owned),
             _ => None,
         })
         .collect();
@@ -752,7 +824,7 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
         h_events(h, sid)
             .into_iter()
             .filter_map(|k| match k {
-                EventKind::ConfigOptionsChanged { options } => options[0]["currentValue"].as_str().map(str::to_owned),
+                EventKind::ConfigOptionsChanged { options, .. } => options[0]["currentValue"].as_str().map(str::to_owned),
                 _ => None,
             })
             .collect()

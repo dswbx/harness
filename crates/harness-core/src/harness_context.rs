@@ -61,7 +61,13 @@ pub fn frontend_errors(session: &Session, thread: &ThreadId) -> anyhow::Result<O
 /// Where a Side Thread comes from and what it may do; `None` for the Main Thread.
 fn side_note(session: &Session, thread: &ThreadId, forked: bool) -> Option<String> {
     let meta = session.meta();
-    let turn = meta.origins.get(thread)?.point.turn;
+    let origin = meta.origins.get(thread)?;
+    if origin.source == crate::api::ThreadStart::Fresh {
+        return Some(
+            "## Side Thread\n\nYou are in a Side Thread that the user started without the Main Thread's conversation, for an independent view. You work in the same Workspace. What you say here does not enter the Main Thread.".to_owned(),
+        );
+    }
+    let turn = origin.point.turn;
     let start = if forked {
         format!("You are in a Side Thread, forked from the Main Thread after its Turn {turn}. Everything above is the Main Thread's conversation up to then.")
     } else {

@@ -6,7 +6,7 @@ import { PanelHeader } from "./PanelHeader";
 import { isDraftThread } from "./panelLayout";
 import type { UiEnv } from "./RenderUi";
 import type { ChatState } from "./reducer";
-import { SideDraft, ThreadView } from "./ThreadView";
+import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
 
 /**
  * The side chats: pill tabs in the panel header, one Side Thread per tab. Every open chat stays mounted
@@ -37,7 +37,12 @@ export function SidePanel({
    onClose: (id: string) => void;
    onNew: () => void;
    /** First message of a draft tab: starts its Side Thread. */
-   onSendDraft: (draft: string, text: string, attachments: AttachmentInput[]) => Promise<void>;
+   onSendDraft: (
+      draft: string,
+      text: string,
+      attachments: AttachmentInput[],
+      start: SideStart,
+   ) => Promise<void>;
    onOpenDiff: (s: DiffScope) => void;
 }) {
    return (
@@ -98,8 +103,9 @@ export function SidePanel({
                   {isDraftThread(id) ? (
                      <SideDraft
                         api={api}
+                        main={state}
                         draftId={id}
-                        onSend={(text, files) => onSendDraft(id, text, files)}
+                        onSend={(text, files, start) => onSendDraft(id, text, files, start)}
                         focusKey={focus.id === id ? focus.n : 0}
                      />
                   ) : (

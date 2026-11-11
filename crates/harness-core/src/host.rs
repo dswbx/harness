@@ -276,9 +276,9 @@ impl Harness {
                 self.session(&session_id)?.continue_with_summary(thread_id, text, attachments).await?;
                 CommandResult::Ok
             }
-            Command::StartSideThread { session_id, seed, source } => {
+            Command::StartSideThread { session_id, seed, source, mode } => {
                 let session = self.session(&session_id)?;
-                let (thread_id, forked) = session.start_side_thread(seed, source)?;
+                let (thread_id, forked) = session.start_side_thread(seed, source, mode)?;
                 if forked {
                     // Fork now, so the Side Thread sees the Main Thread as it was when opened.
                     let thread = thread_id.clone();

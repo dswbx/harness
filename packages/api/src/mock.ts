@@ -37,6 +37,16 @@ import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 const ASKING_MODE = "read-only";
 const isModeOption = (o: { id: string; category?: string }) =>
    o.category === "mode" || o.id === "mode";
+/** Main's ConfigOptionsChanged with `side_mode` (like the core): the asking mode its mode option offers, else "default". */
+function withSideMode(kind: EventKind): EventKind {
+   if (kind.type !== "ConfigOptionsChanged" || !Array.isArray(kind.options)) return kind;
+   const mode = (
+      kind.options as { id: string; category?: string; options?: { value: string }[] }[]
+   ).find(isModeOption);
+   if (!mode) return kind;
+   const side_mode = mode.options?.some((v) => v.value === ASKING_MODE) ? ASKING_MODE : "default";
+   return { ...kind, side_mode };
+}
 const ago = (h: number) => Math.floor(Date.now() / 1000) - h * 3600;
 const MOCK_BRANCHES: BranchInfo[] = [
    { name: "main", time: ago(0.1), ahead: 0, behind: 21, worktree: false, archived: false },
@@ -539,7 +549,19 @@ export class MockTransport implements Transport {
             pr: null,
          },
       });
-      this.logs.set(id, replay ? this.fixture.map((e) => ({ ...e, session_id: id })) : []);
+      const mainId = this.fixture.find(
+         (e) => e.kind.type === "ThreadStarted" && e.kind.main,
+      )?.thread_id;
+      this.logs.set(
+         id,
+         replay
+            ? this.fixture.map((e) => ({
+                 ...e,
+                 session_id: id,
+                 kind: e.thread_id === mainId ? withSideMode(e.kind) : e.kind,
+              }))
+            : [],
+      );
    }
 
    private commitN = 0;
@@ -556,6 +578,8 @@ export class MockTransport implements Transport {
    private restoreFailed = new Set<string>();
    private sideN = 0;
    private sideForked = new Map<string, boolean>();
+   /** Side Threads started without the conversation (`source: "fresh"`). */
+   private sideFresh = new Set<string>();
 
    /** The Main Thread's latest config options (what Side Threads mirror). */
    private mainOptions(sid: string): unknown[] | null {
@@ -594,6 +618,10 @@ export class MockTransport implements Transport {
       if (thread_id === undefined) {
          const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main);
          thread_id = main?.thread_id ?? "main";
+      }
+      if (kind.type === "ConfigOptionsChanged") {
+         const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main);
+         if (thread_id === (main?.thread_id ?? "main")) kind = withSideMode(kind);
       }
       const e: Event = {
          v: 1,
@@ -1126,26 +1154,28 @@ export class MockTransport implements Transport {
             const mainTurns = log.filter(
                (e) => e.thread_id === main?.thread_id && e.kind.type === "TurnEnded",
             ).length;
-            // Like the core: a fork needs a Main Thread that has run; else a text seed.
-            const forked = cmd.source !== "seed" && mainTurns > 0;
+            // Like the core: a fork needs a Main Thread that has run; else a text seed. Fresh: neither.
+            const fresh = cmd.source === "fresh";
+            const forked = !fresh && cmd.source !== "seed" && mainTurns > 0;
             this.sideForked.set(thread_id, forked);
+            if (fresh) this.sideFresh.add(thread_id);
             this.emit(
                sid,
                {
                   type: "ThreadStarted",
                   agent_id: "codex",
                   main: false,
-                  forked_from: forked
-                     ? {
-                          thread_id: main?.thread_id ?? "main",
-                          turn: mainTurns,
-                          seq: log.length - 1,
-                       }
-                     : null,
+                  ...(!fresh && {
+                     forked_from: {
+                        thread_id: main?.thread_id ?? "main",
+                        turn: mainTurns,
+                        seq: log.length - 1,
+                     },
+                  }),
                },
                thread_id,
             );
-            // Side Threads follow the Main Thread's config options, but start in the asking mode and own their mode.
+            // Side Threads follow the Main Thread's config options, but start in `cmd.mode` (else the asking mode) and own their mode.
             const opts = this.mainOptions(sid) as
                | {
                     id: string;
@@ -1155,11 +1185,13 @@ export class MockTransport implements Transport {
                  }[]
                | null;
             if (opts) {
-               const side = opts.map((o) =>
-                  isModeOption(o) && o.options?.some((v) => v.value === ASKING_MODE)
-                     ? { ...o, currentValue: ASKING_MODE }
-                     : o,
-               );
+               const side = opts.map((o) => {
+                  if (!isModeOption(o)) return o;
+                  const want = [cmd.mode, ASKING_MODE].find(
+                     (m) => m != null && o.options?.some((v) => v.value === m),
+                  );
+                  return want ? { ...o, currentValue: want } : o;
+               });
                this.emit(sid, { type: "ConfigOptionsChanged", options: side }, thread_id);
             }
             return { type: "ThreadStarted", thread_id, forked };
@@ -1651,7 +1683,7 @@ export class MockTransport implements Transport {
          this.emit(sid, { type: "PermissionRequested", request_id, tool_call, options }, thread);
       }
       const words =
-         `Side answer to **${text}**. This is a mock reply from a ${this.sideForked.get(thread) ? "forked" : "fresh"} Side Thread.`.split(
+         `Side answer to **${text}**. This is a mock reply from a ${this.sideForked.get(thread) ? "forked" : this.sideFresh.has(thread) ? "fresh" : "seeded"} Side Thread.`.split(
             /(?<= )/,
          );
       words.forEach((w, i) =>
