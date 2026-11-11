@@ -92,6 +92,13 @@ export function Overlay({ transport }: { transport: Transport }) {
    const modeRef = useRef(s.mode);
    modeRef.current = s.mode;
 
+   // Tell the host after the first paint: it keeps the window hidden until then.
+   useEffect(() => {
+      let id = requestAnimationFrame(() => {
+         id = requestAnimationFrame(() => void overlayHost.ready());
+      });
+      return () => cancelAnimationFrame(id);
+   }, []);
    // The host made this window to show it, before this page could listen for `overlay-shown`.
    useEffect(() => dispatch({ type: "shown" }), []);
    // `shown` counts the host's shows: each one drops the menu room (the host did too).

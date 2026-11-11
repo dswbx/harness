@@ -312,6 +312,7 @@ pub fn run() {
             watch_attention(app.handle(), &harness);
             overlay::init(app.handle(), &harness);
             app.manage(harness);
+            overlay::create(app.handle());
             if let Some(main) = app.get_webview_window("main") {
                 main.set_title(&app.package_info().name)?;
             }
@@ -371,6 +372,7 @@ pub fn run() {
             updates::update_install,
             updates::update_restart,
             overlay::overlay_toggle,
+            overlay::overlay_ready,
             overlay::overlay_set_mode,
             overlay::overlay_set_menu_room,
             overlay::overlay_set_panels,

@@ -34,6 +34,8 @@ export const overlayHost = {
     */
    setPanels: (left: number, right: number) =>
       inTauri() ? invoke<void>("overlay_set_panels", { left, right }) : Promise.resolve(),
+   /** The page painted its first frame: the host may show the window (a shortcut may be waiting). */
+   ready: () => run("overlay_ready"),
    hide: () => run("overlay_hide"),
    /** Opens the Session in the main window and hides the overlay. */
    merge: (sessionId: string) =>

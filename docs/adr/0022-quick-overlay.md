@@ -37,6 +37,8 @@ A Quick Session (ADR 0020) still needs the main window: switch to Harness, click
 
 **Resize grip and menu room with panels.** The grip resizes the card: the page sends the card's size (plus the shadow margin), the host keeps the card's top-left, puts the panels beside it at their widths and returns the card width; the page then sets its card to it (window first, then card); `chat_size` is the card size alone. The menu room is unchanged (right and down from the whole window); a panel change while it is open only changes the frame to go back to. Dragging a panel's resize line changes its width; the card stays and the window grows on the panel's side, so the line does not follow the pointer exactly.
 
+**First open without a black flash.** The overlay window is created hidden at startup (with a transparent background) so its page loads early. The page calls `overlay_ready` after its first paint (two animation frames). A shortcut before that only records `pending_show`; `overlay_ready` then shows the window. The window is never hidden-and-reloaded, so later opens are unchanged.
+
 **Later.** Phase 3: the frontmost app as context and screenshots.
 
 **Design:** https://claude.ai/artifact/7GkaGzkcrjgdeDmgoMgEBz

@@ -90,6 +90,10 @@ pub struct Overlay {
     settings: Mutex<OverlaySettings>,
     /// Why the shortcut could not be registered (e.g. another app has it).
     shortcut_error: Mutex<Option<String>>,
+    /// The page has painted (`overlay_ready`). Before that a show waits (`pending_show`), so no
+    /// unpainted (black) window is ever visible.
+    ready: Mutex<bool>,
+    pending_show: Mutex<bool>,
 }
 
 impl Overlay {
@@ -240,7 +244,15 @@ pub fn on_shortcut(app: &AppHandle) {
     });
 }
 
-/// The overlay window, created hidden on first use.
+/// Creates the hidden overlay window at startup so its page is loaded and painted before the
+/// first shortcut. Call on the main thread, after `init`.
+pub fn create(app: &AppHandle) {
+    if let Err(e) = ensure(app) {
+        tracing::warn!("overlay create: {e}");
+    }
+}
+
+/// The overlay window, created hidden.
 fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     if let Some(w) = app.get_webview_window(LABEL) {
         return Ok(w);
@@ -256,6 +268,7 @@ fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .skip_taskbar(true)
         .resizable(false)
         .visible(false)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
         .build()?;
     #[cfg(target_os = "macos")]
     panel::convert(&window)?;
@@ -266,6 +279,11 @@ fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 fn show(app: &AppHandle) -> tauri::Result<()> {
     let window = ensure(app)?;
     let state = app.state::<Overlay>();
+    // The page has not painted yet: `overlay_ready` shows it.
+    if !*state.ready.lock() {
+        *state.pending_show.lock() = true;
+        return Ok(());
+    }
     let mode = *state.mode.lock();
     let position = state.settings.lock().position;
     let anchor = match position {
@@ -433,6 +451,21 @@ pub fn hide(app: &AppHandle) {
     #[cfg(not(target_os = "macos"))]
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.hide();
+    }
+}
+
+/// The page painted its first frame: the window may show now, and does when a shortcut waited.
+#[tauri::command]
+pub fn overlay_ready(app: AppHandle) {
+    let state = app.state::<Overlay>();
+    *state.ready.lock() = true;
+    if std::mem::take(&mut *state.pending_show.lock()) {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Err(e) = show(&handle) {
+                tracing::warn!("overlay show: {e}");
+            }
+        });
     }
 }
 
