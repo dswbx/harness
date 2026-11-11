@@ -1,12 +1,13 @@
 import type { HarnessClient } from "@harness/api";
 import { RenderUiGallery } from "@harness/frontend-chat";
 import { cn, Dialog, DialogContent, DialogDescription, DialogTitle, ScrollArea } from "@harness/ui";
-import { Bot, Code, Info, LayoutGrid, Palette, Plug, Shield, Zap } from "lucide-react";
+import { Bot, Code, GitBranch, Info, LayoutGrid, Palette, Plug, Shield, Zap } from "lucide-react";
 import { useRef } from "react";
 import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { EditorPanel } from "./EditorPanel";
+import { GitPanel } from "./GitPanel";
 import { McpPanel } from "./McpPanel";
 import { OverlayPanel } from "./OverlayPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
@@ -14,6 +15,7 @@ import { PermissionsPanel } from "./PermissionsPanel";
 export type SettingsSection =
    | "appearance"
    | "editor"
+   | "git"
    | "overlay"
    | "permissions"
    | "agents"
@@ -24,6 +26,7 @@ export type SettingsSection =
 const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
    { id: "appearance", label: "Appearance", icon: Palette },
    { id: "editor", label: "Editor", icon: Code },
+   { id: "git", label: "Git", icon: GitBranch },
    { id: "overlay", label: "Quick overlay", icon: Zap },
    { id: "permissions", label: "Permissions", icon: Shield },
    { id: "agents", label: "Agents", icon: Bot },
@@ -74,7 +77,7 @@ export function SettingsDialog({
             <div className="flex shrink-0 items-center gap-4 border-b bg-muted/30 py-3 pl-4 pr-12">
                <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
                <DialogDescription className="sr-only">
-                  Appearance, Editor, Quick overlay, Permission rules, Agents, MCP servers, UI
+                  Appearance, Editor, Git, Quick overlay, Permission rules, Agents, MCP servers, UI
                   components and About.
                </DialogDescription>
             </div>
@@ -106,6 +109,7 @@ export function SettingsDialog({
                   <div className="p-6">
                      {section === "appearance" && <AppearancePanel client={client} />}
                      {section === "editor" && <EditorPanel client={client} />}
+                     {section === "git" && <GitPanel client={client} />}
                      {section === "overlay" && <OverlayPanel />}
                      {section === "permissions" && (
                         <PermissionsPanel

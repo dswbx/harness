@@ -15,6 +15,7 @@ const H = 3_600_000;
 const NOW = Date.UTC(2026, 10, 2, 12);
 const ws = (o: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
    repo_root: "/r",
+   source_folder: "/r",
    worktree_branch: null,
    base_branch: null,
    branch: "main",

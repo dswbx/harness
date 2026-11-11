@@ -50,6 +50,7 @@ import {
    relTime,
    rememberFolder,
    sessionFolders,
+   sourceFolders,
    tildify,
 } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
@@ -265,7 +266,7 @@ export function ComposerDialog({
          .catch(() => [])
          .then((sessions) => {
             if (off) return;
-            const r = mergeRecent(loadRecent(), sessionFolders(sessions));
+            const r = mergeRecent(sourceFolders(loadRecent(), sessions), sessionFolders(sessions));
             setRecent(r);
             setNoFolder(false);
             setFolder((cur) => presetFolder || cur || r[0]?.path || "");

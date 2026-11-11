@@ -374,6 +374,7 @@ export class MockTransport implements Transport {
    private cardN = 0;
    private states = new Map<string, unknown>();
    private editor: Editor | null = null;
+   private worktreeDir = ".harness";
    private appSettings: Record<string, unknown> = {};
    /** What "Open in editor" was asked to open (tests). */
    opened: { path: string | null; line: number | null }[] = [];
@@ -415,6 +416,7 @@ export class MockTransport implements Transport {
       const h = 3600e3;
       const ws = (folder: string, o: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
          repo_root: folder,
+         source_folder: folder,
          worktree_branch: null,
          base_branch: null,
          branch: "main",
@@ -500,6 +502,7 @@ export class MockTransport implements Transport {
    private addQuickSession(id: string, title: string, frontend_id: string) {
       const workspace: WorkspaceInfo = {
          repo_root: null,
+         source_folder: `/Users/me/.harness/quick/${id}`,
          worktree_branch: null,
          base_branch: null,
          branch: null,
@@ -533,6 +536,7 @@ export class MockTransport implements Transport {
          quick: false,
          workspace: workspace ?? {
             repo_root: folder,
+            source_folder: folder,
             worktree_branch: null,
             base_branch: null,
             branch: "main",
@@ -747,6 +751,7 @@ export class MockTransport implements Transport {
             const worktree = cmd.worktree;
             const workspace: WorkspaceInfo = {
                repo_root: isRepo ? cmd.folder : null,
+               source_folder: cmd.folder,
                worktree_branch: worktree
                   ? pr
                      ? pr.head
@@ -1045,6 +1050,11 @@ export class MockTransport implements Transport {
             if (!/tweakcn\.com\/r\/themes\//.test(cmd.url))
                throw new Error(`fetch ${cmd.url}: The requested URL returned error: 404`);
             return { type: "Json", value: MOCK_THEME };
+         case "GetWorktreeDir":
+            return { type: "WorktreeDir", dir: this.worktreeDir };
+         case "SetWorktreeDir":
+            this.worktreeDir = cmd.dir?.trim() || ".harness";
+            return { type: "Ok" };
          case "GetEditor":
             return { type: "Editor", editor: this.editor };
          case "SetEditor":
