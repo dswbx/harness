@@ -3,6 +3,7 @@ import type {
    AttachmentInput,
    OverlayFrame,
    PanelWidth,
+   PromptContext,
    SessionApi,
    ViewVariant,
 } from "@harness/api";
@@ -197,6 +198,7 @@ export function View({
    chatFrame,
    onPanelWidth,
    overlayFrame,
+   context,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -209,6 +211,7 @@ export function View({
    chatFrame?: (chat: ReactNode) => ReactNode;
    onPanelWidth?: (width: PanelWidth) => void;
    overlayFrame?: OverlayFrame;
+   context?: PromptContext;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -225,6 +228,7 @@ export function View({
          chatFrame={chatFrame}
          onPanelWidth={onPanelWidth}
          overlayFrame={overlayFrame}
+         context={context}
       />
    );
 }
@@ -293,6 +297,7 @@ function ChatView({
    chatFrame,
    onPanelWidth,
    overlayFrame,
+   context,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -305,6 +310,7 @@ function ChatView({
    chatFrame?: (chat: ReactNode) => ReactNode;
    onPanelWidth?: (width: PanelWidth) => void;
    overlayFrame?: OverlayFrame;
+   context?: PromptContext;
 }) {
    const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
@@ -804,6 +810,7 @@ function ChatView({
          agentSwitch={agentSwitch}
          elevated={overlay}
          menuSide={overlayDraft ? "bottom" : "top"}
+         context={overlayDraft ? context : undefined}
       />
    );
    const chat = (

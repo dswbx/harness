@@ -13,6 +13,7 @@ use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
+mod context;
 mod overlay;
 mod updates;
 
@@ -380,6 +381,8 @@ pub fn run() {
             overlay::overlay_chat_width,
             overlay::overlay_hide,
             overlay::overlay_merge,
+            overlay::overlay_context,
+            overlay::overlay_open_accessibility_settings,
             overlay::overlay_settings,
             overlay::overlay_set_settings
         ])

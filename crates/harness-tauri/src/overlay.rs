@@ -9,11 +9,14 @@
 //! with `overlay_set_panels` and the window grows by it, left and right of the card, which stays put.
 //! On macOS the window is a non-activating NSPanel (`panel` below), so typing in it does not
 //! make Harness the active app.
+//! The shortcut also captures what the user was looking at (`context.rs`, ADR 0022 Phase 3) and
+//! sends it as `overlay-context`: the app at once, then window, page and selection when known.
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::context::{self, WindowContext};
 use harness_core::Harness;
 use harness_core::api::{AppSettingKey, Command, CommandResult, OverlayPosition, OverlaySettings};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -94,6 +97,9 @@ pub struct Overlay {
     /// unpainted (black) window is ever visible.
     ready: Mutex<bool>,
     pending_show: Mutex<bool>,
+    /// The window context of the last show from hidden, and its capture number: a slow capture
+    /// that a newer show overtook is dropped.
+    context: Mutex<(u64, Option<WindowContext>)>,
 }
 
 impl Overlay {
@@ -238,8 +244,37 @@ pub fn on_shortcut(app: &AppHandle) {
         let visible = handle.get_webview_window(LABEL).and_then(|w| w.is_visible().ok()).unwrap_or(false);
         if visible {
             let _ = handle.emit_to(LABEL, "overlay-shortcut", ());
-        } else if let Err(e) = show(&handle) {
+            return;
+        }
+        // Before the show: the app the user is in is still the frontmost one.
+        capture_context(&handle);
+        if let Err(e) = show(&handle) {
             tracing::warn!("overlay show: {e}");
+        }
+    });
+}
+
+/// Level 0 of the window context now (the frontmost app), sent at once; levels 1 and 2 on a
+/// thread, sent again when done. Nothing when the setting is off or Harness is frontmost. The page
+/// uses it only for a new prompt; a pinned chat keeps its context.
+fn capture_context(app: &AppHandle) {
+    let state = app.state::<Overlay>();
+    let ctx = if state.settings.lock().window_context { context::capture() } else { None };
+    let id = {
+        let mut c = state.context.lock();
+        *c = (c.0 + 1, ctx.clone());
+        c.0
+    };
+    let _ = app.emit_to(LABEL, "overlay-context", &ctx);
+    let Some(mut ctx) = ctx else { return };
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        context::enrich(&mut ctx);
+        let state = handle.state::<Overlay>();
+        let mut c = state.context.lock();
+        if c.0 == id {
+            c.1 = Some(ctx.clone());
+            let _ = handle.emit_to(LABEL, "overlay-context", Some(&ctx));
         }
     });
 }
@@ -556,6 +591,20 @@ pub fn overlay_merge(app: AppHandle, session_id: String) -> Result<(), String> {
         panel::activate_app();
     })
     .map_err(|e| e.to_string())
+}
+
+/// The window context of the last show (the page may mount after `overlay-context` was sent).
+#[tauri::command]
+pub fn overlay_context(overlay: tauri::State<'_, Overlay>) -> Option<WindowContext> {
+    overlay.context.lock().1.clone()
+}
+
+/// Opens System Settings > Privacy & Security > Accessibility, where the user can allow Harness
+/// (the chip's "Allow more context"). Harness never asks for the permission itself.
+#[tauri::command]
+pub fn overlay_open_accessibility_settings(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility", None::<&str>).map_err(|e| e.to_string())
 }
 
 /// The settings and why the shortcut is not registered, if it is not.

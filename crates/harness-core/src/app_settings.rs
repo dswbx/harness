@@ -67,7 +67,7 @@ mod tests {
     fn overlay_round_trips_and_fills_defaults() {
         use crate::api::{OverlayPosition, OverlaySettings};
         let dir = tempfile::tempdir().unwrap();
-        let v = OverlaySettings { shortcut: "CmdOrCtrl+Shift+K".into(), position: OverlayPosition::Bottom };
+        let v = OverlaySettings { shortcut: "CmdOrCtrl+Shift+K".into(), position: OverlayPosition::Bottom, window_context: false };
         save(dir.path(), AppSettingKey::Overlay, Some(&serde_json::to_value(&v).unwrap())).unwrap();
         assert!(dir.path().join("overlay.json").exists());
         let back: OverlaySettings = serde_json::from_value(load(dir.path(), AppSettingKey::Overlay).unwrap()).unwrap();
@@ -75,7 +75,10 @@ mod tests {
         // A file with only some fields (older or hand-edited) takes the defaults for the rest.
         let partial: OverlaySettings = serde_json::from_value(serde_json::json!({ "position": "bottom" })).unwrap();
         assert_eq!(partial, OverlaySettings { position: OverlayPosition::Bottom, ..Default::default() });
-        assert_eq!(serde_json::to_value(OverlaySettings::default()).unwrap(), serde_json::json!({ "shortcut": "Alt+Space", "position": "cursor" }));
+        assert_eq!(
+            serde_json::to_value(OverlaySettings::default()).unwrap(),
+            serde_json::json!({ "shortcut": "Alt+Space", "position": "cursor", "window_context": true })
+        );
     }
 
     #[tokio::test]

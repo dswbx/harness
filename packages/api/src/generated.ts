@@ -619,6 +619,11 @@ export type OverlaySettings = {
 	/**  Global shortcut in the `global-hotkey` format, e.g. `Alt+Space`, `CmdOrCtrl+Shift+K`. */
 	shortcut?: string,
 	position?: OverlayPosition,
+	/**
+	 *  A new prompt shows the app the user was in (and its window, page, selection) as a removable
+	 *  chip, sent with the first message (ADR 0022 Phase 3).
+	 */
+	window_context?: boolean,
 };
 
 export type PermissionOption = {

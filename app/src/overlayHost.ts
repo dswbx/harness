@@ -1,6 +1,7 @@
 import type { OverlaySettings } from "@harness/api";
 import { inTauri } from "@harness/api";
 import type { OverlayMode } from "./overlayMode";
+import type { WindowContext } from "./windowContext";
 
 /** The Quick overlay's window commands and signals (`overlay.rs`). Outside Tauri they do nothing. */
 
@@ -37,12 +38,17 @@ export const overlayHost = {
    /** The page painted its first frame: the host may show the window (a shortcut may be waiting). */
    ready: () => run("overlay_ready"),
    hide: () => run("overlay_hide"),
+   /** The window context of the last show (`overlay-context` may have come before the page listened). */
+   context: () =>
+      inTauri() ? invoke<WindowContext | null>("overlay_context") : Promise.resolve(null),
+   /** System Settings > Privacy & Security > Accessibility. */
+   openAccessibilitySettings: () => run("overlay_open_accessibility_settings"),
    /** Opens the Session in the main window and hides the overlay. */
    merge: (sessionId: string) =>
       inTauri() ? invoke<void>("overlay_merge", { sessionId }) : Promise.resolve(),
 };
 
-/** `select-session` (main window), `overlay-shown` and `overlay-shortcut` (overlay). */
+/** `select-session` (main window), `overlay-shown`, `overlay-shortcut` and `overlay-context` (overlay). */
 export function listenHost(
    event: string,
    cb: (payload: unknown) => void,

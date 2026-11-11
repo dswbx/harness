@@ -1,4 +1,11 @@
-import type { AgentInfo, AgentSwitch, OverlayFrame, PanelWidth, Transport } from "@harness/api";
+import type {
+   AgentInfo,
+   AgentSwitch,
+   OverlayFrame,
+   PanelWidth,
+   PromptContext,
+   Transport,
+} from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import { Badge, Button, cn, Tooltip } from "@harness/ui";
 import { ChevronUp, Maximize2, Minus, X, Zap } from "lucide-react";
@@ -16,6 +23,7 @@ import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
 import { INITIAL_OVERLAY, overlayReducer, rowEdge } from "./overlayMode";
 import { useReportError } from "./toast";
 import { ViewHost } from "./ViewHost";
+import { contextDetail, contextLabel, contextPrompt, type WindowContext } from "./windowContext";
 
 /** The Agent of the last Session sent from the overlay; the next draft starts with it. */
 const AGENT_KEY = "harness.overlay.agent";
@@ -112,6 +120,38 @@ export function Overlay({ transport }: { transport: Transport }) {
       [],
    );
    useEffect(() => listenHost("overlay-shortcut", () => dispatch({ type: "shortcut" })), []);
+
+   // What the user was looking at (Phase 3). The host sends it on each show from hidden (the app at
+   // once, then more); only a prompt takes it, a pinned chat keeps what it was sent with.
+   const [windowCtx, setWindowCtx] = useState<WindowContext | null>(null);
+   useEffect(() => {
+      const take = (c: unknown) => {
+         if (modeRef.current === "prompt") setWindowCtx((c as WindowContext | null) ?? null);
+      };
+      overlayHost
+         .context()
+         .then(take)
+         .catch((e) => console.error("overlay_context failed", e));
+      return listenHost("overlay-context", take);
+   }, []);
+   const context = useMemo<PromptContext | undefined>(
+      () =>
+         windowCtx
+            ? {
+                 label: contextLabel(windowCtx),
+                 detail: contextDetail(windowCtx),
+                 text: contextPrompt(windowCtx),
+                 onRemove: () => setWindowCtx(null),
+                 action: windowCtx.missing.includes("accessibility")
+                    ? {
+                         label: "Allow more context",
+                         onClick: overlayHost.openAccessibilitySettings,
+                      }
+                    : undefined,
+              }
+            : undefined,
+      [windowCtx],
+   );
 
    // The host follows the state: the window size per mode, hidden when `visible` turns false.
    useEffect(() => overlayHost.setMode(s.mode), [s.mode]);
@@ -288,6 +328,7 @@ export function Overlay({ transport }: { transport: Transport }) {
       const d = draft;
       dispatch({ type: "reset" });
       setDraft(null);
+      setWindowCtx(null);
       setPanelsWant(NO_PANELS);
       setTitle(QUICK_TITLE);
       if (d)
@@ -301,6 +342,7 @@ export function Overlay({ transport }: { transport: Transport }) {
          () => {
             dispatch({ type: "reset" });
             setDraft(null);
+            setWindowCtx(null);
             setPanelsWant(NO_PANELS);
             setTitle(QUICK_TITLE);
          },
@@ -413,6 +455,7 @@ export function Overlay({ transport }: { transport: Transport }) {
                      chatFrame={chatFrame}
                      onPanelWidth={onPanelWidth}
                      overlayFrame={chat ? overlayFrame : undefined}
+                     context={s.mode === "prompt" ? context : undefined}
                   />
                ) : (
                   error && (

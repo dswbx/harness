@@ -115,6 +115,35 @@ export function OverlayPanel() {
                );
             })}
          </div>
+         <div className="mt-5 grid max-w-lg grid-cols-1 gap-1.5 text-sm">
+            <label className="flex items-center gap-3">
+               <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.window_context}
+                  onClick={() =>
+                     void save({ ...settings, window_context: !settings.window_context })
+                  }
+                  className={cn(
+                     "relative h-4 w-7 shrink-0 rounded-full transition-colors",
+                     settings.window_context ? "bg-primary" : "bg-muted-foreground/30",
+                  )}
+               >
+                  <span
+                     className={cn(
+                        "absolute top-0.5 size-3 rounded-full bg-background transition-all",
+                        settings.window_context ? "left-3.5" : "left-0.5",
+                     )}
+                  />
+               </button>
+               <span className="font-medium">Include window context</span>
+            </label>
+            <span className="text-xs text-muted-foreground">
+               A new prompt shows the app you were in as a chip (with Accessibility on: its window
+               title and selected text; for browsers, Finder and iTerm2: the page or folder). It is
+               sent with your first message unless you remove the chip.
+            </span>
+         </div>
       </div>
    );
 }

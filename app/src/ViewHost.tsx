@@ -3,6 +3,7 @@ import {
    createSessionApi,
    type OverlayFrame,
    type PanelWidth,
+   type PromptContext,
    type Transport,
    type ViewVariant,
 } from "@harness/api";
@@ -24,6 +25,7 @@ export function ViewHost({
    chatFrame,
    onPanelWidth,
    overlayFrame,
+   context,
 }: {
    transport: Transport;
    sessionId: string;
@@ -38,6 +40,7 @@ export function ViewHost({
    chatFrame?: (chat: ReactNode) => ReactNode;
    onPanelWidth?: (width: PanelWidth) => void;
    overlayFrame?: OverlayFrame;
+   context?: PromptContext;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
@@ -57,6 +60,7 @@ export function ViewHost({
          chatFrame={chatFrame}
          onPanelWidth={onPanelWidth}
          overlayFrame={overlayFrame}
+         context={context}
       />
    );
 }

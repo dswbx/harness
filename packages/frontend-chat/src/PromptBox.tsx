@@ -2,13 +2,14 @@ import {
    type AgentSwitch,
    type AttachmentInput,
    onFileDrop,
+   type PromptContext,
    pickFiles,
    type SessionApi,
    type SlashCommand,
    sameRepo,
 } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
-import { ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
+import { AppWindow, ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { CommentChips } from "./CommentChip";
@@ -73,6 +74,40 @@ function AttachmentChips({
                </span>
             </Tooltip>
          ))}
+      </div>
+   );
+}
+
+/** What the user was looking at (Quick overlay): sent with the first message unless removed. */
+function ContextChip({ context }: { context: PromptContext }) {
+   return (
+      <div className="flex items-center gap-1.5 pb-2" aria-label="Window context">
+         <Tooltip
+            content={<span className="whitespace-pre-line">{context.detail ?? context.label}</span>}
+            className="max-w-80"
+         >
+            <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border bg-muted py-1 pl-1.5 pr-1 text-xs">
+               <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
+               <span className="truncate">{context.label}</span>
+               {context.action && (
+                  <button
+                     type="button"
+                     className="shrink-0 text-primary hover:underline"
+                     onClick={context.action.onClick}
+                  >
+                     {context.action.label}
+                  </button>
+               )}
+               <button
+                  type="button"
+                  className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Remove context"
+                  onClick={context.onRemove}
+               >
+                  <X className="size-3" />
+               </button>
+            </span>
+         </Tooltip>
       </div>
    );
 }
@@ -158,6 +193,7 @@ export function PromptBox({
    agentSwitch,
    elevated = false,
    menuSide = "top",
+   context,
    ref: handle,
 }: {
    api: SessionApi;
@@ -173,6 +209,8 @@ export function PromptBox({
    elevated?: boolean;
    /** Where its menus open (below: the Quick overlay's draft, which has room only below). */
    menuSide?: MenuSide;
+   /** Quick overlay's draft: a removable context chip; its `text` goes after the message. */
+   context?: PromptContext;
    ref?: Ref<PromptBoxHandle>;
 }) {
    const [text, setText] = useState("");
@@ -295,7 +333,9 @@ export function PromptBox({
       // Our `/btw <question>` wins over an Agent command of the same name (Claude Code has one).
       const btw = threadId || !onSideThread ? null : btwQuestion(t);
       const inputs = files.map((a) => a.input);
-      const prompt = withReviewComments(t, sent);
+      // After the message: the core titles a Quick Session from the first line.
+      const reviewed = withReviewComments(t, sent);
+      const prompt = context && !threadId ? `${reviewed}\n\n${context.text}` : reviewed;
       if (!btw && !onSend) {
          void deliver(
             {
@@ -509,6 +549,7 @@ export function PromptBox({
                   e.target.value = "";
                }}
             />
+            {context && <ContextChip context={context} />}
             {attachments.length > 0 && (
                <AttachmentChips
                   items={attachments}

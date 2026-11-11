@@ -426,11 +426,14 @@ pub struct OverlaySettings {
     /// Global shortcut in the `global-hotkey` format, e.g. `Alt+Space`, `CmdOrCtrl+Shift+K`.
     pub shortcut: String,
     pub position: OverlayPosition,
+    /// A new prompt shows the app the user was in (and its window, page, selection) as a removable
+    /// chip, sent with the first message (ADR 0022 Phase 3).
+    pub window_context: bool,
 }
 
 impl Default for OverlaySettings {
     fn default() -> Self {
-        Self { shortcut: "Alt+Space".to_owned(), position: OverlayPosition::Cursor }
+        Self { shortcut: "Alt+Space".to_owned(), position: OverlayPosition::Cursor, window_context: true }
     }
 }
 

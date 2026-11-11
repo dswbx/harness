@@ -24,6 +24,22 @@ export type AgentSwitch = {
    onPick: (agentId: string) => void;
 };
 
+/**
+ * What the user was looking at when the Quick overlay opened (ADR 0022 Phase 3), as a removable chip
+ * in the prompt box. `text` goes with the first message, after it; nothing is sent once removed.
+ */
+export type PromptContext = {
+   /** Short, e.g. "Chrome · github.com/dswbx/harness/pull/52". */
+   label: string;
+   /** All details, for the tooltip. */
+   detail?: string;
+   /** The context line added to the first message. */
+   text: string;
+   onRemove: () => void;
+   /** A small link in the chip, e.g. "Allow more context". */
+   action?: { label: string; onClick: () => void };
+};
+
 /** Widths (logical px) of what the Quick overlay's View shows left and right of its chat: open panels and stripes. */
 export type PanelWidth = { left: number; right: number };
 
@@ -67,6 +83,8 @@ export interface Frontend {
       overlayFrame?: OverlayFrame;
       /** Shown as a two-level Agent > model menu in the prompt box (Quick overlay only). */
       agentSwitch?: AgentSwitch;
+      /** Quick overlay only: a context chip in the prompt box until the first message. */
+      context?: PromptContext;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only
