@@ -72,14 +72,16 @@ describe("findPrRefs", () => {
    });
 });
 
-it("marks `PR #N` as an explicit ref to the Session's repo", () => {
+it("marks `PR #N` and `PR#N` as an explicit ref to the Session's repo", () => {
    const explicit = (t: string) =>
       findPrRefs(t, ctx)
          .filter(isExplicit)
          .map((m) => m.raw);
    expect(explicit("PR #12, (PR #13) see PR #14.")).toEqual(["#12", "#13", "#14"]);
-   expect(explicit("#1 step #2 xPR #3 PR  #4 pr #5 PR#6")).toEqual([]);
+   expect(explicit("#1 step #2 xPR #3 PR  #4 pr #5 xPR#6 pr#7")).toEqual([]);
+   expect(explicit("PR#6, (PR#7)")).toEqual(["PR#6", "PR#7"]);
    expect(explicit("spark#17 #4")).toEqual(["spark#17"]);
+   expect(qualify("PR#12", ctx)).toEqual({ repo: repo("dswbx/harness"), number: 12 });
    expect(qualify(findPrRefs("PR #12", ctx)[0]!, ctx)).toEqual({
       repo: repo("dswbx/harness"),
       number: 12,

@@ -57,8 +57,9 @@ it("keeps bare #N as text (list items, steps)", () => {
    expect(run("To settle #3 and #9, see harness#4.").chips).toEqual(["dswbx/harness#4 harness#4"]);
 });
 
-it("turns `PR #N` into a chip for the Session's repo; no Session repo, no chip", () => {
+it("turns `PR #N` and `PR#N` into a chip for the Session's repo; no Session repo, no chip", () => {
    expect(run("Step #2 is done in PR #5.").chips).toEqual(["dswbx/harness#5 #5"]);
+   expect(run("Also PR#6.").chips).toEqual(["dswbx/harness#6 PR#6"]);
    expect(run("PR #5", { ...ctx, sessionRepo: null }).chips).toEqual([]);
 });
 

@@ -12,15 +12,15 @@ export type PrRefMatch = {
    raw: string;
    repo: string | null;
    number: number;
-   /** A bare `#17` right after `PR ` (`PR #17`): an explicit ref to the Session's repo. */
+   /** `PR #17` or `PR#17`: an explicit ref to the Session's repo (`repo` is null). */
    prefixed: boolean;
 };
 
-/** A ref is "explicit" when it names its repo, is a URL, or is written `PR #17`. Messages chip only these: a bare
+/** A ref is "explicit" when it names its repo, is a URL, or is written `PR #17` / `PR#17`. Messages chip only these: a bare
  * `#3` is too often a list item or step. */
 export const isExplicit = (m: PrRefMatch) => m.repo !== null || m.prefixed;
 
-/** `PR ` right before a bare ref (`PR#17` is the repo `PR`, not this). */
+/** `PR ` right before a bare ref (`PR#17` matches as the repo name `PR`; `findPrRefs` handles that). */
 const PR_PREFIX = /(?:^|[\s(])PR $/;
 
 export type RepoResolution =
@@ -71,14 +71,16 @@ export function findPrRefs(
       const number = toNumber(uNum ?? num!);
       if (!number) continue;
       let repo: string | null = null;
+      // `PR#17` is `PR #17`, not a repo named `PR`.
+      let prefixed = !owner && name === "PR";
       if (uOwner) repo = `${uOwner}/${uName}`;
       else if (owner) repo = `${owner}/${name}`;
-      else if (name) {
+      else if (name && !prefixed) {
          if (resolveRepo(name, ctx, opts).kind !== "one") continue;
          repo = name;
       }
-      const prefixed =
-         repo === null && PR_PREFIX.test(text.slice(Math.max(0, m.index - 4), m.index));
+      if (repo === null && !prefixed)
+         prefixed = PR_PREFIX.test(text.slice(Math.max(0, m.index - 4), m.index));
       out.push({ start: m.index, end: m.index + raw.length, raw, repo, number, prefixed });
    }
    return out;
