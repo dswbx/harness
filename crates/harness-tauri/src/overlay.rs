@@ -192,7 +192,21 @@ fn frame(window: &WebviewWindow) -> tauri::Result<Rect> {
     Ok(Rect { x: pos.x as f64, y: pos.y as f64, w: size.width as f64, h: size.height as f64 })
 }
 
+/// `r` (physical px, top-left origin) as an AppKit frame: points, origin at the bottom-left of the main
+/// screen (`main_h` points high), y up. The same conversion tao makes for `set_position`.
+pub fn cocoa_frame(r: Rect, scale: f64, main_h: f64) -> Rect {
+    let (x, y, w, h) = (r.x / scale, r.y / scale, r.w / scale, r.h / scale);
+    Rect { x, y: main_h - y - h, w, h }
+}
+
+/// Moves and resizes the window. On macOS in one native step (`setFrame:display:animate:`), so a
+/// window that grows to the left never shows a frame where it has moved but not grown (or the
+/// reverse); elsewhere a resize, then a move. Main thread only.
 fn set_frame(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    if panel::set_frame(window, r)? {
+        return Ok(());
+    }
     window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
     window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))
 }
@@ -323,13 +337,15 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
 /// (logical px), its top-left kept, within `CHAT_MIN` and the screen; side panels keep their
 /// widths beside it. The size is kept for the next chat and expand.
 /// A borderless macOS window has no resize edges, so the page draws the grip and sends sizes.
-fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<()> {
+/// Returns the card's new width (logical px, without the margin), or `None` when nothing changed;
+/// the page sizes its card from it, after the window has its size.
+fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<Option<f64>> {
     let state = app.state::<Overlay>();
     if *state.mode.lock() != Mode::Chat || state.menu_base.lock().is_some() {
-        return Ok(());
+        return Ok(None);
     }
-    let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
-    let Some(m) = window.current_monitor()? else { return Ok(()) };
+    let Some(window) = app.get_webview_window(LABEL) else { return Ok(None) };
+    let Some(m) = window.current_monitor()? else { return Ok(None) };
     let scale = window.scale_factor()?;
     let (left, right) = state.panels(Mode::Chat, scale);
     let card = card_of(frame(&window)?, left, right);
@@ -338,10 +354,9 @@ fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<()> {
     let screen = work_area(&m);
     let room = Rect { w: screen.w - right, ..screen };
     let r = sized(card, (size.0 * scale, size.1 * scale), min, room, MARGIN * scale);
-    let next = beside(r, left, right);
-    window.set_size(PhysicalSize::new(next.w.round() as u32, next.h.round() as u32))?;
+    set_frame(&window, beside(r, left, right))?;
     *state.chat_size.lock() = Some((r.w / scale, r.h / scale));
-    Ok(())
+    Ok(Some(r.w / scale - 2.0 * SHADOW))
 }
 
 /// Grows the window by `MENU_ROOM` to the right and down (`open`), or back to its size before.
@@ -437,15 +452,24 @@ pub fn overlay_set_mode(app: AppHandle, mode: Mode) {
     });
 }
 
-/// The chat's resize grip was dragged to `width` x `height` (logical window px).
+/// The chat's resize grip was dragged to `width` x `height` (logical window px). Resolves, once the
+/// window has its size, to the card's width (logical px), or `None` when it did not resize.
 #[tauri::command]
-pub fn overlay_resize(app: AppHandle, width: f64, height: f64) {
+pub async fn overlay_resize(app: AppHandle, width: f64, height: f64) -> Result<Option<f64>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
     let handle = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        if let Err(e) = user_resize(&handle, (width, height)) {
-            tracing::warn!("overlay user resize: {e}");
-        }
-    });
+    app.run_on_main_thread(move || {
+        let _ = tx.send(user_resize(&handle, (width, height)).map_err(|e| e.to_string()));
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+/// The chat card's width (logical px, without the margin): the user's size, else the default. The page
+/// gives its card this fixed width; the window's width never changes it.
+#[tauri::command]
+pub fn overlay_chat_width(overlay: tauri::State<'_, Overlay>) -> f64 {
+    overlay.size(Mode::Chat).0 - 2.0 * SHADOW
 }
 
 /// A menu opened (`open`) or all closed in the overlay page. Resolves once the window has its size.
@@ -543,6 +567,9 @@ pub async fn overlay_set_settings(
 /// The NSPanel side (tauri-nspanel). Kept here alone, so it can be replaced with plain objc2.
 #[cfg(target_os = "macos")]
 mod panel {
+    use super::Rect;
+    // `tauri_panel!` brings its own `msg_send` and `AnyObject`; those below are written with their paths.
+    use objc2::{Encode, Encoding, class};
     use tauri::{AppHandle, WebviewWindow};
     use tauri_nspanel::{CollectionBehavior, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt, tauri_panel};
 
@@ -582,6 +609,62 @@ mod panel {
         }
     }
 
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Size {
+        w: f64,
+        h: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NsRect {
+        origin: Point,
+        size: Size,
+    }
+    // SAFETY: the layouts match CoreGraphics' CGPoint, CGSize and CGRect (two f64 each, `repr(C)`).
+    unsafe impl Encode for Point {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    // SAFETY: as above.
+    unsafe impl Encode for Size {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    // SAFETY: as above.
+    unsafe impl Encode for NsRect {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[Point::ENCODING, Size::ENCODING]);
+    }
+
+    /// Sets the NSWindow frame in one call (move and resize together, no animation). `r` is in
+    /// physical px with a top-left origin, as `outer_position`. False when there is no main screen.
+    /// Main thread only.
+    pub fn set_frame(window: &WebviewWindow, r: Rect) -> tauri::Result<bool> {
+        let scale = window.scale_factor()?;
+        let ns_window = window.ns_window()? as *mut objc2::runtime::AnyObject;
+        // SAFETY: `ns_window` is this window's live NSWindow; `NSScreen.screens` and `frame` are plain
+        // AppKit getters; called on the main thread (all callers run there).
+        unsafe {
+            let screens: *mut objc2::runtime::AnyObject = objc2::msg_send![class!(NSScreen), screens];
+            if screens.is_null() {
+                return Ok(false);
+            }
+            let main: *mut objc2::runtime::AnyObject = objc2::msg_send![screens, firstObject];
+            if main.is_null() || ns_window.is_null() {
+                return Ok(false);
+            }
+            let screen: NsRect = objc2::msg_send![main, frame];
+            let f = super::cocoa_frame(r, scale, screen.size.h);
+            let frame = NsRect { origin: Point { x: f.x, y: f.y }, size: Size { w: f.w, h: f.h } };
+            let _: () = objc2::msg_send![ns_window, setFrame: frame, display: true, animate: false];
+        }
+        Ok(true)
+    }
+
     /// Makes Harness the active app (merge: the overlay never activated it). Main thread only.
     pub fn activate_app() {
         // SAFETY: `NSApplication.sharedApplication` exists in an AppKit app; called on the main thread.
@@ -594,7 +677,7 @@ mod panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anchor, Rect, anchor_point, beside, card_of, grow, place, sized, widen};
+    use super::{Anchor, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, widen};
 
     const SCREEN: Rect = Rect { x: 0.0, y: 25.0, w: 1440.0, h: 875.0 };
 
@@ -712,6 +795,17 @@ mod tests {
         let card = Rect { x: 400.0, y: 100.0, w: 580.0, h: 600.0 };
         let w = widen(card, 500.0, 500.0, SCREEN, 8.0);
         assert_eq!((w.x, w.w), (8.0, 1580.0));
+    }
+
+    #[test]
+    fn cocoa_frame_flips_y_and_converts_to_points() {
+        // A 2x screen 900 points high: a window 100 points from the top, 300 points high.
+        let r = Rect { x: 200.0, y: 200.0, w: 1000.0, h: 600.0 };
+        assert_eq!(cocoa_frame(r, 2.0, 900.0), Rect { x: 100.0, y: 900.0 - 100.0 - 300.0, w: 500.0, h: 300.0 });
+        // Growing to the left keeps the right edge and the bottom: one frame, both changes.
+        let grown = Rect { x: 0.0, w: 1200.0, ..r };
+        let (a, b) = (cocoa_frame(r, 2.0, 900.0), cocoa_frame(grown, 2.0, 900.0));
+        assert_eq!((a.x + a.w, a.y), (b.x + b.w, b.y));
     }
 
     #[test]

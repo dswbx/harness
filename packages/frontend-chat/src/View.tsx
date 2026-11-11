@@ -1,6 +1,7 @@
 import type {
    AgentSwitch,
    AttachmentInput,
+   OverlayFrame,
    PanelWidth,
    SessionApi,
    ViewVariant,
@@ -72,12 +73,14 @@ import {
    move,
    OVERLAY_ZONES,
    openThread,
+   overlayGeometry,
    overlayProfile,
    type PanelId,
    reconcile,
    replaceThread,
    resetLayout,
    resize,
+   STRIPE_W,
    saveLayout,
    selectThread,
    show,
@@ -193,6 +196,7 @@ export function View({
    agentSwitch,
    chatFrame,
    onPanelWidth,
+   overlayFrame,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -204,6 +208,7 @@ export function View({
    agentSwitch?: AgentSwitch;
    chatFrame?: (chat: ReactNode) => ReactNode;
    onPanelWidth?: (width: PanelWidth) => void;
+   overlayFrame?: OverlayFrame;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -219,6 +224,7 @@ export function View({
          agentSwitch={agentSwitch}
          chatFrame={chatFrame}
          onPanelWidth={onPanelWidth}
+         overlayFrame={overlayFrame}
       />
    );
 }
@@ -258,9 +264,6 @@ function flash(el: Element) {
    );
 }
 
-/** Width of a stripe (its `w-10`), for the Quick overlay's window width. */
-const STRIPE_W = 40;
-
 const BASE_LABEL: Record<string, string> = {
    side: "Side chats",
    changes: "Changes",
@@ -289,6 +292,7 @@ function ChatView({
    agentSwitch,
    chatFrame,
    onPanelWidth,
+   overlayFrame,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -300,6 +304,7 @@ function ChatView({
    agentSwitch?: AgentSwitch;
    chatFrame?: (chat: ReactNode) => ReactNode;
    onPanelWidth?: (width: PanelWidth) => void;
+   overlayFrame?: OverlayFrame;
 }) {
    const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
@@ -902,6 +907,18 @@ function ChatView({
    useEffect(() => {
       if (overlay) onPanelWidth?.({ left: wantL, right: wantR });
    }, [overlay, wantL, wantR, onPanelWidth]);
+   // The card has a fixed width; a side's panels and stripe show once the host window has room for them
+   // (and stop before it shrinks), so opening or closing a panel never moves or reflows the chat.
+   const geo = overlayFrame
+      ? overlayGeometry(
+           shown,
+           overlayFrame.room,
+           { left: stripeL, right: stripeR },
+           overlayFrame.card,
+        )
+      : null;
+   const drawnL = geo ? geo.stripes.left : stripeL;
+   const drawnR = geo ? geo.stripes.right : stripeR;
 
    // The Quick overlay: before the first message only the prompt box, at the bottom of the
    // transparent window. Then the chat in the host's card, with side panels beside it (ADR 0022).
@@ -931,18 +948,22 @@ function ChatView({
                {overlayDraft ? (
                   <div className="relative flex h-full flex-col justify-end">{promptBox}</div>
                ) : (
-                  <div className="relative flex h-full">
+                  <div
+                     className="relative flex h-full"
+                     style={geo ? { paddingLeft: geo.offset } : undefined}
+                  >
                      <DockLayout
-                        layout={shown}
+                        layout={geo?.layout ?? shown}
+                        width={geo?.width}
                         chat={
                            <div className="flex min-h-0 flex-1">
-                              {stripeL && tab("left", sideL)}
+                              {drawnL && tab("left", sideL)}
                               {chatFrame ? (
                                  chatFrame(column)
                               ) : (
                                  <div className="flex min-w-0 flex-1 flex-col">{column}</div>
                               )}
-                              {stripeR && tab("right", sideR)}
+                              {drawnR && tab("right", sideR)}
                            </div>
                         }
                         panels={panels}

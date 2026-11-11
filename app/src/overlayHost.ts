@@ -21,7 +21,13 @@ export const overlayHost = {
    setMenuRoom: (open: boolean) =>
       inTauri() ? invoke<void>("overlay_set_menu_room", { open }) : Promise.resolve(),
    /** The chat's resize grip: the chat card's new size with its shadow margin (logical px), its top-left kept. */
-   resize: (width: number, height: number) => run("overlay_resize", { width, height }),
+   /** Resolves to the card's width after (logical px), or null when the host did not resize (not in the chat, a menu open). */
+   resize: (width: number, height: number) =>
+      inTauri()
+         ? invoke<number | null>("overlay_resize", { width, height })
+         : Promise.resolve(null),
+   /** The chat card's width (logical px): the user's last resize this app session, else the default. */
+   chatWidth: () => (inTauri() ? invoke<number>("overlay_chat_width") : Promise.resolve(null)),
    /**
     * Room for side panels left and right of the chat card (logical px): the window grows by that
     * much on each side, the card stays where it is. Resolves once the window has its size.

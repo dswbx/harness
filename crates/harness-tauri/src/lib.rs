@@ -375,6 +375,7 @@ pub fn run() {
             overlay::overlay_set_menu_room,
             overlay::overlay_set_panels,
             overlay::overlay_resize,
+            overlay::overlay_chat_width,
             overlay::overlay_hide,
             overlay::overlay_merge,
             overlay::overlay_settings,

@@ -51,3 +51,14 @@ export function overlayReducer(s: OverlayState, a: OverlayAction): OverlayState 
          return INITIAL_OVERLAY;
    }
 }
+
+/**
+ * Which window edge the chat row keeps to while the window goes from room `from` to `to`: the right
+ * edge when only the left side changes (the window's left edge moves), else the left edge.
+ */
+export function rowEdge(
+   from: { left: number; right: number },
+   to: { left: number; right: number },
+): "left" | "right" {
+   return from.left !== to.left && from.right === to.right ? "right" : "left";
+}

@@ -27,6 +27,13 @@ export type AgentSwitch = {
 /** Widths (logical px) of what the Quick overlay's View shows left and right of its chat: open panels and stripes. */
 export type PanelWidth = { left: number; right: number };
 
+/**
+ * The Quick overlay's chat geometry (logical px): the chat card's fixed width, and the room the window has
+ * beside it now (`room`, granted by the host after `onPanelWidth`). The View draws a side's panels only once
+ * the room is there, and never sizes the card from the window's width.
+ */
+export type OverlayFrame = { card: number; room: PanelWidth };
+
 /** `full`: a main or pop-out window. `overlay`: the Quick overlay's small floating window (ADR 0022). */
 export type ViewVariant = "full" | "overlay";
 
@@ -56,6 +63,8 @@ export interface Frontend {
       chatFrame?: (chat: ReactNode) => ReactNode;
       /** Overlay only: the room the panels and stripes want beside the chat; the host widens its window by that much. */
       onPanelWidth?: (width: PanelWidth) => void;
+      /** Overlay only: the chat card's width and the room beside it. */
+      overlayFrame?: OverlayFrame;
       /** Shown as a two-level Agent > model menu in the prompt box (Quick overlay only). */
       agentSwitch?: AgentSwitch;
    }>;

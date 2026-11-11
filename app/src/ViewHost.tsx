@@ -1,6 +1,7 @@
 import {
    type AgentSwitch,
    createSessionApi,
+   type OverlayFrame,
    type PanelWidth,
    type Transport,
    type ViewVariant,
@@ -22,6 +23,7 @@ export function ViewHost({
    agentSwitch,
    chatFrame,
    onPanelWidth,
+   overlayFrame,
 }: {
    transport: Transport;
    sessionId: string;
@@ -35,6 +37,7 @@ export function ViewHost({
    agentSwitch?: AgentSwitch;
    chatFrame?: (chat: ReactNode) => ReactNode;
    onPanelWidth?: (width: PanelWidth) => void;
+   overlayFrame?: OverlayFrame;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
@@ -53,6 +56,7 @@ export function ViewHost({
          agentSwitch={agentSwitch}
          chatFrame={chatFrame}
          onPanelWidth={onPanelWidth}
+         overlayFrame={overlayFrame}
       />
    );
 }

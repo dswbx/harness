@@ -4,6 +4,7 @@ import {
    type OverlayAction,
    type OverlayState,
    overlayReducer,
+   rowEdge,
 } from "./overlayMode";
 
 const run = (...actions: OverlayAction["type"][]) =>
@@ -55,5 +56,16 @@ describe("overlayReducer", () => {
       expect(overlayReducer(s, { type: "shown" })).toBe(s);
       expect(overlayReducer(s, { type: "expand" })).toBe(s);
       expect(overlayReducer(s, { type: "turnFinished" })).toBe(s);
+   });
+});
+
+describe("rowEdge", () => {
+   it("keeps the right edge when only the left side changes", () => {
+      expect(rowEdge({ left: 0, right: 420 }, { left: 320, right: 420 })).toBe("right");
+      expect(rowEdge({ left: 320, right: 0 }, { left: 0, right: 0 })).toBe("right");
+   });
+   it("keeps the left edge when the right side (or both) changes", () => {
+      expect(rowEdge({ left: 320, right: 0 }, { left: 320, right: 420 })).toBe("left");
+      expect(rowEdge({ left: 0, right: 0 }, { left: 320, right: 420 })).toBe("left");
    });
 });

@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentSwitch, PanelWidth, Transport } from "@harness/api";
+import type { AgentInfo, AgentSwitch, OverlayFrame, PanelWidth, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import { Badge, Button, cn, Tooltip } from "@harness/ui";
 import { ChevronUp, Maximize2, Minus, X, Zap } from "lucide-react";
@@ -13,7 +13,7 @@ import {
 } from "react";
 import { QUICK_TITLE, quickAgent } from "./composer";
 import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
-import { INITIAL_OVERLAY, overlayReducer } from "./overlayMode";
+import { INITIAL_OVERLAY, overlayReducer, rowEdge } from "./overlayMode";
 import { useReportError } from "./toast";
 import { ViewHost } from "./ViewHost";
 
@@ -38,6 +38,8 @@ function saveAgent(id: string) {
 
 /** Transparent margin around the card for its shadow (logical px); `SHADOW` in `overlay.rs`. */
 const SHADOW = 20;
+/** The chat card's default width (logical px); `Mode::Chat.card()` in `overlay.rs`. */
+const CHAT_CARD = 540;
 
 /**
  * Open menus, popovers and lists (Radix portals them into `body`; the prompt's "/" and "#" menus
@@ -155,8 +157,20 @@ export function Overlay({ transport }: { transport: Transport }) {
 
    // Side panels (Phase 2): the View says how much room its panels and stripes want beside the chat;
    // the host widens the window by that much, the card stays put. One host call at a time.
+   // The card has a fixed width (`card`, only the resize grip changes it); the View draws a side's panels
+   // only once `panelsHost` has room for them, so the window grows before a panel shows and a panel
+   // hides before the window shrinks. The row is pinned to the window edge that does not move: the
+   // right one while a left side changes (the host moves the left edge and resizes in one native step).
+   const [card, setCard] = useState(CHAT_CARD);
+   useEffect(() => {
+      overlayHost
+         .chatWidth()
+         .then((w) => w && setCard(w))
+         .catch((e) => console.error("overlay_chat_width failed", e));
+   }, []);
    const [panelsWant, setPanelsWant] = useState<PanelWidth>(NO_PANELS);
    const [panelsHost, setPanelsHost] = useState<PanelWidth>(NO_PANELS);
+   const [edge, setEdge] = useState<"left" | "right">("left");
    const panelsBusy = useRef(false);
    const onPanelWidth = useCallback(
       (w: PanelWidth) => setPanelsWant((p) => (samePanels(p, w) ? p : w)),
@@ -164,8 +178,14 @@ export function Overlay({ transport }: { transport: Transport }) {
    );
    useEffect(() => {
       if (panelsBusy.current || samePanels(panelsWant, panelsHost)) return;
-      panelsBusy.current = true;
       const w = panelsWant;
+      const next = rowEdge(panelsHost, w);
+      // The row is on its edge before the window changes.
+      if (next !== edge) {
+         setEdge(next);
+         return;
+      }
+      panelsBusy.current = true;
       overlayHost
          .setPanels(w.left, w.right)
          .catch((e) => console.error("overlay_set_panels failed", e))
@@ -173,7 +193,7 @@ export function Overlay({ transport }: { transport: Transport }) {
             panelsBusy.current = false;
             setPanelsHost(w);
          });
-   }, [panelsWant, panelsHost]);
+   }, [panelsWant, panelsHost, edge]);
 
    // A draft Quick Session as soon as the overlay is on screen, started right away so the prompt
    // box has the Agent's models and modes. The core removes it if nothing is sent.
@@ -311,13 +331,12 @@ export function Overlay({ transport }: { transport: Transport }) {
    const promptAtTop = s.mode === "prompt" && anchor === "top";
 
    const chat = s.mode === "chat";
-   // Until the host has the new width, the View's row keeps the width it wants and stays on the side
-   // that does not change, so the card does not move: a left panel grows the window to the left
-   // (the row sits at the right edge meanwhile), a right one to the right.
-   const moving = chat && !samePanels(panelsWant, panelsHost);
-   const inner = (pin?.w ?? window.innerWidth) - 2 * SHADOW;
-   const rowWidth = inner - panelsHost.left - panelsHost.right + panelsWant.left + panelsWant.right;
-   const atRight = panelsWant.left !== panelsHost.left && panelsWant.right === panelsHost.right;
+   const overlayFrame = useMemo<OverlayFrame>(
+      () => ({ card, room: panelsHost }),
+      [card, panelsHost],
+   );
+   // The menu room and the resize grip grow the window right and down: the row keeps its left edge.
+   const rowAt = pin ? "left" : edge;
    // The chat card: header, the View's chat column, resize grip. The View puts its panels outside it.
    const chatFrame = (column: ReactNode) => (
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-overlay">
@@ -342,7 +361,12 @@ export function Overlay({ transport }: { transport: Transport }) {
             </IconButton>
          </div>
          {column}
-         {chat && <ResizeGrip />}
+         {chat && (
+            <ResizeGrip
+               onStart={() => setEdge("left")}
+               onCard={(w) => setCard((c) => (c === w ? c : w))}
+            />
+         )}
       </div>
    );
 
@@ -361,18 +385,18 @@ export function Overlay({ transport }: { transport: Transport }) {
          )}
          <div
             className={cn(
-               "flex h-full",
-               chat ? atRight && moving && "justify-end" : "flex-col",
+               "relative h-full",
+               !chat && "flex flex-col",
                s.mode === "mini" && "hidden",
             )}
          >
             <div
-               className={cn(
+               className={cn(chat ? "absolute inset-y-0" : cn("min-h-0", !promptAtTop && "flex-1"))}
+               style={
                   chat
-                     ? cn("h-full min-w-0", moving ? "shrink-0" : "flex-1")
-                     : cn("min-h-0", !promptAtTop && "flex-1"),
-               )}
-               style={moving ? { width: rowWidth } : undefined}
+                     ? { width: panelsHost.left + card + panelsHost.right, [rowAt]: 0 }
+                     : undefined
+               }
             >
                {draft ? (
                   <ViewHost
@@ -383,6 +407,7 @@ export function Overlay({ transport }: { transport: Transport }) {
                      agentSwitch={agentSwitch}
                      chatFrame={chatFrame}
                      onPanelWidth={onPanelWidth}
+                     overlayFrame={chat ? overlayFrame : undefined}
                   />
                ) : (
                   error && (
@@ -412,13 +437,24 @@ export function Overlay({ transport }: { transport: Transport }) {
  * screen deltas from the card's size (plus its shadow margin) at the start, one host call per
  * frame (top-left kept). Side panels keep their widths; the host adds them.
  */
-function ResizeGrip() {
+function ResizeGrip({
+   onStart,
+   onCard,
+}: {
+   onStart: () => void;
+   /** The card's width after the host resized the window (the window grows first, then the card). */
+   onCard: (width: number) => void;
+}) {
    const drag = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
    const next = useRef<[number, number] | null>(null);
    const frame = useRef(0);
    const send = () => {
       frame.current = 0;
-      if (next.current) overlayHost.resize(...next.current);
+      if (next.current)
+         overlayHost
+            .resize(...next.current)
+            .then((w) => w && onCard(w))
+            .catch((e) => console.error("overlay_resize failed", e));
       next.current = null;
    };
    const end = () => {
@@ -435,6 +471,7 @@ function ResizeGrip() {
             if (e.button !== 0) return;
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
+            onStart();
             const card = e.currentTarget.parentElement!;
             drag.current = {
                x: e.screenX,

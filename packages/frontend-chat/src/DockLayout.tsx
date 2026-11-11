@@ -113,6 +113,7 @@ export function DockLayout({
    leftStripeOverlay,
    zones = ZONES,
    floating = false,
+   width,
    onResize,
    onMove,
    onHide,
@@ -132,6 +133,11 @@ export function DockLayout({
     * Quick overlay. Their shadows may spill out of the dock.
     */
    floating?: boolean;
+   /**
+    * A fixed width (px) instead of the measured one: the Quick overlay sets it from its fixed chat card, so
+    * the window's width (which changes a step apart from the page) never resizes or moves the chat.
+    */
+   width?: number;
    onResize: (patch: Partial<Sizes>) => void;
    onMove: (id: PanelId, zone: Zone) => void;
    onHide: (id: PanelId) => void;
@@ -164,7 +170,7 @@ export function DockLayout({
       return () => window.removeEventListener("keydown", onKey);
    }, [expanded, onExpand]);
 
-   const w = size?.w ?? 0;
+   const w = width ?? size?.w ?? 0;
    const h = size?.h ?? 0;
    const g: Geometry = computeRects(layout, w, h);
    const o = layout.open;
@@ -250,9 +256,11 @@ export function DockLayout({
       <div
          ref={box}
          className={cn(
-            "relative h-full min-w-0 flex-1",
+            "relative h-full min-w-0",
+            width === undefined ? "flex-1" : "shrink-0",
             floating ? "overflow-visible" : "overflow-hidden",
          )}
+         style={width === undefined ? undefined : { width }}
       >
          {size && (
             <>
