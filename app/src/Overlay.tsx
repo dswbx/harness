@@ -92,25 +92,23 @@ export function Overlay({ transport }: { transport: Transport }) {
    const modeRef = useRef(s.mode);
    modeRef.current = s.mode;
 
-   // Tell the host after the first paint: it keeps the window hidden until then.
-   useEffect(() => {
-      let id = requestAnimationFrame(() => {
-         id = requestAnimationFrame(() => void overlayHost.ready());
-      });
-      return () => cancelAnimationFrame(id);
-   }, []);
-   // The host made this window to show it, before this page could listen for `overlay-shown`.
-   useEffect(() => dispatch({ type: "shown" }), []);
    // `shown` counts the host's shows: each one drops the menu room (the host did too).
    const [shown, setShown] = useState(0);
    const [anchor, setAnchor] = useState<OverlayAnchor>("top");
+   // The host keeps the window hidden until `ready`, sent once `overlay-shown` is listened to (so
+   // a shortcut that waited is not missed). Not requestAnimationFrame: WebKit does not run it in a
+   // hidden window, and this window is made hidden at startup.
    useEffect(
       () =>
-         listenHost("overlay-shown", (a) => {
-            setAnchor(a === "bottom" ? "bottom" : "top");
-            setShown((n) => n + 1);
-            dispatch({ type: "shown" });
-         }),
+         listenHost(
+            "overlay-shown",
+            (a) => {
+               setAnchor(a === "bottom" ? "bottom" : "top");
+               setShown((n) => n + 1);
+               dispatch({ type: "shown" });
+            },
+            () => void overlayHost.ready(),
+         ),
       [],
    );
    useEffect(() => listenHost("overlay-shortcut", () => dispatch({ type: "shortcut" })), []);

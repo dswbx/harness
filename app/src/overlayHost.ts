@@ -43,7 +43,12 @@ export const overlayHost = {
 };
 
 /** `select-session` (main window), `overlay-shown` and `overlay-shortcut` (overlay). */
-export function listenHost(event: string, cb: (payload: unknown) => void): () => void {
+export function listenHost(
+   event: string,
+   cb: (payload: unknown) => void,
+   /** Runs once the listener is registered. */
+   onListening?: () => void,
+): () => void {
    if (!inTauri()) return () => {};
    let stop = false;
    let off: (() => void) | undefined;
@@ -51,7 +56,10 @@ export function listenHost(event: string, cb: (payload: unknown) => void): () =>
       // Events sent with `emit_to(label, ..)` reach only that window.
       const u = await getCurrentWebviewWindow().listen(event, (e) => cb(e.payload));
       if (stop) u();
-      else off = u;
+      else {
+         off = u;
+         onListening?.();
+      }
    });
    return () => {
       stop = true;
