@@ -129,6 +129,9 @@ fn title_from_text(text: &str) -> Option<String> {
 pub struct SideOrigin {
     pub point: crate::api::ForkPoint,
     pub source: crate::api::ThreadStart,
+    /// The mode option value the user chose to start in; `None`: the mode that asks before writes.
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -779,7 +782,7 @@ impl Session {
 
     /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
     /// whether that will be a fork of the Main Thread's Agent Session.
-    pub fn start_side_thread(&self, seed: Option<String>, source: crate::api::ThreadStart) -> anyhow::Result<(ThreadId, bool)> {
+    pub fn start_side_thread(&self, seed: Option<String>, source: crate::api::ThreadStart, mode: Option<String>) -> anyhow::Result<(ThreadId, bool)> {
         let thread = uuid::Uuid::now_v7().to_string();
         let main = self.meta().main_thread_id;
         let point = crate::summary::last_finished_turn(&self.log.events()?, &main);
@@ -789,11 +792,17 @@ impl Session {
             if let Some(seed) = seed {
                 m.seeds.insert(thread.clone(), seed);
             }
-            m.origins.insert(thread.clone(), SideOrigin { point: point.clone(), source });
+            m.origins.insert(thread.clone(), SideOrigin { point: point.clone(), source, mode });
             m.agent.id.clone()
         })?;
-        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false, forked_from: Some(point) })?;
+        let forked_from = (source != crate::api::ThreadStart::Fresh).then_some(point);
+        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false, forked_from })?;
         Ok((thread, forked))
+    }
+
+    /// Whether the Thread is a Side Thread started without the Main Thread's conversation.
+    pub fn is_fresh_side(&self, thread: &ThreadId) -> bool {
+        self.meta().origins.get(thread).is_some_and(|o| o.source == crate::api::ThreadStart::Fresh)
     }
 
     pub async fn cancel(self: &Arc<Self>, thread_id: Option<ThreadId>) -> anyhow::Result<()> {

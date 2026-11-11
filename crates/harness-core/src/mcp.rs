@@ -131,6 +131,10 @@ fn schema(v: Value) -> Arc<Map<String, Value>> {
     Arc::new(v.as_object().cloned().unwrap_or_default())
 }
 
+/// Tools that read other Threads, not offered to a Side Thread started without the Main Thread's
+/// conversation (its point is an independent view).
+const TRANSCRIPT_TOOLS: [&str; 4] = ["threads_list", "transcript_outline", "transcript_read", "transcript_search"];
+
 /// Primitive tools: (name, description, input schema, Permission Policy kind).
 fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
     let empty = json!({ "type": "object", "properties": {} });
@@ -222,8 +226,13 @@ impl ServerHandler for Handler {
     }
 
     async fn list_tools(&self, _request: Option<PaginatedRequestParams>, cx: RequestContext<RoleServer>) -> Result<ListToolsResult, ErrorData> {
-        let (session, _) = target(&cx)?;
-        let mut tools: Vec<Tool> = primitives().into_iter().map(|(name, desc, input, _)| Tool::new(name, desc, schema(input))).collect();
+        let (session, thread) = target(&cx)?;
+        let fresh = session.is_fresh_side(&thread);
+        let mut tools: Vec<Tool> = primitives()
+            .into_iter()
+            .filter(|(name, ..)| !(fresh && TRANSCRIPT_TOOLS.contains(name)))
+            .map(|(name, desc, input, _)| Tool::new(name, desc, schema(input)))
+            .collect();
         for t in session.frontend_tools() {
             tools.push(Tool::new(t.name.clone(), t.description.clone(), schema(t.input_schema.clone())));
         }
@@ -246,6 +255,10 @@ impl ServerHandler for Handler {
 async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value) -> anyhow::Result<Vec<ContentBlock>> {
     let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_owned);
     if let Some((_, desc, _, kind)) = primitives().into_iter().find(|p| p.0 == name) {
+        anyhow::ensure!(
+            !(TRANSCRIPT_TOOLS.contains(&name) && session.is_fresh_side(thread)),
+            "{name} is not available: the user started this Side Thread without the Main Thread's conversation"
+        );
         let title = match name {
             "git_commit" => format!("Commit: {}", s("message").unwrap_or_default()),
             "git_push" => "Push branch to origin".to_owned(),

@@ -152,6 +152,8 @@ export type ChatState = {
    mainThreadId: string | null;
    taskList: TaskEntry[];
    configOptions: ConfigOption[];
+   /** The Agent's asking mode (core's `side_mode`): where a new Side Thread starts. Null: unknown. */
+   sideMode: string | null;
    commands: SlashCommand[];
    usage: Usage | null;
    title: string | null;
@@ -197,6 +199,7 @@ export const initialState = (): ChatState => ({
    mainThreadId: null,
    taskList: [],
    configOptions: [],
+   sideMode: null,
    commands: [],
    usage: null,
    title: null,
@@ -478,6 +481,7 @@ function applyThread(c: Ctx, e: Event) {
          return;
       case "ConfigOptionsChanged":
          if (Array.isArray(k.options)) d.configOptions = k.options as ConfigOption[];
+         d.sideMode = k.side_mode ?? null;
          return;
       case "AvailableCommandsChanged":
          d.commands = k.commands;
@@ -540,7 +544,13 @@ function applyThread(c: Ctx, e: Event) {
                      ? `Forked from main at turn ${d.forkedFrom.turn}`
                      : "Forked from main",
                );
-            else if (k.boundary === "initial") notice("boundary", "Started with a summary of main");
+            else if (k.boundary === "initial")
+               notice(
+                  "boundary",
+                  d.forkedFrom
+                     ? "Started with a summary of main"
+                     : "Started fresh, without the conversation",
+               );
             else notice("boundary", boundaryText(k.boundary));
             return;
          }

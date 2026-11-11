@@ -180,15 +180,21 @@ describe("turns", () => {
       expect(threadState(s, "main")).toBe(s);
    });
 
-   it("a fresh Side Thread opens with a summary divider, once; nothing before its Agent Session starts", () => {
-      const pending = fold([
-         started(),
-         ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
-      ]);
+   it("a seeded Side Thread opens with a summary divider, once; nothing before its Agent Session starts", () => {
+      const seeded = ev(
+         {
+            type: "ThreadStarted",
+            agent_id: "a",
+            main: false,
+            forked_from: { thread_id: "main", turn: 2, seq: 7 },
+         },
+         "side",
+      );
+      const pending = fold([started(), seeded]);
       expect(pending.threads.side!.items).toEqual([]);
       const s = fold([
          started(),
-         ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+         seeded,
          ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "initial" }, "side"),
          ev({ type: "AgentSessionStarted", acp_session_id: "g", boundary: "resumed" }, "side"),
       ]);
@@ -196,6 +202,32 @@ describe("turns", () => {
          "Started with a summary of main",
       ]);
       expect(s.items).toHaveLength(0);
+   });
+
+   it("a fresh Side Thread (no forked_from) says it started without the conversation", () => {
+      const s = fold([
+         started(),
+         ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+         ev({ type: "AgentSessionStarted", acp_session_id: "f", boundary: "initial" }, "side"),
+      ]);
+      expect(s.threads.side!.items.map((i) => i.type === "notice" && i.text)).toEqual([
+         "Started fresh, without the conversation",
+      ]);
+   });
+
+   it("keeps the Agent's asking mode from ConfigOptionsChanged (null when absent)", () => {
+      const withMode = fold([
+         started(),
+         ev({ type: "ConfigOptionsChanged", options: [], side_mode: "plan" }),
+      ]);
+      expect(withMode.sideMode).toBe("plan");
+      const old = fold([
+         started(),
+         ev({ type: "ConfigOptionsChanged", options: [], side_mode: "plan" }),
+         ev({ type: "ConfigOptionsChanged", options: [] }),
+      ]);
+      expect(old.sideMode).toBeNull();
+      expect(fold([started()]).sideMode).toBeNull();
    });
 
    it("Side Thread: permission requests pend as cards, config options are its own, Main untouched", () => {

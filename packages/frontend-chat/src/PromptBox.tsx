@@ -190,6 +190,7 @@ export function PromptBox({
    threadId = null,
    onSideThread,
    onSend,
+   onConfigChange,
    agentSwitch,
    elevated = false,
    menuSide = "top",
@@ -203,6 +204,8 @@ export function PromptBox({
    onSideThread?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
    /** Sends instead of `api.prompt` (a side chat not started yet). */
    onSend?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
+   /** A config change stays local instead of `api.setConfigOption` (a side chat not started yet). */
+   onConfigChange?: (id: string, value: string) => void;
    /** Quick overlay: an Agent > model menu in the footer (other Agents disabled once `locked`). */
    agentSwitch?: AgentSwitch;
    /** Floats over other apps (Quick overlay): the overlay's shadow. */
@@ -622,6 +625,7 @@ export function PromptBox({
                   options={state.configOptions}
                   onChange={(id, value) => {
                      setError(null);
+                     if (onConfigChange) return onConfigChange(id, value);
                      api.setConfigOption(id, value, threadId).catch((err) =>
                         setError(errorMessage(err)),
                      );

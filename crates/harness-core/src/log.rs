@@ -84,7 +84,7 @@ impl Projections {
                     self.modes.insert(t.clone(), mode_id.clone());
                 }
             }
-            EventKind::ConfigOptionsChanged { options } => {
+            EventKind::ConfigOptionsChanged { options, .. } => {
                 if let (Some(t), Some(mode)) = (&e.thread_id, config_mode(options)) {
                     self.modes.insert(t.clone(), mode);
                 }
@@ -1072,9 +1072,9 @@ mod tests {
         let path = dir.path().join("log.jsonl");
         let log = open_in(dir.path());
         log.append(Some("t".into()), EventKind::ModeChanged { mode_id: "plan".into() }).unwrap();
-        log.append(Some("t".into()), EventKind::ConfigOptionsChanged { options: serde_json::json!([{"id":"mode","currentValue":"auto"}]) }).unwrap();
+        log.append(Some("t".into()), EventKind::config_options(serde_json::json!([{"id":"mode","currentValue":"auto"}]))).unwrap();
         log.append(Some("u".into()), EventKind::ModeChanged { mode_id: "x".into() }).unwrap();
-        log.append(Some("t".into()), EventKind::ConfigOptionsChanged { options: serde_json::json!([{"id":"model","currentValue":"m"}]) }).unwrap();
+        log.append(Some("t".into()), EventKind::config_options(serde_json::json!([{"id":"model","currentValue":"m"}]))).unwrap();
         log.append(None, EventKind::SessionInfoUpdated { title: Some("  ".into()) }).unwrap();
         log.append(Some("t".into()), EventKind::SessionInfoUpdated { title: Some("Hello".into()) }).unwrap();
         assert_eq!(log.events().unwrap().len(), 6);

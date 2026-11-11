@@ -118,7 +118,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 .unwrap_or_default(),
         },
         Some("current_mode_update") => EventKind::ModeChanged { mode_id: s("currentModeId").unwrap_or_default() },
-        Some("config_option_update") => EventKind::ConfigOptionsChanged { options: u.get("configOptions").cloned().unwrap_or(Value::Null) },
+        Some("config_option_update") => EventKind::config_options(u.get("configOptions").cloned().unwrap_or(Value::Null)),
         Some("available_commands_update") => EventKind::AvailableCommandsChanged {
             commands: u
                 .get("availableCommands")
@@ -237,7 +237,7 @@ mod tests {
         assert!(matches!(normalize(&u), EventKind::ModeChanged { mode_id } if mode_id == "plan"));
         let options = json!([{ "id": "model", "currentValue": "a", "options": [] }]);
         let u = json!({ "sessionUpdate": "config_option_update", "configOptions": options });
-        assert!(matches!(normalize(&u), EventKind::ConfigOptionsChanged { options: o } if o == options));
+        assert!(matches!(normalize(&u), EventKind::ConfigOptionsChanged { options: o, .. } if o == options));
     }
 
     #[test]

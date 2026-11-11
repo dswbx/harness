@@ -85,7 +85,7 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
             .iter()
             .rev()
             .find_map(|e| match &e.kind {
-                EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(&thread) => options.as_array().cloned(),
+                EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(&thread) => options.as_array().cloned(),
                 _ => None,
             })
             .is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
@@ -94,7 +94,7 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
     let (conn, id) = live_agent_session(&session, &thread).await?;
     let r = conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id, config_id.clone(), value.as_str())).block_task().await?;
     let main = session.is_main(Some(&thread));
-    session.log().append(Some(thread), EventKind::ConfigOptionsChanged { options: serde_json::to_value(&r.config_options)? })?;
+    session.log().append(Some(thread), EventKind::config_options(serde_json::to_value(&r.config_options)?))?;
     // A Side Thread's mode is a detour, not the user's choice for new Sessions.
     if main && let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
         tracing::warn!("could not remember config option: {e:#}");
@@ -117,19 +117,22 @@ pub(super) fn current_mode(options: Option<&Value>, modes: &acp::SessionModeStat
     }
 }
 
-/// Puts a new Side Thread Agent Session in the Agent's mode that asks before writes (a fork inherits
-/// the Main Thread's mode, which may auto-approve). Returns the options to log.
-pub(super) async fn start_asking(conn: &Arc<AgentConn>, id: &acp::SessionId, options: Value) -> Value {
+/// Puts a new Side Thread Agent Session in the mode the user chose for it, if the Agent offers it,
+/// else in the Agent's mode that asks before writes (a fork inherits the Main Thread's mode, which
+/// may auto-approve). Returns the options to log.
+pub(super) async fn start_asking(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId, options: Value) -> Value {
     let Some(mode) = options.as_array().and_then(|a| a.iter().find(|o| is_mode(o))).cloned() else { return options };
-    let values: Vec<&str> = mode["options"].as_array().into_iter().flatten().filter_map(|o| o["value"].as_str()).collect();
-    let (Some(config_id), Some(asking)) = (mode["id"].as_str(), crate::agent_quirks::asking_mode(&values)) else { return options };
-    if mode["currentValue"] == asking {
+    let values = crate::api::option_values(&mode);
+    let chosen = session.meta().origins.get(thread).and_then(|o| o.mode.clone());
+    let wanted = chosen.as_deref().filter(|c| values.contains(c)).or_else(|| crate::agent_quirks::asking_mode(&values));
+    let (Some(config_id), Some(wanted)) = (mode["id"].as_str(), wanted) else { return options };
+    if mode["currentValue"] == wanted {
         return options;
     }
-    match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.to_owned(), asking)).block_task().await {
+    match conn.cx.send_request(acp::SetSessionConfigOptionRequest::new(id.clone(), config_id.to_owned(), wanted)).block_task().await {
         Ok(r) => serde_json::to_value(&r.config_options).unwrap_or(options),
         Err(e) => {
-            tracing::warn!("asking mode for Side Thread: {e}");
+            tracing::warn!("starting mode for Side Thread: {e}");
             options
         }
     }
@@ -143,7 +146,7 @@ pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentC
     let main = session.meta().main_thread_id;
     let latest = |t: &ThreadId| {
         events.iter().rev().find_map(|e| match &e.kind {
-            EventKind::ConfigOptionsChanged { options } if e.thread_id.as_ref() == Some(t) => options.as_array().cloned(),
+            EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(t) => options.as_array().cloned(),
             _ => None,
         })
     };
@@ -171,7 +174,7 @@ pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentC
         }
     }
     if let Some(options) = changed {
-        let _ = session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options });
+        let _ = session.log().append(Some(thread.clone()), EventKind::config_options(options));
     }
 }
 
@@ -216,9 +219,12 @@ pub(super) async fn ensure_agent_session(session: &Arc<Session>, conn: &Arc<Agen
         {
             return Ok(Some(id));
         }
-        // No fork: the Main Thread's transcript up to the fork point is the Context Seed.
+        // No fork: the Main Thread's transcript up to the fork point is the Context Seed, unless
+        // the user wants the Side Thread without the Main Thread's conversation.
         let events = session.log().events()?;
-        if let Some(transcript) = crate::summary::side_thread_seed(&events, &origin.point.thread_id, origin.point.seq) {
+        if origin.source != ThreadStart::Fresh
+            && let Some(transcript) = crate::summary::side_thread_seed(&events, &origin.point.thread_id, origin.point.seq)
+        {
             session.update_meta(|m| {
                 let seed = match m.seeds.remove(thread) {
                     Some(own) => format!("{transcript}\n\n{own}"),
@@ -361,10 +367,10 @@ pub(super) async fn fork_agent_session(
     };
     let mut options = r.config_options.map(serde_json::to_value).transpose()?;
     if let Some(o) = options.take() {
-        options = Some(start_asking(conn, &r.session_id, o).await);
+        options = Some(start_asking(session, conn, thread, &r.session_id, o).await);
     }
     if let Some(options) = &options {
-        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options: options.clone() })?;
+        session.log().append(Some(thread.clone()), EventKind::config_options(options.clone()))?;
     }
     if let Some(modes) = &r.modes {
         session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
@@ -428,10 +434,10 @@ pub(super) async fn new_agent_session(
     if !session.is_main(Some(thread))
         && let Some(o) = options.take()
     {
-        options = Some(start_asking(conn, &r.session_id, o).await);
+        options = Some(start_asking(session, conn, thread, &r.session_id, o).await);
     }
     if let Some(options) = &options {
-        session.log().append(Some(thread.clone()), EventKind::ConfigOptionsChanged { options: options.clone() })?;
+        session.log().append(Some(thread.clone()), EventKind::config_options(options.clone()))?;
     }
     if let Some(modes) = &r.modes {
         session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
