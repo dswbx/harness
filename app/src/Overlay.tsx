@@ -128,8 +128,9 @@ export function Overlay({ transport }: { transport: Transport }) {
    );
    useEffect(() => listenHost("overlay-shortcut", () => dispatch({ type: "shortcut" })), []);
 
-   // What the user is looking at in other apps (Phase 3). While the overlay is open (not mini) the
-   // host sends each change; the chip shows in the prompt and the chat, and each message sends it.
+   // What the user is looking at in other apps (Phase 3). While the overlay shows the prompt the
+   // host sends each change; the chip shows only there, and the first message sends it. In the chat
+   // (and mini) the host stops polling, there is no chip and later messages send no context.
    // A removed chip stays removed for that app, window and page; another one shows it again.
    const [windowCtx, setWindowCtx] = useState<WindowContext | null>(null);
    const [dismissed, setDismissed] = useState<string | null>(null);
@@ -146,6 +147,7 @@ export function Overlay({ transport }: { transport: Transport }) {
       return listenHost("overlay-context", take);
    }, []);
    const context = useMemo<PromptContext | undefined>(() => {
+      if (s.mode !== "prompt") return undefined;
       if (!windowCtx || contextKey(windowCtx) === dismissed) return undefined;
       const action = contextAction(windowCtx);
       return {
@@ -158,7 +160,7 @@ export function Overlay({ transport }: { transport: Transport }) {
             onClick: () => overlayHost.openPrivacySettings(action.pane),
          },
       };
-   }, [windowCtx, dismissed]);
+   }, [windowCtx, dismissed, s.mode]);
 
    // The host follows the state: the window size per mode, hidden when `visible` turns false.
    useEffect(() => overlayHost.setMode(s.mode), [s.mode]);

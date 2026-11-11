@@ -9,7 +9,7 @@
 //! with `overlay_set_panels` and the window grows by it, left and right of the card, which stays put.
 //! On macOS the window is a non-activating NSPanel (`panel` below), so typing in it does not
 //! make Harness the active app.
-//! While the overlay is open (not mini), a thread polls what the user is looking at in other apps
+//! While the overlay shows the prompt (not the chat, not mini), a thread polls what the user is looking at in other apps
 //! (`context.rs`, ADR 0022 Phase 3) and sends each change as `overlay-context`.
 
 use parking_lot::Mutex;
@@ -38,6 +38,11 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// Only the prompt follows the front app: the chip exists until the first message is sent.
+    fn follows_context(self) -> bool {
+        self == Mode::Prompt
+    }
+
     /// Logical size of the card (what the user sees). The prompt card is taller than the box,
     /// so the box can grow with the text.
     fn card(self) -> (f64, f64) {
@@ -309,7 +314,7 @@ fn start_context(app: &AppHandle, fresh: bool) {
     });
 }
 
-/// Stops the context poll (hidden, mini, setting off). A running AppleScript still finishes.
+/// Stops the context poll (hidden, chat, mini, setting off). A running AppleScript still finishes.
 fn stop_context(app: &AppHandle) {
     if let Some(stop) = app.state::<Overlay>().poll.lock().take() {
         stop.store(true, Ordering::Relaxed);
@@ -480,7 +485,7 @@ fn show(app: &AppHandle) -> tauri::Result<()> {
     }
     native_show(&window);
     let _ = app.emit_to(LABEL, "overlay-shown", anchor);
-    if mode != Mode::Mini {
+    if mode.follows_context() {
         start_context(app, true);
     }
     Ok(())
@@ -493,10 +498,10 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
     let state = app.state::<Overlay>();
     let old = std::mem::replace(&mut *state.mode.lock(), mode);
     let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
-    if mode == Mode::Mini {
+    if !mode.follows_context() {
         stop_context(app);
     } else if window.is_visible()? {
-        start_context(app, false);
+        start_context(app, old != mode);
     }
     let scale = window.scale_factor()?;
     // An open menu's room is dropped (the page drops it on a mode change too).
@@ -807,7 +812,7 @@ pub async fn overlay_set_settings(
                 c.id += 1;
                 c.ctx = None;
                 let _ = handle.emit_to(LABEL, "overlay-context", None::<WindowContext>);
-            } else if *state.mode.lock() != Mode::Mini && handle.get_webview_window(LABEL).and_then(|w| w.is_visible().ok()).unwrap_or(false) {
+            } else if state.mode.lock().follows_context() && handle.get_webview_window(LABEL).and_then(|w| w.is_visible().ok()).unwrap_or(false) {
                 start_context(&handle, true);
             }
         });
@@ -928,7 +933,14 @@ mod panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anchor, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, widen};
+    use super::{Anchor, Mode, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, widen};
+
+    #[test]
+    fn only_the_prompt_follows_the_context() {
+        assert!(Mode::Prompt.follows_context());
+        assert!(!Mode::Chat.follows_context());
+        assert!(!Mode::Mini.follows_context());
+    }
 
     const SCREEN: Rect = Rect { x: 0.0, y: 25.0, w: 1440.0, h: 875.0 };
 
