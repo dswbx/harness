@@ -10,7 +10,11 @@ import {
    type Layout,
    migratePanel,
    move,
+   OVERLAY_ZONES,
    openThread,
+   overlayProfile,
+   overlayWidth,
+   overlayZone,
    type PanelId,
    parseLayout,
    reconcile,
@@ -19,6 +23,7 @@ import {
    selectThread,
    show,
    shownOpen,
+   sideWidths,
    slotPanel,
    toggle,
    withShownIn,
@@ -462,5 +467,62 @@ describe("clampSize", () => {
       expect(clampSize("bottom", 1, g, 1000, 800)).toBe(120);
       expect(clampSize("leftSplit", 0, g, 1000, 800)).toBe(0.15);
       expect(clampSize("bottomSplit", 1, g, 1000, 800)).toBe(0.8);
+   });
+});
+
+describe("overlay profile", () => {
+   it("has only the side zones; bottom zones go to the right", () => {
+      expect(OVERLAY_ZONES).toEqual(["leftTop", "leftBottom", "rightBottom", "rightTop"]);
+      expect(overlayZone("bottomLeft")).toBe("rightBottom");
+      expect(overlayZone("bottomRight")).toBe("rightBottom");
+      expect(overlayZone("leftTop")).toBe("leftTop");
+   });
+   it("moves bottom panels to right bottom and keeps the open one open", () => {
+      const l = overlayProfile(show(empty, "terminal"));
+      expect(l.zones.bottomLeft).toEqual([]);
+      expect(l.zones.bottomRight).toEqual([]);
+      expect(l.zones.rightBottom).toEqual(["terminal", "events"]);
+      expect(l.open.rightBottom).toBe("terminal");
+      expect(l.open.bottomLeft).toBeNull();
+   });
+   it("does not replace what right bottom shows", () => {
+      const base = show(move(empty, "side", "rightBottom"), "side");
+      const l = overlayProfile(show(base, "events"));
+      expect(l.open.rightBottom).toBe("side");
+      expect(l.zones.rightBottom).toEqual(["side", "terminal", "events"]);
+   });
+   it("returns the same layout when there is nothing to move", () => {
+      const l = overlayProfile(empty);
+      expect(overlayProfile(l)).toBe(l);
+   });
+   it("drop targets span the full height without bottom zones", () => {
+      const t = dropRects(empty, 1000, 800, OVERLAY_ZONES);
+      expect(t.leftTop.h + t.leftBottom.h).toBe(800);
+      expect(t.rightTop.h + t.rightBottom.h).toBe(800);
+   });
+});
+
+describe("overlayWidth", () => {
+   const slot = slotPanel("chart");
+   const withSlot = (zone: "leftTop" | "rightTop" | "rightBottom") =>
+      reconcile(empty, [{ id: slot, zone }]);
+   it("is the chat alone when no side is open", () => {
+      expect(overlayWidth(empty, 540)).toBe(540);
+      expect(sideWidths(empty)).toEqual({ left: 0, right: 0 });
+   });
+   it("adds the open right column at its size", () => {
+      const l = show(withSlot("rightTop"), slot);
+      expect(sideWidths(l)).toEqual({ left: 0, right: 380 });
+      expect(overlayWidth(l, 540)).toBe(920);
+   });
+   it("adds both sides; two panels on one side share its width", () => {
+      let l = show(show(withSlot("rightTop"), slot), "artifacts");
+      l = show(move(l, "side", "rightBottom"), "side");
+      expect(overlayWidth(l, 540)).toBe(540 + 280 + 380);
+      expect(overlayWidth(resize(l, { left: 300, right: 400 }), 500)).toBe(1200);
+   });
+   it("drops a side when its panel hides", () => {
+      const l = hide(show(withSlot("rightTop"), slot), slot);
+      expect(overlayWidth(l, 540)).toBe(540);
    });
 });

@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentSwitch, Transport } from "@harness/api";
+import type { AgentInfo, AgentSwitch, PanelWidth, Transport } from "@harness/api";
 import { HarnessClient as Client } from "@harness/api";
 import { Badge, Button, cn, Tooltip } from "@harness/ui";
 import { ChevronUp, Maximize2, Minus, X, Zap } from "lucide-react";
@@ -68,6 +68,9 @@ function useMenuOpen(): boolean {
 }
 
 type Draft = { id: string; frontendId: string; agentId: string };
+
+const NO_PANELS: PanelWidth = { left: 0, right: 0 };
+const samePanels = (a: PanelWidth, b: PanelWidth) => a.left === b.left && a.right === b.right;
 
 /**
  * The Quick overlay window (`?overlay=1`, ADR 0022): a draft Quick Session's prompt box, then the
@@ -149,6 +152,28 @@ export function Overlay({ transport }: { transport: Transport }) {
       } else if (!want && r.grown) call(false);
       else if (!want && pin) setPin(null);
    }, [want, pin, synced]);
+
+   // Side panels (Phase 2): the View says how much room its panels and stripes want beside the chat;
+   // the host widens the window by that much, the card stays put. One host call at a time.
+   const [panelsWant, setPanelsWant] = useState<PanelWidth>(NO_PANELS);
+   const [panelsHost, setPanelsHost] = useState<PanelWidth>(NO_PANELS);
+   const panelsBusy = useRef(false);
+   const onPanelWidth = useCallback(
+      (w: PanelWidth) => setPanelsWant((p) => (samePanels(p, w) ? p : w)),
+      [],
+   );
+   useEffect(() => {
+      if (panelsBusy.current || samePanels(panelsWant, panelsHost)) return;
+      panelsBusy.current = true;
+      const w = panelsWant;
+      overlayHost
+         .setPanels(w.left, w.right)
+         .catch((e) => console.error("overlay_set_panels failed", e))
+         .finally(() => {
+            panelsBusy.current = false;
+            setPanelsHost(w);
+         });
+   }, [panelsWant, panelsHost]);
 
    // A draft Quick Session as soon as the overlay is on screen, started right away so the prompt
    // box has the Agent's models and modes. The core removes it if nothing is sent.
@@ -238,6 +263,7 @@ export function Overlay({ transport }: { transport: Transport }) {
       const d = draft;
       dispatch({ type: "reset" });
       setDraft(null);
+      setPanelsWant(NO_PANELS);
       setTitle(QUICK_TITLE);
       if (d)
          client
@@ -250,6 +276,7 @@ export function Overlay({ transport }: { transport: Transport }) {
          () => {
             dispatch({ type: "reset" });
             setDraft(null);
+            setPanelsWant(NO_PANELS);
             setTitle(QUICK_TITLE);
          },
          (e) => report("Could not open the main window", e),
@@ -283,9 +310,45 @@ export function Overlay({ transport }: { transport: Transport }) {
    // the screen it is at the bottom.
    const promptAtTop = s.mode === "prompt" && anchor === "top";
 
+   const chat = s.mode === "chat";
+   // Until the host has the new width, the View's row keeps the width it wants and stays on the side
+   // that does not change, so the card does not move: a left panel grows the window to the left
+   // (the row sits at the right edge meanwhile), a right one to the right.
+   const moving = chat && !samePanels(panelsWant, panelsHost);
+   const inner = (pin?.w ?? window.innerWidth) - 2 * SHADOW;
+   const rowWidth = inner - panelsHost.left - panelsHost.right + panelsWant.left + panelsWant.right;
+   const atRight = panelsWant.left !== panelsHost.left && panelsWant.right === panelsHost.right;
+   // The chat card: header, the View's chat column, resize grip. The View puts its panels outside it.
+   const chatFrame = (column: ReactNode) => (
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-overlay">
+         <div
+            data-tauri-drag-region
+            className="flex h-11 shrink-0 items-center gap-2 border-b pl-3 pr-1.5"
+         >
+            <Badge variant="secondary" data-tauri-drag-region className="gap-1">
+               <Zap className="size-3" /> Quick
+            </Badge>
+            <span data-tauri-drag-region className="min-w-0 flex-1 truncate text-sm font-medium">
+               {title}
+            </span>
+            <IconButton label="Minimize (⌘M)" onClick={() => dispatch({ type: "minimize" })}>
+               <Minus />
+            </IconButton>
+            <IconButton label="Open in main window" onClick={merge}>
+               <Maximize2 />
+            </IconButton>
+            <IconButton label="Close" onClick={close}>
+               <X />
+            </IconButton>
+         </div>
+         {column}
+         {chat && <ResizeGrip />}
+      </div>
+   );
+
    return (
       <div
-         className="h-full"
+         className="h-full overflow-hidden"
          style={{ padding: SHADOW, ...(pin && { width: pin.w, height: pin.h }) }}
       >
          {s.mode === "mini" && (
@@ -298,38 +361,19 @@ export function Overlay({ transport }: { transport: Transport }) {
          )}
          <div
             className={cn(
-               "flex h-full flex-col",
-               s.mode === "chat" &&
-                  "relative overflow-hidden rounded-xl border bg-background shadow-overlay",
+               "flex h-full",
+               chat ? atRight && moving && "justify-end" : "flex-col",
                s.mode === "mini" && "hidden",
             )}
          >
-            {s.mode === "chat" && (
-               <div
-                  data-tauri-drag-region
-                  className="flex h-11 shrink-0 items-center gap-2 border-b pl-3 pr-1.5"
-               >
-                  <Badge variant="secondary" data-tauri-drag-region className="gap-1">
-                     <Zap className="size-3" /> Quick
-                  </Badge>
-                  <span
-                     data-tauri-drag-region
-                     className="min-w-0 flex-1 truncate text-sm font-medium"
-                  >
-                     {title}
-                  </span>
-                  <IconButton label="Minimize (⌘M)" onClick={() => dispatch({ type: "minimize" })}>
-                     <Minus />
-                  </IconButton>
-                  <IconButton label="Open in main window" onClick={merge}>
-                     <Maximize2 />
-                  </IconButton>
-                  <IconButton label="Close" onClick={close}>
-                     <X />
-                  </IconButton>
-               </div>
-            )}
-            <div className={cn("min-h-0", !promptAtTop && "flex-1")}>
+            <div
+               className={cn(
+                  chat
+                     ? cn("h-full min-w-0", moving ? "shrink-0" : "flex-1")
+                     : cn("min-h-0", !promptAtTop && "flex-1"),
+               )}
+               style={moving ? { width: rowWidth } : undefined}
+            >
                {draft ? (
                   <ViewHost
                      transport={transport}
@@ -337,6 +381,8 @@ export function Overlay({ transport }: { transport: Transport }) {
                      frontendId={draft.frontendId}
                      variant="overlay"
                      agentSwitch={agentSwitch}
+                     chatFrame={chatFrame}
+                     onPanelWidth={onPanelWidth}
                   />
                ) : (
                   error && (
@@ -356,7 +402,6 @@ export function Overlay({ transport }: { transport: Transport }) {
                   )
                )}
             </div>
-            {s.mode === "chat" && <ResizeGrip />}
          </div>
       </div>
    );
@@ -364,7 +409,8 @@ export function Overlay({ transport }: { transport: Transport }) {
 
 /**
  * The chat's resize corner. A borderless macOS window has no resize edges, so the drag is here:
- * screen deltas from the window size at the start, one host call per frame (top-left kept).
+ * screen deltas from the card's size (plus its shadow margin) at the start, one host call per
+ * frame (top-left kept). Side panels keep their widths; the host adds them.
  */
 function ResizeGrip() {
    const drag = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -389,11 +435,12 @@ function ResizeGrip() {
             if (e.button !== 0) return;
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
+            const card = e.currentTarget.parentElement!;
             drag.current = {
                x: e.screenX,
                y: e.screenY,
-               w: window.innerWidth,
-               h: window.innerHeight,
+               w: card.offsetWidth + 2 * SHADOW,
+               h: card.offsetHeight + 2 * SHADOW,
             };
          }}
          onPointerMove={(e) => {

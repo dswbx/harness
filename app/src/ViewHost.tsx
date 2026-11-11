@@ -1,5 +1,11 @@
-import { type AgentSwitch, createSessionApi, type Transport, type ViewVariant } from "@harness/api";
-import { useMemo } from "react";
+import {
+   type AgentSwitch,
+   createSessionApi,
+   type PanelWidth,
+   type Transport,
+   type ViewVariant,
+} from "@harness/api";
+import { type ReactNode, useMemo } from "react";
 import { registry } from "./registry";
 
 /** Mounts the Frontend's View for a Session, keyed by session id so state never leaks between Sessions. */
@@ -14,6 +20,8 @@ export function ViewHost({
    onGitRefresh,
    variant,
    agentSwitch,
+   chatFrame,
+   onPanelWidth,
 }: {
    transport: Transport;
    sessionId: string;
@@ -25,6 +33,8 @@ export function ViewHost({
    onGitRefresh?: () => void;
    variant?: ViewVariant;
    agentSwitch?: AgentSwitch;
+   chatFrame?: (chat: ReactNode) => ReactNode;
+   onPanelWidth?: (width: PanelWidth) => void;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
@@ -41,6 +51,8 @@ export function ViewHost({
          onGitRefresh={onGitRefresh}
          variant={variant}
          agentSwitch={agentSwitch}
+         chatFrame={chatFrame}
+         onPanelWidth={onPanelWidth}
       />
    );
 }

@@ -5,6 +5,8 @@
 //! The webview owns the overlay's state (`app/src/overlayMode.ts`) and sends each mode here with
 //! `overlay_set_mode`. The shortcut shows a hidden overlay; on a visible one it sends
 //! `overlay-shortcut` to the webview, which decides (hide the prompt, minimize, expand).
+//! In the chat, `render_ui` panels sit beside the card (ADR 0022 Phase 2): the page sends their room
+//! with `overlay_set_panels` and the window grows by it, left and right of the card, which stays put.
 //! On macOS the window is a non-activating NSPanel (`panel` below), so typing in it does not
 //! make Harness the active app.
 
@@ -78,8 +80,11 @@ pub struct Overlay {
     mode: Mutex<Mode>,
     anchor: Mutex<Anchor>,
     /// The chat's window size after the user resized it (logical px), for this app session.
-    /// Only `overlay_resize` sets it.
+    /// Only `overlay_resize` sets it. Without side panels; they come on top.
     chat_size: Mutex<Option<(f64, f64)>>,
+    /// Room for side panels left and right of the chat card (logical px), from the page. Used in
+    /// `Mode::Chat` only; the window there is the card frame `beside` this much.
+    panels: Mutex<(f64, f64)>,
     /// The window frame (physical px) before it grew for an open menu.
     menu_base: Mutex<Option<Rect>>,
     settings: Mutex<OverlaySettings>,
@@ -93,6 +98,17 @@ impl Overlay {
         match mode {
             Mode::Chat => self.chat_size.lock().unwrap_or(mode.size()),
             _ => mode.size(),
+        }
+    }
+
+    /// The side panels' room in `mode` (physical px): none outside the chat.
+    fn panels(&self, mode: Mode, scale: f64) -> (f64, f64) {
+        match mode {
+            Mode::Chat => {
+                let (l, r) = *self.panels.lock();
+                (l * scale, r * scale)
+            }
+            _ => (0.0, 0.0),
         }
     }
 }
@@ -143,6 +159,26 @@ pub fn sized(frame: Rect, size: (f64, f64), min: (f64, f64), screen: Rect, margi
     let w = size.0.min(screen.x + screen.w - margin - frame.x).max(min.0);
     let h = size.1.min(screen.y + screen.h - margin - frame.y).max(min.1);
     Rect { w, h, ..frame }
+}
+
+/// The window frame for a card frame with `left` and `right` of side panels beside it.
+pub fn beside(card: Rect, left: f64, right: f64) -> Rect {
+    Rect { x: card.x - left, w: card.w + left + right, ..card }
+}
+
+/// The card frame inside a window frame that has `left` and `right` of side panels (`beside` undone).
+pub fn card_of(window: Rect, left: f64, right: f64) -> Rect {
+    Rect { x: window.x + left, w: window.w - left - right, ..window }
+}
+
+/// The window for a card with side panels: it grows left and right of the card, so the card stays
+/// where it is. With no room on one side the whole window moves to stay inside `screen` less
+/// `margin` (the card moves with it). A window wider than the screen keeps to the screen's left
+/// edge; its width is never cut, so `card_of` stays exact.
+pub fn widen(card: Rect, left: f64, right: f64, screen: Rect, margin: f64) -> Rect {
+    let f = beside(card, left, right);
+    let x = f.x.min(screen.x + screen.w - margin - f.w).max(screen.x + margin);
+    Rect { x, ..f }
 }
 
 fn work_area(m: &tauri::Monitor) -> Rect {
@@ -241,7 +277,8 @@ fn show(app: &AppHandle) -> tauri::Result<()> {
             Anchor::Bottom => (screen.x + screen.w / 2.0, screen.y + screen.h - (ABOVE_BOTTOM - SHADOW) * scale),
         };
         let (x, y) = place(point, anchor, size, screen, MARGIN * scale);
-        set_frame(&window, Rect { x, y, w: size.0, h: size.1 })?;
+        let (left, right) = state.panels(mode, scale);
+        set_frame(&window, widen(Rect { x, y, w: size.0, h: size.1 }, left, right, screen, MARGIN * scale))?;
     }
     native_show(&window);
     let _ = app.emit_to(LABEL, "overlay-shown", anchor);
@@ -250,9 +287,10 @@ fn show(app: &AppHandle) -> tauri::Result<()> {
 
 /// New size for `mode`, keeping the top (or bottom) center where it is: the chat grows down from
 /// the prompt box (up, at the bottom of the screen).
+/// Side panels (chat only) grow the window left and right of the card; the anchor is the card's.
 fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
     let state = app.state::<Overlay>();
-    *state.mode.lock() = mode;
+    let old = std::mem::replace(&mut *state.mode.lock(), mode);
     let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
     let scale = window.scale_factor()?;
     // An open menu's room is dropped (the page drops it on a mode change too).
@@ -260,19 +298,30 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
         Some(r) => r,
         None => frame(&window)?,
     };
+    let (l0, r0) = state.panels(old, scale);
+    let card = card_of(current, l0, r0);
     let (w, h) = state.size(mode);
     let size = (w * scale, h * scale);
     let anchor = *state.anchor.lock();
-    let point = anchor_point(current, anchor);
-    let (x, y) = match window.current_monitor()? {
-        Some(m) => place(point, anchor, size, work_area(&m), MARGIN * scale),
-        None => (point.0 - size.0 / 2.0, if anchor == Anchor::Top { point.1 } else { point.1 - size.1 }),
+    let point = anchor_point(card, anchor);
+    let (left, right) = state.panels(mode, scale);
+    let next = match window.current_monitor()? {
+        Some(m) => {
+            let screen = work_area(&m);
+            let (x, y) = place(point, anchor, size, screen, MARGIN * scale);
+            widen(Rect { x, y, w: size.0, h: size.1 }, left, right, screen, MARGIN * scale)
+        }
+        None => {
+            let y = if anchor == Anchor::Top { point.1 } else { point.1 - size.1 };
+            beside(Rect { x: point.0 - size.0 / 2.0, y, w: size.0, h: size.1 }, left, right)
+        }
     };
-    set_frame(&window, Rect { x, y, w: size.0, h: size.1 })
+    set_frame(&window, next)
 }
 
-/// The user drags the chat's resize grip: the window becomes `size` (logical px), its top-left
-/// kept, within `CHAT_MIN` and the screen. The size is kept for the next chat and expand.
+/// The user drags the chat's resize grip: the card (with its shadow margin) becomes `size`
+/// (logical px), its top-left kept, within `CHAT_MIN` and the screen; side panels keep their
+/// widths beside it. The size is kept for the next chat and expand.
 /// A borderless macOS window has no resize edges, so the page draws the grip and sends sizes.
 fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<()> {
     let state = app.state::<Overlay>();
@@ -282,10 +331,15 @@ fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<()> {
     let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
     let Some(m) = window.current_monitor()? else { return Ok(()) };
     let scale = window.scale_factor()?;
-    let current = frame(&window)?;
+    let (left, right) = state.panels(Mode::Chat, scale);
+    let card = card_of(frame(&window)?, left, right);
     let min = (CHAT_MIN.0 * scale, CHAT_MIN.1 * scale);
-    let r = sized(current, (size.0 * scale, size.1 * scale), min, work_area(&m), MARGIN * scale);
-    window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
+    // The right panels need room past the card's right edge.
+    let screen = work_area(&m);
+    let room = Rect { w: screen.w - right, ..screen };
+    let r = sized(card, (size.0 * scale, size.1 * scale), min, room, MARGIN * scale);
+    let next = beside(r, left, right);
+    window.set_size(PhysicalSize::new(next.w.round() as u32, next.h.round() as u32))?;
     *state.chat_size.lock() = Some((r.w / scale, r.h / scale));
     Ok(())
 }
@@ -311,6 +365,41 @@ fn menu_room(app: &AppHandle, open: bool) -> tauri::Result<()> {
     set_frame(&window, grow(current, MENU_ROOM * scale, work_area(&m)))?;
     *base = Some(current);
     Ok(())
+}
+
+/// The page's side panels want `left` and `right` (logical px) beside the card. In the chat the
+/// window grows or shrinks on those sides and the card stays (`widen`); elsewhere it is kept for
+/// the next chat. While a menu has room, only the frame to go back to changes.
+fn set_panels(app: &AppHandle, left: f64, right: f64) -> tauri::Result<()> {
+    let state = app.state::<Overlay>();
+    let mode = *state.mode.lock();
+    let Some(window) = app.get_webview_window(LABEL) else {
+        *state.panels.lock() = (left, right);
+        return Ok(());
+    };
+    let scale = window.scale_factor()?;
+    let (l0, r0) = state.panels(mode, scale);
+    *state.panels.lock() = (left, right);
+    if mode != Mode::Chat {
+        return Ok(());
+    }
+    let mut base = state.menu_base.lock();
+    let current = match *base {
+        Some(r) => r,
+        None => frame(&window)?,
+    };
+    let card = card_of(current, l0, r0);
+    let (l, r) = (left * scale, right * scale);
+    let next = match window.current_monitor()? {
+        Some(m) => widen(card, l, r, work_area(&m), MARGIN * scale),
+        None => beside(card, l, r),
+    };
+    if base.is_some() {
+        *base = Some(next);
+        Ok(())
+    } else {
+        set_frame(&window, next)
+    }
 }
 
 fn native_show(window: &WebviewWindow) {
@@ -371,6 +460,19 @@ pub async fn overlay_set_menu_room(app: AppHandle, open: bool) -> Result<(), Str
     rx.await.map_err(|e| e.to_string())?
 }
 
+/// The chat's side panels want `left` and `right` (logical px) beside the card. Resolves once the
+/// window has its size.
+#[tauri::command]
+pub async fn overlay_set_panels(app: AppHandle, left: f64, right: f64) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(set_panels(&handle, left.max(0.0), right.max(0.0)).map_err(|e| e.to_string()));
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn overlay_hide(app: AppHandle) {
     let handle = app.clone();
@@ -387,6 +489,7 @@ pub fn overlay_merge(app: AppHandle, session_id: String) -> Result<(), String> {
         let state = handle.state::<Overlay>();
         *state.menu_base.lock() = None;
         *state.mode.lock() = Mode::Prompt;
+        *state.panels.lock() = (0.0, 0.0);
         if let Some(main) = handle.get_webview_window("main") {
             let _ = main.unminimize();
             let _ = main.show();
@@ -491,7 +594,7 @@ mod panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anchor, Rect, anchor_point, grow, place, sized};
+    use super::{Anchor, Rect, anchor_point, beside, card_of, grow, place, sized, widen};
 
     const SCREEN: Rect = Rect { x: 0.0, y: 25.0, w: 1440.0, h: 875.0 };
 
@@ -573,5 +676,49 @@ mod tests {
         assert_eq!(sized(chat, (100.0, 100.0), min, SCREEN, 8.0), Rect { w: 420.0, h: 340.0, ..chat });
         // Not past the screen less the margin.
         assert_eq!(sized(chat, (5000.0, 5000.0), min, SCREEN, 8.0), Rect { w: 1440.0 - 8.0 - 500.0, h: 900.0 - 8.0 - 100.0, ..chat });
+    }
+
+    #[test]
+    fn beside_and_card_of_undo_each_other() {
+        let card = Rect { x: 500.0, y: 100.0, w: 580.0, h: 600.0 };
+        let window = beside(card, 300.0, 420.0);
+        assert_eq!(window, Rect { x: 200.0, y: 100.0, w: 1300.0, h: 600.0 });
+        assert_eq!(card_of(window, 300.0, 420.0), card);
+    }
+
+    #[test]
+    fn widen_keeps_the_card_in_place_when_there_is_room() {
+        let card = Rect { x: 400.0, y: 100.0, w: 580.0, h: 600.0 };
+        // Right panels grow the window to the right only, left ones to the left only.
+        assert_eq!(widen(card, 0.0, 420.0, SCREEN, 8.0), Rect { w: 1000.0, ..card });
+        assert_eq!(widen(card, 320.0, 0.0, SCREEN, 8.0), Rect { x: 80.0, w: 900.0, ..card });
+    }
+
+    #[test]
+    fn widen_moves_the_window_when_a_side_has_no_room() {
+        // Near the right edge: the window moves left, the card with it.
+        let card = Rect { x: 800.0, y: 100.0, w: 580.0, h: 600.0 };
+        let w = widen(card, 0.0, 420.0, SCREEN, 8.0);
+        assert_eq!(w.x + w.w, 1440.0 - 8.0);
+        assert_eq!(w.w, 1000.0);
+        assert_eq!(card_of(w, 0.0, 420.0).x, 1440.0 - 8.0 - 1000.0);
+        // Near the left edge: it moves right.
+        let card = Rect { x: 50.0, ..card };
+        assert_eq!(widen(card, 320.0, 0.0, SCREEN, 8.0).x, 8.0);
+    }
+
+    #[test]
+    fn widen_wider_than_the_screen_keeps_its_width_at_the_left_edge() {
+        let card = Rect { x: 400.0, y: 100.0, w: 580.0, h: 600.0 };
+        let w = widen(card, 500.0, 500.0, SCREEN, 8.0);
+        assert_eq!((w.x, w.w), (8.0, 1580.0));
+    }
+
+    #[test]
+    fn closing_panels_shrinks_back_around_the_same_card() {
+        let card = Rect { x: 400.0, y: 100.0, w: 580.0, h: 600.0 };
+        let open = widen(card, 320.0, 420.0, SCREEN, 8.0);
+        let back = widen(card_of(open, 320.0, 420.0), 0.0, 0.0, SCREEN, 8.0);
+        assert_eq!(back, card);
     }
 }

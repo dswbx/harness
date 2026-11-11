@@ -20,6 +20,8 @@ export type PanelCtx = {
    id: PanelId;
    zone: Zone;
    label: string;
+   /** The zones Move to offers (default all six). */
+   zones?: readonly Zone[];
    /** Offers Expand in the menu. */
    expandable: boolean;
    expanded: boolean;
@@ -99,7 +101,7 @@ export function PanelHeader({
                            <MoveUpRight /> Move to
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-44">
-                           {ZONES.map((z) => (
+                           {(p.zones ?? ZONES).map((z) => (
                               <DropdownMenuItem
                                  key={z}
                                  onSelect={() => z !== p.zone && p.onMove(z)}

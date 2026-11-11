@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { SessionApi } from "./client";
 import type { AppEvent, FrontendManifest } from "./generated";
 
@@ -24,6 +24,9 @@ export type AgentSwitch = {
    onPick: (agentId: string) => void;
 };
 
+/** Widths (logical px) of what the Quick overlay's View shows left and right of its chat: open panels and stripes. */
+export type PanelWidth = { left: number; right: number };
+
 /** `full`: a main or pop-out window. `overlay`: the Quick overlay's small floating window (ADR 0022). */
 export type ViewVariant = "full" | "overlay";
 
@@ -45,10 +48,14 @@ export interface Frontend {
       menu?: HTMLElement | null;
       onGitRefresh?: () => void;
       /**
-       * `overlay`: no Panels or Stripes and no header of its own (the host draws it); before the
-       * first message, only the prompt box. Default `full`.
+       * `overlay`: no header of its own (the host draws it), only side panel zones (ADR 0022 Phase 2);
+       * before the first message, only the prompt box. Default `full`.
        */
       variant?: ViewVariant;
+      /** Overlay only: wraps the chat column in the host's card (header, border, resize grip). Panels and stripes stay outside it. */
+      chatFrame?: (chat: ReactNode) => ReactNode;
+      /** Overlay only: the room the panels and stripes want beside the chat; the host widens its window by that much. */
+      onPanelWidth?: (width: PanelWidth) => void;
       /** Shown as a two-level Agent > model menu in the prompt box (Quick overlay only). */
       agentSwitch?: AgentSwitch;
    }>;

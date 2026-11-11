@@ -266,6 +266,53 @@ export function reconcile(l: Layout, slots: { id: PanelId; zone: Zone }[]): Layo
    return changed ? settle({ ...l, zones, open }) : l;
 }
 
+/**
+ * The Quick overlay's zones (ADR 0022): only the sides. Its window grows wider for side panels;
+ * a bottom row would need it taller.
+ */
+export const OVERLAY_ZONES: readonly Zone[] = ["leftTop", "leftBottom", "rightBottom", "rightTop"];
+
+/** Where a zone goes in the overlay: the bottom zones go to the right side. */
+export const overlayZone = (z: Zone): Zone => (isBottomZone(z) ? "rightBottom" : z);
+
+/**
+ * The layout in the overlay's zones: panels of the bottom zones go to the end of right bottom, and
+ * one that was open there opens in right bottom (unless that shows one already). Returns `l` itself when nothing changes.
+ */
+export function overlayProfile(l: Layout): Layout {
+   const z = l.zones;
+   const o = l.open;
+   if (!z.bottomLeft.length && !z.bottomRight.length && !o.bottomLeft && !o.bottomRight) return l;
+   const zones = {
+      ...z,
+      rightBottom: [...z.rightBottom, ...z.bottomLeft, ...z.bottomRight],
+      bottomLeft: [],
+      bottomRight: [],
+   };
+   const open = {
+      ...o,
+      rightBottom: o.rightBottom ?? o.bottomLeft ?? o.bottomRight,
+      bottomLeft: null,
+      bottomRight: null,
+   };
+   return settle({ ...l, zones, open });
+}
+
+/** Widths (px) of the open left and right columns: their stored sizes, 0 when nothing is open there. */
+export function sideWidths(l: Layout): { left: number; right: number } {
+   const o = l.open;
+   return {
+      left: o.leftTop || o.leftBottom ? l.sizes.left : 0,
+      right: o.rightTop || o.rightBottom ? l.sizes.right : 0,
+   };
+}
+
+/** The overlay window's content width: the chat (`chatWidth`) plus its open side columns at their sizes. */
+export function overlayWidth(l: Layout, chatWidth: number): number {
+   const s = sideWidths(l);
+   return chatWidth + s.left + s.right;
+}
+
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export const MIN_CHAT = 360;
@@ -354,11 +401,21 @@ export function clampSize(kind: ResizeKind, v: number, g: Geometry, w: number, h
 /**
  * Drop targets while dragging: the six zones tiling the dock. Open sides and an open bottom keep their
  * real size, so a target lines up with the panel under it; closed ones take their stored size in the room left.
+ * Without bottom zones in `zones` (the overlay) the sides take the full height.
  */
-export function dropRects(l: Layout, w: number, h: number): Record<Zone, Rect> {
+export function dropRects(
+   l: Layout,
+   w: number,
+   h: number,
+   zones: readonly Zone[] = ZONES,
+): Record<Zone, Rect> {
    const g = computeRects(l, w, h);
    const s = l.sizes;
-   const bottom = g.bottom || clamp(s.bottom, MIN_BOTTOM, Math.max(MIN_BOTTOM, h - MIN_CHAT_H));
+   const bottom =
+      g.bottom ||
+      (zones.some(isBottomZone)
+         ? clamp(s.bottom, MIN_BOTTOM, Math.max(MIN_BOTTOM, h - MIN_CHAT_H))
+         : 0);
    const top = h - bottom;
    const free = (size: number, other: number) =>
       Math.max(0, Math.min(size, Math.round((w - other) / 2)));

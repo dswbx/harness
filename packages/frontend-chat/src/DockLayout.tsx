@@ -25,6 +25,26 @@ import {
 /** A panel the dock keeps mounted. Hidden (not open) panels stay in the tree, so a Terminal shell or a draft survives. */
 export type DockPanel = { id: PanelId; label: string; expandable?: boolean; children: ReactNode };
 
+/** Space between a floating panel and the chat, and between two panels on one side (px). */
+const GAP = 8;
+
+/** A side panel's rect as a floating card: `GAP` from the chat, half of it from the other panel on its side. */
+function floatRect(r: Rect, zone: Zone, open: Layout["open"]): Rect {
+   const left = isLeftZone(zone);
+   const above =
+      (zone === "leftBottom" && open.leftTop) || (zone === "rightBottom" && open.rightTop);
+   const below =
+      (zone === "leftTop" && open.leftBottom) || (zone === "rightTop" && open.rightBottom);
+   const t = above ? GAP / 2 : 0;
+   const b = below ? GAP / 2 : 0;
+   return {
+      x: left ? r.x : r.x + GAP,
+      y: r.y + t,
+      w: Math.max(0, r.w - GAP),
+      h: Math.max(0, r.h - t - b),
+   };
+}
+
 /** Border classes of a panel: the dock draws the lines between its areas. */
 function borders(zone: Zone, open: Layout["open"]): string {
    return cn(
@@ -91,6 +111,8 @@ export function DockLayout({
    panels,
    drag,
    leftStripeOverlay,
+   zones = ZONES,
+   floating = false,
    onResize,
    onMove,
    onHide,
@@ -103,6 +125,13 @@ export function DockLayout({
    drag: DragState | null;
    /** The left stripe covers the dock's left edge while dragging (it is empty and otherwise hidden). */
    leftStripeOverlay: boolean;
+   /** The zones offered (Move to, drop targets). Default all six; the Quick overlay offers only the sides. */
+   zones?: readonly Zone[];
+   /**
+    * Side panels as separate cards (rounded, shadow, a gap to the chat), for a transparent window: the
+    * Quick overlay. Their shadows may spill out of the dock.
+    */
+   floating?: boolean;
    onResize: (patch: Partial<Sizes>) => void;
    onMove: (id: PanelId, zone: Zone) => void;
    onHide: (id: PanelId) => void;
@@ -208,17 +237,23 @@ export function DockLayout({
 
    // While dragging: the six zones tile the dock with the current sizes; the one under the pointer (or the
    // stripe group hovered) lights up. The chat in the middle is no target.
-   const tiles = dropRects(layout, w, h);
+   const tiles = dropRects(layout, w, h, zones);
    const inset = (r: Rect, zone: Zone): Rect => {
       const l = leftStripeOverlay && zone.startsWith("left") ? 44 : 0;
       return { x: r.x + 4 + l, y: r.y + 4, w: Math.max(0, r.w - 8 - l), h: Math.max(0, r.h - 8) };
    };
-   const pads = ZONES.map((zone) => ({ zone, rect: inset(tiles[zone], zone) }));
+   const pads = zones.map((zone) => ({ zone, rect: inset(tiles[zone], zone) }));
    const previewZone = drag?.target?.zone;
    const px = (r: Rect) => ({ left: r.x, top: r.y, width: r.w, height: r.h });
 
    return (
-      <div ref={box} className="relative h-full min-w-0 flex-1 overflow-hidden">
+      <div
+         ref={box}
+         className={cn(
+            "relative h-full min-w-0 flex-1",
+            floating ? "overflow-visible" : "overflow-hidden",
+         )}
+      >
          {size && (
             <>
                <div className="absolute flex flex-col" style={px(g.chat)}>
@@ -226,7 +261,9 @@ export function DockLayout({
                </div>
                {panels.map((p) => {
                   const zone = ZONES.find((z) => o[z] === p.id) ?? null;
-                  const rect = zone ? g.zones[zone] : undefined;
+                  const full = zone ? g.zones[zone] : undefined;
+                  const float = floating && !!zone && !isBottomZone(zone);
+                  const rect = full && float ? floatRect(full, zone!, o) : full;
                   const isExpanded = expanded === p.id && !!rect;
                   const home = zone ?? zoneOf(layout, p.id) ?? "rightTop";
                   return (
@@ -236,6 +273,7 @@ export function DockLayout({
                            id: p.id,
                            zone: home,
                            label: p.label,
+                           zones,
                            expandable: !!p.expandable,
                            expanded: isExpanded,
                            onExpand: () => onExpand(isExpanded ? null : p.id),
@@ -257,7 +295,9 @@ export function DockLayout({
                               !rect && "hidden",
                               isExpanded
                                  ? "fixed inset-x-[3vw] inset-y-[5vh] z-50 rounded-lg border shadow-lg"
-                                 : cn("absolute", zone && borders(zone, o)),
+                                 : float
+                                   ? "absolute rounded-xl border shadow-overlay"
+                                   : cn("absolute", zone && borders(zone, o)),
                            )}
                            style={rect && !isExpanded ? px(rect) : undefined}
                         >

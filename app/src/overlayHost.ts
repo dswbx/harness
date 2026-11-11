@@ -20,8 +20,14 @@ export const overlayHost = {
    /** Grows the window right and down while a menu is open (`open`), or back; resolves once done. */
    setMenuRoom: (open: boolean) =>
       inTauri() ? invoke<void>("overlay_set_menu_room", { open }) : Promise.resolve(),
-   /** The chat's resize grip: the window's new size (logical px), its top-left kept. */
+   /** The chat's resize grip: the chat card's new size with its shadow margin (logical px), its top-left kept. */
    resize: (width: number, height: number) => run("overlay_resize", { width, height }),
+   /**
+    * Room for side panels left and right of the chat card (logical px): the window grows by that
+    * much on each side, the card stays where it is. Resolves once the window has its size.
+    */
+   setPanels: (left: number, right: number) =>
+      inTauri() ? invoke<void>("overlay_set_panels", { left, right }) : Promise.resolve(),
    hide: () => run("overlay_hide"),
    /** Opens the Session in the main window and hides the overlay. */
    merge: (sessionId: string) =>
