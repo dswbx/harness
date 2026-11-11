@@ -12,7 +12,7 @@ import {
    useState,
 } from "react";
 import { QUICK_TITLE, quickAgent } from "./composer";
-import { listenHost, overlayHost } from "./overlayHost";
+import { listenHost, NO_INSETS, type OverlayAnchor, overlayHost } from "./overlayHost";
 import { INITIAL_OVERLAY, overlayReducer } from "./overlayMode";
 import { useReportError } from "./toast";
 import { ViewHost } from "./ViewHost";
@@ -34,6 +34,37 @@ function saveAgent(id: string) {
    } catch {
       /* the next draft falls back to quickAgent */
    }
+}
+
+/** Transparent margin around the card for its shadow (logical px); `SHADOW` in `overlay.rs`. */
+const SHADOW = 20;
+
+/**
+ * Open menus, popovers and lists (Radix portals them into `body`; the prompt's "/" and "#" menus
+ * are lists in the box). Tooltips do not count: they fit and should not move the window.
+ */
+const MENU =
+   "[data-radix-popper-content-wrapper]:has([role=menu],[role=listbox],[role=dialog]), [role=listbox]";
+
+/** True while a menu is open in this page (checked once per frame after DOM changes). */
+function useMenuOpen(): boolean {
+   const [open, setOpen] = useState(false);
+   useEffect(() => {
+      let frame = 0;
+      const check = () => {
+         frame = 0;
+         setOpen(!!document.querySelector(MENU));
+      };
+      const mo = new MutationObserver(() => {
+         if (!frame) frame = requestAnimationFrame(check);
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+      return () => {
+         mo.disconnect();
+         cancelAnimationFrame(frame);
+      };
+   }, []);
+   return open;
 }
 
 type Draft = { id: string; frontendId: string; agentId: string };
@@ -58,7 +89,18 @@ export function Overlay({ transport }: { transport: Transport }) {
 
    // The host made this window to show it, before this page could listen for `overlay-shown`.
    useEffect(() => dispatch({ type: "shown" }), []);
-   useEffect(() => listenHost("overlay-shown", () => dispatch({ type: "shown" })), []);
+   // `shown` counts the host's shows: each one drops the menu room (the host did too).
+   const [shown, setShown] = useState(0);
+   const [anchor, setAnchor] = useState<OverlayAnchor>("top");
+   useEffect(
+      () =>
+         listenHost("overlay-shown", (a) => {
+            setAnchor(a === "bottom" ? "bottom" : "top");
+            setShown((n) => n + 1);
+            dispatch({ type: "shown" });
+         }),
+      [],
+   );
    useEffect(() => listenHost("overlay-shortcut", () => dispatch({ type: "shortcut" })), []);
 
    // The host follows the state: the window size per mode, hidden when `visible` turns false.
@@ -68,6 +110,22 @@ export function Overlay({ transport }: { transport: Transport }) {
       if (wasVisible.current && !s.visible) overlayHost.hide();
       wasVisible.current = s.visible;
    }, [s.visible]);
+
+   // A web page cannot draw outside its window: while a menu is open the host grows the window
+   // around the card, and the page pads the card by the same amount so it stays in place.
+   const menuOpen = useMenuOpen();
+   const [room, setRoom] = useState(NO_INSETS);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: a show or a mode change drops the room on the host side; ask again.
+   useEffect(() => {
+      let stale = false;
+      overlayHost.setMenuRoom(menuOpen && s.visible).then(
+         (r) => !stale && setRoom(r),
+         (e) => console.error("overlay_set_menu_room failed", e),
+      );
+      return () => {
+         stale = true;
+      };
+   }, [menuOpen, s.visible, s.mode, shown]);
 
    // A draft Quick Session as soon as the overlay is on screen, started right away so the prompt
    // box has the Agent's models and modes. The core removes it if nothing is sent.
@@ -185,20 +243,30 @@ export function Overlay({ transport }: { transport: Transport }) {
       },
       [client],
    );
+   // The same Agent · model chip before and after the first message; after it the Agent is fixed.
    const agentSwitch = useMemo<AgentSwitch | undefined>(
       () =>
-         s.mode === "prompt" && draft
+         draft
             ? {
                  agents: agents.map((a) => ({ id: a.id, name: a.name })),
                  current: draft.agentId,
                  onPick: pickAgent,
+                 locked: s.mode !== "prompt",
               }
             : undefined,
       [s.mode, draft, agents, pickAgent],
    );
+   // Below the mouse the prompt box is at the top of its window (it grows down); at the bottom of
+   // the screen it is at the bottom.
+   const promptAtTop = s.mode === "prompt" && anchor === "top";
 
    return (
-      <div className="h-full p-2">
+      <div
+         className="h-full"
+         style={{
+            padding: `${SHADOW + room.top}px ${SHADOW + room.right}px ${SHADOW + room.bottom}px ${SHADOW + room.left}px`,
+         }}
+      >
          {s.mode === "mini" && (
             <MiniBar
                title={title}
@@ -210,7 +278,8 @@ export function Overlay({ transport }: { transport: Transport }) {
          <div
             className={cn(
                "flex h-full flex-col",
-               s.mode === "chat" && "overflow-hidden rounded-xl border bg-background shadow-2xl",
+               s.mode === "chat" &&
+                  "overflow-hidden rounded-xl border bg-background shadow-overlay",
                s.mode === "mini" && "hidden",
             )}
          >
@@ -239,7 +308,7 @@ export function Overlay({ transport }: { transport: Transport }) {
                   </IconButton>
                </div>
             )}
-            <div className="min-h-0 flex-1">
+            <div className={cn("min-h-0", !promptAtTop && "flex-1")}>
                {draft ? (
                   <ViewHost
                      transport={transport}
@@ -250,10 +319,15 @@ export function Overlay({ transport }: { transport: Transport }) {
                   />
                ) : (
                   error && (
-                     <div className="flex h-full items-end px-6 pb-3.5">
+                     <div
+                        className={cn(
+                           "flex h-full px-6 pb-3.5",
+                           promptAtTop ? "items-start" : "items-end",
+                        )}
+                     >
                         <p
                            role="alert"
-                           className="w-full rounded-2xl border bg-card p-3 text-sm text-destructive shadow-xl"
+                           className="w-full rounded-2xl border bg-card p-3 text-sm text-destructive shadow-overlay"
                         >
                            {error}
                         </p>
@@ -305,7 +379,7 @@ function MiniBar({
    return (
       <div
          data-tauri-drag-region
-         className="flex h-[52px] items-center gap-2 rounded-xl border bg-background px-2 shadow-2xl"
+         className="flex h-[52px] items-center gap-2 rounded-xl border bg-background px-2 shadow-overlay"
       >
          <IconButton label="Close" onClick={onClose}>
             <X />

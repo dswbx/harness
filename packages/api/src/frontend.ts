@@ -11,10 +11,15 @@ export type FrontendRequestProps = {
    onDone: () => void;
 };
 
-/** Lets the user pick another Agent for a Session that has not started (the Quick overlay's draft). */
+/**
+ * The Quick overlay's Agent > model menu. Before the first message the user can pick another Agent
+ * (the draft Session is replaced); after it the menu stays the same but is `locked`.
+ */
 export type AgentSwitch = {
    agents: { id: string; name: string }[];
    current: string;
+   /** The Session has started: other Agents show disabled (close the overlay to switch). */
+   locked?: boolean;
    /** The host replaces the draft Session with one of this Agent. */
    onPick: (agentId: string) => void;
 };
@@ -44,7 +49,7 @@ export interface Frontend {
        * first message, only the prompt box. Default `full`.
        */
       variant?: ViewVariant;
-      /** Shown as a two-level Agent > model menu in the prompt box (overlay drafts only). */
+      /** Shown as a two-level Agent > model menu in the prompt box (Quick overlay only). */
       agentSwitch?: AgentSwitch;
    }>;
    /**

@@ -372,6 +372,7 @@ pub fn run() {
             updates::update_restart,
             overlay::overlay_toggle,
             overlay::overlay_set_mode,
+            overlay::overlay_set_menu_room,
             overlay::overlay_hide,
             overlay::overlay_merge,
             overlay::overlay_settings,

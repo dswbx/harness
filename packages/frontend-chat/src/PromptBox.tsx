@@ -166,9 +166,9 @@ export function PromptBox({
    onSideThread?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
    /** Sends instead of `api.prompt` (a side chat not started yet). */
    onSend?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
-   /** The Agent can still change (overlay draft): an Agent > model menu in the footer. */
+   /** Quick overlay: an Agent > model menu in the footer (other Agents disabled once `locked`). */
    agentSwitch?: AgentSwitch;
-   /** Floats over other apps (Quick overlay): a stronger shadow. */
+   /** Floats over other apps (Quick overlay): the overlay's shadow. */
    elevated?: boolean;
    ref?: Ref<PromptBoxHandle>;
 }) {
@@ -470,7 +470,7 @@ export function PromptBox({
             ref={boxRef}
             className={cn(
                "rounded-2xl border bg-card px-3 pb-2 pt-3 transition-colors dark:border-card",
-               elevated ? "shadow-xl" : "shadow-sm",
+               elevated ? "shadow-overlay" : "shadow-sm",
                dragging
                   ? "border-ring bg-accent/40 dark:border-ring"
                   : "focus-within:border-ring/50 dark:focus-within:border-border",

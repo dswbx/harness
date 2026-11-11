@@ -56,7 +56,7 @@ export function ConfigBar({
    compact?: boolean;
    /** Only the Mode picker (Side Threads own just their mode). */
    modeOnly?: boolean;
-   /** The Agent can still change: one Agent > model menu, then the Mode chip. */
+   /** Quick overlay: one Agent > model menu, then the Mode chip (same before and after send). */
    agentSwitch?: AgentSwitch;
 }) {
    const g = useMemo(() => groupConfigOptions(options), [options]);
@@ -218,9 +218,15 @@ function AgentModelMenu({
                      </DropdownMenuSubContent>
                   </DropdownMenuSub>
                ) : (
-                  <DropdownMenuItem key={a.id} onSelect={() => agentSwitch.onPick(a.id)}>
+                  <DropdownMenuItem
+                     key={a.id}
+                     disabled={agentSwitch.locked}
+                     onSelect={() => agentSwitch.onPick(a.id)}
+                  >
                      <span className="flex-1 truncate">{a.name}</span>
-                     <span className="text-xs text-muted-foreground">Pick to load models</span>
+                     <span className="text-xs text-muted-foreground">
+                        {agentSwitch.locked ? "Close to switch Agent" : "Pick to load models"}
+                     </span>
                   </DropdownMenuItem>
                ),
             )}
