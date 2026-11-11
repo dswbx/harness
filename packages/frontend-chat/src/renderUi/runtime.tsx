@@ -2,7 +2,7 @@ import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
 import { cn, Tooltip } from "@harness/ui";
 import { AlertTriangle, Check, CheckCircle2, Info, XCircle } from "lucide-react";
 import { createContext, type ReactNode, useContext } from "react";
-import { jsReady, loadJs, runJs } from "../sandbox";
+import { jsError, jsReady, loadJs, runJs } from "../sandbox";
 import type { ComponentType, RawNode, StatePath, UiAction, UiNode, Visible } from "../tools";
 import { uiIcons } from "../uiIcons";
 
@@ -184,7 +184,7 @@ export async function runActions(
          const r = runJs(a.params.code, cur);
          // A failing script changes nothing and sends nothing.
          if (!r || "error" in r)
-            return env.onError?.(r ? r.error : "The script engine did not load.");
+            return env.onError?.(r ? r.error : (jsError() ?? "The script engine did not load."));
          push({ op: "replace", path, value: r.value });
       }
    }

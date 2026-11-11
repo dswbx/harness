@@ -18,23 +18,35 @@ export function setJsLimit(ms: number = JS_LIMIT_MS) {
    limitMs = ms;
 }
 
+let loadError: string | null = null;
+
+/** Never rejects: a failed load (e.g. the CSP blocks wasm) is kept in `jsError`. */
 export function loadJs(): Promise<void> {
    loading ??= Promise.all([
       import("quickjs-emscripten-core"),
       import("@jitl/quickjs-singlefile-mjs-release-sync"),
-   ]).then(async ([core, variant]) => {
-      const mod = await core.newQuickJSWASMModuleFromVariant(variant.default);
-      runtime = mod.newRuntime();
-      runtime.setMemoryLimit(16 << 20);
-      runtime.setMaxStackSize(1 << 20);
-      for (const l of listeners) l();
-   });
+   ])
+      .then(async ([core, variant]) => {
+         const mod = await core.newQuickJSWASMModuleFromVariant(variant.default);
+         runtime = mod.newRuntime();
+         runtime.setMemoryLimit(16 << 20);
+         runtime.setMaxStackSize(1 << 20);
+      })
+      .catch((e) => {
+         loadError = `The script engine did not load: ${e instanceof Error ? e.message : String(e)}`;
+         console.error(loadError);
+      })
+      .finally(() => {
+         for (const l of listeners) l();
+      });
    return loading;
 }
 
 export const jsReady = () => runtime !== null;
+/** Why the engine did not load; null while loading or once loaded. */
+export const jsError = () => loadError;
 
-/** Calls `fn` once the engine has loaded (for a re-render). */
+/** Calls `fn` once the engine has loaded or failed to load (for a re-render). */
 export function onJsReady(fn: () => void): () => void {
    listeners.add(fn);
    return () => listeners.delete(fn);
