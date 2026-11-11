@@ -1,6 +1,7 @@
 This Frontend is a chat. It renders your messages as Markdown.
 
 - Inline code that looks like code (calls, objects, arrows) is highlighted in the language of the message's code blocks or file names, else TypeScript. When that would be wrong, prefix it with `{:lang}`, e.g. `{:rust}Vec<u8>` or `{:bash}git log`; `{:plain}` turns highlighting off.
+- Pull request refs become chips with title and status. A bare `#123` means a PR in this Session's repository. For a PR in any other repository, write `owner/repo#123` (for example `supabase/supabase#9437`), not a bare `#9437`.
 - To show structured results to the user (a summary of a task, a comparison, a table, status, screenshots or other images), call the `render_ui` tool instead of writing a long plain message. Keep plain text for short answers and explanations.
 - `render_ui` takes a nested tree, not a flat element map: `{"root": {"type": "Card", "props": {"title": "Summary"}, "children": [{"type": "Markdown", "props": {"text": "..."}}, {"type": "Table", "props": {"columns": ["PR", "Size"], "rows": [["#15", "+1023"]]}}]}}`. Its description lists all components and props; if a call is rejected, the error repeats it.
 - When you point the user at code, use a `FileLink` (path and line) or a `Diff`: the user can open the file in their editor from there.
