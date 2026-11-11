@@ -1,5 +1,14 @@
 import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
-import { useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+   Component,
+   type ReactNode,
+   useContext,
+   useEffect,
+   useMemo,
+   useReducer,
+   useRef,
+   useState,
+} from "react";
 import * as charts from "./renderUi/charts";
 import * as code from "./renderUi/code";
 import * as data from "./renderUi/data";
@@ -19,7 +28,7 @@ import {
    useEnv,
 } from "./renderUi/runtime";
 import * as text from "./renderUi/text";
-import { jsReady, loadJs, onJsReady } from "./sandbox";
+import { jsError, jsReady, loadJs, onJsReady } from "./sandbox";
 import { components, type RawNode, renderUiSchema, type UiNode } from "./tools";
 
 export { tableRows } from "./renderUi/data";
@@ -90,6 +99,38 @@ function Node({ raw }: { raw: RawNode }) {
    const kids = raw.children?.map((c, i) => <Node key={i} raw={c} />);
    const render = renderers[node.type] as (ctx: RenderCtx) => React.ReactNode;
    return render({ node, raw, kids, env, scope, Node, checkActions });
+}
+
+/**
+ * A tree that throws while rendering (e.g. a `$js` prop that failed, so a list is missing) shows
+ * the error in its place instead of unmounting the whole app. A new `reset` value tries again.
+ */
+class TreeBoundary extends Component<
+   { reset: unknown; children: ReactNode },
+   { error: string | null; reset: unknown }
+> {
+   state = { error: null as string | null, reset: this.props.reset };
+   static getDerivedStateFromError(e: unknown) {
+      return { error: e instanceof Error ? e.message : String(e) };
+   }
+   static getDerivedStateFromProps(
+      p: { reset: unknown },
+      s: { error: string | null; reset: unknown },
+   ) {
+      return p.reset === s.reset ? null : { error: null, reset: p.reset };
+   }
+   componentDidCatch(e: unknown) {
+      console.error("render_ui:", e);
+   }
+   render() {
+      return this.state.error ? (
+         <p className="text-ui-sm text-destructive">
+            This view failed to render: {this.state.error}
+         </p>
+      ) : (
+         this.props.children
+      );
+   }
 }
 
 type Batch = { ops: StatePatchOp[]; settled?: { at: unknown } };
@@ -174,7 +215,14 @@ export function RenderUi({ root, env }: { root: RawNode; env: UiEnv }) {
       <Env.Provider value={value}>
          {/* Sizes (text-ui*) follow the chat font size, like Markdown in messages. */}
          <div className="min-w-0 text-ui">
-            <Node raw={root} />
+            {/* `$js` props are undefined until the engine is there: wait, so components get their values. */}
+            {scripted && !jsReady() ? (
+               jsError() && <p className="text-ui-sm text-destructive">{jsError()}</p>
+            ) : (
+               <TreeBoundary reset={value}>
+                  <Node raw={root} />
+               </TreeBoundary>
+            )}
             {error && <p className="mt-2 text-ui-sm text-destructive">{error}</p>}
          </div>
       </Env.Provider>
