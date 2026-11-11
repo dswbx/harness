@@ -1,4 +1,5 @@
 import type { SessionSummary, WorkspaceInfo } from "@harness/api";
+import { QUICK_TITLE } from "./composer";
 
 /** Sidebar Session list: search, sort, group and the detail row's labels (pure, see `SessionList.tsx`). */
 
@@ -39,6 +40,13 @@ export function highlight(title: string, q: string): [string, string, string] | 
       ? null
       : [title.slice(0, i), title.slice(i, i + q.length), title.slice(i + q.length)];
 }
+
+/**
+ * Without Quick Sessions nobody has written in yet (e.g. the Quick overlay's draft, ADR 0022),
+ * except `selected`: this window started it and shows it.
+ */
+export const hideUnusedQuick = (list: SessionSummary[], selected: string | null) =>
+   list.filter((s) => !s.quick || s.title !== QUICK_TITLE || s.id === selected);
 
 const timeOf = (s: SessionSummary, sort: SortBy) =>
    sort === "recent" ? s.updated_ms : s.created_ms;

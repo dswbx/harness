@@ -21,15 +21,18 @@ import {
    useResizableWidth,
 } from "@harness/ui";
 import { PanelLeft, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
 import { QUICK_TITLE, quickAgent } from "./composer";
 import { FrontendRequests } from "./FrontendRequests";
+import { Overlay } from "./Overlay";
 import { openViewWindow } from "./openWindow";
+import { listenHost } from "./overlayHost";
 import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
+import { hideUnusedQuick } from "./sessionGroups";
 import { ToastProvider, useReportError } from "./toast";
 import { makeTransport } from "./transport";
 import { UpdateFooter } from "./UpdateFooter";
@@ -54,6 +57,12 @@ export function App() {
    const transport = useTransport();
    if (!transport) return null;
    const solo = params.get("solo") === "1" && params.get("session");
+   if (params.get("overlay") === "1")
+      return (
+         <ToastProvider>
+            <Overlay transport={transport} />
+         </ToastProvider>
+      );
    return (
       <ToastProvider>
          {solo ? (
@@ -356,6 +365,19 @@ function Shell({ transport }: { transport: Transport }) {
       };
    }, [client, report]);
 
+   // The Quick overlay's "Open in main window" (ADR 0022).
+   useEffect(
+      () =>
+         listenHost("select-session", (id) => {
+            if (typeof id !== "string") return;
+            setSelected(id);
+            client.listSessions().then(setSessions, (e) => report("Could not load sessions", e));
+         }),
+      [client, report],
+   );
+   // The overlay's draft (a Quick Session nobody wrote in yet) is not listed until it is used.
+   const listed = useMemo(() => hideUnusedQuick(sessions, selected), [sessions, selected]);
+
    const current = sessions.find((s) => s.id === selected) ?? null;
    const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
@@ -454,7 +476,7 @@ function Shell({ transport }: { transport: Transport }) {
                   {controls}
                </div>
                <SessionList
-                  sessions={sessions}
+                  sessions={listed}
                   selected={selected}
                   onSelect={setSelected}
                   onArchive={toggleArchive}

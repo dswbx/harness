@@ -1,3 +1,9 @@
 @import "tailwindcss";
 @import "@harness/ui/styles.css";
 @source "../../packages";
+
+/* The Quick overlay's window is transparent; its card has the background (ADR 0022). */
+html.overlay,
+html.overlay body {
+   background: transparent;
+}

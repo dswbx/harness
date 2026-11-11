@@ -1,4 +1,12 @@
-import type { AttachmentInput, SessionApi } from "@harness/api";
+import type {
+   AgentSwitch,
+   AttachmentInput,
+   OverlayFrame,
+   PanelWidth,
+   PromptContext,
+   SessionApi,
+   ViewVariant,
+} from "@harness/api";
 import { useSessionEvents } from "@harness/api";
 import {
    Badge,
@@ -26,7 +34,16 @@ import {
    SquareTerminal,
    X,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+   lazy,
+   type ReactNode,
+   Suspense,
+   useCallback,
+   useEffect,
+   useMemo,
+   useRef,
+   useState,
+} from "react";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 import { PromptBox, type PromptBoxHandle } from "./PromptBox";
 import { ScrollUnder } from "./ScrollUnder";
@@ -46,6 +63,7 @@ import { PanelHeader } from "./PanelHeader";
 import { usePanelDrag } from "./panelDrag";
 import {
    closeThread,
+   defaultLayout,
    expand,
    hide,
    isDraftThread,
@@ -54,16 +72,21 @@ import {
    type Layout,
    loadLayout,
    move,
+   OVERLAY_ZONES,
    openThread,
+   overlayGeometry,
+   overlayProfile,
    type PanelId,
    reconcile,
    replaceThread,
    resetLayout,
    resize,
+   STRIPE_W,
    saveLayout,
    selectThread,
    show,
    shownOpen,
+   sideWidths,
    slotIdOf,
    slotPanel,
    toggle,
@@ -170,6 +193,12 @@ export function View({
    indicator,
    menu,
    onGitRefresh,
+   variant = "full",
+   agentSwitch,
+   chatFrame,
+   onPanelWidth,
+   overlayFrame,
+   context,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -177,6 +206,12 @@ export function View({
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
    onGitRefresh?: () => void;
+   variant?: ViewVariant;
+   agentSwitch?: AgentSwitch;
+   chatFrame?: (chat: ReactNode) => ReactNode;
+   onPanelWidth?: (width: PanelWidth) => void;
+   overlayFrame?: OverlayFrame;
+   context?: PromptContext;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -188,6 +223,12 @@ export function View({
          indicator={indicator}
          menu={menu}
          onGitRefresh={onGitRefresh}
+         variant={variant}
+         agentSwitch={agentSwitch}
+         chatFrame={chatFrame}
+         onPanelWidth={onPanelWidth}
+         overlayFrame={overlayFrame}
+         context={context}
       />
    );
 }
@@ -251,6 +292,12 @@ function ChatView({
    indicator,
    menu,
    onGitRefresh,
+   variant,
+   agentSwitch,
+   chatFrame,
+   onPanelWidth,
+   overlayFrame,
+   context,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -258,7 +305,14 @@ function ChatView({
    indicator?: HTMLElement | null;
    menu?: HTMLElement | null;
    onGitRefresh?: () => void;
+   variant: ViewVariant;
+   agentSwitch?: AgentSwitch;
+   chatFrame?: (chat: ReactNode) => ReactNode;
+   onPanelWidth?: (width: PanelWidth) => void;
+   overlayFrame?: OverlayFrame;
+   context?: PromptContext;
 }) {
+   const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
    // A Session with nothing in it yet is waiting for a message. The short wait lets the replay arrive.
    const prompt = useRef<PromptBoxHandle>(null);
@@ -287,15 +341,25 @@ function ChatView({
    const slotPanelsRef = useRef(slotPanels);
    slotPanelsRef.current = slotPanels;
 
-   /** Where the panels sit, their sizes and the open side chats. Kept per Session. */
-   const [layout, setLayout] = useState<Layout>(() => loadLayout(api.sessionId));
-   useEffect(() => saveLayout(api.sessionId, layout), [api.sessionId, layout]);
+   /**
+    * Where the panels sit, their sizes and the open side chats. Kept per Session. The Quick overlay
+    * has only the side zones (`overlayProfile`) and keeps its layout in memory: the main window's
+    * stored layout of the Session stays as it is.
+    */
+   const fit = useCallback((l: Layout) => (overlay ? overlayProfile(l) : l), [overlay]);
+   const [layout, setLayout] = useState<Layout>(() =>
+      overlay ? overlayProfile(defaultLayout()) : loadLayout(api.sessionId),
+   );
+   useEffect(() => {
+      if (!overlay) saveLayout(api.sessionId, layout);
+   }, [overlay, api.sessionId, layout]);
    /** Every change goes through reconcile first, so a panel that just appeared (a slot) has its place. */
    const update = useCallback(
-      (f: (l: Layout) => Layout) => setLayout((l) => f(reconcile(l, slotPanelsRef.current))),
-      [],
+      (f: (l: Layout) => Layout) =>
+         setLayout((l) => fit(f(fit(reconcile(l, slotPanelsRef.current))))),
+      [fit],
    );
-   const lay = useMemo(() => reconcile(layout, slotPanels), [layout, slotPanels]);
+   const lay = useMemo(() => fit(reconcile(layout, slotPanels)), [fit, layout, slotPanels]);
    useEffect(() => {
       if (lay !== layout) setLayout(lay);
    }, [lay, layout]);
@@ -350,6 +414,8 @@ function ChatView({
    );
 
    useEffect(() => {
+      // The Quick overlay has no Terminal or side chats panel.
+      if (overlay) return;
       const onKey = (e: KeyboardEvent) => {
          // Ctrl+` toggles the Terminal, as in VS Code. Capture phase, so xterm never sees it.
          if (e.ctrlKey && !e.metaKey && !e.altKey && (e.code === "Backquote" || e.key === "`")) {
@@ -366,7 +432,7 @@ function ChatView({
       };
       window.addEventListener("keydown", onKey, true);
       return () => window.removeEventListener("keydown", onKey, true);
-   }, [update, newSideThread]);
+   }, [overlay, update, newSideThread]);
    const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
    const [archiveError, setArchiveError] = useState<string | null>(null);
    // Changes need git; hidden until the Workspace is known to be a repository.
@@ -498,7 +564,9 @@ function ChatView({
       () => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])),
       [slots],
    );
+   // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
    const available = useMemo(() => {
+      if (overlay) return new Set<PanelId>(slotById.keys());
       const a = new Set<PanelId>([
          "side",
          "terminal",
@@ -509,7 +577,7 @@ function ChatView({
       ]);
       if (git) a.add("changes");
       return a;
-   }, [slotById, git]);
+   }, [overlay, slotById, git]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -613,9 +681,8 @@ function ChatView({
    // of our own (no host header) shows a badge. Archived and deleted Sessions say so elsewhere.
    // Restoring the Agent Session takes longer than starting its process, and the process is
    // "ready" by then: a message on its way is what says the Agent is not ready yet.
-   const connecting = useSlow(
-      usePendingMessages(api.sessionId).some((p) => p.status === "sending"),
-   );
+   const pending = usePendingMessages(api.sessionId);
+   const connecting = useSlow(pending.some((p) => p.status === "sending"));
    const procInfo = connecting
       ? PROCESS_INFO.starting
       : proc && proc.message !== "archived" && proc.message !== "deleted"
@@ -731,9 +798,24 @@ function ChatView({
          });
    }
 
+   // The Quick overlay's draft: before the first message the window has room only below the box
+   // (it grows right and down for menus, ADR 0022).
+   const overlayDraft = overlay && state.items.length === 0 && pending.length === 0;
+   const promptBox = (
+      <PromptBox
+         ref={prompt}
+         api={api}
+         state={state}
+         onSideThread={btw}
+         agentSwitch={agentSwitch}
+         elevated={overlay}
+         menuSide={overlayDraft ? "bottom" : "top"}
+         context={overlay ? context : undefined}
+      />
+   );
    const chat = (
       <>
-         {!toolbar && (
+         {!toolbar && !overlay && (
             <div className="flex h-13 shrink-0 items-center gap-2 border-b px-5">
                <span className="truncate text-sm font-semibold">
                   {state.title ?? "New Session"}
@@ -785,7 +867,7 @@ function ChatView({
                         )}
                      </div>
                   ) : (
-                     <PromptBox ref={prompt} api={api} state={state} onSideThread={btw} />
+                     promptBox
                   )}
                </>
             }
@@ -809,6 +891,106 @@ function ChatView({
          </ScrollUnder>
       </>
    );
+
+   const ghost = drag && (
+      <div
+         aria-hidden
+         className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
+         style={{ left: drag.x + 12, top: drag.y + 12 }}
+      >
+         {icon(drag.id)} {drag.label}
+      </div>
+   );
+
+   // The Quick overlay's stripes: side zones only, attached to the chat card's edges. Its window
+   // grows by the open panels and the stripes (`onPanelWidth`); none before the first message.
+   const sideL: [StripeGroup, StripeGroup] = [left[0], left[1]];
+   const sideR: [StripeGroup, StripeGroup] = [right[0], right[1]];
+   const stripeL = overlay && !overlayDraft && sideL.some((g) => g.items.length > 0);
+   const stripeR = overlay && !overlayDraft && sideR.some((g) => g.items.length > 0);
+   const sides = sideWidths(shown);
+   const wantL = overlayDraft ? 0 : sides.left + (stripeL ? STRIPE_W : 0);
+   const wantR = overlayDraft ? 0 : sides.right + (stripeR ? STRIPE_W : 0);
+   useEffect(() => {
+      if (overlay) onPanelWidth?.({ left: wantL, right: wantR });
+   }, [overlay, wantL, wantR, onPanelWidth]);
+   // The card has a fixed width; a side's panels and stripe show once the host window has room for them
+   // (and stop before it shrinks), so opening or closing a panel never moves or reflows the chat.
+   const geo = overlayFrame
+      ? overlayGeometry(
+           shown,
+           overlayFrame.room,
+           { left: stripeL, right: stripeR },
+           overlayFrame.card,
+        )
+      : null;
+   const drawnL = geo ? geo.stripes.left : stripeL;
+   const drawnR = geo ? geo.stripes.right : stripeR;
+
+   // The Quick overlay: before the first message only the prompt box, at the bottom of the
+   // transparent window. Then the chat in the host's card, with side panels beside it (ADR 0022).
+   if (overlay) {
+      const column = <div className="relative flex min-h-0 flex-1 flex-col">{chat}</div>;
+      const tab = (side: "left" | "right", groups: [StripeGroup, StripeGroup]) => (
+         <div
+            className={cn(
+               "mt-3 shrink-0 self-start overflow-hidden border bg-background",
+               side === "left"
+                  ? "-mr-px rounded-l-lg border-r-0"
+                  : "-ml-px rounded-r-lg border-l-0",
+            )}
+         >
+            <Stripe
+               side={side}
+               groups={groups}
+               drag={drag}
+               onToggle={onToggle}
+               onPress={(it, e) => startDrag(it.id, it.label, e)}
+            />
+         </div>
+      );
+      return (
+         <PrRefProvider api={api}>
+            <FileRefProvider api={api}>
+               {overlayDraft ? (
+                  <div className="relative flex h-full flex-col justify-end">{promptBox}</div>
+               ) : (
+                  <div
+                     className="relative flex h-full"
+                     style={geo ? { paddingLeft: geo.offset } : undefined}
+                  >
+                     <DockLayout
+                        layout={geo?.layout ?? shown}
+                        width={geo?.width}
+                        chat={
+                           <div className="flex min-h-0 flex-1">
+                              {drawnL && tab("left", sideL)}
+                              {chatFrame ? (
+                                 chatFrame(column)
+                              ) : (
+                                 <div className="flex min-w-0 flex-1 flex-col">{column}</div>
+                              )}
+                              {drawnR && tab("right", sideR)}
+                           </div>
+                        }
+                        panels={panels}
+                        drag={drag}
+                        leftStripeOverlay={false}
+                        zones={OVERLAY_ZONES}
+                        floating
+                        onResize={(patch) => update((l) => resize(l, patch))}
+                        onMove={(id, zone) => update((l) => move(l, id, zone))}
+                        onHide={(id) => update((l) => hide(l, id))}
+                        onExpand={(id) => update((l) => expand(l, id))}
+                        onDragStart={startDrag}
+                     />
+                     {ghost}
+                  </div>
+               )}
+            </FileRefProvider>
+         </PrRefProvider>
+      );
+   }
 
    return (
       <PrRefProvider api={api}>
@@ -848,15 +1030,7 @@ function ChatView({
                   onToggle={onToggle}
                   onPress={(it, e) => startDrag(it.id, it.label, e)}
                />
-               {drag && (
-                  <div
-                     aria-hidden
-                     className="pointer-events-none fixed z-[60] flex items-center gap-2 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg [&_svg]:size-4"
-                     style={{ left: drag.x + 12, top: drag.y + 12 }}
-                  >
-                     {icon(drag.id)} {drag.label}
-                  </div>
-               )}
+               {ghost}
             </div>
          </FileRefProvider>
       </PrRefProvider>

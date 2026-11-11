@@ -1,5 +1,6 @@
 //! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, the
-//! Terminal byte stream, plus macOS niceties (dock badge, notifications) and opt-in self-update.
+//! Terminal byte stream, plus macOS niceties (dock badge, notifications), opt-in self-update and
+//! the Quick overlay (`overlay.rs`).
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use parking_lot::Mutex;
@@ -12,6 +13,8 @@ use harness_core::terminal::TerminalOutput;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
+mod context;
+mod overlay;
 mod updates;
 
 /// Frontend Manifests of the built-in Frontends, registered with core at boot.
@@ -271,12 +274,25 @@ pub fn run() {
         .with_writer(std::io::stderr)
         .init();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // The Quick overlay's NSPanel (`overlay.rs`).
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+    builder
         .register_uri_scheme_protocol("harness-frame", |_ctx, _request| frame_response())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        overlay::on_shortcut(app);
+                    }
+                })
+                .build(),
+        )
         // Main window reopens where and at the size it was. Not VISIBLE: windows stay hidden until first paint.
         .plugin(
             tauri_plugin_window_state::Builder::new()
@@ -295,7 +311,9 @@ pub fn run() {
                 harness.register_frontend(serde_json::from_str::<FrontendManifest>(raw)?);
             }
             watch_attention(app.handle(), &harness);
+            overlay::init(app.handle(), &harness);
             app.manage(harness);
+            overlay::create(app.handle());
             if let Some(main) = app.get_webview_window("main") {
                 main.set_title(&app.package_info().name)?;
             }
@@ -313,7 +331,8 @@ pub fn run() {
             // Windows start hidden; the page shows them once it has the theme background and has
             // painted (`set_window_background`, `reveal_window`). This is only for a page that
             // never gets that far.
-            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+            // The overlay is transparent and shown only by its shortcut.
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) && webview.label() != overlay::LABEL {
                 let window = webview.window();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(1));
@@ -325,6 +344,13 @@ pub fn run() {
             }
         })
         .on_window_event(|window, event| {
+            // The overlay is made once: closing it (e.g. Cmd+W) only hides it.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == overlay::LABEL
+            {
+                api.prevent_close();
+                overlay::hide(window.app_handle());
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
                 if let Some(harness) = app.try_state::<Arc<Harness>>() {
@@ -345,7 +371,20 @@ pub fn run() {
             updates::update_state,
             updates::update_check,
             updates::update_install,
-            updates::update_restart
+            updates::update_restart,
+            overlay::overlay_toggle,
+            overlay::overlay_ready,
+            overlay::overlay_set_mode,
+            overlay::overlay_set_menu_room,
+            overlay::overlay_set_panels,
+            overlay::overlay_resize,
+            overlay::overlay_chat_width,
+            overlay::overlay_hide,
+            overlay::overlay_merge,
+            overlay::overlay_context,
+            overlay::overlay_open_privacy_settings,
+            overlay::overlay_settings,
+            overlay::overlay_set_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running Harness");
