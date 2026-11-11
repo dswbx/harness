@@ -1,5 +1,6 @@
 import {
    findPrRefs,
+   isExplicit,
    type PrEntry,
    type PrInfo,
    type PrRefContext,
@@ -88,14 +89,14 @@ type Target =
 type Found = { start: number; end: number; hit: string; target: Target };
 
 /** The refs of one Markdown line, the same ones the chat marks: file refs in inline code and links, PR refs in text
- * (not a bare `#N`, not headings) and bare PR URLs, every other http link. */
+ * (not a bare `#N` unless written `PR #N`, not headings) and bare PR URLs, every other http link. */
 function scanLine(line: string, ctx: PrRefContext): Found[] {
    const out: Found[] = [];
    const heading = /^\s{0,3}#{1,6}\s/.test(line);
    const text = (from: number, to: number) => {
       if (heading || to <= from) return;
       for (const m of findPrRefs(line.slice(from, to), ctx)) {
-         if (m.repo === null) continue;
+         if (!isExplicit(m)) continue;
          const ref = qualify(m, ctx);
          if (ref)
             out.push({
