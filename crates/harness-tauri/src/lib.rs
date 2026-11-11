@@ -14,6 +14,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
 mod context;
+mod links;
 mod overlay;
 mod updates;
 
@@ -282,6 +283,7 @@ pub fn run() {
         .register_uri_scheme_protocol("harness-frame", |_ctx, _request| frame_response())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(links::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(

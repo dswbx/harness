@@ -147,6 +147,9 @@ const components: Components = {
                <span className="font-medium">{props.children}</span>
             </FileRefLink>
          );
+      // Web links open outside the app (a new tab; in Tauri the opener sends `_blank` to the browser).
+      if (/^(https?:|mailto:)/i.test(props.href ?? ""))
+         return <a {...props} target="_blank" rel="noreferrer" />;
       return <a {...props} />;
    },
 };
