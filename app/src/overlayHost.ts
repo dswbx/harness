@@ -38,11 +38,12 @@ export const overlayHost = {
    /** The page painted its first frame: the host may show the window (a shortcut may be waiting). */
    ready: () => run("overlay_ready"),
    hide: () => run("overlay_hide"),
-   /** The window context of the last show (`overlay-context` may have come before the page listened). */
+   /** The last window context sent (`overlay-context` may have come before the page listened). */
    context: () =>
       inTauri() ? invoke<WindowContext | null>("overlay_context") : Promise.resolve(null),
-   /** System Settings > Privacy & Security > Accessibility. */
-   openAccessibilitySettings: () => run("overlay_open_accessibility_settings"),
+   /** System Settings > Privacy & Security > Accessibility or Automation. */
+   openPrivacySettings: (pane: "accessibility" | "automation") =>
+      run("overlay_open_privacy_settings", { pane }),
    /** Opens the Session in the main window and hides the overlay. */
    merge: (sessionId: string) =>
       inTauri() ? invoke<void>("overlay_merge", { sessionId }) : Promise.resolve(),

@@ -426,8 +426,8 @@ pub struct OverlaySettings {
     /// Global shortcut in the `global-hotkey` format, e.g. `Alt+Space`, `CmdOrCtrl+Shift+K`.
     pub shortcut: String,
     pub position: OverlayPosition,
-    /// A new prompt shows the app the user was in (and its window, page, selection) as a removable
-    /// chip, sent with the first message (ADR 0022 Phase 3).
+    /// While the overlay is open, a removable chip shows the app the user is looking at (and its
+    /// window, page, selection); each message sends it as an attachment (ADR 0022 Phase 3).
     pub window_context: bool,
 }
 

@@ -139,9 +139,10 @@ export function OverlayPanel() {
                <span className="font-medium">Include window context</span>
             </label>
             <span className="text-xs text-muted-foreground">
-               A new prompt shows the app you were in as a chip (with Accessibility on: its window
-               title and selected text; for browsers, Finder and iTerm2: the page or folder). It is
-               sent with your first message unless you remove the chip.
+               While the overlay is open, a chip shows the app you are looking at (with
+               Accessibility on: its window title and selected text; for browsers, Finder and
+               iTerm2: the page or folder). Each message sends it as an attachment unless you remove
+               the chip.
             </span>
          </div>
       </div>

@@ -382,7 +382,7 @@ pub fn run() {
             overlay::overlay_hide,
             overlay::overlay_merge,
             overlay::overlay_context,
-            overlay::overlay_open_accessibility_settings,
+            overlay::overlay_open_privacy_settings,
             overlay::overlay_settings,
             overlay::overlay_set_settings
         ])

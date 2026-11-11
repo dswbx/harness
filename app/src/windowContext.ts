@@ -1,7 +1,9 @@
+import type { AttachmentInput } from "@harness/api";
+
 /**
- * The Quick overlay's window context (ADR 0022 Phase 3): what the user was looking at when the
- * shortcut opened the overlay. The host captures it (`context.rs`); this formats the prompt box's
- * chip and the line sent with the first message.
+ * The Quick overlay's window context (ADR 0022 Phase 3): what the user is looking at in another app
+ * while the overlay is open. The host polls it (`context.rs`, `overlay.rs`); this formats the prompt
+ * box's chip and the Markdown attachment sent with each message.
  */
 
 /** `WindowContext` in `crates/harness-tauri/src/context.rs`. */
@@ -79,16 +81,89 @@ export function contextDetail(c: WindowContext): string {
    return lines.join("\n");
 }
 
-/** One compact line for the Agent, sent after the first message. */
-export function contextPrompt(c: WindowContext): string {
-   const title = c.url ? (c.pageTitle ?? c.windowTitle) : c.windowTitle;
-   const parts = [`the user is looking at ${c.app}`];
-   if (title) parts.push(`"${windowTitle(title, c.app)}"`);
-   if (c.url) parts.push(c.url);
-   if (c.documentPath) parts.push(`file ${c.documentPath}`);
-   if (c.folder) parts.push(`folder ${c.folder}`);
-   if (c.files?.length) parts.push(`selected files: ${c.files.join(", ")}`);
-   let line = `Context: ${parts.join(", ")}.`;
-   if (c.selectedText) line += ` Selected text: "${cut(c.selectedText, SELECTED_MAX)}"`;
-   return line;
+/** Same app, window, document and page: a chip the user removed stays removed for it. */
+export function contextKey(c: WindowContext): string {
+   return [c.bundleId, c.windowTitle, c.documentPath, c.url].map((v) => v ?? "").join("\n");
+}
+
+const BROWSERS =
+   /^(com\.apple\.Safari|com\.google\.Chrome|company\.thebrowser\.Browser|com\.brave\.Browser|com\.microsoft\.edgemac|org\.chromium\.Chromium|com\.vivaldi\.Vivaldi)/;
+
+/** The chip's link to the System Settings pane that would give more: Automation first (the URL, the folder). */
+export function contextAction(
+   c: WindowContext,
+): { label: string; pane: "accessibility" | "automation" } | undefined {
+   if (c.missing.includes("automation"))
+      return {
+         label: BROWSERS.test(c.bundleId) ? "Allow browser access" : `Allow access to ${c.app}`,
+         pane: "automation",
+      };
+   if (c.missing.includes("accessibility"))
+      return { label: "Allow more context", pane: "accessibility" };
+   return undefined;
+}
+
+/** Longest attachment name (characters, with ".md"). */
+const NAME_MAX = 60;
+
+/** The attachment's name, e.g. "Context - Google Chrome · github.com.md": no path characters. */
+export function contextName(c: WindowContext): string {
+   let host: string | undefined;
+   try {
+      host = c.url ? new URL(c.url).host.replace(/^www\./, "") : undefined;
+   } catch {
+      host = undefined;
+   }
+   const title = c.windowTitle && windowTitle(c.windowTitle, c.app);
+   const detail =
+      host ?? (c.documentPath ? basename(c.documentPath) : c.folder ? basename(c.folder) : title);
+   const raw = `Context - ${c.app}${detail ? ` · ${detail}` : ""}`;
+   // Path characters and control characters (all whitespace) become one space.
+   const safe = raw
+      .replace(/[/\\:*?"<>|\s]+/g, " ")
+      .replace(/\p{Cc}/gu, "")
+      .trim();
+   return `${cut(safe, NAME_MAX - 3)}.md`;
+}
+
+/** What the Agent gets: a short Markdown file with everything the chip's tooltip lists. */
+export function contextMarkdown(c: WindowContext): string {
+   const lines = [
+      "# Window context",
+      "",
+      "What the user is looking at in another app (from the Harness Quick overlay).",
+      "",
+      `- App: ${c.app}`,
+   ];
+   if (c.windowTitle) lines.push(`- Window: ${c.windowTitle}`);
+   if (c.pageTitle) lines.push(`- Page: ${c.pageTitle}`);
+   if (c.url) lines.push(`- URL: ${c.url}`);
+   if (c.documentPath) lines.push(`- File: ${c.documentPath}`);
+   if (c.folder) lines.push(`- Folder: ${c.folder}`);
+   if (c.files?.length) lines.push("- Selected files:", ...c.files.map((f) => `  - ${f}`));
+   if (c.selectedText) {
+      const quoted = cut(c.selectedText, SELECTED_MAX)
+         .split("\n")
+         .map((l) => (l ? `> ${l}` : ">"));
+      lines.push("", "Selected text:", "", ...quoted);
+   }
+   return `${lines.join("\n")}\n`;
+}
+
+/** Base64 of a string's UTF-8 bytes. */
+export function base64(text: string): string {
+   const bytes = new TextEncoder().encode(text);
+   let bin = "";
+   for (const b of bytes) bin += String.fromCharCode(b);
+   return btoa(bin);
+}
+
+/** The context as a pasted Markdown file: the core stores it and gives it to the Agent. */
+export function contextAttachment(c: WindowContext): AttachmentInput {
+   return {
+      type: "data",
+      name: contextName(c),
+      mime: "text/markdown",
+      data: base64(contextMarkdown(c)),
+   };
 }

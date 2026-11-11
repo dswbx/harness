@@ -1,5 +1,5 @@
-//! Window context for the Quick overlay (ADR 0022 Phase 3): what the user was looking at when they
-//! pressed the shortcut. Three levels, each only when it needs no new permission prompt:
+//! Window context for the Quick overlay (ADR 0022 Phase 3): what the user is looking at in another
+//! app. Three levels, each only when it needs no new permission prompt:
 //!
 //! - 0, no permission: the frontmost app's name, bundle id and pid (`NSWorkspace`).
 //! - 1, Accessibility (only if already granted; never prompts): the focused window's title, its
@@ -7,7 +7,8 @@
 //! - 2, Automation (macOS asks once per target app): a small AppleScript per known app (`Adapter`):
 //!   the browser tab's URL and title, Finder's folder and selection, iTerm2's folder.
 //!
-//! The pure parts (adapters, output parsing, file URLs) are tested here; the page formats the chip
+//! `overlay.rs` polls levels 0 and 1 while the overlay is open and runs level 2 on a change.
+//! The pure parts (adapters, output parsing, file URLs, change detection) are tested here; the page formats the chip
 //! and the prompt line (`app/src/windowContext.ts`). Other platforms have no context.
 
 use serde::Serialize;
@@ -161,7 +162,61 @@ pub fn automation_denied(stderr: &str) -> bool {
     stderr.contains("-1743")
 }
 
-/// Level 0: the frontmost app, `None` when it is Harness itself. Fast; call before the overlay shows.
+/// How long an AppleScript may run. Long, so the user can answer macOS's Automation prompt (the
+/// first run for an app waits on it); the chip updates when the answer comes.
+pub const SCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// How a new reading differs from the last context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// Same app, window and document, same selection.
+    Same,
+    /// Same app, window and document; only the selected text changed (no new AppleScript).
+    Selection,
+    /// Another app, window or document (or no context before): a new capture with level 2.
+    New,
+}
+
+/// Compares levels 0 and 1 of `next` with `prev` (level 2 never sets the fields compared here).
+pub fn change(prev: Option<&WindowContext>, next: &WindowContext) -> Change {
+    let Some(p) = prev else { return Change::New };
+    let key = |c: &WindowContext| (c.bundle_id.clone(), c.pid, c.window_title.clone(), c.document_path.clone());
+    if key(p) != key(next) {
+        Change::New
+    } else if p.selected_text != next.selected_text {
+        Change::Selection
+    } else {
+        Change::Same
+    }
+}
+
+/// Puts an AppleScript's result into `ctx`. Returns the error to log, if any; error -1743 (the user
+/// did not allow Automation for the app) also marks `automation` as missing.
+pub fn apply_script(adapter: Adapter, result: Result<String, String>, ctx: &mut WindowContext) -> Option<String> {
+    match result {
+        Ok(out) => {
+            ctx.missing.retain(|m| *m != Missing::Automation);
+            adapter.apply(&out, ctx);
+            None
+        }
+        Err(e) => {
+            if automation_denied(&e) && !ctx.missing.contains(&Missing::Automation) {
+                ctx.missing.push(Missing::Automation);
+            }
+            Some(e.trim().to_owned())
+        }
+    }
+}
+
+/// Whether Harness may use the Accessibility API (in `bun run dev`: the terminal app that runs it).
+pub fn trusted() -> bool {
+    #[cfg(target_os = "macos")]
+    return mac::trusted();
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+/// Level 0: the frontmost app, `None` when it is Harness itself. Fast.
 pub fn capture() -> Option<WindowContext> {
     #[cfg(target_os = "macos")]
     {
@@ -179,23 +234,27 @@ pub fn capture() -> Option<WindowContext> {
     None
 }
 
-/// Levels 1 and 2 (blocking, up to about a second per level): call off the main thread.
-pub fn enrich(ctx: &mut WindowContext) {
+/// Level 1 (blocking, up to about a second): window title, document, selected text. Only when
+/// Accessibility is allowed. Call off the main thread.
+pub fn accessibility(ctx: &mut WindowContext) {
     #[cfg(target_os = "macos")]
-    {
-        if !ctx.missing.contains(&Missing::Accessibility) {
-            mac::accessibility(ctx);
-        }
-        if let Some(a) = adapter(&ctx.bundle_id) {
-            match mac::osascript(&a.script(&ctx.bundle_id), std::time::Duration::from_millis(1500)) {
-                Ok(out) => a.apply(&out, ctx),
-                Err(e) if automation_denied(&e) => ctx.missing.push(Missing::Automation),
-                Err(e) => tracing::debug!("window context {}: {e}", ctx.bundle_id),
-            }
-        }
+    if !ctx.missing.contains(&Missing::Accessibility) {
+        mac::accessibility(ctx);
     }
     #[cfg(not(target_os = "macos"))]
     let _ = ctx;
+}
+
+/// Level 2 (blocking, up to `SCRIPT_TIMEOUT`): the adapter's AppleScript for `bundle_id`. `Err`
+/// holds osascript's error output. Never run two at once for one app. Call off the main thread.
+pub fn run_script(adapter: Adapter, bundle_id: &str) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    return mac::osascript(&adapter.script(bundle_id), SCRIPT_TIMEOUT);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (adapter, bundle_id);
+        Err("no AppleScript on this platform".into())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -372,8 +431,7 @@ mod mac {
     }
 
     /// Runs an AppleScript with `osascript`, killed after `timeout`. `Err` holds its error output.
-    /// The first run for an app shows macOS's Automation prompt; a capture that waits past the
-    /// timeout gets no level 2, the next one does once allowed.
+    /// The first run for an app shows macOS's Automation prompt and waits for the answer.
     pub fn osascript(script: &str, timeout: Duration) -> Result<String, String> {
         let mut child = Command::new("/usr/bin/osascript")
             .args(["-e", script])
@@ -389,7 +447,7 @@ mod mac {
                 None if start.elapsed() > timeout => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err("timed out".into());
+                    return Err(format!("timed out after {}s", timeout.as_secs()));
                 }
                 None => std::thread::sleep(Duration::from_millis(20)),
             }
@@ -500,6 +558,46 @@ mod tests {
     fn automation_denied_is_error_1743() {
         assert!(automation_denied("execution error: Not authorized to send Apple events to Google Chrome. (-1743)"));
         assert!(!automation_denied("execution error: Can’t get window 1. Invalid index. (-1719)"));
+    }
+
+    #[test]
+    fn change_compares_app_window_and_document() {
+        let mut a = ctx();
+        a.window_title = Some("PR #52".into());
+        assert_eq!(change(None, &a), Change::New);
+        let mut b = a.clone();
+        assert_eq!(change(Some(&a), &b), Change::Same);
+        // Level 2 fields do not count: the poll reads only levels 0 and 1.
+        let mut with_url = a.clone();
+        with_url.url = Some("https://x.dev".into());
+        assert_eq!(change(Some(&with_url), &b), Change::Same);
+        b.selected_text = Some("fn main".into());
+        assert_eq!(change(Some(&a), &b), Change::Selection);
+        b.window_title = Some("Other tab".into());
+        assert_eq!(change(Some(&a), &b), Change::New);
+        let mut c = a.clone();
+        c.document_path = Some("/a.txt".into());
+        assert_eq!(change(Some(&a), &c), Change::New);
+        let mut d = a.clone();
+        d.bundle_id = "y".into();
+        assert_eq!(change(Some(&a), &d), Change::New);
+    }
+
+    #[test]
+    fn script_results_fill_or_mark_missing() {
+        let mut c = ctx();
+        let e = apply_script(Adapter::Chromium, Err("execution error: Not authorized to send Apple events to Google Chrome. (-1743)\n".into()), &mut c);
+        assert_eq!(e.as_deref(), Some("execution error: Not authorized to send Apple events to Google Chrome. (-1743)"));
+        assert_eq!(c.missing, vec![Missing::Automation]);
+        // Twice denied: listed once.
+        apply_script(Adapter::Chromium, Err("(-1743)".into()), &mut c);
+        assert_eq!(c.missing, vec![Missing::Automation]);
+        // Allowed later: no longer missing.
+        assert_eq!(apply_script(Adapter::Chromium, Ok("https://x.dev\nX\n".into()), &mut c), None);
+        assert_eq!((c.url.as_deref(), c.missing.len()), (Some("https://x.dev"), 0));
+        let mut c = ctx();
+        assert!(apply_script(Adapter::Safari, Err("timed out after 60s".into()), &mut c).is_some());
+        assert!(c.missing.is_empty());
     }
 
     #[test]

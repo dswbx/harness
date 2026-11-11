@@ -620,8 +620,8 @@ export type OverlaySettings = {
 	shortcut?: string,
 	position?: OverlayPosition,
 	/**
-	 *  A new prompt shows the app the user was in (and its window, page, selection) as a removable
-	 *  chip, sent with the first message (ADR 0022 Phase 3).
+	 *  While the overlay is open, a removable chip shows the app the user is looking at (and its
+	 *  window, page, selection); each message sends it as an attachment (ADR 0022 Phase 3).
 	 */
 	window_context?: boolean,
 };

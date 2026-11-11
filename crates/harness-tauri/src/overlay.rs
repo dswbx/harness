@@ -9,14 +9,17 @@
 //! with `overlay_set_panels` and the window grows by it, left and right of the card, which stays put.
 //! On macOS the window is a non-activating NSPanel (`panel` below), so typing in it does not
 //! make Harness the active app.
-//! The shortcut also captures what the user was looking at (`context.rs`, ADR 0022 Phase 3) and
-//! sends it as `overlay-context`: the app at once, then window, page and selection when known.
+//! While the overlay is open (not mini), a thread polls what the user is looking at in other apps
+//! (`context.rs`, ADR 0022 Phase 3) and sends each change as `overlay-context`.
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use crate::context::{self, WindowContext};
+use crate::context::{self, Change, WindowContext};
 use harness_core::Harness;
 use harness_core::api::{AppSettingKey, Command, CommandResult, OverlayPosition, OverlaySettings};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -97,10 +100,31 @@ pub struct Overlay {
     /// unpainted (black) window is ever visible.
     ready: Mutex<bool>,
     pending_show: Mutex<bool>,
-    /// The window context of the last show from hidden, and its capture number: a slow capture
-    /// that a newer show overtook is dropped.
-    context: Mutex<(u64, Option<WindowContext>)>,
+    /// The window context: the last one sent, and what level 2 is doing.
+    context: Mutex<Capture>,
+    /// Set to stop the running context poll (`poll_context`).
+    poll: Mutex<Option<Arc<AtomicBool>>>,
 }
+
+/// The window context state shared by the poll and the AppleScript threads.
+#[derive(Default)]
+struct Capture {
+    /// Counts new contexts: a level 2 result for an older one is dropped.
+    id: u64,
+    ctx: Option<WindowContext>,
+    /// Level 2 is done for `id` (or there is none for its app).
+    done: bool,
+    /// The overlay was just shown: the next reading is sent even when it did not change, and
+    /// Harness frontmost clears the context (it would be stale).
+    fresh: bool,
+    /// Apps with an AppleScript running: one at a time per app.
+    scripts: HashSet<String>,
+}
+
+/// How often the context poll reads levels 0 and 1.
+const POLL: Duration = Duration::from_secs(1);
+/// How long a new context waits for its AppleScript before it is sent without it.
+const SCRIPT_WAIT: Duration = Duration::from_millis(1500);
 
 impl Overlay {
     /// Logical window size for `mode`: the user's chat size, else the default.
@@ -234,6 +258,9 @@ pub fn init(app: &AppHandle, harness: &Arc<Harness>) {
     if let Some(e) = &error {
         tracing::warn!("overlay shortcut {}: {e}", settings.shortcut);
     }
+    // In `bun run dev` the terminal app that runs Harness must have Accessibility.
+    #[cfg(debug_assertions)]
+    tracing::info!("window context: AXIsProcessTrusted = {}", context::trusted());
     app.manage(Overlay { settings: Mutex::new(settings), shortcut_error: Mutex::new(error), ..Default::default() });
 }
 
@@ -246,37 +273,141 @@ pub fn on_shortcut(app: &AppHandle) {
             let _ = handle.emit_to(LABEL, "overlay-shortcut", ());
             return;
         }
-        // Before the show: the app the user is in is still the frontmost one.
-        capture_context(&handle);
         if let Err(e) = show(&handle) {
             tracing::warn!("overlay show: {e}");
         }
     });
 }
 
-/// Level 0 of the window context now (the frontmost app), sent at once; levels 1 and 2 on a
-/// thread, sent again when done. Nothing when the setting is off or Harness is frontmost. The page
-/// uses it only for a new prompt; a pinned chat keeps its context.
-fn capture_context(app: &AppHandle) {
+/// Starts the context poll (when the setting is on), unless it runs. `fresh`: the overlay was just
+/// shown, so the first reading is sent.
+fn start_context(app: &AppHandle, fresh: bool) {
     let state = app.state::<Overlay>();
-    let ctx = if state.settings.lock().window_context { context::capture() } else { None };
-    let id = {
-        let mut c = state.context.lock();
-        *c = (c.0 + 1, ctx.clone());
-        c.0
-    };
-    let _ = app.emit_to(LABEL, "overlay-context", &ctx);
-    let Some(mut ctx) = ctx else { return };
+    if !state.settings.lock().window_context {
+        return;
+    }
+    if fresh {
+        state.context.lock().fresh = true;
+    }
+    let mut poll = state.poll.lock();
+    if poll.is_some() {
+        return;
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    *poll = Some(stop.clone());
     let handle = app.clone();
     std::thread::spawn(move || {
-        context::enrich(&mut ctx);
-        let state = handle.state::<Overlay>();
-        let mut c = state.context.lock();
-        if c.0 == id {
-            c.1 = Some(ctx.clone());
-            let _ = handle.emit_to(LABEL, "overlay-context", Some(&ctx));
+        while !stop.load(Ordering::Relaxed) {
+            poll_context(&handle);
+            for _ in 0..10 {
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                std::thread::sleep(POLL / 10);
+            }
         }
     });
+}
+
+/// Stops the context poll (hidden, mini, setting off). A running AppleScript still finishes.
+fn stop_context(app: &AppHandle) {
+    if let Some(stop) = app.state::<Overlay>().poll.lock().take() {
+        stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// One poll: reads levels 0 and 1; on a new app, window or document runs level 2 and sends the
+/// context (after the AppleScript, or without it after `SCRIPT_WAIT`). Harness itself frontmost
+/// (the user clicked a Harness window) keeps the last context.
+fn poll_context(app: &AppHandle) {
+    let state = app.state::<Overlay>();
+    if !state.settings.lock().window_context {
+        return;
+    }
+    let Some(mut next) = context::capture() else {
+        let mut c = state.context.lock();
+        if std::mem::take(&mut c.fresh) && c.ctx.is_some() {
+            c.id += 1;
+            c.ctx = None;
+            c.done = true;
+            let _ = app.emit_to(LABEL, "overlay-context", None::<WindowContext>);
+        }
+        return;
+    };
+    context::accessibility(&mut next);
+    let adapter = context::adapter(&next.bundle_id);
+    let id = {
+        let mut c = state.context.lock();
+        let fresh = std::mem::take(&mut c.fresh);
+        match context::change(c.ctx.as_ref(), &next) {
+            Change::Same if !fresh => return,
+            Change::Selection if !fresh => {
+                if let Some(ctx) = c.ctx.as_mut() {
+                    ctx.selected_text = next.selected_text;
+                    let _ = app.emit_to(LABEL, "overlay-context", Some(&*ctx));
+                }
+                return;
+            }
+            _ => {}
+        }
+        c.id += 1;
+        c.done = adapter.is_none();
+        if c.done {
+            let _ = app.emit_to(LABEL, "overlay-context", Some(&next));
+        } else if c.scripts.insert(next.bundle_id.clone()) {
+            let (handle, bundle) = (app.clone(), next.bundle_id.clone());
+            std::thread::spawn(move || run_scripts(&handle, &bundle));
+        }
+        c.ctx = Some(next);
+        if c.done {
+            return;
+        }
+        c.id
+    };
+    // Sent with level 2 when it comes in time (no chip that changes a moment later).
+    let start = std::time::Instant::now();
+    while start.elapsed() < SCRIPT_WAIT {
+        std::thread::sleep(Duration::from_millis(50));
+        let c = state.context.lock();
+        if c.id != id || c.done {
+            return;
+        }
+    }
+    let c = state.context.lock();
+    if c.id == id && !c.done {
+        let _ = app.emit_to(LABEL, "overlay-context", c.ctx.as_ref());
+    }
+}
+
+/// Runs level 2 for `bundle_id` while the current context is that app's and still needs it, one
+/// AppleScript at a time. A result for an older context is dropped; the newer one runs next.
+fn run_scripts(app: &AppHandle, bundle_id: &str) {
+    let state = app.state::<Overlay>();
+    let Some(adapter) = context::adapter(bundle_id) else { return };
+    loop {
+        let id = {
+            let mut c = state.context.lock();
+            match &c.ctx {
+                Some(ctx) if ctx.bundle_id == bundle_id && !c.done => c.id,
+                _ => {
+                    c.scripts.remove(bundle_id);
+                    return;
+                }
+            }
+        };
+        let result = context::run_script(adapter, bundle_id);
+        let mut c = state.context.lock();
+        if c.id != id {
+            continue;
+        }
+        if let Some(ctx) = c.ctx.as_mut() {
+            if let Some(e) = context::apply_script(adapter, result, ctx) {
+                tracing::warn!("window context: AppleScript for {bundle_id} failed: {e}");
+            }
+            let _ = app.emit_to(LABEL, "overlay-context", Some(&*ctx));
+        }
+        c.done = true;
+    }
 }
 
 /// Creates the hidden overlay window at startup so its page is loaded and painted before the
@@ -349,6 +480,9 @@ fn show(app: &AppHandle) -> tauri::Result<()> {
     }
     native_show(&window);
     let _ = app.emit_to(LABEL, "overlay-shown", anchor);
+    if mode != Mode::Mini {
+        start_context(app, true);
+    }
     Ok(())
 }
 
@@ -359,6 +493,11 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
     let state = app.state::<Overlay>();
     let old = std::mem::replace(&mut *state.mode.lock(), mode);
     let Some(window) = app.get_webview_window(LABEL) else { return Ok(()) };
+    if mode == Mode::Mini {
+        stop_context(app);
+    } else if window.is_visible()? {
+        start_context(app, false);
+    }
     let scale = window.scale_factor()?;
     // An open menu's room is dropped (the page drops it on a mode change too).
     let current = match state.menu_base.lock().take() {
@@ -481,6 +620,7 @@ fn native_show(window: &WebviewWindow) {
 }
 
 pub fn hide(app: &AppHandle) {
+    stop_context(app);
     #[cfg(target_os = "macos")]
     panel::hide(app);
     #[cfg(not(target_os = "macos"))]
@@ -593,18 +733,31 @@ pub fn overlay_merge(app: AppHandle, session_id: String) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// The window context of the last show (the page may mount after `overlay-context` was sent).
+/// The last window context sent (the page may mount after `overlay-context` was sent).
 #[tauri::command]
 pub fn overlay_context(overlay: tauri::State<'_, Overlay>) -> Option<WindowContext> {
-    overlay.context.lock().1.clone()
+    overlay.context.lock().ctx.clone()
 }
 
-/// Opens System Settings > Privacy & Security > Accessibility, where the user can allow Harness
-/// (the chip's "Allow more context"). Harness never asks for the permission itself.
+/// A Privacy & Security pane of System Settings, where the user can allow Harness.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PrivacyPane {
+    Accessibility,
+    Automation,
+}
+
+/// Opens System Settings > Privacy & Security > Accessibility or Automation (the chip's "Allow
+/// more context", "Allow browser access"). Harness never asks for a permission itself.
 #[tauri::command]
-pub fn overlay_open_accessibility_settings(app: AppHandle) -> Result<(), String> {
+pub fn overlay_open_privacy_settings(app: AppHandle, pane: PrivacyPane) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    app.opener().open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility", None::<&str>).map_err(|e| e.to_string())
+    let anchor = match pane {
+        PrivacyPane::Accessibility => "Privacy_Accessibility",
+        PrivacyPane::Automation => "Privacy_Automation",
+    };
+    let url = format!("x-apple.systempreferences:com.apple.preference.security?{anchor}");
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 /// The settings and why the shortcut is not registered, if it is not.
@@ -642,7 +795,23 @@ pub async fn overlay_set_settings(
     }
     let value = serde_json::to_value(&settings).map_err(|e| e.to_string())?;
     harness.execute(Command::SetAppSetting { key: AppSettingKey::Overlay, value: Some(value) }).await.map_err(|e| e.message)?;
-    *overlay.settings.lock() = settings;
+    let context_on = settings.window_context;
+    let context_was = std::mem::replace(&mut *overlay.settings.lock(), settings).window_context;
+    if context_on != context_was {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let state = handle.state::<Overlay>();
+            if !context_on {
+                stop_context(&handle);
+                let mut c = state.context.lock();
+                c.id += 1;
+                c.ctx = None;
+                let _ = handle.emit_to(LABEL, "overlay-context", None::<WindowContext>);
+            } else if *state.mode.lock() != Mode::Mini && handle.get_webview_window(LABEL).and_then(|w| w.is_visible().ok()).unwrap_or(false) {
+                start_context(&handle, true);
+            }
+        });
+    }
     Ok(overlay_settings(overlay))
 }
 

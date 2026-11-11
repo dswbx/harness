@@ -810,7 +810,7 @@ function ChatView({
          agentSwitch={agentSwitch}
          elevated={overlay}
          menuSide={overlayDraft ? "bottom" : "top"}
-         context={overlayDraft ? context : undefined}
+         context={overlay ? context : undefined}
       />
    );
    const chat = (

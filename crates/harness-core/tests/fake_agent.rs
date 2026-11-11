@@ -1007,6 +1007,20 @@ async fn files_are_linked_inside_the_folder_and_embedded_outside() {
     assert!(err.message.contains("nope.txt"), "{err}");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn pasted_markdown_is_stored_and_embedded() {
+    // The Quick overlay's window context (ADR 0022 Phase 3): the text stays as typed, the context is a file.
+    let (h, sid, _dir) = setup_with(&[], Duration::from_secs(900)).await;
+    let md = "# Window context\n\n- App: Café\n";
+    let input = AttachmentInput::Data { name: "Context - Google Chrome · github.com.md".into(), mime: "text/markdown".into(), data: b64(md.as_bytes()) };
+    assert_eq!(turn_with(&h, &sid, None, "what is this?", vec![input]).await, "end_turn");
+    assert!(texts(&h, &sid).iter().any(|t| t.starts_with("blocks: text,resource")), "{:?}", texts(&h, &sid));
+    let got = turn_attachments(&h, &sid);
+    assert_eq!(got.len(), 1);
+    assert_eq!((got[0].name.as_str(), got[0].mime.as_str(), got[0].kind), ("Context - Google Chrome · github.com.md", "text/markdown", AttachmentKind::File));
+    assert_eq!(std::fs::read_to_string(&got[0].path).unwrap(), md);
+}
+
 async fn quick_session(h: &Harness) -> String {
     let CommandResult::SessionCreated { session_id } =
         h.execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: None, mcp_servers: vec![] }).await.unwrap()

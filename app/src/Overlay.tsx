@@ -23,7 +23,14 @@ import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
 import { INITIAL_OVERLAY, overlayReducer, rowEdge } from "./overlayMode";
 import { useReportError } from "./toast";
 import { ViewHost } from "./ViewHost";
-import { contextDetail, contextLabel, contextPrompt, type WindowContext } from "./windowContext";
+import {
+   contextAction,
+   contextAttachment,
+   contextDetail,
+   contextKey,
+   contextLabel,
+   type WindowContext,
+} from "./windowContext";
 
 /** The Agent of the last Session sent from the overlay; the next draft starts with it. */
 const AGENT_KEY = "harness.overlay.agent";
@@ -121,12 +128,16 @@ export function Overlay({ transport }: { transport: Transport }) {
    );
    useEffect(() => listenHost("overlay-shortcut", () => dispatch({ type: "shortcut" })), []);
 
-   // What the user was looking at (Phase 3). The host sends it on each show from hidden (the app at
-   // once, then more); only a prompt takes it, a pinned chat keeps what it was sent with.
+   // What the user is looking at in other apps (Phase 3). While the overlay is open (not mini) the
+   // host sends each change; the chip shows in the prompt and the chat, and each message sends it.
+   // A removed chip stays removed for that app, window and page; another one shows it again.
    const [windowCtx, setWindowCtx] = useState<WindowContext | null>(null);
+   const [dismissed, setDismissed] = useState<string | null>(null);
    useEffect(() => {
       const take = (c: unknown) => {
-         if (modeRef.current === "prompt") setWindowCtx((c as WindowContext | null) ?? null);
+         const next = (c as WindowContext | null) ?? null;
+         setWindowCtx(next);
+         if (next) setDismissed((d) => (d === contextKey(next) ? d : null));
       };
       overlayHost
          .context()
@@ -134,24 +145,20 @@ export function Overlay({ transport }: { transport: Transport }) {
          .catch((e) => console.error("overlay_context failed", e));
       return listenHost("overlay-context", take);
    }, []);
-   const context = useMemo<PromptContext | undefined>(
-      () =>
-         windowCtx
-            ? {
-                 label: contextLabel(windowCtx),
-                 detail: contextDetail(windowCtx),
-                 text: contextPrompt(windowCtx),
-                 onRemove: () => setWindowCtx(null),
-                 action: windowCtx.missing.includes("accessibility")
-                    ? {
-                         label: "Allow more context",
-                         onClick: overlayHost.openAccessibilitySettings,
-                      }
-                    : undefined,
-              }
-            : undefined,
-      [windowCtx],
-   );
+   const context = useMemo<PromptContext | undefined>(() => {
+      if (!windowCtx || contextKey(windowCtx) === dismissed) return undefined;
+      const action = contextAction(windowCtx);
+      return {
+         label: contextLabel(windowCtx),
+         detail: contextDetail(windowCtx),
+         attachment: contextAttachment(windowCtx),
+         onRemove: () => setDismissed(contextKey(windowCtx)),
+         action: action && {
+            label: action.label,
+            onClick: () => overlayHost.openPrivacySettings(action.pane),
+         },
+      };
+   }, [windowCtx, dismissed]);
 
    // The host follows the state: the window size per mode, hidden when `visible` turns false.
    useEffect(() => overlayHost.setMode(s.mode), [s.mode]);
@@ -329,6 +336,7 @@ export function Overlay({ transport }: { transport: Transport }) {
       dispatch({ type: "reset" });
       setDraft(null);
       setWindowCtx(null);
+      setDismissed(null);
       setPanelsWant(NO_PANELS);
       setTitle(QUICK_TITLE);
       if (d)
@@ -343,6 +351,7 @@ export function Overlay({ transport }: { transport: Transport }) {
             dispatch({ type: "reset" });
             setDraft(null);
             setWindowCtx(null);
+            setDismissed(null);
             setPanelsWant(NO_PANELS);
             setTitle(QUICK_TITLE);
          },
@@ -455,7 +464,7 @@ export function Overlay({ transport }: { transport: Transport }) {
                      chatFrame={chatFrame}
                      onPanelWidth={onPanelWidth}
                      overlayFrame={chat ? overlayFrame : undefined}
-                     context={s.mode === "prompt" ? context : undefined}
+                     context={context}
                   />
                ) : (
                   error && (

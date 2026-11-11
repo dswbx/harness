@@ -209,7 +209,7 @@ export function PromptBox({
    elevated?: boolean;
    /** Where its menus open (below: the Quick overlay's draft, which has room only below). */
    menuSide?: MenuSide;
-   /** Quick overlay's draft: a removable context chip; its `text` goes after the message. */
+   /** Quick overlay: a removable context chip; each message sends its attachment while it shows. */
    context?: PromptContext;
    ref?: Ref<PromptBoxHandle>;
 }) {
@@ -332,10 +332,9 @@ export function PromptBox({
       setError(null);
       // Our `/btw <question>` wins over an Agent command of the same name (Claude Code has one).
       const btw = threadId || !onSideThread ? null : btwQuestion(t);
-      const inputs = files.map((a) => a.input);
-      // After the message: the core titles a Quick Session from the first line.
-      const reviewed = withReviewComments(t, sent);
-      const prompt = context && !threadId ? `${reviewed}\n\n${context.text}` : reviewed;
+      // The window context goes as an attachment: the message stays as typed.
+      const inputs = [...files.map((a) => a.input), ...(context ? [context.attachment] : [])];
+      const prompt = withReviewComments(t, sent);
       if (!btw && !onSend) {
          void deliver(
             {
