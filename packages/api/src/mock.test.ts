@@ -182,3 +182,92 @@ describe("MockTransport Side Threads", () => {
       expect(sideMode(events, r.thread_id)).toBe("read-only");
    });
 });
+
+describe("MockTransport Shared Artifacts (ADR 0024)", () => {
+   const ui = (id: string, input: Record<string, unknown>): Event => ({
+      v: 1,
+      seq: 0,
+      session_id: "x",
+      thread_id: "main",
+      ts_ms: 0,
+      kind: { type: "FrontendToolOutput", tool: "render_ui", call_id: id, path: "p", input },
+   });
+
+   it("lists fixtures newest first and searches title before text", async () => {
+      const client = new HarnessClient(new MockTransport([], []));
+      const all = await client.listSharedArtifacts();
+      expect(all.map((e) => e.meta.kind)).toEqual(["md", "html", "ui"]);
+      const found = await client.listSharedArtifacts("release");
+      expect(found[0]!.meta.title).toBe("Release checklist");
+      const text = await client.listSharedArtifacts("changelog");
+      expect(text.map((e) => e.meta.id)).toEqual(["release-checklist-3f9a1c"]);
+      expect(text[0]!.snippet).toContain("changelog");
+   });
+
+   it("shares a file panel: the item shows shared:<id> and the Session is attached", async () => {
+      const transport = new MockTransport(
+         [
+            ui("c1", {
+               id: "progress",
+               placement: "right",
+               title: "Progress",
+               source: "progress.md",
+            }),
+         ],
+         [],
+      );
+      const client = new HarnessClient(transport);
+      const app: AppEvent[] = [];
+      await client.subscribeApp((e) => app.push(e));
+      // mock-1 replays the fixture: the item is in its log.
+      const fresh = createSessionApi(transport, "mock-1");
+      const meta = await fresh.shareArtifact("progress");
+      expect(meta.kind).toBe("md");
+      expect(meta.attached).toEqual(["mock-1"]);
+      const read = await fresh.readShared(meta.id);
+      expect(read.content).toContain("Upgrade progress");
+      const events: Event[] = [];
+      await fresh.subscribe((e) => events.push(e));
+      const tail = events.slice(-2).map((e) => e.kind);
+      expect(tail[0]).toMatchObject({
+         type: "FrontendToolOutput",
+         input: { id: "progress", source: `shared:${meta.id}` },
+      });
+      expect(tail[1]).toEqual({ type: "ArtifactAttached", id: meta.id, by: "user" });
+      expect(app.some((e) => e.type === "SharedArtifactsChanged")).toBe(true);
+      await expect(fresh.shareArtifact("progress")).rejects.toThrow();
+   });
+
+   it("attaches, patches state (logged once) and detaches", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const sid = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "a",
+         frontendId: "chat",
+      });
+      const api = createSessionApi(transport, sid);
+      const events: Event[] = [];
+      await api.subscribe((e) => events.push(e));
+      const changed: string[] = [];
+      await api.sharedChanged((id) => changed.push(id));
+      const meta = await api.attachShared("architecture-map-a1b2c3");
+      expect(meta.attached).toEqual([sid]);
+      await api.patchArtifactState("architecture-map-a1b2c3", [
+         { op: "replace", path: "/reviewed", value: true },
+      ]);
+      expect((await api.readShared("architecture-map-a1b2c3")).state).toEqual({ reviewed: true });
+      expect(changed).toEqual(["architecture-map-a1b2c3"]);
+      await api.detachShared("architecture-map-a1b2c3");
+      expect(events.map((e) => e.kind.type)).toEqual([
+         "ArtifactAttached",
+         "ArtifactStateChanged",
+         "ArtifactDetached",
+      ]);
+      expect(events.every((e) => e.thread_id === null)).toBe(true);
+      const md = await api.shareMarkdown("| A |\n| --- |\n| 1 |\n", "Runs");
+      expect([md.title, md.kind]).toEqual(["Runs", "md"]);
+      await client.deleteSharedArtifact(md.id);
+      await expect(client.readSharedArtifact(md.id)).rejects.toThrow();
+   });
+});
