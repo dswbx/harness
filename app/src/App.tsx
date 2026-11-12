@@ -499,8 +499,8 @@ function Shell({ transport }: { transport: Transport }) {
    // Sidebar hidden: the controls move next to the traffic lights in the main header.
    const leading = sidebarOpen ? undefined : (
       <div className={cn("mr-2 flex shrink-0 items-center gap-1.5", trafficLights && "pl-[68px]")}>
-         <DevBadge />
          {controls}
+         <DevBadge />
       </div>
    );
 
@@ -519,8 +519,8 @@ function Shell({ transport }: { transport: Transport }) {
                      trafficLights ? "pl-[76px]" : "pl-3",
                   )}
                >
-                  <DevBadge />
                   <div data-tauri-drag-region className="h-full flex-1" />
+                  <DevBadge />
                   {controls}
                </div>
                <SessionList
