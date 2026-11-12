@@ -109,7 +109,7 @@ import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
-import { formatRelativeTime, fullMessageTime, useNow } from "./time";
+import { formatAge, useNow } from "./time";
 import { RENDER_UI } from "./tools";
 import { uiIcons } from "./uiIcons";
 
@@ -172,18 +172,22 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
    );
 }
 
-/** "Updated 5 minutes ago" in a panel header, the full time as its tooltip. */
+/**
+ * "5m ago" at the right of a panel header. It takes only the room the title leaves and hides when
+ * that room is too small, so the title always wins.
+ */
 function UpdatedAgo({ ts }: { ts: number }) {
    const now = useNow();
+   const age = formatAge(ts, now);
    return (
-      <Tooltip content={fullMessageTime(ts)} side="bottom" delay={100}>
+      <div className="@container min-w-0 flex-1 basis-0">
          <time
             dateTime={new Date(ts).toISOString()}
-            className="shrink-0 truncate text-xs text-muted-foreground"
+            className="hidden text-right text-[11px] whitespace-nowrap text-muted-foreground @min-[3.5rem]:block"
          >
-            Updated {formatRelativeTime(ts, now)}
+            {age === "now" ? "now" : `${age} ago`}
          </time>
-      </Tooltip>
+      </div>
    );
 }
 
