@@ -23,8 +23,10 @@ Every artifact kind can be shared. From the Artifacts Panel menu (user) or `arti
 | Session artifact | Becomes |
 |---|---|
 | File-backed panel (`.md`, `.html`) | moved out of `panels/` as is |
-| `render_ui` tree (any, `Html` too) | `ui.json` (tree plus its files map) |
+| `render_ui` tree (any, `Html` too) | `ui.json`: the input of the item's latest call, plus its copied image files |
 | Mermaid diagram or table in a message | fenced block as `.md` (a copy; the message keeps its own) |
+
+Today each `render_ui` call is stored as `frontend/tools/render_ui/<call id>.json` (a new UUIDv7 file per call, the whole input with `id` inside) and the same input is in the `FrontendToolOutput` event. An item with an `id` is the sum of its calls; the reducer shows the latest. A shared tree has no call history: one `ui.json`, replaced on each update.
 
 **State goes with the artifact.** The Session State paths the tree binds (`$state`, `$bindState`, `$template`, actions) are copied into the artifact's `state.json`. An Html artifact can read any path through the bridge, so it gets a copy of the whole Session State. From then on, every Session and the no-Session view read and write the artifact's own state, not their Session State. Logged in each attached Session as `StateChanged { artifact, ops, by }`.
 
