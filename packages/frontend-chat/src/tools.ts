@@ -445,6 +445,19 @@ const renderUiJson = {
                then: {
                   properties: { props, ...(c.children ? {} : { children: { maxItems: 0 } }) },
                   ...(props.required?.length ? { required: ["props"] } : {}),
+                  // `repeat` (Accordion, Tabs): exactly one child, the per-item template.
+                  ...(props.properties.repeat
+                     ? {
+                          if: {
+                             properties: { props: { required: ["repeat"] } },
+                             required: ["props"],
+                          },
+                          then: {
+                             properties: { children: { minItems: 1, maxItems: 1 } },
+                             required: ["children"],
+                          },
+                       }
+                     : {}),
                },
             };
          }),
@@ -517,7 +530,7 @@ export const frontendTools: {
          "JavaScript ($js, js) runs sandboxed in the app without you, e.g. a calculator or a converter: no DOM, network or timers, 50 ms at most, JSON in and out. " +
          '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
          "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
-         'Data from state: Repeat renders its children per item of a state array; inside, {"$item": "field"}, {"$index": true}, "${field}" in a $template, {"$bindItem": "field"}, visible {"$item": "field", "eq"?}; in actions, statePath {"$item": "field"} and removeState index {"$index": true}. When the data changes, patch the state instead of sending the tree again.\n' +
+         'Data from state: Repeat renders its children per item of a state array; inside, {"$item": "field"}, {"$index": true}, "${field}" in a $template, {"$bindItem": "field"}, visible {"$item": "field", "eq"?}; in actions, statePath {"$item": "field"} and removeState index {"$index": true}. When the data changes, patch the state instead of sending the tree again. Repeat inside Accordion or Tabs gives one item; use `repeat` on the parent: {"repeat": {"statePath": "/tickets", "title": "name"}} and one child as the template.\n' +
          "Layout: compose generic parts (Stack with direction, align, justify, wrap, fill; Card variants; Text for short labels, numbers and arrows between parts; Table cells and KeyValue values with a tone) instead of asking for a special component.\n" +
          "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
          "Html: only for diagrams and custom visuals the catalog cannot show (architecture diagrams, annotated drawings); it runs in a sandboxed frame with the app's theme colors as CSS variables. " +

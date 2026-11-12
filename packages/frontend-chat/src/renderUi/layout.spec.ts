@@ -190,7 +190,7 @@ export const specs = {
    },
    Repeat: {
       description:
-         'Renders its children once per item of a state array (`items`: {"$state": "/path"}), laid out like a Stack. Inside, {"$item": "field"} reads the item ("" the whole item), {"$index": true} its index, a $template takes "${field}", {"$bindItem": "field"} writes to it, and visible takes {"$item": "field", "eq"?}. `key` names an item field that identifies it; `empty` is shown when there are no items.',
+         'Renders its children once per item of a state array (`items`: {"$state": "/path"}), laid out like a Stack. Inside, {"$item": "field"} reads the item ("" the whole item), {"$index": true} its index, a $template takes "${field}", {"$bindItem": "field"} writes to it, and visible takes {"$item": "field", "eq"?}. `key` names an item field that identifies it; `empty` is shown when there are no items. Inside Accordion or Tabs, a Repeat gives one item: use `repeat` on the parent.',
       children: true,
       props: s.object({
          items: s.array(s.any()),
