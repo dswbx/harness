@@ -296,7 +296,7 @@ function GitRefButton({
             <DropdownMenuSeparator />
             {branch && (
                <DropdownMenuItem onSelect={() => void copy(branch, "the branch name")}>
-                  <Copy /> Copy <span className="font-mono">{branch}</span>
+                  <Copy /> Copy branch name
                </DropdownMenuItem>
             )}
             {pr && (

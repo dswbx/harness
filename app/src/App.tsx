@@ -9,6 +9,7 @@ import type {
 import { HarnessClient as Client, errText, useSharedArtifacts } from "@harness/api";
 import { SharedArtifactView } from "@harness/frontend-chat";
 import {
+   Badge,
    Button,
    cn,
    Dialog,
@@ -138,6 +139,14 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
       </div>
    );
 }
+
+/** Marks a window served by the Vite dev server, to tell it from the installed app. */
+const DevBadge = () =>
+   import.meta.env.DEV ? (
+      <Badge variant="warning" className="pointer-events-none px-1.5 text-[10px] uppercase">
+         Dev
+      </Badge>
+   ) : null;
 
 /** Sidebar toggle and New Session, next to the traffic lights. */
 function WindowControls({
@@ -489,7 +498,10 @@ function Shell({ transport }: { transport: Transport }) {
    );
    // Sidebar hidden: the controls move next to the traffic lights in the main header.
    const leading = sidebarOpen ? undefined : (
-      <div className={cn("mr-2 shrink-0", trafficLights && "pl-[68px]")}>{controls}</div>
+      <div className={cn("mr-2 flex shrink-0 items-center gap-1.5", trafficLights && "pl-[68px]")}>
+         {controls}
+         <DevBadge />
+      </div>
    );
 
    return (
@@ -508,6 +520,7 @@ function Shell({ transport }: { transport: Transport }) {
                   )}
                >
                   <div data-tauri-drag-region className="h-full flex-1" />
+                  <DevBadge />
                   {controls}
                </div>
                <SessionList
