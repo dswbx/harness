@@ -650,6 +650,10 @@ export type PermissionOption = {
 	name: string,
 	/**  ACP kind: allow_once, allow_always, reject_once, reject_always. */
 	kind: string,
+	/**  Plan approvals only: the Agent mode this option switches to (e.g. "acceptEdits"). */
+	plan_mode?: string | null,
+	/**  Plan approvals only: this option also clears the context. */
+	clears_context?: boolean,
 };
 
 /**

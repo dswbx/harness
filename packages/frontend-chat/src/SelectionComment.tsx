@@ -7,9 +7,23 @@ import { addReviewComment, composerKey } from "./reviewComments";
 /** Elements whose selected text can be commented on (chat messages). */
 export const QUOTABLE = "data-quotable";
 
-/** Marks a message of a Thread as quotable (`data-side`: its quote goes to that Side Thread's prompt box). */
-export function quotableAttrs(threadId: string, side: boolean) {
-   return { [QUOTABLE]: "", "data-thread-id": threadId, "data-side": side ? "1" : "0" };
+/**
+ * Marks a message of a Thread as quotable (`data-side`: its quote goes to that Side Thread's prompt box).
+ * `from`: the quote comes from the plan or an artifact (named by `label`), not a message. Without a thread id,
+ * the quote goes to the Main Thread's prompt box.
+ */
+export function quotableAttrs(
+   threadId: string | null,
+   side: boolean,
+   from: { source?: "plan" | "artifact"; label?: string } = {},
+) {
+   return {
+      [QUOTABLE]: "",
+      ...(threadId && { "data-thread-id": threadId }),
+      "data-side": side ? "1" : "0",
+      ...(from.source && { "data-source": from.source }),
+      ...(from.label && { "data-label": from.label }),
+   };
 }
 
 type Spot = {
@@ -20,6 +34,8 @@ type Spot = {
    bottom: number;
    side: boolean;
    threadId: string | null;
+   source?: "plan" | "artifact";
+   label?: string;
 };
 
 /** CSS Custom Highlight that keeps the quote looking selected while the comment box has focus (styles.css). */
@@ -42,14 +58,19 @@ function selectedSpot(): Spot | null {
    const range = sel.getRangeAt(0).cloneRange();
    const r = range.getBoundingClientRect();
    const threadId = host.getAttribute("data-thread-id");
+   const source = host.getAttribute("data-source");
    return {
       quote,
       range,
       x: r.left + r.width / 2,
       top: r.top,
       bottom: r.bottom,
-      side: host.getAttribute("data-side") === "1",
+      side: threadId !== null && host.getAttribute("data-side") === "1",
       threadId,
+      ...((source === "plan" || source === "artifact") && {
+         source,
+         label: host.getAttribute("data-label") || undefined,
+      }),
    };
 }
 
@@ -125,6 +146,7 @@ export function SelectionComment({
          kind: "quote",
          quote: spot.quote,
          text: comment,
+         ...(spot.source && { source: spot.source, ...(spot.label && { label: spot.label }) }),
       });
       window.getSelection()?.removeAllRanges();
       close();

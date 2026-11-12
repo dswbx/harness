@@ -1462,6 +1462,12 @@ pub struct PermissionOption {
     pub name: String,
     /// ACP kind: allow_once, allow_always, reject_once, reject_always.
     pub kind: String,
+    /// Plan approvals only: the Agent mode this option switches to (e.g. "acceptEdits").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_mode: Option<String>,
+    /// Plan approvals only: this option also clears the context.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clears_context: bool,
 }
 
 /// Harness-wide notifications (session list, attention), separate from Session Logs.

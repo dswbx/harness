@@ -29,6 +29,7 @@ import { ExportSubmenu, useExport } from "./ExportMenu";
 import { Highlighted } from "./highlight";
 import { PanelHeader } from "./PanelHeader";
 import type { UiEnv } from "./RenderUi";
+import { quotableAttrs } from "./SelectionComment";
 import { fullMessageTime, useNow } from "./time";
 import { uiIcons } from "./uiIcons";
 
@@ -407,7 +408,11 @@ function Inspect({
          )}
          <ScrollArea className="min-h-0 flex-1">
             <div className="p-3.5">
-               {tab === "preview" && <ArtifactPreview a={a} env={env} />}
+               {tab === "preview" && (
+                  <div {...quotableAttrs(null, false, { source: "artifact", label: a.title })}>
+                     <ArtifactPreview a={a} env={env} />
+                  </div>
+               )}
                {tab === "image" && <ArtifactImage a={a} env={env} shoot={shoot} />}
                {tab === "source" && <Source a={a} />}
                <dl className="mt-4 grid grid-cols-[88px_1fr] gap-y-1.5 px-0.5 text-[13px]">

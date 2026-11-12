@@ -1276,8 +1276,9 @@ export class MockTransport implements Transport {
                );
                const asked = req.kind.type === "PermissionRequested" ? req.kind : null;
                const always = asked?.options.find((o) => o.option_id === cmd.option_id)?.kind;
-               if (always === "allow_always") {
-                  const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
+               const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
+               // Like the core (`remembered_rule`): a plan approval is never remembered as a rule.
+               if (always === "allow_always" && tool_call.kind !== "switch_mode") {
                   const rule: PermissionRule = {
                      id: `rule-${++this.ruleN}`,
                      scope: cmd.global
