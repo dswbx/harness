@@ -74,6 +74,12 @@ export async function openWindow(
    w.once("tauri://error", (e) => console.error("window create failed", e));
 }
 
+/** Shows a file in the system file manager (Tauri only; frontends can't import Tauri, so this lives here). */
+export async function revealPath(path: string): Promise<void> {
+   const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+   await revealItemInDir(path);
+}
+
 /** Saves this window's place and size under `key` whenever it moves or resizes, for `openWindow({ remember: key })`. Returns a cleanup. */
 export function rememberWindowFrame(key: string): () => void {
    if (!inTauri()) return () => {};

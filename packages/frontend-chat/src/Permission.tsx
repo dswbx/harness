@@ -17,10 +17,9 @@ import {
    TraceTitle,
    TraceVerb,
 } from "@harness/ui";
-import { ChevronDown, ClipboardList, ShieldQuestion } from "lucide-react";
+import { ChevronDown, ShieldQuestion } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "./errors";
-import { Markdown } from "./Markdown";
 import { type Item, permissionTitle } from "./reducer";
 
 type Perm = Extract<Item, { type: "permission" }>;
@@ -118,35 +117,24 @@ function PermissionStep({ item, api }: { item: Perm; api: SessionApi }) {
    );
 }
 
-/** Inline permission prompt. A switch_mode request carrying a plan renders as a Plan card (Plan Mode approval). */
+/** Inline permission prompt. Plans (Plan Mode approvals) render as a `PlanNote` instead. */
 export function PermissionCard({ item, api }: { item: Perm; api: SessionApi }) {
    if (isStepApproval(item)) return <PermissionStep item={item} api={api} />;
-   const plan = item.plan;
    const friendly = permissionTitle(item.toolCall, item);
    const title = friendly ?? item.toolCall.title ?? "Permission requested";
    const harness = item.harnessTool;
    return (
-      <Card className={plan ? "border-primary/40" : "border-amber-500/40"}>
+      <Card className="border-amber-500/40">
          <CardHeader>
-            {plan ? (
-               <ClipboardList className="size-4" />
-            ) : (
-               <ShieldQuestion className="size-4 text-amber-500" />
-            )}
-            <CardTitle>{plan ? "Plan" : title}</CardTitle>
-            {!plan && friendly && item.toolCall.title && (
+            <ShieldQuestion className="size-4 text-amber-500" />
+            <CardTitle>{title}</CardTitle>
+            {friendly && item.toolCall.title && (
                <span className="font-mono text-xs text-muted-foreground">
                   {harness ?? item.toolCall.title}
                </span>
             )}
-            {plan && <span className="text-xs text-muted-foreground">{title}</span>}
          </CardHeader>
          <CardContent className="space-y-3">
-            {plan && (
-               <Markdown className="max-h-96 overflow-auto rounded border bg-background p-3">
-                  {plan}
-               </Markdown>
-            )}
             <PermissionActions item={item} api={api} />
          </CardContent>
       </Card>

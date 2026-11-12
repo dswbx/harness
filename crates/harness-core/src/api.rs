@@ -159,6 +159,15 @@ pub enum Command {
         #[serde(default)]
         line: Option<u32>,
     },
+    /// Writes `markdown` to `<Session dir>/plans/<name>.md` (`name` is cut to `[a-z0-9-]`) and returns the path
+    /// (`PlanFile`). With `open_in_editor` it also opens that file in the user's editor.
+    ExportPlan {
+        session_id: SessionId,
+        name: String,
+        markdown: String,
+        #[serde(default)]
+        open_in_editor: bool,
+    },
     /// Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, the files `.gitignore`
     /// does not exclude; elsewhere, all but hidden and build folders. Capped. Replies `SessionFiles`.
     ListSessionFiles {
@@ -633,6 +642,10 @@ pub enum CommandResult {
     },
     Editor {
         editor: Option<Editor>,
+    },
+    /// The file `ExportPlan` wrote (absolute).
+    PlanFile {
+        path: String,
     },
     /// Where new Worktrees go: relative to the repository folder, or absolute (`~` is home).
     WorktreeDir {
@@ -1473,6 +1486,12 @@ pub struct PermissionOption {
     pub name: String,
     /// ACP kind: allow_once, allow_always, reject_once, reject_always.
     pub kind: String,
+    /// Plan approvals only: the Agent mode this option switches to (e.g. "acceptEdits").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_mode: Option<String>,
+    /// Plan approvals only: this option also clears the context.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clears_context: bool,
 }
 
 /// Harness-wide notifications (session list, attention), separate from Session Logs.

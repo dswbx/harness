@@ -22,6 +22,7 @@ import {
    Archive,
    CheckCircle2,
    CircleDashed,
+   ClipboardList,
    Folder,
    GitCompare,
    Layers,
@@ -62,6 +63,7 @@ import { FileRefProvider } from "./FileRef";
 import { FilesPanel, type FileTarget, filesWindowTarget, filesWindowUrl } from "./FilesPanel";
 import { MessageList, useRows } from "./Messages";
 import { PanelHeader } from "./PanelHeader";
+import { PlanPanel } from "./PlanPanel";
 import { usePanelDrag } from "./panelDrag";
 import {
    closeThread,
@@ -289,6 +291,7 @@ const BASE_LABEL: Record<string, string> = {
    events: "Events",
    artifacts: "Artifacts",
    references: "References",
+   plan: "Plan",
 };
 const BASE_ICON: Record<string, React.ReactNode> = {
    side: <MessagesSquare />,
@@ -298,6 +301,7 @@ const BASE_ICON: Record<string, React.ReactNode> = {
    events: <ScrollText />,
    artifacts: <Layers />,
    references: <Link2 />,
+   plan: <ClipboardList />,
 };
 
 function ChatView({
@@ -533,6 +537,23 @@ function ChatView({
    useEffect(() => {
       if (lastSlot && lastSlot.ts >= openedAt) update((l) => show(l, slotPanel(lastSlot.id)));
    }, [lastSlot?.id, lastSlot?.ts, openedAt, update]);
+   // The Plan panel shows this version (null: the latest). A new pending plan opens the panel, once.
+   const [planShown, setPlanShown] = useState<string | null>(null);
+   const openPlan = useCallback(
+      (requestId: string) => {
+         setPlanShown(requestId);
+         update((l) => show(l, "plan"));
+      },
+      [update],
+   );
+   const lastPlan = state.plans.at(-1);
+   const pendingPlan = lastPlan?.status === "pending" ? lastPlan.requestId : null;
+   const planOpened = useRef(new Set<string>());
+   useEffect(() => {
+      if (overlay || !pendingPlan || planOpened.current.has(pendingPlan)) return;
+      planOpened.current.add(pendingPlan);
+      openPlan(pendingPlan);
+   }, [overlay, pendingPlan, openPlan]);
    const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
    const list = useRef<VirtualListHandle>(null);
    /** Scrolls the chat to a row; once the virtual list renders it, flashes what `pick` finds in it. */
@@ -601,6 +622,7 @@ function ChatView({
       () => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])),
       [slots],
    );
+   const hasPlans = state.plans.length > 0;
    // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
    const available = useMemo(() => {
       if (overlay) return new Set<PanelId>(slotById.keys());
@@ -614,8 +636,9 @@ function ChatView({
          ...slotById.keys(),
       ]);
       if (git) a.add("changes");
+      if (hasPlans) a.add("plan");
       return a;
-   }, [overlay, slotById, git]);
+   }, [overlay, slotById, git, hasPlans]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -827,6 +850,14 @@ function ChatView({
          label: "Artifacts",
          children: <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} />,
       });
+   if (open("plan"))
+      panels.push({
+         id: "plan",
+         label: "Plan",
+         children: (
+            <PlanPanel api={api} state={state} selected={planShown} onSelect={setPlanShown} />
+         ),
+      });
    if (open("references"))
       panels.push({
          id: "references",
@@ -928,6 +959,7 @@ function ChatView({
                   rows={rows}
                   subagents={subagents}
                   onOpenDiff={openDiff}
+                  onOpenPlan={overlay ? undefined : openPlan}
                   empty="Send a message to start."
                   inset={inset}
                />

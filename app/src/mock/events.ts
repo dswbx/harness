@@ -252,22 +252,100 @@ export function mockEvents(): Event[] {
             { option_id: "reject", name: "Reject", kind: "reject_once" },
          ],
       }),
+      ...mockPlans(ev, recorded),
+   ];
+}
+
+const PLAN_V1 =
+   "# Split the router module\n\n## Context\n\n`src/server/router.ts` mixes routing, auth and rendering.\n\n## Steps\n\n1. Move auth checks to `src/server/auth.ts`\n2. Move rendering to `src/server/render.ts`\n3. Keep `router.ts` as the route table\n4. Update imports\n5. Run `bun test`\n\n## Verify\n\n- `bun run typecheck`";
+const PLAN_V2 =
+   "# Split the router module\n\n## Context\n\n`src/server/router.ts` mixes routing, auth and rendering.\n\n## Steps\n\n1. Move auth checks to `src/server/auth.ts`, with a test per check\n2. Move rendering to `src/server/render.ts`\n3. Keep `router.ts` as the route table\n4. Add `Mode` to `Widget::render` callers\n5. Update imports\n6. Run `bun test`\n\n## Verify\n\n- `bun run typecheck`\n- `bun run lint`";
+
+/**
+ * Claude-style Plan Mode: plan v1 (5 options), answered "No, keep planning", a prompt with a plan comment,
+ * then plan v2 waiting for approval. The mode option becomes Claude's (auto before Plan) for the mode names.
+ */
+function mockPlans(ev: (kind: EventKind) => Event, recorded: Event[]): Event[] {
+   const config = [...recorded].reverse().find((e) => e.kind.type === "ConfigOptionsChanged")?.kind;
+   const others =
+      config?.type === "ConfigOptionsChanged" && Array.isArray(config.options)
+         ? (config.options as { category?: string }[]).filter((o) => o.category !== "mode")
+         : [];
+   const modes = (current: string) =>
+      ev({
+         type: "ConfigOptionsChanged",
+         options: [
+            {
+               id: "mode",
+               name: "Mode",
+               category: "mode",
+               type: "select",
+               currentValue: current,
+               options: [
+                  { value: "default", name: "Default", description: "Ask before edits" },
+                  { value: "acceptEdits", name: "Accept Edits" },
+                  { value: "plan", name: "Plan Mode" },
+                  { value: "auto", name: "Auto" },
+                  { value: "bypassPermissions", name: "Bypass Permissions" },
+               ],
+            },
+            ...others,
+         ],
+      });
+   const options = [
+      {
+         option_id: "clear-auto",
+         name: "Yes, clear context and use auto mode",
+         kind: "allow_always",
+         plan_mode: "auto",
+         clears_context: true,
+      },
+      {
+         option_id: "auto",
+         name: "Yes, and use auto mode",
+         kind: "allow_always",
+         plan_mode: "auto",
+      },
+      {
+         option_id: "bypass",
+         name: "Yes, and bypass permissions",
+         kind: "allow_always",
+         plan_mode: "bypassPermissions",
+      },
+      {
+         option_id: "default",
+         name: "Yes, manually approve edits",
+         kind: "allow_once",
+         plan_mode: "default",
+      },
+      { option_id: "plan", name: "No, keep planning", kind: "reject_once" },
+   ];
+   const request = (id: string, plan: string) =>
       ev({
          type: "PermissionRequested",
-         request_id: "mock-plan",
-         tool_call: {
-            toolCallId: "plan-review:1",
-            kind: "switch_mode",
-            title: "Implement this plan?",
-            rawInput: {
-               plan: "## Refactor\n\n1. Split module\n2. Add tests\n\n```ts\nconst x = 1\n```",
-            },
-         },
-         options: [
-            { option_id: "implement_plan", name: "Implement this plan", kind: "allow_once" },
-            { option_id: "revise_plan", name: "Revise", kind: "reject_once" },
-         ],
+         request_id: id,
+         tool_call: { toolCallId: `${id}-call`, kind: "switch_mode", title: "Ready to code?" },
+         options,
+         plan,
+      });
+   return [
+      modes("auto"),
+      modes("plan"),
+      request("mock-plan-1", PLAN_V1),
+      ev({
+         type: "PermissionResolved",
+         request_id: "mock-plan-1",
+         option_id: "plan",
+         by: "view",
       }),
+      ev({ type: "TurnEnded", turn_id: "mock-t2", stop_reason: "end_turn" }),
+      ev({
+         type: "TurnStarted",
+         turn_id: "mock-t3",
+         text: "Comments on the plan (Plan v1):\n\n> Move auth checks to `src/server/auth.ts`\n\nAdd a test for each check.",
+      }),
+      ev({ type: "AgentMessageChunk", text: "Updated the plan: a test per auth check." }),
+      request("mock-plan-2", PLAN_V2),
    ];
 }
 

@@ -20,8 +20,13 @@ export type QuoteComment = {
    quote: string;
    /** May be empty for a quote sent without a comment. */
    text: string;
-   /** "side_thread": text taken from a Side Thread ("Send to main"), not a comment on the Main Thread. */
-   source?: "side_thread";
+   /**
+    * "side_thread": text taken from a Side Thread ("Send to main"). "plan": a quote from the Plan panel.
+    * "artifact": a quote from an artifact. No source: a quote from a chat message.
+    */
+   source?: "side_thread" | "plan" | "artifact";
+   /** Which plan or artifact the quote is from ("Plan v2", "Upgrade guide"). */
+   label?: string;
 };
 
 /** A comment on one line of a file (the Files panel), waiting in the prompt box until the next send. */
@@ -62,6 +67,16 @@ const quoted = (s: string) =>
       .map((l) => (l ? `> ${l}` : ">"))
       .join("\n");
 
+/** `Comments on the plan (Plan v2):` / `Comments on artifact "Upgrade guide":`; no label: `...the plan:` / `...the artifact:`. */
+const sourceHeader = (source: "plan" | "artifact", label: string) =>
+   source === "plan"
+      ? `Comments on the plan${label ? ` (${label})` : ""}:`
+      : label
+        ? `Comments on artifact "${label}":`
+        : "Comments on the artifact:";
+const PLAN_HEAD = /^Comments on the plan(?: \((.+)\))?:$/;
+const ARTIFACT_HEAD = /^Comments on (?:the artifact|artifact "(.+)"):$/;
+
 /**
  * The sections the prompt gets on send: "Review comments:" (diff and file lines; a diff line has its side),
  * "Comments on the conversation:" (quotes).
@@ -72,17 +87,32 @@ export function formatReviewComments(comments: ReviewComment[]): string {
       const side = c.kind === "file" ? "" : ` (${c.side})`;
       return `${c.path}:${c.line}${side}\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
    });
-   const quotesOf = (side: boolean) =>
-      comments.flatMap((c) =>
-         c.kind === "quote" && (c.source === "side_thread") === side
-            ? [[quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n")]
-            : [],
+   const item = (c: QuoteComment) => [quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n");
+   const quotesOf = (pick: (c: QuoteComment) => boolean) =>
+      comments.flatMap((c) => (c.kind === "quote" && pick(c) ? [item(c)] : []));
+   const quotes = quotesOf((c) => !c.source);
+   const fromSide = quotesOf((c) => c.source === "side_thread");
+   // One section per distinct label of a source, in order of first appearance.
+   const labelled = (source: "plan" | "artifact") => {
+      const labels = [
+         ...new Set(
+            comments.flatMap((c) =>
+               c.kind === "quote" && c.source === source ? [c.label || ""] : [],
+            ),
+         ),
+      ];
+      return labels.map((label) =>
+         [
+            sourceHeader(source, label),
+            ...quotesOf((c) => c.source === source && (c.label || "") === label),
+         ].join("\n\n"),
       );
-   const quotes = quotesOf(false);
-   const fromSide = quotesOf(true);
+   };
    return [
       ...(diffs.length ? [["Review comments:", ...diffs].join("\n\n")] : []),
       ...(quotes.length ? [["Comments on the conversation:", ...quotes].join("\n\n")] : []),
+      ...labelled("plan"),
+      ...labelled("artifact"),
       ...(fromSide.length ? [["From a side thread:", ...fromSide].join("\n\n")] : []),
    ].join("\n\n");
 }
@@ -105,12 +135,21 @@ const HEADERS = {
    "Comments on the conversation:": "quote",
    "From a side thread:": "side",
 } as const;
-type Section = (typeof HEADERS)[keyof typeof HEADERS];
+type Section = "diff" | "quote" | "side" | "plan" | "artifact";
+type Header = { section: Section; label?: string };
+const parseHeader = (l: string | undefined): Header | null => {
+   if (l === undefined) return null;
+   if (Object.hasOwn(HEADERS, l)) return { section: HEADERS[l as keyof typeof HEADERS] };
+   const p = PLAN_HEAD.exec(l);
+   if (p) return { section: "plan", label: p[1] };
+   const a = ARTIFACT_HEAD.exec(l);
+   if (a) return { section: "artifact", label: a[1] };
+   return null;
+};
 /** `path:line (side)` for a diff line, `path:line` for a file line. */
 const DIFF_HEAD = /^(.+):(\d+)(?: \((old|new)\))?$/;
 const FENCE = /^`{3,}$/;
-const isHeader = (l: string | undefined): l is keyof typeof HEADERS =>
-   l !== undefined && Object.hasOwn(HEADERS, l);
+const isHeader = (l: string | undefined) => parseHeader(l) !== null;
 
 /**
  * The inverse of `withReviewComments`: the comments and the typed text of a sent prompt. Text that does not
@@ -123,6 +162,7 @@ export function parseReviewComments(text: string): { comments: ReviewComment[]; 
    const comments: ReviewComment[] = [];
    let i = 0;
    let section: Section = "diff";
+   let label: string | undefined;
    // At a blank line: the section ends there (next header, the separator, or the end).
    const sectionEnd = (j: number) =>
       j >= lines.length ||
@@ -140,9 +180,10 @@ export function parseReviewComments(text: string): { comments: ReviewComment[]; 
       return lines.slice(start, i).join("\n");
    };
    while (i < lines.length) {
-      const header = lines[i];
-      if (!isHeader(header) || lines[i + 1] !== "") return none;
-      section = HEADERS[header];
+      const header = parseHeader(lines[i]);
+      if (!header || lines[i + 1] !== "") return none;
+      section = header.section;
+      label = header.label;
       i += 2;
       while (true) {
          if (section === "diff") {
@@ -181,6 +222,10 @@ export function parseReviewComments(text: string): { comments: ReviewComment[]; 
                quote,
                text: t,
                ...(section === "side" && { source: "side_thread" as const }),
+               ...((section === "plan" || section === "artifact") && {
+                  source: section,
+                  ...(label && { label }),
+               }),
             });
          }
          if (sectionEnd(i)) break;

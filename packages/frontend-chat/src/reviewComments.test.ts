@@ -18,6 +18,19 @@ const diff = (over: Partial<ReviewComment> = {}): ReviewComment =>
       text: "Rename this",
       ...over,
    }) as ReviewComment;
+const from = (
+   source: "plan" | "artifact",
+   q: string,
+   text: string,
+   label?: string,
+): ReviewComment => ({
+   id: "s",
+   kind: "quote",
+   quote: q,
+   text,
+   source,
+   ...(label && { label }),
+});
 const file = (over: Partial<ReviewComment> = {}): ReviewComment =>
    ({
       id: "f",
@@ -109,6 +122,29 @@ describe("parseReviewComments", () => {
          text: "Please fix\n\nall of these",
          comments: noIds(cs),
       });
+   });
+
+   it("round-trips plan and artifact quotes with labels, mixed with other kinds", () => {
+      const comments = [
+         diff(),
+         quote("chat", "c"),
+         from("plan", "step 1", "split it", "Plan v2"),
+         from("plan", "step 2", "", "Plan v2"),
+         from("plan", "step 3", "other", "Plan v3"),
+         from("plan", "no label", "x"),
+         from("artifact", "a table", "why?", "Upgrade guide"),
+         from("artifact", "bare", "y"),
+         quote("side", "s", true),
+      ];
+      expect(withReviewComments("go", comments)).toContain(
+         "Comments on the plan (Plan v2):\n\n> step 1\n\nsplit it",
+      );
+      expect(withReviewComments("go", comments)).toContain('Comments on artifact "Upgrade guide":');
+      const r = roundTrip("go", comments);
+      expect(r.text).toBe("go");
+      // Sections are grouped by source and label, so compare as sets.
+      expect(r.comments).toHaveLength(comments.length);
+      for (const c of noIds(comments)) expect(r.comments).toContainEqual(c);
    });
 
    it("round-trips code with backtick fences inside", () => {

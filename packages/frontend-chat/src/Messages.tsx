@@ -15,6 +15,7 @@ import {
 import {
    AlertTriangle,
    ChevronRight,
+   CircleDot,
    Diff,
    FileText,
    Info,
@@ -31,6 +32,7 @@ import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
 import { isStepApproval, PermissionCard } from "./Permission";
+import { PlanContext, type PlanCtx, PlanNote } from "./PlanNote";
 import {
    hasArrived,
    type PendingMessage,
@@ -47,6 +49,7 @@ import { splitRenderUi } from "./slots";
 import { formatDuration } from "./time";
 import { groupTools, type ToolGroup, type ToolGroupProps, useToolDisplay } from "./toolDisplay";
 import { NoticeStep } from "./toolDisplay/NoticeStep";
+import { WaitingForUser } from "./toolDisplay/waiting";
 import type { RawNode } from "./tools";
 
 type Tool = Extract<Item, { type: "tool" }>;
@@ -166,17 +169,22 @@ function AgentNotice({ item }: { item: Extract<Item, { type: "agent_notice" }> }
 }
 
 /** Always takes its height, so the layout doesn't shift as Turns start and end. */
-export function Working({ since }: { since: number | null }) {
+export function Working({ since, waiting = false }: { since: number | null; waiting?: boolean }) {
    const [now, setNow] = useState(Date.now);
    useEffect(() => {
-      if (since === null) return;
+      if (since === null || waiting) return;
       setNow(Date.now());
       const t = setInterval(() => setNow(Date.now()), 1000);
       return () => clearInterval(t);
-   }, [since]);
+   }, [since, waiting]);
    return (
       <div className="flex h-5 items-center gap-2 text-sm text-muted-foreground" role="status">
-         {since !== null && (
+         {since !== null && waiting && (
+            <>
+               <CircleDot className="size-4 text-amber-500" /> Waiting for you
+            </>
+         )}
+         {since !== null && !waiting && (
             <>
                <Loader2 className="size-4 animate-spin" /> Working...{" "}
                <span className="tabular-nums">{formatDuration(now - since)}</span>
@@ -427,6 +435,7 @@ export const Row = memo(function Row({
                </div>
             );
          }
+         if (item.plan) return <PlanNote item={item} api={api} />;
          return item.resolved ? null : <PermissionCard item={item} api={api} />;
       case "auth":
          return <AuthCard item={item} api={api} />;
@@ -456,7 +465,8 @@ export function useRows(items: Item[]) {
       );
       const g = groupSubagents(
          items.filter((i) => {
-            if (i.type === "permission" && !i.auto && i.resolved) return false;
+            // A plan stays: its row records how it was answered.
+            if (i.type === "permission" && !i.auto && i.resolved && !i.plan) return false;
             // A Harness tool's approval shows on its step: the policy's answer is the step's own
             // note, and a pending git approval stands in for the step until it is answered.
             if (i.type === "permission" && i.auto && i.stepId) return false;
@@ -544,6 +554,7 @@ export function MessageList({
    rows,
    subagents,
    onOpenDiff,
+   onOpenPlan,
    empty,
    inset = 0,
 }: {
@@ -556,12 +567,19 @@ export function MessageList({
    rows: ReturnType<typeof useRows>["rows"];
    subagents: Map<string, Subagent<Tool>>;
    onOpenDiff: (s: DiffScope) => void;
+   /** Opens the Plan panel at a plan version. Without it, plans show inline (no panel). */
+   onOpenPlan?: (requestId: string) => void;
    empty: string;
    handle?: Ref<VirtualListHandle>;
    /** Height of the bar over the list's bottom (`ScrollUnder`), kept free at the end. */
    inset?: number;
 }) {
    const running = state.turnId !== null;
+   // A permission (or plan) waits for the user: the Turn is open but the Agent is not working.
+   const waiting = useMemo(
+      () => running && state.items.some((i) => i.type === "permission" && !i.resolved && !i.auto),
+      [running, state.items],
+   );
    const composer = composerKey(api.sessionId, side ? threadId : null);
    const userCount = useMemo(
       () => state.items.filter((i) => i.type === "user").length,
@@ -569,46 +587,54 @@ export function MessageList({
    );
    // Filtered here, not after the fact, so a message never shows twice for a frame.
    const pending = usePendingMessages(composer).filter((p) => !hasArrived(p, userCount));
+   const plans = useMemo<PlanCtx>(
+      () => ({ plans: state.plans, configOptions: state.configOptions, open: onOpenPlan }),
+      [state.plans, state.configOptions, onOpenPlan],
+   );
    return (
-      <VirtualList
-         handle={handle}
-         count={rows.length}
-         getKey={(i) => rows[i]!.id}
-         estimateSize={72}
-         gap={24}
-         className="@container"
-         scrollbarClassName="z-10 [&>*]:bg-[color-mix(in_oklch,var(--border),var(--foreground)_6%)]"
-         innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
-         empty={
-            pending.length === 0 && (
-               <p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>
-            )
-         }
-         renderRow={(i) => (
-            <Row
-               item={rows[i]!}
-               api={api}
-               env={env}
-               view={ui.inline.get(rows[i]!.id)}
-               onOpenDiff={onOpenDiff}
-               subagents={subagents}
-               active={running}
-               streaming={running && i === rows.length - 1}
-               threadId={threadId}
-               side={side}
+      <PlanContext value={plans}>
+         <WaitingForUser value={waiting}>
+            <VirtualList
+               handle={handle}
+               count={rows.length}
+               getKey={(i) => rows[i]!.id}
+               estimateSize={72}
+               gap={24}
+               className="@container"
+               scrollbarClassName="z-10 [&>*]:bg-[color-mix(in_oklch,var(--border),var(--foreground)_6%)]"
+               innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
+               empty={
+                  pending.length === 0 && (
+                     <p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>
+                  )
+               }
+               renderRow={(i) => (
+                  <Row
+                     item={rows[i]!}
+                     api={api}
+                     env={env}
+                     view={ui.inline.get(rows[i]!.id)}
+                     onOpenDiff={onOpenDiff}
+                     subagents={subagents}
+                     active={running}
+                     streaming={running && i === rows.length - 1}
+                     threadId={threadId}
+                     side={side}
+                  />
+               )}
+               footer={
+                  <>
+                     {/* With no rows yet, the list's top padding is not there. */}
+                     {rows.length === 0 && pending.length > 0 && <div className="h-4" />}
+                     {pending.map((p) => (
+                        <PendingRow key={p.id} item={p} state={state} composer={composer} />
+                     ))}
+                     <Working since={state.turnStartedAt} waiting={waiting} />
+                     <div style={{ height: inset }} />
+                  </>
+               }
             />
-         )}
-         footer={
-            <>
-               {/* With no rows yet, the list's top padding is not there. */}
-               {rows.length === 0 && pending.length > 0 && <div className="h-4" />}
-               {pending.map((p) => (
-                  <PendingRow key={p.id} item={p} state={state} composer={composer} />
-               ))}
-               <Working since={state.turnStartedAt} />
-               <div style={{ height: inset }} />
-            </>
-         }
-      />
+         </WaitingForUser>
+      </PlanContext>
    );
 }

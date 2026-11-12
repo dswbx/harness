@@ -1,13 +1,21 @@
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
-import { MessageSquare, X } from "lucide-react";
+import { ClipboardList, Layers, MessageSquare, X } from "lucide-react";
 import { useFileView } from "./FileRef";
 import { InlineMarkdown, Markdown } from "./Markdown";
 import type { ReviewComment } from "./reviewComments";
+
+const sourceIcon = (c: ReviewComment) =>
+   c.kind === "quote" && c.source === "plan"
+      ? ClipboardList
+      : c.kind === "quote" && c.source === "artifact"
+        ? Layers
+        : MessageSquare;
 
 /** The whole comment, for the chip's tooltip: the quote or diff line, then the comment as Markdown. */
 function CommentDetail({ c }: { c: ReviewComment }) {
    return (
       <ScrollArea className="max-h-80" viewportClassName="max-h-[inherit]">
+         {c.kind === "quote" && c.label && <div className="text-muted-foreground">{c.label}</div>}
          {c.kind === "quote" ? (
             <div className="my-1 whitespace-pre-wrap border-l-2 pl-2 text-muted-foreground">
                {c.quote}
@@ -44,6 +52,7 @@ export function CommentChip({
    comment: ReviewComment;
    onRemove?: () => void;
 }) {
+   const Icon = sourceIcon(c);
    const view = useFileView();
    return (
       <Tooltip className="max-w-96" content={<CommentDetail c={c} />}>
@@ -53,11 +62,18 @@ export function CommentChip({
                onRemove ? "pr-0.5" : "pr-1.5",
             )}
          >
-            <MessageSquare className="size-3 shrink-0 text-muted-foreground" />
+            <Icon className="size-3 shrink-0 text-muted-foreground" />
             {c.kind === "quote" ? (
-               <span className="min-w-0 max-w-40 shrink-0 truncate text-muted-foreground">
-                  “{c.quote}”
-               </span>
+               <>
+                  {c.label && (
+                     <span className="min-w-0 max-w-28 shrink-0 truncate text-muted-foreground">
+                        {c.label}
+                     </span>
+                  )}
+                  <span className="min-w-0 max-w-40 shrink-0 truncate text-muted-foreground">
+                     “{c.quote}”
+                  </span>
+               </>
             ) : c.kind === "file" && view ? (
                <button
                   type="button"

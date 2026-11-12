@@ -48,7 +48,7 @@ describe("defaultLayout", () => {
       const { zones } = defaultLayout();
       expect(zones.leftTop).toEqual(["artifacts"]);
       expect(zones.leftBottom).toEqual(["references"]);
-      expect(zones.rightTop).toEqual(["changes", "files", "side"]);
+      expect(zones.rightTop).toEqual(["changes", "files", "side", "plan"]);
    });
 });
 const open = (l: Layout, ...ids: PanelId[]) => ids.reduce(show, l);
@@ -220,19 +220,20 @@ describe("reset", () => {
 
 describe("reconcile", () => {
    it("is the identity when nothing is missing", () => {
-      expect(reconcile(empty, [])).toBe(empty);
+      const full = { ...empty, zones: { ...empty.zones, rightTop: ["side", "plan"] as PanelId[] } };
+      expect(reconcile(full, [])).toBe(full);
    });
    it("puts built-in panels missing from the zones in their default zone", () => {
       const l = { ...empty, zones: { ...empty.zones, bottomRight: [], leftTop: [] } };
       const r = reconcile(l, []);
       expect(r.zones.bottomRight).toEqual(["events"]);
-      expect(r.zones.rightTop).toEqual(["side", "changes"]);
+      expect(r.zones.rightTop).toEqual(["side", "changes", "plan"]);
    });
    it("adds the Files panel to an old saved layout, next to Changes", () => {
       const old = defaultLayout();
       old.zones.rightTop = ["changes", "side"];
       const r = reconcile(old, []);
-      expect(r.zones.rightTop).toEqual(["changes", "side", "files"]);
+      expect(r.zones.rightTop).toEqual(["changes", "side", "files", "plan"]);
       expect(zoneOf(r, "files")).toBe("rightTop");
    });
    it("drops unknown ids and duplicates", () => {
@@ -249,7 +250,7 @@ describe("reconcile", () => {
          { id: slotPanel("a"), zone: "rightTop" },
          { id: slotPanel("b"), zone: "leftTop" },
       ]);
-      expect(l.zones.rightTop).toEqual(["side", "slot:a"]);
+      expect(l.zones.rightTop).toEqual(["side", "plan", "slot:a"]);
       expect(l.zones.leftTop).toEqual(["changes", "slot:b"]);
       l = move(l, slotPanel("a"), "bottomRight");
       const again = reconcile(l, [
@@ -353,7 +354,7 @@ describe("migration of the old right panel state", () => {
    });
    it("a slot view opens in right top", () => {
       const l = migratePanel({ threads: [], view: { kind: "slot", id: "notes" } });
-      expect(l.zones.rightTop).toEqual(["changes", "files", "side", "slot:notes"]);
+      expect(l.zones.rightTop).toEqual(["changes", "files", "side", "plan", "slot:notes"]);
       expect(l.open.rightTop).toBe("slot:notes");
    });
    it("no view or garbage opens nothing", () => {

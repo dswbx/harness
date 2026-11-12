@@ -109,6 +109,10 @@ export interface SessionApi {
    frontendRead(path: string): Promise<string>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
    openInEditor(path?: string, line?: number): Promise<void>;
+   /** Writes a plan's Markdown to a file Harness owns; returns its absolute path. Optionally opens it in the editor. */
+   exportPlan(name: string, markdown: string, openInEditor: boolean): Promise<string>;
+   /** The editor "Open in editor" uses (Settings); null until chosen. */
+   getEditor(): Promise<Editor | null>;
    /**
     * Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, those `.gitignore`
     * does not exclude. Capped. `prefix`: the folder's path in its repository (`crates/`, else empty), to match
@@ -270,6 +274,23 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             path: path ?? null,
             line: line ?? null,
          }),
+      getEditor: async () => {
+         const r = await transport.execute({ type: "GetEditor" });
+         return r.type === "Editor" ? r.editor : null;
+      },
+      exportPlan: async (name, markdown, openInEditor) =>
+         (
+            await expect(
+               {
+                  type: "ExportPlan",
+                  session_id: sessionId,
+                  name,
+                  markdown,
+                  open_in_editor: openInEditor,
+               },
+               "PlanFile",
+            )
+         ).path,
       listSessionFiles: async () => {
          const r = await expect(
             { type: "ListSessionFiles", session_id: sessionId },

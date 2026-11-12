@@ -44,9 +44,14 @@ export function groupSubagents<I, T extends SubagentTool>(
 
 export type SubagentState = "running" | "done" | "failed";
 
-/** A background subagent is done when its report arrives; any other when its starting call ends. */
-export function subagentState(task: SubagentTool, s: Subagent): SubagentState {
+/**
+ * A background subagent is done when its report arrives; any other when its starting call ends. Some Agents never
+ * send a background subagent's report (Claude's Explore agents), so without one it counts as running only while
+ * `turnActive` (its Turn runs and is not waiting for the user).
+ */
+export function subagentState(task: SubagentTool, s: Subagent, turnActive = true): SubagentState {
    if (task.status === "failed") return "failed";
    if (s.report != null) return "done";
-   return task.status === "completed" && !task.background ? "done" : "running";
+   if (task.status === "completed" && !task.background) return "done";
+   return task.background && !turnActive ? "done" : "running";
 }

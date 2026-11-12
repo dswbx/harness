@@ -180,6 +180,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
 { type: "OpenInEditor"; session_id: string; path?: string | null; line?: number | null } | 
 /**
+ *  Writes `markdown` to `<Session dir>/plans/<name>.md` (`name` is cut to `[a-z0-9-]`) and returns the path
+ *  (`PlanFile`). With `open_in_editor` it also opens that file in the user's editor.
+ */
+{ type: "ExportPlan"; session_id: string; name: string; markdown: string; open_in_editor?: boolean } | 
+/**
  *  Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, the files `.gitignore`
  *  does not exclude; elsewhere, all but hidden and build folders. Capped. Replies `SessionFiles`.
  */
@@ -327,6 +332,8 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
 { type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+/**  The file `ExportPlan` wrote (absolute). */
+{ type: "PlanFile"; path: string } | 
 /**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
 { type: "WorktreeDir"; dir: string } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
@@ -660,6 +667,10 @@ export type PermissionOption = {
 	name: string,
 	/**  ACP kind: allow_once, allow_always, reject_once, reject_always. */
 	kind: string,
+	/**  Plan approvals only: the Agent mode this option switches to (e.g. "acceptEdits"). */
+	plan_mode?: string | null,
+	/**  Plan approvals only: this option also clears the context. */
+	clears_context?: boolean,
 };
 
 /**
