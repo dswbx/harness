@@ -3,21 +3,29 @@ import { Expandable } from "./Expandable";
 import { fileName, uiFormats } from "./exportFormats";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Item } from "./reducer";
+import { quotableAttrs } from "./SelectionComment";
 import type { RawNode } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
 
 const raw = (v: unknown) => JSON.stringify(v, null, 2);
 
-/** `view`: what to show for a `render_ui` call with an id (its latest content), if not its own. */
+/**
+ * `view`: what to show for a `render_ui` call with an id (its latest content), if not its own.
+ * `threadId`/`side`: the Thread it is in, so a comment on selected text goes to that Thread's prompt box.
+ */
 export function FrontendToolRow({
    item,
    env,
    view,
+   threadId,
+   side,
 }: {
    item: FT;
    env: UiEnv;
    view?: { root: RawNode; files: Record<string, string> };
+   threadId: string;
+   side: boolean;
 }) {
    if (item.render?.ok) {
       const shown =
@@ -32,10 +40,12 @@ export function FrontendToolRow({
             className="chat-wide"
             formats={(png) => [png(), ...uiFormats(fileName(title), shown.root)]}
          >
-            <RenderUi
-               root={shown.root}
-               env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
-            />
+            <div {...quotableAttrs(threadId, side, { source: "artifact", label: title })}>
+               <RenderUi
+                  root={shown.root}
+                  env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
+               />
+            </div>
          </Expandable>
       );
    }
