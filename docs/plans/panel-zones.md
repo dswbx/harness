@@ -29,7 +29,7 @@ The chat has one right panel showing one view at a time (Side chats, Changes, Te
 
 - Left: leftTop, separator, leftBottom, spacer, bottomLeft. Right: rightTop, separator, rightBottom, spacer, bottomRight. Icons with tooltip, pressed state, the changed-dot from `SlotTab`.
 - Drag and drop with pointer events (not HTML5 DnD: avoids Tauri webview drop handling and gives a custom ghost): 4 px threshold, ghost icon follows cursor, targets found with `elementsFromPoint` + `data-drop-zone`/`data-drop-index`. Targets: stripe groups (dashed slot at index), drop pads on the dock edges, blue preview of the target rect. Esc cancels.
-- Keyboard shortcuts stay (Ctrl+` Terminal, Cmd/Ctrl+Shift+B side chat) and open the panel in whatever zone it is in.
+- Keyboard shortcuts stay (Cmd+J Terminal, Cmd/Ctrl+Shift+B side chat) and open the panel in whatever zone it is in.
 
 ## 4. Panel chrome: `PanelHeader.tsx`
 

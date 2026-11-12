@@ -556,8 +556,8 @@ function ChatView({
       // The Quick overlay has no Terminal or side chats panel.
       if (overlay) return;
       const onKey = (e: KeyboardEvent) => {
-         // Ctrl+` toggles the Terminal, as in VS Code. Capture phase, so xterm never sees it.
-         if (e.ctrlKey && !e.metaKey && !e.altKey && (e.code === "Backquote" || e.key === "`")) {
+         // Cmd+J toggles the Terminal, as in VS Code. Capture phase, so xterm never sees it.
+         if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyJ") {
             e.preventDefault();
             e.stopPropagation();
             update((l) => toggle(l, "terminal"));
@@ -888,7 +888,7 @@ function ChatView({
            : id === "references"
              ? resolved.count
              : undefined;
-   const shortcut = (id: PanelId) => (id === "terminal" ? ["⌃", "`"] : undefined);
+   const shortcut = (id: PanelId) => (id === "terminal" ? ["⌘", "J"] : undefined);
    const group = (zone: Zone): StripeGroup => ({
       zone,
       items: lay.zones[zone].flatMap((id, index): StripeItem[] => {
