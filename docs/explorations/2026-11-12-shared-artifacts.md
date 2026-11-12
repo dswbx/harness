@@ -1,6 +1,6 @@
 # Shared artifacts (design draft)
 
-Status: draft for discussion. Builds on ADR 0015 (Session State, placements), ADR 0019 (panel zones), ADR 0023 (file-backed panels). Visual design: https://claude.ai/artifact/L5kxrWU6iYTjxRKzgv5m9R (private).
+Status: decided in ADR 0024. Builds on ADR 0015 (Session State, placements), ADR 0019 (panel zones), ADR 0023 (file-backed panels). Visual design: https://claude.ai/artifact/L5kxrWU6iYTjxRKzgv5m9R (private).
 
 ## Problem
 
