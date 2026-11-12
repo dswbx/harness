@@ -8,11 +8,11 @@ Every artifact belonged to one Session: `render_ui` items in the Session Log and
 
 **Every kind can be shared.** "Make shared" moves the content out of the Session:
 
-| Session artifact | Shared content |
-|---|---|
-| File-backed panel (`.md`, `.html`) | the file, moved out of `panels/` |
+| Session artifact                        | Shared content                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| File-backed panel (`.md`, `.html`)      | the file, moved out of `panels/`                                                                |
 | `render_ui` tree (any root, `Html` too) | `ui.json`: the input of the item's latest call, plus its copied image files (`frontend/files/`) |
-| Mermaid diagram or table in a message | the fenced block as `content.md`; a copy, the message keeps its own |
+| Mermaid diagram or table in a message   | the fenced block as `content.md`; a copy, the message keeps its own                             |
 
 A Session `render_ui` item is stored as one file per call (`frontend/tools/render_ui/<call id>.json`, UUIDv7) and the reducer shows the latest call for an `id`. A shared tree has no call history: one `ui.json`, replaced on each update. The Harness then logs a new `render_ui` output for the same item id with `source: "shared:<id>"` (earlier calls stay in the log, ADR 0021), so the Panel keeps its Zone and shows the shared content. The sharing Session is attached at once.
 

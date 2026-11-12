@@ -20,11 +20,11 @@ No new concept. An artifact can be **shared**. A shared artifact lives outside a
 
 Every artifact kind can be shared. From the Artifacts Panel menu (user) or `artifact_share` (Agent), but only when the user asks for it. The content moves out of the Session into `shared/<id>/`. The Session's `render_ui` item now points at `shared:<id>`, so the Panel stays in its Zone and keeps showing it. The Session is attached automatically.
 
-| Session artifact | Becomes |
-|---|---|
-| File-backed panel (`.md`, `.html`) | moved out of `panels/` as is |
-| `render_ui` tree (any, `Html` too) | `ui.json`: the input of the item's latest call, plus its copied image files |
-| Mermaid diagram or table in a message | fenced block as `.md` (a copy; the message keeps its own) |
+| Session artifact                      | Becomes                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| File-backed panel (`.md`, `.html`)    | moved out of `panels/` as is                                                |
+| `render_ui` tree (any, `Html` too)    | `ui.json`: the input of the item's latest call, plus its copied image files |
+| Mermaid diagram or table in a message | fenced block as `.md` (a copy; the message keeps its own)                   |
 
 Today each `render_ui` call is stored as `frontend/tools/render_ui/<call id>.json` (a new UUIDv7 file per call, the whole input with `id` inside) and the same input is in the `FrontendToolOutput` event. An item with an `id` is the sum of its calls; the reducer shows the latest. A shared tree has no call history: one `ui.json`, replaced on each update.
 
@@ -32,12 +32,12 @@ Today each `render_ui` call is stored as `frontend/tools/render_ui/<call id>.jso
 
 ## Agent side (Harness MCP)
 
-| Tool | Does |
-|---|---|
+| Tool                      | Does                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `artifact_search {query}` | Shared artifacts matching title or text: id, title, kind, updated, attached here or not. Used when the user names one ("the release checklist"). |
-| `artifact_share {id}` | Make a Session artifact (render_ui id) shared. Returns shared id and path. |
-| `artifact_attach {id}` | Attach; returns the absolute dir; opens it as a Panel. Never automatic: the Agent calls it when the user names an artifact or asks for it. |
-| `artifact_detach {id}` | Detach. |
+| `artifact_share {id}`     | Make a Session artifact (render_ui id) shared. Returns shared id and path.                                                                       |
+| `artifact_attach {id}`    | Attach; returns the absolute dir; opens it as a Panel. Never automatic: the Agent calls it when the user names an artifact or asks for it.       |
+| `artifact_detach {id}`    | Detach.                                                                                                                                          |
 
 The Agent edits file kinds with its own Write and Edit tools, like file-backed panels, and shows them with `render_ui source: "shared:<id>"`. For a tree kind it calls `render_ui` with `id: "shared:<id>"` and a new `root`, which replaces `ui.json` (or edits `ui.json` directly). `state_get` and `state_patch` take an optional `artifact` to change an artifact's state. `harness_info` lists attached shared artifacts with their paths, so the Agent finds them after compaction.
 
