@@ -44,7 +44,6 @@ export function FileTreeList<T>({
    onOpenFile,
    onSetOpen,
    renderFile,
-   fileTitle,
 }: {
    rows: NavRow<T>[];
    /** The cursor's row key. */
@@ -64,7 +63,6 @@ export function FileTreeList<T>({
    onSetOpen: (dir: string, open: boolean) => void;
    /** A file row's content: icon, name, badges. */
    renderFile: (row: Extract<NavRow<T>, { kind: "file" }>) => ReactNode;
-   fileTitle?: (row: Extract<NavRow<T>, { kind: "file" }>) => string;
 }) {
    const list = useRef<HTMLUListElement>(null);
    const activePos = rows.findIndex((r) => r.key === activeKey);
@@ -119,7 +117,6 @@ export function FileTreeList<T>({
                role="treeitem"
                aria-selected={on}
                aria-expanded={r.open}
-               title={r.dir}
                style={{ paddingLeft: indent(r) }}
                className={base}
                onClick={() => {
@@ -145,7 +142,6 @@ export function FileTreeList<T>({
             data-pos={pos}
             role="treeitem"
             aria-selected={on}
-            title={fileTitle?.(r)}
             style={{ paddingLeft: flat ? 8 : indent(r) }}
             className={base}
             onClick={() => onOpenFile(r)}

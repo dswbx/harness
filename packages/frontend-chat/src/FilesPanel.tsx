@@ -396,7 +396,6 @@ export function FilesPanel({
                      }}
                      onOpenFile={(r) => select(r.file.path)}
                      onSetOpen={setOpen}
-                     fileTitle={(r) => r.file.path}
                      renderFile={(r) => (
                         <>
                            <File className="size-4 shrink-0 text-muted-foreground" />
