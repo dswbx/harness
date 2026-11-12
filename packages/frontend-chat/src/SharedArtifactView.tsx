@@ -17,7 +17,9 @@ import {
    DropdownMenuItem,
    DropdownMenuTrigger,
    Input,
+   ResizeHandle,
    ScrollArea,
+   useResizableWidth,
 } from "@harness/ui";
 import {
    ChevronRight,
@@ -29,9 +31,13 @@ import {
    Trash2,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { sessionCount } from "./ArtifactsPanel";
+import { ArtifactImage } from "./ArtifactExport";
+import { Source, sessionCount } from "./ArtifactsPanel";
+import type { Artifact } from "./artifacts";
+import { useCapture } from "./Capture";
 import { RenderUi, type UiEnv } from "./RenderUi";
-import { useSharedArtifact } from "./renderUi/sharedSource";
+import { sharedSourceText, useSharedArtifact } from "./renderUi/sharedSource";
+import { Segmented } from "./Segmented";
 import { formatRelativeTime, useNow } from "./time";
 import { sharedNode } from "./tools";
 
@@ -96,6 +102,39 @@ export function SharedArtifactView({
    };
    const titleOf = (sid: string) => sessions.find((s) => s.id === sid)?.title ?? "Session";
    const root = useMemo(() => sharedNode(id), [id]);
+   const [tab, setTab] = useState<"info" | "image" | "source">("info");
+   const { stage, shoot } = useCapture();
+   const side = useResizableWidth({
+      storageKey: "harness:shared-artifact-side-width",
+      initial: 320,
+      min: 240,
+      max: 640,
+      edge: "left",
+   });
+   const src = useMemo(() => (data ? sharedSourceText(data) : null), [data]);
+   // The artifact as the Artifacts panel's image view takes it: drawn through the `Shared` node.
+   const asArtifact = useMemo<Artifact | null>(
+      () =>
+         data
+            ? {
+                 key: `shared:${id}`,
+                 kind: "ui",
+                 title: data.meta.title,
+                 sub: KIND[data.meta.kind],
+                 rowId: null,
+                 index: null,
+                 placement: "right",
+                 slotId: null,
+                 ts: data.meta.updated_ms,
+                 turn: 0,
+                 prompt: "",
+                 source: data.content,
+                 ui: { root, files: {} },
+                 shared: { id },
+              }
+            : null,
+      [data, id, root],
+   );
 
    if (shown && "missing" in shown)
       return (
@@ -173,9 +212,35 @@ export function SharedArtifactView({
                   <RenderUi root={root} env={env} />
                </div>
             </ScrollArea>
-            <aside className="hidden w-[320px] shrink-0 border-l md:block">
-               <ScrollArea className="h-full">
-                  <div className="p-4">
+            <aside
+               className="relative hidden shrink-0 flex-col border-l md:flex"
+               style={{ width: side.width }}
+            >
+               <ResizeHandle label="Resize side column" {...side.handle} />
+               <div className="px-4 pt-3">
+                  <Segmented
+                     value={tab}
+                     onChange={setTab}
+                     label="Artifact details"
+                     items={[
+                        { value: "info", label: "Info" },
+                        { value: "image", label: "Image", disabled: !asArtifact },
+                        { value: "source", label: "Source", disabled: !src },
+                     ]}
+                  />
+               </div>
+               <ScrollArea className="min-h-0 flex-1">
+                  {tab === "image" && asArtifact && (
+                     <div className="p-4">
+                        <ArtifactImage a={asArtifact} env={env} shoot={shoot} />
+                     </div>
+                  )}
+                  {tab === "source" && src && asArtifact && (
+                     <div className="p-4">
+                        <Source a={asArtifact} src={src} />
+                     </div>
+                  )}
+                  <div className={tab === "info" ? "p-4" : "hidden"}>
                      <Section title="Attached in">
                         {meta && (meta.attached ?? []).length === 0 && (
                            <p className="px-2 py-1.5 text-xs text-muted-foreground">
@@ -218,6 +283,7 @@ export function SharedArtifactView({
                </ScrollArea>
             </aside>
          </div>
+         {stage}
          {meta && (
             <RenameDialog
                open={dialog === "rename"}

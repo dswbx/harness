@@ -87,8 +87,8 @@ const PLACED: Record<string, string> = {
    right: "Right",
 };
 
-/** The artifact's source, highlighted, with wrap and copy. */
-function Source({ a, src }: { a: Artifact; src?: { lang: string; text: string } }) {
+/** The artifact's source, highlighted, with wrap and copy. `src`: shown instead (a Shared Artifact's file). */
+export function Source({ a, src }: { a: Artifact; src?: { lang: string; text: string } }) {
    const wrap = useWrapCode();
    const { lang, text } = src ?? artifactSource(a);
    return (
