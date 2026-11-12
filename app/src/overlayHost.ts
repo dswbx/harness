@@ -21,11 +21,11 @@ export const overlayHost = {
    /** Grows the window right and down while a menu is open (`open`), or back; resolves once done. */
    setMenuRoom: (open: boolean) =>
       inTauri() ? invoke<void>("overlay_set_menu_room", { open }) : Promise.resolve(),
-   /** A chat resize grip: the chat card's new size with its shadow margin (logical px), its top-left kept (its bottom-right with `topLeft`). */
+   /** A chat resize grip: the chat card's new size with its shadow margin (logical px), the corner opposite the dragged one (`left`, `top`) kept. */
    /** Resolves to the card's width after (logical px), or null when the host did not resize (not in the chat, a menu open). */
-   resize: (width: number, height: number, topLeft = false) =>
+   resize: (width: number, height: number, left: boolean, top: boolean) =>
       inTauri()
-         ? invoke<number | null>("overlay_resize", { width, height, topLeft })
+         ? invoke<number | null>("overlay_resize", { width, height, left, top })
          : Promise.resolve(null),
    /** The chat card's width (logical px): the user's last resize this app session, else the default. */
    chatWidth: () => (inTauri() ? invoke<number>("overlay_chat_width") : Promise.resolve(null)),
