@@ -314,9 +314,8 @@ function HarnessContext({ text }: { text: string }) {
 }
 
 /**
- * In the Main Thread, artifacts (`chat-wide`) stand out past the text to the prompt box's edges. Their Expand
- * button sits in the gutter when the list (a container) is wide enough, else inside. The side panel has no
- * gutter for either.
+ * Artifacts (`chat-wide`) stand out past the text to the prompt box's edges. Their Expand
+ * button sits in the gutter when the list (a container) is wide enough, else inside.
  */
 const bleed = "[--chat-bleed:1rem] @min-[52rem]:[--expand-out:1]";
 
@@ -374,7 +373,7 @@ export const Row = memo(function Row({
          );
       case "agent":
          return (
-            <div className={cn("group", !side && bleed)}>
+            <div className={cn("group", bleed)}>
                <div {...quotableAttrs(threadId, side)}>
                   <Markdown>{item.text}</Markdown>
                </div>
@@ -403,7 +402,7 @@ export const Row = memo(function Row({
          );
       case "frontend_tool":
          return (
-            <div className={cn(!side && bleed)}>
+            <div className={bleed}>
                <FrontendToolRow item={item} env={env} view={view ?? undefined} />
             </div>
          );
@@ -602,7 +601,7 @@ export function MessageList({
                gap={24}
                className="@container"
                scrollbarClassName="z-10 [&>*]:bg-[color-mix(in_oklch,var(--border),var(--foreground)_6%)]"
-               innerClassName={cn("mx-auto px-10 pb-3 pt-4", side ? "px-4" : "max-w-3xl")}
+               innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
                empty={
                   pending.length === 0 && (
                      <p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>
