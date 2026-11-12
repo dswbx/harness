@@ -1,6 +1,8 @@
 import { type ComponentProps, createContext, lazy, Suspense, useContext, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { AnsiText } from "./AnsiText";
@@ -177,6 +179,20 @@ const inline = {
    marked: [rehypeInlineCode, { guess: false }],
 } satisfies Record<string, Plugins[number]>;
 
+/**
+ * Raw HTML for file-backed panels (ADR 0023): parsed, then cut down to the default sanitize schema
+ * (GitHub's) plus `<details open>`/`<summary>`. No scripts, styles, frames or event handlers.
+ */
+const sanitizeSchema = {
+   ...defaultSchema,
+   tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
+   attributes: {
+      ...defaultSchema.attributes,
+      details: [...(defaultSchema.attributes?.details ?? []), "open"],
+   },
+};
+const rawHtml: Plugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
+
 /** `breaks`: single newlines become line breaks (user prompts are typed that way). `plainCode`: code blocks without
  * their frame (language, wrap, copy). */
 export function Markdown({
@@ -185,8 +201,11 @@ export function Markdown({
    breaks,
    plainCode,
    title,
+   html,
 }: {
    children: string;
+   /** Allow raw HTML, sanitized (`sanitizeSchema`); otherwise raw HTML is dropped. */
+   html?: boolean;
    /** What this shows, if not to be found from the text before it: names downloads. */
    title?: string;
    className?: string;
@@ -200,12 +219,13 @@ export function Markdown({
    const fileRefs = !!useFileRefs();
    const plugins = useMemo<Plugins>(
       () => [
+         ...(html ? rawHtml : []),
          block,
          ...(prCtx ? [[rehypePrRefs, { ctx: prCtx }] as Plugins[number]] : []),
          ...(fileRefs ? [rehypeFileRefs] : []),
          inline[guess ? "guess" : "marked"],
       ],
-      [guess, prCtx, fileRefs],
+      [guess, prCtx, fileRefs, html],
    );
    const context = useMemo(() => ({ text: children, title }), [children, title]);
    return (

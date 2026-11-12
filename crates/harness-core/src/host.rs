@@ -297,6 +297,12 @@ impl Harness {
                 CommandResult::Ok
             }
             Command::FrontendRead { session_id, path } => CommandResult::FileContent { content: self.session(&session_id)?.frontend_read(&path)? },
+            Command::PanelSourceRead { session_id, name } => {
+                let session = self.session(&session_id)?;
+                let (content, hash) =
+                    tokio::task::spawn_blocking(move || session.panel_source_read(&name)).await?.map_err(|e| crate::error::not_found(format!("{e:#}")))?;
+                CommandResult::PanelSource { content, hash }
+            }
             Command::GetAppSetting { key } => CommandResult::Json { value: crate::app_settings::load(&self.data_dir, key) },
             Command::SetAppSetting { key, value } => {
                 crate::app_settings::save(&self.data_dir, key, value.as_ref())?;

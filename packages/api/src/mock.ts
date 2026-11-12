@@ -366,7 +366,20 @@ declare global {
          tool: string,
          input: unknown,
       ) => Promise<FrontendAnswer>;
+      /** Manual testing in the browser mock: writes a panel source file, as the Agent's Edit would. */
+      __harnessMockPanelWrite?: (sessionId: string, name: string, content: string) => void;
    }
+}
+
+/** The mock's file-backed panel (ADR 0023): `progress.md` in every Session's `panels/`. */
+const MOCK_PANEL_SOURCE =
+   "# Upgrade progress\n\n- [x] Bump dependencies\n- [x] Fix type errors\n- [ ] Run the e2e tests\n\n<details>\n<summary>Notes</summary>\n\nThe e2e suite needs a running dev server.\n\n</details>\n";
+
+/** A stable stand-in for the core's sha256 of a panel source. */
+function mockHash(text: string): string {
+   let h = 0;
+   for (let i = 0; i < text.length; i++) h = (Math.imul(h, 31) + text.charCodeAt(i)) | 0;
+   return (h >>> 0).toString(16);
 }
 
 export class MockTransport implements Transport {
@@ -381,6 +394,8 @@ export class MockTransport implements Transport {
    private mcp: McpServerDef[] = [];
    /** Per-session Frontend state files. */
    private frontendFiles = new Map<string, Map<string, string>>();
+   /** Per-session panel source files written with `__harnessMockPanelWrite` (else `MOCK_PANEL_SOURCE`). */
+   private panelFiles = new Map<string, Map<string, string>>();
    private cardN = 0;
    private states = new Map<string, unknown>();
    private editor: Editor | null = null;
@@ -420,6 +435,12 @@ export class MockTransport implements Transport {
       if (typeof window !== "undefined") {
          window.__harnessMockFrontendRequest = (sessionId, tool, input) =>
             this.frontendRequest(sessionId, tool, input);
+         window.__harnessMockPanelWrite = (sessionId, name, content) => {
+            const m = this.panelFiles.get(sessionId) ?? new Map<string, string>();
+            m.set(name, content);
+            this.panelFiles.set(sessionId, m);
+            this.emitApp({ type: "PanelSourceChanged", session_id: sessionId, name });
+         };
       }
       this.addSession("mock-1", "Mock session (fixture replay)", "chat");
       // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
@@ -1067,6 +1088,14 @@ export class MockTransport implements Transport {
             const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);
             if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
             return { type: "FileContent", content: c };
+         }
+         case "PanelSourceRead": {
+            const content =
+               this.panelFiles.get(cmd.session_id)?.get(cmd.name) ??
+               (cmd.name === "progress.md" ? MOCK_PANEL_SOURCE : undefined);
+            if (content === undefined)
+               throw new Error(`source "${cmd.name}" does not exist in panels_dir`);
+            return { type: "PanelSource", content, hash: mockHash(content) };
          }
          case "GetAppSetting":
             return { type: "Json", value: this.appSettings[cmd.key] ?? null };

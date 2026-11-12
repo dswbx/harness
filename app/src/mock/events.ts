@@ -221,6 +221,13 @@ export function mockEvents(): Event[] {
          ),
       }),
       ev({
+         type: "FrontendToolOutput",
+         tool: "render_ui",
+         call_id: "mock-source",
+         path: "tools/render_ui/mock-source.json",
+         input: { id: "progress", placement: "right", title: "Progress", source: "progress.md" },
+      }),
+      ev({
          type: "AgentMessageChunk",
          text: "Renamed. `Widget::render` now takes a `Mode`, see `src/server/router.ts:4` and `server/router.ts:44`; `fix_something()` runs after it. Related: dswbx/harness#24, supabase/spark#17, [Using Vite](https://tailwindcss.com/docs/installation/using-vite), https://ui.shadcn.com/docs/components/dropdown-menu and `/opt/spark/src/worker.ts:40`.\n\n```rust\npub enum Mode { Full, Quick }\n\nwidget.render(input, opts, Mode::Full).await // a long comment so the line runs past the frame and the wrap button has something to do\nwidget.render(input, opts, Mode::Quick).await\n```\n\nHere is a **plan** next.\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B{Agent} --> C[Tool calls] --> D[Session Log] --> E[Frontend]\n  B --> F[Messages] --> D\n  E --> G[Reducer] --> H[View]\n```\n\n| Area | Status | Files | Notes |\n| --- | --- | --- | --- |\n| Tool call display | spike | `toolDisplay/*.tsx` | Cards and Trace, in **Settings > Appearance** |\n| Mermaid zoom | done | `Mermaid.tsx`, `ZoomView.tsx` | Expand, pan, pinch, +/-/0 keys |\n",
       }),

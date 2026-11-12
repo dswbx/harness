@@ -28,6 +28,7 @@ futures-util = "0.3"
 agent-client-protocol = { version = "3.5", features = ["process", "unstable_session_fork"] }
 base64 = "0.22"
 portable-pty = "0.9"
+notify = "8"
 
 [dev-dependencies]
 tempfile = "3"

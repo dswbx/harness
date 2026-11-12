@@ -119,6 +119,12 @@ pub enum Command {
         session_id: SessionId,
         path: String,
     },
+    /// Reads a file-backed panel's source (ADR 0023): `name` is relative to the Session's
+    /// `panels/` folder and must stay inside it. Starts the watch that sends `PanelSourceChanged`.
+    PanelSourceRead {
+        session_id: SessionId,
+        name: String,
+    },
     /// An app setting (appearance, imported themes): JSON the app owns, null until saved.
     GetAppSetting {
         key: AppSettingKey,
@@ -614,6 +620,11 @@ pub enum CommandResult {
     },
     FileContent {
         content: String,
+    },
+    /// A panel source file; `hash`: sha256 of `content` (hex), to skip re-renders when unchanged.
+    PanelSource {
+        content: String,
+        hash: String,
     },
     /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
     FileLines {
@@ -1499,6 +1510,12 @@ pub enum AppEvent {
         input: Json,
         #[specta(type = specta_typescript::Number)]
         last_seq: u64,
+    },
+    /// A file in the Session's `panels/` folder changed (ADR 0023): windows showing a panel with
+    /// this `source` re-read it. Sent once per burst of writes; live only and not logged.
+    PanelSourceChanged {
+        session_id: SessionId,
+        name: String,
     },
 }
 

@@ -487,6 +487,8 @@ function ChatView({
          files: {},
          readImage: (p) => api.frontendReadImage(p),
          open: (p, line) => api.openInEditor(p, line),
+         readSource: (name) => api.panelSourceRead(name),
+         watchSources: (onChange) => api.panelSourceChanged(onChange),
          scope: api.sessionId,
       }),
       [api, state.uiState],

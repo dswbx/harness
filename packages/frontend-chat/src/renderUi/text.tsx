@@ -2,6 +2,7 @@ import { cn } from "@harness/ui";
 import { InlineMarkdown as Md } from "../InlineMarkdown";
 import { Markdown } from "../Markdown";
 import { IconOf, type Renderers, tip, tones } from "./runtime";
+import { SourceMarkdown } from "./source";
 
 export * from "./text.spec";
 
@@ -10,6 +11,9 @@ const textSize = { xs: "text-ui-xs", sm: "text-ui-sm", md: "text-ui", lg: "text-
 
 export const renderers = {
    Markdown: ({ node }) => {
+      // A file-backed panel (`source`): the reducer turns it into a Markdown node naming the file.
+      const source = (node.props as { source?: unknown }).source;
+      if (typeof source === "string") return <SourceMarkdown name={source} />;
       return <Markdown>{String(node.props.text ?? "")}</Markdown>;
    },
    Text: ({ node }) => {

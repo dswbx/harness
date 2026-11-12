@@ -35,7 +35,12 @@ export type AppEvent =
  *  `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
  *  it. Live only and not logged: Views still render only from the Session Log.
  */
-{ type: "FrontendRequest"; session_id: string; request_id: string; tool: string; input: unknown; last_seq: number };
+{ type: "FrontendRequest"; session_id: string; request_id: string; tool: string; input: unknown; last_seq: number } | 
+/**
+ *  A file in the Session's `panels/` folder changed (ADR 0023): windows showing a panel with
+ *  this `source` re-read it. Sent once per burst of writes; live only and not logged.
+ */
+{ type: "PanelSourceChanged"; session_id: string; name: string };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes" | 
@@ -160,6 +165,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "SaveMcpServer"; server: McpServerDef; secrets?: { [key in string]: string } } | { type: "RemoveMcpServer"; server_id: string } | 
 /**  Reads a file of the Session's Frontend state (`frontend/` in the Session Directory). */
 { type: "FrontendRead"; session_id: string; path: string } | 
+/**
+ *  Reads a file-backed panel's source (ADR 0023): `name` is relative to the Session's
+ *  `panels/` folder and must stay inside it. Starts the watch that sends `PanelSourceChanged`.
+ */
+{ type: "PanelSourceRead"; session_id: string; name: string } | 
 /**  An app setting (appearance, imported themes): JSON the app owns, null until saved. */
 { type: "GetAppSetting"; key: AppSettingKey } | 
 /**  Saves an app setting; null removes it. */
@@ -320,6 +330,8 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
 { type: "ThreadStarted"; thread_id: string; forked: boolean } | { type: "Branches"; branches: Branches } | { type: "PullRequests"; prs: PullRequest[] } | 
 /**  `me`: the `gh` user, None when `gh` is not signed in. */
 { type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
+/**  A panel source file; `hash`: sha256 of `content` (hex), to skip re-renders when unchanged. */
+{ type: "PanelSource"; content: string; hash: string } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */

@@ -104,6 +104,10 @@ _Avoid_: window, tab, subscriber
 A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, References, or a `render_ui` item placed left or right; ADR 0019).
 _Avoid_: tab, pane, sidebar
 
+**File-backed panel**:
+A `render_ui` item whose content is a Markdown file the Agent writes in the Session's `panels/` folder (in the Session Directory), named by `source` instead of a `root` tree; the Panel follows the file as the Agent edits it (ADR 0023).
+_Avoid_: file panel, live file, source panel
+
 **Reference**:
 A PR, file or link named in a Session's user or Agent messages, one per target with its mentions; the chat's References Panel lists those that exist. Derived from the chat Items (`references.ts`).
 _Avoid_: citation, mention (a mention is one place a Reference is named)

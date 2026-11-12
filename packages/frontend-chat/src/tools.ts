@@ -137,12 +137,24 @@ export const PLACEMENTS = ["inline", "top", "bottom", "left", "right"] as const;
 export type Placement = (typeof PLACEMENTS)[number];
 export type RenderUiInput = {
    root?: RawNode;
+   /** A file-backed panel (ADR 0023): a Markdown file in the Session's `panels_dir`, instead of `root`. */
+   source?: string;
    id?: string;
    placement?: Placement;
    title?: string;
    icon?: (typeof ICONS)[number];
    remove?: boolean;
 };
+
+/**
+ * A file-backed item (`source`, ADR 0023) as a Markdown node that names its file, so every place
+ * that shows a `root` (chat rows, live areas, panels, artifacts) shows the file. The Markdown
+ * renderer reads it; the log keeps only the name, so replay shows the file as it is now.
+ */
+export function withSourceRoot(v: RenderUiInput): RenderUiInput {
+   if (v.root || typeof v.source !== "string") return v;
+   return { ...v, root: { type: "Markdown", props: { source: v.source } } };
+}
 
 const names = Object.keys(components) as ComponentType[];
 const parents = names.filter((n) => (components[n] as Entry).children);
@@ -190,13 +202,19 @@ const renderUiJson = {
       },
       remove: { const: true, description: "Remove the item with this id." },
       root: { $ref: node },
+      source: {
+         type: "string",
+         pattern: "^[^/].*\\.md$",
+         description:
+            "Instead of root: a Markdown file in panels_dir (see harness_info), e.g. progress.md or upgrade/progress.md. The panel shows the file and updates when you edit it.",
+      },
    },
    additionalProperties: false,
    allOf: [
       {
          if: { properties: { remove: { const: true } }, required: ["remove"] },
          then: { required: ["id"] },
-         else: { required: ["root"] },
+         else: { oneOf: [{ required: ["root"] }, { required: ["source"] }] },
       },
       {
          if: {
@@ -556,7 +574,7 @@ export const frontendTools: {
       name: RENDER_UI,
       description:
          "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
-         `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
+         `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}, or "source" instead of "root": the name of a Markdown file you wrote in panels_dir (harness_info), shown as Markdown that updates when you edit the file (<details>/<summary> work); use it for panels you change often. A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
          "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title, an icon is optional; right opens in the top right zone, left in the top left; the user can move it). " +
          'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
          'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +

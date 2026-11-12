@@ -179,13 +179,13 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, and `errors` the UI reported, such as script errors) and the top-level keys of the Session State.",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the Markdown files of file-backed panels (render_ui `source`).",
             empty.clone(),
             "read",
         ),
         (
             "ui_get",
-            "Read a panel you placed with render_ui: its stored input (root, placement, title, ...) and the Session State values its `$state` paths point to. Use it before you change a panel you no longer see, e.g. after compaction.",
+            "Read a panel you placed with render_ui: its stored input (root or source, placement, title, ...), the Session State values its `$state` paths point to, and for a `source` panel the file's current `content`. Use it before you change a panel you no longer see, e.g. after compaction.",
             json!({ "type": "object", "properties": {
                 "id": { "type": "string", "description": "The panel's id, as in render_ui" }
             }, "required": ["id"] }),
@@ -326,6 +326,10 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     // Agents may call a tool before they have seen its schema (some load schemas on demand), so
     // the error carries the description: enough to get the next call right.
     anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{errors}\n\nHow to call {name}:\n{}", tool.description);
+    // A file-backed panel (ADR 0023): the log keeps the name; the file must exist in panels_dir.
+    if let Some(source) = args.get("source").and_then(Value::as_str) {
+        crate::panels::read(&session.panels_dir(), source).map_err(|e| anyhow::anyhow!("{e:#}. Write the file first, then call {name} again."))?;
+    }
     if tool.replies {
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "read", &args).await?;
         let answer = session.request_frontend(name, args).await?;
@@ -363,7 +367,14 @@ fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Value> {
         let v = doc.pointer(&p).cloned().unwrap_or(Value::Null);
         state.insert(p, v);
     }
-    Ok(json!({ "input": input, "state": state }))
+    let mut out = json!({ "input": input, "state": state });
+    if let Some(source) = input.get("source").and_then(Value::as_str) {
+        match crate::panels::read(&session.panels_dir(), source) {
+            Ok((content, _)) => out["content"] = json!(content),
+            Err(e) => out["error"] = json!(format!("{e:#}")),
+        }
+    }
+    Ok(out)
 }
 
 fn collect_state_paths(v: &Value, out: &mut Vec<String>) {
@@ -397,20 +408,26 @@ fn collect_state_paths(v: &Value, out: &mut Vec<String>) {
 }
 
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
-/// them) and the Session State's top-level keys.
+/// them, and a missing `source` file), the Session State's top-level keys and `panels_dir`.
 fn info(session: &Session) -> anyhow::Result<Value> {
     let errors = session.frontend_errors()?;
+    let panels = session.panels_dir();
     let items: Vec<Value> = session
         .frontend_items()?
         .into_iter()
         .map(|(tool, id, input)| {
             let mut item = json!({ "tool": tool, "id": id });
-            for k in ["placement", "title"] {
+            for k in ["placement", "title", "source"] {
                 if let Some(v) = input.get(k) {
                     item[k] = v.clone();
                 }
             }
-            let errs: Vec<&str> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.as_str()).collect();
+            let mut errs: Vec<String> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.clone()).collect();
+            if let Some(source) = input.get("source").and_then(Value::as_str)
+                && let Err(e) = crate::panels::read(&panels, source)
+            {
+                errs.push(format!("Source missing: {e:#}"));
+            }
             if !errs.is_empty() {
                 item["errors"] = json!(errs);
             }
@@ -418,7 +435,7 @@ fn info(session: &Session) -> anyhow::Result<Value> {
         })
         .collect();
     let keys: Vec<String> = session.state()?.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-    Ok(json!({ "items": items, "state_keys": keys }))
+    Ok(json!({ "items": items, "state_keys": keys, "panels_dir": panels.display().to_string() }))
 }
 
 /// `harness mcp-shim`: proxies stdio MCP (one JSON-RPC message per line) to the Harness MCP at

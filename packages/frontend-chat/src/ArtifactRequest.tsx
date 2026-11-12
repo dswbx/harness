@@ -72,6 +72,7 @@ const noEnv = (api: SessionApi, state: ChatState): UiEnv => ({
    send: async () => {},
    files: {},
    readImage: (p) => api.frontendReadImage(p),
+   readSource: (name) => api.panelSourceRead(name),
    scope: api.sessionId,
 });
 

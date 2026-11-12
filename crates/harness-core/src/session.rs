@@ -277,6 +277,8 @@ pub struct Session {
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: parking_lot::Mutex<()>,
     frontend_requests: FrontendRequests,
+    /// Watches `panels/` once a window read a source file from it (ADR 0023).
+    panels_watch: parking_lot::Mutex<Option<crate::panels::Watcher>>,
 }
 
 impl Session {
@@ -293,6 +295,7 @@ impl Session {
         shared: Arc<Shared>,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(dir.join("frontend"))?;
+        std::fs::create_dir_all(dir.join(crate::panels::DIR))?;
         let meta = SessionMeta {
             id: id.clone(),
             title: title.clone(),
@@ -366,6 +369,7 @@ impl Session {
             shared,
             state_lock: Default::default(),
             frontend_requests: Default::default(),
+            panels_watch: Default::default(),
         }
     }
 
@@ -538,6 +542,34 @@ impl Session {
         }
         self.log.append(Some(thread.clone()), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
         Ok(())
+    }
+
+    /// Where the Agent writes the Markdown of file-backed panels (ADR 0023); made on first use for
+    /// Sessions from before it existed.
+    pub fn panels_dir(&self) -> PathBuf {
+        let dir = self.dir.join(crate::panels::DIR);
+        if !dir.exists() {
+            let _ = std::fs::create_dir_all(&dir);
+        }
+        dir
+    }
+
+    /// A panel source file's text and hash. Starts watching `panels/` so windows hear of changes
+    /// (`PanelSourceChanged`); when the watch fails they still re-read on focus.
+    pub fn panel_source_read(&self, name: &str) -> anyhow::Result<(String, String)> {
+        let dir = self.panels_dir();
+        let read = crate::panels::read(&dir, name);
+        let mut watch = self.panels_watch.lock();
+        if watch.is_none() {
+            let shared = self.shared.clone();
+            let session_id = self.id();
+            let emit = move |name: String| shared.app_events.emit(crate::api::AppEvent::PanelSourceChanged { session_id: session_id.clone(), name });
+            match crate::panels::watch(&dir, crate::panels::DEBOUNCE, emit) {
+                Ok(w) => *watch = Some(w),
+                Err(e) => tracing::warn!("watching {}: {e:#}", dir.display()),
+            }
+        }
+        read
     }
 
     pub fn frontend_dir(&self) -> PathBuf {
@@ -738,6 +770,7 @@ impl Session {
         let m = self.meta();
         // Stop the log first: an Agent's late exit must not write into the directory being removed.
         self.log.close();
+        self.panels_watch.lock().take();
         std::fs::remove_dir_all(&self.dir)?;
         let folder = Path::new(&m.folder);
         if m.quick && folder.file_name().is_some_and(|n| n == m.id.as_str()) && folder.exists() {
