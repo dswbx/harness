@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ancestorKeys, fileTree } from "./fileTree";
+import { ancestorKeys, fileTree, folderStatus } from "./fileTree";
 
 const f = (path: string, additions = 1, deletions = 0) => ({ path, additions, deletions });
 const files = [
@@ -53,5 +53,22 @@ describe("fileTree", () => {
          "packages",
          "packages/api/src",
       ]);
+   });
+});
+
+describe("folderStatus", () => {
+   const files = [
+      { path: "crates/a.rs", status: "M" },
+      { path: "crates/core/b.rs", status: "A" },
+      { path: "app/c.ts", status: "M" },
+   ];
+   it("maps repo paths to paths in the subfolder and drops the rest", () => {
+      expect([...folderStatus(files, "crates/")]).toEqual([
+         ["a.rs", "M"],
+         ["core/b.rs", "A"],
+      ]);
+   });
+   it("keeps paths as they are at the repo root", () => {
+      expect(folderStatus(files, "").get("app/c.ts")).toBe("M");
    });
 });

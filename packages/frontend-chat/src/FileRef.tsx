@@ -1,7 +1,6 @@
 import type { SessionApi } from "@harness/api";
 import { cn, Popover, PopoverAnchor, PopoverContent, ScrollArea } from "@harness/ui";
-import { common, createLowlight } from "lowlight";
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronUp, Eye } from "lucide-react";
 import {
    createContext,
    type ReactNode,
@@ -14,9 +13,8 @@ import {
 } from "react";
 import { Frame, useWrapCode, WRAP, WrapButton } from "./CodeBlock";
 import { type FileRef, fileRefKey, lineLabel, parseFileRefKey, refWindow } from "./fileRefs";
+import { fileLanguage, highlightLines } from "./highlight";
 import { chipClick, chipOpen, chipPopover, closedChip } from "./prChip";
-
-const lowlight = createLowlight(common);
 
 /** Lines of a file (`path`, relative to the Session folder): `lines` start at line `start`; `total` lines in all. */
 export type FileSlice = { path: string; start: number; lines: string[]; total: number };
@@ -58,21 +56,31 @@ export function createFileReader(
 }
 
 const FileRefsContext = createContext<FileReader | null>(null);
+/** Shows a file ref in the app (the Files panel); absent: a click opens the editor. */
+const FileViewContext = createContext<((ref: FileRef) => void) | null>(null);
 
 /** File refs for one Session: inline code and links naming a file in its folder get a popover with the lines. Without
- * a provider (outside a Session) they stay plain. */
+ * a provider (outside a Session) they stay plain. `onView`: a click shows the file in the app (Cmd/Ctrl-click: editor). */
 export function FileRefProvider({
    api,
+   onView,
    children,
 }: {
    api: Pick<SessionApi, "readSessionFile" | "openInEditor">;
+   onView?: (ref: FileRef) => void;
    children: ReactNode;
 }) {
    const reader = useMemo(() => createFileReader(api), [api]);
-   return <FileRefsContext.Provider value={reader}>{children}</FileRefsContext.Provider>;
+   return (
+      <FileRefsContext.Provider value={reader}>
+         <FileViewContext.Provider value={onView ?? null}>{children}</FileViewContext.Provider>
+      </FileRefsContext.Provider>
+   );
 }
 
 export const useFileRefs = () => useContext(FileRefsContext);
+/** Shows a file in the app (the Files panel), when the provider has a viewer. */
+export const useFileView = () => useContext(FileViewContext);
 
 /** Lines `from..=to` of `path`: undefined while reading, null when there is no such file. While another window is
  * read, the last one stays. */
@@ -132,6 +140,7 @@ function FileRefView({
    const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
    const anchorRef = useRef<HTMLSpanElement>(null);
    const contentRef = useRef<HTMLDivElement>(null);
+   const onView = useContext(FileViewContext);
    useEffect(() => () => clearTimeout(timer.current), []);
    if (!slice) return <>{fallback}</>;
 
@@ -154,14 +163,16 @@ function FileRefView({
          },
       );
    };
-   /** Cmd/Ctrl opens the file; else pins (or unpins) the popover. From the keyboard, focus moves into it. */
-   const press = (e: { metaKey: boolean; ctrlKey: boolean }, keyboard: boolean) => {
+   /** Shows the file (found path, the ref's lines) in the app; without a viewer, opens it in the editor. */
+   const view = () => {
+      if (!onView) return openAt(ref.start ?? undefined);
+      close();
+      onView({ ...ref, path: slice.path });
+   };
+   /** Cmd/Ctrl opens the file in the editor; else shows it in the app. */
+   const press = (e: { metaKey: boolean; ctrlKey: boolean }) => {
       if (chipClick(e) === "open") return openAt(ref.start ?? undefined);
-      clearTimeout(timer.current);
-      const pinning = !state.pinned;
-      dispatch({ type: "toggle" });
-      if (keyboard && pinning)
-         setTimeout(() => contentRef.current?.querySelector("button")?.focus());
+      view();
    };
    const label = lineLabel(ref);
    return (
@@ -180,12 +191,12 @@ function FileRefView({
                )}
                onClick={(e) => {
                   e.preventDefault();
-                  press(e, false);
+                  press(e);
                }}
                onKeyDown={(e) => {
                   if (e.key !== "Enter" && e.key !== " ") return;
                   e.preventDefault();
-                  press(e, true);
+                  press(e);
                }}
                onMouseEnter={() => hover(true, OPEN_DELAY)}
                onMouseLeave={() => hover(false, CLOSE_DELAY)}
@@ -225,11 +236,12 @@ function FileRefView({
                <WrapButton />
                <button
                   type="button"
+                  title={onView ? "Show in the Files panel" : "Open in editor"}
                   className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 font-sans text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-                  onClick={() => openAt(ref.start ?? undefined)}
+                  onClick={view}
                >
-                  <ExternalLink className="size-3.5" aria-hidden />
-                  Open
+                  <Eye className="size-3.5" aria-hidden />
+                  View
                </button>
             </div>
             <FileLines reader={reader} base={slice} fileRef={ref} />
@@ -250,62 +262,6 @@ export function FilePreview({ reader, fileRef: ref }: { reader: FileReader; file
    );
 }
 
-/** Extensions highlight.js (lowlight `common`) does not know by name. */
-const LANG_ALIASES: Record<string, string> = {
-   mts: "typescript",
-   cts: "typescript",
-   mjs: "javascript",
-   cjs: "javascript",
-   jsonc: "json",
-   json5: "json",
-   toml: "ini",
-   html: "xml",
-   htm: "xml",
-   vue: "xml",
-   svelte: "xml",
-   zsh: "bash",
-   fish: "bash",
-   mdx: "markdown",
-   Makefile: "makefile",
-};
-
-/** The highlight language of a file, from its extension (or name); null for plain text. */
-export function fileLanguage(path: string): string | null {
-   const name = path.slice(path.lastIndexOf("/") + 1);
-   const dot = name.lastIndexOf(".");
-   const ext = dot > 0 ? name.slice(dot + 1) : name;
-   const lang = LANG_ALIASES[ext] ?? ext.toLowerCase();
-   return lowlight.registered(lang) ? lang : null;
-}
-
-type Hast = {
-   type: string;
-   value?: string;
-   properties?: { className?: unknown };
-   children?: Hast[];
-};
-/** One highlighted line: text runs with the classes of their innermost token. */
-type Run = { text: string; cls?: string };
-
-/** `lowlight` output split into lines (a token over several lines, like a block comment, is split too). */
-function toLines(tree: Hast): Run[][] {
-   const lines: Run[][] = [[]];
-   const walk = (n: Hast, cls?: string) => {
-      if (n.type === "text") {
-         n.value!.split("\n").forEach((t, i) => {
-            if (i) lines.push([]);
-            if (t) lines[lines.length - 1]!.push({ text: t, cls });
-         });
-         return;
-      }
-      const own = n.properties?.className;
-      const next = Array.isArray(own) ? own.join(" ") : cls;
-      for (const c of n.children ?? []) walk(c, next);
-   };
-   walk(tree);
-   return lines;
-}
-
 /** Lines one click on "more lines" adds. */
 const STEP = 20;
 
@@ -324,17 +280,7 @@ function FileLines({
    const [win, setWin] = useState({ from: base.start, to: base.start + base.lines.length - 1 });
    const slice = useFileSlice(reader, base.path, win.from, win.to) ?? base;
    const { start: first, lines, total } = slice;
-   const rows = useMemo(() => {
-      const text = lines.join("\n");
-      const lang = fileLanguage(slice.path);
-      const plain = (): Run[][] => lines.map((l) => (l ? [{ text: l }] : []));
-      if (!lang) return plain();
-      try {
-         return toLines(lowlight.highlight(lang, text) as Hast);
-      } catch {
-         return plain();
-      }
-   }, [lines, slice.path]);
+   const rows = useMemo(() => highlightLines(fileLanguage(slice.path), lines), [lines, slice.path]);
    if (!lines.length)
       return (
          <div className="px-3 py-2 text-xs text-muted-foreground">

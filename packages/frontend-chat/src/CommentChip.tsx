@@ -1,5 +1,6 @@
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { MessageSquare, X } from "lucide-react";
+import { useFileView } from "./FileRef";
 import { InlineMarkdown, Markdown } from "./Markdown";
 import type { ReviewComment } from "./reviewComments";
 
@@ -14,7 +15,8 @@ function CommentDetail({ c }: { c: ReviewComment }) {
          ) : (
             <>
                <div className="font-mono text-muted-foreground">
-                  {c.path}:{c.line} ({c.side})
+                  {c.path}:{c.line}
+                  {c.kind !== "file" && ` (${c.side})`}
                </div>
                <pre className="my-1 overflow-hidden font-mono">{c.code}</pre>
             </>
@@ -31,7 +33,10 @@ function CommentDetail({ c }: { c: ReviewComment }) {
    );
 }
 
-/** A review comment as a chip (prompt box and sent message); `onRemove`: show a remove button. */
+/**
+ * A review comment as a chip (prompt box and sent message); `onRemove`: show a remove button. A file comment's
+ * `path:line` shows that line in the Files panel when the Session has one.
+ */
 export function CommentChip({
    comment: c,
    onRemove,
@@ -39,6 +44,7 @@ export function CommentChip({
    comment: ReviewComment;
    onRemove?: () => void;
 }) {
+   const view = useFileView();
    return (
       <Tooltip className="max-w-96" content={<CommentDetail c={c} />}>
          <span
@@ -52,6 +58,15 @@ export function CommentChip({
                <span className="min-w-0 max-w-40 shrink-0 truncate text-muted-foreground">
                   “{c.quote}”
                </span>
+            ) : c.kind === "file" && view ? (
+               <button
+                  type="button"
+                  aria-label={`Show ${c.path}:${c.line}`}
+                  className="shrink-0 rounded font-mono text-muted-foreground hover:text-foreground hover:underline"
+                  onClick={() => view({ path: c.path, start: c.line, end: c.line })}
+               >
+                  {c.path.split("/").pop()}:{c.line}
+               </button>
             ) : (
                <span className="shrink-0 font-mono text-muted-foreground">
                   {c.path.split("/").pop()}:{c.line}
