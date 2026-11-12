@@ -7,8 +7,6 @@ import {
    SelectItem,
    SelectTrigger,
    SelectValue,
-   ToggleGroup,
-   ToggleGroupItem,
 } from "@harness/ui";
 import { CheckCircle2, ClipboardList } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -18,6 +16,7 @@ import { PanelHeader } from "./PanelHeader";
 import { PlanActions } from "./PlanActions";
 import { approvedMeta } from "./PlanNote";
 import type { ChatState, PlanEntry } from "./reducer";
+import { Segmented } from "./Segmented";
 import { quotableAttrs } from "./SelectionComment";
 
 /** Added lines on green, removed lines struck through on red; unchanged lines as they are. */
@@ -97,20 +96,16 @@ export function PlanPanel({
                         ))}
                      </SelectContent>
                   </Select>
-                  <ToggleGroup
-                     type="single"
-                     aria-label="Show"
+                  <Segmented
+                     label="Show"
                      className="ml-auto"
                      value={shownView}
-                     onValueChange={(v) => {
-                        if (v) setView(v as "plan" | "changes");
-                     }}
-                  >
-                     <ToggleGroupItem value="plan">Plan</ToggleGroupItem>
-                     <ToggleGroupItem value="changes" disabled={!prev}>
-                        Changes
-                     </ToggleGroupItem>
-                  </ToggleGroup>
+                     onChange={setView}
+                     items={[
+                        { value: "plan", label: "Plan" },
+                        { value: "changes", label: "Changes", disabled: !prev },
+                     ]}
+                  />
                </div>
                {entry.status === "approved" && (
                   <div className="flex shrink-0 items-center gap-2 border-b bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-600 dark:text-emerald-400">

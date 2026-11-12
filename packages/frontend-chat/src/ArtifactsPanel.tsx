@@ -29,6 +29,7 @@ import { ExportSubmenu, useExport } from "./ExportMenu";
 import { Highlighted } from "./highlight";
 import { PanelHeader } from "./PanelHeader";
 import type { UiEnv } from "./RenderUi";
+import { Segmented } from "./Segmented";
 import { quotableAttrs } from "./SelectionComment";
 import { fullMessageTime, useNow } from "./time";
 import { uiIcons } from "./uiIcons";
@@ -377,22 +378,15 @@ function Inspect({
             </Button>
          </PanelHeader>
          <div className="flex items-center gap-2 px-3.5 pt-3">
-            <div className="inline-flex gap-0.5 rounded-md bg-muted p-0.5" role="tablist">
-               {(["preview", "image", "source"] as const).map((t) => (
-                  <button
-                     key={t}
-                     role="tab"
-                     aria-selected={tab === t}
-                     onClick={() => setTab(t)}
-                     className={cn(
-                        "h-7 rounded px-3 text-[13px] font-medium text-muted-foreground capitalize",
-                        tab === t && "bg-background text-foreground shadow-sm",
-                     )}
-                  >
-                     {t}
-                  </button>
-               ))}
-            </div>
+            <Segmented
+               value={tab}
+               onChange={setTab}
+               items={[
+                  { value: "preview", label: "Preview" },
+                  { value: "image", label: "Image" },
+                  { value: "source", label: "Source" },
+               ]}
+            />
             <div className="flex-1" />
             <span className="truncate text-xs text-muted-foreground">{a.sub}</span>
          </div>
