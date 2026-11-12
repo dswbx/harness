@@ -554,7 +554,7 @@ export function parseLayout(raw: unknown): Layout {
    const open = noOpen();
    for (const z of ZONES) {
       const id = v.open?.[z];
-      if (isPanelId(id) && id !== "terminal" && zones[z].includes(id)) open[z] = id;
+      if (isPanelId(id) && zones[z].includes(id)) open[z] = id;
    }
    const sz = v.sizes ?? {};
    const sizes: Sizes = {
@@ -632,8 +632,7 @@ export function loadLayout(sessionId: string): Layout {
 
 export function saveLayout(sessionId: string, l: Layout) {
    try {
-      const open = { ...l.open };
-      for (const z of ZONES) if (open[z] === "terminal") open[z] = null;
+      const open = l.open;
       const out = { zones: l.zones, open, sizes: l.sizes, threads: l.threads, thread: l.thread };
       const plain =
          out.threads.length === 0 &&

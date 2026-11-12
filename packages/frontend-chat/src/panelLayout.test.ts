@@ -291,7 +291,7 @@ describe("shownOpen / withShownIn", () => {
 });
 
 describe("persistence", () => {
-   it("round-trips through parseLayout, minus Terminal and expanded", () => {
+   it("round-trips through parseLayout, minus expanded", () => {
       const l = expand(
          resize(open(move(openThread(empty, "a"), "events", "rightBottom"), "events", "terminal"), {
             right: 450,
@@ -312,7 +312,7 @@ describe("persistence", () => {
       expect(r.zones).toEqual(l.zones);
       expect(r.open.rightBottom).toBe("events");
       expect(r.open.rightTop).toBe("side");
-      expect(r.open.bottomLeft).toBeNull();
+      expect(r.open.bottomLeft).toBe("terminal");
       expect(r.sizes.right).toBe(450);
       expect(r.threads).toEqual(["a"]);
       expect(r.expanded).toBeNull();
