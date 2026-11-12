@@ -10,11 +10,20 @@ import {
 } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
 import { AppWindow, ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
-import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+   type Ref,
+   useEffect,
+   useImperativeHandle,
+   useLayoutEffect,
+   useMemo,
+   useRef,
+   useState,
+} from "react";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { CommentChips } from "./CommentChip";
 import { ConfigBar, type MenuSide } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
+import { getDraft, setDraft, useDraftAttachments } from "./drafts";
 import { errorMessage } from "./errors";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
@@ -223,6 +232,12 @@ export function PromptBox({
    const ref = useRef<PromptEditorHandle>(null);
    useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
    const key = composerKey(api.sessionId, threadId);
+   // The half-written prompt of this composer: loaded when the key changes, saved on every change after.
+   const loaded = useRef<string | null>(null);
+   useLayoutEffect(() => {
+      ref.current?.load(getDraft(key));
+      loaded.current = key;
+   }, [key]);
    const running = state.turnId !== null;
    // The `#` token at the caret (for the PR menu).
    const [token, setToken] = useState<CaretToken | null>(null);
@@ -269,7 +284,7 @@ export function PromptBox({
    const failed = pending.filter((p) => p.status === "failed");
    const sending = pending.some((p) => p.status === "sending");
    const comments = useReviewComments(key);
-   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+   const [attachments, setAttachments] = useDraftAttachments(key);
    const [dragging, setDragging] = useState(false);
    const fileInput = useRef<HTMLInputElement>(null);
    // Width of the box itself (not the window): a side panel or narrow column collapses the option pickers.
@@ -600,6 +615,8 @@ export function PromptBox({
                   }
                   setText(t);
                   setLines(lineCount(md));
+                  if (loaded.current === key)
+                     setDraft(key, t.trim() ? (ref.current?.snapshot() ?? null) : null);
                }}
                onSubmit={send}
                onOverflowChange={setOverflow}

@@ -62,6 +62,7 @@ import { ArtifactsPanel, type SharedActions, sessionCount } from "./ArtifactsPan
 import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { DockLayout, type DockPanel } from "./DockLayout";
+import { clearDraft } from "./drafts";
 import { EventsPanel } from "./EventsPanel";
 import { ShareBlock } from "./Expandable";
 import { errorMessage } from "./errors";
@@ -991,7 +992,10 @@ function ChatView({
                focus={focus}
                onSelect={(id) => update((l) => selectThread(l, id))}
                onClose={(id) => {
-                  if (isDraftThread(id)) setReviewComments(composerKey(api.sessionId, id), []);
+                  if (isDraftThread(id)) {
+                     setReviewComments(composerKey(api.sessionId, id), []);
+                     clearDraft(composerKey(api.sessionId, id));
+                  }
                   update((l) => closeThread(l, id));
                }}
                onNew={newSideThread}
