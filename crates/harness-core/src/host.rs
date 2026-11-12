@@ -321,6 +321,21 @@ impl Harness {
                 tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
                 CommandResult::Ok
             }
+            Command::ExportPlan { session_id, name, markdown, open_in_editor } => {
+                let editor = if open_in_editor {
+                    Some(crate::editor::load(&self.data_dir).ok_or_else(|| crate::error::invalid("choose an editor in Settings first"))?)
+                } else {
+                    None
+                };
+                let dir = self.session(&session_id)?.dir().to_path_buf();
+                let file = tokio::task::spawn_blocking(move || crate::editor::export_plan(&dir, &name, &markdown)).await??;
+                if let Some(editor) = editor {
+                    // The file was just written by Harness inside the Session's data dir, so `resolve` does not apply.
+                    let target = crate::editor::target(&editor, &file, None);
+                    tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+                }
+                CommandResult::PlanFile { path: file.to_string_lossy().into_owned() }
+            }
             Command::ReadSessionFile { session_id, path, start, end } => {
                 let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
                 let (path, start, lines, total) = tokio::task::spawn_blocking(move || crate::editor::read_lines(&folder, &path, start, end)).await??;

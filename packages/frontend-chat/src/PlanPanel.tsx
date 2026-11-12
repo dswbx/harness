@@ -1,6 +1,7 @@
-import type { SessionApi } from "@harness/api";
+import { inTauri, revealPath, type SessionApi } from "@harness/api";
 import {
    cn,
+   DropdownMenuItem,
    ScrollArea,
    Select,
    SelectContent,
@@ -8,7 +9,7 @@ import {
    SelectTrigger,
    SelectValue,
 } from "@harness/ui";
-import { CheckCircle2, ClipboardList } from "lucide-react";
+import { CheckCircle2, ClipboardList, Copy, FolderOpen, SquarePen } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { diffLines } from "./diff";
 import { Markdown } from "./Markdown";
@@ -70,11 +71,52 @@ export function PlanPanel({
               i.type === "permission" && i.requestId === entry.requestId,
         )
       : undefined;
+   const [error, setError] = useState<string | null>(null);
+   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+   const exportFile = (open: boolean) =>
+      entry ? api.exportPlan(`plan-v${entry.version}`, entry.markdown, open) : Promise.resolve("");
+   const menu = entry ? (
+      <>
+         <DropdownMenuItem
+            onSelect={() => {
+               setError(null);
+               navigator.clipboard.writeText(entry.markdown).catch(fail);
+            }}
+         >
+            <Copy /> Copy as Markdown
+         </DropdownMenuItem>
+         <DropdownMenuItem
+            onSelect={() => {
+               setError(null);
+               exportFile(true).catch(fail);
+            }}
+         >
+            <SquarePen /> Open in editor
+         </DropdownMenuItem>
+         {inTauri() && (
+            <DropdownMenuItem
+               onSelect={() => {
+                  setError(null);
+                  exportFile(false)
+                     .then((path) => revealPath(path))
+                     .catch(fail);
+               }}
+            >
+               <FolderOpen /> Reveal in Finder
+            </DropdownMenuItem>
+         )}
+      </>
+   ) : undefined;
    const pending = entry?.status === "pending" && !!item && !item.resolved;
 
    return (
       <div ref={root} tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none">
-         <PanelHeader title="Plan" />
+         <PanelHeader title="Plan" menu={menu} />
+         {error && (
+            <div className="shrink-0 border-b bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
+               {error}
+            </div>
+         )}
          {!entry ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
                <ClipboardList className="size-5" />

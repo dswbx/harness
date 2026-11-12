@@ -1088,6 +1088,12 @@ export class MockTransport implements Transport {
          case "SetEditor":
             this.editor = cmd.editor;
             return { type: "Ok" };
+         case "ExportPlan": {
+            if (cmd.open_in_editor && !this.editor)
+               throw new CommandError("invalid", "choose an editor in Settings first");
+            const name = cmd.name.toLowerCase().replace(/[^a-z0-9-]/g, "");
+            return { type: "PlanFile", path: `/mock/plans/${name}.md` };
+         }
          case "OpenInEditor":
             if (!this.editor)
                throw new CommandError("invalid", "choose an editor in Settings first");

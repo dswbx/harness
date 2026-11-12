@@ -159,6 +159,15 @@ pub enum Command {
         #[serde(default)]
         line: Option<u32>,
     },
+    /// Writes `markdown` to `<Session dir>/plans/<name>.md` (`name` is cut to `[a-z0-9-]`) and returns the path
+    /// (`PlanFile`). With `open_in_editor` it also opens that file in the user's editor.
+    ExportPlan {
+        session_id: SessionId,
+        name: String,
+        markdown: String,
+        #[serde(default)]
+        open_in_editor: bool,
+    },
     /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
     /// (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
     /// for a file reference in a message. Fails for files outside the folder,
@@ -628,6 +637,10 @@ pub enum CommandResult {
     },
     Editor {
         editor: Option<Editor>,
+    },
+    /// The file `ExportPlan` wrote (absolute).
+    PlanFile {
+        path: String,
     },
     /// Where new Worktrees go: relative to the repository folder, or absolute (`~` is home).
     WorktreeDir {

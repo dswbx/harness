@@ -44,6 +44,12 @@ export async function openWindow(
    w.once("tauri://error", (e) => console.error("window create failed", e));
 }
 
+/** Shows a file in the system file manager (Tauri only; frontends can't import Tauri, so this lives here). */
+export async function revealPath(path: string): Promise<void> {
+   const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+   await revealItemInDir(path);
+}
+
 /** Opens a web URL in the user's browser (inside Tauri via the opener plugin; in a plain browser a new tab). Frontends can't import Tauri, so this lives here. */
 export function openExternalUrl(url: string) {
    if (!inTauri()) {

@@ -31,6 +31,17 @@ pub fn resolve(folder: &Path, path: Option<&str>) -> anyhow::Result<PathBuf> {
     Ok(p)
 }
 
+/// Writes `markdown` to `<session_dir>/plans/<name>.md`, `name` cut to `[a-z0-9-]` (so no path tricks). Returns the absolute path.
+pub fn export_plan(session_dir: &Path, name: &str, markdown: &str) -> anyhow::Result<PathBuf> {
+    let name: String = name.to_lowercase().chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-').collect();
+    anyhow::ensure!(!name.is_empty(), "invalid plan name");
+    let dir = session_dir.join("plans");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join(format!("{name}.md"));
+    std::fs::write(&file, markdown)?;
+    Ok(std::fs::canonicalize(file)?)
+}
+
 /// Largest file `read_lines` reads.
 pub const MAX_READ: u64 = 2 * 1024 * 1024;
 
@@ -152,6 +163,20 @@ fn encode(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_plan_writes_and_sanitizes() {
+        let dir = std::env::temp_dir().join(format!("harness-plan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = export_plan(&dir, "plan-v2", "# Hi").unwrap();
+        assert_eq!(p, std::fs::canonicalize(dir.join("plans/plan-v2.md")).unwrap());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "# Hi");
+        let p = export_plan(&dir, "../../Evil/x.md", "x").unwrap();
+        assert_eq!(p, std::fs::canonicalize(dir.join("plans/evilxmd.md")).unwrap());
+        assert!(export_plan(&dir, "../..", "x").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn editor_urls() {
