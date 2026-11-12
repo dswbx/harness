@@ -16,4 +16,5 @@ export * from "./components/toggle-group";
 export * from "./components/tooltip";
 export * from "./components/trace";
 export * from "./components/virtual-list";
+export * from "./components/working-loader";
 export { clamp, cn } from "./lib/utils";
