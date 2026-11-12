@@ -105,12 +105,14 @@ export function ArtifactRequest({ api, request, onDone }: FrontendRequestProps) 
          } else if (input.html) {
             label = "The HTML";
             const html = input.html;
+            // As a render_ui Html node would show it: with the Session State its bindings read.
+            const { uiState } = await replay(api, request.last_seq);
             shot = await fit((maxEdge) =>
                shoot(
                   (report) => (
                      <UiHtml
                         html={html}
-                        state={null}
+                        state={uiState}
                         patch={async () => {}}
                         send={async () => {}}
                         run={async () => {}}

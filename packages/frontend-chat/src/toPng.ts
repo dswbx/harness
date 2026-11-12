@@ -14,6 +14,13 @@ const NOT_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
 const MAX_SIDE = 16000;
 const MAX_AREA = 200_000_000;
 
+/**
+ * An SVG drawn as an image shows CSS animations at their start: an entry animation (`from { opacity: 0 }`) draws
+ * nothing. This shows each at its end, as on screen once it has run. Infinite ones show one cycle's end.
+ */
+export const FREEZE_ANIMATIONS =
+   "*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; }";
+
 const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 /** The factor to draw at: `scale`, less when the result would pass `maxEdge` or the canvas limits. */
@@ -45,9 +52,11 @@ export async function svgToPng(svg: Svg, opts: PngOptions = {}): Promise<Blob> {
    canvas.height = Math.max(1, Math.round(svg.height * k));
    const ctx = canvas.getContext("2d");
    if (!ctx) throw new Error("No canvas available.");
+   const bg = pageBackground();
    const draw = () => {
       ctx.fillStyle = document.documentElement.classList.contains("dark") ? "#000" : "#fff";
-      ctx.fillStyle = pageBackground();
+      // A transparent body would leave the PNG transparent; the default above stays then.
+      if (!/^(transparent|rgba\(.*,\s*0\))$/.test(bg)) ctx.fillStyle = bg;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
    };
@@ -83,7 +92,7 @@ export function standaloneSvg(svg: string, font: string): Svg | null {
 /** The serialized document of an Html frame as an SVG. Its `:root` rules now match the `svg`. */
 export function frameSvg(xhtml: string, width: number, height: number): Svg {
    return {
-      xml: `<svg xmlns="${SVG_NS}" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`,
+      xml: `<svg xmlns="${SVG_NS}" width="${width}" height="${height}"><style>${FREEZE_ANIMATIONS}</style><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`,
       width,
       height,
    };
@@ -214,7 +223,7 @@ export async function domToSvg(root: HTMLElement): Promise<Svg> {
    return {
       xml:
          `<svg xmlns="${SVG_NS}" width="${width}" height="${height}" class="${attr(html.className)}" style="${attr(html.getAttribute("style") ?? "")}">` +
-         `<style>${css}</style><foreignObject width="100%" height="100%"><body xmlns="${XHTML_NS}" style="margin:0">` +
+         `<style>${css}\n${FREEZE_ANIMATIONS}</style><foreignObject width="100%" height="100%"><body xmlns="${XHTML_NS}" style="margin:0">` +
          new XMLSerializer().serializeToString(clone) +
          "</body></foreignObject></svg>",
       width,
