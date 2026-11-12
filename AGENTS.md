@@ -24,6 +24,12 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - Scrolling: every scrolling panel, list, popover and menu uses `ScrollArea` (or `VirtualList`) from `@harness/ui`, the thin scrollbar of the sidebar and chat; with a max height, put it on the root and pass `viewportClassName="max-h-[inherit]"`. Native `overflow-auto` only for code/pre blocks. Popovers and menus cap their height to the space left in the window (`--radix-*-content-available-height`).
 - What the Agent should know about the Harness goes in the plain prompt files, not code: `crates/harness-core/prompts/harness.md` and each Frontend's `instructions.md` (ADR 0014). Keep them short.
 
+## Preview
+
+- "Preview" means: start the browser mock app (fake backend, fixture Sessions) and show it in the built-in browser pane, so the user can look at a change before they run the real app. Use `preview_start` with `app-alt-port` (port 1431, from `.claude/launch.json`). Do not use `app` (port 1420): the user's own `bun run dev` uses that port.
+- After a UI change, open a preview without being asked: go to the changed screen, check the console for errors, and leave the page open for the user.
+- The mock has no real git, files or Agent. Backend behavior still needs tests or the real app.
+
 ## Commands
 
 - `cargo test -p harness-core`: unit + fake-agent integration tests.

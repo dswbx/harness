@@ -578,6 +578,134 @@ describe("permissions (synthetic, shape from codex plan spike)", () => {
    });
 });
 
+describe("plans", () => {
+   const claudeOptions = [
+      {
+         option_id: "c",
+         name: "Yes, clear context and use auto mode",
+         kind: "allow_always",
+         plan_mode: "auto",
+         clears_context: true,
+      },
+      {
+         option_id: "a",
+         name: "Yes, and use auto mode",
+         kind: "allow_always",
+         plan_mode: "auto",
+         clears_context: false,
+      },
+      {
+         option_id: "m",
+         name: "Yes, manually approve edits",
+         kind: "allow_once",
+         plan_mode: "default",
+         clears_context: false,
+      },
+      { option_id: "k", name: "No, keep planning", kind: "reject_once" },
+   ];
+   const modes = (current: string) =>
+      ev({
+         type: "ConfigOptionsChanged",
+         options: [
+            {
+               id: "mode",
+               name: "Mode",
+               category: "mode",
+               type: "select",
+               currentValue: current,
+               options: [
+                  { value: "default", name: "Default" },
+                  { value: "plan", name: "Plan" },
+                  { value: "auto", name: "Auto" },
+               ],
+            },
+         ],
+      });
+   const req = (id: string, plan: string, ts = 0) =>
+      ev(
+         {
+            type: "PermissionRequested",
+            request_id: id,
+            tool_call: { kind: "switch_mode", title: "Ready to code?" },
+            options: claudeOptions,
+            plan,
+         },
+         "main",
+         ts,
+      );
+   const res = (id: string, option_id: string | null, ts = 0) =>
+      ev({ type: "PermissionResolved", request_id: id, option_id, by: "view" }, "main", ts);
+   const prompt = (text: string) => ev({ type: "TurnStarted", turn_id: `t${seq}`, text });
+
+   it("versions plans, links revisions and counts plan comments sent in between", () => {
+      const s = fold([
+         started(),
+         req("p1", "# Refactor\n\n## Steps\n\n1. a\n2. b", 100),
+         res("p1", "k", 200),
+         prompt("Comments on the plan (Plan v1):\n\n> a\n\nsplit it"),
+         req("p2", "# Refactor\n\n## Steps\n\n1. a1\n2. a2\n3. b", 300),
+      ]);
+      expect(s.plans).toMatchObject([
+         {
+            requestId: "p1",
+            version: 1,
+            title: "Refactor",
+            steps: 2,
+            prev: null,
+            status: "revised",
+            optionId: "k",
+            resolvedAt: 200,
+         },
+         {
+            requestId: "p2",
+            version: 2,
+            steps: 3,
+            prev: "p1",
+            status: "pending",
+            commentsSent: 1,
+            requestedAt: 300,
+         },
+      ]);
+   });
+
+   it("sets status from the answer, and clearsContext from the option", () => {
+      const approved = fold([started(), req("p1", "# A"), res("p1", "c")]);
+      expect(approved.plans[0]).toMatchObject({
+         status: "approved",
+         optionId: "c",
+         clearsContext: true,
+      });
+      const dismissed = fold([started(), req("p1", "# A"), res("p1", null)]);
+      expect(dismissed.plans[0]).toMatchObject({ status: "dismissed", optionId: null });
+      // The permission item stays (resolved) for the chat row.
+      expect(dismissed.items[0]).toMatchObject({ type: "permission", resolved: true });
+   });
+
+   it("a plan after an approved one starts a new series (no prev)", () => {
+      const s = fold([started(), req("p1", "# A"), res("p1", "a"), req("p2", "# B")]);
+      expect(s.plans[1]).toMatchObject({ version: 2, prev: null });
+   });
+
+   it("modeBefore is the last mode that was not plan", () => {
+      const s = fold([started(), modes("auto"), modes("plan"), req("p1", "# A")]);
+      expect(s.plans[0]!.modeBefore).toBe("auto");
+      expect(fold([started(), req("p1", "# A")]).plans[0]!.modeBefore).toBeNull();
+   });
+
+   it("ordinary permissions add no plan", () => {
+      const s = fold([
+         started(),
+         ev({
+            type: "PermissionRequested",
+            request_id: "x",
+            tool_call: { kind: "execute" },
+            options: [],
+         }),
+      ]);
+      expect(s.plans).toEqual([]);
+   });
+});
+
 describe("permission policy", () => {
    const req = () =>
       ev({

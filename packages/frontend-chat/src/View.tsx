@@ -7,7 +7,7 @@ import type {
    SessionApi,
    ViewVariant,
 } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
+import { openWindow, useSessionEvents } from "@harness/api";
 import {
    Badge,
    Button,
@@ -22,6 +22,8 @@ import {
    Archive,
    CheckCircle2,
    CircleDashed,
+   ClipboardList,
+   Folder,
    GitCompare,
    Layers,
    Link2,
@@ -58,8 +60,10 @@ import { DockLayout, type DockPanel } from "./DockLayout";
 import { EventsPanel } from "./EventsPanel";
 import { errorMessage } from "./errors";
 import { FileRefProvider } from "./FileRef";
+import { FilesPanel, type FileTarget, filesWindowTarget, filesWindowUrl } from "./FilesPanel";
 import { MessageList, useRows } from "./Messages";
 import { PanelHeader } from "./PanelHeader";
+import { PlanPanel } from "./PlanPanel";
 import { usePanelDrag } from "./panelDrag";
 import {
    closeThread,
@@ -209,6 +213,12 @@ function SlotPanel({ slot, env, updated }: { slot: Slot; env: UiEnv; updated: nu
 
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
+// The pop-out Files window likewise, with `pane=files`.
+const filesWindow =
+   typeof window === "undefined" ? null : filesWindowTarget(window.location.search);
+const filesWindowFirst: FileTarget | null = filesWindow?.path
+   ? { path: filesWindow.path, start: filesWindow.line, end: filesWindow.line }
+   : null;
 
 /** Claude Code desktop-like chat. Pure fold of the Session Log (see reducer.ts). */
 export function View({
@@ -240,6 +250,10 @@ export function View({
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
+   ) : filesWindow ? (
+      <FileRefProvider api={api}>
+         <FilesPanel api={api} target={filesWindowFirst} popout />
+      </FileRefProvider>
    ) : (
       <ChatView
          api={api}
@@ -296,18 +310,22 @@ function flash(el: Element) {
 const BASE_LABEL: Record<string, string> = {
    side: "Side chats",
    changes: "Changes",
+   files: "Files",
    terminal: "Terminal",
    events: "Events",
    artifacts: "Artifacts",
    references: "References",
+   plan: "Plan",
 };
 const BASE_ICON: Record<string, React.ReactNode> = {
    side: <MessagesSquare />,
    changes: <GitCompare />,
+   files: <Folder />,
    terminal: <SquareTerminal />,
    events: <ScrollText />,
    artifacts: <Layers />,
    references: <Link2 />,
+   plan: <ClipboardList />,
 };
 
 function ChatView({
@@ -500,6 +518,25 @@ function ChatView({
       },
       [update],
    );
+   /** The file the Files panel shows next (a new object each time, so the same file scrolls again). */
+   const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
+   /** Shows a file (a code lens, a comment chip) in the Files panel; the Quick overlay has none, so a window. */
+   const openFile = useCallback(
+      (ref: FileTarget) => {
+         if (overlay) {
+            void openWindow(
+               `files-${api.sessionId}`,
+               filesWindowUrl(api.sessionId, ref.path, ref.start),
+               { title: `Files: ${ref.path}` },
+            );
+            return;
+         }
+         setFileTarget({ ...ref });
+         update((l) => show(l, "files"));
+      },
+      [overlay, api.sessionId, update],
+   );
+   const clearFileTarget = useCallback(() => setFileTarget(null), []);
    const env = useMemo<UiEnv>(
       () => ({
          state: state.uiState,
@@ -526,6 +563,23 @@ function ChatView({
    useEffect(() => {
       if (lastSlot && lastSlot.ts >= openedAt) update((l) => show(l, slotPanel(lastSlot.id)));
    }, [lastSlot?.id, lastSlot?.ts, openedAt, update]);
+   // The Plan panel shows this version (null: the latest). A new pending plan opens the panel, once.
+   const [planShown, setPlanShown] = useState<string | null>(null);
+   const openPlan = useCallback(
+      (requestId: string) => {
+         setPlanShown(requestId);
+         update((l) => show(l, "plan"));
+      },
+      [update],
+   );
+   const lastPlan = state.plans.at(-1);
+   const pendingPlan = lastPlan?.status === "pending" ? lastPlan.requestId : null;
+   const planOpened = useRef(new Set<string>());
+   useEffect(() => {
+      if (overlay || !pendingPlan || planOpened.current.has(pendingPlan)) return;
+      planOpened.current.add(pendingPlan);
+      openPlan(pendingPlan);
+   }, [overlay, pendingPlan, openPlan]);
    const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
    const list = useRef<VirtualListHandle>(null);
    /** Scrolls the chat to a row; once the virtual list renders it, flashes what `pick` finds in it. */
@@ -594,11 +648,13 @@ function ChatView({
       () => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])),
       [slots],
    );
+   const hasPlans = state.plans.length > 0;
    // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
    const available = useMemo(() => {
       if (overlay) return new Set<PanelId>(slotById.keys());
       const a = new Set<PanelId>([
          "side",
+         "files",
          "terminal",
          "events",
          "artifacts",
@@ -606,8 +662,9 @@ function ChatView({
          ...slotById.keys(),
       ]);
       if (git) a.add("changes");
+      if (hasPlans) a.add("plan");
       return a;
-   }, [overlay, slotById, git]);
+   }, [overlay, slotById, git, hasPlans]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -800,6 +857,12 @@ function ChatView({
             />
          ),
       });
+   if (open("files"))
+      panels.push({
+         id: "files",
+         label: "Files",
+         children: <FilesPanel api={api} target={fileTarget} onTargetShown={clearFileTarget} />,
+      });
    if (terminalOpened) {
       panels.push({
          id: "terminal",
@@ -823,6 +886,14 @@ function ChatView({
          id: "artifacts",
          label: "Artifacts",
          children: <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} />,
+      });
+   if (open("plan"))
+      panels.push({
+         id: "plan",
+         label: "Plan",
+         children: (
+            <PlanPanel api={api} state={state} selected={planShown} onSelect={setPlanShown} />
+         ),
       });
    if (open("references"))
       panels.push({
@@ -925,6 +996,7 @@ function ChatView({
                   rows={rows}
                   subagents={subagents}
                   onOpenDiff={openDiff}
+                  onOpenPlan={overlay ? undefined : openPlan}
                   empty="Send a message to start."
                   inset={inset}
                />
@@ -992,7 +1064,7 @@ function ChatView({
       );
       return (
          <PrRefProvider api={api}>
-            <FileRefProvider api={api}>
+            <FileRefProvider api={api} onView={openFile}>
                {overlayDraft ? (
                   <div className="relative flex h-full flex-col justify-end">{promptBox}</div>
                ) : (
@@ -1035,7 +1107,7 @@ function ChatView({
 
    return (
       <PrRefProvider api={api}>
-         <FileRefProvider api={api}>
+         <FileRefProvider api={api} onView={openFile}>
             <ReferencesProbe
                items={state.items}
                active={referencesOpened}

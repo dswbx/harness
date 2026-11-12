@@ -30,8 +30,19 @@ pub(super) fn permission_requested(request_id: String, tool_call: Value, options
 pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionRequest, responder: Responder<acp::RequestPermissionResponse>) {
     let request_id = uuid::Uuid::now_v7().to_string();
     let thread = thread_of(session, &req.session_id);
-    let options: Vec<PermissionOption> =
-        req.options.iter().map(|o| PermissionOption { option_id: o.option_id.to_string(), name: o.name.clone(), kind: enum_str(&o.kind) }).collect();
+    let is_plan = {
+        let raw = serde_json::to_value(&req.tool_call).unwrap_or(Value::Null);
+        crate::agent_quirks::plan(raw.get("kind").and_then(Value::as_str), raw.get("rawInput")).is_some()
+    };
+    let options: Vec<PermissionOption> = req
+        .options
+        .iter()
+        .map(|o| {
+            let id = o.option_id.to_string();
+            let facts = if is_plan { crate::agent_quirks::plan_option_facts(&o.name, &id) } else { Default::default() };
+            PermissionOption { option_id: id, name: o.name.clone(), kind: enum_str(&o.kind), plan_mode: facts.mode, clears_context: facts.clears_context }
+        })
+        .collect();
     let slot = session.agent_slot();
     // A request that arrives after the user cancelled the Turn gets no dialog nobody would answer:
     // the Agent is waiting for it, so the Turn could not end.
@@ -104,9 +115,9 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
     let verdict = session.policy().evaluate(&cx, &facts);
     let request_id = uuid::Uuid::now_v7().to_string();
     let options = vec![
-        PermissionOption { option_id: "allow".into(), name: "Allow".into(), kind: "allow_once".into() },
-        PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into() },
-        PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into() },
+        PermissionOption { option_id: "allow".into(), name: "Allow".into(), kind: "allow_once".into(), plan_mode: None, clears_context: false },
+        PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into(), plan_mode: None, clears_context: false },
+        PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into(), plan_mode: None, clears_context: false },
     ];
     let requested = permission_requested(request_id.clone(), tool_call, options.clone(), Some(tool.to_owned()));
     let passes = match verdict.decision {

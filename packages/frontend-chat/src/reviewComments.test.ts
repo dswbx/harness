@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseReviewComments, type ReviewComment, withReviewComments } from "./reviewComments";
+import {
+   formatReviewComments,
+   isDiffComment,
+   isFileComment,
+   parseReviewComments,
+   type ReviewComment,
+   withReviewComments,
+} from "./reviewComments";
 
 const diff = (over: Partial<ReviewComment> = {}): ReviewComment =>
    ({
@@ -9,6 +16,29 @@ const diff = (over: Partial<ReviewComment> = {}): ReviewComment =>
       side: "new",
       code: "const x = 1;",
       text: "Rename this",
+      ...over,
+   }) as ReviewComment;
+const from = (
+   source: "plan" | "artifact",
+   q: string,
+   text: string,
+   label?: string,
+): ReviewComment => ({
+   id: "s",
+   kind: "quote",
+   quote: q,
+   text,
+   source,
+   ...(label && { label }),
+});
+const file = (over: Partial<ReviewComment> = {}): ReviewComment =>
+   ({
+      id: "f",
+      kind: "file",
+      path: "src/b.ts",
+      line: 7,
+      code: "let y = 2;",
+      text: "Why let?",
       ...over,
    }) as ReviewComment;
 const quote = (q: string, text: string, side = false): ReviewComment => ({
@@ -47,6 +77,32 @@ describe("withReviewComments", () => {
    });
 });
 
+describe("file comments", () => {
+   it("format as path:line with no side, in the review section", () => {
+      expect(formatReviewComments([diff(), file()])).toBe(
+         "Review comments:\n\nsrc/a.ts:12 (new)\n```\nconst x = 1;\n```\nRename this\n\nsrc/b.ts:7\n```\nlet y = 2;\n```\nWhy let?",
+      );
+   });
+
+   it("are told apart from diff comments (old diff comments have no kind)", () => {
+      expect(isDiffComment(diff())).toBe(true);
+      expect(isDiffComment(file())).toBe(false);
+      expect(isDiffComment(quote("q", ""))).toBe(false);
+      expect(isFileComment(file())).toBe(true);
+      expect(isFileComment(diff())).toBe(false);
+   });
+
+   it("round-trip mixed with diff and quote comments", () => {
+      const cs = [
+         file(),
+         diff(),
+         file({ path: "dir/c (old).rs", line: 1, code: "fn a() {}\n\n`x`", text: "Two\n\nparas" }),
+         quote("hello", "why?"),
+      ];
+      expect(roundTrip("Do it", cs)).toEqual({ text: "Do it", comments: noIds(cs) });
+   });
+});
+
 describe("parseReviewComments", () => {
    it("round-trips all sections and the text", () => {
       const cs = [
@@ -66,6 +122,29 @@ describe("parseReviewComments", () => {
          text: "Please fix\n\nall of these",
          comments: noIds(cs),
       });
+   });
+
+   it("round-trips plan and artifact quotes with labels, mixed with other kinds", () => {
+      const comments = [
+         diff(),
+         quote("chat", "c"),
+         from("plan", "step 1", "split it", "Plan v2"),
+         from("plan", "step 2", "", "Plan v2"),
+         from("plan", "step 3", "other", "Plan v3"),
+         from("plan", "no label", "x"),
+         from("artifact", "a table", "why?", "Upgrade guide"),
+         from("artifact", "bare", "y"),
+         quote("side", "s", true),
+      ];
+      expect(withReviewComments("go", comments)).toContain(
+         "Comments on the plan (Plan v2):\n\n> step 1\n\nsplit it",
+      );
+      expect(withReviewComments("go", comments)).toContain('Comments on artifact "Upgrade guide":');
+      const r = roundTrip("go", comments);
+      expect(r.text).toBe("go");
+      // Sections are grouped by source and label, so compare as sets.
+      expect(r.comments).toHaveLength(comments.length);
+      for (const c of noIds(comments)) expect(r.comments).toContainEqual(c);
    });
 
    it("round-trips code with backtick fences inside", () => {

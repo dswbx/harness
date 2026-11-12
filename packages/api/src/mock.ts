@@ -1125,6 +1125,12 @@ export class MockTransport implements Transport {
          case "SetEditor":
             this.editor = cmd.editor;
             return { type: "Ok" };
+         case "ExportPlan": {
+            if (cmd.open_in_editor && !this.editor)
+               throw new CommandError("invalid", "choose an editor in Settings first");
+            const name = cmd.name.toLowerCase().replace(/[^a-z0-9-]/g, "");
+            return { type: "PlanFile", path: `/mock/plans/${name}.md` };
+         }
          case "OpenInEditor":
             if (!this.editor)
                throw new CommandError("invalid", "choose an editor in Settings first");
@@ -1136,6 +1142,8 @@ export class MockTransport implements Transport {
                cmd.line ?? "",
             );
             return { type: "Ok" };
+         case "ListSessionFiles":
+            return { type: "SessionFiles", files: Object.keys(MOCK_NEW).sort(), prefix: "" };
          case "ReadSessionFile": {
             const want = cmd.path.replace(/^\.\//, "");
             const hits =
@@ -1313,8 +1321,9 @@ export class MockTransport implements Transport {
                );
                const asked = req.kind.type === "PermissionRequested" ? req.kind : null;
                const always = asked?.options.find((o) => o.option_id === cmd.option_id)?.kind;
-               if (always === "allow_always") {
-                  const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
+               const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
+               // Like the core (`remembered_rule`): a plan approval is never remembered as a rule.
+               if (always === "allow_always" && tool_call.kind !== "switch_mode") {
                   const rule: PermissionRule = {
                      id: `rule-${++this.ruleN}`,
                      scope: cmd.global

@@ -61,6 +61,33 @@ pub fn plan(kind: Option<&str>, raw_input: Option<&Value>) -> Option<String> {
     claude::plan(kind, raw_input)
 }
 
+/// What a plan approval option does besides approving: the Agent mode it switches to and whether
+/// it clears the context. ACP has no field for either.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PlanOptionFacts {
+    pub mode: Option<String>,
+    pub clears_context: bool,
+}
+
+/// Read from the option name (Claude) or id (Codex `implement_plan` / `revise_plan`: no mode, no clear).
+pub fn plan_option_facts(name: &str, _id: &str) -> PlanOptionFacts {
+    let n = name.to_lowercase();
+    let mode = if n.starts_with("no,") {
+        None
+    } else if n.contains("auto mode") {
+        Some("auto")
+    } else if n.contains("bypass permissions") {
+        Some("bypassPermissions")
+    } else if n.contains("accept edits") {
+        Some("acceptEdits")
+    } else if n.contains("manually approve edits") {
+        Some("default")
+    } else {
+        None
+    };
+    PlanOptionFacts { mode: mode.map(str::to_owned), clears_context: mode.is_some() && n.contains("clear context") }
+}
+
 /// What a tool call that starts a subagent asked it to do. ACP has no notion of subagents.
 pub fn subagent_prompt(raw_input: Option<&Value>) -> Option<String> {
     claude::subagent_prompt(raw_input)
@@ -213,5 +240,21 @@ mod tests {
         };
         adjust(&json!({}), &mut k);
         assert!(matches!(k, EventKind::ToolCallUpdate { background: true, .. }));
+    }
+
+    #[test]
+    fn plan_option_facts_by_name() {
+        let f = |n: &str, id: &str| plan_option_facts(n, id);
+        let want = |m: Option<&str>, c: bool| PlanOptionFacts { mode: m.map(str::to_owned), clears_context: c };
+        assert_eq!(f("Yes, clear context and use auto mode", "a"), want(Some("auto"), true));
+        assert_eq!(f("Yes, clear context and bypass permissions", "a"), want(Some("bypassPermissions"), true));
+        assert_eq!(f("Yes, clear context and auto-accept edits", "a"), want(Some("acceptEdits"), true));
+        assert_eq!(f("Yes, and use auto mode", "a"), want(Some("auto"), false));
+        assert_eq!(f("Yes, and bypass permissions", "a"), want(Some("bypassPermissions"), false));
+        assert_eq!(f("Yes, manually approve edits", "a"), want(Some("default"), false));
+        assert_eq!(f("No, keep planning", "a"), want(None, false));
+        assert_eq!(f("Implement plan", "implement_plan"), want(None, false));
+        assert_eq!(f("Revise plan", "revise_plan"), want(None, false));
+        assert_eq!(f("whatever", "x"), PlanOptionFacts::default());
     }
 }

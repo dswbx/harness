@@ -30,10 +30,12 @@ export const isBottomZone = (z: Zone) => z === "bottomLeft" || z === "bottomRigh
 export const BASE_PANELS = [
    "side",
    "changes",
+   "files",
    "terminal",
    "events",
    "artifacts",
    "references",
+   "plan",
 ] as const;
 /** A panel: one of the built-in ones, or a `render_ui` item placed left or right (`slot:<id>`). */
 export type PanelId = (typeof BASE_PANELS)[number] | `slot:${string}`;
@@ -80,11 +82,13 @@ export const DEFAULT_SIZES: Sizes = {
 
 const DEFAULT_ZONE: Record<(typeof BASE_PANELS)[number], Zone> = {
    changes: "rightTop",
+   files: "rightTop",
    artifacts: "leftTop",
    references: "leftBottom",
    terminal: "bottomLeft",
    events: "bottomRight",
    side: "rightTop",
+   plan: "rightTop",
 };
 
 const noOpen = (): Record<Zone, PanelId | null> => ({
@@ -104,7 +108,7 @@ export function defaultLayout(): Layout {
          bottomLeft: ["terminal"],
          bottomRight: ["events"],
          rightBottom: [],
-         rightTop: ["changes", "side"],
+         rightTop: ["changes", "files", "side", "plan"],
       },
       open: noOpen(),
       sizes: { ...DEFAULT_SIZES },

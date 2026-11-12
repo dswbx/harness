@@ -16,6 +16,8 @@ import {
    toolFacts,
    toolFactsOfCall,
 } from "@harness/api";
+import { planSteps, planTitle } from "./plans";
+import { parseReviewComments } from "./reviewComments";
 import {
    formatErrors,
    RENDER_UI,
@@ -140,6 +142,31 @@ export type Item =
         files: FileChange[];
      };
 
+/** One version of a plan the Agent asked to approve (Plan Mode). Its `permission` item has the same `requestId`. */
+export type PlanEntry = {
+   requestId: string;
+   /** 1, 2, ... in the order the Thread's plans arrived. */
+   version: number;
+   markdown: string;
+   title: string | null;
+   steps: number | null;
+   /** The plan this one revises (the one before, unless that was approved): its `requestId`. */
+   prev: string | null;
+   /** "revised": answered with the reject option ("Keep planning"). */
+   status: "pending" | "approved" | "revised" | "dismissed";
+   /** The option the request was answered with. */
+   optionId: string | null;
+   /** The mode the Agent was in before Plan Mode (the last mode value that was not "plan"). */
+   modeBefore: string | null;
+   /** The chosen option also cleared the context. */
+   clearsContext: boolean;
+   /** ms epoch of the request and of the answer. */
+   requestedAt: number;
+   resolvedAt: number | null;
+   /** Plan comments sent between the previous version and this one. */
+   commentsSent: number;
+};
+
 export type ToolCallRef = {
    toolCallId?: string;
    title?: string;
@@ -158,6 +185,10 @@ export type ChatState = {
    mainThreadId: string | null;
    taskList: TaskEntry[];
    configOptions: ConfigOption[];
+   /** The last value of the mode config option that was not "plan" (the mode to go back to after a plan). */
+   lastMode: string | null;
+   /** The plans the Agent asked to approve, oldest first. */
+   plans: PlanEntry[];
    /** The Agent's asking mode (core's `side_mode`): where a new Side Thread starts. Null: unknown. */
    sideMode: string | null;
    commands: SlashCommand[];
@@ -205,6 +236,8 @@ export const initialState = (): ChatState => ({
    mainThreadId: null,
    taskList: [],
    configOptions: [],
+   lastMode: null,
+   plans: [],
    sideMode: null,
    commands: [],
    usage: null,
@@ -486,7 +519,11 @@ function applyThread(c: Ctx, e: Event) {
          d.taskList = k.entries;
          return;
       case "ConfigOptionsChanged":
-         if (Array.isArray(k.options)) d.configOptions = k.options as ConfigOption[];
+         if (Array.isArray(k.options)) {
+            d.configOptions = k.options as ConfigOption[];
+            const mode = d.configOptions.find((o) => o.category === "mode")?.currentValue;
+            if (mode && mode !== "plan") d.lastMode = mode;
+         }
          d.sideMode = k.side_mode ?? null;
          return;
       case "AvailableCommandsChanged":
@@ -661,13 +698,15 @@ function applyThread(c: Ctx, e: Event) {
          }
          const call = (k.tool_call ?? {}) as ToolCallRef;
          const facts = toolFactsOfCall(k.tool_call, k.harness_tool);
+         const plan = k.plan ?? facts.plan;
+         if (plan) addPlan(c, k.request_id, plan, e.ts_ms);
          push(c, {
             type: "permission",
             id,
             requestId: k.request_id,
             toolCall: call,
             harnessTool: k.harness_tool ?? null,
-            plan: k.plan ?? facts.plan,
+            plan,
             commitMessage: k.commit_message ?? facts.commitMessage,
             frontendTool: k.frontend_tool ?? facts.frontendTool,
             stepId,
@@ -680,7 +719,28 @@ function applyThread(c: Ctx, e: Event) {
          const at = permIndex(c).get(k.request_id);
          const i = at !== undefined ? d.items[at] : undefined;
          if (!i || i.type !== "permission") return;
-         const kind = i.options.find((o) => o.option_id === k.option_id)?.kind ?? "";
+         const option = i.options.find((o) => o.option_id === k.option_id);
+         const kind = option?.kind ?? "";
+         if (i.plan) {
+            d.plans = d.plans.map((p) =>
+               p.requestId === k.request_id
+                  ? {
+                       ...p,
+                       status:
+                          k.option_id === null
+                             ? "dismissed"
+                             : kind.startsWith("reject")
+                               ? "revised"
+                               : kind.startsWith("allow")
+                                 ? "approved"
+                                 : "dismissed",
+                       optionId: k.option_id,
+                       clearsContext: !!option?.clears_context,
+                       resolvedAt: e.ts_ms,
+                    }
+                  : p,
+            );
+         }
          if (i.stepId && k.option_id !== null) {
             const ti = toolIndex(c).get(i.stepId);
             const tool = ti !== undefined ? d.items[ti] : undefined;
@@ -714,6 +774,42 @@ function applyThread(c: Ctx, e: Event) {
          );
          return;
    }
+}
+
+/** A new plan version. Counts the plan comments sent since the version it revises. */
+function addPlan(c: Ctx, requestId: string, markdown: string, ts: number) {
+   const d = c.d;
+   const last = d.plans.at(-1);
+   const prev = last && last.status !== "approved" ? last : null;
+   let commentsSent = 0;
+   if (prev) {
+      const from = permIndex(c).get(prev.requestId) ?? d.items.length;
+      for (let n = from + 1; n < d.items.length; n++) {
+         const it = d.items[n]!;
+         if (it.type !== "user") continue;
+         commentsSent += parseReviewComments(it.text).comments.filter(
+            (x) => x.kind === "quote" && x.source === "plan",
+         ).length;
+      }
+   }
+   d.plans = [
+      ...d.plans,
+      {
+         requestId,
+         version: d.plans.length + 1,
+         markdown,
+         title: planTitle(markdown),
+         steps: planSteps(markdown),
+         prev: prev?.requestId ?? null,
+         status: "pending",
+         optionId: null,
+         modeBefore: d.lastMode,
+         clearsContext: false,
+         requestedAt: ts,
+         resolvedAt: null,
+         commentsSent,
+      },
+   ];
 }
 
 function transcriptInfo(t: TranscriptSize | null): string {

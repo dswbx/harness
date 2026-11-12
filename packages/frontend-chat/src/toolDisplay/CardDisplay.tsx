@@ -4,7 +4,7 @@ import type { ToolGroupProps } from ".";
 import { ThoughtStep } from "./ThoughtStep";
 
 /** One card per call (the original look). */
-export function CardDisplay({ steps, subagents, streaming }: ToolGroupProps) {
+export function CardDisplay({ steps, subagents, active, streaming }: ToolGroupProps) {
    return (
       <div className="space-y-2">
          {steps.map((c, i) => {
@@ -18,7 +18,7 @@ export function CardDisplay({ steps, subagents, streaming }: ToolGroupProps) {
                );
             const s = subagents.get(c.id);
             return s ? (
-               <SubagentCard key={c.id} task={c} subagent={s} />
+               <SubagentCard key={c.id} task={c} subagent={s} active={active} />
             ) : (
                <ToolCard key={c.id} tool={c} />
             );

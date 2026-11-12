@@ -33,7 +33,7 @@ import {
    Wrench,
    XCircle,
 } from "lucide-react";
-import { memo, type ReactNode, useMemo, useState } from "react";
+import { memo, type ReactNode, useContext, useMemo, useState } from "react";
 import { diffLines } from "../diff";
 import { Markdown } from "../Markdown";
 import { Block, json, present, STEP_TEXT } from "../ToolCard";
@@ -42,6 +42,7 @@ import { CodeFrame } from "./CodeFrame";
 import type { Tool } from "./group";
 import { gitSummary, type StepState, stepLabel } from "./label";
 import { ThoughtStep } from "./ThoughtStep";
+import { WaitingForUser } from "./waiting";
 
 /** Steps of a run, one line each (shadcn Trace); a step opens only on a click. */
 export function TraceDisplay({ steps, subagents, active, streaming }: ToolGroupProps) {
@@ -123,9 +124,10 @@ const Step = memo(function Step({
    active: boolean;
 }) {
    const [open, setOpen] = useState(false);
+   const waiting = useContext(WaitingForUser);
    const denied = !subagent && tool.approval === "denied";
    const state: StepState = subagent
-      ? subagentState(tool, subagent)
+      ? subagentState(tool, subagent, active && !waiting)
       : denied
         ? "pending"
         : tool.status === "failed"
