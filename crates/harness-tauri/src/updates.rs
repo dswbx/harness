@@ -135,7 +135,9 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// `request_restart`, not `restart`: from a command (main thread) `restart` exits at once and skips
+/// `RunEvent::Exit`, where the window-state plugin saves the window size and position.
 #[tauri::command]
 pub fn update_restart(app: AppHandle) {
-    app.restart();
+    app.request_restart();
 }
