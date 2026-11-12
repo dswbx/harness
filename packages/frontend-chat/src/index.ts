@@ -7,6 +7,7 @@ export const frontend: Frontend = { manifest, View, Request: ArtifactRequest };
 export { setWrapCode, useWrapCode } from "./CodeBlock";
 export { RenderUiGallery } from "./Gallery";
 export { setGuessInlineCode, useGuessInlineCode } from "./inlineCode";
+export { SharedArtifactView } from "./SharedArtifactView";
 export { setOptionIsMeta, useOptionIsMeta } from "./terminalOptions";
 export { setToolDisplay, toolDisplays, useToolDisplay } from "./toolDisplay";
 export {

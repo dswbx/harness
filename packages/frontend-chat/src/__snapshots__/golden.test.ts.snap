@@ -801,6 +801,7 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   "readOnly": false,
   "recovery": null,
   "restoring": null,
+  "sharedAttached": [],
   "side": false,
   "sideMode": null,
   "startBoundary": "initial",
@@ -1101,6 +1102,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
     },
   },
   "restoring": null,
+  "sharedAttached": [],
   "side": false,
   "sideMode": null,
   "startBoundary": "initial",
@@ -1178,6 +1180,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "readOnly": false,
       "recovery": null,
       "restoring": null,
+      "sharedAttached": [],
       "side": true,
       "sideMode": null,
       "startBoundary": "forked",
@@ -1269,9 +1272,9 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
           "placement": "right",
           "root": {
             "props": {
-              "source": "shared:release-checklist-3f9a1c",
+              "id": "release-checklist-3f9a1c",
             },
-            "type": "Markdown",
+            "type": "Shared",
           },
           "source": "shared:release-checklist-3f9a1c",
           "title": "Release checklist",
@@ -1298,6 +1301,12 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
   "readOnly": false,
   "recovery": null,
   "restoring": null,
+  "sharedAttached": [
+    {
+      "id": "release-checklist-3f9a1c",
+      "ts": 1790000000685,
+    },
+  ],
   "side": false,
   "sideMode": null,
   "startBoundary": null,

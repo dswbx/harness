@@ -83,3 +83,60 @@ describe("render_ui placements", () => {
       expect(s.uiState).toEqual({ quiz: { score: 1, answers: { q1: "b" } } });
    });
 });
+
+describe("Shared Artifacts in slots (ADR 0024)", () => {
+   const attach = (id: string, ts = 5): Event => ({
+      ...ev({ type: "ArtifactAttached", id, by: "user" }),
+      thread_id: null,
+      ts_ms: ts,
+   });
+   const detach = (id: string): Event => ({
+      ...ev({ type: "ArtifactDetached", id, by: "user" }),
+      thread_id: null,
+   });
+   const shared = (s: ReturnType<typeof fold>) => splitRenderUi(s.items, s.sharedAttached);
+
+   it("gives an attached artifact no item shows a right panel of its own", () => {
+      const s = fold([attach("map-a1b2c3", 7)]);
+      expect(shared(s).slots.right).toEqual([
+         {
+            id: "shared:map-a1b2c3",
+            title: null,
+            icon: null,
+            root: { type: "Shared", props: { id: "map-a1b2c3" } },
+            files: {},
+            ts: 7,
+            source: "shared:map-a1b2c3",
+         },
+      ]);
+   });
+
+   it("adds no synthetic panel when an item shows the artifact", () => {
+      const s = fold([
+         ui({ id: "plan", placement: "right", title: "Plan", source: "plan.md" }),
+         ui({ id: "plan", placement: "right", title: "Plan", source: "shared:plan-3f9a1c" }),
+         attach("plan-3f9a1c"),
+      ]);
+      expect(shared(s).slots.right.map((x) => [x.id, x.source])).toEqual([
+         ["plan", "shared:plan-3f9a1c"],
+      ]);
+   });
+
+   it("hides the item and the synthetic panel once detached", () => {
+      const s = fold([
+         ui({ id: "plan", placement: "right", title: "Plan", source: "shared:plan-3f9a1c" }),
+         attach("plan-3f9a1c"),
+         attach("map-a1b2c3"),
+         detach("plan-3f9a1c"),
+         detach("map-a1b2c3"),
+      ]);
+      const { inline, slots } = shared(s);
+      expect(slots.right).toEqual([]);
+      expect(inline.get(s.items[0]!.id)).toBeNull();
+   });
+
+   it("lists an artifact attached twice once", () => {
+      const s = fold([attach("map-a1b2c3"), attach("map-a1b2c3", 9)]);
+      expect(shared(s).slots.right.map((x) => [x.id, x.ts])).toEqual([["shared:map-a1b2c3", 9]]);
+   });
+});

@@ -1198,3 +1198,36 @@ describe("Unknown events", () => {
       expect(next.mainThreadId).toBe(base.mainThreadId);
    });
 });
+
+describe("Shared Artifacts (ADR 0024)", () => {
+   it("tracks attachments and never folds ArtifactStateChanged into uiState", () => {
+      const s = fold([
+         started(),
+         ev({ type: "StateChanged", ops: [{ op: "add", path: "/a", value: 1 }], by: "user" }),
+         ev({ type: "ArtifactAttached", id: "plan-3f9a1c", by: "agent" }, null, 10),
+         ev({ type: "ArtifactAttached", id: "map-a1b2c3", by: "user" }, null, 20),
+         ev(
+            {
+               type: "ArtifactStateChanged",
+               id: "plan-3f9a1c",
+               ops: [{ op: "add", path: "/b", value: 2 }],
+               by: "user",
+            },
+            null,
+         ),
+         ev(
+            {
+               type: "ArtifactStateChanged",
+               id: "plan-3f9a1c",
+               ops: [{ op: "replace", path: "/a", value: 3 }],
+               by: "agent",
+            },
+            "main",
+         ),
+         ev({ type: "ArtifactDetached", id: "map-a1b2c3", by: "user" }, null, 30),
+      ]);
+      expect(s.uiState).toEqual({ a: 1 });
+      expect(s.sharedAttached).toEqual([{ id: "plan-3f9a1c", ts: 10 }]);
+      expect(s.items).toEqual([]);
+   });
+});

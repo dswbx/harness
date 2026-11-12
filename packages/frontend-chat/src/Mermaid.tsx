@@ -49,6 +49,7 @@ export function Mermaid({ source, title }: { source: string; title?: string }) {
          label="diagram"
          className="not-typeset"
          title={title}
+         share={`\`\`\`mermaid\n${source}\n\`\`\`\n`}
          formats={() => mermaidFormats(fileName(title ?? "diagram"), source)}
          expanded={
             <ZoomView {...size}>
