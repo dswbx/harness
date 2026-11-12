@@ -68,7 +68,7 @@ export async function openWindow(
       ...(opts.overlayTitleBar && {
          titleBarStyle: "overlay" as const,
          hiddenTitle: true,
-         trafficLightPosition: new LogicalPosition(18, 27),
+         trafficLightPosition: new LogicalPosition(18, 28),
       }),
    });
    w.once("tauri://error", (e) => console.error("window create failed", e));
