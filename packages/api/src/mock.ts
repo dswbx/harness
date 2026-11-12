@@ -560,6 +560,8 @@ export class MockTransport implements Transport {
          base_branch: null,
          branch: "main",
          pr: null,
+         pr_state: null,
+         pr_checks: null,
          ...o,
       });
       const samples: [string, string, number, number, WorkspaceInfo, SessionSummary["status"]?][] =
@@ -586,6 +588,8 @@ export class MockTransport implements Transport {
                   base_branch: "main",
                   branch: "feat/attachments",
                   pr: 142,
+                  pr_state: "open",
+                  pr_checks: "failing",
                }),
                "needs_attention",
             ],
@@ -594,14 +598,24 @@ export class MockTransport implements Transport {
                "/Users/me/harness",
                60,
                58,
-               ws("/Users/me/harness", { branch: "ping-greeting" }),
+               ws("/Users/me/harness", {
+                  branch: "ping-greeting",
+                  pr: 61,
+                  pr_state: "draft",
+                  pr_checks: "pending",
+               }),
             ],
             [
                "Hono route types",
                "/Users/me/jsonv-ts",
                200,
                150,
-               ws("/Users/me/jsonv-ts", { branch: "side-thread-config", pr: 139 }),
+               ws("/Users/me/jsonv-ts", {
+                  branch: "side-thread-config",
+                  pr: 139,
+                  pr_state: "merged",
+                  pr_checks: "passing",
+               }),
             ],
             [
                "Rust lifetimes questions",
@@ -659,6 +673,8 @@ export class MockTransport implements Transport {
          base_branch: null,
          branch: null,
          pr: null,
+         pr_state: null,
+         pr_checks: null,
       };
       this.addSession(id, title, frontend_id, false, `/Users/me/.harness/quick/${id}`, workspace);
       this.sessions.at(-1)!.quick = true;
@@ -693,6 +709,8 @@ export class MockTransport implements Transport {
             base_branch: null,
             branch: "main",
             pr: null,
+            pr_state: null,
+            pr_checks: null,
          },
       });
       const mainId = this.fixture.find(
@@ -994,6 +1012,8 @@ export class MockTransport implements Transport {
                       ? pr.head
                       : (cmd.new_branch ?? cmd.branch ?? "main"),
                pr: pr?.number ?? null,
+               pr_state: pr ? "open" : null,
+               pr_checks: null,
             };
             const title =
                cmd.title ??

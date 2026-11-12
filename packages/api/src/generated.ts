@@ -954,4 +954,8 @@ export type WorkspaceInfo = {
 	branch: string | null,
 	/**  The PR the Session started from, else the last PR found for its current branch. */
 	pr: number | null,
+	/**  `pr`'s state when last looked up; None before the first lookup. */
+	pr_state: PrState | null,
+	/**  `pr`'s checks when last looked up. */
+	pr_checks: PrChecks | null,
 };

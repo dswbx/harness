@@ -51,11 +51,46 @@ pub struct Harness {
     shared: Arc<Shared>,
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
     terminals: crate::terminal::Terminals,
+    /// When the PR states of the Session list were last refreshed.
+    prs_refreshed: parking_lot::Mutex<Option<std::time::Instant>>,
     /// Holds the data directory lock for as long as the Harness lives.
     _lock: std::fs::File,
 }
 
 impl Harness {
+    /// Looks up the PRs of the listed Sessions in the background (one `gh` call, at most once a minute), so the Session
+    /// list shows their state; Sessions whose PR changed are listed again.
+    fn refresh_pr_states(&self) {
+        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        {
+            let mut last = self.prs_refreshed.lock();
+            if last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(60)) {
+                return;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        let watches: Vec<_> = self.sessions.read().values().filter(|s| !s.meta().archived).map(|s| s.pr_watch()).collect();
+        let shared = self.shared.clone();
+        drop(rt.spawn(async move {
+            let mut found = vec![];
+            for w in watches {
+                let Some((folder, number)) = w.shown() else { continue };
+                if let Some(repo) = shared.pr_refs.repo_of(&folder).await {
+                    found.push((w, PrRefKey { repo, number }));
+                }
+            }
+            if found.is_empty() {
+                return;
+            }
+            let Ok(prs) = shared.pr_refs.lookup(found.iter().map(|f| f.1.clone()).collect()).await else { return };
+            for ((w, _), pr) in found.iter().zip(prs) {
+                if let Some(pr) = pr {
+                    w.note(&pr);
+                }
+            }
+        }));
+    }
+
     /// `data_dir` is the app data folder; Session Directories live in `data_dir/sessions/<id>/`.
     pub fn new(data_dir: PathBuf) -> anyhow::Result<Arc<Self>> {
         Self::with_options(data_dir, Vec::new(), Options::default())
@@ -118,7 +153,7 @@ impl Harness {
         let terminals = crate::terminal::Terminals::new(move |session_id| {
             app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
         });
-        Ok(Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, _lock: lock }))
+        Ok(Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, prs_refreshed: Default::default(), _lock: lock }))
     }
 
     /// URL of the Harness MCP (starts it). For diagnostics and tests.
@@ -225,6 +260,7 @@ impl Harness {
             Command::ListSessions => {
                 let mut sessions: Vec<SessionSummary> = self.sessions.read().values().map(|s| s.summary()).collect();
                 sessions.sort_by_key(|s| std::cmp::Reverse(s.created_ms));
+                self.refresh_pr_states();
                 CommandResult::Sessions { sessions }
             }
             Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
@@ -454,6 +490,9 @@ impl Harness {
                         },
                     },
                 };
+                if let Some(p) = &pr {
+                    session.pr_watch().note(p);
+                }
                 let base = match meta.workspace.worktree.as_ref().map(|w| w.base.clone()).or_else(|| meta.workspace.base.clone()) {
                     Some(b) => Some(b),
                     None => crate::workspace::default_branch(Path::new(&meta.folder)).await.map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned()),
@@ -667,7 +706,10 @@ impl Harness {
         let short = &id[id.len() - 6..];
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
         let in_worktree = |wt: WorktreeMeta, pr: Option<u32>| {
-            (dest.join(&rel).display().to_string(), WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None, pr, branch_pr: None })
+            (
+                dest.join(&rel).display().to_string(),
+                WorkspaceMeta { repo_root: Some(dest.clone()), worktree: Some(wt), base: None, pr, branch_pr: None, pr_status: None },
+            )
         };
         match start {
             Start::Pr { pr, worktree: true } => {
@@ -688,7 +730,10 @@ impl Harness {
             Start::Pr { pr, worktree: false } => {
                 anyhow::ensure!(!crate::workspace::is_dirty(&root).await?, "the folder has uncommitted changes; commit or stash them, or use a Worktree");
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number), branch_pr: None }))
+                Ok((
+                    folder.display().to_string(),
+                    WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number), branch_pr: None, pr_status: None },
+                ))
             }
             Start::Branch { base, new_branch, worktree: true } => {
                 let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
@@ -702,7 +747,7 @@ impl Harness {
                 {
                     crate::workspace::checkout(&root, &b).await?;
                 }
-                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None, pr: None, branch_pr: None }))
+                Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None, pr: None, branch_pr: None, pr_status: None }))
             }
         }
     }

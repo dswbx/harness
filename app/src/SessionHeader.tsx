@@ -72,6 +72,14 @@ const PR_STYLE: Record<
    closed: { icon: GitPullRequestClosed, cls: "text-red-600 dark:text-red-400", label: "Closed" },
 };
 
+/** How a PR shows: its state's icon and color; an open PR with failing checks is red. */
+export function prStyle(state: PrInfo["state"], checks?: PrInfo["checks"] | null) {
+   const st = PR_STYLE[state];
+   return state === "open" && checks === "failing"
+      ? { ...st, cls: "text-red-600 dark:text-red-400", label: "Checks failing" }
+      : st;
+}
+
 const CHECKS: Record<PrInfo["checks"], { icon: typeof Check; cls: string; label: string } | null> =
    {
       passing: {
