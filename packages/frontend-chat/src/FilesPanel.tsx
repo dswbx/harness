@@ -7,7 +7,7 @@ import { CommentCount } from "./DiffViewer";
 import { errorMessage } from "./errors";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "./FileTreeList";
 import { FileView, type LineRange } from "./FileView";
-import { ancestorKeys, fileTree } from "./fileTree";
+import { ancestorKeys, fileTree, folderStatus } from "./fileTree";
 import { PanelHeader } from "./PanelHeader";
 import { useFileComments } from "./reviewComments";
 import { useGitStatus } from "./useGitStatus";
@@ -104,6 +104,8 @@ export function FilesPanel({
    const sessionId = api.sessionId;
    const [saved] = useState(() => readSaved(sessionId));
    const [files, setFiles] = useState<string[] | null>(null);
+   /** The folder's path in its repository: git status paths start with it, `files` do not. */
+   const [prefix, setPrefix] = useState("");
    const [listError, setListError] = useState<string | null>(null);
    const [selected, setSelected] = useState<string | null>(target?.path ?? saved.path ?? null);
    const [range, setRange] = useState<LineRange | null>(null);
@@ -151,7 +153,8 @@ export function FilesPanel({
       api.listSessionFiles().then(
          (l) => {
             if (off) return;
-            setFiles(l);
+            setFiles(l.files);
+            setPrefix(l.prefix);
             setListError(null);
          },
          (e) => !off && setListError(errorMessage(e)),
@@ -236,8 +239,8 @@ export function FilesPanel({
    }, [reveal, files, allDirs, openDirs]);
 
    const status = useMemo(
-      () => new Map(git.status?.files.map((f) => [f.path, f.status]) ?? []),
-      [git.status],
+      () => folderStatus(git.status?.files ?? [], prefix),
+      [git.status, prefix],
    );
    const commentsOn = (p: string) => comments.filter((c) => c.path === p).length;
 

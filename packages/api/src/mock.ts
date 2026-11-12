@@ -1100,7 +1100,7 @@ export class MockTransport implements Transport {
             );
             return { type: "Ok" };
          case "ListSessionFiles":
-            return { type: "Files", files: Object.keys(MOCK_NEW).sort() };
+            return { type: "SessionFiles", files: Object.keys(MOCK_NEW).sort(), prefix: "" };
          case "ReadSessionFile": {
             const want = cmd.path.replace(/^\.\//, "");
             const hits =

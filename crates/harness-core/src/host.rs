@@ -323,7 +323,8 @@ impl Harness {
             }
             Command::ListSessionFiles { session_id } => {
                 let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
-                CommandResult::Files { files: crate::editor::list_files(&folder).await? }
+                let (files, prefix) = tokio::join!(crate::editor::list_files(&folder), crate::workspace::folder_prefix(&folder));
+                CommandResult::SessionFiles { files: files?, prefix }
             }
             Command::ReadSessionFile { session_id, path, start, end } => {
                 let folder = PathBuf::from(self.session(&session_id)?.meta().folder);

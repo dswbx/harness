@@ -287,6 +287,9 @@ mod tests {
         assert_eq!(list_files(repo).await.unwrap(), [".gitignore", "app/new.ts", "app/x.ts", "outside.rs", "src/a.rs"]);
         // A subfolder: paths relative to it.
         assert_eq!(list_files(&repo.join("app")).await.unwrap(), ["new.ts", "x.ts"]);
+        // Its prefix maps repo-relative paths (git status) to these.
+        assert_eq!(crate::workspace::folder_prefix(&repo.join("app")).await, "app/");
+        assert_eq!(crate::workspace::folder_prefix(repo).await, "");
     }
 
     #[tokio::test]
@@ -295,5 +298,6 @@ mod tests {
         let f = dir.path().join("proj");
         write(&f, &["b.txt", "src/a.rs", ".hidden/x", "node_modules/y/z.js", ".env"]);
         assert_eq!(list_files(&f).await.unwrap(), [".env", "b.txt", "src/a.rs"]);
+        assert_eq!(crate::workspace::folder_prefix(&f).await, "");
     }
 }

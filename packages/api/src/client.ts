@@ -110,12 +110,16 @@ export interface SessionApi {
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
    openInEditor(path?: string, line?: number): Promise<void>;
    /**
+    * Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, those `.gitignore`
+    * does not exclude. Capped. `prefix`: the folder's path in its repository (`crates/`, else empty), to match
+    * repo-relative paths (git status) to `files`.
+    */
+   listSessionFiles(): Promise<{ files: string[]; prefix: string }>;
+   /**
     * Lines `start..=end` (1-based, clipped; default: all) of a text file in the Session's folder (relative or absolute
     * inside it; a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the
     * file found, relative to the folder. Fails for files outside it, missing, too large, binary or not UTF-8.
     */
-   /** Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, those `.gitignore` does not exclude. Capped. */
-   listSessionFiles(): Promise<string[]>;
    readSessionFile(
       path: string,
       start?: number,
@@ -266,8 +270,13 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             path: path ?? null,
             line: line ?? null,
          }),
-      listSessionFiles: async () =>
-         (await expect({ type: "ListSessionFiles", session_id: sessionId }, "Files")).files,
+      listSessionFiles: async () => {
+         const r = await expect(
+            { type: "ListSessionFiles", session_id: sessionId },
+            "SessionFiles",
+         );
+         return { files: r.files, prefix: r.prefix };
+      },
       readSessionFile: async (path, start, end) => {
          const r = await expect(
             {

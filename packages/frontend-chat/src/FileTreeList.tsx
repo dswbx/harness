@@ -57,7 +57,7 @@ export function FileTreeList<T>({
    /** Shown instead of the rows (loading, error). */
    placeholder?: ReactNode;
    className?: string;
-   /** Keyboard moved the cursor, or a folder was clicked. */
+   /** Keyboard moved the cursor, or a folder was clicked (a click also toggles it). */
    onSelect: (key: string) => void;
    /** A file row was clicked. */
    onOpenFile: (row: Extract<NavRow<T>, { kind: "file" }>) => void;
@@ -122,26 +122,18 @@ export function FileTreeList<T>({
                title={r.dir}
                style={{ paddingLeft: indent(r) }}
                className={base}
-               onClick={() => onSelect(r.key)}
-               onDoubleClick={() => onSetOpen(r.dir, !r.open)}
+               onClick={() => {
+                  onSelect(r.key);
+                  onSetOpen(r.dir, !r.open);
+               }}
             >
-               <button
-                  tabIndex={-1}
-                  aria-label={r.open ? "Collapse" : "Expand"}
-                  className="-m-0.5 rounded p-0.5 hover:bg-accent hover:text-accent-foreground"
-                  onClick={(e) => {
-                     e.stopPropagation();
-                     onSelect(r.key);
-                     onSetOpen(r.dir, !r.open);
-                  }}
-               >
-                  <ChevronRight
-                     className={cn(
-                        "size-3.5 text-muted-foreground transition-transform",
-                        r.open && "rotate-90",
-                     )}
-                  />
-               </button>
+               <ChevronRight
+                  aria-hidden
+                  className={cn(
+                     "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                     r.open && "rotate-90",
+                  )}
+               />
                <Folder className="size-4 shrink-0 text-muted-foreground" />
                <span className="min-w-0 flex-1 truncate">{r.name}</span>
             </li>

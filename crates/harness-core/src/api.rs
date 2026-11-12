@@ -160,7 +160,7 @@ pub enum Command {
         line: Option<u32>,
     },
     /// Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, the files `.gitignore`
-    /// does not exclude; elsewhere, all but hidden and build folders. Capped.
+    /// does not exclude; elsewhere, all but hidden and build folders. Capped. Replies `SessionFiles`.
     ListSessionFiles {
         session_id: SessionId,
     },
@@ -645,6 +645,12 @@ pub enum CommandResult {
     },
     Files {
         files: Vec<String>,
+    },
+    /// `ListSessionFiles`. `prefix`: the folder's path in its git repository (`crates/`, empty at the root or
+    /// outside git), to match repo-relative paths such as git status to `files`.
+    SessionFiles {
+        files: Vec<String>,
+        prefix: String,
     },
     PermissionRules {
         rules: Vec<PermissionRule>,
