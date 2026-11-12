@@ -242,6 +242,8 @@ export function DiffPanel({
                   onClick={() =>
                      void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), {
                         title: `Diff: ${scope.label}`,
+                        remember: "diff",
+                        overlayTitleBar: true,
                      })
                   }
                >

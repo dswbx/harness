@@ -1,4 +1,4 @@
-import type { Diff, SessionApi } from "@harness/api";
+import { type Diff, inTauri, rememberWindowFrame, type SessionApi } from "@harness/api";
 import { Button, cn, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import {
    ArrowDown,
@@ -279,6 +279,8 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       change.current = -1;
    }, [mode]);
 
+   useEffect(() => rememberWindowFrame("diff"), []);
+
    useEffect(() => {
       if (activePos >= 0)
          list.current
@@ -373,7 +375,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                role="treeitem"
                aria-selected={on}
                aria-expanded={r.open}
-               title={r.dir}
                style={{ paddingLeft: indent(r) }}
                className={base}
                onClick={() => setCursor(r.key)}
@@ -411,7 +412,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
             data-pos={pos}
             role="treeitem"
             aria-selected={on}
-            title={`${f.path} (${s.label})`}
             style={{ paddingLeft: view === "tree" ? indent(r) : 8 }}
             className={base}
             onClick={() => goFile(orderIndex.get(f.path)!)}
@@ -422,13 +422,24 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                {view === "list" && slash > 0 ? f.path.slice(0, slash) : ""}
             </span>
             <CommentCount n={n} />
+            <span className="flex shrink-0 gap-1 font-mono text-xs tabular-nums">
+               {f.additions > 0 && <span className="text-emerald-500">+{f.additions}</span>}
+               {f.deletions > 0 && <span className="text-red-500">−{f.deletions}</span>}
+            </span>
          </li>
       );
    };
 
    return (
       <div className="flex h-full flex-col">
-         <div className="flex items-center gap-1 border-b px-2 py-1.5 text-xs">
+         <div
+            data-tauri-drag-region
+            className={cn(
+               "flex h-13 shrink-0 items-center gap-1 border-b pr-2 text-xs",
+               // Room for the traffic lights (overlay title bar).
+               inTauri() ? "pl-[92px]" : "pl-2",
+            )}
+         >
             <Tooltip content="Previous change" shortcut={["⌥", "↑"]} side="bottom">
                <Button
                   size="icon"
@@ -499,7 +510,10 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                   {scope.label}
                </span>
             </Tooltip>
-            <span className="ml-2 min-w-0 flex-1 truncate font-mono text-muted-foreground">
+            <span
+               data-tauri-drag-region
+               className="ml-2 min-w-0 flex-1 truncate font-mono text-muted-foreground"
+            >
                {file?.path}
             </span>
             {file && (
