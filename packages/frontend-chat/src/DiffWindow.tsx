@@ -437,7 +437,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
             className={cn(
                "flex h-13 shrink-0 items-center gap-1 border-b pr-2 text-xs",
                // Room for the traffic lights (overlay title bar).
-               inTauri() ? "pl-[76px]" : "pl-2",
+               inTauri() ? "pl-[84px]" : "pl-2",
             )}
          >
             <Tooltip content="Previous change" shortcut={["⌥", "↑"]} side="bottom">

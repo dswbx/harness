@@ -35,7 +35,7 @@ const readFrame = (key: string): Frame | null => {
 
 /** Opens an app URL (e.g. `/?session=..&solo=1`) in a new window. Frontends can't import Tauri, so this lives here. With `pane=...` the host adds no Session header.
  * `remember`: the window opens at the frame last saved under this key (see `rememberWindowFrame`).
- * `overlayTitleBar`: the traffic lights sit inside the page, like the main window; the page must leave 76px free on the left of a 52px-high top bar. */
+ * `overlayTitleBar`: the traffic lights sit inside the page, like the main window; the page must leave 84px free on the left of a 52px-high top bar. */
 export async function openWindow(
    label: string,
    url: string,
@@ -68,7 +68,7 @@ export async function openWindow(
       ...(opts.overlayTitleBar && {
          titleBarStyle: "overlay" as const,
          hiddenTitle: true,
-         trafficLightPosition: new LogicalPosition(18, 26),
+         trafficLightPosition: new LogicalPosition(18, 27),
       }),
    });
    w.once("tauri://error", (e) => console.error("window create failed", e));
