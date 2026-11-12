@@ -159,6 +159,11 @@ pub enum Command {
         #[serde(default)]
         line: Option<u32>,
     },
+    /// Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, the files `.gitignore`
+    /// does not exclude; elsewhere, all but hidden and build folders. Capped.
+    ListSessionFiles {
+        session_id: SessionId,
+    },
     /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
     /// (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
     /// for a file reference in a message. Fails for files outside the folder,

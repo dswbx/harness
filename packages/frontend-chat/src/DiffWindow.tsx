@@ -5,30 +5,22 @@ import {
    ArrowLeft,
    ArrowRight,
    ArrowUp,
-   ChevronRight,
    Columns2,
    FileMinus,
    FilePen,
    FilePlus,
-   Folder,
    List,
    ListTree,
    Rows2,
    WrapText,
 } from "lucide-react";
-import {
-   type KeyboardEvent as ReactKeyboardEvent,
-   useCallback,
-   useEffect,
-   useMemo,
-   useRef,
-   useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer, type FileContents } from "./DiffViewer";
 import { type FilePatch, splitPatch } from "./diff";
 import { errorMessage } from "./errors";
-import { ancestorKeys, fileTree, type TreeRow } from "./fileTree";
+import { FileTreeList, fileRowKey, type NavRow, navRow } from "./FileTreeList";
+import { ancestorKeys, fileTree } from "./fileTree";
 import { useDiffComments } from "./reviewComments";
 import { type DiffScope, selectionScope } from "./scope";
 
@@ -80,6 +72,8 @@ function changeRows(root: HTMLElement | null): HTMLElement[] {
    return rows.filter((_, i) => changed[i] && !changed[i - 1]);
 }
 
+const fileKey = (f: FilePatch) => fileRowKey(f.path);
+
 const VIEW_KEY = "harness:diff-file-view";
 const WRAP_KEY = "harness:diff-wrap";
 type FileView = "list" | "tree";
@@ -90,36 +84,6 @@ const readView = (): FileView => {
       return "tree";
    }
 };
-
-/** A row of the file list the cursor can be on: a file, or (tree view) a folder. Keys: `f:<path>`, `d:<folder>`. */
-type NavRow =
-   | { key: string; kind: "file"; depth: number; file: FilePatch; name: string }
-   | {
-        key: string;
-        kind: "dir";
-        depth: number;
-        dir: string;
-        name: string;
-        open: boolean;
-        additions: number;
-        deletions: number;
-     };
-const fileKey = (f: FilePatch) => `f:${f.path}`;
-const navRow = (r: TreeRow<FilePatch>): NavRow =>
-   r.kind === "dir"
-      ? {
-           key: `d:${r.key}`,
-           kind: "dir",
-           depth: r.depth,
-           dir: r.key,
-           name: r.name,
-           open: r.open,
-           additions: r.additions,
-           deletions: r.deletions,
-        }
-      : { key: fileKey(r.file), kind: "file", depth: r.depth, file: r.file, name: r.name };
-/** Left padding of a row: 16px per level; files skip the chevron's width so their icon lines up with folder icons. */
-const indent = (r: NavRow) => 8 + r.depth * 16 + (r.kind === "file" ? 18 : 0);
 
 /** JetBrains-like diff viewer: files (list or tree) and commits left, one file's diff right, keyboard navigation through files and changes. */
 export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scope: DiffScope }) {
@@ -149,7 +113,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       edge: "right",
    });
    const pane = useRef<HTMLDivElement>(null);
-   const list = useRef<HTMLUListElement>(null);
    const change = useRef(-1);
    /** After a file switch from "next/previous change", jump to its first or last change once rendered. */
    const pendingJump = useRef<"first" | "last" | null>(null);
@@ -178,10 +141,10 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    /** Files in display order, for next/previous file. */
    const order = view === "tree" ? tree.order : files;
    const orderIndex = useMemo(() => new Map(order.map((f, i) => [f.path, i])), [order]);
-   const rows: NavRow[] = useMemo(
+   const rows: NavRow<FilePatch>[] = useMemo(
       () =>
          view === "tree"
-            ? tree.rows.map(navRow)
+            ? tree.rows.map((r) => navRow(r))
             : files.map((f) => ({
                  key: fileKey(f),
                  kind: "file" as const,
@@ -198,7 +161,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    const idx = file ? orderIndex.get(file.path)! : -1;
    const activeKey =
       cursor && rows.some((r) => r.key === cursor) ? cursor : file ? fileKey(file) : null;
-   const activePos = rows.findIndex((r) => r.key === activeKey);
 
    // Full contents let git-diff-view expand the collapsed unchanged regions.
    useEffect(() => {
@@ -280,13 +242,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    }, [mode]);
 
    useEffect(() => {
-      if (activePos >= 0)
-         list.current
-            ?.querySelector<HTMLElement>(`[data-pos="${activePos}"]`)
-            ?.scrollIntoView({ block: "nearest" });
-   }, [activePos]);
-
-   useEffect(() => {
       pane.current?.scrollTo({ top: 0 });
    }, [file?.path]);
 
@@ -307,35 +262,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
    }, [goChange, goFile, idx]);
-
-   // ↑/↓ move through visible rows; ← collapses a folder or goes to the parent folder, → expands or goes to the first child.
-   const onListKey = (e: ReactKeyboardEvent) => {
-      if (e.altKey || e.metaKey || e.ctrlKey) return;
-      const row = rows[activePos];
-      const select = (r: NavRow | undefined) => r && setCursor(r.key);
-      const act = {
-         ArrowDown: () => select(rows[activePos + 1]),
-         ArrowUp: () => select(rows[activePos - 1]),
-         ArrowLeft: () => {
-            if (row?.kind === "dir" && row.open) setOpen(row.dir, false);
-            else if (row)
-               select(
-                  rows
-                     .slice(0, activePos)
-                     .reverse()
-                     .find((r) => r.depth < row.depth),
-               );
-         },
-         ArrowRight: () => {
-            if (row?.kind !== "dir") return;
-            if (!row.open) setOpen(row.dir, true);
-            else if ((rows[activePos + 1]?.depth ?? -1) > row.depth) select(rows[activePos + 1]);
-         },
-      }[e.key];
-      if (!act) return;
-      e.preventDefault();
-      act();
-   };
 
    const toggleWrap = () => {
       setWrap(!wrap);
@@ -358,74 +284,6 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
 
    const pathComments = (p: string) => comments.filter((c) => c.path === p).length;
    const sum = (k: "additions" | "deletions") => files.reduce((s, f) => s + f[k], 0);
-   const rowItem = (r: NavRow, pos: number) => {
-      const on = r.key === activeKey;
-      const base = cn(
-         "flex h-7 cursor-default items-center gap-1.5 pr-2 text-[13px]",
-         on ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-      );
-      if (r.kind === "dir")
-         return (
-            <li
-               key={r.key}
-               id={`diff-row-${pos}`}
-               data-pos={pos}
-               role="treeitem"
-               aria-selected={on}
-               aria-expanded={r.open}
-               title={r.dir}
-               style={{ paddingLeft: indent(r) }}
-               className={base}
-               onClick={() => setCursor(r.key)}
-               onDoubleClick={() => setOpen(r.dir, !r.open)}
-            >
-               <button
-                  tabIndex={-1}
-                  aria-label={r.open ? "Collapse" : "Expand"}
-                  className="-m-0.5 rounded p-0.5 hover:bg-accent hover:text-accent-foreground"
-                  onClick={(e) => {
-                     e.stopPropagation();
-                     setCursor(r.key);
-                     setOpen(r.dir, !r.open);
-                  }}
-               >
-                  <ChevronRight
-                     className={cn(
-                        "size-3.5 text-muted-foreground transition-transform",
-                        r.open && "rotate-90",
-                     )}
-                  />
-               </button>
-               <Folder className="size-4 shrink-0 text-muted-foreground" />
-               <span className="min-w-0 flex-1 truncate">{r.name}</span>
-            </li>
-         );
-      const f = r.file;
-      const s = STATUS[f.status];
-      const n = pathComments(f.path);
-      const slash = f.path.lastIndexOf("/");
-      return (
-         <li
-            key={r.key}
-            id={`diff-row-${pos}`}
-            data-pos={pos}
-            role="treeitem"
-            aria-selected={on}
-            title={`${f.path} (${s.label})`}
-            style={{ paddingLeft: view === "tree" ? indent(r) : 8 }}
-            className={base}
-            onClick={() => goFile(orderIndex.get(f.path)!)}
-         >
-            <s.Icon className={cn("size-4 shrink-0", s.className)} aria-label={s.label} />
-            <span className="truncate">{f.path.slice(slash + 1)}</span>
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-               {view === "list" && slash > 0 ? f.path.slice(0, slash) : ""}
-            </span>
-            <CommentCount n={n} />
-         </li>
-      );
-   };
-
    return (
       <div className="flex h-full flex-col">
          <div className="flex items-center gap-1 border-b px-2 py-1.5 text-xs">
@@ -589,25 +447,43 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                      </Tooltip>
                   </div>
                </div>
-               <ul
-                  ref={list}
-                  role="tree"
-                  aria-label="Changed files"
-                  tabIndex={0}
-                  aria-activedescendant={activePos >= 0 ? `diff-row-${activePos}` : undefined}
-                  className="min-h-0 flex-1 overflow-auto pb-1 outline-none"
-                  onKeyDown={onListKey}
-               >
-                  {error ? (
-                     <li role="alert" className="p-3 text-xs text-destructive">
-                        {error}
-                     </li>
-                  ) : !diff ? (
-                     <li className="p-3 text-xs text-muted-foreground">Loading...</li>
-                  ) : (
-                     rows.map(rowItem)
-                  )}
-               </ul>
+               <FileTreeList<FilePatch>
+                  rows={rows}
+                  activeKey={activeKey}
+                  label="Changed files"
+                  idPrefix="diff-row"
+                  flat={view === "list"}
+                  placeholder={
+                     error ? (
+                        <li role="alert" className="p-3 text-xs text-destructive">
+                           {error}
+                        </li>
+                     ) : !diff ? (
+                        <li className="p-3 text-xs text-muted-foreground">Loading...</li>
+                     ) : undefined
+                  }
+                  onSelect={setCursor}
+                  onOpenFile={(r) => goFile(orderIndex.get(r.file.path)!)}
+                  onSetOpen={setOpen}
+                  fileTitle={(r) => `${r.file.path} (${STATUS[r.file.status].label})`}
+                  renderFile={({ file: f }) => {
+                     const s = STATUS[f.status];
+                     const slash = f.path.lastIndexOf("/");
+                     return (
+                        <>
+                           <s.Icon
+                              className={cn("size-4 shrink-0", s.className)}
+                              aria-label={s.label}
+                           />
+                           <span className="truncate">{f.path.slice(slash + 1)}</span>
+                           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                              {view === "list" && slash > 0 ? f.path.slice(0, slash) : ""}
+                           </span>
+                           <CommentCount n={pathComments(f.path)} />
+                        </>
+                     );
+                  }}
+               />
                <CommitsPane
                   commits={commits}
                   sel={scope.sel}

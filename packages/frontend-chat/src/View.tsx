@@ -7,7 +7,7 @@ import type {
    SessionApi,
    ViewVariant,
 } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
+import { openWindow, useSessionEvents } from "@harness/api";
 import {
    Badge,
    Button,
@@ -22,6 +22,7 @@ import {
    Archive,
    CheckCircle2,
    CircleDashed,
+   Folder,
    GitCompare,
    Layers,
    Link2,
@@ -58,6 +59,7 @@ import { DockLayout, type DockPanel } from "./DockLayout";
 import { EventsPanel } from "./EventsPanel";
 import { errorMessage } from "./errors";
 import { FileRefProvider } from "./FileRef";
+import { FilesPanel, type FileTarget, filesWindowTarget, filesWindowUrl } from "./FilesPanel";
 import { MessageList, useRows } from "./Messages";
 import { PanelHeader } from "./PanelHeader";
 import { usePanelDrag } from "./panelDrag";
@@ -185,6 +187,12 @@ function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
 
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
+// The pop-out Files window likewise, with `pane=files`.
+const filesWindow =
+   typeof window === "undefined" ? null : filesWindowTarget(window.location.search);
+const filesWindowFirst: FileTarget | null = filesWindow?.path
+   ? { path: filesWindow.path, start: filesWindow.line, end: filesWindow.line }
+   : null;
 
 /** Claude Code desktop-like chat. Pure fold of the Session Log (see reducer.ts). */
 export function View({
@@ -216,6 +224,10 @@ export function View({
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
+   ) : filesWindow ? (
+      <FileRefProvider api={api}>
+         <FilesPanel api={api} target={filesWindowFirst} popout />
+      </FileRefProvider>
    ) : (
       <ChatView
          api={api}
@@ -272,6 +284,7 @@ function flash(el: Element) {
 const BASE_LABEL: Record<string, string> = {
    side: "Side chats",
    changes: "Changes",
+   files: "Files",
    terminal: "Terminal",
    events: "Events",
    artifacts: "Artifacts",
@@ -280,6 +293,7 @@ const BASE_LABEL: Record<string, string> = {
 const BASE_ICON: Record<string, React.ReactNode> = {
    side: <MessagesSquare />,
    changes: <GitCompare />,
+   files: <Folder />,
    terminal: <SquareTerminal />,
    events: <ScrollText />,
    artifacts: <Layers />,
@@ -476,6 +490,25 @@ function ChatView({
       },
       [update],
    );
+   /** The file the Files panel shows next (a new object each time, so the same file scrolls again). */
+   const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
+   /** Shows a file (a code lens, a comment chip) in the Files panel; the Quick overlay has none, so a window. */
+   const openFile = useCallback(
+      (ref: FileTarget) => {
+         if (overlay) {
+            void openWindow(
+               `files-${api.sessionId}`,
+               filesWindowUrl(api.sessionId, ref.path, ref.start),
+               { title: `Files: ${ref.path}` },
+            );
+            return;
+         }
+         setFileTarget({ ...ref });
+         update((l) => show(l, "files"));
+      },
+      [overlay, api.sessionId, update],
+   );
+   const clearFileTarget = useCallback(() => setFileTarget(null), []);
    const env = useMemo<UiEnv>(
       () => ({
          state: state.uiState,
@@ -573,6 +606,7 @@ function ChatView({
       if (overlay) return new Set<PanelId>(slotById.keys());
       const a = new Set<PanelId>([
          "side",
+         "files",
          "terminal",
          "events",
          "artifacts",
@@ -762,6 +796,12 @@ function ChatView({
                onRefresh={onGitRefresh}
             />
          ),
+      });
+   if (open("files"))
+      panels.push({
+         id: "files",
+         label: "Files",
+         children: <FilesPanel api={api} target={fileTarget} onTargetShown={clearFileTarget} />,
       });
    if (terminalOpened) {
       panels.push({
@@ -955,7 +995,7 @@ function ChatView({
       );
       return (
          <PrRefProvider api={api}>
-            <FileRefProvider api={api}>
+            <FileRefProvider api={api} onView={openFile}>
                {overlayDraft ? (
                   <div className="relative flex h-full flex-col justify-end">{promptBox}</div>
                ) : (
@@ -998,7 +1038,7 @@ function ChatView({
 
    return (
       <PrRefProvider api={api}>
-         <FileRefProvider api={api}>
+         <FileRefProvider api={api} onView={openFile}>
             <ReferencesProbe
                items={state.items}
                active={referencesOpened}

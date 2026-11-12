@@ -1099,6 +1099,8 @@ export class MockTransport implements Transport {
                cmd.line ?? "",
             );
             return { type: "Ok" };
+         case "ListSessionFiles":
+            return { type: "Files", files: Object.keys(MOCK_NEW).sort() };
          case "ReadSessionFile": {
             const want = cmd.path.replace(/^\.\//, "");
             const hits =

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseReviewComments, type ReviewComment, withReviewComments } from "./reviewComments";
+import {
+   formatReviewComments,
+   isDiffComment,
+   isFileComment,
+   parseReviewComments,
+   type ReviewComment,
+   withReviewComments,
+} from "./reviewComments";
 
 const diff = (over: Partial<ReviewComment> = {}): ReviewComment =>
    ({
@@ -9,6 +16,16 @@ const diff = (over: Partial<ReviewComment> = {}): ReviewComment =>
       side: "new",
       code: "const x = 1;",
       text: "Rename this",
+      ...over,
+   }) as ReviewComment;
+const file = (over: Partial<ReviewComment> = {}): ReviewComment =>
+   ({
+      id: "f",
+      kind: "file",
+      path: "src/b.ts",
+      line: 7,
+      code: "let y = 2;",
+      text: "Why let?",
       ...over,
    }) as ReviewComment;
 const quote = (q: string, text: string, side = false): ReviewComment => ({
@@ -44,6 +61,32 @@ describe("withReviewComments", () => {
       expect(withReviewComments("/review now", [quote("hello", "why?")])).toBe(
          "/review now\n\nComments on the conversation:\n\n> hello\n\nwhy?",
       );
+   });
+});
+
+describe("file comments", () => {
+   it("format as path:line with no side, in the review section", () => {
+      expect(formatReviewComments([diff(), file()])).toBe(
+         "Review comments:\n\nsrc/a.ts:12 (new)\n```\nconst x = 1;\n```\nRename this\n\nsrc/b.ts:7\n```\nlet y = 2;\n```\nWhy let?",
+      );
+   });
+
+   it("are told apart from diff comments (old diff comments have no kind)", () => {
+      expect(isDiffComment(diff())).toBe(true);
+      expect(isDiffComment(file())).toBe(false);
+      expect(isDiffComment(quote("q", ""))).toBe(false);
+      expect(isFileComment(file())).toBe(true);
+      expect(isFileComment(diff())).toBe(false);
+   });
+
+   it("round-trip mixed with diff and quote comments", () => {
+      const cs = [
+         file(),
+         diff(),
+         file({ path: "dir/c (old).rs", line: 1, code: "fn a() {}\n\n`x`", text: "Two\n\nparas" }),
+         quote("hello", "why?"),
+      ];
+      expect(roundTrip("Do it", cs)).toEqual({ text: "Do it", comments: noIds(cs) });
    });
 });
 

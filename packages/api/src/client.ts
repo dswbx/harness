@@ -114,6 +114,8 @@ export interface SessionApi {
     * inside it; a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the
     * file found, relative to the folder. Fails for files outside it, missing, too large, binary or not UTF-8.
     */
+   /** Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, those `.gitignore` does not exclude. Capped. */
+   listSessionFiles(): Promise<string[]>;
    readSessionFile(
       path: string,
       start?: number,
@@ -264,6 +266,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             path: path ?? null,
             line: line ?? null,
          }),
+      listSessionFiles: async () =>
+         (await expect({ type: "ListSessionFiles", session_id: sessionId }, "Files")).files,
       readSessionFile: async (path, start, end) => {
          const r = await expect(
             {

@@ -1,10 +1,4 @@
-import {
-   type Diff,
-   type GitStatus,
-   openWindow,
-   type SessionApi,
-   type WorkspaceInfo,
-} from "@harness/api";
+import { type Diff, openWindow, type SessionApi, type WorkspaceInfo } from "@harness/api";
 import {
    Button,
    cn,
@@ -19,7 +13,7 @@ import {
    Tooltip,
 } from "@harness/ui";
 import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
@@ -27,12 +21,9 @@ import { type FilePatch, splitPatch } from "./diff";
 import { PanelHeader } from "./PanelHeader";
 import { type DiffComment, useDiffComments } from "./reviewComments";
 import { type DiffScope, selectionScope } from "./scope";
+import { useGitStatus } from "./useGitStatus";
 
 export { ALL_CHANGES, type DiffScope } from "./scope";
-
-/** Branch, upstream counts and the changed files: what a reload would show differently. */
-const fingerprint = (s: GitStatus) =>
-   `${s.branch}|${s.ahead}|${s.behind}|${s.files.map((f) => `${f.status}${f.path}+${f.additions}-${f.deletions}`).join(",")}`;
 
 const errorMessage = (err: unknown): string =>
    err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
@@ -148,7 +139,6 @@ export function DiffPanel({
 }) {
    const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
    const [diff, setDiff] = useState<Diff | null>(null);
-   const [status, setStatus] = useState<GitStatus | null>(null);
    const [error, setError] = useState<string | null>(null);
    const [open, setOpen] = useState<Set<string>>(new Set());
    const comments = useDiffComments(api.sessionId);
@@ -168,15 +158,16 @@ export function DiffPanel({
 
    const noRepo = workspace !== undefined && !workspace?.repo_root;
 
-   /** What the last loaded status looked like, so polling reloads only on a change. */
-   const seen = useRef<string | null>(null);
+   // A change seen by polling reloads the diff and the commits.
+   const { status, changes } = useGitStatus(api, !!workspace?.repo_root, `${refreshKey}:${tick}`);
+   useEffect(() => {
+      if (changes) setTick((t) => t + 1);
+   }, [changes]);
+
    const load = useCallback(async () => {
       setError(null);
       try {
-         const [d, s] = await Promise.all([api.gitDiff(scope.from, scope.to), api.gitStatus()]);
-         setDiff(d);
-         setStatus(s);
-         seen.current = fingerprint(s);
+         setDiff(await api.gitDiff(scope.from, scope.to));
       } catch (e) {
          setError(errorMessage(e));
       }
@@ -185,32 +176,6 @@ export function DiffPanel({
    useEffect(() => {
       if (workspace?.repo_root) void load();
    }, [workspace, load, refreshKey, tick]);
-
-   // The Workspace changes behind the Agent's back too (the user's editor, a terminal): every 20s while the
-   // window is visible, and when it comes back, a cheap git status decides whether to reload everything.
-   useEffect(() => {
-      if (!workspace?.repo_root) return;
-      let off = false;
-      const check = () => {
-         if (document.hidden) return;
-         api.gitStatus().then(
-            (s) => {
-               if (off || seen.current === null || fingerprint(s) === seen.current) return;
-               setTick((t) => t + 1);
-            },
-            () => {},
-         );
-      };
-      const timer = setInterval(check, 20_000);
-      window.addEventListener("focus", check);
-      document.addEventListener("visibilitychange", check);
-      return () => {
-         off = true;
-         clearInterval(timer);
-         window.removeEventListener("focus", check);
-         document.removeEventListener("visibilitychange", check);
-      };
-   }, [api, workspace]);
 
    const files = useMemo(() => (diff ? splitPatch(diff.patch) : []), [diff]);
    const toggle = (path: string) =>

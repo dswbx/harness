@@ -180,6 +180,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
 { type: "OpenInEditor"; session_id: string; path?: string | null; line?: number | null } | 
 /**
+ *  Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, the files `.gitignore`
+ *  does not exclude; elsewhere, all but hidden and build folders. Capped.
+ */
+{ type: "ListSessionFiles"; session_id: string } | 
+/**
  *  Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
  *  (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
  *  for a file reference in a message. Fails for files outside the folder,
