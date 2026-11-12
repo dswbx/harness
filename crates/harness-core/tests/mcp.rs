@@ -142,7 +142,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -640,4 +640,38 @@ fn generated_chat_manifest_validates_in_core() {
         ),
         ""
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_get_returns_latest_panel_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    h.register_frontend(FrontendManifest {
+        id: "chat".into(),
+        name: "Chat".into(),
+        version: "0".into(),
+        instructions: None,
+        frontend_tools: vec![FrontendToolDecl {
+            name: "render_ui".into(),
+            description: "Render a panel".into(),
+            input_schema: serde_json::json!({ "type": "object", "properties": { "id": { "type": "string" } } }),
+            replies: false,
+        }],
+    });
+    let sid = create(&h, dir.path(), vec![]).await;
+    ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"add","path":"/quiz/score","value":3},{"op":"add","path":"/n","value":1}]}"#, None).await;
+    ask(&h, &sid, r#"mcp render_ui {"id":"a","title":"one","root":{"type":"Stat","props":{"value":{"$state":"/quiz/score"}}}}"#, None).await;
+    ask(&h, &sid, r#"mcp render_ui {"id":"b","title":"two","root":{"type":"Stat","props":{"value":{"$template":"${/n} of ${/missing}"}}}}"#, None).await;
+    ask(&h, &sid, r#"mcp render_ui {"id":"a","title":"one v2","root":{"type":"Stat","props":{"value":{"$state":"/quiz/score"}}}}"#, None).await;
+
+    let got = ask(&h, &sid, r#"mcp ui_get {"id":"a"}"#, None).await;
+    let v: serde_json::Value = serde_json::from_str(got.strip_prefix("mcp: ").unwrap().split("Working on it.").next().unwrap().trim()).unwrap();
+    assert_eq!(v["input"]["title"], "one v2");
+    assert_eq!(v["state"], serde_json::json!({ "/quiz/score": 3 }));
+    let got = ask(&h, &sid, r#"mcp ui_get {"id":"b"}"#, None).await;
+    assert!(got.contains("\"/n\": 1") && got.contains("\"/missing\": null"), "{got}");
+
+    ask(&h, &sid, r#"mcp render_ui {"id":"b","remove":true}"#, None).await;
+    let err = ask(&h, &sid, r#"mcp ui_get {"id":"b"}"#, None).await;
+    assert!(err.starts_with("mcp error:") && err.contains("Known ids: a"), "{err}");
 }

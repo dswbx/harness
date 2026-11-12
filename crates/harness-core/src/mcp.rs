@@ -184,6 +184,14 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
             "read",
         ),
         (
+            "ui_get",
+            "Read a panel you placed with render_ui: its stored input (root, placement, title, ...) and the Session State values its `$state` paths point to. Use it before you change a panel you no longer see, e.g. after compaction.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "The panel's id, as in render_ui" }
+            }, "required": ["id"] }),
+            "read",
+        ),
+        (
             "threads_list",
             "The Threads of this Session: the Main Thread and any Side Threads (id, kind, title from the first prompt, Turn count).",
             empty,
@@ -303,6 +311,7 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
                 serde_json::to_string_pretty(&state)?
             }
             "harness_info" => serde_json::to_string_pretty(&info(session)?)?,
+            "ui_get" => serde_json::to_string_pretty(&ui_get(session, s("id").as_deref())?)?,
             "threads_list" => crate::transcript::threads_list(session)?,
             "transcript_outline" => crate::transcript::outline(session, &args)?,
             "transcript_read" => crate::transcript::read(session, &args)?,
@@ -334,6 +343,57 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     let path = session.write_frontend_tool_output(thread, name, args, files)?;
     let items = info(session)?["items"].clone();
     Ok(vec![ContentBlock::text(format!("Done. The Frontend received it ({path}). Live items: {items}"))])
+}
+
+/// `ui_get`: the latest stored input of a live `render_ui` item, plus the Session State values at
+/// the paths it binds (`$state`, `$bindState`, `${/path}` in `$template`; `$computed` args are
+/// ordinary `$state` values).
+fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Value> {
+    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|(t, _, _)| t == "render_ui").map(|(_, i, v)| (i, v)).collect();
+    let id = id.ok_or_else(|| anyhow::anyhow!("id is required"))?;
+    let Some((_, input)) = items.iter().find(|(i, _)| i == id) else {
+        let known: Vec<&str> = items.iter().map(|(i, _)| i.as_str()).collect();
+        anyhow::bail!("no render_ui panel with id {id:?}. Known ids: {}", if known.is_empty() { "none".to_owned() } else { known.join(", ") });
+    };
+    let mut paths = Vec::new();
+    collect_state_paths(input, &mut paths);
+    let doc = session.state()?;
+    let mut state = Map::new();
+    for p in paths {
+        let v = doc.pointer(&p).cloned().unwrap_or(Value::Null);
+        state.insert(p, v);
+    }
+    Ok(json!({ "input": input, "state": state }))
+}
+
+fn collect_state_paths(v: &Value, out: &mut Vec<String>) {
+    fn add(out: &mut Vec<String>, p: &str) {
+        if p.starts_with('/') && !out.iter().any(|o| o == p) {
+            out.push(p.to_owned());
+        }
+    }
+    match v {
+        Value::Object(o) => {
+            for (k, v) in o {
+                match (k.as_str(), v) {
+                    // statePath: Accordion/Tabs `repeat` and action targets.
+                    ("$state" | "$bindState" | "statePath", Value::String(p)) => add(out, p),
+                    ("$template", Value::String(t)) => {
+                        let mut rest = t.as_str();
+                        while let Some((_, after)) = rest.split_once("${") {
+                            let Some((p, tail)) = after.split_once('}') else { break };
+                            add(out, p);
+                            rest = tail;
+                        }
+                    }
+                    _ => {}
+                }
+                collect_state_paths(v, out);
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|v| collect_state_paths(v, out)),
+        _ => {}
+    }
 }
 
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
