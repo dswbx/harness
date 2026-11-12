@@ -322,10 +322,10 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     let tool = session.frontend_tools().into_iter().find(|t| t.name == name).ok_or_else(|| anyhow::anyhow!("unknown tool {name}"))?;
     let (validator, images) =
         crate::frontend_files::validator(&tool.input_schema).map_err(|e| anyhow::anyhow!("the Frontend's schema for {name} is invalid: {e}"))?;
-    let errors: Vec<String> = validator.iter_errors(&args).map(|e| format!("{}: {e}", e.instance_path)).collect();
+    let errors = crate::frontend_files::format_errors(&validator, &args);
     // Agents may call a tool before they have seen its schema (some load schemas on demand), so
     // the error carries the description: enough to get the next call right.
-    anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{}\n\nHow to call {name}:\n{}", errors.join("\n"), tool.description);
+    anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{errors}\n\nHow to call {name}:\n{}", tool.description);
     if tool.replies {
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "read", &args).await?;
         let answer = session.request_frontend(name, args).await?;

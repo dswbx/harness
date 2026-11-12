@@ -975,7 +975,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "path": "render_ui/call-1.json",
       "render": {
         "errors": [
-          "/ Expected all to match",
+          "/: Expected all to match",
         ],
         "ok": false,
       },

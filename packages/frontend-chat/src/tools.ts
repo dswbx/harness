@@ -467,6 +467,43 @@ const renderUiJson = {
 
 export const renderUiSchema: Schema = fromSchema(renderUiJson as never);
 
+const MAX_ERRORS = 5;
+
+/** The deepest object on `pointer` with a string `type`. */
+function nodeType(input: unknown, pointer: string): string | undefined {
+   let found: string | undefined;
+   let cur: unknown = input;
+   const tokens = [null, ...pointer.split("/").slice(1)];
+   for (const raw of tokens) {
+      if (raw !== null) {
+         const key = raw.replace(/~1/g, "/").replace(/~0/g, "~");
+         cur = cur && typeof cur === "object" ? (cur as Record<string, unknown>)[key] : undefined;
+      }
+      const t = (cur as { type?: unknown } | null | undefined)?.type;
+      if (typeof t === "string") found = t;
+   }
+   return found;
+}
+
+/** Validation errors as `path (NodeType): message`: one per path, at most 5, then `(N more)`. */
+export function formatErrors(
+   errors: readonly { instanceLocation: string; error: string }[],
+   input: unknown,
+): string[] {
+   const seen = new Set<string>();
+   const all: string[] = [];
+   for (const e of errors) {
+      const path = e.instanceLocation.replace(/^#/, "");
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const ty = nodeType(input, path);
+      all.push(`${path}${ty ? ` (${ty})` : ""}: ${e.error}`);
+   }
+   const out = all.slice(0, MAX_ERRORS);
+   if (all.length > MAX_ERRORS) out.push(`(${all.length - MAX_ERRORS} more)`);
+   return out;
+}
+
 /** The catalog as text for the tool description: agents that drop parts of a schema still see it. */
 function catalogText(): string {
    return names

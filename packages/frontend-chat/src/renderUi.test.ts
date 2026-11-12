@@ -11,7 +11,7 @@ import {
    tableRows,
 } from "./RenderUi";
 import { JS_LIMIT_MS, loadJs, runJs, setJsLimit } from "./sandbox";
-import { calculatorExample, components, renderUiSchema } from "./tools";
+import { calculatorExample, components, formatErrors, renderUiSchema } from "./tools";
 
 describe("render_ui binding", () => {
    const state = {
@@ -384,5 +384,37 @@ describe("render_ui Html", () => {
    it("reads the theme tokens into a :root block", () => {
       const css = themeCss((n) => (n === "--primary" ? " oklch(0.2 0 0) " : ""), "dark");
       expect(css).toBe(":root { --primary: oklch(0.2 0 0); color-scheme: dark; }");
+   });
+});
+
+describe("render_ui validation errors", () => {
+   it("names the path and the node type", () => {
+      const input = {
+         root: {
+            type: "Stack",
+            children: [
+               { type: "Text", props: { text: "x" } },
+               { type: "Text", props: { text: "y" } },
+               { type: "Accordion", props: {} },
+            ],
+         },
+      };
+      const r = renderUiSchema.validate(input);
+      expect(r.valid).toBe(false);
+      const errors = formatErrors(r.errors, input);
+      expect(errors.length).toBeLessThanOrEqual(6);
+      expect(errors.some((e) => e.startsWith("/root/children/2 (Accordion)"))).toBe(true);
+      const paths = errors.map((e) => e.split(":")[0]);
+      expect(new Set(paths).size).toBe(paths.length);
+   });
+   it("caps at 5 errors", () => {
+      const errs = Array.from({ length: 8 }, (_, i) => ({
+         instanceLocation: `#/a/${i}`,
+         error: "bad",
+      }));
+      const out = formatErrors(errs, {});
+      expect(out).toHaveLength(6);
+      expect(out[5]).toBe("(3 more)");
+      expect(out[0]).toBe("/a/0: bad");
    });
 });
