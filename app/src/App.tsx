@@ -6,7 +6,8 @@ import type {
    SessionSummary,
    Transport,
 } from "@harness/api";
-import { HarnessClient as Client, errText } from "@harness/api";
+import { HarnessClient as Client, errText, useSharedArtifacts } from "@harness/api";
+import { SharedArtifactView } from "@harness/frontend-chat";
 import {
    Button,
    cn,
@@ -22,6 +23,7 @@ import {
 } from "@harness/ui";
 import { PanelLeft, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AttachDialog } from "./AttachDialog";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
 import { QUICK_TITLE, quickAgent } from "./composer";
@@ -32,6 +34,7 @@ import { listenHost } from "./overlayHost";
 import { type GitRef, SessionHeader, trafficLights } from "./SessionHeader";
 import { SessionList } from "./SessionList";
 import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
+import { SharedArtifactsSection } from "./SharedArtifactsSection";
 import { hideUnusedQuick } from "./sessionGroups";
 import { ToastProvider, useReportError } from "./toast";
 import { makeTransport } from "./transport";
@@ -282,11 +285,43 @@ function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
    return { status, repo: gh.repo, pr: gh.pr, base: gh.base, refresh, refreshing };
 }
 
+/** What the main pane shows: a Session, or a Shared Artifact without a Session (ADR 0024). */
+type Selection = { session: string } | { shared: string } | null;
+
 function Shell({ transport }: { transport: Transport }) {
    const [client] = useState<HarnessClient>(() => new Client(transport));
    const [sessions, setSessions] = useState<SessionSummary[]>([]);
-   const [selected, setSelected] = useState<string | null>(null);
-   const [composer, setComposer] = useState(false);
+   const [selection, setSelection] = useState<Selection>(null);
+   const selected = selection && "session" in selection ? selection.session : null;
+   const sharedId = selection && "shared" in selection ? selection.shared : null;
+   const setSelected = useCallback(
+      (id: string | null) => setSelection(id ? { session: id } : null),
+      [],
+   );
+   const openShared = useCallback((id: string) => setSelection({ shared: id }), []);
+   const [attachOpen, setAttachOpen] = useState(false);
+   /** "New Session with it": the Shared Artifact to attach once the Composer created the Session. */
+   const attachOnCreate = useRef<string | null>(null);
+   const sharedSource = useMemo(
+      () => ({
+         list: () => client.listSharedArtifacts(),
+         // Content changes move `updated_ms` (the change dot), so they reload the list too.
+         onListChanged: async (f: () => void) => {
+            const offs = await Promise.all([client.sharedListChanged(f), client.sharedChanged(f)]);
+            return () => {
+               for (const off of offs) off();
+            };
+         },
+      }),
+      [client],
+   );
+   const sharedList = useSharedArtifacts(sharedSource);
+   const [composer, setComposerOpen] = useState(false);
+   /** Opens the Composer; `attach`: a Shared Artifact to attach to the new Session. */
+   const setComposer = useCallback((o: boolean, attach: string | null = null) => {
+      if (o) attachOnCreate.current = attach;
+      setComposerOpen(o);
+   }, []);
    /** Folder the Composer opens with (the + on a sidebar folder group); null: its own default. */
    const [composerFolder, setComposerFolder] = useState<string | null>(null);
    const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
@@ -373,7 +408,7 @@ function Shell({ transport }: { transport: Transport }) {
             setSelected(id);
             client.listSessions().then(setSessions, (e) => report("Could not load sessions", e));
          }),
-      [client, report],
+      [client, report, setSelected],
    );
    // The overlay's draft (a Quick Session nobody wrote in yet) is not listed until it is used.
    const listed = useMemo(() => hideUnusedQuick(sessions, selected), [sessions, selected]);
@@ -493,11 +528,34 @@ function Shell({ transport }: { transport: Transport }) {
                      </p>
                   )}
                </SessionList>
+               <SharedArtifactsSection
+                  list={sharedList}
+                  selected={sharedId}
+                  onSelect={openShared}
+               />
                <UpdateFooter update={update} />
             </aside>
          )}
          <main className="flex min-w-0 flex-1 flex-col">
-            {current ? (
+            {sharedId ? (
+               <SharedArtifactView
+                  key={sharedId}
+                  client={client}
+                  id={sharedId}
+                  sessions={sessions}
+                  leading={leading}
+                  onOpenSession={setSelected}
+                  onAttach={() => setAttachOpen(true)}
+                  onNewSession={() => setComposer(true, sharedId)}
+                  onDeleted={() => setSelection(null)}
+                  onOpenInEditor={() =>
+                     client.openSharedInEditor(sharedId).catch((e) => {
+                        if (errText(e).includes("choose an editor")) setSettingsSection("editor");
+                        else report("Could not open in editor", e);
+                     })
+                  }
+               />
+            ) : current ? (
                <>
                   <SessionHeader
                      client={client}
@@ -526,6 +584,7 @@ function Shell({ transport }: { transport: Transport }) {
                         indicator={indicator}
                         menu={menu}
                         onGitRefresh={git.refresh}
+                        onOpenShared={openShared}
                      />
                   </div>
                </>
@@ -575,6 +634,20 @@ function Shell({ transport }: { transport: Transport }) {
                </DialogFooter>
             </DialogContent>
          </Dialog>
+         {sharedId && (
+            <AttachDialog
+               open={attachOpen}
+               onOpenChange={setAttachOpen}
+               sessions={listed.filter((s) => !s.archived)}
+               attached={sharedList?.find((e) => e.meta.id === sharedId)?.meta.attached ?? []}
+               onPick={(sessionId) =>
+                  client.attachSharedArtifact(sessionId, sharedId).then(() => {
+                     setAttachOpen(false);
+                     setSelected(sessionId);
+                  })
+               }
+            />
+         )}
          <SettingsDialog
             client={client}
             open={settingsSection !== null}
@@ -601,8 +674,14 @@ function Shell({ transport }: { transport: Transport }) {
                setSettingsSection("agents");
             }}
             onCreated={(id) => {
+               const shared = attachOnCreate.current;
+               attachOnCreate.current = null;
                setSelected(id);
                refresh().catch((e) => report("Could not load sessions", e));
+               if (shared)
+                  client
+                     .attachSharedArtifact(id, shared)
+                     .catch((e) => report("Could not attach the shared artifact", e));
             }}
          />
       </div>

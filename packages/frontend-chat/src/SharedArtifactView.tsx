@@ -54,6 +54,7 @@ export function SharedArtifactView({
    onRenamed,
    onDeleted,
    onOpenInEditor,
+   leading,
 }: {
    client: HarnessClient;
    id: string;
@@ -68,6 +69,8 @@ export function SharedArtifactView({
    onDeleted?: (id: string) => void;
    /** Opens the artifact's folder in the user's editor; default: shows it in the file manager. */
    onOpenInEditor?: (dir: string) => void;
+   /** Before the title in the header, e.g. the host's window controls when its sidebar is hidden. */
+   leading?: ReactNode;
 }) {
    const env = useMemo<UiEnv>(
       () => ({
@@ -102,7 +105,11 @@ export function SharedArtifactView({
       );
    return (
       <div className="flex h-full min-h-0 flex-col bg-background">
-         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+         <header
+            data-tauri-drag-region
+            className="flex h-13 shrink-0 items-center gap-2 border-b px-4"
+         >
+            {leading}
             <Share2 className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate text-sm font-medium">{meta?.title ?? id}</span>
             {meta && (
