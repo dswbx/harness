@@ -436,6 +436,54 @@ pub enum Command {
     ReadImageFile {
         path: String,
     },
+    /// Shared Artifacts (ADR 0024), most recently updated first. With `query`: at most 20 whose
+    /// title or content contains it (case-insensitive), title matches first, each with a snippet.
+    ListSharedArtifacts {
+        #[serde(default)]
+        query: Option<String>,
+    },
+    /// A Shared Artifact's meta, content, hash and state. Needs no Session.
+    SharedArtifactRead {
+        id: String,
+    },
+    /// Makes a Session's `render_ui` item (`item_id`) shared: its file or tree moves to `shared/`,
+    /// the item then shows `source: "shared:<id>"`, and the Session is attached.
+    ShareArtifact {
+        session_id: SessionId,
+        item_id: String,
+    },
+    /// Shares a copy of Markdown from a message (a Mermaid diagram or a table) as a new `md`
+    /// Shared Artifact and attaches the Session.
+    ShareMarkdown {
+        session_id: SessionId,
+        markdown: String,
+        #[serde(default)]
+        title: Option<String>,
+    },
+    AttachSharedArtifact {
+        session_id: SessionId,
+        id: String,
+    },
+    DetachSharedArtifact {
+        session_id: SessionId,
+        id: String,
+    },
+    RenameSharedArtifact {
+        id: String,
+        title: String,
+    },
+    /// Removes the Shared Artifact's folder. Items that show it then show it as missing.
+    DeleteSharedArtifact {
+        id: String,
+    },
+    /// Changes a Shared Artifact's state as the user. With `session_id`, that Session logs
+    /// `ArtifactStateChanged`; without, nothing is logged (the no-Session view).
+    PatchArtifactState {
+        id: String,
+        ops: Vec<StatePatchOp>,
+        #[serde(default)]
+        session_id: Option<SessionId>,
+    },
 }
 
 /// App settings kept as JSON files in the data dir (`app_settings.rs`).
@@ -690,6 +738,69 @@ pub enum CommandResult {
         mime: String,
         data: String,
     },
+    SharedArtifactList {
+        artifacts: Vec<SharedArtifactEntry>,
+    },
+    /// A Shared Artifact that was shared, attached or renamed.
+    SharedArtifactInfo {
+        meta: SharedArtifactMeta,
+    },
+    /// `content`: `content.md`, `content.html` or `ui.json` (`{root, files}`, `files` relative to
+    /// `dir`); `hash`: its sha256 (hex); `mtime_ms`: when it was last written (0 when unknown);
+    /// `state`: the artifact's state (`{}` when none).
+    SharedArtifact {
+        meta: SharedArtifactMeta,
+        content: String,
+        hash: String,
+        #[specta(type = specta_typescript::Number)]
+        mtime_ms: i64,
+        #[specta(type = specta_typescript::Unknown)]
+        state: Json,
+        /// The artifact's folder (absolute).
+        dir: String,
+    },
+}
+
+/// What a Shared Artifact holds: `content.md`, `content.html`, or a `render_ui` tree in `ui.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SharedKind {
+    Md,
+    Html,
+    Ui,
+}
+
+/// The Session that made an artifact shared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SharedCreator {
+    pub session_id: SessionId,
+    pub session_title: String,
+}
+
+/// `shared/<id>/meta.json` (ADR 0024). `attached` is a cache; the Session Logs are the truth.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SharedArtifactMeta {
+    pub v: u32,
+    /// `<slug>-<6 hex>`; never changes.
+    pub id: String,
+    pub title: String,
+    pub kind: SharedKind,
+    #[specta(type = specta_typescript::Number)]
+    pub created_ms: i64,
+    /// Last change of content, state or meta.
+    #[specta(type = specta_typescript::Number)]
+    pub updated_ms: i64,
+    pub created_by: SharedCreator,
+    #[serde(default)]
+    pub attached: Vec<SessionId>,
+}
+
+/// One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct SharedArtifactEntry {
+    pub meta: SharedArtifactMeta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }
 
 /// A Permission Policy rule. The narrowest matching scope wins, then the more specific rule
@@ -1361,6 +1472,22 @@ pub enum EventKind {
         ops: Vec<StatePatchOp>,
         by: StateWriter,
     },
+    /// The Session attached a Shared Artifact (ADR 0024): it shows as a Panel.
+    ArtifactAttached {
+        id: String,
+        by: StateWriter,
+    },
+    ArtifactDetached {
+        id: String,
+        by: StateWriter,
+    },
+    /// This Session changed a Shared Artifact's state. Not replayed into any state: Views read the
+    /// artifact's current state with `SharedArtifactRead` (ADR 0024 addendum).
+    ArtifactStateChanged {
+        id: String,
+        ops: Vec<StatePatchOp>,
+        by: StateWriter,
+    },
     GitCommitted {
         commit: String,
         message: String,
@@ -1550,6 +1677,13 @@ pub enum AppEvent {
         session_id: SessionId,
         name: String,
     },
+    /// A Shared Artifact's content, state or meta changed (ADR 0024): Views showing it re-read it.
+    /// Live only, not logged.
+    SharedArtifactChanged {
+        id: String,
+    },
+    /// Shared Artifacts were added, removed, renamed, attached or detached: reload the list.
+    SharedArtifactsChanged,
 }
 
 /// Why a Command failed, so Frontends branch on a code and never on the message text.

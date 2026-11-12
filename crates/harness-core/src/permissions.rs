@@ -24,6 +24,9 @@ pub struct Context<'a> {
     pub folder: &'a Path,
     /// The Session's `panels/` folder (ADR 0023), where the Agent may write without asking.
     pub panels: Option<&'a Path>,
+    /// Folders of the Shared Artifacts attached to the Session (ADR 0024): writable without asking,
+    /// except their `meta.json`.
+    pub shared: &'a [PathBuf],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,15 +147,20 @@ fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
 }
 
 /// Built-in defaults: reading inside the Workspace, committing, Frontend Tools and Session State
-/// changes are allowed, and so are edits of files inside the Session's `panels/` folder (symlinks
-/// resolved, `..` refused; ADR 0023); everything else (edits, commands, fetches, pushes) asks.
+/// changes are allowed, and so are edits of files inside the Session's `panels/` folder (ADR 0023)
+/// or inside the folder of an attached Shared Artifact, but not its `meta.json` (ADR 0024); paths
+/// are resolved (symlinks followed, `..` refused). Everything else (edits, commands, fetches,
+/// pushes) asks.
 fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
-    if facts.kind.as_deref() == Some("edit")
-        && facts.command.is_none()
-        && !facts.paths.is_empty()
-        && let Some(panels) = cx.panels
-        && facts.paths.iter().all(|p| crate::panels::resolve_inside(panels, p).is_some())
-    {
+    let writable = |p: &Path| {
+        cx.panels.is_some_and(|panels| crate::panels::resolve_inside(panels, p).is_some())
+            || cx.shared.iter().any(|dir| {
+                let Some(real) = crate::panels::resolve_inside(dir, p) else { return false };
+                // `resolve_inside` resolved `dir` the same way: compare against its real path.
+                dir.canonicalize().is_ok_and(|d| real != d.join("meta.json"))
+            })
+    };
+    if facts.kind.as_deref() == Some("edit") && facts.command.is_none() && !facts.paths.is_empty() && facts.paths.iter().all(|p| writable(p)) {
         return Decision::Allow;
     }
     let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
@@ -210,7 +218,7 @@ mod tests {
     }
 
     fn cx() -> Context<'static> {
-        Context { session_id: "s1", agent_id: "claude", folder: Path::new("/work"), panels: None }
+        Context { session_id: "s1", agent_id: "claude", folder: Path::new("/work"), panels: None, shared: &[] }
     }
 
     fn rule(scope: RuleScope, kind: Option<&str>, pattern: Option<&str>, decision: Decision) -> NewPermissionRule {
@@ -266,6 +274,47 @@ mod tests {
         // A user rule still wins over the built-in default.
         p.add(rule(RuleScope::Global, Some("edit"), None, Decision::Deny)).unwrap();
         assert_eq!(p.evaluate(&cx, &at("a.md")).decision, Decision::Deny);
+    }
+
+    #[test]
+    fn edits_inside_attached_shared_artifacts_are_allowed() {
+        let (p, _d) = policy();
+        let d = tempfile::tempdir().unwrap();
+        let shared = d.path().join("shared");
+        let (a, b) = (shared.join("plan-aaaaaa"), shared.join("other-bbbbbb"));
+        std::fs::create_dir_all(a.join("files")).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("meta.json"), "{}").unwrap();
+        std::fs::write(b.join("content.md"), "x").unwrap();
+        std::os::unix::fs::symlink(b.join("content.md"), a.join("link.md")).unwrap();
+        std::os::unix::fs::symlink(&b, a.join("up")).unwrap();
+        std::os::unix::fs::symlink(a.join("gone.md"), a.join("dangling.md")).unwrap();
+        let attached = [a.clone()];
+        let none = cx();
+        let both_base = cx();
+        let cx = Context { shared: &attached, ..cx() };
+        let write = |path: &Path| facts_of(&json!({"kind": "edit", "rawInput": {"file_path": path}}), Path::new("/work"));
+        let at = |rel: &str| write(&a.join(rel));
+
+        for ok in ["content.md", "content.html", "ui.json", "state.json", "files/new.png"] {
+            assert_eq!(p.evaluate(&cx, &at(ok)).decision, Decision::Allow, "{ok}");
+        }
+        for bad in ["meta.json", "../other-bbbbbb/content.md", "link.md", "up/content.md", "dangling.md"] {
+            assert_eq!(p.evaluate(&cx, &at(bad)).decision, Decision::Ask, "{bad}");
+        }
+        assert_eq!(p.evaluate(&cx, &write(&a)).decision, Decision::Ask, "the folder itself");
+        assert_eq!(p.evaluate(&cx, &write(&b.join("content.md"))).decision, Decision::Ask, "not attached");
+        assert_eq!(p.evaluate(&none, &at("content.md")).decision, Decision::Ask, "nothing attached");
+        // Panels and attached artifacts together.
+        let panels = d.path().join("panels");
+        std::fs::create_dir_all(&panels).unwrap();
+        let both = Context { panels: Some(&panels), shared: &attached, ..both_base };
+        let two = facts_of(&json!({"kind": "edit", "locations": [{"path": panels.join("p.md")}, {"path": a.join("content.md")}]}), Path::new("/work"));
+        assert_eq!(p.evaluate(&both, &two).decision, Decision::Allow);
+        let delete = facts_of(&json!({"kind": "delete", "rawInput": {"file_path": a.join("content.md")}}), Path::new("/work"));
+        assert_eq!(p.evaluate(&cx, &delete).decision, Decision::Ask, "only edits");
+        p.add(rule(RuleScope::Global, Some("edit"), None, Decision::Deny)).unwrap();
+        assert_eq!(p.evaluate(&cx, &at("content.md")).decision, Decision::Deny, "a user rule still wins");
     }
 
     #[test]

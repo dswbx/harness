@@ -14,7 +14,7 @@ pub const DIR: &str = "panels";
 pub const DEBOUNCE: Duration = Duration::from_millis(200);
 
 /// Largest source file the Harness reads.
-const MAX_BYTES: u64 = 1_000_000;
+pub const MAX_BYTES: u64 = 1_000_000;
 
 /// Where `path` really is (symlinks followed) when that is inside `dir`; `None` otherwise. `path`
 /// may not exist yet (a file the Agent is about to write): then its deepest existing ancestor is
@@ -66,20 +66,31 @@ pub fn source_path(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
 
 /// A source file's text and a hash of it (sha256, hex).
 pub fn read(dir: &Path, name: &str) -> anyhow::Result<(String, String)> {
-    use sha2::{Digest, Sha256};
     let path = source_path(dir, name)?;
-    let meta = std::fs::metadata(&path).map_err(|_| anyhow::anyhow!("source {name:?} does not exist in panels_dir ({})", dir.display()))?;
-    anyhow::ensure!(meta.is_file(), "source {name:?} is not a file");
-    anyhow::ensure!(meta.len() <= MAX_BYTES, "source {name:?} is larger than 1 MB");
-    let content = std::fs::read_to_string(&path).map_err(|e| anyhow::anyhow!("source {name:?} could not be read: {e}"))?;
+    std::fs::metadata(&path).map_err(|_| anyhow::anyhow!("source {name:?} does not exist in panels_dir ({})", dir.display()))?;
+    read_file(&path).map_err(|e| anyhow::anyhow!("source {name:?} {e:#}"))
+}
+
+/// A text file of at most `MAX_BYTES` and its sha256 (hex). The caller checks where it is.
+pub fn read_file(path: &Path) -> anyhow::Result<(String, String)> {
+    use sha2::{Digest, Sha256};
+    let meta = std::fs::metadata(path).map_err(|e| anyhow::anyhow!("could not be read: {e}"))?;
+    anyhow::ensure!(meta.is_file(), "is not a file");
+    anyhow::ensure!(meta.len() <= MAX_BYTES, "is larger than 1 MB");
+    let content = std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("could not be read: {e}"))?;
     let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     Ok((content, hash))
 }
 
+/// When a file was last written (ms epoch); `None` when it cannot be read.
+pub fn file_mtime_ms(path: &Path) -> Option<i64> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64)
+}
+
 /// When a source file was last written (ms epoch); `None` when it cannot be read.
 pub fn mtime_ms(dir: &Path, name: &str) -> Option<i64> {
-    let modified = std::fs::metadata(source_path(dir, name).ok()?).ok()?.modified().ok()?;
-    Some(modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64)
+    file_mtime_ms(&source_path(dir, name).ok()?)
 }
 
 /// Watches a panels folder (recursively) while it lives; dropping it stops the watch.
@@ -90,6 +101,18 @@ pub struct Watcher {
 /// Calls `on_change` with the name of each source file (`.md`, `.html`) under `dir` that changed, once per burst of
 /// writes: after `debounce` without a new change.
 pub fn watch(dir: &Path, debounce: Duration, on_change: impl Fn(String) + Send + 'static) -> anyhow::Result<Watcher> {
+    watch_with(dir, debounce, |name| is_source(name).then(|| name.to_owned()), on_change)
+}
+
+/// Watches `dir` recursively. `accept` maps the `/`-separated path of each changed file (relative
+/// to `dir`) to a key, or `None` to ignore it; `on_change` gets each key once per burst of writes:
+/// after `debounce` without a new change.
+pub fn watch_with(
+    dir: &Path,
+    debounce: Duration,
+    accept: impl Fn(&str) -> Option<String> + Send + 'static,
+    on_change: impl Fn(String) + Send + 'static,
+) -> anyhow::Result<Watcher> {
     use notify::Watcher as _;
     let real_dir = dir.canonicalize()?;
     let dir = dir.to_owned();
@@ -107,7 +130,7 @@ pub fn watch(dir: &Path, debounce: Duration, on_change: impl Fn(String) + Send +
     let name_of = move |p: &Path| -> Option<String> {
         let rel = p.strip_prefix(&real_dir).or_else(|_| p.strip_prefix(&dir)).ok()?;
         let name = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
-        is_source(&name).then_some(name)
+        accept(&name)
     };
     std::thread::Builder::new().name("panels-watch".into()).spawn(move || {
         // Ends when the watcher (holding the sender) is dropped.
@@ -200,5 +223,23 @@ mod tests {
         std::fs::write(panels.join("sub/board.html"), "<p>b</p>").unwrap();
         std::thread::sleep(Duration::from_millis(900));
         assert_eq!(seen.lock().unwrap().last().map(String::as_str), Some("sub/board.html"));
+    }
+
+    #[test]
+    fn watch_with_maps_and_filters_paths() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("a")).unwrap();
+        std::fs::create_dir_all(d.path().join("b")).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let s = seen.clone();
+        // Key: the folder of a file; files named `skip` are ignored.
+        let accept = |name: &str| name.split_once('/').filter(|(_, file)| *file != "skip").map(|(k, _)| k.to_owned());
+        let _w = watch_with(d.path(), DEBOUNCE, accept, move |k| s.lock().unwrap().push(k)).unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        std::fs::write(d.path().join("a/one.md"), "1").unwrap();
+        std::fs::write(d.path().join("a/two.json"), "2").unwrap();
+        std::fs::write(d.path().join("b/skip"), "x").unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert_eq!(*seen.lock().unwrap(), vec!["a".to_owned()], "one key per burst, ignored paths dropped");
     }
 }

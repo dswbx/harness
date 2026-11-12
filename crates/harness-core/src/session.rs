@@ -33,6 +33,8 @@ pub struct Shared {
     pub prompts_dir: PathBuf,
     /// PR lookups and the Sessions' GitHub repos, shared by all Sessions.
     pub pr_refs: crate::github_refs::PrRefs,
+    /// Shared Artifacts (ADR 0024), in `<data dir>/shared/`.
+    pub artifacts: crate::shared::SharedArtifacts,
 }
 
 type AppSink = Box<dyn Fn(&crate::api::AppEvent) -> bool + Send + Sync>;
@@ -224,7 +226,14 @@ pub struct FrontendItem {
     pub id: String,
     pub input: serde_json::Value,
     pub ts_ms: i64,
+    /// The Thread of its latest call.
+    pub thread: Option<ThreadId>,
+    /// Its latest call's copied images: src -> path relative to `frontend/`.
+    pub files: std::collections::BTreeMap<String, String>,
 }
+
+/// The Frontend Tool that shows panels, and so Shared Artifacts.
+pub const RENDER_UI: &str = "render_ui";
 
 /// A `FrontendError` not cleared yet.
 /// Frontend Tool items by `(tool, item id)`, with the Thread of their latest call.
@@ -441,7 +450,7 @@ impl Session {
     }
 
     /// A path inside `frontend/`; refuses absolute paths and `..`.
-    fn frontend_path(&self, rel: &str) -> anyhow::Result<PathBuf> {
+    pub(crate) fn frontend_path(&self, rel: &str) -> anyhow::Result<PathBuf> {
         let p = Path::new(rel);
         anyhow::ensure!(
             p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)),
@@ -473,12 +482,160 @@ impl Session {
         Ok(next)
     }
 
+    /// Shared Artifacts this Session has attached (from its log), in order of attaching.
+    pub fn attached_shared(&self) -> anyhow::Result<Vec<String>> {
+        let mut ids: Vec<String> = Vec::new();
+        for e in self.log.events()? {
+            match e.kind {
+                EventKind::ArtifactAttached { id, .. } if !ids.contains(&id) => ids.push(id),
+                EventKind::ArtifactDetached { id, .. } => ids.retain(|x| *x != id),
+                _ => {}
+            }
+        }
+        Ok(ids)
+    }
+
+    /// The folders of the attached Shared Artifacts that still exist.
+    pub fn attached_shared_dirs(&self) -> Vec<PathBuf> {
+        let ids = self.attached_shared().unwrap_or_default();
+        ids.iter().filter(|id| self.shared.artifacts.get(id).is_ok()).filter_map(|id| self.shared.artifacts.folder(id).ok()).collect()
+    }
+
+    /// Errors unless the Shared Artifact exists and this Session has it attached.
+    pub fn ensure_attached(&self, id: &str) -> anyhow::Result<crate::api::SharedArtifactMeta> {
+        let meta = self.shared.artifacts.get(id)?;
+        if !self.attached_shared()?.iter().any(|x| x == id) {
+            return Err(crate::error::conflict(format!("shared artifact {id} is not attached to this Session: attach it first (artifact_attach)")));
+        }
+        Ok(meta)
+    }
+
+    /// Attaches a Shared Artifact (logs `ArtifactAttached`); does nothing when it is attached.
+    pub fn attach_shared(&self, id: &str, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
+        let meta = self.shared.artifacts.get(id)?;
+        if self.attached_shared()?.iter().any(|x| x == id) {
+            return Ok(meta);
+        }
+        self.log.append(None, EventKind::ArtifactAttached { id: id.to_owned(), by })?;
+        self.shared.artifacts.set_attached(id, &self.id(), true)?;
+        self.shared.artifacts.get(id)
+    }
+
+    /// Detaches a Shared Artifact (logs `ArtifactDetached`); does nothing when it is not attached.
+    /// Works for a deleted artifact too.
+    pub fn detach_shared(&self, id: &str, by: crate::api::StateWriter) -> anyhow::Result<()> {
+        if !self.attached_shared()?.iter().any(|x| x == id) {
+            return Ok(());
+        }
+        self.log.append(None, EventKind::ArtifactDetached { id: id.to_owned(), by })?;
+        if self.shared.artifacts.get(id).is_ok() {
+            self.shared.artifacts.set_attached(id, &self.id(), false)?;
+        }
+        Ok(())
+    }
+
+    /// Changes an attached Shared Artifact's state and logs `ArtifactStateChanged` here (only here).
+    pub fn patch_artifact_state(
+        &self,
+        thread: Option<ThreadId>,
+        id: &str,
+        ops: Vec<crate::api::StatePatchOp>,
+        by: crate::api::StateWriter,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.ensure_attached(id)?;
+        let next = self.shared.artifacts.patch_state(id, &ops)?;
+        self.log.append(thread, EventKind::ArtifactStateChanged { id: id.to_owned(), ops, by })?;
+        Ok(next)
+    }
+
+    fn creator(&self) -> crate::api::SharedCreator {
+        let m = self.meta();
+        crate::api::SharedCreator { session_id: m.id, session_title: m.title }
+    }
+
+    /// Makes the `render_ui` item `item_id` shared (ADR 0024): a file panel's file moves out of
+    /// `panels/`; a tree becomes `ui.json` with its images and the state it binds (the whole Session
+    /// State for an Html tree or file). Then the item shows `source: "shared:<id>"`, logged as a new
+    /// call on the Thread of its latest one, and this Session is attached.
+    pub fn share_item(&self, item_id: &str, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
+        use crate::api::SharedKind;
+        let item = self
+            .frontend_items()?
+            .into_iter()
+            .find(|x| x.tool == RENDER_UI && x.id == item_id)
+            .ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))?;
+        let title = item.input.get("title").and_then(|v| v.as_str()).unwrap_or(item_id).to_owned();
+        let artifacts = &self.shared.artifacts;
+        let write_state = |dir: &Path, state: &serde_json::Value| -> anyhow::Result<()> {
+            if state.as_object().is_some_and(|o| !o.is_empty()) {
+                std::fs::write(dir.join("state.json"), serde_json::to_vec_pretty(state)?)?;
+            }
+            Ok(())
+        };
+        let meta = if let Some(source) = item.input.get("source").and_then(|v| v.as_str()) {
+            if crate::shared::reference(source).is_some() {
+                return Err(crate::error::conflict(format!("{item_id} is already shared ({source})")));
+            }
+            let file = crate::panels::source_path(&self.panels_dir(), source)?;
+            anyhow::ensure!(file.is_file(), "source {source:?} does not exist in panels_dir");
+            let kind = if source.ends_with(".html") { SharedKind::Html } else { SharedKind::Md };
+            let state = if kind == SharedKind::Html { self.state()? } else { serde_json::json!({}) };
+            artifacts.create(&title, kind, self.creator(), vec![self.id()], |dir| {
+                write_state(dir, &state)?;
+                crate::shared::move_file(&file, &dir.join(crate::shared::content_name(kind)))
+            })?
+        } else if let Some(root) = item.input.get("root") {
+            let doc = self.state()?;
+            let state = if has_html(root) { doc } else { crate::state::subset(&doc, &crate::state::bound_paths(root))? };
+            artifacts.create(&title, SharedKind::Ui, self.creator(), vec![self.id()], |dir| {
+                write_state(dir, &state)?;
+                let mut files = std::collections::BTreeMap::new();
+                for (src, rel) in &item.files {
+                    let name = Path::new(rel).file_name().ok_or_else(|| anyhow::anyhow!("bad image path {rel}"))?;
+                    let to = Path::new("files").join(name);
+                    std::fs::create_dir_all(dir.join("files"))?;
+                    std::fs::copy(self.frontend_path(rel)?, dir.join(&to))?;
+                    files.insert(src.clone(), to.display().to_string());
+                }
+                let ui = serde_json::json!({ "root": root, "files": files });
+                Ok(std::fs::write(dir.join(crate::shared::content_name(SharedKind::Ui)), serde_json::to_vec_pretty(&ui)?)?)
+            })?
+        } else {
+            return Err(crate::error::invalid(format!("{item_id} has neither root nor source")));
+        };
+        let mut input = item.input.clone();
+        if let Some(o) = input.as_object_mut() {
+            o.remove("root");
+            o.insert("source".into(), serde_json::json!(format!("{}{}", crate::shared::PREFIX, meta.id)));
+        }
+        let thread = item.thread.unwrap_or_else(|| self.meta().main_thread_id);
+        self.write_frontend_tool_output(&thread, RENDER_UI, input, Default::default())?;
+        self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
+        Ok(meta)
+    }
+
+    /// Shares a copy of Markdown (a block from a message) as a new `md` artifact and attaches it.
+    pub fn share_markdown(&self, markdown: &str, title: Option<&str>, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
+        if markdown.trim().is_empty() {
+            return Err(crate::error::invalid("the Markdown is empty"));
+        }
+        let title = title.map(str::to_owned).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| markdown_title(markdown));
+        let kind = crate::api::SharedKind::Md;
+        let text = markdown.to_owned();
+        let meta = self
+            .shared
+            .artifacts
+            .create(&title, kind, self.creator(), vec![self.id()], |dir| Ok(std::fs::write(dir.join(crate::shared::content_name(kind)), text)?))?;
+        self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
+        Ok(meta)
+    }
+
     /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
     pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
         let mut items: Vec<FrontendItem> = Vec::new();
         for e in self.log.events()? {
-            let EventKind::FrontendToolOutput { tool, input, .. } = e.kind else { continue };
+            let EventKind::FrontendToolOutput { tool, input, files, .. } = e.kind else { continue };
             let Some(id) = input.get("id").and_then(|v| v.as_str()).map(str::to_owned) else { continue };
             let at = items.iter().position(|x| x.tool == tool && x.id == id);
             match (input.get("remove") == Some(&serde_json::Value::Bool(true)), at) {
@@ -487,10 +644,9 @@ impl Session {
                 }
                 (true, None) => {}
                 (false, Some(i)) => {
-                    items[i].input = input;
-                    items[i].ts_ms = e.ts_ms;
+                    items[i] = FrontendItem { tool, id, input, ts_ms: e.ts_ms, thread: e.thread_id, files };
                 }
-                (false, None) => items.push(FrontendItem { tool, id, input, ts_ms: e.ts_ms }),
+                (false, None) => items.push(FrontendItem { tool, id, input, ts_ms: e.ts_ms, thread: e.thread_id, files }),
             }
         }
         Ok(items)
@@ -999,6 +1155,25 @@ impl Session {
             let watch = self.pr_watch();
             drop(rt.spawn(async move { watch.find().await }));
         }
+    }
+}
+
+/// Whether a `render_ui` tree has an Html node, which can read any state path.
+fn has_html(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Object(o) => o.get("type").and_then(|t| t.as_str()) == Some("Html") || o.values().any(has_html),
+        serde_json::Value::Array(a) => a.iter().any(has_html),
+        _ => false,
+    }
+}
+
+/// A title for shared Markdown: its first line without Markdown marks, at most 40 characters.
+fn markdown_title(markdown: &str) -> String {
+    let line = markdown.lines().map(|l| l.trim_matches(|c: char| c == '#' || c == '`' || c == '|' || c.is_whitespace())).find(|l| !l.is_empty());
+    match line {
+        Some("mermaid") => "Diagram".to_owned(),
+        Some(l) => title_from_text(l).unwrap_or_else(|| "Shared note".to_owned()),
+        None => "Shared note".to_owned(),
     }
 }
 

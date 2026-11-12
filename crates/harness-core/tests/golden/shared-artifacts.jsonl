@@ -1,0 +1,12 @@
+{"v":1,"seq":0,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000000000,"kind":{"type":"SessionCreated","title":"Shared","frontend_id":"chat","agent_id":"claude-acp","folder":"/work/shared"}}
+{"v":1,"seq":1,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000000137,"kind":{"type":"ThreadStarted","agent_id":"claude-acp","main":true}}
+{"v":1,"seq":2,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000000274,"kind":{"type":"TurnStarted","turn_id":"turn-1","text":"Make the release checklist shared"}}
+{"v":1,"seq":3,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000000411,"kind":{"type":"FrontendToolOutput","tool":"render_ui","call_id":"call-1","path":"tools/render_ui/call-1.json","input":{"id":"plan","placement":"right","title":"Release checklist","source":"plan.md"}}}
+{"v":1,"seq":4,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000000548,"kind":{"type":"FrontendToolOutput","tool":"render_ui","call_id":"call-2","path":"tools/render_ui/call-2.json","input":{"id":"plan","placement":"right","title":"Release checklist","source":"shared:release-checklist-3f9a1c"}}}
+{"v":1,"seq":5,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000000685,"kind":{"type":"ArtifactAttached","id":"release-checklist-3f9a1c","by":"agent"}}
+{"v":1,"seq":6,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000000822,"kind":{"type":"AgentMessageChunk","text":"Shared it as release-checklist-3f9a1c."}}
+{"v":1,"seq":7,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000000959,"kind":{"type":"TurnEnded","turn_id":"turn-1","stop_reason":"end_turn"}}
+{"v":1,"seq":8,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001096,"kind":{"type":"ArtifactAttached","id":"architecture-map-a1b2c3","by":"user"}}
+{"v":1,"seq":9,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001233,"kind":{"type":"ArtifactStateChanged","id":"release-checklist-3f9a1c","ops":[{"op":"replace","path":"/done/ship","value":true}],"by":"user"}}
+{"v":1,"seq":10,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000001370,"kind":{"type":"ArtifactStateChanged","id":"release-checklist-3f9a1c","ops":[{"op":"add","path":"/done/tag","value":false}],"by":"agent"}}
+{"v":1,"seq":11,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001507,"kind":{"type":"ArtifactDetached","id":"architecture-map-a1b2c3","by":"user"}}
