@@ -62,6 +62,7 @@ import { ArtifactsPanel, type SharedActions, sessionCount } from "./ArtifactsPan
 import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { DockLayout, type DockPanel } from "./DockLayout";
+import { clearDraft } from "./drafts";
 import { EventsPanel } from "./EventsPanel";
 import { ShareBlock } from "./Expandable";
 import { errorMessage } from "./errors";
@@ -114,7 +115,7 @@ import { RenderUi, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
 import { useSourceStamps } from "./renderUi/source";
 import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
-import { SelectionComment } from "./SelectionComment";
+import { quotableAttrs, SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import { type Slot, slotChangeKey } from "./slots";
@@ -174,7 +175,11 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
                   >
                      <X className="size-3.5" />
                   </button>
-                  <RenderUi root={x.root} env={{ ...env, files: x.files, item: x.id }} />
+                  <div
+                     {...quotableAttrs(null, false, { source: "artifact", label: x.title ?? x.id })}
+                  >
+                     <RenderUi root={x.root} env={{ ...env, files: x.files, item: x.id }} />
+                  </div>
                </div>
             ))}
          </div>
@@ -272,7 +277,10 @@ function SlotPanel({
             {updated > 0 && <UpdatedAgo ts={updated} />}
          </PanelHeader>
          <ScrollArea className="min-h-0 flex-1">
-            <div className="p-4">
+            <div
+               className="p-4"
+               {...quotableAttrs(null, false, { source: "artifact", label: slot.title ?? slot.id })}
+            >
                <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
             </div>
          </ScrollArea>
@@ -991,7 +999,10 @@ function ChatView({
                focus={focus}
                onSelect={(id) => update((l) => selectThread(l, id))}
                onClose={(id) => {
-                  if (isDraftThread(id)) setReviewComments(composerKey(api.sessionId, id), []);
+                  if (isDraftThread(id)) {
+                     setReviewComments(composerKey(api.sessionId, id), []);
+                     clearDraft(composerKey(api.sessionId, id));
+                  }
                   update((l) => closeThread(l, id));
                }}
                onNew={newSideThread}

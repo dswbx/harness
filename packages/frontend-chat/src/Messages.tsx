@@ -403,7 +403,13 @@ export const Row = memo(function Row({
       case "frontend_tool":
          return (
             <div className={bleed}>
-               <FrontendToolRow item={item} env={env} view={view ?? undefined} />
+               <FrontendToolRow
+                  item={item}
+                  env={env}
+                  view={view ?? undefined}
+                  threadId={threadId}
+                  side={side}
+               />
             </div>
          );
       case "tools":

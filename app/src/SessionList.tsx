@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@harness/api";
+import { type SessionSummary, useSessionHasDraft } from "@harness/api";
 import { cn, Popover, PopoverContent, PopoverTrigger, ScrollArea, Tooltip } from "@harness/ui";
 import {
    Archive,
@@ -11,6 +11,7 @@ import {
    GitPullRequest as GitPullRequestIcon,
    ListFilter,
    MoreHorizontal,
+   Pencil,
    Plus,
    Search,
    Trash2,
@@ -58,6 +59,7 @@ function DetailLine({
    // Before the first lookup the PR's state is unknown: shown neutral.
    const pr = ws.pr_state ? prStyle(ws.pr_state, ws.pr_checks) : null;
    const PrIcon = pr?.icon ?? GitPullRequestIcon;
+   const draft = useSessionHasDraft(s.id);
    return (
       <span className="flex w-full items-center gap-2 text-xs font-normal text-muted-foreground/70">
          <span className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
@@ -94,6 +96,7 @@ function DetailLine({
                </span>
             )}
          </span>
+         {draft && <Pencil className="size-[9px] shrink-0" aria-label="Unsent draft" />}
          <span className="shrink-0 tabular-nums">{relativeTime(s.updated_ms, now)}</span>
       </span>
    );

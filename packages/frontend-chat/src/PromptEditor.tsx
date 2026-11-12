@@ -78,6 +78,8 @@ export type PromptEditorHandle = {
    snapshot(): PromptSnapshot;
    /** Put a snapshot back, only if the editor is empty. Does not move focus. */
    restore(snapshot: PromptSnapshot): void;
+   /** Replace the content with a snapshot (empty for `null`), e.g. a saved draft. Does not move focus. */
+   load(snapshot: PromptSnapshot | null): void;
    /** Empty the editor; keeps the caret only if the editor has focus. */
    clear(): void;
    focus(): void;
@@ -488,6 +490,20 @@ function handle(editor: LexicalEditor): PromptEditorHandle {
       },
       snapshot: () => snapshot(editor),
       restore: (s) => void restoreSnapshot(editor, s),
+      load: (s) => {
+         if (s) {
+            try {
+               editor.setEditorState(editor.parseEditorState(s));
+               return;
+            } catch {
+               // A draft from an older editor that no longer parses: start empty.
+            }
+         }
+         editor.update(() => {
+            $reset();
+            $setSelection(null);
+         });
+      },
       clear: () => {
          const root = editor.getRootElement();
          const focused = !!root && root.contains(document.activeElement);
