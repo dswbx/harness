@@ -20,6 +20,8 @@ const ws = (o: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
    base_branch: null,
    branch: "main",
    pr: null,
+   pr_state: null,
+   pr_checks: null,
    ...o,
 });
 const s = (

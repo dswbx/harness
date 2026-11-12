@@ -1191,6 +1191,10 @@ pub struct WorkspaceInfo {
     pub branch: Option<String>,
     /// The PR the Session started from, else the last PR found for its current branch.
     pub pr: Option<u32>,
+    /// `pr`'s state when last looked up; None before the first lookup.
+    pub pr_state: Option<PrState>,
+    /// `pr`'s checks when last looked up.
+    pub pr_checks: Option<PrChecks>,
 }
 
 /// One Terminal tab of a Session (ADR 0017).

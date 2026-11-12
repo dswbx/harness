@@ -150,6 +150,17 @@ pub struct WorkspaceMeta {
     /// The last PR found for the branch the Session works on, when it was not started from a PR.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch_pr: Option<BranchPrMeta>,
+    /// The last state and checks seen of a PR of the Session, for the Session list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_status: Option<PrStatusMeta>,
+}
+
+/// A PR's state and checks when last looked up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrStatusMeta {
+    pub number: u32,
+    pub state: crate::api::PrState,
+    pub checks: crate::api::PrChecks,
 }
 
 /// A PR found by head branch; only shown while that branch is checked out.
@@ -193,17 +204,53 @@ impl PrWatch {
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
     }
 
+    /// Stores the state and checks of one of the Session's PRs; tells the windows when they changed.
+    pub fn note(&self, pr: &crate::api::PrInfo) {
+        let status = Some(PrStatusMeta { number: pr.number, state: pr.state, checks: pr.checks });
+        {
+            let mut m = self.meta.lock();
+            if m.workspace.pr_status == status {
+                return;
+            }
+            m.workspace.pr_status = status;
+            let _ = write_meta(&self.dir, &m);
+        }
+        self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
+    }
+
     /// Looks up the PR of `branch` and stores it. An error leaves the stored PR alone.
     pub async fn lookup(&self, repo: &crate::api::RepoId, branch: &str) -> anyhow::Result<Option<crate::api::PrInfo>> {
         let pr = self.shared.pr_refs.for_branch(repo, branch).await?;
         self.set(pr.as_ref().map(|p| BranchPrMeta { branch: branch.to_owned(), number: p.number }));
+        if let Some(p) = &pr {
+            self.note(p);
+        }
         Ok(pr)
     }
 
-    /// For a Session that may have opened a PR: looks up the PR of its branch, ignoring errors.
+    /// The repository folder and number of the PR the Session shows, if any.
+    pub fn shown(&self) -> Option<(PathBuf, u32)> {
+        let m = self.meta.lock();
+        let folder = m.repo_folder()?;
+        let head = crate::workspace::head_branch(Path::new(&m.folder));
+        Some((folder, shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), head.as_deref())?))
+    }
+
+    /// For a Session that may have opened a PR: looks up the PR of its branch (or the PR it started from), ignoring
+    /// errors.
     async fn find(&self) {
         let m = self.meta.lock().clone();
-        let Some(folder) = m.repo_folder().filter(|_| m.workspace.pr.is_none()) else { return };
+        if let Some(number) = m.workspace.pr {
+            let Some(folder) = m.repo_folder() else { return };
+            let Some(repo) = self.shared.pr_refs.repo_of(&folder).await else { return };
+            if let Ok(prs) = self.shared.pr_refs.lookup(vec![crate::api::PrRefKey { repo, number }]).await
+                && let Some(Some(pr)) = prs.first()
+            {
+                self.note(pr);
+            }
+            return;
+        }
+        let Some(folder) = m.repo_folder() else { return };
         let Some(branch) = crate::workspace::head_branch(Path::new(&m.folder)) else { return };
         let base = m.workspace.worktree.as_ref().map(|w| &w.base).or(m.workspace.base.as_ref());
         if base == Some(&branch) {
@@ -860,6 +907,8 @@ impl Session {
         self.adopt_repo();
         let m = self.meta.lock();
         let branch = crate::workspace::head_branch(Path::new(&m.folder));
+        let pr = shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), branch.as_deref());
+        let status = m.workspace.pr_status.filter(|s| Some(s.number) == pr);
         SessionSummary {
             id: m.id.clone(),
             title: m.title.clone(),
@@ -884,7 +933,9 @@ impl Session {
                     .map_or_else(|| m.folder.clone(), |p| p.display().to_string()),
                 worktree_branch: m.workspace.worktree.as_ref().map(|w| w.branch.clone()),
                 base_branch: m.workspace.worktree.as_ref().map(|w| w.base.clone()),
-                pr: shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), branch.as_deref()),
+                pr,
+                pr_state: status.map(|s| s.state),
+                pr_checks: status.map(|s| s.checks),
                 branch,
             },
         }

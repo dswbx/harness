@@ -8,7 +8,7 @@ import {
    Folder,
    GitBranch,
    GitFork,
-   GitPullRequest,
+   GitPullRequest as GitPullRequestIcon,
    ListFilter,
    MoreHorizontal,
    Plus,
@@ -18,7 +18,7 @@ import {
    Zap,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
-import { SessionDetails, StatusDot } from "./SessionHeader";
+import { prStyle, SessionDetails, StatusDot } from "./SessionHeader";
 import {
    branchOf,
    DEFAULT_VIEW,
@@ -55,6 +55,9 @@ function DetailLine({
 }) {
    const ws = s.workspace;
    const branch = branchOf(ws);
+   // Before the first lookup the PR's state is unknown: shown neutral.
+   const pr = ws.pr_state ? prStyle(ws.pr_state, ws.pr_checks) : null;
+   const PrIcon = pr?.icon ?? GitPullRequestIcon;
    return (
       <span className="flex w-full items-center gap-2 text-xs font-normal text-muted-foreground/70">
          <span className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
@@ -78,9 +81,12 @@ function DetailLine({
                      ws.pr == null && <GitBranch className="size-3 shrink-0" aria-label="Branch" />
                   )}
                   {ws.pr != null ? (
-                     <span className="flex shrink-0 items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
-                        <GitPullRequest className="size-3 shrink-0" aria-label="Pull request" />#
-                        {ws.pr}
+                     <span className={cn("flex shrink-0 items-center gap-0.5", pr?.cls)}>
+                        <PrIcon
+                           className="size-3 shrink-0"
+                           aria-label={pr ? `Pull request: ${pr.label}` : "Pull request"}
+                        />
+                        #{ws.pr}
                      </span>
                   ) : (
                      <span className="truncate">{branch}</span>
