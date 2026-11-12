@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@harness/api";
+import { type SessionSummary, useSessionHasDraft } from "@harness/api";
 import { cn, Popover, PopoverContent, PopoverTrigger, ScrollArea, Tooltip } from "@harness/ui";
 import {
    Archive,
@@ -11,6 +11,7 @@ import {
    GitPullRequest,
    ListFilter,
    MoreHorizontal,
+   Pencil,
    Plus,
    Search,
    Trash2,
@@ -55,6 +56,7 @@ function DetailLine({
 }) {
    const ws = s.workspace;
    const branch = branchOf(ws);
+   const draft = useSessionHasDraft(s.id);
    return (
       <span className="flex w-full items-center gap-2 text-xs font-normal text-muted-foreground/70">
          <span className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
@@ -88,6 +90,7 @@ function DetailLine({
                </span>
             )}
          </span>
+         {draft && <Pencil className="size-[9px] shrink-0" aria-label="Unsent draft" />}
          <span className="shrink-0 tabular-nums">{relativeTime(s.updated_ms, now)}</span>
       </span>
    );
