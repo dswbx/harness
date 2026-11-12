@@ -1,17 +1,28 @@
 import { type Subagent, subagentState } from "@harness/api";
 import { cn } from "@harness/ui";
 import { Bot, CheckCircle2, ChevronRight, Loader2, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Markdown } from "./Markdown";
 import type { Item } from "./reducer";
 import { ToolCard } from "./ToolCard";
+import { WaitingForUser } from "./toolDisplay/waiting";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
 /** A Task call that started a subagent: its tool calls (collapsed) and its report. */
-export function SubagentCard({ task, subagent }: { task: Tool; subagent: Subagent<Tool> }) {
+export function SubagentCard({
+   task,
+   subagent,
+   active = true,
+}: {
+   task: Tool;
+   subagent: Subagent<Tool>;
+   /** The Turn runs (see `ToolGroupProps.active`). */
+   active?: boolean;
+}) {
    const [open, setOpen] = useState(false);
-   const state = subagentState(task, subagent);
+   const waiting = useContext(WaitingForUser);
+   const state = subagentState(task, subagent, active && !waiting);
    const prompt = task.subagentPrompt;
    const n = subagent.calls.length;
    return (

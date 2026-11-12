@@ -37,6 +37,9 @@ export function usePlanComments(sessionId: string) {
  * Answers a plan approval. "Keep planning" answers with the reject option, then sends the plan comments
  * waiting in the Main Thread's prompt box as a prompt (other comments stay there for the next send).
  */
+/** Sent after the plan comments, so the Agent presents the revised plan for approval again. */
+export const RESUBMIT = "Revise the plan, then submit it again for approval.";
+
 export function usePlanAnswer(api: SessionApi, item: Perm) {
    const [error, setError] = useState<string | null>(null);
    const answer = (optionId: string | null) => {
@@ -59,7 +62,8 @@ export function usePlanAnswer(api: SessionApi, item: Perm) {
          api.sessionId,
          all.filter((c) => !isPlanComment(c)),
       );
-      api.prompt(withReviewComments("", sent)).catch((e) => {
+      // Without the last line, Claude edits its plan file but does not present it again, so no new version shows.
+      api.prompt(withReviewComments(RESUBMIT, sent)).catch((e) => {
          // Not sent: put the comments back.
          setReviewComments(api.sessionId, [...getReviewComments(api.sessionId), ...sent]);
          setError(errorMessage(e));
