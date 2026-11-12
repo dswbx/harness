@@ -1,14 +1,21 @@
 import { s } from "jsonv-ts";
-import { type Entry, icon } from "./shared";
+import { type Entry, icon, repeatItems, titlesOrRepeat } from "./shared";
 
 /** Show and hide: Tabs, Stepper, Popover, Accordion. */
 
 export const specs = {
    Tabs: {
       description:
-         "Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index.",
+         "Tabs: one child per tab, one shown at a time; for parts the user browses in any order. `value` ($bindState, optional) holds the open tab's index. Tabs from a state array: `repeat` instead of `tabs`, with one child as the template.",
       children: true,
-      props: s.object({ tabs: s.array(s.string(), { minItems: 1 }), value: s.any().optional() }),
+      props: s.object(
+         {
+            tabs: s.array(s.string(), { minItems: 1 }).optional(),
+            repeat: repeatItems.optional(),
+            value: s.any().optional(),
+         },
+         titlesOrRepeat("tabs"),
+      ),
       bind: ["value"],
       example: {
          node: {
@@ -158,13 +165,17 @@ export const specs = {
    },
    Accordion: {
       description:
-         "Collapsible sections: one child per item, titled by `items`. `multiple` lets several stay open; `open` lists indexes open at first.",
+         "Collapsible sections: one child per item, titled by `items`. Sections from a state array: `repeat` instead of `items`, with one child as the template. `multiple` lets several stay open; `open` lists indexes open at first.",
       children: true,
-      props: s.object({
-         items: s.array(s.string(), { minItems: 1 }),
-         multiple: s.boolean().optional(),
-         open: s.array(s.number()).optional(),
-      }),
+      props: s.object(
+         {
+            items: s.array(s.string(), { minItems: 1 }).optional(),
+            repeat: repeatItems.optional(),
+            multiple: s.boolean().optional(),
+            open: s.array(s.number()).optional(),
+         },
+         titlesOrRepeat("items"),
+      ),
       example: {
          node: {
             type: "Accordion",

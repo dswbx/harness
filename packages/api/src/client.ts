@@ -107,6 +107,14 @@ export interface SessionApi {
    ): Promise<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>;
    /** Reads a file of this Session's Frontend state (`frontend/` in the Session Directory). */
    frontendRead(path: string): Promise<string>;
+   /**
+    * A file-backed panel's source (ADR 0023): `name` relative to the Session's `panels/` folder.
+    * `hash` (sha256 of `content`) changes only when the content does; `mtime_ms`: when the file was
+    * last written (ms epoch, 0 when unknown). Fails when it is missing.
+    */
+   panelSourceRead(name: string): Promise<{ content: string; hash: string; mtime_ms: number }>;
+   /** Calls back with the name of each panel source file that changed (once per burst of writes). */
+   panelSourceChanged(onChange: (name: string) => void): Promise<Unsubscribe>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
    openInEditor(path?: string, line?: number): Promise<void>;
    /** Writes a plan's Markdown to a file Harness owns; returns its absolute path. Optionally opens it in the editor. */
@@ -267,6 +275,18 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       frontendRead: async (path) =>
          (await expect({ type: "FrontendRead", session_id: sessionId, path }, "FileContent"))
             .content,
+      panelSourceRead: async (name) => {
+         const r = await expect(
+            { type: "PanelSourceRead", session_id: sessionId, name },
+            "PanelSource",
+         );
+         return { content: r.content, hash: r.hash, mtime_ms: r.mtime_ms };
+      },
+      panelSourceChanged: (onChange) =>
+         transport.subscribeApp(
+            (e) =>
+               e.type === "PanelSourceChanged" && e.session_id === sessionId && onChange(e.name),
+         ),
       openInEditor: (path, line) =>
          run({
             type: "OpenInEditor",

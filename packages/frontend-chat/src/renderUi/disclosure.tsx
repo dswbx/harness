@@ -2,7 +2,17 @@ import { Button, cn, Popover, PopoverContent, PopoverTrigger } from "@harness/ui
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useContext, useState } from "react";
 import type { UiNode } from "../tools";
-import { IconOf, type Renderers, runActions, ScopeCtx, useEnv } from "./runtime";
+import { repeatScopes } from "./layout";
+import {
+   IconOf,
+   type RenderCtx,
+   type Renderers,
+   readItem,
+   resolveValue,
+   runActions,
+   ScopeCtx,
+   useEnv,
+} from "./runtime";
 
 export * from "./disclosure.spec";
 
@@ -22,14 +32,46 @@ function useIndex(
    return [index, set];
 }
 
-function Tabs({
-   node,
-   kids,
-}: {
-   node: Extract<UiNode, { type: "Tabs" }>;
-   kids: React.ReactNode[];
-}) {
-   const [i, setI] = useIndex(node, node.props.tabs.length);
+type Items = { titles: ReactNode[]; kids: ReactNode[] };
+
+/**
+ * Titles and bodies of Accordion and Tabs: static (`items`/`tabs` and one child each), or with
+ * `repeat` one per item of a state array, the one child rendered in that item's Repeat scope.
+ */
+function itemsOf(
+   { node, raw, kids, env, scope, Node }: RenderCtx<"Accordion"> | RenderCtx<"Tabs">,
+   titles: string[] | undefined,
+): Items {
+   const r = node.props.repeat;
+   if (!r) return { titles: titles ?? [], kids: kids ?? [] };
+   const scopes = repeatScopes(
+      { ...raw, props: { items: { $state: r.statePath } } },
+      env.state,
+      scope,
+   );
+   const tpl = raw.children?.[0];
+   return {
+      titles: scopes.map((s) => {
+         const v =
+            typeof r.title === "string"
+               ? readItem(r.title, s)
+               : resolveValue(r.title, env.state, s);
+         return v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+      }),
+      kids: scopes.map(
+         (s) =>
+            tpl && (
+               <ScopeCtx.Provider key={s.index} value={s}>
+                  <Node raw={tpl} />
+               </ScopeCtx.Provider>
+            ),
+      ),
+   };
+}
+
+function Tabs({ node, items }: { node: Extract<UiNode, { type: "Tabs" }>; items: Items }) {
+   const { titles: tabs, kids } = items;
+   const [i, setI] = useIndex(node, tabs.length);
    return (
       <div className="grid grid-cols-1 gap-3">
          {/* Scrolls sideways only; the bottom line is drawn inside, so the active underline doesn't overflow. */}
@@ -37,7 +79,7 @@ function Tabs({
             role="tablist"
             className="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--border)]"
          >
-            {node.props.tabs.map((t, j) => (
+            {tabs.map((t, j) => (
                <button
                   key={j}
                   role="tab"
@@ -163,11 +205,12 @@ function UiPopover({
 
 function Accordion({
    node,
-   kids,
+   items,
 }: {
    node: Extract<UiNode, { type: "Accordion" }>;
-   kids: ReactNode[];
+   items: Items;
 }) {
+   const { titles, kids } = items;
    const [open, setOpen] = useState<number[]>(() => node.props.open ?? []);
    const flip = (i: number) =>
       setOpen(
@@ -175,7 +218,7 @@ function Accordion({
       );
    return (
       <div className="divide-y rounded-lg border">
-         {node.props.items.map((title, i) => (
+         {titles.map((title, i) => (
             <div key={i}>
                <button
                   type="button"
@@ -199,8 +242,8 @@ function Accordion({
 }
 
 export const renderers = {
-   Tabs: ({ node, kids }) => {
-      return <Tabs node={node} kids={kids ?? []} />;
+   Tabs: (ctx) => {
+      return <Tabs node={ctx.node} items={itemsOf(ctx, ctx.node.props.tabs)} />;
    },
    Stepper: ({ node, kids }) => {
       return <Stepper node={node} kids={kids ?? []} />;
@@ -208,7 +251,7 @@ export const renderers = {
    Popover: ({ node, kids }) => {
       return <UiPopover node={node} kids={kids ?? []} />;
    },
-   Accordion: ({ node, kids }) => {
-      return <Accordion node={node} kids={kids ?? []} />;
+   Accordion: (ctx) => {
+      return <Accordion node={ctx.node} items={itemsOf(ctx, ctx.node.props.items)} />;
    },
 } satisfies Renderers;

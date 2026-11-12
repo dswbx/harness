@@ -142,7 +142,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -410,7 +410,24 @@ async fn session_state_and_harness_info() {
     // Frontend Tool calls with an id are live items until removed.
     ask(&h, &sid, r#"mcp json_render {"title":"a","id":"score","placement":"bottom"}"#, None).await;
     let done = ask(&h, &sid, r#"mcp json_render {"title":"b","id":"q","placement":"right"}"#, None).await;
-    assert!(done.contains(r#"Live items: [{"tool":"json_render","id":"score","placement":"bottom","title":"a"},{"tool":"json_render","id":"q","placement":"right","title":"b"}]"#), "{done}");
+    let live: serde_json::Value = serde_json::from_str(done.split_once("Live items: ").unwrap().1).unwrap();
+    let updated: Vec<i64> = live.as_array().unwrap().iter().map(|x| x["updated_ms"].as_i64().unwrap()).collect();
+    assert!(updated[0] > 0 && updated[1] >= updated[0], "updated_ms: the logged time of each item's latest call: {done}");
+    let without: Vec<serde_json::Value> = live
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| {
+            let mut x = x.clone();
+            x.as_object_mut().unwrap().remove("updated_ms");
+            x
+        })
+        .collect();
+    assert_eq!(
+        serde_json::Value::Array(without),
+        serde_json::json!([{"tool":"json_render","id":"score","placement":"bottom","title":"a"},{"tool":"json_render","id":"q","placement":"right","title":"b"}]),
+        "{done}"
+    );
     ask(&h, &sid, r#"mcp json_render {"title":"c","id":"score","remove":true}"#, None).await;
     let info = ask(&h, &sid, "mcp harness_info {}", None).await;
     assert!(info.contains("\"id\": \"q\"") && !info.contains("\"score\"") && info.contains("\"quiz\""), "{info}");
@@ -594,6 +611,14 @@ fn generated_chat_manifest_validates_in_core() {
         ""
     );
     assert_eq!(errors(json!({ "id": "score", "remove": true })), "");
+    // File-backed panels (ADR 0023): exactly one of root or source, a relative .md or .html name.
+    assert_eq!(errors(json!({ "id": "p", "placement": "right", "title": "P", "source": "plan/progress.md" })), "");
+    assert_ne!(errors(json!({ "id": "p", "source": "p.md", "root": { "type": "Markdown", "props": { "text": "x" } } })), "");
+    assert_ne!(errors(json!({ "id": "p", "placement": "right" })), "");
+    assert_eq!(errors(json!({ "id": "p", "source": "p.html" })), "");
+    assert_ne!(errors(json!({ "id": "p", "source": "p.txt" })), "");
+    assert_ne!(errors(json!({ "id": "p", "source": "p.htm" })), "");
+    assert_ne!(errors(json!({ "id": "p", "source": "/etc/p.md" })), "");
     assert_eq!(
         errors(json!({ "root": { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" }, "options": [{ "value": "a", "label": "A" }] },
         "on": { "change": { "action": "sendMessage", "params": { "text": { "$template": "Answer: ${/a/q1}" } } } } } })),
@@ -640,4 +665,129 @@ fn generated_chat_manifest_validates_in_core() {
         ),
         ""
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_get_returns_latest_panel_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    h.register_frontend(FrontendManifest {
+        id: "chat".into(),
+        name: "Chat".into(),
+        version: "0".into(),
+        instructions: None,
+        frontend_tools: vec![FrontendToolDecl {
+            name: "render_ui".into(),
+            description: "Render a panel".into(),
+            input_schema: serde_json::json!({ "type": "object", "properties": { "id": { "type": "string" } } }),
+            replies: false,
+        }],
+    });
+    let sid = create(&h, dir.path(), vec![]).await;
+    ask(&h, &sid, r#"mcp state_patch {"ops":[{"op":"add","path":"/quiz/score","value":3},{"op":"add","path":"/n","value":1}]}"#, None).await;
+    ask(&h, &sid, r#"mcp render_ui {"id":"a","title":"one","root":{"type":"Stat","props":{"value":{"$state":"/quiz/score"}}}}"#, None).await;
+    ask(&h, &sid, r#"mcp render_ui {"id":"b","title":"two","root":{"type":"Stat","props":{"value":{"$template":"${/n} of ${/missing}"}}}}"#, None).await;
+    ask(&h, &sid, r#"mcp render_ui {"id":"a","title":"one v2","root":{"type":"Stat","props":{"value":{"$state":"/quiz/score"}}}}"#, None).await;
+
+    let got = ask(&h, &sid, r#"mcp ui_get {"id":"a"}"#, None).await;
+    let v: serde_json::Value = serde_json::from_str(got.strip_prefix("mcp: ").unwrap().split("Working on it.").next().unwrap().trim()).unwrap();
+    assert_eq!(v["input"]["title"], "one v2");
+    assert_eq!(v["state"], serde_json::json!({ "/quiz/score": 3 }));
+    let got = ask(&h, &sid, r#"mcp ui_get {"id":"b"}"#, None).await;
+    assert!(got.contains("\"/n\": 1") && got.contains("\"/missing\": null"), "{got}");
+
+    ask(&h, &sid, r#"mcp render_ui {"id":"b","remove":true}"#, None).await;
+    let err = ask(&h, &sid, r#"mcp ui_get {"id":"b"}"#, None).await;
+    assert!(err.starts_with("mcp error:") && err.contains("Known ids: a"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn file_backed_panels() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    h.register_frontend(FrontendManifest {
+        id: "chat".into(),
+        name: "Chat".into(),
+        version: "0".into(),
+        instructions: None,
+        frontend_tools: vec![FrontendToolDecl {
+            name: "render_ui".into(),
+            description: "Render a panel".into(),
+            input_schema: serde_json::json!({ "type": "object", "properties": { "id": { "type": "string" }, "source": { "type": "string" } } }),
+            replies: false,
+        }],
+    });
+    let sid = create(&h, dir.path(), vec![]).await;
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    let panels = dir.path().join("data/sessions").join(&sid).join("panels");
+    assert!(info.contains(&format!("\"panels_dir\": \"{}\"", panels.display())), "{info}");
+    assert!(panels.is_dir());
+
+    // The file must exist and stay inside panels_dir.
+    let missing = ask(&h, &sid, r#"mcp render_ui {"id":"p","placement":"right","source":"plan/progress.md"}"#, None).await;
+    assert!(missing.starts_with("mcp error:") && missing.contains("does not exist") && missing.contains("Write the file first"), "{missing}");
+    let outside = ask(&h, &sid, r#"mcp render_ui {"id":"p","source":"../state.json"}"#, None).await;
+    assert!(outside.starts_with("mcp error:"), "{outside}");
+
+    std::fs::create_dir_all(panels.join("plan")).unwrap();
+    std::fs::write(panels.join("plan/progress.md"), "# Progress\n\n- [x] one").unwrap();
+    let done = ask(&h, &sid, r#"mcp render_ui {"id":"p","placement":"right","title":"Progress","source":"plan/progress.md"}"#, None).await;
+    assert!(done.contains(r#""source":"plan/progress.md""#), "{done}");
+    // The log keeps the name, never the content: replay shows the file as it is now.
+    let logged: Vec<serde_json::Value> = events(&h, &sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::FrontendToolOutput { input, .. } => Some(input),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(logged, vec![serde_json::json!({"id": "p", "placement": "right", "title": "Progress", "source": "plan/progress.md"})]);
+
+    let changed = Arc::new(Mutex::new(Vec::new()));
+    let c = changed.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::PanelSourceChanged { name, .. } = e {
+            c.lock().unwrap().push(name.clone());
+        }
+        true
+    }));
+    let read = |name: &str| Command::PanelSourceRead { session_id: sid.clone(), name: name.into() };
+    let CommandResult::PanelSource { content, hash, mtime_ms } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
+    assert_eq!(content, "# Progress\n\n- [x] one");
+    assert_eq!(hash.len(), 64);
+    assert!(mtime_ms > 0);
+    assert!(h.execute(read("../session.json")).await.is_err());
+
+    std::thread::sleep(Duration::from_millis(150));
+    std::fs::write(panels.join("plan/progress.md"), "# Progress\n\n- [x] one\n- [ ] two").unwrap();
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(*changed.lock().unwrap(), vec!["plan/progress.md".to_owned()]);
+    // An .html source: same checks and reads; other types are refused.
+    std::fs::write(panels.join("board.html"), "<p>board</p>").unwrap();
+    let html = ask(&h, &sid, r#"mcp render_ui {"id":"b","placement":"left","title":"Board","source":"board.html"}"#, None).await;
+    assert!(html.contains(r#""source":"board.html""#), "{html}");
+    let CommandResult::PanelSource { content, .. } = h.execute(read("board.html")).await.unwrap() else { panic!() };
+    assert_eq!(content, "<p>board</p>");
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(changed.lock().unwrap().last().map(String::as_str), Some("board.html"), "the watcher reports .html files");
+    std::fs::write(panels.join("notes.txt"), "x").unwrap();
+    assert!(h.execute(read("notes.txt")).await.is_err());
+    let _ = ask(&h, &sid, r#"mcp render_ui {"id":"b","remove":true}"#, None).await;
+
+    let got = ask(&h, &sid, r#"mcp ui_get {"id":"p"}"#, None).await;
+    assert!(got.contains(r##""content": "# Progress\n\n- [x] one\n- [ ] two""##) && got.contains(r#""source": "plan/progress.md""#), "{got}");
+
+    // updated_ms: the file's write, as it is later than the render_ui call.
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    let info: serde_json::Value = serde_json::Deserializer::from_str(&info[info.find('{').unwrap()..]).into_iter().next().unwrap().unwrap();
+    let updated = info["items"][0]["updated_ms"].as_i64().unwrap();
+    let mtime = std::fs::metadata(panels.join("plan/progress.md")).unwrap().modified().unwrap();
+    assert_eq!(updated, mtime.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64);
+
+    // A deleted file: harness_info names it, ui_get says so.
+    std::fs::remove_file(panels.join("plan/progress.md")).unwrap();
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    assert!(info.contains("Source missing: source \\\"plan/progress.md\\\" does not exist"), "{info}");
+    let got = ask(&h, &sid, r#"mcp ui_get {"id":"p"}"#, None).await;
+    assert!(got.contains("\"error\": \"source"), "{got}");
 }

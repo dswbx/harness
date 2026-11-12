@@ -1,6 +1,8 @@
 import { type ComponentProps, createContext, lazy, Suspense, useContext, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { AnsiText } from "./AnsiText";
@@ -121,6 +123,13 @@ const components: Components = {
    thead: ({ node: _, ...props }) => <thead {...props} className="bg-muted/50" />,
    th: ({ node: _, ...props }) => <th {...props} className="px-3 py-2 font-medium" />,
    td: ({ node: _, ...props }) => <td {...props} className="px-3 py-2" />,
+   // Task list boxes: always controlled, so a box that becomes checked on re-render does not warn.
+   input: ({ node: _, checked, ...props }) =>
+      props.type === "checkbox" ? (
+         <input {...props} checked={!!checked} readOnly />
+      ) : (
+         <input {...props} />
+      ),
    // PR refs marked by `rehypePrRefs`.
    span({ node, ...props }) {
       const p = (node as Hast | undefined)?.properties;
@@ -177,6 +186,20 @@ const inline = {
    marked: [rehypeInlineCode, { guess: false }],
 } satisfies Record<string, Plugins[number]>;
 
+/**
+ * Raw HTML for file-backed panels (ADR 0023): parsed, then cut down to the default sanitize schema
+ * (GitHub's) plus `<details open>`/`<summary>`. No scripts, styles, frames or event handlers.
+ */
+const sanitizeSchema = {
+   ...defaultSchema,
+   tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
+   attributes: {
+      ...defaultSchema.attributes,
+      details: [...(defaultSchema.attributes?.details ?? []), "open"],
+   },
+};
+const rawHtml: Plugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
+
 /** `breaks`: single newlines become line breaks (user prompts are typed that way). `plainCode`: code blocks without
  * their frame (language, wrap, copy). */
 export function Markdown({
@@ -185,8 +208,11 @@ export function Markdown({
    breaks,
    plainCode,
    title,
+   html,
 }: {
    children: string;
+   /** Allow raw HTML, sanitized (`sanitizeSchema`); otherwise raw HTML is dropped. */
+   html?: boolean;
    /** What this shows, if not to be found from the text before it: names downloads. */
    title?: string;
    className?: string;
@@ -200,12 +226,13 @@ export function Markdown({
    const fileRefs = !!useFileRefs();
    const plugins = useMemo<Plugins>(
       () => [
+         ...(html ? rawHtml : []),
          block,
          ...(prCtx ? [[rehypePrRefs, { ctx: prCtx }] as Plugins[number]] : []),
          ...(fileRefs ? [rehypeFileRefs] : []),
          inline[guess ? "guess" : "marked"],
       ],
-      [guess, prCtx, fileRefs],
+      [guess, prCtx, fileRefs, html],
    );
    const context = useMemo(() => ({ text: children, title }), [children, title]);
    return (

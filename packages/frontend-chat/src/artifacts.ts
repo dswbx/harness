@@ -153,6 +153,7 @@ export function uiTitle(root: RawNode, title: string | undefined): string {
          return `${p.repo} #${String(p.number ?? "")}`.trim();
       for (const k of ["title", "label"])
          if (typeof p[k] === "string" && p[k]) return p[k] as string;
+      if (typeof p.source === "string") return p.source;
       if (n.type === "Markdown" && typeof p.text === "string") {
          const first = p.text.split("\n").map(plain).find(Boolean);
          if (first) return first.length > 80 ? `${first.slice(0, 79)}…` : first;

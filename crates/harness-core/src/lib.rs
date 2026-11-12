@@ -19,6 +19,7 @@ pub mod host;
 pub mod library;
 pub mod log;
 pub mod mcp;
+mod panels;
 pub mod permissions;
 pub mod session;
 mod shell;

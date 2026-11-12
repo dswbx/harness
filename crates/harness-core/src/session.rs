@@ -217,6 +217,15 @@ impl PrWatch {
 pub const MAX_FRONTEND_ERRORS: usize = 5;
 pub const MAX_FRONTEND_ERROR_LEN: usize = 300;
 
+/// A live Frontend Tool item (`frontend_items`): its latest input, and when that call was logged.
+#[derive(Debug, Clone)]
+pub struct FrontendItem {
+    pub tool: String,
+    pub id: String,
+    pub input: serde_json::Value,
+    pub ts_ms: i64,
+}
+
 /// A `FrontendError` not cleared yet.
 /// Frontend Tool items by `(tool, item id)`, with the Thread of their latest call.
 type FrontendItems = HashMap<(String, String), ThreadId>;
@@ -277,6 +286,8 @@ pub struct Session {
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: parking_lot::Mutex<()>,
     frontend_requests: FrontendRequests,
+    /// Watches `panels/` once a window read a source file from it (ADR 0023).
+    panels_watch: parking_lot::Mutex<Option<crate::panels::Watcher>>,
 }
 
 impl Session {
@@ -293,6 +304,7 @@ impl Session {
         shared: Arc<Shared>,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(dir.join("frontend"))?;
+        std::fs::create_dir_all(dir.join(crate::panels::DIR))?;
         let meta = SessionMeta {
             id: id.clone(),
             title: title.clone(),
@@ -366,6 +378,7 @@ impl Session {
             shared,
             state_lock: Default::default(),
             frontend_requests: Default::default(),
+            panels_watch: Default::default(),
         }
     }
 
@@ -462,19 +475,22 @@ impl Session {
 
     /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
-    pub fn frontend_items(&self) -> anyhow::Result<Vec<(String, String, serde_json::Value)>> {
-        let mut items: Vec<(String, String, serde_json::Value)> = Vec::new();
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
+        let mut items: Vec<FrontendItem> = Vec::new();
         for e in self.log.events()? {
             let EventKind::FrontendToolOutput { tool, input, .. } = e.kind else { continue };
             let Some(id) = input.get("id").and_then(|v| v.as_str()).map(str::to_owned) else { continue };
-            let at = items.iter().position(|(t, i, _)| *t == tool && *i == id);
+            let at = items.iter().position(|x| x.tool == tool && x.id == id);
             match (input.get("remove") == Some(&serde_json::Value::Bool(true)), at) {
                 (true, Some(i)) => {
                     items.remove(i);
                 }
                 (true, None) => {}
-                (false, Some(i)) => items[i].2 = input,
-                (false, None) => items.push((tool, id, input)),
+                (false, Some(i)) => {
+                    items[i].input = input;
+                    items[i].ts_ms = e.ts_ms;
+                }
+                (false, None) => items.push(FrontendItem { tool, id, input, ts_ms: e.ts_ms }),
             }
         }
         Ok(items)
@@ -538,6 +554,34 @@ impl Session {
         }
         self.log.append(Some(thread.clone()), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
         Ok(())
+    }
+
+    /// Where the Agent writes the `.md`/`.html` files of file-backed panels (ADR 0023); made on first use for
+    /// Sessions from before it existed.
+    pub fn panels_dir(&self) -> PathBuf {
+        let dir = self.dir.join(crate::panels::DIR);
+        if !dir.exists() {
+            let _ = std::fs::create_dir_all(&dir);
+        }
+        dir
+    }
+
+    /// A panel source file's text and hash. Starts watching `panels/` so windows hear of changes
+    /// (`PanelSourceChanged`); when the watch fails they still re-read on focus.
+    pub fn panel_source_read(&self, name: &str) -> anyhow::Result<(String, String)> {
+        let dir = self.panels_dir();
+        let read = crate::panels::read(&dir, name);
+        let mut watch = self.panels_watch.lock();
+        if watch.is_none() {
+            let shared = self.shared.clone();
+            let session_id = self.id();
+            let emit = move |name: String| shared.app_events.emit(crate::api::AppEvent::PanelSourceChanged { session_id: session_id.clone(), name });
+            match crate::panels::watch(&dir, crate::panels::DEBOUNCE, emit) {
+                Ok(w) => *watch = Some(w),
+                Err(e) => tracing::warn!("watching {}: {e:#}", dir.display()),
+            }
+        }
+        read
     }
 
     pub fn frontend_dir(&self) -> PathBuf {
@@ -738,6 +782,7 @@ impl Session {
         let m = self.meta();
         // Stop the log first: an Agent's late exit must not write into the directory being removed.
         self.log.close();
+        self.panels_watch.lock().take();
         std::fs::remove_dir_all(&self.dir)?;
         let folder = Path::new(&m.folder);
         if m.quick && folder.file_name().is_some_and(|n| n == m.id.as_str()) && folder.exists() {

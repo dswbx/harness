@@ -179,8 +179,16 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, and `errors` the UI reported, such as script errors) and the top-level keys of the Session State.",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the .md or .html files of file-backed panels (render_ui `source`).",
             empty.clone(),
+            "read",
+        ),
+        (
+            "ui_get",
+            "Read a panel you placed with render_ui: its stored input (root or source, placement, title, ...), the Session State values its `$state` paths point to, and for a `source` panel the file's current `content`. Use it before you change a panel you no longer see, e.g. after compaction.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "The panel's id, as in render_ui" }
+            }, "required": ["id"] }),
             "read",
         ),
         (
@@ -303,6 +311,7 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
                 serde_json::to_string_pretty(&state)?
             }
             "harness_info" => serde_json::to_string_pretty(&info(session)?)?,
+            "ui_get" => serde_json::to_string_pretty(&ui_get(session, s("id").as_deref())?)?,
             "threads_list" => crate::transcript::threads_list(session)?,
             "transcript_outline" => crate::transcript::outline(session, &args)?,
             "transcript_read" => crate::transcript::read(session, &args)?,
@@ -313,10 +322,14 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     let tool = session.frontend_tools().into_iter().find(|t| t.name == name).ok_or_else(|| anyhow::anyhow!("unknown tool {name}"))?;
     let (validator, images) =
         crate::frontend_files::validator(&tool.input_schema).map_err(|e| anyhow::anyhow!("the Frontend's schema for {name} is invalid: {e}"))?;
-    let errors: Vec<String> = validator.iter_errors(&args).map(|e| format!("{}: {e}", e.instance_path)).collect();
+    let errors = crate::frontend_files::format_errors(&validator, &args);
     // Agents may call a tool before they have seen its schema (some load schemas on demand), so
     // the error carries the description: enough to get the next call right.
-    anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{}\n\nHow to call {name}:\n{}", errors.join("\n"), tool.description);
+    anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{errors}\n\nHow to call {name}:\n{}", tool.description);
+    // A file-backed panel (ADR 0023): the log keeps the name; the file must exist in panels_dir.
+    if let Some(source) = args.get("source").and_then(Value::as_str) {
+        crate::panels::read(&session.panels_dir(), source).map_err(|e| anyhow::anyhow!("{e:#}. Write the file first, then call {name} again."))?;
+    }
     if tool.replies {
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "read", &args).await?;
         let answer = session.request_frontend(name, args).await?;
@@ -336,21 +349,89 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     Ok(vec![ContentBlock::text(format!("Done. The Frontend received it ({path}). Live items: {items}"))])
 }
 
+/// `ui_get`: the latest stored input of a live `render_ui` item, plus the Session State values at
+/// the paths it binds (`$state`, `$bindState`, `${/path}` in `$template`; `$computed` args are
+/// ordinary `$state` values).
+fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Value> {
+    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|x| x.tool == "render_ui").map(|x| (x.id, x.input)).collect();
+    let id = id.ok_or_else(|| anyhow::anyhow!("id is required"))?;
+    let Some((_, input)) = items.iter().find(|(i, _)| i == id) else {
+        let known: Vec<&str> = items.iter().map(|(i, _)| i.as_str()).collect();
+        anyhow::bail!("no render_ui panel with id {id:?}. Known ids: {}", if known.is_empty() { "none".to_owned() } else { known.join(", ") });
+    };
+    let mut paths = Vec::new();
+    collect_state_paths(input, &mut paths);
+    let doc = session.state()?;
+    let mut state = Map::new();
+    for p in paths {
+        let v = doc.pointer(&p).cloned().unwrap_or(Value::Null);
+        state.insert(p, v);
+    }
+    let mut out = json!({ "input": input, "state": state });
+    if let Some(source) = input.get("source").and_then(Value::as_str) {
+        match crate::panels::read(&session.panels_dir(), source) {
+            Ok((content, _)) => out["content"] = json!(content),
+            Err(e) => out["error"] = json!(format!("{e:#}")),
+        }
+    }
+    Ok(out)
+}
+
+fn collect_state_paths(v: &Value, out: &mut Vec<String>) {
+    fn add(out: &mut Vec<String>, p: &str) {
+        if p.starts_with('/') && !out.iter().any(|o| o == p) {
+            out.push(p.to_owned());
+        }
+    }
+    match v {
+        Value::Object(o) => {
+            for (k, v) in o {
+                match (k.as_str(), v) {
+                    // statePath: Accordion/Tabs `repeat` and action targets.
+                    ("$state" | "$bindState" | "statePath", Value::String(p)) => add(out, p),
+                    ("$template", Value::String(t)) => {
+                        let mut rest = t.as_str();
+                        while let Some((_, after)) = rest.split_once("${") {
+                            let Some((p, tail)) = after.split_once('}') else { break };
+                            add(out, p);
+                            rest = tail;
+                        }
+                    }
+                    _ => {}
+                }
+                collect_state_paths(v, out);
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|v| collect_state_paths(v, out)),
+        _ => {}
+    }
+}
+
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
-/// them) and the Session State's top-level keys.
+/// them, and a missing `source` file; `updated_ms`), the Session State's top-level keys and `panels_dir`.
 fn info(session: &Session) -> anyhow::Result<Value> {
     let errors = session.frontend_errors()?;
+    let panels = session.panels_dir();
     let items: Vec<Value> = session
         .frontend_items()?
         .into_iter()
-        .map(|(tool, id, input)| {
+        .map(|crate::session::FrontendItem { tool, id, input, ts_ms }| {
             let mut item = json!({ "tool": tool, "id": id });
-            for k in ["placement", "title"] {
+            for k in ["placement", "title", "source"] {
                 if let Some(v) = input.get(k) {
                     item[k] = v.clone();
                 }
             }
-            let errs: Vec<&str> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.as_str()).collect();
+            let mut errs: Vec<String> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.clone()).collect();
+            // When it last changed: its latest call, or for a file-backed panel a later file write.
+            let mut updated = ts_ms;
+            if let Some(source) = input.get("source").and_then(Value::as_str) {
+                match crate::panels::read(&panels, source) {
+                    Ok(_) => updated = updated.max(crate::panels::mtime_ms(&panels, source).unwrap_or(0)),
+                    Err(e) => errs.push(format!("Source missing: {e:#}")),
+                }
+            }
+            item["updated_ms"] = json!(updated);
             if !errs.is_empty() {
                 item["errors"] = json!(errs);
             }
@@ -358,7 +439,7 @@ fn info(session: &Session) -> anyhow::Result<Value> {
         })
         .collect();
     let keys: Vec<String> = session.state()?.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-    Ok(json!({ "items": items, "state_keys": keys }))
+    Ok(json!({ "items": items, "state_keys": keys, "panels_dir": panels.display().to_string() }))
 }
 
 /// `harness mcp-shim`: proxies stdio MCP (one JSON-RPC message per line) to the Harness MCP at

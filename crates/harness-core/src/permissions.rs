@@ -22,6 +22,8 @@ pub struct Context<'a> {
     pub session_id: &'a str,
     pub agent_id: &'a str,
     pub folder: &'a Path,
+    /// The Session's `panels/` folder (ADR 0023), where the Agent may write without asking.
+    pub panels: Option<&'a Path>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,9 +144,17 @@ fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
 }
 
 /// Built-in defaults: reading inside the Workspace, committing, Frontend Tools and Session State
-/// changes are allowed;
-/// everything else (edits, commands, fetches, pushes) asks.
+/// changes are allowed, and so are edits of files inside the Session's `panels/` folder (symlinks
+/// resolved, `..` refused; ADR 0023); everything else (edits, commands, fetches, pushes) asks.
 fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
+    if facts.kind.as_deref() == Some("edit")
+        && facts.command.is_none()
+        && !facts.paths.is_empty()
+        && let Some(panels) = cx.panels
+        && facts.paths.iter().all(|p| crate::panels::resolve_inside(panels, p).is_some())
+    {
+        return Decision::Allow;
+    }
     let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
     if safe && facts.paths.iter().all(|p| p.starts_with(cx.folder)) { Decision::Allow } else { Decision::Ask }
 }
@@ -200,7 +210,7 @@ mod tests {
     }
 
     fn cx() -> Context<'static> {
-        Context { session_id: "s1", agent_id: "claude", folder: Path::new("/work") }
+        Context { session_id: "s1", agent_id: "claude", folder: Path::new("/work"), panels: None }
     }
 
     fn rule(scope: RuleScope, kind: Option<&str>, pattern: Option<&str>, decision: Decision) -> NewPermissionRule {
@@ -223,6 +233,39 @@ mod tests {
         assert_eq!(p.evaluate(&cx(), &read("/work/../etc/passwd")).decision, Decision::Ask);
         assert_eq!(p.evaluate(&cx(), &edit("/work/a.rs")).decision, Decision::Ask);
         assert_eq!(p.evaluate(&cx(), &exec("ls")).decision, Decision::Ask);
+    }
+
+    #[test]
+    fn edits_inside_the_panels_folder_are_allowed() {
+        let (p, _d) = policy();
+        let d = tempfile::tempdir().unwrap();
+        let panels = d.path().join("session/panels");
+        std::fs::create_dir_all(panels.join("sub")).unwrap();
+        std::fs::write(d.path().join("session/state.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(d.path().join("session/state.json"), panels.join("link.md")).unwrap();
+        std::os::unix::fs::symlink(d.path().join("session"), panels.join("up")).unwrap();
+        std::os::unix::fs::symlink(d.path().join("session/new.md"), panels.join("dangling.md")).unwrap();
+        let none = cx();
+        let cx = Context { panels: Some(&panels), ..cx() };
+        let write = |path: &Path| facts_of(&json!({"kind": "edit", "rawInput": {"file_path": path}}), Path::new("/work"));
+        let at = |rel: &str| write(&panels.join(rel));
+
+        for ok in ["a.md", "sub/b.md", "sub/new/c.md"] {
+            assert_eq!(p.evaluate(&cx, &at(ok)).decision, Decision::Allow, "{ok}");
+        }
+        for bad in ["../state.json", "sub/../../state.json", "link.md", "up/state.json", "dangling.md"] {
+            assert_eq!(p.evaluate(&cx, &at(bad)).decision, Decision::Ask, "{bad}");
+        }
+        assert_eq!(p.evaluate(&cx, &write(&panels)).decision, Decision::Ask, "the folder itself");
+        assert_eq!(p.evaluate(&cx, &edit("/work/a.md")).decision, Decision::Ask, "the Workspace still asks");
+        assert_eq!(p.evaluate(&none, &at("a.md")).decision, Decision::Ask, "no panels folder known");
+        let both = facts_of(&json!({"kind": "edit", "locations": [{"path": panels.join("a.md")}, {"path": "/work/a.md"}]}), Path::new("/work"));
+        assert_eq!(p.evaluate(&cx, &both).decision, Decision::Ask, "every path must be inside");
+        let delete = facts_of(&json!({"kind": "delete", "rawInput": {"file_path": panels.join("a.md")}}), Path::new("/work"));
+        assert_eq!(p.evaluate(&cx, &delete).decision, Decision::Ask, "only edits");
+        // A user rule still wins over the built-in default.
+        p.add(rule(RuleScope::Global, Some("edit"), None, Decision::Deny)).unwrap();
+        assert_eq!(p.evaluate(&cx, &at("a.md")).decision, Decision::Deny);
     }
 
     #[test]

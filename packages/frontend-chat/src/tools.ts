@@ -137,12 +137,26 @@ export const PLACEMENTS = ["inline", "top", "bottom", "left", "right"] as const;
 export type Placement = (typeof PLACEMENTS)[number];
 export type RenderUiInput = {
    root?: RawNode;
+   /** A file-backed panel (ADR 0023): a `.md` or `.html` file in the Session's `panels_dir`, instead of `root`. */
+   source?: string;
    id?: string;
    placement?: Placement;
    title?: string;
    icon?: (typeof ICONS)[number];
    remove?: boolean;
 };
+
+/**
+ * A file-backed item (`source`, ADR 0023) as a node that names its file: Markdown for `.md`, Html
+ * for `.html`. So every place that shows a `root` (chat rows, live areas, panels, artifacts) shows
+ * the file. The renderer reads it; the log keeps only the name, so replay shows the file as it is
+ * now. The node schemas have no `source` prop, so only this makes such a node.
+ */
+export function withSourceRoot(v: RenderUiInput): RenderUiInput {
+   if (v.root || typeof v.source !== "string") return v;
+   const type = v.source.endsWith(".html") ? "Html" : "Markdown";
+   return { ...v, root: { type, props: { source: v.source } } };
+}
 
 const names = Object.keys(components) as ComponentType[];
 const parents = names.filter((n) => (components[n] as Entry).children);
@@ -190,13 +204,19 @@ const renderUiJson = {
       },
       remove: { const: true, description: "Remove the item with this id." },
       root: { $ref: node },
+      source: {
+         type: "string",
+         pattern: "^[^/].*\\.(md|html)$",
+         description:
+            "Instead of root: a .md or .html file in panels_dir (see harness_info), e.g. progress.md or upgrade/board.html. The panel shows the file and updates when you edit it.",
+      },
    },
    additionalProperties: false,
    allOf: [
       {
          if: { properties: { remove: { const: true } }, required: ["remove"] },
          then: { required: ["id"] },
-         else: { required: ["root"] },
+         else: { oneOf: [{ required: ["root"] }, { required: ["source"] }] },
       },
       {
          if: {
@@ -445,6 +465,19 @@ const renderUiJson = {
                then: {
                   properties: { props, ...(c.children ? {} : { children: { maxItems: 0 } }) },
                   ...(props.required?.length ? { required: ["props"] } : {}),
+                  // `repeat` (Accordion, Tabs): exactly one child, the per-item template.
+                  ...(props.properties.repeat
+                     ? {
+                          if: {
+                             properties: { props: { required: ["repeat"] } },
+                             required: ["props"],
+                          },
+                          then: {
+                             properties: { children: { minItems: 1, maxItems: 1 } },
+                             required: ["children"],
+                          },
+                       }
+                     : {}),
                },
             };
          }),
@@ -453,6 +486,43 @@ const renderUiJson = {
 };
 
 export const renderUiSchema: Schema = fromSchema(renderUiJson as never);
+
+const MAX_ERRORS = 5;
+
+/** The deepest object on `pointer` with a string `type`. */
+function nodeType(input: unknown, pointer: string): string | undefined {
+   let found: string | undefined;
+   let cur: unknown = input;
+   const tokens = [null, ...pointer.split("/").slice(1)];
+   for (const raw of tokens) {
+      if (raw !== null) {
+         const key = raw.replace(/~1/g, "/").replace(/~0/g, "~");
+         cur = cur && typeof cur === "object" ? (cur as Record<string, unknown>)[key] : undefined;
+      }
+      const t = (cur as { type?: unknown } | null | undefined)?.type;
+      if (typeof t === "string") found = t;
+   }
+   return found;
+}
+
+/** Validation errors as `path (NodeType): message`: one per path, at most 5, then `(N more)`. */
+export function formatErrors(
+   errors: readonly { instanceLocation: string; error: string }[],
+   input: unknown,
+): string[] {
+   const seen = new Set<string>();
+   const all: string[] = [];
+   for (const e of errors) {
+      const path = e.instanceLocation.replace(/^#/, "");
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const ty = nodeType(input, path);
+      all.push(`${path}${ty ? ` (${ty})` : ""}: ${e.error}`);
+   }
+   const out = all.slice(0, MAX_ERRORS);
+   if (all.length > MAX_ERRORS) out.push(`(${all.length - MAX_ERRORS} more)`);
+   return out;
+}
 
 /** The catalog as text for the tool description: agents that drop parts of a schema still see it. */
 function catalogText(): string {
@@ -506,7 +576,7 @@ export const frontendTools: {
       name: RENDER_UI,
       description:
          "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
-         `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}. A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
+         `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}, or "source" instead of "root": the name of a file you wrote in panels_dir (harness_info) that updates when you edit it; use it for panels you change often. A .md file shows as Markdown (<details>/<summary> work), a .html file as an Html node (same frame and bridge). A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
          "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title, an icon is optional; right opens in the top right zone, left in the top left; the user can move it). " +
          'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
          'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +
@@ -517,7 +587,7 @@ export const frontendTools: {
          "JavaScript ($js, js) runs sandboxed in the app without you, e.g. a calculator or a converter: no DOM, network or timers, 50 ms at most, JSON in and out. " +
          '"visible" shows a node only when the state says so, e.g. {"$state": "/setup/target"} (picked) or {"$state": "/setup/step", "eq": 2}. ' +
          "The user's state changes do not reach you by themselves: add a sendMessage when you must react.\n" +
-         'Data from state: Repeat renders its children per item of a state array; inside, {"$item": "field"}, {"$index": true}, "${field}" in a $template, {"$bindItem": "field"}, visible {"$item": "field", "eq"?}; in actions, statePath {"$item": "field"} and removeState index {"$index": true}. When the data changes, patch the state instead of sending the tree again.\n' +
+         'Data from state: Repeat renders its children per item of a state array; inside, {"$item": "field"}, {"$index": true}, "${field}" in a $template, {"$bindItem": "field"}, visible {"$item": "field", "eq"?}; in actions, statePath {"$item": "field"} and removeState index {"$index": true}. When the data changes, patch the state instead of sending the tree again. Repeat inside Accordion or Tabs gives one item; use `repeat` on the parent: {"repeat": {"statePath": "/tickets", "title": "name"}} and one child as the template.\n' +
          "Layout: compose generic parts (Stack with direction, align, justify, wrap, fill; Card variants; Text for short labels, numbers and arrows between parts; Table cells and KeyValue values with a tone) instead of asking for a special component.\n" +
          "Keep related parts in one item: Tabs for parts in any order, a Stepper for steps in order (a setup, a review, a quiz). A Choice whose pick can be checked takes `answer`, `result` and `explanation`.\n" +
          "Html: only for diagrams and custom visuals the catalog cannot show (architecture diagrams, annotated drawings); it runs in a sandboxed frame with the app's theme colors as CSS variables. " +

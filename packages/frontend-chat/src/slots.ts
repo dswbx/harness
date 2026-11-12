@@ -2,7 +2,7 @@ import type { Item } from "./reducer";
 import type { Placement, RawNode } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
-/** `ts`: when the Agent last placed it (ms epoch). */
+/** `ts`: when the Agent last placed it (ms epoch). `source`: its file, for a file-backed panel (ADR 0023). */
 export type Slot = {
    id: string;
    title: string | null;
@@ -10,7 +10,16 @@ export type Slot = {
    root: RawNode;
    files: Record<string, string>;
    ts: number;
+   source: string | null;
 };
+
+/**
+ * What a slot shows, as a string that changes when it does: its tree, and for a file-backed panel
+ * the hash of its file (empty while unknown). Change dots compare it with what was seen.
+ */
+export function slotChangeKey(x: Slot, stamps: Record<string, { hash: string }>): string {
+   return JSON.stringify(x.root) + (x.source ? `#${stamps[x.source]?.hash ?? ""}` : "");
+}
 
 /**
  * Splits `render_ui` calls by placement. A call with an `id` replaces earlier calls with that id
@@ -67,6 +76,7 @@ export function splitRenderUi(items: Item[]): {
             root: v.root,
             files: ft.files,
             ts: ft.ts,
+            source: v.source ?? null,
          };
          if (where.get(v.id) === placement)
             slots[placement] = slots[placement].map((s) => (s.id === v.id ? slot : s));

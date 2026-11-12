@@ -18,7 +18,13 @@ import {
 } from "@harness/api";
 import { planSteps, planTitle } from "./plans";
 import { parseReviewComments } from "./reviewComments";
-import { RENDER_UI, type RenderUiInput, renderUiSchema } from "./tools";
+import {
+   formatErrors,
+   RENDER_UI,
+   type RenderUiInput,
+   renderUiSchema,
+   withSourceRoot,
+} from "./tools";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
 
@@ -620,8 +626,8 @@ function applyThread(c: Ctx, e: Event) {
          if (k.tool === RENDER_UI) {
             const r = renderUiSchema.validate(k.input);
             render = r.valid
-               ? { ok: true, value: k.input as RenderUiInput }
-               : { ok: false, errors: r.errors.map((x) => `${x.instanceLocation} ${x.error}`) };
+               ? { ok: true, value: withSourceRoot(k.input as RenderUiInput) }
+               : { ok: false, errors: formatErrors(r.errors, k.input) };
          }
          push(c, {
             type: "frontend_tool",

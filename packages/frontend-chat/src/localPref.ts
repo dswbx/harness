@@ -28,6 +28,7 @@ export function localPref(key: string, fallback: boolean) {
       }
       listeners.forEach((f) => f());
    };
-   const use = () => useSyncExternalStore(subscribe, read);
+   // The fallback when rendered without a window (tests render to static markup).
+   const use = () => useSyncExternalStore(subscribe, read, () => fallback);
    return { use, set };
 }

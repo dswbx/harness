@@ -77,3 +77,26 @@ export const demoImage = (label: string, hue: number) =>
    btoa(
       `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="hsl(${hue} 60% 45%)"/><text x="320" y="212" font-family="sans-serif" font-size="32" fill="white" text-anchor="middle">${label}</text></svg>`,
    );
+
+/** Accordion and Tabs: one item per entry of a state array, from one child template (like Repeat). */
+export const repeatItems = s.object(
+   {
+      statePath: s.string({ description: "State path of the array, e.g. /tickets." }),
+      title: s.anyOf(
+         [s.string(), s.object({ $template: s.string() }, { additionalProperties: false })],
+         {
+            description:
+               'Item field shown as the title (e.g. "name"), or {"$template": "${id}: ${name}"}.',
+         },
+      ),
+   },
+   {
+      additionalProperties: false,
+      description:
+         "Items from a state array: the one child renders per item, with $item and $index as in a Repeat.",
+   },
+);
+/** `items`/`tabs` (static titles) or `repeat`, never both. */
+export const titlesOrRepeat = (titles: string) => ({
+   oneOf: [{ required: [titles] }, { required: ["repeat"] }],
+});

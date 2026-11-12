@@ -61,7 +61,8 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     let meta = session.meta();
     let folder = std::path::PathBuf::from(&meta.folder);
     let facts = crate::permissions::facts_of(&tool_call, &folder);
-    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
+    let panels = session.panels_dir();
+    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder, panels: Some(&panels) };
     // Calls to the Harness MCP pass the Policy inside the Harness MCP itself; don't ask twice. The
     // title is the Agent's own text: it skips the Policy only for a tool the Harness MCP really
     // serves for this Session and a call that is not a command, edit or fetch.
@@ -109,7 +110,8 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
         "_meta": { "harnessTool": tool },
     });
     let facts = crate::permissions::facts_of(&tool_call, &folder);
-    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder };
+    let panels = session.panels_dir();
+    let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder, panels: Some(&panels) };
     let verdict = session.policy().evaluate(&cx, &facts);
     let request_id = uuid::Uuid::now_v7().to_string();
     let options = vec![

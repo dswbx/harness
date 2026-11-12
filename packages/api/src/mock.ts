@@ -366,7 +366,24 @@ declare global {
          tool: string,
          input: unknown,
       ) => Promise<FrontendAnswer>;
+      /** Manual testing in the browser mock: writes a panel source file, as the Agent's Edit would. */
+      __harnessMockPanelWrite?: (sessionId: string, name: string, content: string) => void;
    }
+}
+
+/** The mock's file-backed panels (ADR 0023): these files in every Session's `panels/`. */
+const MOCK_PANEL_SOURCES: Record<string, string> = {
+   "progress.md":
+      "# Upgrade progress\n\n- [x] Bump dependencies\n- [x] Fix type errors\n- [ ] Run the e2e tests\n\n<details>\n<summary>Notes</summary>\n\nThe e2e suite needs a running dev server.\n\n</details>\n",
+   "fade.html":
+      '<style>.b{padding:12px;border:1px solid var(--border);border-radius:8px;color:var(--foreground);animation:f 2s ease-in-out infinite alternate}@keyframes f{from{opacity:.4}to{opacity:1}}</style>\n<div class="b">Build: <b data-state="/build/status">-</b> <button id="done">Mark done</button></div>\n<script>document.getElementById("done").onclick=()=>harness.patch([{op:"add",path:"/build",value:{status:"done"}}]);</script>\n',
+};
+
+/** A stable stand-in for the core's sha256 of a panel source. */
+function mockHash(text: string): string {
+   let h = 0;
+   for (let i = 0; i < text.length; i++) h = (Math.imul(h, 31) + text.charCodeAt(i)) | 0;
+   return (h >>> 0).toString(16);
 }
 
 export class MockTransport implements Transport {
@@ -381,6 +398,10 @@ export class MockTransport implements Transport {
    private mcp: McpServerDef[] = [];
    /** Per-session Frontend state files. */
    private frontendFiles = new Map<string, Map<string, string>>();
+   /** Per-session panel source files written with `__harnessMockPanelWrite` (else `MOCK_PANEL_SOURCES`). */
+   private panelFiles = new Map<string, Map<string, string>>();
+   /** When each of them was written, by `${session}/${name}`. */
+   private panelMtimes = new Map<string, number>();
    private cardN = 0;
    private states = new Map<string, unknown>();
    private editor: Editor | null = null;
@@ -420,6 +441,13 @@ export class MockTransport implements Transport {
       if (typeof window !== "undefined") {
          window.__harnessMockFrontendRequest = (sessionId, tool, input) =>
             this.frontendRequest(sessionId, tool, input);
+         window.__harnessMockPanelWrite = (sessionId, name, content) => {
+            const m = this.panelFiles.get(sessionId) ?? new Map<string, string>();
+            m.set(name, content);
+            this.panelFiles.set(sessionId, m);
+            this.panelMtimes.set(`${sessionId}/${name}`, Date.now());
+            this.emitApp({ type: "PanelSourceChanged", session_id: sessionId, name });
+         };
       }
       this.addSession("mock-1", "Mock session (fixture replay)", "chat");
       // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
@@ -1067,6 +1095,15 @@ export class MockTransport implements Transport {
             const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);
             if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
             return { type: "FileContent", content: c };
+         }
+         case "PanelSourceRead": {
+            const content =
+               this.panelFiles.get(cmd.session_id)?.get(cmd.name) ?? MOCK_PANEL_SOURCES[cmd.name];
+            if (content === undefined)
+               throw new Error(`source "${cmd.name}" does not exist in panels_dir`);
+            const mtime_ms =
+               this.panelMtimes.get(`${cmd.session_id}/${cmd.name}`) ?? Date.now() - 3 * 3_600_000;
+            return { type: "PanelSource", content, hash: mockHash(content), mtime_ms };
          }
          case "GetAppSetting":
             return { type: "Json", value: this.appSettings[cmd.key] ?? null };

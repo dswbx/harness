@@ -32,6 +32,55 @@ pub fn validator(schema: &Value) -> anyhow::Result<(Validator, Arc<Mutex<Vec<Str
     Ok((v, seen))
 }
 
+const MAX_ERRORS: usize = 5;
+
+/// The deepest object on `pointer` (a JSON Pointer into `input`) with a string `type`.
+fn node_type<'a>(input: &'a Value, pointer: &str) -> Option<&'a str> {
+    let mut found = None;
+    let mut cur = input;
+    let mut path = String::new();
+    let tokens = std::iter::once(None).chain(pointer.split('/').skip(1).map(Some));
+    for token in tokens {
+        if let Some(t) = token {
+            path.push('/');
+            path.push_str(t);
+            let t = t.replace("~1", "/").replace("~0", "~");
+            cur = match cur {
+                Value::Object(m) => m.get(&t),
+                Value::Array(a) => t.parse::<usize>().ok().and_then(|i| a.get(i)),
+                _ => None,
+            }
+            .unwrap_or(&Value::Null);
+        }
+        if let Some(ty) = cur.get("type").and_then(Value::as_str) {
+            found = Some(ty);
+        }
+    }
+    found
+}
+
+/// Validation errors as text: `path (NodeType): message`. One per path (anyOf/oneOf repeat
+/// themselves), at most 5, then `(N more)`. Empty when the input is valid.
+pub fn format_errors(validator: &Validator, input: &Value) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let all: Vec<String> = validator
+        .iter_errors(input)
+        .filter_map(|e| {
+            let path = e.instance_path.to_string();
+            if !seen.insert(path.clone()) {
+                return None;
+            }
+            let ty = node_type(input, &path).map(|t| format!(" ({t})")).unwrap_or_default();
+            Some(format!("{path}{ty}: {e}"))
+        })
+        .collect();
+    let mut out = all.iter().take(MAX_ERRORS).cloned().collect::<Vec<_>>().join("\n");
+    if all.len() > MAX_ERRORS {
+        out.push_str(&format!("\n({} more)", all.len() - MAX_ERRORS));
+    }
+    out
+}
+
 /// Local images to copy: `(src as given, file)`. Checks them all before anything is written.
 /// Relative paths are relative to the Workspace Folder.
 pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<(String, PathBuf)>> {
@@ -68,6 +117,22 @@ pub fn store(frontend_dir: &Path, planned: Vec<(String, PathBuf)>) -> anyhow::Re
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn errors_name_the_node_type_and_are_capped() {
+        let schema = json!({ "type": "object", "properties": { "root": { "type": "object", "properties": { "children": { "type": "array", "items": { "type": "object", "required": ["props"] } } } } } });
+        let (v, _) = validator(&schema).unwrap();
+        let input = json!({ "root": { "type": "Stack", "children": [{ "type": "Text", "props": {} }, { "type": "Accordion" }] } });
+        let text = format_errors(&v, &input);
+        assert!(text.starts_with("/root/children/1 (Accordion): "), "{text}");
+        assert_eq!(text.lines().count(), 1);
+        let many = json!({ "root": { "children": (0..8).map(|_| json!({})).collect::<Vec<_>>() } });
+        let text = format_errors(&v, &many);
+        assert!(text.starts_with("/root/children/0: "), "{text}");
+        assert_eq!(text.lines().count(), 6);
+        assert!(text.ends_with("(3 more)"), "{text}");
+        assert_eq!(format_errors(&v, &json!({})), "");
+    }
 
     #[test]
     fn copies_local_images_and_keeps_urls() {
