@@ -19,16 +19,15 @@ describe("overlayReducer", () => {
       expect(run("shown", "sent").mode).toBe("chat");
    });
 
-   it("hides the prompt on the shortcut, Esc or Cmd+M, and keeps the draft", () => {
-      expect(run("shown", "shortcut")).toEqual({ mode: "prompt", visible: false, newReply: false });
-      expect(run("shown", "minimize").visible).toBe(false);
-      expect(run("shown", "shortcut", "shown")).toEqual(run("shown"));
+   it("hides the prompt on Esc or Cmd+M, and keeps the draft", () => {
+      expect(run("shown", "minimize")).toEqual({ mode: "prompt", visible: false, newReply: false });
+      expect(run("shown", "minimize", "shown")).toEqual(run("shown"));
    });
 
-   it("switches a pinned chat between chat and mini on the shortcut", () => {
-      expect(run("shown", "sent", "shortcut").mode).toBe("mini");
-      expect(run("shown", "sent", "shortcut", "shortcut").mode).toBe("chat");
-      expect(run("shown", "sent", "shortcut").visible).toBe(true);
+   it("the shortcut only opens: keeps the prompt and the chat, expands mini", () => {
+      expect(run("shown", "shortcut")).toEqual(run("shown"));
+      expect(run("shown", "sent", "shortcut")).toEqual(run("shown", "sent"));
+      expect(run("shown", "sent", "minimize", "shortcut").mode).toBe("chat");
    });
 
    it("minimizes and expands", () => {

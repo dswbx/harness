@@ -3,8 +3,8 @@
 //! more Frontend window of the core; this module only creates, places, shows and hides it.
 //!
 //! The webview owns the overlay's state (`app/src/overlayMode.ts`) and sends each mode here with
-//! `overlay_set_mode`. The shortcut shows a hidden overlay; on a visible one it sends
-//! `overlay-shortcut` to the webview, which decides (hide the prompt, minimize, expand).
+//! `overlay_set_mode`. The shortcut only opens: it shows a hidden overlay; on a visible one it focuses
+//! it and sends `overlay-shortcut` to the webview (a mini bar expands).
 //! In the chat, `render_ui` panels sit beside the card (ADR 0022 Phase 2): the page sends their room
 //! with `overlay_set_panels` and the window grows by it, left and right of the card, which stays put.
 //! On macOS the window is a non-activating NSPanel (`panel` below), so typing in it does not
@@ -200,6 +200,14 @@ pub fn sized(frame: Rect, size: (f64, f64), min: (f64, f64), screen: Rect, margi
     Rect { w, h, ..frame }
 }
 
+/// `sized`, but with the bottom-right kept (the top-left grip): it grows up and left.
+pub fn sized_from_bottom_right(frame: Rect, size: (f64, f64), min: (f64, f64), screen: Rect, margin: f64) -> Rect {
+    let (right, bottom) = (frame.x + frame.w, frame.y + frame.h);
+    let w = size.0.min(right - screen.x - margin).max(min.0);
+    let h = size.1.min(bottom - screen.y - margin).max(min.1);
+    Rect { x: right - w, y: bottom - h, w, h }
+}
+
 /// The window frame for a card frame with `left` and `right` of side panels beside it.
 pub fn beside(card: Rect, left: f64, right: f64) -> Rect {
     Rect { x: card.x - left, w: card.w + left + right, ..card }
@@ -275,6 +283,9 @@ pub fn on_shortcut(app: &AppHandle) {
     let _ = app.run_on_main_thread(move || {
         let visible = handle.get_webview_window(LABEL).and_then(|w| w.is_visible().ok()).unwrap_or(false);
         if visible {
+            if let Some(w) = handle.get_webview_window(LABEL) {
+                native_show(&w);
+            }
             let _ = handle.emit_to(LABEL, "overlay-shortcut", ());
             return;
         }
@@ -536,7 +547,7 @@ fn resize(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
 /// A borderless macOS window has no resize edges, so the page draws the grip and sends sizes.
 /// Returns the card's new width (logical px, without the margin), or `None` when nothing changed;
 /// the page sizes its card from it, after the window has its size.
-fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<Option<f64>> {
+fn user_resize(app: &AppHandle, size: (f64, f64), top_left: bool) -> tauri::Result<Option<f64>> {
     let state = app.state::<Overlay>();
     if *state.mode.lock() != Mode::Chat || state.menu_base.lock().is_some() {
         return Ok(None);
@@ -547,10 +558,11 @@ fn user_resize(app: &AppHandle, size: (f64, f64)) -> tauri::Result<Option<f64>> 
     let (left, right) = state.panels(Mode::Chat, scale);
     let card = card_of(frame(&window)?, left, right);
     let min = (CHAT_MIN.0 * scale, CHAT_MIN.1 * scale);
-    // The right panels need room past the card's right edge.
+    // The side panels need room past the card's edges.
     let screen = work_area(&m);
-    let room = Rect { w: screen.w - right, ..screen };
-    let r = sized(card, (size.0 * scale, size.1 * scale), min, room, MARGIN * scale);
+    let room = Rect { x: screen.x + left, w: screen.w - left - right, ..screen };
+    let size = (size.0 * scale, size.1 * scale);
+    let r = if top_left { sized_from_bottom_right(card, size, min, room, MARGIN * scale) } else { sized(card, size, min, room, MARGIN * scale) };
     set_frame(&window, beside(r, left, right))?;
     *state.chat_size.lock() = Some((r.w / scale, r.h / scale));
     Ok(Some(r.w / scale - 2.0 * SHADOW))
@@ -665,14 +677,15 @@ pub fn overlay_set_mode(app: AppHandle, mode: Mode) {
     });
 }
 
-/// The chat's resize grip was dragged to `width` x `height` (logical window px). Resolves, once the
-/// window has its size, to the card's width (logical px), or `None` when it did not resize.
+/// A resize grip of the chat was dragged to `width` x `height` (logical window px): the bottom-right
+/// one keeps the top-left, the top-left one (`top_left`) the bottom-right. Resolves, once the window
+/// has its size, to the card's width (logical px), or `None` when it did not resize.
 #[tauri::command]
-pub async fn overlay_resize(app: AppHandle, width: f64, height: f64) -> Result<Option<f64>, String> {
+pub async fn overlay_resize(app: AppHandle, width: f64, height: f64, top_left: bool) -> Result<Option<f64>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let _ = tx.send(user_resize(&handle, (width, height)).map_err(|e| e.to_string()));
+        let _ = tx.send(user_resize(&handle, (width, height), top_left).map_err(|e| e.to_string()));
     })
     .map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())?
@@ -933,7 +946,7 @@ mod panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anchor, Mode, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, widen};
+    use super::{Anchor, Mode, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, sized_from_bottom_right, widen};
 
     #[test]
     fn only_the_prompt_follows_the_context() {
@@ -1022,6 +1035,15 @@ mod tests {
         assert_eq!(sized(chat, (100.0, 100.0), min, SCREEN, 8.0), Rect { w: 420.0, h: 340.0, ..chat });
         // Not past the screen less the margin.
         assert_eq!(sized(chat, (5000.0, 5000.0), min, SCREEN, 8.0), Rect { w: 1440.0 - 8.0 - 500.0, h: 900.0 - 8.0 - 100.0, ..chat });
+    }
+
+    #[test]
+    fn sized_from_bottom_right_keeps_the_bottom_right_and_clamps() {
+        let chat = Rect { x: 500.0, y: 100.0, w: 580.0, h: 600.0 };
+        let min = (420.0, 340.0);
+        assert_eq!(sized_from_bottom_right(chat, (700.0, 650.0), min, SCREEN, 8.0), Rect { x: 380.0, y: 50.0, w: 700.0, h: 650.0 });
+        assert_eq!(sized_from_bottom_right(chat, (100.0, 100.0), min, SCREEN, 8.0), Rect { x: 660.0, y: 360.0, w: 420.0, h: 340.0 });
+        assert_eq!(sized_from_bottom_right(chat, (5000.0, 5000.0), min, SCREEN, 8.0), Rect { x: 8.0, y: 33.0, w: 1072.0, h: 667.0 });
     }
 
     #[test]

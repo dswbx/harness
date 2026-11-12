@@ -420,10 +420,18 @@ export function Overlay({ transport }: { transport: Transport }) {
          </div>
          {column}
          {chat && (
-            <ResizeGrip
-               onStart={() => setEdge("left")}
-               onCard={(w) => setCard((c) => (c === w ? c : w))}
-            />
+            <>
+               <ResizeGrip
+                  corner="topLeft"
+                  onStart={() => setEdge("right")}
+                  onCard={(w) => setCard((c) => (c === w ? c : w))}
+               />
+               <ResizeGrip
+                  corner="bottomRight"
+                  onStart={() => setEdge("left")}
+                  onCard={(w) => setCard((c) => (c === w ? c : w))}
+               />
+            </>
          )}
       </div>
    );
@@ -492,18 +500,23 @@ export function Overlay({ transport }: { transport: Transport }) {
 }
 
 /**
- * The chat's resize corner. A borderless macOS window has no resize edges, so the drag is here:
+ * A resize corner of the chat. A borderless macOS window has no resize edges, so the drag is here:
  * screen deltas from the card's size (plus its shadow margin) at the start, one host call per
- * frame (top-left kept). Side panels keep their widths; the host adds them.
+ * frame (the opposite corner kept). Side panels keep their widths; the host adds them.
  */
 function ResizeGrip({
+   corner,
    onStart,
    onCard,
 }: {
+   corner: "topLeft" | "bottomRight";
    onStart: () => void;
    /** The card's width after the host resized the window (the window grows first, then the card). */
    onCard: (width: number) => void;
 }) {
+   const topLeft = corner === "topLeft";
+   // The top-left grip grows the card as the pointer moves up and left.
+   const sign = topLeft ? -1 : 1;
    const drag = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
    const next = useRef<[number, number] | null>(null);
    const frame = useRef(0);
@@ -511,7 +524,7 @@ function ResizeGrip({
       frame.current = 0;
       if (next.current)
          overlayHost
-            .resize(...next.current)
+            .resize(...next.current, topLeft)
             .then((w) => w && onCard(w))
             .catch((e) => console.error("overlay_resize failed", e));
       next.current = null;
@@ -525,7 +538,12 @@ function ResizeGrip({
       <div
          role="separator"
          aria-label="Resize"
-         className="absolute right-0 bottom-0 z-10 flex size-4 cursor-nwse-resize touch-none items-end justify-end p-0.5 text-muted-foreground/60 hover:text-muted-foreground"
+         className={cn(
+            "absolute z-10 flex size-4 cursor-nwse-resize touch-none p-0.5 text-muted-foreground/60 hover:text-muted-foreground",
+            topLeft
+               ? "top-0 left-0 items-start justify-start"
+               : "right-0 bottom-0 items-end justify-end",
+         )}
          onPointerDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();
@@ -542,13 +560,17 @@ function ResizeGrip({
          onPointerMove={(e) => {
             const d = drag.current;
             if (!d) return;
-            next.current = [d.w + e.screenX - d.x, d.h + e.screenY - d.y];
+            next.current = [d.w + sign * (e.screenX - d.x), d.h + sign * (e.screenY - d.y)];
             if (!frame.current) frame.current = requestAnimationFrame(send);
          }}
          onPointerUp={end}
          onPointerCancel={end}
       >
-         <svg viewBox="0 0 10 10" className="size-2.5" aria-hidden="true">
+         <svg
+            viewBox="0 0 10 10"
+            className={cn("size-2.5", topLeft && "rotate-180")}
+            aria-hidden="true"
+         >
             <path
                d="M9 3 3 9M9 6.5 6.5 9"
                stroke="currentColor"
