@@ -625,6 +625,19 @@ export class MockTransport implements Transport {
          s.created_ms = Date.now() - c * h;
          s.updated_ms = Date.now() - u * h;
          if (status) s.status = status;
+         // A working Session has a Turn that never ends, so the chat shows its "Working" row.
+         if (status === "working") {
+            const sid = `mock-s${i + 1}`;
+            this.emit(sid, {
+               type: "TurnStarted",
+               turn_id: "t-working",
+               text: "Make the session header compact.",
+               attachments: [],
+               context: null,
+            });
+            this.logs.get(sid)!.at(-1)!.ts_ms -= 95e3;
+            this.emit(sid, { type: "AgentMessageChunk", text: "Looking at `SessionHeader.tsx`…" });
+         }
       });
       const quick: [string, number][] = [
          ["Compare SQLite and libSQL", 3],

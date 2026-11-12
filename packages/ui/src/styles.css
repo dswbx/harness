@@ -261,3 +261,109 @@
 ::highlight(quote-comment) {
    background-color: color-mix(in oklch, Highlight 70%, transparent);
 }
+
+/* WorkingLoader: 4 squares (box-shadows) of a 2x2 grid, 35 units wide; --size scales it to 16px. a/b = -/+ offset. */
+.working-loader {
+   --size: calc(10px / 35);
+   --a: calc(-10 * var(--size));
+   --b: calc(10 * var(--size));
+   --s: 0 calc(5 * var(--size));
+   width: calc(5 * var(--size));
+   height: calc(5 * var(--size));
+   box-shadow:
+      var(--a) var(--a) var(--s),
+      var(--a) var(--a) var(--s),
+      var(--a) var(--a) var(--s),
+      var(--a) var(--a) var(--s);
+   animation: working-loader 6s infinite;
+   @media (prefers-reduced-motion: reduce) {
+      animation: none;
+   }
+}
+@keyframes working-loader {
+   0%,
+   100% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--a) var(--a) var(--s),
+         var(--a) var(--a) var(--s),
+         var(--a) var(--a) var(--s);
+   }
+   8.33% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--a) var(--s);
+   }
+   16.66% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--b) var(--b) var(--s);
+   }
+   24.99% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--a) var(--b) var(--s);
+   }
+   33.32% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--a) var(--a) var(--s);
+   }
+   41.65% {
+      box-shadow:
+         var(--b) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--b) var(--a) var(--s);
+   }
+   49.98% {
+      box-shadow:
+         var(--b) var(--b) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--b) var(--b) var(--s);
+   }
+   58.31% {
+      box-shadow:
+         var(--a) var(--b) var(--s),
+         var(--a) var(--b) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--a) var(--b) var(--s);
+   }
+   66.64% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--a) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--a) var(--b) var(--s);
+   }
+   74.97% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--b) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--a) var(--b) var(--s);
+   }
+   83.3% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--b) var(--b) var(--s),
+         var(--a) var(--b) var(--s);
+   }
+   91.63% {
+      box-shadow:
+         var(--a) var(--a) var(--s),
+         var(--a) var(--b) var(--s),
+         var(--a) var(--b) var(--s),
+         var(--a) var(--b) var(--s);
+   }
+}

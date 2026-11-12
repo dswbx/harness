@@ -642,14 +642,14 @@ export function PromptBox({
                   <Tooltip content="Stop Agent">
                      <Button
                         size="icon"
-                        className="size-6.5 rounded-full"
+                        className="size-6.5 rounded-full [&_svg]:size-3.5"
                         onClick={() => {
                            setError(null);
                            api.cancel(threadId).catch((err) => setError(errorMessage(err)));
                         }}
                         aria-label="Stop Agent"
                      >
-                        <Square className="size-3 fill-current" />
+                        <Square className="fill-current" />
                      </Button>
                   </Tooltip>
                ) : (

@@ -11,6 +11,7 @@ import {
    Tooltip,
    VirtualList,
    type VirtualListHandle,
+   WorkingLoader,
 } from "@harness/ui";
 import {
    AlertTriangle,
@@ -19,7 +20,6 @@ import {
    Diff,
    FileText,
    Info,
-   Loader2,
    ShieldCheck,
    ShieldX,
 } from "lucide-react";
@@ -186,7 +186,7 @@ export function Working({ since, waiting = false }: { since: number | null; wait
          )}
          {since !== null && !waiting && (
             <>
-               <Loader2 className="size-4 animate-spin" /> Working...{" "}
+               <WorkingLoader /> Working...{" "}
                <span className="tabular-nums">{formatDuration(now - since)}</span>
             </>
          )}
