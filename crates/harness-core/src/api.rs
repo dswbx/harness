@@ -621,10 +621,13 @@ pub enum CommandResult {
     FileContent {
         content: String,
     },
-    /// A panel source file; `hash`: sha256 of `content` (hex), to skip re-renders when unchanged.
+    /// A panel source file; `hash`: sha256 of `content` (hex), to skip re-renders when unchanged;
+    /// `mtime_ms`: when the file was last written (ms epoch, 0 when unknown).
     PanelSource {
         content: String,
         hash: String,
+        #[specta(type = specta_typescript::Number)]
+        mtime_ms: i64,
     },
     /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
     FileLines {

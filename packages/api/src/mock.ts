@@ -396,6 +396,8 @@ export class MockTransport implements Transport {
    private frontendFiles = new Map<string, Map<string, string>>();
    /** Per-session panel source files written with `__harnessMockPanelWrite` (else `MOCK_PANEL_SOURCE`). */
    private panelFiles = new Map<string, Map<string, string>>();
+   /** When each of them was written, by `${session}/${name}`. */
+   private panelMtimes = new Map<string, number>();
    private cardN = 0;
    private states = new Map<string, unknown>();
    private editor: Editor | null = null;
@@ -439,6 +441,7 @@ export class MockTransport implements Transport {
             const m = this.panelFiles.get(sessionId) ?? new Map<string, string>();
             m.set(name, content);
             this.panelFiles.set(sessionId, m);
+            this.panelMtimes.set(`${sessionId}/${name}`, Date.now());
             this.emitApp({ type: "PanelSourceChanged", session_id: sessionId, name });
          };
       }
@@ -1095,7 +1098,9 @@ export class MockTransport implements Transport {
                (cmd.name === "progress.md" ? MOCK_PANEL_SOURCE : undefined);
             if (content === undefined)
                throw new Error(`source "${cmd.name}" does not exist in panels_dir`);
-            return { type: "PanelSource", content, hash: mockHash(content) };
+            const mtime_ms =
+               this.panelMtimes.get(`${cmd.session_id}/${cmd.name}`) ?? Date.now() - 3 * 3_600_000;
+            return { type: "PanelSource", content, hash: mockHash(content), mtime_ms };
          }
          case "GetAppSetting":
             return { type: "Json", value: this.appSettings[cmd.key] ?? null };

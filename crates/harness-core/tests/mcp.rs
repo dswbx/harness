@@ -410,7 +410,24 @@ async fn session_state_and_harness_info() {
     // Frontend Tool calls with an id are live items until removed.
     ask(&h, &sid, r#"mcp json_render {"title":"a","id":"score","placement":"bottom"}"#, None).await;
     let done = ask(&h, &sid, r#"mcp json_render {"title":"b","id":"q","placement":"right"}"#, None).await;
-    assert!(done.contains(r#"Live items: [{"tool":"json_render","id":"score","placement":"bottom","title":"a"},{"tool":"json_render","id":"q","placement":"right","title":"b"}]"#), "{done}");
+    let live: serde_json::Value = serde_json::from_str(done.split_once("Live items: ").unwrap().1).unwrap();
+    let updated: Vec<i64> = live.as_array().unwrap().iter().map(|x| x["updated_ms"].as_i64().unwrap()).collect();
+    assert!(updated[0] > 0 && updated[1] >= updated[0], "updated_ms: the logged time of each item's latest call: {done}");
+    let without: Vec<serde_json::Value> = live
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| {
+            let mut x = x.clone();
+            x.as_object_mut().unwrap().remove("updated_ms");
+            x
+        })
+        .collect();
+    assert_eq!(
+        serde_json::Value::Array(without),
+        serde_json::json!([{"tool":"json_render","id":"score","placement":"bottom","title":"a"},{"tool":"json_render","id":"q","placement":"right","title":"b"}]),
+        "{done}"
+    );
     ask(&h, &sid, r#"mcp json_render {"title":"c","id":"score","remove":true}"#, None).await;
     let info = ask(&h, &sid, "mcp harness_info {}", None).await;
     assert!(info.contains("\"id\": \"q\"") && !info.contains("\"score\"") && info.contains("\"quiz\""), "{info}");
@@ -733,9 +750,10 @@ async fn file_backed_panels() {
         true
     }));
     let read = |name: &str| Command::PanelSourceRead { session_id: sid.clone(), name: name.into() };
-    let CommandResult::PanelSource { content, hash } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
+    let CommandResult::PanelSource { content, hash, mtime_ms } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
     assert_eq!(content, "# Progress\n\n- [x] one");
     assert_eq!(hash.len(), 64);
+    assert!(mtime_ms > 0);
     assert!(h.execute(read("../session.json")).await.is_err());
 
     std::thread::sleep(Duration::from_millis(150));
@@ -745,6 +763,13 @@ async fn file_backed_panels() {
 
     let got = ask(&h, &sid, r#"mcp ui_get {"id":"p"}"#, None).await;
     assert!(got.contains(r##""content": "# Progress\n\n- [x] one\n- [ ] two""##) && got.contains(r#""source": "plan/progress.md""#), "{got}");
+
+    // updated_ms: the file's write, as it is later than the render_ui call.
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    let info: serde_json::Value = serde_json::Deserializer::from_str(&info[info.find('{').unwrap()..]).into_iter().next().unwrap().unwrap();
+    let updated = info["items"][0]["updated_ms"].as_i64().unwrap();
+    let mtime = std::fs::metadata(panels.join("plan/progress.md")).unwrap().modified().unwrap();
+    assert_eq!(updated, mtime.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64);
 
     // A deleted file: harness_info names it, ui_get says so.
     std::fs::remove_file(panels.join("plan/progress.md")).unwrap();

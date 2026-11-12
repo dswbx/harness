@@ -4,7 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
 import { initialState, reduce } from "./reducer";
-import { splitRenderUi } from "./slots";
+import { Env, type UiEnv } from "./renderUi/runtime";
+import { SourceMarkdown } from "./renderUi/source";
+import { slotChangeKey, splitRenderUi } from "./slots";
 import { renderUiSchema } from "./tools";
 
 /** File-backed panels (ADR 0023): render_ui `source` instead of `root`. */
@@ -55,6 +57,48 @@ describe("render_ui source", () => {
          ui({ id: "p", placement: "right", title: "P", root: md("tree") }),
       ]);
       expect(splitRenderUi(later.items).slots.right[0]!.root).toEqual(md("tree"));
+   });
+
+   it("keeps the source and the call's time on the slot", () => {
+      const s = fold([ui({ id: "p", placement: "right", title: "P", source: "a.md" })]);
+      const slot = splitRenderUi(s.items).slots.right[0]!;
+      expect(slot.source).toBe("a.md");
+      expect(slot.ts).toBe(0);
+   });
+
+   it("counts a write of the source file as a change (the change dot)", () => {
+      const s = fold([
+         ui({ id: "p", placement: "right", title: "P", source: "a.md" }),
+         ui({ id: "q", placement: "right", title: "Q", root: md("x") }),
+      ]);
+      const [p, q] = splitRenderUi(s.items).slots.right;
+      const before = slotChangeKey(p!, { "a.md": { hash: "h1" } });
+      expect(slotChangeKey(p!, { "a.md": { hash: "h2" } })).not.toBe(before);
+      expect(slotChangeKey(p!, { "a.md": { hash: "h1" } })).toBe(before);
+      expect(slotChangeKey(q!, { "a.md": { hash: "h2" } })).toBe(slotChangeKey(q!, {}));
+   });
+
+   it("shows a pulsing placeholder while the file loads, so a capture waits for it", () => {
+      const env = {
+         readSource: () => new Promise(() => {}),
+      } as unknown as UiEnv;
+      const out = renderToStaticMarkup(
+         createElement(
+            Env.Provider,
+            { value: env },
+            createElement(SourceMarkdown, { name: "a.md" }),
+         ),
+      );
+      expect(out).toContain("animate-pulse");
+      // Without a reader (nothing will load), nothing waits.
+      const none = renderToStaticMarkup(
+         createElement(
+            Env.Provider,
+            { value: {} as UiEnv },
+            createElement(SourceMarkdown, { name: "a.md" }),
+         ),
+      );
+      expect(none).toBe("");
    });
 });
 

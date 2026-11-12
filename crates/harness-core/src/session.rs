@@ -217,6 +217,15 @@ impl PrWatch {
 pub const MAX_FRONTEND_ERRORS: usize = 5;
 pub const MAX_FRONTEND_ERROR_LEN: usize = 300;
 
+/// A live Frontend Tool item (`frontend_items`): its latest input, and when that call was logged.
+#[derive(Debug, Clone)]
+pub struct FrontendItem {
+    pub tool: String,
+    pub id: String,
+    pub input: serde_json::Value,
+    pub ts_ms: i64,
+}
+
 /// A `FrontendError` not cleared yet.
 /// Frontend Tool items by `(tool, item id)`, with the Thread of their latest call.
 type FrontendItems = HashMap<(String, String), ThreadId>;
@@ -466,19 +475,22 @@ impl Session {
 
     /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
-    pub fn frontend_items(&self) -> anyhow::Result<Vec<(String, String, serde_json::Value)>> {
-        let mut items: Vec<(String, String, serde_json::Value)> = Vec::new();
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
+        let mut items: Vec<FrontendItem> = Vec::new();
         for e in self.log.events()? {
             let EventKind::FrontendToolOutput { tool, input, .. } = e.kind else { continue };
             let Some(id) = input.get("id").and_then(|v| v.as_str()).map(str::to_owned) else { continue };
-            let at = items.iter().position(|(t, i, _)| *t == tool && *i == id);
+            let at = items.iter().position(|x| x.tool == tool && x.id == id);
             match (input.get("remove") == Some(&serde_json::Value::Bool(true)), at) {
                 (true, Some(i)) => {
                     items.remove(i);
                 }
                 (true, None) => {}
-                (false, Some(i)) => items[i].2 = input,
-                (false, None) => items.push((tool, id, input)),
+                (false, Some(i)) => {
+                    items[i].input = input;
+                    items[i].ts_ms = e.ts_ms;
+                }
+                (false, None) => items.push(FrontendItem { tool, id, input, ts_ms: e.ts_ms }),
             }
         }
         Ok(items)

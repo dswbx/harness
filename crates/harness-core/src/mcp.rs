@@ -179,7 +179,7 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the Markdown files of file-backed panels (render_ui `source`).",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the Markdown files of file-backed panels (render_ui `source`).",
             empty.clone(),
             "read",
         ),
@@ -353,7 +353,7 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
 /// the paths it binds (`$state`, `$bindState`, `${/path}` in `$template`; `$computed` args are
 /// ordinary `$state` values).
 fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Value> {
-    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|(t, _, _)| t == "render_ui").map(|(_, i, v)| (i, v)).collect();
+    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|x| x.tool == "render_ui").map(|x| (x.id, x.input)).collect();
     let id = id.ok_or_else(|| anyhow::anyhow!("id is required"))?;
     let Some((_, input)) = items.iter().find(|(i, _)| i == id) else {
         let known: Vec<&str> = items.iter().map(|(i, _)| i.as_str()).collect();
@@ -408,14 +408,14 @@ fn collect_state_paths(v: &Value, out: &mut Vec<String>) {
 }
 
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
-/// them, and a missing `source` file), the Session State's top-level keys and `panels_dir`.
+/// them, and a missing `source` file; `updated_ms`), the Session State's top-level keys and `panels_dir`.
 fn info(session: &Session) -> anyhow::Result<Value> {
     let errors = session.frontend_errors()?;
     let panels = session.panels_dir();
     let items: Vec<Value> = session
         .frontend_items()?
         .into_iter()
-        .map(|(tool, id, input)| {
+        .map(|crate::session::FrontendItem { tool, id, input, ts_ms }| {
             let mut item = json!({ "tool": tool, "id": id });
             for k in ["placement", "title", "source"] {
                 if let Some(v) = input.get(k) {
@@ -423,11 +423,15 @@ fn info(session: &Session) -> anyhow::Result<Value> {
                 }
             }
             let mut errs: Vec<String> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.clone()).collect();
-            if let Some(source) = input.get("source").and_then(Value::as_str)
-                && let Err(e) = crate::panels::read(&panels, source)
-            {
-                errs.push(format!("Source missing: {e:#}"));
+            // When it last changed: its latest call, or for a file-backed panel a later file write.
+            let mut updated = ts_ms;
+            if let Some(source) = input.get("source").and_then(Value::as_str) {
+                match crate::panels::read(&panels, source) {
+                    Ok(_) => updated = updated.max(crate::panels::mtime_ms(&panels, source).unwrap_or(0)),
+                    Err(e) => errs.push(format!("Source missing: {e:#}")),
+                }
             }
+            item["updated_ms"] = json!(updated);
             if !errs.is_empty() {
                 item["errors"] = json!(errs);
             }

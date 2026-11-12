@@ -102,12 +102,14 @@ import {
 } from "./ReferencesPanel";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
+import { useSourceStamps } from "./renderUi/source";
 import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
 import { SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
-import type { Slot } from "./slots";
+import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
+import { formatRelativeTime, fullMessageTime, useNow } from "./time";
 import { RENDER_UI } from "./tools";
 import { uiIcons } from "./uiIcons";
 
@@ -170,10 +172,28 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
    );
 }
 
-function SlotPanel({ slot, env }: { slot: Slot; env: UiEnv }) {
+/** "Updated 5 minutes ago" in a panel header, the full time as its tooltip. */
+function UpdatedAgo({ ts }: { ts: number }) {
+   const now = useNow();
+   return (
+      <Tooltip content={fullMessageTime(ts)} side="bottom" delay={100}>
+         <time
+            dateTime={new Date(ts).toISOString()}
+            className="shrink-0 truncate text-xs text-muted-foreground"
+         >
+            Updated {formatRelativeTime(ts, now)}
+         </time>
+      </Tooltip>
+   );
+}
+
+/** `updated`: when it last changed (its latest call, or a later write of its source file). */
+function SlotPanel({ slot, env, updated }: { slot: Slot; env: UiEnv; updated: number }) {
    return (
       <>
-         <PanelHeader title={slot.title ?? slot.id} />
+         <PanelHeader title={slot.title ?? slot.id}>
+            {updated > 0 && <UpdatedAgo ts={updated} />}
+         </PanelHeader>
          <ScrollArea className="min-h-0 flex-1">
             <div className="p-4">
                <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
@@ -598,13 +618,24 @@ function ChatView({
       if (open("terminal")) setTerminalOpened(true);
    });
 
-   // A dot on a slot's icon marks changes made while it was closed (its first sight counts as seen).
-   const slotKey = (x: Slot) => JSON.stringify(x.root);
+   // File-backed panels (ADR 0023): their files' hashes and write times.
+   const sourceNames = useMemo(
+      () => [...new Set(slots.flatMap(({ slot }) => (slot.source ? [slot.source] : [])))].sort(),
+      [slots],
+   );
+   const stamps = useSourceStamps(api.panelSourceRead, api.panelSourceChanged, sourceNames);
+   const updatedAt = (x: Slot) => Math.max(x.ts, x.source ? (stamps[x.source]?.mtime ?? 0) : 0);
+
+   // A dot on a slot's icon marks changes made while it was closed (its first sight counts as seen),
+   // including writes of a source file.
+   const slotKey = (x: Slot) => slotChangeKey(x, stamps);
    const [seen, setSeen] = useState<Record<string, string>>({});
    useEffect(() => {
       setSeen((prev) => {
          let next = prev;
          for (const { slot } of slots) {
+            // A source not read yet is not seen yet.
+            if (slot.source && !(slot.source in stamps) && !(slot.id in prev)) continue;
             const k = slotKey(slot);
             if ((open(slotPanel(slot.id)) || !(slot.id in prev)) && prev[slot.id] !== k)
                next = { ...next, [slot.id]: k };
@@ -800,7 +831,7 @@ function ChatView({
          panels.push({
             id,
             label: slot.title ?? slot.id,
-            children: <SlotPanel slot={slot} env={env} />,
+            children: <SlotPanel slot={slot} env={env} updated={updatedAt(slot)} />,
          });
    }
 

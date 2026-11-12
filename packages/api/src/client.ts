@@ -109,9 +109,10 @@ export interface SessionApi {
    frontendRead(path: string): Promise<string>;
    /**
     * A file-backed panel's source (ADR 0023): `name` relative to the Session's `panels/` folder.
-    * `hash` (sha256 of `content`) changes only when the content does. Fails when it is missing.
+    * `hash` (sha256 of `content`) changes only when the content does; `mtime_ms`: when the file was
+    * last written (ms epoch, 0 when unknown). Fails when it is missing.
     */
-   panelSourceRead(name: string): Promise<{ content: string; hash: string }>;
+   panelSourceRead(name: string): Promise<{ content: string; hash: string; mtime_ms: number }>;
    /** Calls back with the name of each panel source file that changed (once per burst of writes). */
    panelSourceChanged(onChange: (name: string) => void): Promise<Unsubscribe>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
@@ -269,7 +270,7 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             { type: "PanelSourceRead", session_id: sessionId, name },
             "PanelSource",
          );
-         return { content: r.content, hash: r.hash };
+         return { content: r.content, hash: r.hash, mtime_ms: r.mtime_ms };
       },
       panelSourceChanged: (onChange) =>
          transport.subscribeApp(

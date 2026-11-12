@@ -67,6 +67,12 @@ pub fn read(dir: &Path, name: &str) -> anyhow::Result<(String, String)> {
     Ok((content, hash))
 }
 
+/// When a source file was last written (ms epoch); `None` when it cannot be read.
+pub fn mtime_ms(dir: &Path, name: &str) -> Option<i64> {
+    let modified = std::fs::metadata(source_path(dir, name).ok()?).ok()?.modified().ok()?;
+    Some(modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64)
+}
+
 /// Watches a panels folder (recursively) while it lives; dropping it stops the watch.
 pub struct Watcher {
     _inner: notify::RecommendedWatcher,
