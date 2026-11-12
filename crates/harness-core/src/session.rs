@@ -550,7 +550,7 @@ impl Session {
 
     fn creator(&self) -> crate::api::SharedCreator {
         let m = self.meta();
-        crate::api::SharedCreator { session_id: m.id, session_title: m.title }
+        crate::api::SharedCreator { session_id: m.id, session_title: m.title, origin: None }
     }
 
     /// Makes the `render_ui` item `item_id` shared (ADR 0024): a file panel's file moves out of
@@ -615,17 +615,22 @@ impl Session {
     }
 
     /// Shares a copy of Markdown (a block from a message) as a new `md` artifact and attaches it.
-    pub fn share_markdown(&self, markdown: &str, title: Option<&str>, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
+    pub fn share_markdown(
+        &self,
+        markdown: &str,
+        title: Option<&str>,
+        origin: Option<String>,
+        by: crate::api::StateWriter,
+    ) -> anyhow::Result<crate::api::SharedArtifactMeta> {
         if markdown.trim().is_empty() {
             return Err(crate::error::invalid("the Markdown is empty"));
         }
         let title = title.map(str::to_owned).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| markdown_title(markdown));
         let kind = crate::api::SharedKind::Md;
         let text = markdown.to_owned();
-        let meta = self
-            .shared
-            .artifacts
-            .create(&title, kind, self.creator(), vec![self.id()], |dir| Ok(std::fs::write(dir.join(crate::shared::content_name(kind)), text)?))?;
+        let meta = self.shared.artifacts.create(&title, kind, crate::api::SharedCreator { origin, ..self.creator() }, vec![self.id()], |dir| {
+            Ok(std::fs::write(dir.join(crate::shared::content_name(kind)), text)?)
+        })?;
         self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
         Ok(meta)
     }

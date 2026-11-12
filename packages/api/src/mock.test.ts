@@ -278,8 +278,8 @@ describe("MockTransport Shared Artifacts (ADR 0024)", () => {
          "ArtifactDetached",
       ]);
       expect(events.every((e) => e.thread_id === null)).toBe(true);
-      const md = await api.shareMarkdown("| A |\n| --- |\n| 1 |\n", "Runs");
-      expect([md.title, md.kind]).toEqual(["Runs", "md"]);
+      const md = await api.shareMarkdown("| A |\n| --- |\n| 1 |\n", "Runs", "r1:table:0");
+      expect([md.title, md.kind, md.created_by.origin]).toEqual(["Runs", "md", "r1:table:0"]);
       await client.deleteSharedArtifact(md.id);
       await expect(client.readSharedArtifact(md.id)).rejects.toThrow();
    });

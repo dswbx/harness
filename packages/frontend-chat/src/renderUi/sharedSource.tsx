@@ -64,7 +64,7 @@ export function useSharedArtifact(
 }
 
 /** `ui.json` of a `ui` artifact: the tree, or why it cannot show. */
-function parseTree(content: string): { root: RawNode } | { error: string } {
+export function parseTree(content: string): { root: RawNode } | { error: string } {
    try {
       const ui = JSON.parse(content) as { root?: unknown };
       if (ui.root && typeof ui.root === "object" && "type" in ui.root)
@@ -73,6 +73,18 @@ function parseTree(content: string): { root: RawNode } | { error: string } {
    } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
    }
+}
+
+/** What a Shared Artifact's source view shows: the file, or a tree's root (an `Html` root as its HTML). */
+export function sharedSourceText(data: SharedArtifactData): { lang: string; text: string } {
+   if (data.meta.kind === "md") return { lang: "markdown", text: data.content };
+   if (data.meta.kind === "html") return { lang: "html", text: data.content };
+   const tree = parseTree(data.content);
+   if ("error" in tree) return { lang: "json", text: data.content };
+   const html = tree.root.type === "Html" ? tree.root.props?.html : null;
+   return typeof html === "string"
+      ? { lang: "html", text: html }
+      : { lang: "json", text: JSON.stringify(tree.root, null, 2) };
 }
 
 /**

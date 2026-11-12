@@ -720,6 +720,7 @@ export class MockTransport implements Transport {
       kind: SharedKind,
       content: string,
       state: unknown,
+      origin?: string | null,
    ): MockShared {
       const now = Date.now();
       const s = this.session(sid);
@@ -731,7 +732,7 @@ export class MockTransport implements Transport {
             kind,
             created_ms: now,
             updated_ms: now,
-            created_by: { session_id: sid, session_title: s.title },
+            created_by: { session_id: sid, session_title: s.title, ...(origin && { origin }) },
             attached: [sid],
          },
          content,
@@ -1135,7 +1136,7 @@ export class MockTransport implements Transport {
                cmd.title?.trim() ||
                /^#+\s*(.+)$/m.exec(cmd.markdown)?.[1]?.trim() ||
                "Shared snippet";
-            const a = this.createShared(cmd.session_id, title, "md", cmd.markdown, {});
+            const a = this.createShared(cmd.session_id, title, "md", cmd.markdown, {}, cmd.origin);
             this.emit(
                cmd.session_id,
                { type: "ArtifactAttached", id: a.meta.id, by: "user" },

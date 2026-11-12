@@ -372,7 +372,7 @@ mod tests {
     use super::*;
 
     fn creator() -> SharedCreator {
-        SharedCreator { session_id: "s1".into(), session_title: "Session".into() }
+        SharedCreator { session_id: "s1".into(), session_title: "Session".into(), origin: None }
     }
 
     fn make(store: &SharedArtifacts, title: &str, kind: SharedKind, content: &str) -> SharedArtifactMeta {

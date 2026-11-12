@@ -186,8 +186,15 @@ export interface SessionApi {
    terminalKill(terminalId: number): Promise<void>;
    /** Makes a `render_ui` item (by its `id`) a Shared Artifact (ADR 0024); the Session is attached. */
    shareArtifact(itemId: string): Promise<SharedArtifactMeta>;
-   /** Shares a copy of Markdown from a message (a Mermaid fence or a table) and attaches it. */
-   shareMarkdown(markdown: string, title?: string | null): Promise<SharedArtifactMeta>;
+   /**
+    * Shares a copy of Markdown from a message (a Mermaid fence or a table) and attaches it. `origin`:
+    * the block's Artifacts panel key, kept in `created_by.origin` so the panel lists it once.
+    */
+   shareMarkdown(
+      markdown: string,
+      title?: string | null,
+      origin?: string | null,
+   ): Promise<SharedArtifactMeta>;
    attachShared(id: string): Promise<SharedArtifactMeta>;
    detachShared(id: string): Promise<void>;
    /** Shared Artifacts, most recently updated first; with `query`, matches by title or text. */
@@ -401,10 +408,10 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
                "SharedArtifactInfo",
             )
          ).meta,
-      shareMarkdown: async (markdown, title = null) =>
+      shareMarkdown: async (markdown, title = null, origin = null) =>
          (
             await expect(
-               { type: "ShareMarkdown", session_id: sessionId, markdown, title },
+               { type: "ShareMarkdown", session_id: sessionId, markdown, title, origin },
                "SharedArtifactInfo",
             )
          ).meta,

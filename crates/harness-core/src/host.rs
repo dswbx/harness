@@ -590,8 +590,8 @@ impl Harness {
                 let meta = tokio::task::spawn_blocking(move || session.share_item(&item_id, StateWriter::User)).await??;
                 CommandResult::SharedArtifactInfo { meta }
             }
-            Command::ShareMarkdown { session_id, markdown, title } => {
-                CommandResult::SharedArtifactInfo { meta: self.session(&session_id)?.share_markdown(&markdown, title.as_deref(), StateWriter::User)? }
+            Command::ShareMarkdown { session_id, markdown, title, origin } => {
+                CommandResult::SharedArtifactInfo { meta: self.session(&session_id)?.share_markdown(&markdown, title.as_deref(), origin, StateWriter::User)? }
             }
             Command::AttachSharedArtifact { session_id, id } => {
                 CommandResult::SharedArtifactInfo { meta: self.session(&session_id)?.attach_shared(&id, StateWriter::User)? }

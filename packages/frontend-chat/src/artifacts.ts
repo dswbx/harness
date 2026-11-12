@@ -261,16 +261,24 @@ export function filterArtifacts(
    );
 }
 
+/** The Markdown "Make shared" copies for a diagram or table (as its message block offers it). */
+export function blockMarkdown(a: Artifact): string {
+   return a.kind === "diagram" ? `\`\`\`mermaid\n${a.source}\n\`\`\`\n` : `${a.source}\n`;
+}
+
 /** A row of the SHARED group: an attached Shared Artifact, and the item that shows it (null: attached only). */
 export type SharedRow = { id: string; ts: number; artifact: Artifact | null };
 
 /**
  * Splits artifacts for the Artifacts panel (ADR 0024): attached Shared Artifacts (newest attach first),
  * and the Session's own. Items showing a Shared Artifact that is no longer attached drop out.
+ * `copies`: artifact key -> the attached Shared Artifact copied from it (`created_by.origin`); that
+ * block shows once, in the SHARED group.
  */
 export function groupShared(
    artifacts: Artifact[],
    attached: readonly { id: string; ts: number }[],
+   copies: ReadonlyMap<string, string> = new Map(),
 ): { shared: SharedRow[]; local: Artifact[] } {
    const byId = new Map<string, Artifact>();
    for (const a of artifacts) if (a.shared) byId.set(a.shared.id, a);
@@ -278,6 +286,6 @@ export function groupShared(
       shared: [...attached]
          .reverse()
          .map((x) => ({ id: x.id, ts: x.ts, artifact: byId.get(x.id) ?? null })),
-      local: artifacts.filter((a) => !a.shared),
+      local: artifacts.filter((a) => !a.shared && !copies.has(a.key)),
    };
 }

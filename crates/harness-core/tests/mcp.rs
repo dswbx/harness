@@ -908,12 +908,21 @@ async fn share_attach_and_search() {
     assert_eq!(kinds, vec!["attached", "detached", "attached"]);
 
     // Markdown from a message becomes its own artifact.
-    let CommandResult::SharedArtifactInfo { meta } =
-        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "```mermaid\ngraph TD; A-->B\n```".into(), title: None }).await.unwrap()
+    let CommandResult::SharedArtifactInfo { meta } = h
+        .execute(Command::ShareMarkdown {
+            session_id: a.clone(),
+            markdown: "```mermaid\ngraph TD; A-->B\n```".into(),
+            title: None,
+            origin: Some("r1:diagram:0".into()),
+        })
+        .await
+        .unwrap()
     else {
         panic!()
     };
     assert_eq!((meta.title.as_str(), meta.kind), ("Diagram", harness_core::api::SharedKind::Md));
+    assert_eq!(meta.created_by.origin.as_deref(), Some("r1:diagram:0"));
+    assert_eq!(shared_meta(&h, &meta.id).created_by.origin.as_deref(), Some("r1:diagram:0"), "read back");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -974,7 +983,7 @@ async fn artifact_state_is_logged_only_in_the_acting_session() {
     let a = create(&h, dir.path(), vec![]).await;
     let b = create(&h, dir.path(), vec![]).await;
     let CommandResult::SharedArtifactInfo { meta } =
-        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# Notes".into(), title: Some("Notes".into()) }).await.unwrap()
+        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# Notes".into(), title: Some("Notes".into()), origin: None }).await.unwrap()
     else {
         panic!()
     };
@@ -1009,8 +1018,10 @@ async fn harness_info_lists_shared_artifacts_and_deleting_a_session_detaches_it(
     let h = shared_harness(&data);
     let a = create(&h, dir.path(), vec![]).await;
     let b = create(&h, dir.path(), vec![]).await;
-    let CommandResult::SharedArtifactInfo { meta } =
-        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# Map".into(), title: Some("Architecture map".into()) }).await.unwrap()
+    let CommandResult::SharedArtifactInfo { meta } = h
+        .execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# Map".into(), title: Some("Architecture map".into()), origin: None })
+        .await
+        .unwrap()
     else {
         panic!()
     };
@@ -1052,7 +1063,7 @@ async fn the_watcher_reports_shared_artifact_changes() {
     let h = shared_harness(&data);
     let a = create(&h, dir.path(), vec![]).await;
     let CommandResult::SharedArtifactInfo { meta } =
-        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# One".into(), title: Some("Notes".into()) }).await.unwrap()
+        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# One".into(), title: Some("Notes".into()), origin: None }).await.unwrap()
     else {
         panic!()
     };

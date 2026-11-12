@@ -43,12 +43,15 @@ import {
 import { useCapture } from "./Capture";
 import { CopyButton, Frame, useWrapCode, WRAP, WrapButton } from "./CodeBlock";
 import { ExportSubmenu, useExport } from "./ExportMenu";
+import { fileName, sharedFormats } from "./exportFormats";
 import { Highlighted } from "./highlight";
 import { PanelHeader } from "./PanelHeader";
 import type { UiEnv } from "./RenderUi";
+import { parseTree, sharedSourceText, useSharedArtifact } from "./renderUi/sharedSource";
 import { Segmented } from "./Segmented";
 import { quotableAttrs } from "./SelectionComment";
 import { fullMessageTime, useNow } from "./time";
+import { sharedNode } from "./tools";
 import { uiIcons } from "./uiIcons";
 
 /** Short age for a row: "now", "5m", "2h", "3d". */
@@ -85,9 +88,9 @@ const PLACED: Record<string, string> = {
 };
 
 /** The artifact's source, highlighted, with wrap and copy. */
-function Source({ a }: { a: Artifact }) {
+function Source({ a, src }: { a: Artifact; src?: { lang: string; text: string } }) {
    const wrap = useWrapCode();
-   const { lang, text } = artifactSource(a);
+   const { lang, text } = src ?? artifactSource(a);
    return (
       <Frame
          label={lang}
@@ -134,8 +137,8 @@ export function ArtifactsPanel({
    const [inspecting, setInspecting] = useState<string | null>(null);
    const [error, setError] = useState<string | null>(null);
    const groupsOf = useMemo(
-      () => groupShared(all, shared?.attached ?? []),
-      [all, shared?.attached],
+      () => groupShared(all, shared?.attached ?? [], shared?.copies),
+      [all, shared?.attached, shared?.copies],
    );
    const artifacts = groupsOf.local;
    const shown = useMemo(
@@ -154,6 +157,23 @@ export function ArtifactsPanel({
       setError(null);
       f().catch((e) => setError(e instanceof Error ? e.message : String(e)));
    };
+   const sharedOpen = inspecting
+      ? groupsOf.shared.find((r) => `shared:${r.id}` === inspecting)
+      : null;
+   if (sharedOpen && shared) {
+      const meta = metas?.get(sharedOpen.id);
+      return (
+         <Inspect
+            a={sharedArtifact(sharedOpen, meta)}
+            env={env}
+            position={null}
+            onStep={() => {}}
+            onBack={() => setInspecting(null)}
+            onJump={() => shared.open(sharedOpen.id)}
+            madeIn={meta?.created_by.session_title}
+         />
+      );
+   }
    const current = inspecting ? (artifacts.find((a) => a.key === inspecting) ?? null) : null;
    if (current) {
       const i = shown.findIndex((a) => a.key === current.key);
@@ -269,6 +289,7 @@ export function ArtifactsPanel({
                            key={r.id}
                            row={r}
                            meta={metas?.get(r.id)}
+                           onInspect={() => setInspecting(`shared:${r.id}`)}
                            onOpen={() => shared.open(r.id)}
                            onDetach={() => act(() => shared.detach(r.id))}
                            onOpenOutside={
@@ -402,6 +423,8 @@ export type SharedActions = {
    attached: readonly { id: string; ts: number }[];
    /** Meta of every Shared Artifact by id (titles, "N sessions"); missing while loading. */
    metas: ReadonlyMap<string, SharedArtifactMeta>;
+   /** Message blocks this Session shared (artifact key -> Shared Artifact id): listed once, as shared. */
+   copies?: ReadonlyMap<string, string>;
    /** The attach picker's list: all, or matches of `query`. */
    search: (query: string) => Promise<SharedArtifactEntry[]>;
    share: (a: Artifact) => Promise<unknown>;
@@ -426,6 +449,29 @@ function sharedTitle(r: SharedRow, meta: SharedArtifactMeta | undefined): string
    return meta?.title ?? r.artifact?.title ?? r.id;
 }
 
+/**
+ * An attached Shared Artifact as an Artifact for the detail page: it previews through the `Shared`
+ * node (the artifact's own state); its source and downloads come from a read (see `Inspect`).
+ */
+function sharedArtifact(r: SharedRow, meta: SharedArtifactMeta | undefined): Artifact {
+   return {
+      key: `shared:${r.id}`,
+      kind: "ui",
+      title: sharedTitle(r, meta),
+      sub: meta ? `${KIND_LABEL[meta.kind]} · ${sessionCount(meta)}` : "Shared artifact",
+      rowId: null,
+      index: null,
+      placement: r.artifact?.placement ?? "right",
+      slotId: r.artifact?.slotId ?? null,
+      ts: meta?.updated_ms ?? r.ts,
+      turn: r.artifact?.turn ?? 0,
+      prompt: r.artifact?.prompt ?? "",
+      source: "",
+      ui: { root: sharedNode(r.id), files: {} },
+      shared: { id: r.id },
+   };
+}
+
 /** "Attached in 2 Sessions"-style count. */
 export const sessionCount = (meta: SharedArtifactMeta | undefined) => {
    const n = meta?.attached?.length ?? 0;
@@ -435,12 +481,15 @@ export const sessionCount = (meta: SharedArtifactMeta | undefined) => {
 function SharedRowView({
    row,
    meta,
+   onInspect,
    onOpen,
    onDetach,
    onOpenOutside,
 }: {
    row: SharedRow;
    meta: SharedArtifactMeta | undefined;
+   /** A click: its detail page (preview, image, source). */
+   onInspect: () => void;
    onOpen: () => void;
    onDetach: () => void;
    onOpenOutside?: () => void;
@@ -451,7 +500,7 @@ function SharedRowView({
       <div
          role="option"
          aria-selected={false}
-         onClick={onOpen}
+         onClick={onInspect}
          className="group/row flex items-center gap-2.5 rounded-lg px-2.5 py-2 select-none hover:bg-accent/60"
       >
          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-foreground/80 [&_svg]:size-4">
@@ -626,6 +675,7 @@ function Inspect({
    onStep,
    onBack,
    onJump,
+   madeIn,
 }: {
    a: Artifact;
    env: UiEnv;
@@ -633,8 +683,31 @@ function Inspect({
    onStep: (d: 1 | -1) => void;
    onBack: () => void;
    onJump: () => void;
+   /** A Shared Artifact's: the title of the Session that shared it. */
+   madeIn?: string;
 }) {
    const [tab, setTab] = useState<"preview" | "image" | "source">("preview");
+   // A Shared Artifact's content, for its source, downloads and picture key (the preview reads it too).
+   const sharedId = a.shared && a.key === `shared:${a.shared.id}` ? a.shared.id : null;
+   const read = useSharedArtifact(
+      sharedId ?? "",
+      sharedId ? env.readShared : undefined,
+      env.watchShared,
+   );
+   const data = sharedId && read && "data" in read ? read.data : null;
+   const src = useMemo(() => (data ? sharedSourceText(data) : undefined), [data]);
+   const shown = useMemo(() => (data ? { ...a, source: data.content } : a), [a, data]);
+   const formats = (shoot: Parameters<typeof artifactFormats>[2]) => {
+      if (!sharedId) return artifactFormats(a, env, shoot);
+      const [png] = artifactFormats(shown, env, shoot);
+      if (!data) return png ? [png] : [];
+      const tree = data.meta.kind === "ui" ? parseTree(data.content) : null;
+      const root = tree && "root" in tree ? tree.root : null;
+      return [
+         ...(png ? [png] : []),
+         ...sharedFormats(fileName(a.title), data.meta.kind, data.content, root),
+      ];
+   };
    const { stage, shoot } = useCapture();
    const { busy, error, save } = useExport();
    const onKey = (e: KeyboardEvent) => {
@@ -671,7 +744,7 @@ function Inspect({
                           ? "Jump to message"
                           : "Show"}
                   </DropdownMenuItem>
-                  <ExportSubmenu formats={artifactFormats(a, env, shoot)} save={save} />
+                  <ExportSubmenu formats={formats(shoot)} save={save} />
                </>
             }
          >
@@ -741,12 +814,19 @@ function Inspect({
                      <ArtifactPreview a={a} env={env} />
                   </div>
                )}
-               {tab === "image" && <ArtifactImage a={a} env={env} shoot={shoot} />}
-               {tab === "source" && <Source a={a} />}
+               {tab === "image" && <ArtifactImage a={shown} env={env} shoot={shoot} />}
+               {tab === "source" &&
+                  (sharedId && !src ? (
+                     <div className="h-16 animate-pulse rounded bg-muted" />
+                  ) : (
+                     <Source a={a} src={src} />
+                  ))}
                <dl className="mt-4 grid grid-cols-[88px_1fr] gap-y-1.5 px-0.5 text-[13px]">
                   <dt className="text-muted-foreground">From</dt>
                   <dd>
-                     {a.turn ? `Turn ${a.turn}` : "Start"} · {a.ui ? "render_ui" : "Agent message"}
+                     {sharedId
+                        ? `Shared${madeIn ? ` · made in ${madeIn}` : ""}`
+                        : `${a.turn ? `Turn ${a.turn}` : "Start"} · ${a.ui ? "render_ui" : "Agent message"}`}
                   </dd>
                   {a.prompt && (
                      <>
@@ -754,7 +834,7 @@ function Inspect({
                         <dd className="line-clamp-3">{a.prompt}</dd>
                      </>
                   )}
-                  <dt className="text-muted-foreground">Time</dt>
+                  <dt className="text-muted-foreground">{sharedId ? "Updated" : "Time"}</dt>
                   <dd>{fullMessageTime(a.ts)}</dd>
                   {a.placement !== "inline" && (
                      <>

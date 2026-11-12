@@ -459,6 +459,9 @@ pub enum Command {
         markdown: String,
         #[serde(default)]
         title: Option<String>,
+        /// The block's key in the Frontend, kept in `created_by.origin`.
+        #[serde(default)]
+        origin: Option<String>,
     },
     AttachSharedArtifact {
         session_id: SessionId,
@@ -779,6 +782,10 @@ pub enum SharedKind {
 pub struct SharedCreator {
     pub session_id: SessionId,
     pub session_title: String,
+    /// What it was copied from in that Session, as the Frontend names it (an Artifacts panel key,
+    /// e.g. `<row id>:table:0`). Lets that Session list the source and the copy once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// `shared/<id>/meta.json` (ADR 0024). `attached` is a cache; the Session Logs are the truth.

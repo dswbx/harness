@@ -354,7 +354,9 @@ global?: boolean } | { type: "ListPermissionRules" } | { type: "AddPermissionRul
  *  Shares a copy of Markdown from a message (a Mermaid diagram or a table) as a new `md`
  *  Shared Artifact and attaches the Session.
  */
-{ type: "ShareMarkdown"; session_id: string; markdown: string; title?: string | null } | { type: "AttachSharedArtifact"; session_id: string; id: string } | { type: "DetachSharedArtifact"; session_id: string; id: string } | { type: "RenameSharedArtifact"; id: string; title: string } | 
+{ type: "ShareMarkdown"; session_id: string; markdown: string; title?: string | null; 
+/**  The block's key in the Frontend, kept in `created_by.origin`. */
+origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; id: string } | { type: "DetachSharedArtifact"; session_id: string; id: string } | { type: "RenameSharedArtifact"; id: string; title: string } | 
 /**  Removes the Shared Artifact's folder. Items that show it then show it as missing. */
 { type: "DeleteSharedArtifact"; id: string } | 
 /**  Opens a Shared Artifact's content file in the user's editor. Needs no Session. */
@@ -877,6 +879,11 @@ export type SharedArtifactMeta = {
 export type SharedCreator = {
 	session_id: string,
 	session_title: string,
+	/**
+	 *  What it was copied from in that Session, as the Frontend names it (an Artifacts panel key,
+	 *  e.g. `<row id>:table:0`). Lets that Session list the source and the copy once.
+	 */
+	origin?: string | null,
 };
 
 /**  What a Shared Artifact holds: `content.md`, `content.html`, or a `render_ui` tree in `ui.json`. */

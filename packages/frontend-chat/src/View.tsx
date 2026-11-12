@@ -59,7 +59,7 @@ import { ScrollUnder } from "./ScrollUnder";
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 
 import { ArtifactsPanel, type SharedActions, sessionCount } from "./ArtifactsPanel";
-import { type Artifact, collectArtifacts } from "./artifacts";
+import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { EventsPanel } from "./EventsPanel";
@@ -723,29 +723,42 @@ function ChatView({
       },
       [slots, update],
    );
+   // Message blocks this Session shared, by their artifact key: the copy stands in for them.
+   const sharedCopies = useMemo(() => {
+      const m = new Map<string, string>();
+      for (const { id } of state.sharedAttached) {
+         const by = sharedMetas.get(id)?.created_by;
+         if (by?.origin && by.session_id === api.sessionId) m.set(by.origin, id);
+      }
+      return m;
+   }, [state.sharedAttached, sharedMetas, api.sessionId]);
    const sharedActions = useMemo<SharedActions>(
       () => ({
          attached: state.sharedAttached,
          metas: sharedMetas,
+         copies: sharedCopies,
          search: (q) => api.listShared(q),
          share: (a) =>
             a.kind === "ui"
                ? api.shareArtifact(a.slotId!)
-               : api.shareMarkdown(
-                    a.kind === "diagram" ? `\`\`\`mermaid\n${a.source}\n\`\`\`\n` : `${a.source}\n`,
-                    a.title,
-                 ),
+               : api.shareMarkdown(blockMarkdown(a), a.title, a.key),
          attach: (id) => api.attachShared(id),
          detach: (id) => api.detachShared(id),
          open: showShared,
          openOutside: onOpenShared,
       }),
-      [api, state.sharedAttached, sharedMetas, showShared, onOpenShared],
+      [api, state.sharedAttached, sharedMetas, sharedCopies, showShared, onOpenShared],
    );
    const shareBlock = useCallback(
-      (markdown: string, title?: string) =>
-         void api.shareMarkdown(markdown, title).catch((e) => console.error("share failed", e)),
-      [api],
+      (markdown: string, title?: string) => {
+         const origin = artifacts.find(
+            (a) => a.kind !== "ui" && blockMarkdown(a) === markdown,
+         )?.key;
+         void api
+            .shareMarkdown(markdown, title, origin)
+            .catch((e) => console.error("share failed", e));
+      },
+      [api, artifacts],
    );
    const jumpToMention = useCallback(
       (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),

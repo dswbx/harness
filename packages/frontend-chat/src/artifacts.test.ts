@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+   blockMarkdown,
    collectArtifacts,
    filterArtifacts,
    groupShared,
@@ -159,5 +160,22 @@ describe("groupShared (ADR 0024)", () => {
          ["plan-3f9a1c", "Plan"],
       ]);
       expect(local.map((a) => a.title)).toEqual(["Notes"]);
+   });
+
+   it("lists a shared copy of a message block once, as shared, while it is attached", () => {
+      const list = collectArtifacts([
+         user("u1", "Runs?"),
+         agent("a1", "Runs:\n\n| A |\n| --- |\n| 1 |\n"),
+      ]);
+      const table = list[0]!;
+      expect(blockMarkdown(table)).toBe("| A |\n| --- |\n| 1 |\n");
+      const copies = new Map([[table.key, "runs-a1b2c3"]]);
+      const attached = groupShared(list, [{ id: "runs-a1b2c3", ts: 1 }], copies);
+      expect([attached.local.length, attached.shared.map((r) => r.id)]).toEqual([
+         0,
+         ["runs-a1b2c3"],
+      ]);
+      // The View passes copies of attached artifacts only: detached, the block is back.
+      expect(groupShared(list, [], new Map()).local).toEqual([table]);
    });
 });
