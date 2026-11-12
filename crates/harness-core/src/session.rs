@@ -556,7 +556,7 @@ impl Session {
         Ok(())
     }
 
-    /// Where the Agent writes the Markdown of file-backed panels (ADR 0023); made on first use for
+    /// Where the Agent writes the `.md`/`.html` files of file-backed panels (ADR 0023); made on first use for
     /// Sessions from before it existed.
     pub fn panels_dir(&self) -> PathBuf {
         let dir = self.dir.join(crate::panels::DIR);

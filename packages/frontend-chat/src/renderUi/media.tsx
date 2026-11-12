@@ -4,6 +4,7 @@ import { useContext, useEffect, useState } from "react";
 import type { UiAction } from "../tools";
 import { UiHtml } from "../UiHtml";
 import { Env, type Renderers, runActions } from "./runtime";
+import { SourceView } from "./source";
 
 export * from "./media.spec";
 
@@ -218,9 +219,9 @@ export const renderers = {
       return (node.props.images ?? []).length ? <Carousel images={node.props.images} /> : null;
    },
    Html: ({ node, env, scope, checkActions }) => {
-      return (
+      const frame = (html: string) => (
          <UiHtml
-            html={node.props.html}
+            html={html}
             height={node.props.height}
             title={node.props.title}
             state={env.state}
@@ -231,5 +232,9 @@ export const renderers = {
             report={env.item && env.report ? (m) => env.report!(env.item!, m) : undefined}
          />
       );
+      // A file-backed panel (`source`, ADR 0023): the reducer turns it into an Html node naming the file.
+      const source = (node.props as { source?: unknown }).source;
+      if (typeof source === "string") return <SourceView name={source}>{frame}</SourceView>;
+      return frame(node.props.html);
    },
 } satisfies Renderers;

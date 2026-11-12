@@ -105,7 +105,7 @@ A piece of a View docked beside or under the main content, shown in a Zone and t
 _Avoid_: tab, pane, sidebar
 
 **File-backed panel**:
-A `render_ui` item whose content is a Markdown file the Agent writes in the Session's `panels/` folder (in the Session Directory), named by `source` instead of a `root` tree; the Panel follows the file as the Agent edits it (ADR 0023).
+A `render_ui` item whose content is a Markdown (`.md`) or HTML (`.html`, shown like an Html node) file the Agent writes in the Session's `panels/` folder (in the Session Directory), named by `source` instead of a `root` tree; the Panel follows the file as the Agent edits it (ADR 0023).
 _Avoid_: file panel, live file, source panel
 
 **Reference**:

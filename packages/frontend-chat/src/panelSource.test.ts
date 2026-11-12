@@ -3,11 +3,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
+import { RenderUi } from "./RenderUi";
 import { initialState, reduce } from "./reducer";
 import { Env, type UiEnv } from "./renderUi/runtime";
-import { SourceMarkdown } from "./renderUi/source";
+import { SourceMarkdown, SourceView } from "./renderUi/source";
 import { slotChangeKey, splitRenderUi } from "./slots";
-import { renderUiSchema } from "./tools";
+import { renderUiSchema, withSourceRoot } from "./tools";
 
 /** File-backed panels (ADR 0023): render_ui `source` instead of `root`. */
 
@@ -27,14 +28,19 @@ const md = (text: string) => ({ type: "Markdown", props: { text } });
 const valid = (input: unknown) => renderUiSchema.validate(input).valid;
 
 describe("render_ui source", () => {
-   it("takes exactly one of root or source, a relative .md name", () => {
+   it("takes exactly one of root or source, a relative .md or .html name", () => {
       const at = { id: "p", placement: "right", title: "P" };
       expect(valid({ ...at, source: "progress.md" })).toBe(true);
       expect(valid({ ...at, source: "upgrade/progress.md" })).toBe(true);
       expect(valid({ ...at, root: md("x") })).toBe(true);
       expect(valid({ ...at, root: md("x"), source: "progress.md" })).toBe(false);
       expect(valid({ ...at })).toBe(false);
-      expect(valid({ ...at, source: "progress.html" })).toBe(false);
+      expect(valid({ ...at, source: "progress.html" })).toBe(true);
+      expect(valid({ ...at, source: "progress.txt" })).toBe(false);
+      expect(valid({ ...at, source: "progress.htm" })).toBe(false);
+      // The node that names a file is the reducer's; the Agent cannot send one in a root.
+      expect(valid({ ...at, root: { type: "Html", props: { source: "b.html" } } })).toBe(false);
+      expect(valid({ ...at, root: { type: "Markdown", props: { source: "a.md" } } })).toBe(false);
       expect(valid({ ...at, source: "/etc/progress.md" })).toBe(false);
       expect(valid({ id: "p", remove: true })).toBe(true);
    });
@@ -57,6 +63,22 @@ describe("render_ui source", () => {
          ui({ id: "p", placement: "right", title: "P", root: md("tree") }),
       ]);
       expect(splitRenderUi(later.items).slots.right[0]!.root).toEqual(md("tree"));
+   });
+
+   it("maps .md to a Markdown node and .html to an Html node", () => {
+      expect(withSourceRoot({ source: "a.md" }).root).toEqual({
+         type: "Markdown",
+         props: { source: "a.md" },
+      });
+      expect(withSourceRoot({ source: "sub/b.html" }).root).toEqual({
+         type: "Html",
+         props: { source: "sub/b.html" },
+      });
+      const s = fold([ui({ id: "b", placement: "left", title: "B", source: "b.html" })]);
+      expect(splitRenderUi(s.items).slots.left[0]!.root).toEqual({
+         type: "Html",
+         props: { source: "b.html" },
+      });
    });
 
    it("keeps the source and the call's time on the slot", () => {
@@ -99,6 +121,33 @@ describe("render_ui source", () => {
          ),
       );
       expect(none).toBe("");
+   });
+
+   it("shows the placeholder for an .html source too, so a capture waits for the frame's document", () => {
+      const env = { readSource: () => new Promise(() => {}) } as unknown as UiEnv;
+      const out = renderToStaticMarkup(
+         createElement(
+            Env.Provider,
+            { value: env },
+            // biome-ignore lint/correctness/noChildrenProp: SourceView takes a render function
+            createElement(SourceView, { name: "b.html", children: () => "frame" }),
+         ),
+      );
+      expect(out).toContain("animate-pulse");
+      expect(out).not.toContain("frame");
+   });
+
+   it("renders an Html node naming a file through the source reader, not its html prop", () => {
+      const env = {
+         state: {},
+         files: {},
+         readSource: () => new Promise(() => {}),
+      } as unknown as UiEnv;
+      const out = renderToStaticMarkup(
+         createElement(RenderUi, { root: { type: "Html", props: { source: "b.html" } }, env }),
+      );
+      expect(out).toContain("animate-pulse");
+      expect(out).not.toContain("<iframe");
    });
 });
 

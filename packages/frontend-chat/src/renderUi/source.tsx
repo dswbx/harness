@@ -1,15 +1,22 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Markdown } from "../Markdown";
 import { type UiEnv, useEnv } from "./runtime";
 
 type Shown = { content: string; hash: string } | { missing: true } | null;
 
 /**
- * A file-backed panel (ADR 0023): the Markdown of `name` in the Session's `panels/` folder, read
- * through the core. Re-read when the core says the file changed, and on window focus (in case
- * the watch failed). `<details>`/`<summary>` work; other raw HTML is sanitized.
+ * A file-backed panel (ADR 0023): the file `name` in the Session's `panels/` folder, read through
+ * the core and shown by `children`. Re-read when the core says the file changed, and on window
+ * focus (in case the watch failed). Same content (hash), same `content` string: an Html frame
+ * then keeps its document.
  */
-export function SourceMarkdown({ name }: { name: string }) {
+export function SourceView({
+   name,
+   children,
+}: {
+   name: string;
+   children: (content: string) => ReactNode;
+}) {
    const { readSource, watchSources } = useEnv();
    const [shown, setShown] = useState<Shown>(null);
    useEffect(() => {
@@ -36,7 +43,12 @@ export function SourceMarkdown({ name }: { name: string }) {
    if (!shown) return readSource ? <div className="h-16 animate-pulse rounded bg-muted" /> : null;
    if ("missing" in shown)
       return <p className="text-ui-sm text-muted-foreground">Source missing: {name}</p>;
-   return <Markdown html>{shown.content}</Markdown>;
+   return <>{children(shown.content)}</>;
+}
+
+/** A `.md` source: `<details>`/`<summary>` work; other raw HTML is sanitized. */
+export function SourceMarkdown({ name }: { name: string }) {
+   return <SourceView name={name}>{(md) => <Markdown html>{md}</Markdown>}</SourceView>;
 }
 
 /** A source file's content hash and when it was last written (ms epoch). */

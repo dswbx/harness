@@ -179,7 +179,7 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the Markdown files of file-backed panels (render_ui `source`).",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the .md or .html files of file-backed panels (render_ui `source`).",
             empty.clone(),
             "read",
         ),

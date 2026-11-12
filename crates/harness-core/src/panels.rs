@@ -1,4 +1,4 @@
-//! File-backed panels (ADR 0023): Markdown files the Agent writes into its Session's `panels/`
+//! File-backed panels (ADR 0023): Markdown or HTML files the Agent writes into its Session's `panels/`
 //! folder, shown by `render_ui` items that name them with `source`. Path checks, reads, and the
 //! watcher that tells windows a file changed.
 
@@ -38,14 +38,23 @@ pub fn resolve_inside(dir: &Path, path: &Path) -> Option<PathBuf> {
     (real != real_dir && real.starts_with(&real_dir)).then_some(real)
 }
 
-/// Checks a `source` name: relative to the panels folder, `/` separated, no `..`, ending in `.md`.
+/// File types a source can have: Markdown, or HTML shown in the Html frame.
+const EXTENSIONS: [&str; 2] = [".md", ".html"];
+
+/// Whether `name` ends in a source file type.
+fn is_source(name: &str) -> bool {
+    EXTENSIONS.iter().any(|e| name.ends_with(e))
+}
+
+/// Checks a `source` name: relative to the panels folder, `/` separated, no `..`, ending in `.md`
+/// or `.html`.
 pub fn check_name(name: &str) -> anyhow::Result<()> {
     let p = Path::new(name);
     anyhow::ensure!(
         !name.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_))),
         "source {name:?} must be a file name relative to panels_dir, e.g. \"progress.md\" or \"upgrade/progress.md\""
     );
-    anyhow::ensure!(name.ends_with(".md"), "source {name:?} must be a Markdown file (.md)");
+    anyhow::ensure!(is_source(name), "source {name:?} must be a Markdown (.md) or HTML (.html) file");
     Ok(())
 }
 
@@ -78,7 +87,7 @@ pub struct Watcher {
     _inner: notify::RecommendedWatcher,
 }
 
-/// Calls `on_change` with the name of each `.md` file under `dir` that changed, once per burst of
+/// Calls `on_change` with the name of each source file (`.md`, `.html`) under `dir` that changed, once per burst of
 /// writes: after `debounce` without a new change.
 pub fn watch(dir: &Path, debounce: Duration, on_change: impl Fn(String) + Send + 'static) -> anyhow::Result<Watcher> {
     use notify::Watcher as _;
@@ -98,7 +107,7 @@ pub fn watch(dir: &Path, debounce: Duration, on_change: impl Fn(String) + Send +
     let name_of = move |p: &Path| -> Option<String> {
         let rel = p.strip_prefix(&real_dir).or_else(|_| p.strip_prefix(&dir)).ok()?;
         let name = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
-        name.ends_with(".md").then_some(name)
+        is_source(&name).then_some(name)
     };
     std::thread::Builder::new().name("panels-watch".into()).spawn(move || {
         // Ends when the watcher (holding the sender) is dropped.
@@ -135,6 +144,7 @@ mod tests {
         let panels = d.path().join("panels");
         std::fs::create_dir_all(panels.join("sub")).unwrap();
         std::fs::write(panels.join("a.md"), "a").unwrap();
+        std::fs::write(panels.join("b.html"), "<p>b</p>").unwrap();
         std::fs::write(d.path().join("secret.md"), "s").unwrap();
         std::os::unix::fs::symlink(d.path().join("secret.md"), panels.join("link.md")).unwrap();
         std::os::unix::fs::symlink(d.path(), panels.join("out")).unwrap();
@@ -143,10 +153,26 @@ mod tests {
         assert!(source_path(&panels, "a.md").is_ok());
         assert!(source_path(&panels, "sub/new.md").is_ok(), "a file that does not exist yet");
         assert!(source_path(&panels, "sub/deeper/new.md").is_ok());
-        for bad in ["../secret.md", "sub/../../secret.md", "/etc/x.md", "", "a.txt", "./a.md", "link.md", "out/secret.md", "dangling.md"] {
+        assert!(source_path(&panels, "sub/board.html").is_ok());
+        for bad in [
+            "../secret.md",
+            "sub/../../secret.md",
+            "/etc/x.md",
+            "",
+            "a.txt",
+            "a.htm",
+            "a.js",
+            "a.html.txt",
+            "./a.md",
+            "link.md",
+            "out/secret.md",
+            "dangling.md",
+        ] {
             assert!(source_path(&panels, bad).is_err(), "{bad}");
         }
         assert_eq!(read(&panels, "a.md").unwrap().0, "a");
+        assert_eq!(read(&panels, "b.html").unwrap().0, "<p>b</p>");
+        assert!(mtime_ms(&panels, "b.html").is_some());
         assert!(read(&panels, "missing.md").unwrap_err().to_string().contains("does not exist"));
         assert!(resolve_inside(&panels, &panels).is_none(), "the folder itself is not a file in it");
         assert!(resolve_inside(&panels, &d.path().join("secret.md")).is_none());
@@ -171,5 +197,8 @@ mod tests {
         std::fs::write(panels.join("sub/q.md"), "q").unwrap();
         std::thread::sleep(Duration::from_millis(900));
         assert_eq!(*seen.lock().unwrap(), vec!["p.md".to_owned(), "sub/q.md".to_owned()]);
+        std::fs::write(panels.join("sub/board.html"), "<p>b</p>").unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert_eq!(seen.lock().unwrap().last().map(String::as_str), Some("sub/board.html"));
     }
 }

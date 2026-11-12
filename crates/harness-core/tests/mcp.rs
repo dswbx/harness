@@ -611,11 +611,13 @@ fn generated_chat_manifest_validates_in_core() {
         ""
     );
     assert_eq!(errors(json!({ "id": "score", "remove": true })), "");
-    // File-backed panels (ADR 0023): exactly one of root or source, a relative .md name.
+    // File-backed panels (ADR 0023): exactly one of root or source, a relative .md or .html name.
     assert_eq!(errors(json!({ "id": "p", "placement": "right", "title": "P", "source": "plan/progress.md" })), "");
     assert_ne!(errors(json!({ "id": "p", "source": "p.md", "root": { "type": "Markdown", "props": { "text": "x" } } })), "");
     assert_ne!(errors(json!({ "id": "p", "placement": "right" })), "");
-    assert_ne!(errors(json!({ "id": "p", "source": "p.html" })), "");
+    assert_eq!(errors(json!({ "id": "p", "source": "p.html" })), "");
+    assert_ne!(errors(json!({ "id": "p", "source": "p.txt" })), "");
+    assert_ne!(errors(json!({ "id": "p", "source": "p.htm" })), "");
     assert_ne!(errors(json!({ "id": "p", "source": "/etc/p.md" })), "");
     assert_eq!(
         errors(json!({ "root": { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" }, "options": [{ "value": "a", "label": "A" }] },
@@ -760,6 +762,17 @@ async fn file_backed_panels() {
     std::fs::write(panels.join("plan/progress.md"), "# Progress\n\n- [x] one\n- [ ] two").unwrap();
     tokio::time::sleep(Duration::from_millis(900)).await;
     assert_eq!(*changed.lock().unwrap(), vec!["plan/progress.md".to_owned()]);
+    // An .html source: same checks and reads; other types are refused.
+    std::fs::write(panels.join("board.html"), "<p>board</p>").unwrap();
+    let html = ask(&h, &sid, r#"mcp render_ui {"id":"b","placement":"left","title":"Board","source":"board.html"}"#, None).await;
+    assert!(html.contains(r#""source":"board.html""#), "{html}");
+    let CommandResult::PanelSource { content, .. } = h.execute(read("board.html")).await.unwrap() else { panic!() };
+    assert_eq!(content, "<p>board</p>");
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(changed.lock().unwrap().last().map(String::as_str), Some("board.html"), "the watcher reports .html files");
+    std::fs::write(panels.join("notes.txt"), "x").unwrap();
+    assert!(h.execute(read("notes.txt")).await.is_err());
+    let _ = ask(&h, &sid, r#"mcp render_ui {"id":"b","remove":true}"#, None).await;
 
     let got = ask(&h, &sid, r#"mcp ui_get {"id":"p"}"#, None).await;
     assert!(got.contains(r##""content": "# Progress\n\n- [x] one\n- [ ] two""##) && got.contains(r#""source": "plan/progress.md""#), "{got}");

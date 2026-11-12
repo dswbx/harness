@@ -371,9 +371,13 @@ declare global {
    }
 }
 
-/** The mock's file-backed panel (ADR 0023): `progress.md` in every Session's `panels/`. */
-const MOCK_PANEL_SOURCE =
-   "# Upgrade progress\n\n- [x] Bump dependencies\n- [x] Fix type errors\n- [ ] Run the e2e tests\n\n<details>\n<summary>Notes</summary>\n\nThe e2e suite needs a running dev server.\n\n</details>\n";
+/** The mock's file-backed panels (ADR 0023): these files in every Session's `panels/`. */
+const MOCK_PANEL_SOURCES: Record<string, string> = {
+   "progress.md":
+      "# Upgrade progress\n\n- [x] Bump dependencies\n- [x] Fix type errors\n- [ ] Run the e2e tests\n\n<details>\n<summary>Notes</summary>\n\nThe e2e suite needs a running dev server.\n\n</details>\n",
+   "fade.html":
+      '<style>.b{padding:12px;border:1px solid var(--border);border-radius:8px;color:var(--foreground);animation:f 2s ease-in-out infinite alternate}@keyframes f{from{opacity:.4}to{opacity:1}}</style>\n<div class="b">Build: <b data-state="/build/status">-</b> <button id="done">Mark done</button></div>\n<script>document.getElementById("done").onclick=()=>harness.patch([{op:"add",path:"/build",value:{status:"done"}}]);</script>\n',
+};
 
 /** A stable stand-in for the core's sha256 of a panel source. */
 function mockHash(text: string): string {
@@ -394,7 +398,7 @@ export class MockTransport implements Transport {
    private mcp: McpServerDef[] = [];
    /** Per-session Frontend state files. */
    private frontendFiles = new Map<string, Map<string, string>>();
-   /** Per-session panel source files written with `__harnessMockPanelWrite` (else `MOCK_PANEL_SOURCE`). */
+   /** Per-session panel source files written with `__harnessMockPanelWrite` (else `MOCK_PANEL_SOURCES`). */
    private panelFiles = new Map<string, Map<string, string>>();
    /** When each of them was written, by `${session}/${name}`. */
    private panelMtimes = new Map<string, number>();
@@ -1094,8 +1098,7 @@ export class MockTransport implements Transport {
          }
          case "PanelSourceRead": {
             const content =
-               this.panelFiles.get(cmd.session_id)?.get(cmd.name) ??
-               (cmd.name === "progress.md" ? MOCK_PANEL_SOURCE : undefined);
+               this.panelFiles.get(cmd.session_id)?.get(cmd.name) ?? MOCK_PANEL_SOURCES[cmd.name];
             if (content === undefined)
                throw new Error(`source "${cmd.name}" does not exist in panels_dir`);
             const mtime_ms =
