@@ -92,7 +92,7 @@ function DetailLine({
          </span>
          {draft && (
             <Tooltip content="Unsent draft">
-               <Pencil className="size-3 shrink-0" aria-label="Unsent draft" />
+               <Pencil className="size-2.5 shrink-0" aria-label="Unsent draft" />
             </Tooltip>
          )}
          <span className="shrink-0 tabular-nums">{relativeTime(s.updated_ms, now)}</span>
