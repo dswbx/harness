@@ -193,6 +193,19 @@ describe("MockTransport Shared Artifacts (ADR 0024)", () => {
       kind: { type: "FrontendToolOutput", tool: "render_ui", call_id: id, path: "p", input },
    });
 
+   it("opens a shared artifact's content file in the editor without a Session", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      await expect(client.openSharedInEditor("release-checklist-3f9a1c")).rejects.toThrow(
+         "choose an editor",
+      );
+      await client.setEditor({ type: "vscode" });
+      await client.openSharedInEditor("release-checklist-3f9a1c");
+      expect(transport.opened.at(-1)?.path).toBe(
+         "/Users/me/.harness/shared/release-checklist-3f9a1c/content.md",
+      );
+   });
+
    it("lists fixtures newest first and searches title before text", async () => {
       const client = new HarnessClient(new MockTransport([], []));
       const all = await client.listSharedArtifacts();

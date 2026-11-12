@@ -357,6 +357,8 @@ global?: boolean } | { type: "ListPermissionRules" } | { type: "AddPermissionRul
 { type: "ShareMarkdown"; session_id: string; markdown: string; title?: string | null } | { type: "AttachSharedArtifact"; session_id: string; id: string } | { type: "DetachSharedArtifact"; session_id: string; id: string } | { type: "RenameSharedArtifact"; id: string; title: string } | 
 /**  Removes the Shared Artifact's folder. Items that show it then show it as missing. */
 { type: "DeleteSharedArtifact"; id: string } | 
+/**  Opens a Shared Artifact's content file in the user's editor. Needs no Session. */
+{ type: "OpenSharedInEditor"; id: string } | 
 /**
  *  Changes a Shared Artifact's state as the user. With `session_id`, that Session logs
  *  `ArtifactStateChanged`; without, nothing is logged (the no-Session view).

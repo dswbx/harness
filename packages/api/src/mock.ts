@@ -1183,6 +1183,16 @@ export class MockTransport implements Transport {
             this.emitApp({ type: "SharedArtifactChanged", id: cmd.id });
             return { type: "Ok" };
          }
+         case "OpenSharedInEditor": {
+            const a = this.sharedArtifact(cmd.id);
+            if (!this.editor)
+               throw new CommandError("invalid", "choose an editor in Settings first");
+            const file = { md: "content.md", html: "content.html", ui: "ui.json" }[a.meta.kind];
+            const path = `/Users/me/.harness/shared/${a.meta.id}/${file}`;
+            this.opened.push({ path, line: null });
+            console.info("[mock] open in editor", this.editor.type, path);
+            return { type: "Ok" };
+         }
          case "PatchArtifactState": {
             const a = this.sharedArtifact(cmd.id);
             if (cmd.session_id && !a.meta.attached?.includes(cmd.session_id))

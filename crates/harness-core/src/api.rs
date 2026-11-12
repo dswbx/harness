@@ -476,6 +476,10 @@ pub enum Command {
     DeleteSharedArtifact {
         id: String,
     },
+    /// Opens a Shared Artifact's content file in the user's editor. Needs no Session.
+    OpenSharedInEditor {
+        id: String,
+    },
     /// Changes a Shared Artifact's state as the user. With `session_id`, that Session logs
     /// `ArtifactStateChanged`; without, nothing is logged (the no-Session view).
     PatchArtifactState {

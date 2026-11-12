@@ -661,6 +661,10 @@ export class HarnessClient {
       if (r.type !== "SharedArtifactInfo") throw new Error(`unexpected result: ${r.type}`);
       return r.meta;
    }
+   /** Opens a Shared Artifact's content file in the user's editor (no Session needed). */
+   async openSharedInEditor(id: string): Promise<void> {
+      await this.transport.execute({ type: "OpenSharedInEditor", id });
+   }
    async deleteSharedArtifact(id: string): Promise<void> {
       await this.transport.execute({ type: "DeleteSharedArtifact", id });
    }

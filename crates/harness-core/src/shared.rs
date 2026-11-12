@@ -100,6 +100,12 @@ impl SharedArtifacts {
         Ok(self.dir.join(id))
     }
 
+    /// The artifact's content file (`content.md`, `content.html` or `ui.json`); refuses an unknown id.
+    pub fn content_path(&self, id: &str) -> anyhow::Result<PathBuf> {
+        let meta = self.get(id)?;
+        Ok(self.folder(id)?.join(content_name(meta.kind)))
+    }
+
     pub fn get(&self, id: &str) -> anyhow::Result<SharedArtifactMeta> {
         self.index.read().get(id).cloned().ok_or_else(|| crate::error::not_found(format!("no shared artifact {id:?}")))
     }
@@ -386,6 +392,18 @@ mod tests {
         }
         assert_eq!(reference("shared:abc"), Some("abc"));
         assert_eq!(reference("p.md"), None);
+    }
+
+    #[test]
+    fn content_path_is_the_kind_file() {
+        let d = tempfile::tempdir().unwrap();
+        let store = SharedArtifacts::open(d.path().join("shared")).unwrap();
+        let m = make(&store, "Plan", SharedKind::Html, "<p>x</p>");
+        let p = store.content_path(&m.id).unwrap();
+        assert_eq!(p, d.path().join("shared").join(&m.id).join("content.html"));
+        assert!(p.is_file());
+        assert!(store.content_path("nope-aaaaaa").is_err());
+        assert!(store.content_path("../x").is_err());
     }
 
     #[test]

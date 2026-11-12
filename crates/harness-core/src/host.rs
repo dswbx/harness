@@ -606,6 +606,12 @@ impl Harness {
                 tokio::task::spawn_blocking(move || shared.artifacts.delete(&id)).await??;
                 CommandResult::Ok
             }
+            Command::OpenSharedInEditor { id } => {
+                let editor = crate::editor::load(&self.data_dir).ok_or_else(|| crate::error::invalid("choose an editor in Settings first"))?;
+                let target = crate::editor::target(&editor, &self.shared.artifacts.content_path(&id)?, None);
+                tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+                CommandResult::Ok
+            }
             Command::PatchArtifactState { id, ops, session_id } => {
                 let state = match session_id {
                     Some(sid) => self.session(&sid)?.patch_artifact_state(None, &id, ops, StateWriter::User)?,
