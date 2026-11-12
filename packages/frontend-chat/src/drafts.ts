@@ -1,3 +1,4 @@
+import { draftStorageKey, notifyDraftsChanged } from "@harness/api";
 import { useCallback, useSyncExternalStore } from "react";
 import type { PendingAttachment } from "./attachments";
 import type { PromptSnapshot } from "./promptMarkdown";
@@ -7,11 +8,9 @@ import type { PromptSnapshot } from "./promptMarkdown";
  * The editor content goes to localStorage (it also survives a restart); attachments stay in memory
  * (image previews are data URLs, too big to store).
  */
-const PREFIX = "harness.draft.";
-
 export function getDraft(key: string): PromptSnapshot | null {
    try {
-      const raw = localStorage.getItem(PREFIX + key);
+      const raw = localStorage.getItem(draftStorageKey(key));
       return raw ? (JSON.parse(raw) as PromptSnapshot) : null;
    } catch {
       return null;
@@ -21,8 +20,12 @@ export function getDraft(key: string): PromptSnapshot | null {
 /** Stores `snap` for `key`; `null` (an empty box) removes it. */
 export function setDraft(key: string, snap: PromptSnapshot | null) {
    try {
-      if (snap) localStorage.setItem(PREFIX + key, JSON.stringify(snap));
-      else localStorage.removeItem(PREFIX + key);
+      const k = draftStorageKey(key);
+      const had = localStorage.getItem(k) !== null;
+      if (snap) localStorage.setItem(k, JSON.stringify(snap));
+      else localStorage.removeItem(k);
+      // Only having a draft or not matters to the sidebar: don't wake it on every keystroke.
+      if (had !== !!snap) notifyDraftsChanged();
    } catch {
       // Storage blocked or full: the draft stays unsaved.
    }
