@@ -170,3 +170,40 @@ describe("Markdown with html", () => {
       expect(html(text, false)).not.toContain("<details");
    });
 });
+
+describe("render_ui shared: source (ADR 0024)", () => {
+   it("accepts shared:<id> as a source and makes the internal Shared node", () => {
+      expect(valid({ id: "p", placement: "right", source: "shared:release-3f9a1c" })).toBe(true);
+      expect(valid({ id: "p", placement: "right", source: "shared:Bad/Id" })).toBe(false);
+      expect(withSourceRoot({ source: "shared:release-3f9a1c" }).root).toEqual({
+         type: "Shared",
+         props: { id: "release-3f9a1c" },
+      });
+      // The Agent cannot send the node itself.
+      expect(valid({ id: "p", root: { type: "Shared", props: { id: "release-3f9a1c" } } })).toBe(
+         false,
+      );
+   });
+
+   it("keeps the source on the slot", () => {
+      const s = fold([ui({ id: "p", placement: "right", title: "P", source: "shared:x-000001" })]);
+      const slot = splitRenderUi(s.items, [{ id: "x-000001", ts: 0 }]).slots.right[0]!;
+      expect(slot.source).toBe("shared:x-000001");
+      expect(slot.root).toEqual({ type: "Shared", props: { id: "x-000001" } });
+   });
+
+   it("renders a Shared node through the artifact reader, with a placeholder while it loads", () => {
+      const env = {
+         state: {},
+         files: {},
+         readShared: () => new Promise(() => {}),
+      } as unknown as UiEnv;
+      const out = renderToStaticMarkup(
+         createElement(RenderUi, {
+            root: { type: "Shared" as "Markdown", props: { id: "x" } },
+            env,
+         }),
+      );
+      expect(out).toContain("animate-pulse");
+   });
+});

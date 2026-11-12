@@ -154,8 +154,31 @@ export type RenderUiInput = {
  */
 export function withSourceRoot(v: RenderUiInput): RenderUiInput {
    if (v.root || typeof v.source !== "string") return v;
+   const shared = sharedRef(v.source);
+   if (shared) return { ...v, root: sharedNode(shared) };
    const type = v.source.endsWith(".html") ? "Html" : "Markdown";
    return { ...v, root: { type, props: { source: v.source } } };
+}
+
+/** The Shared Artifact id in a `source` of `shared:<id>` (ADR 0024), else null. */
+export function sharedRef(source: unknown): string | null {
+   return typeof source === "string" && source.startsWith("shared:")
+      ? source.slice("shared:".length) || null
+      : null;
+}
+
+/**
+ * The internal node that shows a Shared Artifact (ADR 0024): not in the catalog, so only the reducer
+ * makes one (the Agent sends `source: "shared:<id>"`). The renderer reads the artifact and shows it by kind.
+ */
+export const sharedNode = (id: string): RawNode => ({
+   type: "Shared" as ComponentType,
+   props: { id },
+});
+
+/** The Shared Artifact a node shows, when it is the internal `Shared` node. */
+export function sharedNodeId(n: RawNode): string | null {
+   return (n.type as string) === "Shared" && typeof n.props?.id === "string" ? n.props.id : null;
 }
 
 const names = Object.keys(components) as ComponentType[];
@@ -206,9 +229,9 @@ const renderUiJson = {
       root: { $ref: node },
       source: {
          type: "string",
-         pattern: "^[^/].*\\.(md|html)$",
+         pattern: "^(shared:[a-z0-9][a-z0-9-]*|[^/].*\\.(md|html))$",
          description:
-            "Instead of root: a .md or .html file in panels_dir (see harness_info), e.g. progress.md or upgrade/board.html. The panel shows the file and updates when you edit it.",
+            "Instead of root: a .md or .html file in panels_dir (see harness_info), e.g. progress.md or upgrade/board.html. The panel shows the file and updates when you edit it. Or shared:<id>: a Shared Artifact attached to this Session (see artifact_attach).",
       },
    },
    additionalProperties: false,

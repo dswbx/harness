@@ -101,5 +101,16 @@ fn facts(session: &Session) -> String {
     if meta.quick {
         lines.push("- Quick Session: the folder is empty scratch space".to_owned());
     }
+    let artifacts = &session.shared().artifacts;
+    for id in session.attached_shared().unwrap_or_default() {
+        if let (Ok(m), Ok(dir)) = (artifacts.get(&id), artifacts.folder(&id)) {
+            lines.push(format!(
+                "- Attached Shared Artifact: \"{}\" (`{id}`, {}), file {}",
+                m.title,
+                crate::shared::content_name(m.kind),
+                dir.join(crate::shared::content_name(m.kind)).display()
+            ));
+        }
+    }
     lines.join("\n")
 }

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { collectArtifacts, filterArtifacts, markdownArtifacts, markdownTitle } from "./artifacts";
+import {
+   blockMarkdown,
+   collectArtifacts,
+   filterArtifacts,
+   groupShared,
+   markdownArtifacts,
+   markdownTitle,
+} from "./artifacts";
 import type { Item } from "./reducer";
 import type { RenderUiInput } from "./tools";
 
@@ -115,5 +122,60 @@ describe("collectArtifacts", () => {
       expect(filterArtifacts(list, "table", "").length).toBe(1);
       expect(filterArtifacts(list, "all", "SEARCH").map((a) => a.kind)).toEqual(["table"]);
       expect(filterArtifacts(list, "ui", "search")).toEqual([]);
+   });
+});
+
+describe("groupShared (ADR 0024)", () => {
+   const items: Item[] = [
+      user("u1", "Make a plan"),
+      ui("r1", {
+         id: "plan",
+         placement: "right",
+         title: "Plan",
+         root: { type: "Shared" as "Markdown", props: { id: "plan-3f9a1c" } },
+         source: "shared:plan-3f9a1c",
+      }),
+      ui("r2", {
+         id: "old",
+         placement: "right",
+         title: "Old",
+         root: { type: "Shared" as "Markdown", props: { id: "old-000000" } },
+         source: "shared:old-000000",
+      }),
+      ui("r3", { id: "notes", placement: "right", title: "Notes", root: md("n") }),
+   ];
+
+   it("marks items that show a Shared Artifact", () => {
+      const a = collectArtifacts(items);
+      expect(a.map((x) => x.shared?.id ?? null)).toEqual(["plan-3f9a1c", "old-000000", null]);
+   });
+
+   it("puts attached artifacts first (newest attach first) and drops detached ones", () => {
+      const { shared, local } = groupShared(collectArtifacts(items), [
+         { id: "plan-3f9a1c", ts: 1 },
+         { id: "map-a1b2c3", ts: 2 },
+      ]);
+      expect(shared.map((r) => [r.id, r.artifact?.title ?? null])).toEqual([
+         ["map-a1b2c3", null],
+         ["plan-3f9a1c", "Plan"],
+      ]);
+      expect(local.map((a) => a.title)).toEqual(["Notes"]);
+   });
+
+   it("lists a shared copy of a message block once, as shared, while it is attached", () => {
+      const list = collectArtifacts([
+         user("u1", "Runs?"),
+         agent("a1", "Runs:\n\n| A |\n| --- |\n| 1 |\n"),
+      ]);
+      const table = list[0]!;
+      expect(blockMarkdown(table)).toBe("| A |\n| --- |\n| 1 |\n");
+      const copies = new Map([[table.key, "runs-a1b2c3"]]);
+      const attached = groupShared(list, [{ id: "runs-a1b2c3", ts: 1 }], copies);
+      expect([attached.local.length, attached.shared.map((r) => r.id)]).toEqual([
+         0,
+         ["runs-a1b2c3"],
+      ]);
+      // The View passes copies of attached artifacts only: detached, the block is back.
+      expect(groupShared(list, [], new Map()).local).toEqual([table]);
    });
 });

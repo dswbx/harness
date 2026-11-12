@@ -86,6 +86,11 @@ export interface Frontend {
       agentSwitch?: AgentSwitch;
       /** Quick overlay only: a context chip in the prompt box; each message sends its attachment. */
       context?: PromptContext;
+      /**
+       * Opens a Shared Artifact without a Session (ADR 0024), e.g. the app's Shared Artifact view.
+       * Absent: the View offers no "Open outside Session".
+       */
+      onOpenShared?: (id: string) => void;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

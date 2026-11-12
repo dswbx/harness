@@ -1,4 +1,4 @@
-import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
+import { applyStatePatch, getAt, type SharedArtifactData, type StatePatchOp } from "@harness/api";
 import { cn, Tooltip } from "@harness/ui";
 import { AlertTriangle, Check, CheckCircle2, Info, XCircle } from "lucide-react";
 import { createContext, type ReactNode, useContext } from "react";
@@ -52,6 +52,12 @@ export type UiEnv = {
    readSource?: (name: string) => Promise<{ content: string; hash: string; mtime_ms: number }>;
    /** Calls back with the name of each panel source file that changed. Returns an unsubscribe. */
    watchSources?: (onChange: (name: string) => void) => Promise<() => void>;
+   /** Reads a Shared Artifact (ADR 0024); absent: items showing one show nothing. */
+   readShared?: (id: string) => Promise<SharedArtifactData>;
+   /** Calls back with the id of each Shared Artifact that changed. Returns an unsubscribe. */
+   watchShared?: (onChange: (id: string) => void) => Promise<() => void>;
+   /** Changes a Shared Artifact's state as the user (its Views then read it again). */
+   patchShared?: (id: string, ops: StatePatchOp[]) => Promise<void>;
 };
 export const Env = createContext<UiEnv | null>(null);
 export const useEnv = () => useContext(Env)!;

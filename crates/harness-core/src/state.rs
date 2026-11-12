@@ -116,6 +116,49 @@ fn remove(doc: &mut Value, path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The Session State paths a `render_ui` input reads or writes: `$state`, `$bindState`, `statePath`
+/// (Accordion/Tabs `repeat` and action targets) and `${/path}` in `$template`. `$computed` args
+/// are ordinary `$state` values. In order first seen, no duplicates.
+pub fn bound_paths(v: &Value) -> Vec<String> {
+    fn add(out: &mut Vec<String>, p: &str) {
+        if p.starts_with('/') && !out.iter().any(|o| o == p) {
+            out.push(p.to_owned());
+        }
+    }
+    fn walk(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::Object(o) => {
+                for (k, v) in o {
+                    match (k.as_str(), v) {
+                        ("$state" | "$bindState" | "statePath", Value::String(p)) => add(out, p),
+                        ("$template", Value::String(t)) => {
+                            let mut rest = t.as_str();
+                            while let Some((_, after)) = rest.split_once("${") {
+                                let Some((p, tail)) = after.split_once('}') else { break };
+                                add(out, p);
+                                rest = tail;
+                            }
+                        }
+                        _ => {}
+                    }
+                    walk(v, out);
+                }
+            }
+            Value::Array(a) => a.iter().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(v, &mut out);
+    out
+}
+
+/// A copy of the values of `doc` at `paths` (missing ones left out), built with `add` ops.
+pub fn subset(doc: &Value, paths: &[String]) -> anyhow::Result<Value> {
+    let ops: Vec<StatePatchOp> = paths.iter().filter_map(|p| doc.pointer(p).map(|v| StatePatchOp::Add { path: p.clone(), value: v.clone() })).collect();
+    apply(&Value::Object(Map::new()), &ops)
+}
+
 fn index(t: &str, len: usize) -> anyhow::Result<usize> {
     t.parse::<usize>().ok().filter(|i| *i < len).ok_or_else(|| anyhow::anyhow!("{t} is not an index of an array of {len}"))
 }
@@ -159,5 +202,17 @@ mod tests {
         let doc =
             apply(&json!({ "r": [null, null] }), &[Replace { path: p("/r/0"), value: json!(true) }, Replace { path: p("/r/2"), value: json!(false) }]).unwrap();
         assert_eq!(doc["r"], json!([true, null, false]));
+    }
+
+    #[test]
+    fn bound_paths_and_subset() {
+        let tree = json!({ "type": "Stack", "children": [
+            { "type": "Stat", "props": { "value": { "$state": "/quiz/score" }, "label": { "$template": "${/n} of ${/total}" } } },
+            { "type": "Choice", "props": { "value": { "$bindState": "/a/q1" } }, "on": { "press": { "action": "setState", "params": { "statePath": "/quiz/score" } } } }
+        ] });
+        let paths = bound_paths(&tree);
+        assert_eq!(paths, vec!["/quiz/score", "/n", "/total", "/a/q1"]);
+        let doc = json!({ "quiz": { "score": 3, "other": 1 }, "n": 1, "a": { "q1": "x" }, "unrelated": true });
+        assert_eq!(subset(&doc, &paths).unwrap(), json!({ "quiz": { "score": 3 }, "n": 1, "a": { "q1": "x" } }));
     }
 }

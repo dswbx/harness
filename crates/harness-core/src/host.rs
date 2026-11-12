@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::api::{
     AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, EventSink, FrontendManifest, GitActor, HarnessError, PrRefKey, SessionId, SessionSummary,
+    StateWriter,
 };
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
@@ -83,6 +84,18 @@ impl Harness {
             app_events: Default::default(),
             prompts_dir: data_dir.join("prompts"),
             pr_refs: Default::default(),
+            artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
+        });
+        // One watch on `shared/` for the life of the Host (ADR 0024 addendum): changes from any
+        // Session, the no-Session view or an editor reach every View.
+        let weak = Arc::downgrade(&shared);
+        shared.artifacts.start_watch(move |id| {
+            let Some(shared) = weak.upgrade() else { return };
+            let listed = shared.artifacts.refresh(&id);
+            shared.app_events.emit(AppEvent::SharedArtifactChanged { id });
+            if listed {
+                shared.app_events.emit(AppEvent::SharedArtifactsChanged);
+            }
         });
         let mut sessions = HashMap::new();
         for entry in std::fs::read_dir(&sessions_dir)? {
@@ -125,6 +138,9 @@ impl Harness {
         session.delete_workspace(force).await?;
         self.sessions.write().remove(session_id);
         session.remove_files()?;
+        if self.shared.artifacts.forget_session(session_id) {
+            self.shared.app_events.emit(AppEvent::SharedArtifactsChanged);
+        }
         self.shared.policy.forget_session(session_id)
     }
 
@@ -138,11 +154,25 @@ impl Harness {
             | Command::RemoveAgent { .. }
             | Command::RollbackAgent { .. }
             | Command::HoldAgentVersion { .. } => Some(AppEvent::AgentsChanged),
+            Command::ShareArtifact { .. }
+            | Command::ShareMarkdown { .. }
+            | Command::AttachSharedArtifact { .. }
+            | Command::DetachSharedArtifact { .. }
+            | Command::RenameSharedArtifact { .. }
+            | Command::DeleteSharedArtifact { .. } => Some(AppEvent::SharedArtifactsChanged),
+            _ => None,
+        };
+        // A View showing the artifact re-reads it at once, before the watcher's debounce.
+        let changed = match &cmd {
+            Command::RenameSharedArtifact { id, .. } | Command::DeleteSharedArtifact { id } | Command::PatchArtifactState { id, .. } => Some(id.clone()),
             _ => None,
         };
         let result = self.execute_inner(cmd).await.map_err(HarnessError::from);
         if let (Ok(_), Some(event)) = (&result, changes) {
             self.shared.app_events.emit(event);
+        }
+        if let (Ok(_), Some(id)) = (&result, changed) {
+            self.shared.app_events.emit(AppEvent::SharedArtifactChanged { id });
         }
         result
     }
@@ -538,6 +568,56 @@ impl Harness {
             Command::SetMode { session_id, thread_id, mode_id } => {
                 self.session(&session_id)?.set_mode(thread_id, mode_id).await?;
                 CommandResult::Ok
+            }
+            Command::ListSharedArtifacts { query } => {
+                let shared = self.shared.clone();
+                CommandResult::SharedArtifactList { artifacts: tokio::task::spawn_blocking(move || shared.artifacts.list(query.as_deref())).await? }
+            }
+            Command::SharedArtifactRead { id } => {
+                let shared = self.shared.clone();
+                let r = tokio::task::spawn_blocking(move || shared.artifacts.read(&id)).await??;
+                CommandResult::SharedArtifact {
+                    meta: r.meta,
+                    content: r.content,
+                    hash: r.hash,
+                    mtime_ms: r.mtime_ms,
+                    state: r.state,
+                    dir: r.dir.display().to_string(),
+                }
+            }
+            Command::ShareArtifact { session_id, item_id } => {
+                let session = self.session(&session_id)?;
+                let meta = tokio::task::spawn_blocking(move || session.share_item(&item_id, StateWriter::User)).await??;
+                CommandResult::SharedArtifactInfo { meta }
+            }
+            Command::ShareMarkdown { session_id, markdown, title, origin } => {
+                CommandResult::SharedArtifactInfo { meta: self.session(&session_id)?.share_markdown(&markdown, title.as_deref(), origin, StateWriter::User)? }
+            }
+            Command::AttachSharedArtifact { session_id, id } => {
+                CommandResult::SharedArtifactInfo { meta: self.session(&session_id)?.attach_shared(&id, StateWriter::User)? }
+            }
+            Command::DetachSharedArtifact { session_id, id } => {
+                self.session(&session_id)?.detach_shared(&id, StateWriter::User)?;
+                CommandResult::Ok
+            }
+            Command::RenameSharedArtifact { id, title } => CommandResult::SharedArtifactInfo { meta: self.shared.artifacts.rename(&id, &title)? },
+            Command::DeleteSharedArtifact { id } => {
+                let shared = self.shared.clone();
+                tokio::task::spawn_blocking(move || shared.artifacts.delete(&id)).await??;
+                CommandResult::Ok
+            }
+            Command::OpenSharedInEditor { id } => {
+                let editor = crate::editor::load(&self.data_dir).ok_or_else(|| crate::error::invalid("choose an editor in Settings first"))?;
+                let target = crate::editor::target(&editor, &self.shared.artifacts.content_path(&id)?, None);
+                tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+                CommandResult::Ok
+            }
+            Command::PatchArtifactState { id, ops, session_id } => {
+                let state = match session_id {
+                    Some(sid) => self.session(&sid)?.patch_artifact_state(None, &id, ops, StateWriter::User)?,
+                    None => self.shared.artifacts.patch_state(&id, &ops)?,
+                };
+                CommandResult::State { state }
             }
         })
     }

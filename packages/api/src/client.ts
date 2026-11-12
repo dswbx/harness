@@ -5,6 +5,7 @@ import type {
    AttachmentInput,
    Branches,
    Command,
+   CommandResult,
    Commit,
    Diff,
    Editor,
@@ -23,6 +24,8 @@ import type {
    RegistryAgent,
    RepoId,
    SessionSummary,
+   SharedArtifactEntry,
+   SharedArtifactMeta,
    StatePatchOp,
    TerminalInfo,
    ThreadStart,
@@ -34,6 +37,9 @@ import {
    type Transport,
    type Unsubscribe,
 } from "./transport";
+
+/** A Shared Artifact as read (ADR 0024): meta, content (`ui.json` text for kind `ui`), hash, state and folder. */
+export type SharedArtifactData = Omit<Extract<CommandResult, { type: "SharedArtifact" }>, "type">;
 
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
 export interface SessionApi {
@@ -178,6 +184,28 @@ export interface SessionApi {
    terminalAck(terminalId: number, bytes: number): Promise<void>;
    /** Ends the shell; the tab stays and the next attach starts a new one. */
    terminalKill(terminalId: number): Promise<void>;
+   /** Makes a `render_ui` item (by its `id`) a Shared Artifact (ADR 0024); the Session is attached. */
+   shareArtifact(itemId: string): Promise<SharedArtifactMeta>;
+   /**
+    * Shares a copy of Markdown from a message (a Mermaid fence or a table) and attaches it. `origin`:
+    * the block's Artifacts panel key, kept in `created_by.origin` so the panel lists it once.
+    */
+   shareMarkdown(
+      markdown: string,
+      title?: string | null,
+      origin?: string | null,
+   ): Promise<SharedArtifactMeta>;
+   attachShared(id: string): Promise<SharedArtifactMeta>;
+   detachShared(id: string): Promise<void>;
+   /** Shared Artifacts, most recently updated first; with `query`, matches by title or text. */
+   listShared(query?: string | null): Promise<SharedArtifactEntry[]>;
+   readShared(id: string): Promise<SharedArtifactData>;
+   /** Changes a Shared Artifact's state as the user; this Session logs `ArtifactStateChanged`. */
+   patchArtifactState(id: string, ops: StatePatchOp[]): Promise<void>;
+   /** Calls back with the id of each Shared Artifact whose content, state or meta changed. */
+   sharedChanged(onChange: (id: string) => void): Promise<Unsubscribe>;
+   /** Calls back when Shared Artifacts were added, removed, renamed, attached or detached. */
+   sharedListChanged(onChange: () => void): Promise<Unsubscribe>;
 }
 
 export function createSessionApi(transport: Transport, sessionId: string): SessionApi {
@@ -373,8 +401,51 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
          run({ type: "TerminalAck", session_id: sessionId, terminal_id, bytes }),
       terminalKill: (terminal_id) =>
          run({ type: "TerminalKill", session_id: sessionId, terminal_id }),
+      shareArtifact: async (item_id) =>
+         (
+            await expect(
+               { type: "ShareArtifact", session_id: sessionId, item_id },
+               "SharedArtifactInfo",
+            )
+         ).meta,
+      shareMarkdown: async (markdown, title = null, origin = null) =>
+         (
+            await expect(
+               { type: "ShareMarkdown", session_id: sessionId, markdown, title, origin },
+               "SharedArtifactInfo",
+            )
+         ).meta,
+      attachShared: async (id) =>
+         (
+            await expect(
+               { type: "AttachSharedArtifact", session_id: sessionId, id },
+               "SharedArtifactInfo",
+            )
+         ).meta,
+      detachShared: (id) => run({ type: "DetachSharedArtifact", session_id: sessionId, id }),
+      listShared: (query) => listShared(transport, query),
+      readShared: (id) => readShared(transport, id),
+      patchArtifactState: (id, ops) =>
+         run({ type: "PatchArtifactState", id, ops, session_id: sessionId }),
+      sharedChanged: (onChange) => sharedChanged(transport, onChange),
+      sharedListChanged: (onChange) => sharedListChanged(transport, onChange),
    };
 }
+
+const listShared = async (transport: Transport, query?: string | null) => {
+   const r = await transport.execute({ type: "ListSharedArtifacts", query: query || null });
+   return r.type === "SharedArtifactList" ? r.artifacts : [];
+};
+const readShared = async (transport: Transport, id: string): Promise<SharedArtifactData> => {
+   const r = await transport.execute({ type: "SharedArtifactRead", id });
+   if (r.type !== "SharedArtifact") throw new Error(`unexpected result: ${r.type}`);
+   const { type: _, ...data } = r;
+   return data;
+};
+const sharedChanged = (transport: Transport, onChange: (id: string) => void) =>
+   transport.subscribeApp((e) => e.type === "SharedArtifactChanged" && onChange(e.id));
+const sharedListChanged = (transport: Transport, onChange: () => void) =>
+   transport.subscribeApp((e) => e.type === "SharedArtifactsChanged" && onChange());
 
 /** App-scope operations for the shell (sidebar, Composer). */
 export class HarnessClient {
@@ -584,6 +655,46 @@ export class HarnessClient {
    /** Sessions list / status / Agents changes pushed by the core. Live only. */
    subscribeApp(onEvent: (e: AppEvent) => void): Promise<Unsubscribe> {
       return this.transport.subscribeApp(onEvent);
+   }
+   /** Shared Artifacts (ADR 0024), most recently updated first; with `query`, at most 20 matches. */
+   listSharedArtifacts(query?: string | null): Promise<SharedArtifactEntry[]> {
+      return listShared(this.transport, query);
+   }
+   readSharedArtifact(id: string): Promise<SharedArtifactData> {
+      return readShared(this.transport, id);
+   }
+   async renameSharedArtifact(id: string, title: string): Promise<SharedArtifactMeta> {
+      const r = await this.transport.execute({ type: "RenameSharedArtifact", id, title });
+      if (r.type !== "SharedArtifactInfo") throw new Error(`unexpected result: ${r.type}`);
+      return r.meta;
+   }
+   /** Opens a Shared Artifact's content file in the user's editor (no Session needed). */
+   async openSharedInEditor(id: string): Promise<void> {
+      await this.transport.execute({ type: "OpenSharedInEditor", id });
+   }
+   async deleteSharedArtifact(id: string): Promise<void> {
+      await this.transport.execute({ type: "DeleteSharedArtifact", id });
+   }
+   async attachSharedArtifact(sessionId: string, id: string): Promise<SharedArtifactMeta> {
+      const r = await this.transport.execute({
+         type: "AttachSharedArtifact",
+         session_id: sessionId,
+         id,
+      });
+      if (r.type !== "SharedArtifactInfo") throw new Error(`unexpected result: ${r.type}`);
+      return r.meta;
+   }
+   /** Changes a Shared Artifact's state with no Session (nothing is logged). */
+   async patchArtifactState(id: string, ops: StatePatchOp[]): Promise<void> {
+      await this.transport.execute({ type: "PatchArtifactState", id, ops, session_id: null });
+   }
+   /** Calls back with the id of each Shared Artifact whose content, state or meta changed. */
+   sharedChanged(onChange: (id: string) => void): Promise<Unsubscribe> {
+      return sharedChanged(this.transport, onChange);
+   }
+   /** Calls back when Shared Artifacts were added, removed, renamed, attached or detached. */
+   sharedListChanged(onChange: () => void): Promise<Unsubscribe> {
+      return sharedListChanged(this.transport, onChange);
    }
    sessionApi(sessionId: string): SessionApi {
       return createSessionApi(this.transport, sessionId);

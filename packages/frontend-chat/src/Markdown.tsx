@@ -102,6 +102,7 @@ function MarkdownTable({ node, ...props }: ComponentProps<"table"> & { node?: un
       <Expandable
          label="table"
          title={title}
+         share={source ? `${source}\n` : undefined}
          className="chat-wide mt-(--typeset-flow)"
          data-artifact="table"
          expanded={

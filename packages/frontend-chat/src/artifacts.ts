@@ -1,5 +1,5 @@
 import type { Item } from "./reducer";
-import type { Placement, RawNode } from "./tools";
+import { type Placement, type RawNode, sharedRef } from "./tools";
 
 export type ArtifactKind = "ui" | "diagram" | "table";
 
@@ -31,6 +31,8 @@ export type Artifact = {
    ui: { root: RawNode; files: Record<string, string> } | null;
    /** render_ui `icon` name, when the call gave one. */
    icon?: string | null;
+   /** It shows a Shared Artifact (`source: "shared:<id>"`, ADR 0024). */
+   shared?: { id: string };
 };
 
 /** What the source view shows and copies: a render_ui `Html` root as its HTML, not as JSON around it. */
@@ -230,6 +232,8 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          ui: { root: v.root, files: it.files },
          icon: v.icon ?? null,
       };
+      const shared = sharedRef(v.source);
+      if (shared) a.shared = { id: shared };
       if (old) {
          // Replaced in place while inline; moving to another placement makes it new again.
          if (old.placement === "inline" && placement === "inline") out[out.indexOf(old)] = a;
@@ -255,4 +259,33 @@ export function filterArtifacts(
          (kind === "all" || a.kind === kind) &&
          (!q || `${a.title}\n${a.sub}\n${a.source}`.toLowerCase().includes(q)),
    );
+}
+
+/** The Markdown "Make shared" copies for a diagram or table (as its message block offers it). */
+export function blockMarkdown(a: Artifact): string {
+   return a.kind === "diagram" ? `\`\`\`mermaid\n${a.source}\n\`\`\`\n` : `${a.source}\n`;
+}
+
+/** A row of the SHARED group: an attached Shared Artifact, and the item that shows it (null: attached only). */
+export type SharedRow = { id: string; ts: number; artifact: Artifact | null };
+
+/**
+ * Splits artifacts for the Artifacts panel (ADR 0024): attached Shared Artifacts (newest attach first),
+ * and the Session's own. Items showing a Shared Artifact that is no longer attached drop out.
+ * `copies`: artifact key -> the attached Shared Artifact copied from it (`created_by.origin`); that
+ * block shows once, in the SHARED group.
+ */
+export function groupShared(
+   artifacts: Artifact[],
+   attached: readonly { id: string; ts: number }[],
+   copies: ReadonlyMap<string, string> = new Map(),
+): { shared: SharedRow[]; local: Artifact[] } {
+   const byId = new Map<string, Artifact>();
+   for (const a of artifacts) if (a.shared) byId.set(a.shared.id, a);
+   return {
+      shared: [...attached]
+         .reverse()
+         .map((x) => ({ id: x.id, ts: x.ts, artifact: byId.get(x.id) ?? null })),
+      local: artifacts.filter((a) => !a.shared && !copies.has(a.key)),
+   };
 }

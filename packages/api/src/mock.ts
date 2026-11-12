@@ -23,6 +23,9 @@ import type {
    RegistryAgent,
    RepoId,
    SessionSummary,
+   SharedArtifactEntry,
+   SharedArtifactMeta,
+   SharedKind,
    WorkspaceInfo,
 } from "./generated";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
@@ -368,6 +371,8 @@ declare global {
       ) => Promise<FrontendAnswer>;
       /** Manual testing in the browser mock: writes a panel source file, as the Agent's Edit would. */
       __harnessMockPanelWrite?: (sessionId: string, name: string, content: string) => void;
+      /** Manual testing in the browser mock: writes a Shared Artifact's content, as an editor would. */
+      __harnessMockSharedWrite?: (id: string, content: string) => void;
    }
 }
 
@@ -378,6 +383,87 @@ const MOCK_PANEL_SOURCES: Record<string, string> = {
    "fade.html":
       '<style>.b{padding:12px;border:1px solid var(--border);border-radius:8px;color:var(--foreground);animation:f 2s ease-in-out infinite alternate}@keyframes f{from{opacity:.4}to{opacity:1}}</style>\n<div class="b">Build: <b data-state="/build/status">-</b> <button id="done">Mark done</button></div>\n<script>document.getElementById("done").onclick=()=>harness.patch([{op:"add",path:"/build",value:{status:"done"}}]);</script>\n',
 };
+
+/** A Shared Artifact in the mock's in-memory `shared/` (ADR 0024). */
+type MockShared = { meta: SharedArtifactMeta; content: string; state: unknown; mtime: number };
+
+/** `<slug>-<6 hex>`, like the core's ids. */
+function sharedId(title: string): string {
+   const slug =
+      title
+         .toLowerCase()
+         .replace(/[^a-z0-9]+/g, "-")
+         .replace(/^-+|-+$/g, "")
+         .slice(0, 40)
+         .replace(/-+$/, "") || "artifact";
+   const hex = Math.floor(Math.random() * 0xffffff)
+      .toString(16)
+      .padStart(6, "0");
+   return `${slug}-${hex}`;
+}
+
+/** The mock's Shared Artifacts: one of each kind. `attached` must match the Session Logs (see the constructor). */
+function mockShared(): MockShared[] {
+   const h = 3_600_000;
+   const now = Date.now();
+   const meta = (
+      id: string,
+      title: string,
+      kind: SharedKind,
+      age: number,
+      attached: string[],
+   ): SharedArtifactMeta => ({
+      v: 1,
+      id,
+      title,
+      kind,
+      created_ms: now - age * 4 * h,
+      updated_ms: now - age * h,
+      created_by: { session_id: "mock-s1", session_title: "Compact header layout" },
+      attached,
+   });
+   return [
+      {
+         meta: meta("release-checklist-3f9a1c", "Release checklist", "md", 2, [
+            "mock-1",
+            "mock-s1",
+         ]),
+         content:
+            "# Release checklist\n\n- [x] Bump the version\n- [x] Update the changelog\n- [ ] Tag the release\n- [ ] Publish the build\n\n<details>\n<summary>Notes</summary>\n\nThe Release workflow tags `v{year}.{month}.{n}`.\n\n</details>\n",
+         state: {},
+         mtime: now - 2 * h,
+      },
+      {
+         meta: meta("deploy-dashboard-7c21e0", "Deploy dashboard", "html", 20, ["mock-s2"]),
+         content:
+            '<style>.b{padding:12px;border:1px solid var(--border);border-radius:8px;color:var(--foreground)}</style>\n<div class="b">Deploy: <b data-state="/deploy/status">-</b> <button id="go">Mark shipped</button></div>\n<script>document.getElementById("go").onclick=()=>harness.patch([{op:"replace",path:"/deploy/status",value:"shipped"}]);</script>\n',
+         state: { deploy: { status: "pending" } },
+         mtime: now - 20 * h,
+      },
+      {
+         meta: meta("architecture-map-a1b2c3", "Architecture map", "ui", 50, []),
+         content: JSON.stringify({
+            root: {
+               type: "Card",
+               props: { title: "Architecture map", tone: "info" },
+               children: [
+                  {
+                     type: "Markdown",
+                     props: { text: "Core in Rust, Frontends in TS. Commands in, Events out." },
+                  },
+                  {
+                     type: "Checkbox",
+                     props: { label: "Reviewed", value: { $bindState: "/reviewed" } },
+                  },
+               ],
+            },
+            files: {},
+         }),
+         state: { reviewed: false },
+         mtime: now - 50 * h,
+      },
+   ];
+}
 
 /** A stable stand-in for the core's sha256 of a panel source. */
 function mockHash(text: string): string {
@@ -407,6 +493,8 @@ export class MockTransport implements Transport {
    private editor: Editor | null = null;
    private worktreeDir = ".harness";
    private appSettings: Record<string, unknown> = {};
+   /** Shared Artifacts by id (ADR 0024). */
+   private shared = new Map(mockShared().map((a) => [a.meta.id, a]));
    /** What "Open in editor" was asked to open (tests). */
    opened: { path: string | null; line: number | null }[] = [];
    /** Stored attachment path -> pasted bytes (path inputs have no bytes in the browser). */
@@ -448,8 +536,21 @@ export class MockTransport implements Transport {
             this.panelMtimes.set(`${sessionId}/${name}`, Date.now());
             this.emitApp({ type: "PanelSourceChanged", session_id: sessionId, name });
          };
+         window.__harnessMockSharedWrite = (id, content) => {
+            const a = this.shared.get(id);
+            if (!a) return;
+            a.content = content;
+            a.mtime = Date.now();
+            a.meta.updated_ms = a.mtime;
+            this.emitApp({ type: "SharedArtifactChanged", id });
+         };
       }
       this.addSession("mock-1", "Mock session (fixture replay)", "chat");
+      // The fixture Shared Artifacts' attachments, logged as the core would.
+      if (fixture.length > 0)
+         for (const a of this.shared.values())
+            if (a.meta.attached?.includes("mock-1"))
+               this.emit("mock-1", { type: "ArtifactAttached", id: a.meta.id, by: "user" }, null);
       // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
       const h = 3600e3;
       const ws = (folder: string, o: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
@@ -604,6 +705,62 @@ export class MockTransport implements Transport {
       const s = this.sessions.find((x) => x.id === id);
       if (!s) throw new CommandError("not_found", "no such session");
       return s;
+   }
+
+   private sharedArtifact(id: string): MockShared {
+      const a = this.shared.get(id);
+      if (!a) throw new CommandError("not_found", `no Shared Artifact "${id}"`);
+      return a;
+   }
+
+   /** A new Shared Artifact made by Session `sid`, attached to it. */
+   private createShared(
+      sid: string,
+      title: string,
+      kind: SharedKind,
+      content: string,
+      state: unknown,
+      origin?: string | null,
+   ): MockShared {
+      const now = Date.now();
+      const s = this.session(sid);
+      const a: MockShared = {
+         meta: {
+            v: 1,
+            id: sharedId(title),
+            title,
+            kind,
+            created_ms: now,
+            updated_ms: now,
+            created_by: { session_id: sid, session_title: s.title, ...(origin && { origin }) },
+            attached: [sid],
+         },
+         content,
+         state: structuredClone(state),
+         mtime: now,
+      };
+      this.shared.set(a.meta.id, a);
+      return a;
+   }
+
+   /** The core's listing: newest first; a query matches title or content, title matches first, at most 20. */
+   private listShared(query: string | null): SharedArtifactEntry[] {
+      const all = [...this.shared.values()].sort((a, b) => b.meta.updated_ms - a.meta.updated_ms);
+      const q = query?.trim().toLowerCase();
+      if (!q) return all.map((a) => ({ meta: structuredClone(a.meta) }));
+      const title = all.filter((a) => a.meta.title.toLowerCase().includes(q));
+      const text = all.filter((a) => !title.includes(a) && a.content.toLowerCase().includes(q));
+      return [...title, ...text].slice(0, 20).map((a) => {
+         const at = a.content.toLowerCase().indexOf(q);
+         const snippet =
+            at < 0
+               ? null
+               : a.content
+                    .slice(Math.max(0, at - 30), at + q.length + 30)
+                    .replace(/\s+/g, " ")
+                    .trim();
+         return { meta: structuredClone(a.meta), snippet };
+      });
    }
 
    private readOnly = new Set<string>();
@@ -891,8 +1048,166 @@ export class MockTransport implements Transport {
                   `Worktree branch ${s.workspace.worktree_branch} has unmerged commits; delete anyway to discard them`,
                );
             this.sessions = this.sessions.filter((x) => x.id !== cmd.session_id);
+            let detached = false;
+            for (const a of this.shared.values()) {
+               if (!a.meta.attached?.includes(cmd.session_id)) continue;
+               a.meta.attached = a.meta.attached.filter((x) => x !== cmd.session_id);
+               detached = true;
+            }
             this.emitApp({ type: "SessionsChanged" });
+            if (detached) this.emitApp({ type: "SharedArtifactsChanged" });
             return { type: "Ok" };
+         }
+         case "ListSharedArtifacts":
+            return { type: "SharedArtifactList", artifacts: this.listShared(cmd.query ?? null) };
+         case "SharedArtifactRead": {
+            const a = this.sharedArtifact(cmd.id);
+            return {
+               type: "SharedArtifact",
+               meta: structuredClone(a.meta),
+               content: a.content,
+               hash: mockHash(a.content),
+               mtime_ms: a.mtime,
+               state: structuredClone(a.state),
+               dir: `/Users/me/.harness/shared/${a.meta.id}`,
+            };
+         }
+         case "ShareArtifact": {
+            const sid = cmd.session_id;
+            const out = [...(this.logs.get(sid) ?? [])]
+               .reverse()
+               .find(
+                  (e) =>
+                     e.kind.type === "FrontendToolOutput" &&
+                     e.kind.tool === "render_ui" &&
+                     (e.kind.input as { id?: unknown } | null)?.id === cmd.item_id,
+               );
+            if (out?.kind.type !== "FrontendToolOutput")
+               throw new CommandError("not_found", `no render_ui item with id "${cmd.item_id}"`);
+            const input = out.kind.input as Record<string, unknown>;
+            const title = typeof input.title === "string" ? input.title : cmd.item_id;
+            const sessionState = this.states.get(sid) ?? {};
+            let a: MockShared;
+            if (typeof input.source === "string") {
+               if (input.source.startsWith("shared:"))
+                  throw new CommandError("conflict", `${cmd.item_id} is already shared`);
+               const content =
+                  this.panelFiles.get(sid)?.get(input.source) ?? MOCK_PANEL_SOURCES[input.source];
+               if (content === undefined)
+                  throw new Error(`source "${input.source}" does not exist in panels_dir`);
+               const html = input.source.endsWith(".html");
+               a = this.createShared(
+                  sid,
+                  title,
+                  html ? "html" : "md",
+                  content,
+                  html ? sessionState : {},
+               );
+               this.panelFiles.get(sid)?.delete(input.source);
+            } else {
+               a = this.createShared(
+                  sid,
+                  title,
+                  "ui",
+                  JSON.stringify({ root: input.root, files: {} }),
+                  sessionState,
+               );
+            }
+            const { root: _, ...rest } = input;
+            const call = `mock-share-${++this.cardN}`;
+            this.emit(
+               sid,
+               {
+                  type: "FrontendToolOutput",
+                  tool: "render_ui",
+                  call_id: call,
+                  path: `tools/render_ui/${call}.json`,
+                  input: { ...rest, source: `shared:${a.meta.id}` },
+               },
+               out.thread_id,
+            );
+            this.emit(sid, { type: "ArtifactAttached", id: a.meta.id, by: "user" }, null);
+            this.emitApp({ type: "SharedArtifactsChanged" });
+            return { type: "SharedArtifactInfo", meta: structuredClone(a.meta) };
+         }
+         case "ShareMarkdown": {
+            if (!cmd.markdown.trim()) throw new CommandError("invalid", "the Markdown is empty");
+            const title =
+               cmd.title?.trim() ||
+               /^#+\s*(.+)$/m.exec(cmd.markdown)?.[1]?.trim() ||
+               "Shared snippet";
+            const a = this.createShared(cmd.session_id, title, "md", cmd.markdown, {}, cmd.origin);
+            this.emit(
+               cmd.session_id,
+               { type: "ArtifactAttached", id: a.meta.id, by: "user" },
+               null,
+            );
+            this.emitApp({ type: "SharedArtifactsChanged" });
+            return { type: "SharedArtifactInfo", meta: structuredClone(a.meta) };
+         }
+         case "AttachSharedArtifact": {
+            this.session(cmd.session_id);
+            const a = this.sharedArtifact(cmd.id);
+            if (!a.meta.attached?.includes(cmd.session_id)) {
+               a.meta.attached = [...(a.meta.attached ?? []), cmd.session_id];
+               this.emit(
+                  cmd.session_id,
+                  { type: "ArtifactAttached", id: cmd.id, by: "user" },
+                  null,
+               );
+               this.emitApp({ type: "SharedArtifactsChanged" });
+            }
+            return { type: "SharedArtifactInfo", meta: structuredClone(a.meta) };
+         }
+         case "DetachSharedArtifact": {
+            this.session(cmd.session_id);
+            const a = this.shared.get(cmd.id);
+            if (a) a.meta.attached = (a.meta.attached ?? []).filter((x) => x !== cmd.session_id);
+            this.emit(cmd.session_id, { type: "ArtifactDetached", id: cmd.id, by: "user" }, null);
+            this.emitApp({ type: "SharedArtifactsChanged" });
+            return { type: "Ok" };
+         }
+         case "RenameSharedArtifact": {
+            const a = this.sharedArtifact(cmd.id);
+            const title = cmd.title.trim();
+            if (!title) throw new CommandError("invalid", "the title is empty");
+            a.meta.title = title;
+            a.meta.updated_ms = Date.now();
+            this.emitApp({ type: "SharedArtifactsChanged" });
+            this.emitApp({ type: "SharedArtifactChanged", id: cmd.id });
+            return { type: "SharedArtifactInfo", meta: structuredClone(a.meta) };
+         }
+         case "DeleteSharedArtifact": {
+            this.sharedArtifact(cmd.id);
+            this.shared.delete(cmd.id);
+            this.emitApp({ type: "SharedArtifactsChanged" });
+            this.emitApp({ type: "SharedArtifactChanged", id: cmd.id });
+            return { type: "Ok" };
+         }
+         case "OpenSharedInEditor": {
+            const a = this.sharedArtifact(cmd.id);
+            if (!this.editor)
+               throw new CommandError("invalid", "choose an editor in Settings first");
+            const file = { md: "content.md", html: "content.html", ui: "ui.json" }[a.meta.kind];
+            const path = `/Users/me/.harness/shared/${a.meta.id}/${file}`;
+            this.opened.push({ path, line: null });
+            console.info("[mock] open in editor", this.editor.type, path);
+            return { type: "Ok" };
+         }
+         case "PatchArtifactState": {
+            const a = this.sharedArtifact(cmd.id);
+            if (cmd.session_id && !a.meta.attached?.includes(cmd.session_id))
+               throw new CommandError("invalid", `${cmd.id} is not attached to this Session`);
+            a.state = applyStatePatch(a.state, cmd.ops);
+            a.meta.updated_ms = Date.now();
+            if (cmd.session_id)
+               this.emit(
+                  cmd.session_id,
+                  { type: "ArtifactStateChanged", id: cmd.id, ops: cmd.ops, by: "user" },
+                  null,
+               );
+            this.emitApp({ type: "SharedArtifactChanged", id: cmd.id });
+            return { type: "State", state: structuredClone(a.state) };
          }
          case "PrContext": {
             const s = this.session(cmd.session_id);

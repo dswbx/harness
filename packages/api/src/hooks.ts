@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { SessionApi } from "./client";
-import type { Event, PrRefKey } from "./generated";
+import type { Event, PrRefKey, SharedArtifactEntry } from "./generated";
 import { prKey } from "./prRefs";
 import type { PrEntry, PrStore } from "./prStore";
+import type { Unsubscribe } from "./transport";
 
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
@@ -65,4 +66,33 @@ export function usePr(store: PrStore, key: PrRefKey): PrEntry {
    // eslint-disable-next-line react-hooks/exhaustive-deps
    useEffect(() => store.request(key), [store, id, entry]);
    return entry;
+}
+
+/** Where `useSharedArtifacts` reads from: a `SessionApi` or a `HarnessClient`'s functions. */
+export type SharedListSource = {
+   list: () => Promise<SharedArtifactEntry[]>;
+   onListChanged: (onChange: () => void) => Promise<Unsubscribe>;
+};
+
+/**
+ * All Shared Artifacts (ADR 0024), most recently updated first (null while loading). Loaded once and
+ * again on each `SharedArtifactsChanged`. `source` must be stable (memoize it).
+ */
+export function useSharedArtifacts(source: SharedListSource): SharedArtifactEntry[] | null {
+   const [list, setList] = useState<SharedArtifactEntry[] | null>(null);
+   useEffect(() => {
+      let live = true;
+      const load = () =>
+         source.list().then(
+            (l) => live && setList(l),
+            (e) => console.error("list shared artifacts failed", e),
+         );
+      void load();
+      const off = source.onListChanged(() => void load());
+      return () => {
+         live = false;
+         void off.then((f) => f());
+      };
+   }, [source]);
+   return list;
 }

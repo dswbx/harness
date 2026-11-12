@@ -108,6 +108,10 @@ _Avoid_: tab, pane, sidebar
 A `render_ui` item whose content is a Markdown (`.md`) or HTML (`.html`, shown like an Html node) file the Agent writes in the Session's `panels/` folder (in the Session Directory), named by `source` instead of a `root` tree; the Panel follows the file as the Agent edits it (ADR 0023).
 _Avoid_: file panel, live file, source panel
 
+**Shared Artifact**:
+An artifact (a `render_ui` item, a file-backed panel, or a diagram or table from a message) moved out of its Session into `<data dir>/shared/<id>/` with its own state; any Session can attach it and show it as a Panel, and it can be opened without a Session (ADR 0024).
+_Avoid_: document, global artifact, pinned artifact
+
 **Reference**:
 A PR, file or link named in a Session's user or Agent messages, one per target with its mentions; the chat's References Panel lists those that exist. Derived from the chat Items (`references.ts`).
 _Avoid_: citation, mention (a mention is one place a Reference is named)

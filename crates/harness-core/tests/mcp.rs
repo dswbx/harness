@@ -142,7 +142,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -790,4 +790,296 @@ async fn file_backed_panels() {
     assert!(info.contains("Source missing: source \\\"plan/progress.md\\\" does not exist"), "{info}");
     let got = ask(&h, &sid, r#"mcp ui_get {"id":"p"}"#, None).await;
     assert!(got.contains("\"error\": \"source"), "{got}");
+}
+
+// ---------- Shared Artifacts (ADR 0024) ----------
+
+/// A Harness whose chat Frontend has a `render_ui` that takes `source`, a `root` with an image, and an id.
+fn shared_harness(data: &Path) -> Arc<Harness> {
+    let h = harness(data, &[]);
+    h.register_frontend(FrontendManifest {
+        id: "chat".into(),
+        name: "Chat".into(),
+        version: "0".into(),
+        instructions: None,
+        frontend_tools: vec![FrontendToolDecl {
+            name: "render_ui".into(),
+            description: "Render a panel".into(),
+            input_schema: serde_json::json!({ "type": "object", "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "placement": { "type": "string" },
+                "remove": { "type": "boolean" },
+                "source": { "type": "string" },
+                "root": { "type": "object", "properties": { "image": { "type": "string", "format": "harness-image" } } }
+            } }),
+            replies: false,
+        }],
+    });
+    h
+}
+
+/// Calls a Harness MCP tool and parses the JSON it returns.
+async fn mcp_json(h: &Harness, sid: &str, call: &str) -> serde_json::Value {
+    let reply = ask(h, sid, &format!("mcp {call}"), None).await;
+    let body = reply.strip_prefix("mcp: ").unwrap_or_else(|| panic!("{call}: {reply}"));
+    serde_json::Deserializer::from_str(body).into_iter().next().unwrap().unwrap_or_else(|e| panic!("{call}: {e}: {reply}"))
+}
+
+fn shared_events(h: &Harness, sid: &str) -> Vec<EventKind> {
+    events(h, sid)
+        .into_iter()
+        .map(|e| e.kind)
+        .filter(|k| matches!(k, EventKind::ArtifactAttached { .. } | EventKind::ArtifactDetached { .. } | EventKind::ArtifactStateChanged { .. }))
+        .collect()
+}
+
+fn shared_meta(h: &Harness, id: &str) -> harness_core::api::SharedArtifactMeta {
+    let rt = tokio::runtime::Handle::current();
+    let r = tokio::task::block_in_place(|| rt.block_on(h.execute(Command::SharedArtifactRead { id: id.into() })));
+    match r {
+        Ok(CommandResult::SharedArtifact { meta, .. }) => meta,
+        r => panic!("{r:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn share_attach_and_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let b = create(&h, dir.path(), vec![]).await;
+    let panels = data.join("sessions").join(&a).join("panels");
+    std::fs::write(panels.join("plan.md"), "# Release plan\n\n- [ ] ship it").unwrap();
+    ask(&h, &a, r#"mcp render_ui {"id":"p","placement":"right","title":"Release checklist","source":"plan.md"}"#, None).await;
+
+    let shared = mcp_json(&h, &a, r#"artifact_share {"id":"p"}"#).await;
+    let id = shared["id"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("release-checklist-"), "{shared}");
+    let folder = data.join("shared").join(&id);
+    assert_eq!(shared["dir"], folder.display().to_string());
+    assert_eq!(std::fs::read_to_string(folder.join("content.md")).unwrap(), "# Release plan\n\n- [ ] ship it");
+    assert!(!panels.join("plan.md").exists(), "the file moved out of the Session");
+    // The item now shows the shared artifact, in the same place; the Session is attached.
+    let inputs: Vec<serde_json::Value> = events(&h, &a)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::FrontendToolOutput { input, .. } => Some(input),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(inputs.last().unwrap(), &serde_json::json!({ "id": "p", "placement": "right", "title": "Release checklist", "source": format!("shared:{id}") }));
+    assert!(matches!(&shared_events(&h, &a)[..], [EventKind::ArtifactAttached { id: x, by: StateWriter::Agent }] if *x == id));
+    let again = ask(&h, &a, r#"mcp artifact_share {"id":"p"}"#, None).await;
+    assert!(again.starts_with("mcp error:") && again.contains("already shared"), "{again}");
+
+    // Another Session finds it by content and attaches it.
+    let found = mcp_json(&h, &b, r#"artifact_search {"query":"SHIP IT"}"#).await;
+    assert_eq!((found[0]["id"].as_str(), found[0]["attached"].as_bool()), (Some(id.as_str()), Some(false)), "{found}");
+    assert!(found[0]["snippet"].as_str().unwrap().contains("ship it"));
+    let attached = mcp_json(&h, &b, &format!(r#"artifact_attach {{"id":"{id}"}}"#)).await;
+    assert_eq!((attached["file"].as_str(), attached["kind"].as_str()), (Some("content.md"), Some("md")));
+    let found = mcp_json(&h, &b, r#"artifact_search {"query":"release"}"#).await;
+    assert_eq!(found[0]["attached"], true);
+    assert_eq!(shared_meta(&h, &id).attached, vec![a.clone(), b.clone()]);
+    // The no-Session list has it.
+    let CommandResult::SharedArtifactList { artifacts } = h.execute(Command::ListSharedArtifacts { query: None }).await.unwrap() else { panic!() };
+    assert_eq!(artifacts.len(), 1);
+
+    // Detach, then the source is refused until attached again.
+    ask(&h, &b, &format!(r#"mcp artifact_detach {{"id":"{id}"}}"#), None).await;
+    assert_eq!(shared_meta(&h, &id).attached, vec![a.clone()]);
+    let refused = ask(&h, &b, &format!(r#"mcp render_ui {{"id":"x","source":"shared:{id}"}}"#), None).await;
+    assert!(refused.starts_with("mcp error:") && refused.contains("not attached"), "{refused}");
+    let unknown = ask(&h, &b, r#"mcp render_ui {"id":"x","source":"shared:nope-000000"}"#, None).await;
+    assert!(unknown.starts_with("mcp error:") && unknown.contains("no shared artifact"), "{unknown}");
+    h.execute(Command::AttachSharedArtifact { session_id: b.clone(), id: id.clone() }).await.unwrap();
+    let ok = ask(&h, &b, &format!(r#"mcp render_ui {{"id":"x","placement":"left","source":"shared:{id}"}}"#), None).await;
+    assert!(ok.starts_with("mcp: Done."), "{ok}");
+    let kinds: Vec<&str> = shared_events(&h, &b)
+        .iter()
+        .map(|k| match k {
+            EventKind::ArtifactAttached { .. } => "attached",
+            EventKind::ArtifactDetached { .. } => "detached",
+            _ => "state",
+        })
+        .collect();
+    assert_eq!(kinds, vec!["attached", "detached", "attached"]);
+
+    // Markdown from a message becomes its own artifact.
+    let CommandResult::SharedArtifactInfo { meta } = h
+        .execute(Command::ShareMarkdown {
+            session_id: a.clone(),
+            markdown: "```mermaid\ngraph TD; A-->B\n```".into(),
+            title: None,
+            origin: Some("r1:diagram:0".into()),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!((meta.title.as_str(), meta.kind), ("Diagram", harness_core::api::SharedKind::Md));
+    assert_eq!(meta.created_by.origin.as_deref(), Some("r1:diagram:0"));
+    assert_eq!(shared_meta(&h, &meta.id).created_by.origin.as_deref(), Some("r1:diagram:0"), "read back");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shared_tree_takes_its_state_and_images_and_a_new_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    std::fs::write(dir.path().join("shot.png"), b"png").unwrap();
+    ask(&h, &a, r#"mcp state_patch {"ops":[{"op":"add","path":"/quiz/score","value":3},{"op":"add","path":"/other","value":1}]}"#, None).await;
+    ask(&h, &a, r#"mcp render_ui {"id":"t","title":"Quiz","root":{"type":"Stat","image":"shot.png","props":{"value":{"$state":"/quiz/score"}}}}"#, None).await;
+
+    let CommandResult::SharedArtifactInfo { meta } = h.execute(Command::ShareArtifact { session_id: a.clone(), item_id: "t".into() }).await.unwrap() else {
+        panic!()
+    };
+    let id = meta.id.clone();
+    assert_eq!(meta.kind, harness_core::api::SharedKind::Ui);
+    let folder = data.join("shared").join(&id);
+    let ui: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("ui.json")).unwrap()).unwrap();
+    assert_eq!(ui["root"]["image"], "shot.png");
+    let copy = ui["files"]["shot.png"].as_str().unwrap();
+    assert_eq!(std::fs::read(folder.join(copy)).unwrap(), b"png");
+    let CommandResult::SharedArtifact { state, .. } = h.execute(Command::SharedArtifactRead { id: id.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(state, serde_json::json!({ "quiz": { "score": 3 } }), "only the paths the tree binds");
+    assert!(matches!(&shared_events(&h, &a)[..], [EventKind::ArtifactAttached { by: StateWriter::User, .. }]));
+
+    // A new root replaces ui.json and is not logged.
+    let before = events(&h, &a).iter().filter(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })).count();
+    let done = ask(&h, &a, &format!(r#"mcp render_ui {{"id":"shared:{id}","root":{{"type":"Markdown","props":{{"text":"v2"}}}}}}"#), None).await;
+    assert!(done.starts_with("mcp: Done. Shared artifact"), "{done}");
+    let ui: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("ui.json")).unwrap()).unwrap();
+    assert_eq!(ui["root"]["props"]["text"], "v2");
+    assert_eq!(events(&h, &a).iter().filter(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })).count(), before);
+    let bad = ask(&h, &a, &format!(r#"mcp render_ui {{"id":"shared:{id}","remove":true}}"#), None).await;
+    assert!(bad.starts_with("mcp error:"), "{bad}");
+
+    // ui_get reads it by shared id and through the item.
+    let got = mcp_json(&h, &a, &format!(r#"ui_get {{"id":"shared:{id}"}}"#)).await;
+    assert_eq!(got["tree"]["root"]["props"]["text"], "v2");
+    let got = mcp_json(&h, &a, r#"ui_get {"id":"t"}"#).await;
+    assert_eq!((got["input"]["source"].as_str(), got["id"].as_str()), (Some(format!("shared:{id}").as_str()), Some(id.as_str())));
+
+    // A file artifact takes no tree.
+    std::fs::write(data.join("sessions").join(&a).join("panels/n.md"), "n").unwrap();
+    ask(&h, &a, r#"mcp render_ui {"id":"n","source":"n.md"}"#, None).await;
+    let CommandResult::SharedArtifactInfo { meta: md } = h.execute(Command::ShareArtifact { session_id: a.clone(), item_id: "n".into() }).await.unwrap() else {
+        panic!()
+    };
+    let refused = ask(&h, &a, &format!(r#"mcp render_ui {{"id":"shared:{}","root":{{"type":"Markdown"}}}}"#, md.id), None).await;
+    assert!(refused.starts_with("mcp error:") && refused.contains("not a render_ui tree"), "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn artifact_state_is_logged_only_in_the_acting_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let b = create(&h, dir.path(), vec![]).await;
+    let CommandResult::SharedArtifactInfo { meta } =
+        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# Notes".into(), title: Some("Notes".into()), origin: None }).await.unwrap()
+    else {
+        panic!()
+    };
+    let id = meta.id;
+    let denied = ask(&h, &b, &format!(r#"mcp state_get {{"artifact":"{id}"}}"#), None).await;
+    assert!(denied.starts_with("mcp error:") && denied.contains("not attached"), "{denied}");
+    h.execute(Command::AttachSharedArtifact { session_id: b.clone(), id: id.clone() }).await.unwrap();
+
+    let r = ask(&h, &a, &format!(r#"mcp state_patch {{"artifact":"{id}","ops":[{{"op":"add","path":"/done","value":true}}]}}"#), None).await;
+    assert!(r.contains("\"done\": true"), "{r}");
+    let got = ask(&h, &b, &format!(r#"mcp state_get {{"artifact":"{id}","statePath":"/done"}}"#), None).await;
+    assert!(got.starts_with("mcp: true"), "{got}");
+    let CommandResult::State { state } = h.execute(Command::GetState { session_id: a.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(state, serde_json::json!({}), "the Session State is untouched");
+
+    let changes = |sid: &str| shared_events(&h, sid).into_iter().filter(|k| matches!(k, EventKind::ArtifactStateChanged { .. })).count();
+    assert_eq!((changes(&a), changes(&b)), (1, 0));
+    // The user, in Session B, then with no Session.
+    let op = |v: i64| vec![StatePatchOp::Add { path: "/n".into(), value: serde_json::json!(v) }];
+    h.execute(Command::PatchArtifactState { id: id.clone(), ops: op(1), session_id: Some(b.clone()) }).await.unwrap();
+    let CommandResult::State { state } = h.execute(Command::PatchArtifactState { id: id.clone(), ops: op(2), session_id: None }).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(state, serde_json::json!({ "done": true, "n": 2 }));
+    assert_eq!((changes(&a), changes(&b)), (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn harness_info_lists_shared_artifacts_and_deleting_a_session_detaches_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let b = create(&h, dir.path(), vec![]).await;
+    let CommandResult::SharedArtifactInfo { meta } = h
+        .execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# Map".into(), title: Some("Architecture map".into()), origin: None })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    h.execute(Command::AttachSharedArtifact { session_id: b.clone(), id: meta.id.clone() }).await.unwrap();
+    let context = ask(&h, &b, "show-context", None).await;
+    assert!(context.contains(&format!("- Attached Shared Artifact: \"Architecture map\" (`{}`", meta.id)), "{context}");
+    let info = mcp_json(&h, &b, "harness_info {}").await;
+    let folder = data.join("shared").join(&meta.id);
+    assert_eq!(
+        info["shared"],
+        serde_json::json!([{ "id": meta.id, "title": "Architecture map", "kind": "md", "dir": folder.display().to_string(), "file": "content.md" }])
+    );
+
+    let changed = Arc::new(Mutex::new(0));
+    let c = changed.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if matches!(e, AppEvent::SharedArtifactsChanged) {
+            *c.lock().unwrap() += 1;
+        }
+        true
+    }));
+    h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
+    assert_eq!(shared_meta(&h, &meta.id).attached, vec![b.clone()], "the artifact stays, without the deleted Session");
+    assert!(*changed.lock().unwrap() >= 1);
+
+    // Deleting the artifact: the item's Session sees it missing.
+    h.execute(Command::DeleteSharedArtifact { id: meta.id.clone() }).await.unwrap();
+    assert!(!folder.exists());
+    let info = mcp_json(&h, &b, "harness_info {}").await;
+    assert!(info["shared"][0]["errors"][0].as_str().unwrap().contains("missing"), "{info}");
+    h.execute(Command::DetachSharedArtifact { session_id: b.clone(), id: meta.id.clone() }).await.unwrap();
+    assert_eq!(mcp_json(&h, &b, "harness_info {}").await["shared"], serde_json::json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_watcher_reports_shared_artifact_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let CommandResult::SharedArtifactInfo { meta } =
+        h.execute(Command::ShareMarkdown { session_id: a.clone(), markdown: "# One".into(), title: Some("Notes".into()), origin: None }).await.unwrap()
+    else {
+        panic!()
+    };
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::SharedArtifactChanged { id } = e {
+            s.lock().unwrap().push(id.clone());
+        }
+        true
+    }));
+    // An edit from outside (the Agent's Edit tool, an editor).
+    std::fs::write(data.join("shared").join(&meta.id).join("content.md"), "# Two").unwrap();
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(*seen.lock().unwrap(), vec![meta.id.clone()]);
+    let CommandResult::SharedArtifact { content, .. } = h.execute(Command::SharedArtifactRead { id: meta.id.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(content, "# Two");
 }

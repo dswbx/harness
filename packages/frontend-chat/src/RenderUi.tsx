@@ -27,9 +27,10 @@ import {
    type UiEnv,
    useEnv,
 } from "./renderUi/runtime";
+import { SharedSourceView } from "./renderUi/sharedSource";
 import * as text from "./renderUi/text";
 import { jsError, jsReady, loadJs, onJsReady } from "./sandbox";
-import { components, type RawNode, renderUiSchema, type UiNode } from "./tools";
+import { components, type RawNode, renderUiSchema, sharedNodeId, type UiNode } from "./tools";
 
 export { tableRows } from "./renderUi/data";
 export { repeatScopes, stackClasses } from "./renderUi/layout";
@@ -94,6 +95,16 @@ export function resolveNode(raw: RawNode, state: unknown, scope?: Scope): UiNode
 function Node({ raw }: { raw: RawNode }) {
    const env = useEnv();
    const scope = useContext(ScopeCtx);
+   // An item showing a Shared Artifact (ADR 0024): the reducer's node, bound to the artifact's state.
+   const shared = sharedNodeId(raw);
+   if (shared)
+      return (
+         <SharedSourceView
+            id={shared}
+            checkActions={checkActions}
+            renderTree={(root, e) => <RenderUi root={root} env={e} />}
+         />
+      );
    if (!isVisible(raw.visible, env.state, scope)) return null;
    const node = resolveNode(raw, env.state, scope);
    const kids = raw.children?.map((c, i) => <Node key={i} raw={c} />);

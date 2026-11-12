@@ -1,5 +1,5 @@
 import type { Item } from "./reducer";
-import type { Placement, RawNode } from "./tools";
+import { type Placement, type RawNode, sharedNode, sharedNodeId, sharedRef } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
 /** `ts`: when the Agent last placed it (ms epoch). `source`: its file, for a file-backed panel (ADR 0023). */
@@ -25,8 +25,14 @@ export function slotChangeKey(x: Slot, stamps: Record<string, { hash: string }>)
  * Splits `render_ui` calls by placement. A call with an `id` replaces earlier calls with that id
  * (inline: shown where it first appeared, with the latest content); `remove` hides them.
  * Calls placed top/bottom leave the chat rows and fill live areas, left/right become panels (ADR 0019), in first-seen order.
+ *
+ * Shared Artifacts (ADR 0024): an item showing `shared:<id>` hides while `<id>` is not in `attached`.
+ * An attached artifact no shown item points at gets a right panel of its own, `shared:<id>`.
  */
-export function splitRenderUi(items: Item[]): {
+export function splitRenderUi(
+   items: Item[],
+   attached: readonly { id: string; ts: number }[] = [],
+): {
    /** Row id -> what to render there instead of its own input (latest for its id), or null to hide. */
    inline: Map<string, { root: RawNode; files: Record<string, string> } | null>;
    slots: Record<Exclude<Placement, "inline">, Slot[]>;
@@ -57,7 +63,8 @@ export function splitRenderUi(items: Item[]): {
          continue;
       }
       inline.set(it.id, null);
-      if (v.remove || !v.root) {
+      const shared = sharedRef(v.source);
+      if (v.remove || !v.root || (shared && !attached.some((a) => a.id === shared))) {
          drop(v.id);
          continue;
       }
@@ -86,6 +93,30 @@ export function splitRenderUi(items: Item[]): {
          }
          where.set(v.id, placement);
       }
+   }
+   // Attached artifacts no item shows: a right panel each, in attach order.
+   const shown = new Set<string>();
+   for (const x of inline.values()) {
+      const id = x && sharedNodeId(x.root);
+      if (id) shown.add(id);
+   }
+   for (const list of Object.values(slots))
+      for (const x of list) {
+         const id = sharedRef(x.source);
+         if (id) shown.add(id);
+      }
+   for (const a of attached) {
+      if (shown.has(a.id)) continue;
+      shown.add(a.id);
+      slots.right.push({
+         id: `shared:${a.id}`,
+         title: null,
+         icon: null,
+         root: sharedNode(a.id),
+         files: {},
+         ts: a.ts,
+         source: `shared:${a.id}`,
+      });
    }
    return { inline, slots };
 }

@@ -5,13 +5,15 @@ import type {
    PanelWidth,
    PromptContext,
    SessionApi,
+   SharedArtifactMeta,
    ViewVariant,
 } from "@harness/api";
-import { openWindow, useSessionEvents } from "@harness/api";
+import { openWindow, useSessionEvents, useSharedArtifacts } from "@harness/api";
 import {
    Badge,
    Button,
    cn,
+   DropdownMenuItem,
    MenuButton,
    Portal,
    ScrollArea,
@@ -23,6 +25,7 @@ import {
    CheckCircle2,
    CircleDashed,
    ClipboardList,
+   ExternalLink,
    Folder,
    GitCompare,
    Layers,
@@ -33,7 +36,9 @@ import {
    PanelRight,
    RotateCcw,
    ScrollText,
+   Share2,
    SquareTerminal,
+   Unlink,
    X,
 } from "lucide-react";
 import {
@@ -53,11 +58,12 @@ import { ScrollUnder } from "./ScrollUnder";
 // xterm.js stays out of the main chunk until the Terminal is first opened.
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 
-import { ArtifactsPanel } from "./ArtifactsPanel";
-import { type Artifact, collectArtifacts } from "./artifacts";
+import { ArtifactsPanel, type SharedActions, sessionCount } from "./ArtifactsPanel";
+import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 import { DiffWindow, diffWindowScope } from "./DiffWindow";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { EventsPanel } from "./EventsPanel";
+import { ShareBlock } from "./Expandable";
 import { errorMessage } from "./errors";
 import { FileRefProvider } from "./FileRef";
 import { FilesPanel, type FileTarget, filesWindowTarget, filesWindowUrl } from "./FilesPanel";
@@ -113,8 +119,8 @@ import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
-import { formatAge, useNow } from "./time";
-import { RENDER_UI } from "./tools";
+import { formatAge, formatRelativeTime, useNow } from "./time";
+import { RENDER_UI, sharedRef } from "./tools";
 import { uiIcons } from "./uiIcons";
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
@@ -195,11 +201,74 @@ function UpdatedAgo({ ts }: { ts: number }) {
    );
 }
 
-/** `updated`: when it last changed (its latest call, or a later write of its source file). */
-function SlotPanel({ slot, env, updated }: { slot: Slot; env: UiEnv; updated: number }) {
+/** Share icon in a shared Panel's header; hover shows that it is shared, its Session count and last update. */
+function SharedBadge({ meta }: { meta: SharedArtifactMeta | undefined }) {
+   const now = useNow();
+   return (
+      <Tooltip
+         content={
+            <div className="flex flex-col gap-0.5">
+               <span className="font-medium">Shared artifact</span>
+               {meta && (
+                  <>
+                     <span>Attached in {sessionCount(meta)}</span>
+                     <span>Updated {formatRelativeTime(meta.updated_ms, now)}</span>
+                  </>
+               )}
+            </div>
+         }
+      >
+         <span
+            role="img"
+            aria-label="Shared artifact"
+            tabIndex={0}
+            className="flex shrink-0 items-center text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+         >
+            <Share2 className="size-3.5" />
+         </span>
+      </Tooltip>
+   );
+}
+
+/**
+ * `updated`: when it last changed (its latest call, or a later write of its source file). `shared`:
+ * the Shared Artifact it shows (ADR 0024): a share icon with its details on hover, and its menu.
+ */
+function SlotPanel({
+   slot,
+   env,
+   updated,
+   shared,
+}: {
+   slot: Slot;
+   env: UiEnv;
+   updated: number;
+   shared?: {
+      meta: SharedArtifactMeta | undefined;
+      onDetach: () => void;
+      onOpenOutside?: () => void;
+   };
+}) {
    return (
       <>
-         <PanelHeader title={slot.title ?? slot.id}>
+         <PanelHeader
+            title={slot.title ?? slot.id}
+            menu={
+               shared && (
+                  <>
+                     {shared.onOpenOutside && (
+                        <DropdownMenuItem onSelect={shared.onOpenOutside}>
+                           <ExternalLink /> Open outside Session
+                        </DropdownMenuItem>
+                     )}
+                     <DropdownMenuItem onSelect={shared.onDetach}>
+                        <Unlink /> Detach
+                     </DropdownMenuItem>
+                  </>
+               )
+            }
+         >
+            {shared && <SharedBadge meta={shared.meta} />}
             {updated > 0 && <UpdatedAgo ts={updated} />}
          </PanelHeader>
          <ScrollArea className="min-h-0 flex-1">
@@ -234,6 +303,7 @@ export function View({
    onPanelWidth,
    overlayFrame,
    context,
+   onOpenShared,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -247,6 +317,7 @@ export function View({
    onPanelWidth?: (width: PanelWidth) => void;
    overlayFrame?: OverlayFrame;
    context?: PromptContext;
+   onOpenShared?: (id: string) => void;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -268,6 +339,7 @@ export function View({
          onPanelWidth={onPanelWidth}
          overlayFrame={overlayFrame}
          context={context}
+         onOpenShared={onOpenShared}
       />
    );
 }
@@ -341,6 +413,7 @@ function ChatView({
    onPanelWidth,
    overlayFrame,
    context,
+   onOpenShared,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -354,6 +427,7 @@ function ChatView({
    onPanelWidth?: (width: PanelWidth) => void;
    overlayFrame?: OverlayFrame;
    context?: PromptContext;
+   onOpenShared?: (id: string) => void;
 }) {
    const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
@@ -367,16 +441,35 @@ function ChatView({
       }, 150);
       return () => clearTimeout(t);
    }, []);
-   const { ui, rows, subagents } = useRows(state.items);
+   const { ui, rows, subagents } = useRows(state.items, state.sharedAttached);
+
+   // Shared Artifacts (ADR 0024): all of them, for titles and Session counts.
+   const sharedSource = useMemo(
+      () => ({
+         list: () => api.listShared(),
+         onListChanged: (f: () => void) => api.sharedListChanged(f),
+      }),
+      [api],
+   );
+   const sharedList = useSharedArtifacts(sharedSource);
+   const sharedMetas = useMemo(
+      () => new Map((sharedList ?? []).map((e) => [e.meta.id, e.meta])),
+      [sharedList],
+   );
 
    // render_ui items placed left or right are panels. Their default zone follows the placement.
-   const slots = useMemo(
-      () => [
-         ...ui.slots.left.map((slot) => ({ slot, zone: "leftTop" as Zone })),
-         ...ui.slots.right.map((slot) => ({ slot, zone: "rightTop" as Zone })),
-      ],
-      [ui.slots.left, ui.slots.right],
-   );
+   // A panel showing a Shared Artifact takes the artifact's title (it can be renamed).
+   const slots = useMemo(() => {
+      const titled = (slot: Slot) => {
+         const id = sharedRef(slot.source);
+         const title = id ? sharedMetas.get(id)?.title : undefined;
+         return title && title !== slot.title ? { ...slot, title } : slot;
+      };
+      return [
+         ...ui.slots.left.map((slot) => ({ slot: titled(slot), zone: "leftTop" as Zone })),
+         ...ui.slots.right.map((slot) => ({ slot: titled(slot), zone: "rightTop" as Zone })),
+      ];
+   }, [ui.slots.left, ui.slots.right, sharedMetas]);
    const slotPanels = useMemo(
       () => slots.map((s) => ({ id: slotPanel(s.slot.id), zone: s.zone })),
       [slots],
@@ -550,6 +643,9 @@ function ChatView({
          open: (p, line) => api.openInEditor(p, line),
          readSource: (name) => api.panelSourceRead(name),
          watchSources: (onChange) => api.panelSourceChanged(onChange),
+         readShared: (id) => api.readShared(id),
+         watchShared: (onChange) => api.sharedChanged(onChange),
+         patchShared: (id, ops) => api.patchArtifactState(id, ops),
          scope: api.sessionId,
       }),
       [api, state.uiState],
@@ -619,6 +715,51 @@ function ChatView({
       },
       [update, jumpToRow],
    );
+   // Shared Artifacts (ADR 0024): the Artifacts panel's group and actions, and "Make shared" on blocks.
+   const showShared = useCallback(
+      (id: string) => {
+         const slot = slots.find((s) => sharedRef(s.slot.source) === id)?.slot;
+         if (slot) update((l) => show(l, slotPanel(slot.id)));
+      },
+      [slots, update],
+   );
+   // Message blocks this Session shared, by their artifact key: the copy stands in for them.
+   const sharedCopies = useMemo(() => {
+      const m = new Map<string, string>();
+      for (const { id } of state.sharedAttached) {
+         const by = sharedMetas.get(id)?.created_by;
+         if (by?.origin && by.session_id === api.sessionId) m.set(by.origin, id);
+      }
+      return m;
+   }, [state.sharedAttached, sharedMetas, api.sessionId]);
+   const sharedActions = useMemo<SharedActions>(
+      () => ({
+         attached: state.sharedAttached,
+         metas: sharedMetas,
+         copies: sharedCopies,
+         search: (q) => api.listShared(q),
+         share: (a) =>
+            a.kind === "ui"
+               ? api.shareArtifact(a.slotId!)
+               : api.shareMarkdown(blockMarkdown(a), a.title, a.key),
+         attach: (id) => api.attachShared(id),
+         detach: (id) => api.detachShared(id),
+         open: showShared,
+         openOutside: onOpenShared,
+      }),
+      [api, state.sharedAttached, sharedMetas, sharedCopies, showShared, onOpenShared],
+   );
+   const shareBlock = useCallback(
+      (markdown: string, title?: string) => {
+         const origin = artifacts.find(
+            (a) => a.kind !== "ui" && blockMarkdown(a) === markdown,
+         )?.key;
+         void api
+            .shareMarkdown(markdown, title, origin)
+            .catch((e) => console.error("share failed", e));
+      },
+      [api, artifacts],
+   );
    const jumpToMention = useCallback(
       (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),
       [jumpToRow],
@@ -681,11 +822,22 @@ function ChatView({
 
    // File-backed panels (ADR 0023): their files' hashes and write times.
    const sourceNames = useMemo(
-      () => [...new Set(slots.flatMap(({ slot }) => (slot.source ? [slot.source] : [])))].sort(),
+      () =>
+         [
+            ...new Set(
+               slots.flatMap(({ slot }) =>
+                  slot.source && !sharedRef(slot.source) ? [slot.source] : [],
+               ),
+            ),
+         ].sort(),
       [slots],
    );
    const stamps = useSourceStamps(api.panelSourceRead, api.panelSourceChanged, sourceNames);
-   const updatedAt = (x: Slot) => Math.max(x.ts, x.source ? (stamps[x.source]?.mtime ?? 0) : 0);
+   const updatedAt = (x: Slot) => {
+      const id = sharedRef(x.source);
+      if (id) return sharedMetas.get(id)?.updated_ms ?? 0;
+      return Math.max(x.ts, x.source ? (stamps[x.source]?.mtime ?? 0) : 0);
+   };
 
    // A dot on a slot's icon marks changes made while it was closed (its first sight counts as seen),
    // including writes of a source file.
@@ -696,7 +848,13 @@ function ChatView({
          let next = prev;
          for (const { slot } of slots) {
             // A source not read yet is not seen yet.
-            if (slot.source && !(slot.source in stamps) && !(slot.id in prev)) continue;
+            if (
+               slot.source &&
+               !sharedRef(slot.source) &&
+               !(slot.source in stamps) &&
+               !(slot.id in prev)
+            )
+               continue;
             const k = slotKey(slot);
             if ((open(slotPanel(slot.id)) || !(slot.id in prev)) && prev[slot.id] !== k)
                next = { ...next, [slot.id]: k };
@@ -885,7 +1043,9 @@ function ChatView({
       panels.push({
          id: "artifacts",
          label: "Artifacts",
-         children: <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} />,
+         children: (
+            <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} shared={sharedActions} />
+         ),
       });
    if (open("plan"))
       panels.push({
@@ -902,11 +1062,30 @@ function ChatView({
          children: <ReferencesPanel resolved={resolved} onJump={jumpToMention} />,
       });
    for (const [id, slot] of slotById) {
+      const sharedId = sharedRef(slot.source);
       if (open(id))
          panels.push({
             id,
             label: slot.title ?? slot.id,
-            children: <SlotPanel slot={slot} env={env} updated={updatedAt(slot)} />,
+            children: (
+               <SlotPanel
+                  slot={slot}
+                  env={env}
+                  updated={updatedAt(slot)}
+                  shared={
+                     sharedId
+                        ? {
+                             meta: sharedMetas.get(sharedId),
+                             onDetach: () =>
+                                void api
+                                   .detachShared(sharedId)
+                                   .catch((e) => console.error("detach failed", e)),
+                             onOpenOutside: onOpenShared && (() => onOpenShared(sharedId)),
+                          }
+                        : undefined
+                  }
+               />
+            ),
          });
    }
 
@@ -985,21 +1164,23 @@ function ChatView({
             }
          >
             {(inset) => (
-               <MessageList
-                  handle={list}
-                  api={api}
-                  state={state}
-                  threadId={state.mainThreadId ?? ""}
-                  side={false}
-                  env={env}
-                  ui={ui}
-                  rows={rows}
-                  subagents={subagents}
-                  onOpenDiff={openDiff}
-                  onOpenPlan={overlay ? undefined : openPlan}
-                  empty="Send a message to start."
-                  inset={inset}
-               />
+               <ShareBlock.Provider value={overlay ? null : shareBlock}>
+                  <MessageList
+                     handle={list}
+                     api={api}
+                     state={state}
+                     threadId={state.mainThreadId ?? ""}
+                     side={false}
+                     env={env}
+                     ui={ui}
+                     rows={rows}
+                     subagents={subagents}
+                     onOpenDiff={openDiff}
+                     onOpenPlan={overlay ? undefined : openPlan}
+                     empty="Send a message to start."
+                     inset={inset}
+                  />
+               </ShareBlock.Provider>
             )}
          </ScrollUnder>
       </>

@@ -22,6 +22,7 @@ pub mod mcp;
 mod panels;
 pub mod permissions;
 pub mod session;
+pub mod shared;
 mod shell;
 mod state;
 mod summary;

@@ -130,3 +130,17 @@ export const fileName = (title: string) =>
       .replace(/\s+/g, " ")
       .slice(0, 100)
       .replace(/^[\s.]+|[\s.]+$/g, "") || "artifact";
+
+/** Downloads of a Shared Artifact's content (ADR 0024), besides its picture: the file, or a tree's own formats. */
+export function sharedFormats(
+   name: string,
+   kind: "md" | "html" | "ui",
+   content: string,
+   root: RawNode | null,
+): ExportFormat[] {
+   if (kind === "md")
+      return [{ label: "Markdown", file: `${name}.md`, blob: text(content, "text/markdown") }];
+   if (kind === "html")
+      return [{ label: "HTML", file: `${name}.html`, blob: text(content, "text/html") }];
+   return root ? uiFormats(name, root) : [];
+}

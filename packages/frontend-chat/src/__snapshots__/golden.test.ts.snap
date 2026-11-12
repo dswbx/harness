@@ -801,6 +801,7 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   "readOnly": false,
   "recovery": null,
   "restoring": null,
+  "sharedAttached": [],
   "side": false,
   "sideMode": null,
   "startBoundary": "initial",
@@ -1101,6 +1102,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
     },
   },
   "restoring": null,
+  "sharedAttached": [],
   "side": false,
   "sideMode": null,
   "startBoundary": "initial",
@@ -1178,6 +1180,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "readOnly": false,
       "recovery": null,
       "restoring": null,
+      "sharedAttached": [],
       "side": true,
       "sideMode": null,
       "startBoundary": "forked",
@@ -1203,5 +1206,125 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
     "size": 200000,
     "used": 1200,
   },
+}
+`;
+
+exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed chat state 1`] = `
+{
+  "archived": false,
+  "commands": [],
+  "configOptions": [],
+  "forkedFrom": null,
+  "items": [
+    {
+      "attachments": [],
+      "context": null,
+      "id": "e2",
+      "text": "Make the release checklist shared",
+      "ts": 1790000000274,
+      "type": "user",
+    },
+    {
+      "callId": "call-1",
+      "files": {},
+      "id": "e3",
+      "input": {
+        "id": "plan",
+        "placement": "right",
+        "source": "plan.md",
+        "title": "Release checklist",
+      },
+      "path": "tools/render_ui/call-1.json",
+      "render": {
+        "ok": true,
+        "value": {
+          "id": "plan",
+          "placement": "right",
+          "root": {
+            "props": {
+              "source": "plan.md",
+            },
+            "type": "Markdown",
+          },
+          "source": "plan.md",
+          "title": "Release checklist",
+        },
+      },
+      "tool": "render_ui",
+      "ts": 1790000000411,
+      "type": "frontend_tool",
+    },
+    {
+      "callId": "call-2",
+      "files": {},
+      "id": "e4",
+      "input": {
+        "id": "plan",
+        "placement": "right",
+        "source": "shared:release-checklist-3f9a1c",
+        "title": "Release checklist",
+      },
+      "path": "tools/render_ui/call-2.json",
+      "render": {
+        "ok": true,
+        "value": {
+          "id": "plan",
+          "placement": "right",
+          "root": {
+            "props": {
+              "id": "release-checklist-3f9a1c",
+            },
+            "type": "Shared",
+          },
+          "source": "shared:release-checklist-3f9a1c",
+          "title": "Release checklist",
+        },
+      },
+      "tool": "render_ui",
+      "ts": 1790000000548,
+      "type": "frontend_tool",
+    },
+    {
+      "durationMs": 685,
+      "id": "e6",
+      "text": "Shared it as release-checklist-3f9a1c.",
+      "ts": 1790000000822,
+      "type": "agent",
+    },
+  ],
+  "lastMode": null,
+  "lastTurnErrored": false,
+  "mainThreadId": "golden-thread-main",
+  "plans": [],
+  "process": null,
+  "promptCaps": null,
+  "readOnly": false,
+  "recovery": null,
+  "restoring": null,
+  "sharedAttached": [
+    {
+      "id": "release-checklist-3f9a1c",
+      "ts": 1790000000685,
+    },
+  ],
+  "side": false,
+  "sideMode": null,
+  "startBoundary": null,
+  "taskList": [],
+  "threadList": [
+    {
+      "forkedFrom": null,
+      "id": "golden-thread-main",
+      "main": true,
+      "title": "Make the release checklist shared",
+      "turns": 1,
+    },
+  ],
+  "threads": {},
+  "title": null,
+  "turnId": null,
+  "turnStartedAt": null,
+  "uiState": {},
+  "usage": null,
 }
 `;

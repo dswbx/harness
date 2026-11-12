@@ -17,7 +17,7 @@ import {
    X,
    Zap,
 } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { SessionDetails, StatusDot } from "./SessionHeader";
 import {
    branchOf,
@@ -34,31 +34,7 @@ import {
    type ViewOptions,
    viewChanges,
 } from "./sessionGroups";
-
-/** A localStorage-backed value (per-window convenience: falls back to `initial`, ignores write errors). */
-function useStored<T>(key: string, initial: T, valid: (v: unknown) => v is T) {
-   const [value, setValue] = useState<T>(() => {
-      try {
-         const raw = localStorage.getItem(key);
-         const v: unknown = raw === null ? null : JSON.parse(raw);
-         return valid(v) ? v : initial;
-      } catch {
-         return initial;
-      }
-   });
-   const set = useCallback(
-      (v: T) => {
-         setValue(v);
-         try {
-            localStorage.setItem(key, JSON.stringify(v));
-         } catch {
-            /* per-window convenience only */
-         }
-      },
-      [key],
-   );
-   return [value, set] as const;
-}
+import { useStored } from "./useStored";
 
 const oneOf =
    <T extends string>(...opts: T[]) =>
@@ -494,18 +470,18 @@ export function SessionList({
                                     g.quick && "pr-7",
                                  )}
                               >
-                                 <ChevronRight
-                                    className={cn(
-                                       "size-3 shrink-0 transition-transform",
-                                       open && "rotate-90",
-                                    )}
-                                 />
                                  {g.folder && <Folder className="size-3.25 shrink-0" />}
                                  {g.quick && <Zap className="size-3.25 shrink-0" />}
                                  <span className="min-w-0 truncate text-foreground/75 group-hover/hdr:text-foreground">
                                     {g.label}
                                  </span>
                                  <span className="shrink-0 tabular-nums">{g.sessions.length}</span>
+                                 <ChevronRight
+                                    className={cn(
+                                       "size-3 shrink-0 transition-transform",
+                                       open && "rotate-90",
+                                    )}
+                                 />
                               </button>
                               {g.folder && onNewInFolder && g.sessions[0] && (
                                  <button

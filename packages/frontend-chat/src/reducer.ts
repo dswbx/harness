@@ -214,6 +214,11 @@ export type ChatState = {
    /** The Session State (ADR 0015), rebuilt from `StateChanged` (every Thread: it is per Session). */
    uiState: unknown;
    /**
+    * Shared Artifacts attached to the Session (ADR 0024), in attach order, from `ArtifactAttached` and
+    * `ArtifactDetached`. `ts`: when it was attached.
+    */
+   sharedAttached: readonly { id: string; ts: number }[];
+   /**
     * Side Threads by id (ADR 0018). Each is a full ChatState of its own Thread (`threads` empty), so
     * the message list and prompt box render it like the Main Thread. The Main Thread's state is this
     * object itself; `threadState` reaches either.
@@ -250,6 +255,7 @@ export const initialState = (): ChatState => ({
    archived: false,
    promptCaps: null,
    uiState: {},
+   sharedAttached: [],
    threads: {},
    threadList: [],
    forkedFrom: null,
@@ -364,6 +370,15 @@ function apply(c: Ctx, e: Event) {
       }
       return;
    }
+   // Shared Artifacts are Session-level. Their state is never folded here: Views read it from the
+   // artifact (ADR 0024 addendum), so `ArtifactStateChanged` never touches `uiState`.
+   if (k.type === "ArtifactAttached" || k.type === "ArtifactDetached") {
+      const rest = d.sharedAttached.filter((x) => x.id !== k.id);
+      d.sharedAttached =
+         k.type === "ArtifactAttached" ? [...rest, { id: k.id, ts: e.ts_ms }] : rest;
+      return;
+   }
+   if (k.type === "ArtifactStateChanged") return;
    d.threadList = stepThreads(d.threadList, e);
    if (k.type === "ThreadStarted" && k.main && !d.mainThreadId) d.mainThreadId = e.thread_id;
    // Side Threads fold into their own state; everything else (Main Thread, Session-level) into this one.

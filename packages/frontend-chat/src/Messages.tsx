@@ -452,8 +452,8 @@ function ToolGroupRow(props: ToolGroupProps) {
 }
 
 /** A Thread's items split into rows: render_ui calls moved to slots, resolved permissions and subagent calls folded away. */
-export function useRows(items: Item[]) {
-   const ui = useMemo(() => splitRenderUi(items), [items]);
+export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttached"]) {
+   const ui = useMemo(() => splitRenderUi(items, sharedAttached), [items, sharedAttached]);
    // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
    // calls that moved to a slot or were replaced by a later call with their id.
    // Subagent tool calls go inside their Task call's card.

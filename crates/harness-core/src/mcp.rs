@@ -159,9 +159,10 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ("git_push", "Push the current branch to origin (sets upstream).", empty.clone(), "git_push"),
         (
             "state_get",
-            "Read the Session State: one JSON document the user's UI can show and change (e.g. a score, answers). Omit `statePath` for all of it.",
+            "Read the Session State: one JSON document the user's UI can show and change (e.g. a score, answers). Omit `statePath` for all of it. With `artifact`, read that attached Shared Artifact's own state instead.",
             json!({ "type": "object", "properties": {
-                "statePath": { "type": "string", "description": "JSON Pointer, e.g. /quiz/score" }
+                "statePath": { "type": "string", "description": "JSON Pointer, e.g. /quiz/score" },
+                "artifact": { "type": "string", "description": "Id of an attached Shared Artifact" }
             } }),
             "read",
         ),
@@ -173,23 +174,50 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
                     "op": { "type": "string", "enum": ["add", "replace", "remove", "test"] },
                     "path": { "type": "string", "description": "JSON Pointer, e.g. /quiz/score" },
                     "value": { "description": "For add, replace and test" }
-                }, "required": ["op", "path"] } }
+                }, "required": ["op", "path"] } },
+                "artifact": { "type": "string", "description": "Id of an attached Shared Artifact: change its own state instead of the Session State" }
             }, "required": ["ops"] }),
             "state",
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, and `panels_dir`: the folder for the .md or .html files of file-backed panels (render_ui `source`).",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, `panels_dir`: the folder for the .md or .html files of file-backed panels (render_ui `source`), and `shared`: the Shared Artifacts attached to this Session (id, title, kind, `dir`: their folder, `file`: the content file in it).",
             empty.clone(),
             "read",
         ),
         (
             "ui_get",
-            "Read a panel you placed with render_ui: its stored input (root or source, placement, title, ...), the Session State values its `$state` paths point to, and for a `source` panel the file's current `content`. Use it before you change a panel you no longer see, e.g. after compaction.",
+            "Read a panel you placed with render_ui: its stored input (root or source, placement, title, ...), the Session State values its `$state` paths point to, and for a `source` panel the file's current `content`. For a Shared Artifact (`shared:<id>`, or a panel whose source is one): its meta, content and its own state. Use it before you change a panel you no longer see, e.g. after compaction.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "The panel's id, as in render_ui, or shared:<artifact id>" }
+            }, "required": ["id"] }),
+            "read",
+        ),
+        (
+            "artifact_search",
+            "Find Shared Artifacts (artifacts kept outside any Session, e.g. a checklist the user works on across Sessions) whose title or content contains `query`. Returns id, title, kind, updated_ms, a snippet, and whether this Session has it attached. Use it when the user names one. Omit `query` to list all.",
+            json!({ "type": "object", "properties": { "query": { "type": "string" } } }),
+            "read",
+        ),
+        (
+            "artifact_share",
+            "Make one of this Session's render_ui panels (by its id) a Shared Artifact, so other Sessions can attach it. Its file or tree moves out of this Session, with the state it uses. Only when the user asks. Returns the shared id and its folder.",
             json!({ "type": "object", "properties": {
                 "id": { "type": "string", "description": "The panel's id, as in render_ui" }
             }, "required": ["id"] }),
-            "read",
+            "state",
+        ),
+        (
+            "artifact_attach",
+            "Attach a Shared Artifact to this Session: the user sees it as a panel. Returns its folder and content file: edit .md and .html files there with your Edit tool; for a render_ui tree call render_ui with `id: \"shared:<id>\"` and a new `root`. Attaching is explicit: do it when the user asks for the artifact, not because it was named.",
+            json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }),
+            "state",
+        ),
+        (
+            "artifact_detach",
+            "Detach a Shared Artifact from this Session. The artifact stays; other Sessions keep it.",
+            json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }),
+            "state",
         ),
         (
             "threads_list",
@@ -297,7 +325,13 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
                 format!("Pushed {branch}.")
             }
             "state_get" => {
-                let state = session.state()?;
+                let state = match s("artifact") {
+                    Some(id) => {
+                        session.ensure_attached(&id)?;
+                        session.shared().artifacts.state(&id)?
+                    }
+                    None => session.state()?,
+                };
                 let v = match s("statePath").filter(|p| !p.is_empty()) {
                     Some(p) => state.pointer(&p).cloned().ok_or_else(|| anyhow::anyhow!("nothing at {p}"))?,
                     None => state,
@@ -307,8 +341,44 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
             "state_patch" => {
                 let ops: Vec<crate::api::StatePatchOp> =
                     serde_json::from_value(args.get("ops").cloned().unwrap_or_default()).map_err(|e| anyhow::anyhow!("invalid ops: {e}"))?;
-                let state = session.patch_state(Some(thread.clone()), ops, crate::api::StateWriter::Agent)?;
+                let state = match s("artifact") {
+                    Some(id) => session.patch_artifact_state(Some(thread.clone()), &id, ops, crate::api::StateWriter::Agent)?,
+                    None => session.patch_state(Some(thread.clone()), ops, crate::api::StateWriter::Agent)?,
+                };
                 serde_json::to_string_pretty(&state)?
+            }
+            "artifact_search" => {
+                let attached = session.attached_shared()?;
+                let hits: Vec<Value> = session
+                    .shared()
+                    .artifacts
+                    .list(s("query").as_deref())
+                    .into_iter()
+                    .take(20)
+                    .map(|e| {
+                        let m = e.meta;
+                        json!({ "id": m.id, "title": m.title, "kind": m.kind, "updated_ms": m.updated_ms, "snippet": e.snippet, "attached": attached.contains(&m.id) })
+                    })
+                    .collect();
+                if hits.is_empty() { "No Shared Artifacts match.".to_owned() } else { serde_json::to_string_pretty(&hits)? }
+            }
+            "artifact_share" => {
+                let id = s("id").ok_or_else(|| anyhow::anyhow!("id is required"))?;
+                let meta = session.share_item(&id, crate::api::StateWriter::Agent)?;
+                session.shared().app_events.emit(crate::api::AppEvent::SharedArtifactsChanged);
+                serde_json::to_string_pretty(&shared_info(session, &meta))?
+            }
+            "artifact_attach" => {
+                let id = s("id").ok_or_else(|| anyhow::anyhow!("id is required"))?;
+                let meta = session.attach_shared(&id, crate::api::StateWriter::Agent)?;
+                session.shared().app_events.emit(crate::api::AppEvent::SharedArtifactsChanged);
+                serde_json::to_string_pretty(&shared_info(session, &meta))?
+            }
+            "artifact_detach" => {
+                let id = s("id").ok_or_else(|| anyhow::anyhow!("id is required"))?;
+                session.detach_shared(&id, crate::api::StateWriter::Agent)?;
+                session.shared().app_events.emit(crate::api::AppEvent::SharedArtifactsChanged);
+                format!("Detached {id}.")
             }
             "harness_info" => serde_json::to_string_pretty(&info(session)?)?,
             "ui_get" => serde_json::to_string_pretty(&ui_get(session, s("id").as_deref())?)?,
@@ -327,8 +397,27 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
     // the error carries the description: enough to get the next call right.
     anyhow::ensure!(errors.is_empty(), "invalid input for {name}:\n{errors}\n\nHow to call {name}:\n{}", tool.description);
     // A file-backed panel (ADR 0023): the log keeps the name; the file must exist in panels_dir.
+    // `shared:<id>` names an attached Shared Artifact instead (ADR 0024).
     if let Some(source) = args.get("source").and_then(Value::as_str) {
-        crate::panels::read(&session.panels_dir(), source).map_err(|e| anyhow::anyhow!("{e:#}. Write the file first, then call {name} again."))?;
+        match crate::shared::reference(source) {
+            Some(id) => drop(session.ensure_attached(id)?),
+            None => {
+                drop(crate::panels::read(&session.panels_dir(), source).map_err(|e| anyhow::anyhow!("{e:#}. Write the file first, then call {name} again."))?)
+            }
+        }
+    }
+    // `id: "shared:<id>"` with a `root` replaces a shared tree's `ui.json`. Not logged: the watcher
+    // tells every View.
+    if let Some(id) = args.get("id").and_then(Value::as_str).and_then(crate::shared::reference) {
+        let root = args.get("root").filter(|_| args.get("remove").is_none() && args.get("source").is_none());
+        let root = root.ok_or_else(|| anyhow::anyhow!("an id shared:<id> takes only a new root (to detach it, use artifact_detach)"))?;
+        session.ensure_attached(id)?;
+        let images = images.lock().clone();
+        let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
+        crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
+        session.shared().artifacts.write_ui(id, root, planned)?;
+        session.shared().app_events.emit(crate::api::AppEvent::SharedArtifactChanged { id: id.to_owned() });
+        return Ok(vec![ContentBlock::text(format!("Done. Shared artifact {id} now shows the new tree in every Session that has it attached."))]);
     }
     if tool.replies {
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "read", &args).await?;
@@ -353,22 +442,32 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
 /// the paths it binds (`$state`, `$bindState`, `${/path}` in `$template`; `$computed` args are
 /// ordinary `$state` values).
 fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Value> {
-    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|x| x.tool == "render_ui").map(|x| (x.id, x.input)).collect();
     let id = id.ok_or_else(|| anyhow::anyhow!("id is required"))?;
+    if let Some(shared) = crate::shared::reference(id) {
+        session.ensure_attached(shared)?;
+        return shared_get(session, shared);
+    }
+    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|x| x.tool == crate::session::RENDER_UI).map(|x| (x.id, x.input)).collect();
     let Some((_, input)) = items.iter().find(|(i, _)| i == id) else {
         let known: Vec<&str> = items.iter().map(|(i, _)| i.as_str()).collect();
         anyhow::bail!("no render_ui panel with id {id:?}. Known ids: {}", if known.is_empty() { "none".to_owned() } else { known.join(", ") });
     };
-    let mut paths = Vec::new();
-    collect_state_paths(input, &mut paths);
-    let doc = session.state()?;
-    let mut state = Map::new();
-    for p in paths {
-        let v = doc.pointer(&p).cloned().unwrap_or(Value::Null);
-        state.insert(p, v);
+    let source = input.get("source").and_then(Value::as_str);
+    if let Some(shared) = source.and_then(crate::shared::reference) {
+        let mut out = json!({ "input": input });
+        match shared_get(session, shared) {
+            Ok(Value::Object(o)) => {
+                if let Some(m) = out.as_object_mut() {
+                    m.extend(o);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => out["error"] = json!(format!("Shared artifact missing: {e:#}")),
+        }
+        return Ok(out);
     }
-    let mut out = json!({ "input": input, "state": state });
-    if let Some(source) = input.get("source").and_then(Value::as_str) {
+    let mut out = json!({ "input": input, "state": bound_values(&session.state()?, input) });
+    if let Some(source) = source {
         match crate::panels::read(&session.panels_dir(), source) {
             Ok((content, _)) => out["content"] = json!(content),
             Err(e) => out["error"] = json!(format!("{e:#}")),
@@ -377,34 +476,37 @@ fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Value> {
     Ok(out)
 }
 
-fn collect_state_paths(v: &Value, out: &mut Vec<String>) {
-    fn add(out: &mut Vec<String>, p: &str) {
-        if p.starts_with('/') && !out.iter().any(|o| o == p) {
-            out.push(p.to_owned());
-        }
+/// The values of `doc` at the paths `input` binds (null when missing).
+fn bound_values(doc: &Value, input: &Value) -> Map<String, Value> {
+    crate::state::bound_paths(input)
+        .into_iter()
+        .map(|p| {
+            let v = doc.pointer(&p).cloned().unwrap_or(Value::Null);
+            (p, v)
+        })
+        .collect()
+}
+
+/// `ui_get` for a Shared Artifact: its meta, folder, content (a tree as `input`) and state (for a
+/// tree, the values at the paths it binds; else all of it).
+fn shared_get(session: &Session, id: &str) -> anyhow::Result<Value> {
+    let r = session.shared().artifacts.read(id)?;
+    let mut out = shared_info(session, &r.meta);
+    if r.meta.kind == crate::api::SharedKind::Ui {
+        let ui: Value = serde_json::from_str(&r.content).map_err(|e| anyhow::anyhow!("ui.json of {id} is not JSON: {e}"))?;
+        out["state"] = json!(bound_values(&r.state, &ui["root"]));
+        out["tree"] = ui;
+    } else {
+        out["content"] = json!(r.content);
+        out["state"] = r.state;
     }
-    match v {
-        Value::Object(o) => {
-            for (k, v) in o {
-                match (k.as_str(), v) {
-                    // statePath: Accordion/Tabs `repeat` and action targets.
-                    ("$state" | "$bindState" | "statePath", Value::String(p)) => add(out, p),
-                    ("$template", Value::String(t)) => {
-                        let mut rest = t.as_str();
-                        while let Some((_, after)) = rest.split_once("${") {
-                            let Some((p, tail)) = after.split_once('}') else { break };
-                            add(out, p);
-                            rest = tail;
-                        }
-                    }
-                    _ => {}
-                }
-                collect_state_paths(v, out);
-            }
-        }
-        Value::Array(a) => a.iter().for_each(|v| collect_state_paths(v, out)),
-        _ => {}
-    }
+    Ok(out)
+}
+
+/// What the Agent needs to find a Shared Artifact again: id, title, kind, folder and content file.
+fn shared_info(session: &Session, meta: &crate::api::SharedArtifactMeta) -> Value {
+    let dir = session.shared().artifacts.folder(&meta.id).map(|d| d.display().to_string()).unwrap_or_default();
+    json!({ "id": meta.id, "title": meta.title, "kind": meta.kind, "dir": dir, "file": crate::shared::content_name(meta.kind) })
 }
 
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
@@ -415,7 +517,7 @@ fn info(session: &Session) -> anyhow::Result<Value> {
     let items: Vec<Value> = session
         .frontend_items()?
         .into_iter()
-        .map(|crate::session::FrontendItem { tool, id, input, ts_ms }| {
+        .map(|crate::session::FrontendItem { tool, id, input, ts_ms, .. }| {
             let mut item = json!({ "tool": tool, "id": id });
             for k in ["placement", "title", "source"] {
                 if let Some(v) = input.get(k) {
@@ -426,9 +528,15 @@ fn info(session: &Session) -> anyhow::Result<Value> {
             // When it last changed: its latest call, or for a file-backed panel a later file write.
             let mut updated = ts_ms;
             if let Some(source) = input.get("source").and_then(Value::as_str) {
-                match crate::panels::read(&panels, source) {
-                    Ok(_) => updated = updated.max(crate::panels::mtime_ms(&panels, source).unwrap_or(0)),
-                    Err(e) => errs.push(format!("Source missing: {e:#}")),
+                match crate::shared::reference(source) {
+                    Some(sid) => match session.shared().artifacts.get(sid) {
+                        Ok(m) => updated = updated.max(m.updated_ms),
+                        Err(_) => errs.push(format!("Shared artifact missing: {sid}")),
+                    },
+                    None => match crate::panels::read(&panels, source) {
+                        Ok(_) => updated = updated.max(crate::panels::mtime_ms(&panels, source).unwrap_or(0)),
+                        Err(e) => errs.push(format!("Source missing: {e:#}")),
+                    },
                 }
             }
             item["updated_ms"] = json!(updated);
@@ -439,7 +547,15 @@ fn info(session: &Session) -> anyhow::Result<Value> {
         })
         .collect();
     let keys: Vec<String> = session.state()?.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-    Ok(json!({ "items": items, "state_keys": keys, "panels_dir": panels.display().to_string() }))
+    let shared: Vec<Value> = session
+        .attached_shared()?
+        .into_iter()
+        .map(|id| match session.shared().artifacts.get(&id) {
+            Ok(meta) => shared_info(session, &meta),
+            Err(_) => json!({ "id": id, "errors": ["Shared artifact missing: it was deleted"] }),
+        })
+        .collect();
+    Ok(json!({ "items": items, "state_keys": keys, "panels_dir": panels.display().to_string(), "shared": shared }))
 }
 
 /// `harness mcp-shim`: proxies stdio MCP (one JSON-RPC message per line) to the Harness MCP at

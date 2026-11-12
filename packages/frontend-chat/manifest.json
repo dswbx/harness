@@ -110,8 +110,8 @@
           },
           "source": {
             "type": "string",
-            "pattern": "^[^/].*\\.(md|html)$",
-            "description": "Instead of root: a .md or .html file in panels_dir (see harness_info), e.g. progress.md or upgrade/board.html. The panel shows the file and updates when you edit it."
+            "pattern": "^(shared:[a-z0-9][a-z0-9-]*|[^/].*\\.(md|html))$",
+            "description": "Instead of root: a .md or .html file in panels_dir (see harness_info), e.g. progress.md or upgrade/board.html. The panel shows the file and updates when you edit it. Or shared:<id>: a Shared Artifact attached to this Session (see artifact_attach)."
           }
         },
         "additionalProperties": false,

@@ -40,7 +40,14 @@ export type AppEvent =
  *  A file in the Session's `panels/` folder changed (ADR 0023): windows showing a panel with
  *  this `source` re-read it. Sent once per burst of writes; live only and not logged.
  */
-{ type: "PanelSourceChanged"; session_id: string; name: string };
+{ type: "PanelSourceChanged"; session_id: string; name: string } | 
+/**
+ *  A Shared Artifact's content, state or meta changed (ADR 0024): Views showing it re-read it.
+ *  Live only, not logged.
+ */
+{ type: "SharedArtifactChanged"; id: string } | 
+/**  Shared Artifacts were added, removed, renamed, attached or detached: reload the list. */
+{ type: "SharedArtifactsChanged" };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes" | 
@@ -330,7 +337,35 @@ global?: boolean } | { type: "ListPermissionRules" } | { type: "AddPermissionRul
  *  Reads an image file picked or dropped in the prompt box (base64), for its preview and
  *  scaling. Only image files by extension.
  */
-{ type: "ReadImageFile"; path: string };
+{ type: "ReadImageFile"; path: string } | 
+/**
+ *  Shared Artifacts (ADR 0024), most recently updated first. With `query`: at most 20 whose
+ *  title or content contains it (case-insensitive), title matches first, each with a snippet.
+ */
+{ type: "ListSharedArtifacts"; query?: string | null } | 
+/**  A Shared Artifact's meta, content, hash and state. Needs no Session. */
+{ type: "SharedArtifactRead"; id: string } | 
+/**
+ *  Makes a Session's `render_ui` item (`item_id`) shared: its file or tree moves to `shared/`,
+ *  the item then shows `source: "shared:<id>"`, and the Session is attached.
+ */
+{ type: "ShareArtifact"; session_id: string; item_id: string } | 
+/**
+ *  Shares a copy of Markdown from a message (a Mermaid diagram or a table) as a new `md`
+ *  Shared Artifact and attaches the Session.
+ */
+{ type: "ShareMarkdown"; session_id: string; markdown: string; title?: string | null; 
+/**  The block's key in the Frontend, kept in `created_by.origin`. */
+origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; id: string } | { type: "DetachSharedArtifact"; session_id: string; id: string } | { type: "RenameSharedArtifact"; id: string; title: string } | 
+/**  Removes the Shared Artifact's folder. Items that show it then show it as missing. */
+{ type: "DeleteSharedArtifact"; id: string } | 
+/**  Opens a Shared Artifact's content file in the user's editor. Needs no Session. */
+{ type: "OpenSharedInEditor"; id: string } | 
+/**
+ *  Changes a Shared Artifact's state as the user. With `session_id`, that Session logs
+ *  `ArtifactStateChanged`; without, nothing is logged (the no-Session view).
+ */
+{ type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null };
 
 export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | 
 /**
@@ -359,7 +394,17 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
  */
 { type: "SessionFiles"; files: string[]; prefix: string } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
-{ type: "Attachment"; mime: string; data: string };
+{ type: "Attachment"; mime: string; data: string } | { type: "SharedArtifactList"; artifacts: SharedArtifactEntry[] } | 
+/**  A Shared Artifact that was shared, attached or renamed. */
+{ type: "SharedArtifactInfo"; meta: SharedArtifactMeta } | 
+/**
+ *  `content`: `content.md`, `content.html` or `ui.json` (`{root, files}`, `files` relative to
+ *  `dir`); `hash`: its sha256 (hex); `mtime_ms`: when it was last written (0 when unknown);
+ *  `state`: the artifact's state (`{}` when none).
+ */
+{ type: "SharedArtifact"; meta: SharedArtifactMeta; content: string; hash: string; mtime_ms: number; state: unknown; 
+/**  The artifact's folder (absolute). */
+dir: string };
 
 export type Commit = {
 	sha: string,
@@ -527,7 +572,14 @@ files?: { [key in string]: string } } |
  *  The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
  *  current state.
  */
-{ type: "StateChanged"; ops: StatePatchOp[]; by: StateWriter } | { type: "GitCommitted"; commit: string; message: string; by?: GitActor } | { type: "GitPushed"; branch: string; by?: GitActor } | { type: "SessionArchived"; archived: boolean } | 
+{ type: "StateChanged"; ops: StatePatchOp[]; by: StateWriter } | 
+/**  The Session attached a Shared Artifact (ADR 0024): it shows as a Panel. */
+{ type: "ArtifactAttached"; id: string; by: StateWriter } | { type: "ArtifactDetached"; id: string; by: StateWriter } | 
+/**
+ *  This Session changed a Shared Artifact's state. Not replayed into any state: Views read the
+ *  artifact's current state with `SharedArtifactRead` (ADR 0024 addendum).
+ */
+{ type: "ArtifactStateChanged"; id: string; ops: StatePatchOp[]; by: StateWriter } | { type: "GitCommitted"; commit: string; message: string; by?: GitActor } | { type: "GitPushed"; branch: string; by?: GitActor } | { type: "SessionArchived"; archived: boolean } | 
 /**
  *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
  *  output). `severity` is `info`, `warning`, `error` or a custom value.
@@ -802,6 +854,40 @@ export type SessionSummary = {
 	quick: boolean,
 	workspace: WorkspaceInfo,
 };
+
+/**  One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search. */
+export type SharedArtifactEntry = {
+	meta: SharedArtifactMeta,
+	snippet?: string | null,
+};
+
+/**  `shared/<id>/meta.json` (ADR 0024). `attached` is a cache; the Session Logs are the truth. */
+export type SharedArtifactMeta = {
+	v: number,
+	/**  `<slug>-<6 hex>`; never changes. */
+	id: string,
+	title: string,
+	kind: SharedKind,
+	created_ms: number,
+	/**  Last change of content, state or meta. */
+	updated_ms: number,
+	created_by: SharedCreator,
+	attached?: string[],
+};
+
+/**  The Session that made an artifact shared. */
+export type SharedCreator = {
+	session_id: string,
+	session_title: string,
+	/**
+	 *  What it was copied from in that Session, as the Frontend names it (an Artifacts panel key,
+	 *  e.g. `<row id>:table:0`). Lets that Session list the source and the copy once.
+	 */
+	origin?: string | null,
+};
+
+/**  What a Shared Artifact holds: `content.md`, `content.html`, or a `render_ui` tree in `ui.json`. */
+export type SharedKind = "md" | "html" | "ui";
 
 export type SlashCommand = {
 	name: string,
