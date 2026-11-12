@@ -83,3 +83,11 @@ export function fileTree<T extends Changed>(
 export function ancestorKeys(closed: ReadonlySet<string>, path: string): string[] {
    return [...closed].filter((k) => path.startsWith(k + "/"));
 }
+
+/** Git status by path relative to the folder at `prefix` in the repository (`crates/`); files outside it are left out. */
+export const folderStatus = <S>(files: { path: string; status: S }[], prefix: string) =>
+   new Map(
+      files
+         .filter((f) => f.path.startsWith(prefix))
+         .map((f) => [f.path.slice(prefix.length), f.status]),
+   );

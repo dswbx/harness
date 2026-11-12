@@ -38,17 +38,17 @@ const empty: Layout = {
       leftBottom: ["artifacts", "references"],
       bottomLeft: ["terminal"],
       bottomRight: ["events"],
-      rightBottom: [],
+      rightBottom: ["files"],
       rightTop: ["side"],
    },
 };
 
 describe("defaultLayout", () => {
-   it("has Artifacts left top, References left bottom, Changes first in right top", () => {
+   it("has Artifacts left top, References left bottom, Changes then Files first in right top", () => {
       const { zones } = defaultLayout();
       expect(zones.leftTop).toEqual(["artifacts"]);
       expect(zones.leftBottom).toEqual(["references"]);
-      expect(zones.rightTop).toEqual(["changes", "side", "plan"]);
+      expect(zones.rightTop).toEqual(["changes", "files", "side", "plan"]);
    });
 });
 const open = (l: Layout, ...ids: PanelId[]) => ids.reduce(show, l);
@@ -229,6 +229,13 @@ describe("reconcile", () => {
       expect(r.zones.bottomRight).toEqual(["events"]);
       expect(r.zones.rightTop).toEqual(["side", "changes", "plan"]);
    });
+   it("adds the Files panel to an old saved layout, next to Changes", () => {
+      const old = defaultLayout();
+      old.zones.rightTop = ["changes", "side"];
+      const r = reconcile(old, []);
+      expect(r.zones.rightTop).toEqual(["changes", "side", "files", "plan"]);
+      expect(zoneOf(r, "files")).toBe("rightTop");
+   });
    it("drops unknown ids and duplicates", () => {
       const l = {
          ...empty,
@@ -347,7 +354,7 @@ describe("migration of the old right panel state", () => {
    });
    it("a slot view opens in right top", () => {
       const l = migratePanel({ threads: [], view: { kind: "slot", id: "notes" } });
-      expect(l.zones.rightTop).toEqual(["changes", "side", "plan", "slot:notes"]);
+      expect(l.zones.rightTop).toEqual(["changes", "files", "side", "plan", "slot:notes"]);
       expect(l.open.rightTop).toBe("slot:notes");
    });
    it("no view or garbage opens nothing", () => {
@@ -482,7 +489,7 @@ describe("overlay profile", () => {
       const l = overlayProfile(show(empty, "terminal"));
       expect(l.zones.bottomLeft).toEqual([]);
       expect(l.zones.bottomRight).toEqual([]);
-      expect(l.zones.rightBottom).toEqual(["terminal", "events"]);
+      expect(l.zones.rightBottom).toEqual(["files", "terminal", "events"]);
       expect(l.open.rightBottom).toBe("terminal");
       expect(l.open.bottomLeft).toBeNull();
    });
@@ -490,7 +497,7 @@ describe("overlay profile", () => {
       const base = show(move(empty, "side", "rightBottom"), "side");
       const l = overlayProfile(show(base, "events"));
       expect(l.open.rightBottom).toBe("side");
-      expect(l.zones.rightBottom).toEqual(["side", "terminal", "events"]);
+      expect(l.zones.rightBottom).toEqual(["files", "side", "terminal", "events"]);
    });
    it("returns the same layout when there is nothing to move", () => {
       const l = overlayProfile(empty);

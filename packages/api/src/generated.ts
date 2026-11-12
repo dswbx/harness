@@ -185,6 +185,11 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  */
 { type: "ExportPlan"; session_id: string; name: string; markdown: string; open_in_editor?: boolean } | 
 /**
+ *  Files in the Session's folder: relative paths, `/` separators, sorted. In a git repository, the files `.gitignore`
+ *  does not exclude; elsewhere, all but hidden and build folders. Capped. Replies `SessionFiles`.
+ */
+{ type: "ListSessionFiles"; session_id: string } | 
+/**
  *  Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
  *  (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
  *  for a file reference in a message. Fails for files outside the folder,
@@ -332,7 +337,12 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
 /**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
 { type: "WorktreeDir"; dir: string } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
-{ type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
+{ type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | 
+/**
+ *  `ListSessionFiles`. `prefix`: the folder's path in its git repository (`crates/`, empty at the root or
+ *  outside git), to match repo-relative paths such as git status to `files`.
+ */
+{ type: "SessionFiles"; files: string[]; prefix: string } | { type: "PermissionRules"; rules: PermissionRule[] } | { type: "PermissionRuleAdded"; rule: PermissionRule } | 
 /**  `data` is base64. */
 { type: "Attachment"; mime: string; data: string };
 

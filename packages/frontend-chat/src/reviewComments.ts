@@ -29,10 +29,30 @@ export type QuoteComment = {
    label?: string;
 };
 
-export type ReviewComment = DiffComment | QuoteComment;
-export type NewComment = Omit<DiffComment, "id"> | Omit<QuoteComment, "id">;
+/** A comment on one line of a file (the Files panel), waiting in the prompt box until the next send. */
+export type FileComment = {
+   id: string;
+   kind: "file";
+   path: string;
+   line: number;
+   /** The commented line's code, quoted in the prompt. */
+   code: string;
+   text: string;
+};
 
-export const isDiffComment = (c: ReviewComment): c is DiffComment => c.kind !== "quote";
+export type ReviewComment = DiffComment | FileComment | QuoteComment;
+export type NewComment =
+   | Omit<DiffComment, "id">
+   | Omit<FileComment, "id">
+   | Omit<QuoteComment, "id">;
+
+/** Diff comments saved before `kind` existed have no `kind`. */
+export const isDiffComment = (c: ReviewComment): c is DiffComment =>
+   c.kind === undefined || c.kind === "diff";
+export const isFileComment = (c: ReviewComment): c is FileComment => c.kind === "file";
+/** A comment on a code line (diff or file): the "Review comments:" section. */
+export const isLineComment = (c: ReviewComment): c is DiffComment | FileComment =>
+   c.kind !== "quote";
 
 /** Fence long enough that no backtick run inside `code` closes it. */
 function fence(code: string) {
@@ -57,11 +77,15 @@ const sourceHeader = (source: "plan" | "artifact", label: string) =>
 const PLAN_HEAD = /^Comments on the plan(?: \((.+)\))?:$/;
 const ARTIFACT_HEAD = /^Comments on (?:the artifact|artifact "(.+)"):$/;
 
-/** The sections the prompt gets on send: "Review comments:" (diff lines), "Comments on the conversation:" (quotes). */
+/**
+ * The sections the prompt gets on send: "Review comments:" (diff and file lines; a diff line has its side),
+ * "Comments on the conversation:" (quotes).
+ */
 export function formatReviewComments(comments: ReviewComment[]): string {
-   const diffs = comments.filter(isDiffComment).map((c) => {
+   const diffs = comments.filter(isLineComment).map((c) => {
       const f = fence(c.code);
-      return `${c.path}:${c.line} (${c.side})\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
+      const side = c.kind === "file" ? "" : ` (${c.side})`;
+      return `${c.path}:${c.line}${side}\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
    });
    const item = (c: QuoteComment) => [quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n");
    const quotesOf = (pick: (c: QuoteComment) => boolean) =>
@@ -122,7 +146,8 @@ const parseHeader = (l: string | undefined): Header | null => {
    if (a) return { section: "artifact", label: a[1] };
    return null;
 };
-const DIFF_HEAD = /^(.+):(\d+) \((old|new)\)$/;
+/** `path:line (side)` for a diff line, `path:line` for a file line. */
+const DIFF_HEAD = /^(.+):(\d+)(?: \((old|new)\))?$/;
 const FENCE = /^`{3,}$/;
 const isHeader = (l: string | undefined) => parseHeader(l) !== null;
 
@@ -170,14 +195,14 @@ export function parseReviewComments(text: string): { comments: ReviewComment[]; 
             const code = lines.slice(i + 2, close).join("\n");
             i = close + 1;
             const t = readText();
-            comments.push({
-               id: String(comments.length),
-               path: m[1] as string,
-               line: Number(m[2]),
-               side: m[3] as "old" | "new",
-               code,
-               text: t,
-            });
+            const id = String(comments.length);
+            const path = m[1] as string;
+            const line = Number(m[2]);
+            comments.push(
+               m[3]
+                  ? { id, path, line, side: m[3] as "old" | "new", code, text: t }
+                  : { id, kind: "file", path, line, code, text: t },
+            );
          } else {
             const start = i;
             while ((lines[i] ?? "").startsWith(">")) i++;
@@ -297,4 +322,10 @@ export function useReviewComments(sessionId: string): ReviewComment[] {
 export function useDiffComments(sessionId: string): DiffComment[] {
    const all = useReviewComments(sessionId);
    return useMemo(() => all.filter(isDiffComment), [all]);
+}
+
+/** This Session's file line comments (for the Files panel). */
+export function useFileComments(sessionId: string): FileComment[] {
+   const all = useReviewComments(sessionId);
+   return useMemo(() => all.filter(isFileComment), [all]);
 }

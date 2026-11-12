@@ -73,10 +73,38 @@ pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32
     Ok((rel, start, lines, total))
 }
 
-/// Folders `find_by_suffix` skips (besides hidden ones).
+/// Folders `walk_files` skips (besides hidden ones).
 const SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out", "vendor"];
-/// Entries `find_by_suffix` looks at before it gives up.
+/// Entries `walk_files` looks at before it gives up; also the most files `list_files` returns.
 const MAX_SCAN: usize = 50_000;
+
+/// Calls `f` with the path (relative to `folder`, `/` separators) of each file under `folder`. Skips hidden and
+/// build folders, follows no symlinks. Returns `false` when it stopped after `MAX_SCAN` entries.
+fn walk_files(folder: &Path, mut f: impl FnMut(&str)) -> bool {
+    let mut dirs = vec![PathBuf::new()];
+    let mut seen = 0;
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(folder.join(&dir)) else { continue };
+        for e in entries.flatten() {
+            seen += 1;
+            if seen > MAX_SCAN {
+                return false;
+            }
+            let Ok(kind) = e.file_type() else { continue };
+            let name = e.file_name().to_string_lossy().into_owned();
+            if kind.is_dir() {
+                if !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()) {
+                    dirs.push(dir.join(&name));
+                }
+            } else if kind.is_file() {
+                let rel = dir.join(&name);
+                let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                f(&parts.join("/"));
+            }
+        }
+    }
+    true
+}
 
 /// The one file under `folder` (relative path) whose path ends with the components of `suffix`. Skips hidden and
 /// build folders, follows no symlinks. Fails when no file or several files match.
@@ -84,33 +112,40 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
     let want: Vec<&str> = suffix.trim_start_matches("./").split('/').filter(|c| !c.is_empty()).collect();
     anyhow::ensure!(!want.is_empty(), "no path");
     let mut found = Vec::new();
-    let mut dirs = vec![PathBuf::new()];
-    let mut seen = 0;
-    while let Some(dir) = dirs.pop() {
-        let Ok(entries) = std::fs::read_dir(folder.join(&dir)) else { continue };
-        for e in entries.flatten() {
-            seen += 1;
-            anyhow::ensure!(seen <= MAX_SCAN, "{suffix}: No such file (folder too large to search)");
-            let Ok(kind) = e.file_type() else { continue };
-            let name = e.file_name().to_string_lossy().into_owned();
-            if kind.is_dir() {
-                if !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()) {
-                    dirs.push(dir.join(&name));
-                }
-            } else if kind.is_file() && want.last().is_some_and(|w| name == *w) {
-                let rel = dir.join(&name);
-                let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-                if parts.len() >= want.len() && parts[parts.len() - want.len()..].iter().zip(&want).all(|(a, b)| a == b) {
-                    found.push(parts.join("/"));
-                }
-            }
+    let complete = walk_files(folder, |rel| {
+        let parts: Vec<&str> = rel.split('/').collect();
+        if parts.len() >= want.len() && parts[parts.len() - want.len()..] == want[..] {
+            found.push(rel.to_owned());
         }
-    }
+    });
+    anyhow::ensure!(complete, "{suffix}: No such file (folder too large to search)");
     match found.len() {
         0 => anyhow::bail!("{suffix}: No such file"),
         1 => Ok(found.swap_remove(0)),
         n => anyhow::bail!("{suffix}: {n} files match"),
     }
+}
+
+/// Files in `folder` (relative, `/` separators, sorted, at most `MAX_SCAN`). In a git repository: tracked and
+/// untracked files that `.gitignore` does not exclude and that exist on disk. Elsewhere: the files `walk_files` finds.
+pub async fn list_files(folder: &Path) -> anyhow::Result<Vec<String>> {
+    let tracked = crate::workspace::git(folder, &["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).await;
+    let folder = folder.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let mut files = Vec::new();
+        match tracked {
+            // Run in `folder`, git prints paths relative to it.
+            Ok(out) => files.extend(out.split('\0').filter(|p| !p.is_empty() && folder.join(p).is_file()).take(MAX_SCAN).map(str::to_owned)),
+            Err(_) => {
+                walk_files(&folder, |rel| files.push(rel.to_owned()));
+            }
+        }
+        files.sort();
+        files.dedup();
+        files
+    })
+    .await
+    .map_err(Into::into)
 }
 
 /// What to open: an editor URL, or the path itself for the system default app.
@@ -251,5 +286,43 @@ mod tests {
         assert!(find_by_suffix(f, "tenants.rs").unwrap_err().to_string().contains("2 files"));
         assert!(find_by_suffix(f, "bed/src/tenants.rs").is_err());
         assert!(find_by_suffix(f, "missing.rs").is_err());
+    }
+
+    fn sh(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git").args(args).current_dir(dir).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    fn write(root: &Path, files: &[&str]) {
+        for p in files {
+            std::fs::create_dir_all(root.join(p).parent().unwrap()).unwrap();
+            std::fs::write(root.join(p), "").unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn lists_files_in_a_git_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        sh(repo, &["init", "-q", "-b", "main"]);
+        write(repo, &[".gitignore", "src/a.rs", "gone.rs", "app/x.ts", "app/new.ts", "app/debug.log", "outside.rs"]);
+        std::fs::write(repo.join(".gitignore"), "*.log\n").unwrap();
+        sh(repo, &["add", ".gitignore", "src/a.rs", "gone.rs", "app/x.ts"]);
+        std::fs::remove_file(repo.join("gone.rs")).unwrap();
+        assert_eq!(list_files(repo).await.unwrap(), [".gitignore", "app/new.ts", "app/x.ts", "outside.rs", "src/a.rs"]);
+        // A subfolder: paths relative to it.
+        assert_eq!(list_files(&repo.join("app")).await.unwrap(), ["new.ts", "x.ts"]);
+        // Its prefix maps repo-relative paths (git status) to these.
+        assert_eq!(crate::workspace::folder_prefix(&repo.join("app")).await, "app/");
+        assert_eq!(crate::workspace::folder_prefix(repo).await, "");
+    }
+
+    #[tokio::test]
+    async fn lists_files_without_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("proj");
+        write(&f, &["b.txt", "src/a.rs", ".hidden/x", "node_modules/y/z.js", ".env"]);
+        assert_eq!(list_files(&f).await.unwrap(), [".env", "b.txt", "src/a.rs"]);
+        assert_eq!(crate::workspace::folder_prefix(&f).await, "");
     }
 }

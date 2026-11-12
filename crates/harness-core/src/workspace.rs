@@ -34,6 +34,11 @@ pub async fn repo_root(folder: &Path) -> Option<PathBuf> {
     git(folder, &["rev-parse", "--show-toplevel"]).await.ok().map(|s| PathBuf::from(s.trim()))
 }
 
+/// `folder`'s path inside its repository with a trailing `/` (`crates/`); empty at the root or outside git.
+pub async fn folder_prefix(folder: &Path) -> String {
+    git(folder, &["rev-parse", "--show-prefix"]).await.map(|s| s.trim().to_owned()).unwrap_or_default()
+}
+
 /// GitHub repository of the `upstream` remote, else `origin`. None without one on github.com.
 pub async fn origin_repo(dir: &Path) -> Option<RepoId> {
     for remote in ["upstream", "origin"] {

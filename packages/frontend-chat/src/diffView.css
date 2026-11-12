@@ -58,8 +58,8 @@
    color: var(--foreground);
 }
 
-/* Our widgets inside the diff table use the app font, not the code font. */
-.harness-diff .harness-diff-widget {
+/* Our comment widgets inside code views (diff table, file view) use the app font, not the code font. */
+.harness-diff-widget {
    font-family: var(--font-sans);
    white-space: normal;
 }
