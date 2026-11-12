@@ -36,6 +36,7 @@ import {
    PanelRight,
    RotateCcw,
    ScrollText,
+   Share2,
    SquareTerminal,
    Unlink,
    X,
@@ -118,7 +119,7 @@ import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
-import { formatAge, useNow } from "./time";
+import { formatAge, formatRelativeTime, useNow } from "./time";
 import { RENDER_UI, sharedRef } from "./tools";
 import { uiIcons } from "./uiIcons";
 
@@ -200,9 +201,38 @@ function UpdatedAgo({ ts }: { ts: number }) {
    );
 }
 
+/** Share icon in a shared Panel's header; hover shows that it is shared, its Session count and last update. */
+function SharedBadge({ meta }: { meta: SharedArtifactMeta | undefined }) {
+   const now = useNow();
+   return (
+      <Tooltip
+         content={
+            <div className="flex flex-col gap-0.5">
+               <span className="font-medium">Shared artifact</span>
+               {meta && (
+                  <>
+                     <span>Attached in {sessionCount(meta)}</span>
+                     <span>Updated {formatRelativeTime(meta.updated_ms, now)}</span>
+                  </>
+               )}
+            </div>
+         }
+      >
+         <span
+            role="img"
+            aria-label="Shared artifact"
+            tabIndex={0}
+            className="flex shrink-0 items-center text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+         >
+            <Share2 className="size-3.5" />
+         </span>
+      </Tooltip>
+   );
+}
+
 /**
  * `updated`: when it last changed (its latest call, or a later write of its source file). `shared`:
- * the Shared Artifact it shows (ADR 0024): a "Shared" tag, its Session count and its menu.
+ * the Shared Artifact it shows (ADR 0024): a share icon with its details on hover, and its menu.
  */
 function SlotPanel({
    slot,
@@ -238,18 +268,7 @@ function SlotPanel({
                )
             }
          >
-            {shared && (
-               <>
-                  <span className="shrink-0 rounded border px-1 text-[10px] font-medium text-muted-foreground">
-                     Shared
-                  </span>
-                  {shared.meta && (
-                     <span className="shrink-0 text-[11px] whitespace-nowrap text-muted-foreground">
-                        {sessionCount(shared.meta)}
-                     </span>
-                  )}
-               </>
-            )}
+            {shared && <SharedBadge meta={shared.meta} />}
             {updated > 0 && <UpdatedAgo ts={updated} />}
          </PanelHeader>
          <ScrollArea className="min-h-0 flex-1">
