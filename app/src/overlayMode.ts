@@ -33,11 +33,8 @@ export function overlayReducer(s: OverlayState, a: OverlayAction): OverlayState 
       case "shown":
          return s.visible ? s : { ...s, visible: true };
       case "shortcut":
-         // The prompt toggles like a launcher; a pinned chat switches between chat and mini.
-         if (s.mode === "prompt") return { ...s, visible: false };
-         return s.mode === "chat"
-            ? { ...s, mode: "mini" }
-            : { ...s, mode: "chat", newReply: false };
+         // Only opens: a mini bar expands; the prompt and the chat stay (Esc and Cmd+M hide or minimize).
+         return s.mode === "mini" ? { ...s, mode: "chat", newReply: false } : s;
       case "sent":
          return s.mode === "prompt" ? { ...s, mode: "chat" } : s;
       case "minimize":
