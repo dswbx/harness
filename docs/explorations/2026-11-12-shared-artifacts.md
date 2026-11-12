@@ -13,19 +13,20 @@ No new concept. An artifact can be **shared**. A shared artifact lives outside a
 ## Model
 
 - **Session artifact**: what exists today. Local to one Session, listed in its Artifacts Panel.
-- **Shared artifact**: one file (`.md` or `.html`) in `<data dir>/shared/<id>.<ext>`, plus a catalog row (ADR 0010): id, title, kind, created by (Session), created, updated, attachments. The file is the content; the catalog is for listing and search.
+- **Shared artifact**: a folder `<data dir>/shared/<id>/`, never inside a Session Directory. It holds the content (`content.md`, `content.html` or `ui.json` for a `render_ui` tree) and an optional `state.json`. Plus a catalog row (ADR 0010): id, title, kind, created by (Session), created, updated, attachments. The folder is the content; the catalog is for listing and search.
 - **Attachment**: a Session links to a shared artifact. Logged as `ArtifactAttached { id, by }` and `ArtifactDetached { id, by }` (additive, ADR 0021). Many to many. Deleting a Session never deletes a shared artifact. Only the user deletes one.
 
 ## Make shared
 
-From the Artifacts Panel menu (user) or `artifact_share` (Agent). The file moves from the Session's `panels/` into `shared/`. The Session's `render_ui` item now points at `shared:<id>`, so the Panel stays in its Zone and keeps showing it. The Session is attached automatically.
+Every artifact kind can be shared. From the Artifacts Panel menu (user) or `artifact_share` (Agent), but only when the user asks for it. The content moves out of the Session into `shared/<id>/`. The Session's `render_ui` item now points at `shared:<id>`, so the Panel stays in its Zone and keeps showing it. The Session is attached automatically.
 
 | Session artifact | Becomes |
 |---|---|
-| File-backed panel (`.md`, `.html`) | moved as is |
-| Inline `Html` root | its HTML as `.html` |
+| File-backed panel (`.md`, `.html`) | moved out of `panels/` as is |
+| `render_ui` tree (any, `Html` too) | `ui.json` (tree plus its files map) |
 | Mermaid diagram or table in a message | fenced block as `.md` (a copy; the message keeps its own) |
-| Other `render_ui` tree | open question 1 |
+
+**State goes with the artifact.** The Session State paths the tree binds (`$state`, `$bindState`, `$template`, actions) are copied into the artifact's `state.json`. An Html artifact can read any path through the bridge, so it gets a copy of the whole Session State. From then on, every Session and the no-Session view read and write the artifact's own state, not their Session State. Logged in each attached Session as `StateChanged { artifact, ops, by }`.
 
 ## Agent side (Harness MCP)
 
@@ -33,12 +34,12 @@ From the Artifacts Panel menu (user) or `artifact_share` (Agent). The file moves
 |---|---|
 | `artifact_search {query}` | Shared artifacts matching title or text: id, title, kind, updated, attached here or not. Used when the user names one ("the release checklist"). |
 | `artifact_share {id}` | Make a Session artifact (render_ui id) shared. Returns shared id and path. |
-| `artifact_attach {id}` | Attach; returns the absolute path; opens it as a Panel. |
+| `artifact_attach {id}` | Attach; returns the absolute dir; opens it as a Panel. Never automatic: the Agent calls it when the user names an artifact or asks for it. |
 | `artifact_detach {id}` | Detach. |
 
-The Agent edits a shared artifact with its own Write and Edit tools, like file-backed panels. `render_ui` accepts `source: "shared:<id>"` for an attached one. `harness_info` lists attached shared artifacts with their paths, so the Agent finds them after compaction.
+The Agent edits file kinds with its own Write and Edit tools, like file-backed panels, and shows them with `render_ui source: "shared:<id>"`. For a tree kind it calls `render_ui` with `id: "shared:<id>"` and a new `root`, which replaces `ui.json` (or edits `ui.json` directly). `state_get` and `state_patch` take an optional `artifact` to change an artifact's state. `harness_info` lists attached shared artifacts with their paths, so the Agent finds them after compaction.
 
-**Permissions**: extend the ADR 0023 default. An `edit` whose path resolves to the file of a shared artifact attached to this Session is allowed. Not attached means the normal policy (ask).
+**Permissions**: extend the ADR 0023 default. An `edit` whose paths all resolve inside the folder of a shared artifact attached to this Session is allowed. Not attached means the normal policy (ask).
 
 ## Core
 
@@ -50,7 +51,7 @@ The Agent edits a shared artifact with its own Write and Edit tools, like file-b
 1. **Artifacts Panel**: two groups, "Shared · attached" and "This Session". Shared items carry a share icon. Local item menu: Make shared. Shared item menu: Detach, Open outside Session. Header: "Attach shared…".
 2. **Panel header** of a shared artifact: "shared" badge and "Attached in N sessions".
 3. **Sidebar**: a "Shared artifacts" section under Sessions. A dot marks changes since you last looked.
-4. **Shared artifact view** (no Session): the rendered file (same renderer and sandbox as the Panel), "Attached in" list with links to those Sessions, activity, and actions: Attach to Session…, New Session with it, Open in editor, Rename, Delete.
+4. **Shared artifact view** (no Session): the rendered artifact (same renderer and sandbox as the Panel; inputs write the artifact's state), "Attached in" list with links to those Sessions, activity, and actions: Attach to Session…, New Session with it, Open in editor, Rename, Delete. Open in editor edits the file in `shared/<id>/` directly; the watcher updates every attached Session.
 
 ## Concurrency
 
@@ -61,13 +62,18 @@ v1: last write wins. The Agent's Edit tool fails when the old text is gone, whic
 1. Core: store, catalog, tools, `shared:` sources, permission default, watcher, `harness_info`.
 2. Chat: Artifacts Panel groups, Make shared, Attach shared…, Panel badge.
 3. App: sidebar section and shared artifact view.
-4. Later: history, conflict guard, Shared State for Html artifacts.
+4. Later: history, conflict guard, in-app editor.
+
+## Decided
+
+- Every artifact kind can be shared, `render_ui` trees included.
+- Shared content lives in `shared/<id>/`, never in a Session. Editing by hand means editing that file.
+- State goes with the artifact (`state.json`).
+- Attaching is possible for user and Agent, never automatic.
 
 ## Open questions
 
-1. Can other `render_ui` trees (not Html, not a file) be shared? Suggest: not in v1; hide Make shared for them.
-2. Unshare: move back into one Session, or only Detach and Delete? Suggest: only Detach and Delete.
-3. Search scope: title only, or full text? Suggest: both, with catalog FTS.
-4. Edit by hand outside a Session? Suggest: read-only plus Open in editor.
-5. Auto-attach when the user names one in a prompt? Suggest: no; the Agent searches and attaches.
-6. Shared State (`state.json`) for Html artifacts? Suggest: later.
+1. Unshare: move back into one Session, or only Detach and Delete? Suggest: only Detach and Delete.
+2. Search scope: title only, or full text? Suggest: both, with catalog FTS.
+3. In-app editor for `.md` outside a Session? Suggest: later; Open in editor for now.
+4. Html artifacts get a copy of the whole Session State. Too much? Suggest: fine for v1; Session State is small.
