@@ -123,6 +123,13 @@ const components: Components = {
    thead: ({ node: _, ...props }) => <thead {...props} className="bg-muted/50" />,
    th: ({ node: _, ...props }) => <th {...props} className="px-3 py-2 font-medium" />,
    td: ({ node: _, ...props }) => <td {...props} className="px-3 py-2" />,
+   // Task list boxes: always controlled, so a box that becomes checked on re-render does not warn.
+   input: ({ node: _, checked, ...props }) =>
+      props.type === "checkbox" ? (
+         <input {...props} checked={!!checked} readOnly />
+      ) : (
+         <input {...props} />
+      ),
    // PR refs marked by `rehypePrRefs`.
    span({ node, ...props }) {
       const p = (node as Hast | undefined)?.properties;
