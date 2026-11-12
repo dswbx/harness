@@ -10,7 +10,7 @@ import {
    SelectValue,
 } from "@harness/ui";
 import { CheckCircle2, ClipboardList, Copy, FolderOpen, SquarePen } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { diffLines } from "./diff";
 import { Markdown } from "./Markdown";
 import { PanelHeader } from "./PanelHeader";
@@ -47,6 +47,29 @@ function PlanChanges({ prev, next }: { prev: string; next: string }) {
  * The Thread's plans, one version at a time: the plan as Markdown (select text to comment on it), or its
  * changes against the version before. A pending plan has its answers at the bottom.
  */
+/**
+ * "Open in editor", disabled with a hint until an editor is chosen in Settings. Mounts when the menu opens, so a
+ * change in Settings shows the next time.
+ */
+function OpenInEditorItem({ api, onOpen }: { api: SessionApi; onOpen: () => void }) {
+   // undefined: still loading; null: none chosen.
+   const [editor, setEditor] = useState<unknown>(undefined);
+   useEffect(() => {
+      api.getEditor().then(setEditor, () => setEditor(null));
+   }, [api]);
+   return (
+      <DropdownMenuItem disabled={!editor} onSelect={onOpen}>
+         <SquarePen />
+         <span className="flex flex-col">
+            <span>Open in editor</span>
+            {editor === null && (
+               <span className="text-xs text-muted-foreground">Choose an editor in Settings</span>
+            )}
+         </span>
+      </DropdownMenuItem>
+   );
+}
+
 export function PlanPanel({
    api,
    state,
@@ -85,14 +108,13 @@ export function PlanPanel({
          >
             <Copy /> Copy as Markdown
          </DropdownMenuItem>
-         <DropdownMenuItem
-            onSelect={() => {
+         <OpenInEditorItem
+            api={api}
+            onOpen={() => {
                setError(null);
                exportFile(true).catch(fail);
             }}
-         >
-            <SquarePen /> Open in editor
-         </DropdownMenuItem>
+         />
          {inTauri() && (
             <DropdownMenuItem
                onSelect={() => {

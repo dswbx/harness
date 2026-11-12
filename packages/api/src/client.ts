@@ -111,6 +111,8 @@ export interface SessionApi {
    openInEditor(path?: string, line?: number): Promise<void>;
    /** Writes a plan's Markdown to a file Harness owns; returns its absolute path. Optionally opens it in the editor. */
    exportPlan(name: string, markdown: string, openInEditor: boolean): Promise<string>;
+   /** The editor "Open in editor" uses (Settings); null until chosen. */
+   getEditor(): Promise<Editor | null>;
    /**
     * Lines `start..=end` (1-based, clipped; default: all) of a text file in the Session's folder (relative or absolute
     * inside it; a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the
@@ -266,6 +268,10 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             path: path ?? null,
             line: line ?? null,
          }),
+      getEditor: async () => {
+         const r = await transport.execute({ type: "GetEditor" });
+         return r.type === "Editor" ? r.editor : null;
+      },
       exportPlan: async (name, markdown, openInEditor) =>
          (
             await expect(
