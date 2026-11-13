@@ -191,6 +191,9 @@ export function ArtifactsPanel({
             }}
             onBack={() => setInspecting(null)}
             onJump={() => onJump(current)}
+            onShare={
+               shared && canShare(current) ? () => act(() => shared.share(current)) : undefined
+            }
          />
       );
    }
@@ -675,6 +678,7 @@ function Inspect({
    onStep,
    onBack,
    onJump,
+   onShare,
    madeIn,
 }: {
    a: Artifact;
@@ -683,6 +687,8 @@ function Inspect({
    onStep: (d: 1 | -1) => void;
    onBack: () => void;
    onJump: () => void;
+   /** Offers "Make shared" (ADR 0024). */
+   onShare?: () => void;
    /** A Shared Artifact's: the title of the Session that shared it. */
    madeIn?: string;
 }) {
@@ -744,6 +750,11 @@ function Inspect({
                           ? "Jump to message"
                           : "Show"}
                   </DropdownMenuItem>
+                  {onShare && (
+                     <DropdownMenuItem onSelect={onShare}>
+                        <Share2 /> Make shared
+                     </DropdownMenuItem>
+                  )}
                   <ExportSubmenu formats={formats(shoot)} save={save} />
                </>
             }
