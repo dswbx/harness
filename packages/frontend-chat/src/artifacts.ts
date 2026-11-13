@@ -1,5 +1,5 @@
 import type { Item } from "./reducer";
-import { type Placement, type RawNode, sharedRef } from "./tools";
+import { type Placement, type RawNode, sharedRef, sourceTreeName } from "./tools";
 
 export type ArtifactKind = "ui" | "diagram" | "table";
 
@@ -170,6 +170,8 @@ function uiSub(root: RawNode): string {
    if (root.type === "PullRequest" && typeof p.state === "string")
       return `PullRequest · ${p.state[0]!.toUpperCase()}${p.state.slice(1)}`;
    if (root.type === "Chart" && typeof p.kind === "string") return `Chart · ${p.kind}`;
+   // A `.json` panel source: the tree is in the file, not here.
+   if (sourceTreeName(root)) return "Tree";
    return root.type;
 }
 

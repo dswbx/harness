@@ -38,23 +38,24 @@ pub fn resolve_inside(dir: &Path, path: &Path) -> Option<PathBuf> {
     (real != real_dir && real.starts_with(&real_dir)).then_some(real)
 }
 
-/// File types a source can have: Markdown, or HTML shown in the Html frame.
-const EXTENSIONS: [&str; 2] = [".md", ".html"];
+/// File types a source can have: Markdown, HTML shown in the Html frame, or a render_ui tree
+/// (`{"root": node}`, the format of a Shared Artifact's `ui.json`).
+const EXTENSIONS: [&str; 3] = [".md", ".html", ".json"];
 
 /// Whether `name` ends in a source file type.
 fn is_source(name: &str) -> bool {
     EXTENSIONS.iter().any(|e| name.ends_with(e))
 }
 
-/// Checks a `source` name: relative to the panels folder, `/` separated, no `..`, ending in `.md`
-/// or `.html`.
+/// Checks a `source` name: relative to the panels folder, `/` separated, no `..`, ending in `.md`,
+/// `.html` or `.json`.
 pub fn check_name(name: &str) -> anyhow::Result<()> {
     let p = Path::new(name);
     anyhow::ensure!(
         !name.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_))),
         "source {name:?} must be a file name relative to panels_dir, e.g. \"progress.md\" or \"upgrade/progress.md\""
     );
-    anyhow::ensure!(is_source(name), "source {name:?} must be a Markdown (.md) or HTML (.html) file");
+    anyhow::ensure!(is_source(name), "source {name:?} must be a Markdown (.md), HTML (.html) or render_ui tree (.json) file");
     Ok(())
 }
 
@@ -98,7 +99,7 @@ pub struct Watcher {
     _inner: notify::RecommendedWatcher,
 }
 
-/// Calls `on_change` with the name of each source file (`.md`, `.html`) under `dir` that changed, once per burst of
+/// Calls `on_change` with the name of each source file (`.md`, `.html`, `.json`) under `dir` that changed, once per burst of
 /// writes: after `debounce` without a new change.
 pub fn watch(dir: &Path, debounce: Duration, on_change: impl Fn(String) + Send + 'static) -> anyhow::Result<Watcher> {
     watch_with(dir, debounce, |name| is_source(name).then(|| name.to_owned()), on_change)

@@ -230,6 +230,19 @@ export function mockEvents(): Event[] {
       ev({
          type: "FrontendToolOutput",
          tool: "render_ui",
+         call_id: "mock-source-tree",
+         path: "tools/render_ui/mock-source-tree.json",
+         input: {
+            id: "todo",
+            placement: "right",
+            title: "Todo",
+            icon: "list",
+            source: "todo.json",
+         },
+      }),
+      ev({
+         type: "FrontendToolOutput",
+         tool: "render_ui",
          call_id: "mock-source-html",
          path: "tools/render_ui/mock-source-html.json",
          input: { id: "fade", placement: "left", title: "Build", source: "fade.html" },

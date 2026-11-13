@@ -625,8 +625,25 @@ impl Session {
             }
             let file = crate::panels::source_path(&self.panels_dir(), source)?;
             anyhow::ensure!(file.is_file(), "source {source:?} does not exist in panels_dir");
-            let kind = if source.ends_with(".html") { SharedKind::Html } else { SharedKind::Md };
-            let state = if kind == SharedKind::Html { self.state()? } else { serde_json::json!({}) };
+            let kind = if source.ends_with(".html") {
+                SharedKind::Html
+            } else if source.ends_with(".json") {
+                SharedKind::Ui
+            } else {
+                SharedKind::Md
+            };
+            let state = match kind {
+                SharedKind::Html => self.state()?,
+                // A tree file is a `ui.json` already: it takes the state it binds, like a `root`.
+                SharedKind::Ui => {
+                    let ui: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(&file)?).map_err(|e| anyhow::anyhow!("source {source:?} is not JSON: {e}"))?;
+                    let root = &ui["root"];
+                    let doc = self.state()?;
+                    if has_html(root) { doc } else { crate::state::subset(&doc, &crate::state::bound_paths(root))? }
+                }
+                SharedKind::Md => serde_json::json!({}),
+            };
             artifacts.create(&title, kind, self.creator(), vec![self.id()], |dir| {
                 write_state(dir, &state)?;
                 crate::shared::move_file(&file, &dir.join(crate::shared::content_name(kind)))
@@ -764,7 +781,7 @@ impl Session {
         Ok(())
     }
 
-    /// Where the Agent writes the `.md`/`.html` files of file-backed panels (ADR 0023); made on first use for
+    /// Where the Agent writes the `.md`/`.html`/`.json` files of file-backed panels (ADR 0023); made on first use for
     /// Sessions from before it existed.
     pub fn panels_dir(&self) -> PathBuf {
         let dir = self.dir.join(crate::panels::DIR);

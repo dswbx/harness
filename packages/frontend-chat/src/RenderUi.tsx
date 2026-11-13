@@ -27,10 +27,19 @@ import {
    type UiEnv,
    useEnv,
 } from "./renderUi/runtime";
-import { SharedSourceView } from "./renderUi/sharedSource";
+import { parseTree, SharedSourceView } from "./renderUi/sharedSource";
+import { SourceView } from "./renderUi/source";
 import * as text from "./renderUi/text";
 import { jsError, jsReady, loadJs, onJsReady } from "./sandbox";
-import { components, type RawNode, renderUiSchema, sharedNodeId, type UiNode } from "./tools";
+import {
+   components,
+   formatErrors,
+   type RawNode,
+   renderUiSchema,
+   sharedNodeId,
+   sourceTreeName,
+   type UiNode,
+} from "./tools";
 
 export { tableRows } from "./renderUi/data";
 export { repeatScopes, stackClasses } from "./renderUi/layout";
@@ -105,11 +114,34 @@ function Node({ raw }: { raw: RawNode }) {
             renderTree={(root, e) => <RenderUi root={root} env={e} />}
          />
       );
+   // A `.json` panel source (ADR 0023): the file's tree, bound to the Session State like a `root`.
+   const file = sourceTreeName(raw);
+   if (file) return <SourceView name={file}>{(json) => <SourceTree json={json} />}</SourceView>;
    if (!isVisible(raw.visible, env.state, scope)) return null;
    const node = resolveNode(raw, env.state, scope);
    const kids = raw.children?.map((c, i) => <Node key={i} raw={c} />);
    const render = renderers[node.type] as (ctx: RenderCtx) => React.ReactNode;
    return render({ node, raw, kids, env, scope, Node, checkActions });
+}
+
+/** A `.json` source's content: its tree when the render_ui schema takes it, else why not. */
+export function checkSourceTree(json: string): { root: RawNode } | { error: string } {
+   const tree = parseTree(json);
+   if ("error" in tree) return { error: tree.error.replace("ui.json", "The file") };
+   const input = { root: tree.root };
+   const r = renderUiSchema.validate(input);
+   return r.valid ? tree : { error: formatErrors(r.errors, input).join("; ") };
+}
+
+function SourceTree({ json }: { json: string }) {
+   const tree = useMemo(() => checkSourceTree(json), [json]);
+   if ("error" in tree)
+      return <p className="text-ui-sm text-destructive">This panel cannot show: {tree.error}</p>;
+   return (
+      <TreeBoundary reset={tree.root}>
+         <Node raw={tree.root} />
+      </TreeBoundary>
+   );
 }
 
 /**
