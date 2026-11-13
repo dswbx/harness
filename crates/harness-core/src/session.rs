@@ -37,6 +37,8 @@ pub struct Shared {
     pub artifacts: crate::shared::SharedArtifacts,
     /// The Harness, so the Harness MCP can start and reach Sub Sessions. Set once it exists.
     pub host: std::sync::OnceLock<std::sync::Weak<crate::host::Harness>>,
+    /// What parents still need to hear from their Sub Sessions.
+    pub notices: crate::sub_sessions::Notices,
 }
 
 impl Shared {

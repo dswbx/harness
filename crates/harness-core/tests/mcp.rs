@@ -1165,7 +1165,7 @@ async fn sub_session_start_send_and_wait() {
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, &repo, vec![]).await;
 
-    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child"}"#).await;
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child","notify":false}"#).await;
     let child = started["session_id"].as_str().unwrap().to_owned();
     assert_eq!(started["title"], "Child");
     assert!(started["branch"].as_str().unwrap().starts_with("harness/"), "a repo folder gets a worktree by default: {started}");
@@ -1229,7 +1229,7 @@ async fn sub_session_rules_cap_and_cascade() {
 
     let mut children = vec![];
     for _ in 0..4 {
-        let started = mcp_json(&h, &sid, r#"session_start {"prompt":"fault-hang","worktree":false}"#).await;
+        let started = mcp_json(&h, &sid, r#"session_start {"prompt":"fault-hang","worktree":false,"notify":false}"#).await;
         children.push(started["session_id"].as_str().unwrap().to_owned());
     }
     let child = children[0].clone();
@@ -1281,11 +1281,11 @@ async fn sub_session_model_overrides_remembered_config_without_saving_it() {
             _ => None,
         })
     };
-    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi","model":"A"}"#).await;
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi","model":"A","notify":false}"#).await;
     assert_eq!(started["model"], "a");
     let child = started["session_id"].as_str().unwrap().to_owned();
     assert_eq!(model_of(&child), Some(serde_json::json!("a")), "initial_config wins over the remembered model");
-    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi"}"#).await;
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi","notify":false}"#).await;
     assert_eq!(started["model"], "b", "defaults to the parent's model");
     assert_eq!(saved(), before, "agent-config.json is unchanged");
 }
@@ -1309,4 +1309,94 @@ async fn share_a_json_panel_as_a_tree() {
     // Only the state the tree binds goes with it.
     let state: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("state.json")).unwrap()).unwrap();
     assert_eq!(state, serde_json::json!({ "todo": { "n": 2 } }));
+}
+
+/// Prompts the Harness sent `sid` with news from its Sub Sessions: (text, origin, context).
+fn notices(h: &Harness, sid: &str) -> Vec<(String, harness_core::api::PromptOrigin, String)> {
+    events(h, sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::TurnStarted { text, origin: Some(o), context, .. } if o.kind == harness_core::api::PromptOriginKind::SubSession => {
+                Some((text, o, context.unwrap_or_default()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+async fn until(what: &str, mut f: impl FnMut() -> bool) {
+    for _ in 0..400 {
+        if f() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("timed out: {what}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sub_session_news_reach_the_idle_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // The parent ends its Turn right after the start; the child's Turn ends later or meanwhile.
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child","worktree":false}"#).await;
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    until("the parent hears the child ended", || notices(&h, &sid).len() == 1).await;
+    let (text, origin, context) = notices(&h, &sid).remove(0);
+    assert_eq!((origin.session_id.as_str(), origin.title.as_str()), (child.as_str(), "Child"));
+    assert!(text.starts_with(&format!("Sub Session \"Child\" (session_id {child}) ended its Turn (end_turn). Its last reply:")), "{text}");
+    assert!(text.ends_with("Working on it. Done."), "{text}");
+    assert!(context.contains("comes from the Harness, not from the user"), "{context}");
+    until("the notice Turn ends", || idle(&h, &sid)).await;
+
+    // A Turn the user starts in the child is none of the parent's business.
+    ask(&h, &child, "hi", None).await;
+
+    // Waiting for the user, then ending: two notices.
+    mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"needs permission"}}"#)).await;
+    until("the parent hears the child waits", || notices(&h, &sid).len() == 2).await;
+    let (text, ..) = notices(&h, &sid).remove(1);
+    assert!(text.contains("waits for the user to answer a permission request"), "{text}");
+    let request = until_request(&h, &child).await;
+    h.execute(Command::ResolvePermission { session_id: child.clone(), request_id: request, option_id: Some("allow".into()), global: false }).await.unwrap();
+    // The fake agent asks for a permission on any prompt that names one, the notice too: answer it.
+    let request = until_request(&h, &sid).await;
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id: request, option_id: Some("allow".into()), global: false }).await.unwrap();
+    until("the parent hears the child ended again", || notices(&h, &sid).len() == 3).await;
+    assert!(notices(&h, &sid)[2].0.contains("ended its Turn"));
+
+    // notify: false keeps the parent out of it.
+    until("the notice Turn ends", || idle(&h, &sid)).await;
+    let quiet = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","worktree":false,"notify":false}"#).await;
+    let quiet = quiet["session_id"].as_str().unwrap().to_owned();
+    until("the quiet child ends", || idle(&h, &quiet) && events(&h, &quiet).iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. }))).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(notices(&h, &sid).len(), 3, "{:?}", notices(&h, &sid));
+}
+
+/// Every Turn started in `sid` has ended.
+fn idle(h: &Harness, sid: &str) -> bool {
+    let evs = events(h, sid);
+    let n = |end: bool| {
+        evs.iter()
+            .filter(|e| matches!(e.kind, EventKind::TurnEnded { .. }) == end && matches!(e.kind, EventKind::TurnStarted { .. } | EventKind::TurnEnded { .. }))
+            .count()
+    };
+    n(true) == n(false)
+}
+
+async fn until_request(h: &Harness, sid: &str) -> String {
+    for _ in 0..400 {
+        if let Some(id) = events(h, sid).into_iter().rev().find_map(|e| match e.kind {
+            EventKind::PermissionRequested { request_id, .. } => Some(request_id),
+            _ => None,
+        }) {
+            return id;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no permission request");
 }

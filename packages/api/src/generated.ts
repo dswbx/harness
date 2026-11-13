@@ -824,13 +824,21 @@ export type ProcessState = "starting" | "ready" |
 "stopped" | "exited" | "failed";
 
 /**
- *  Who sent a prompt when it was not the user: the Agent of another Session (a parent Session
- *  prompting its Sub Session).
+ *  Who sent a prompt when it was not the user: the Agent of a parent Session prompting its Sub
+ *  Session, or the Harness telling a parent about its Sub Sessions (`session_id` and `title` then
+ *  name the first of them).
  */
 export type PromptOrigin = {
 	session_id: string,
 	title: string,
+	kind?: PromptOriginKind,
 };
+
+export type PromptOriginKind = 
+/**  The parent Session's Agent. */
+"parent" | 
+/**  The Harness, with news from Sub Sessions. */
+"sub_session";
 
 export type PullRequest = {
 	number: number,
@@ -876,6 +884,11 @@ export type SessionParent = {
 	session_id: string,
 	thread_id: string,
 	tool_call_id?: string | null,
+	/**
+	 *  Whether the parent's Agent gets a message when a Turn it started here ends, or this Session
+	 *  waits for the user meanwhile. Default on.
+	 */
+	notify?: boolean,
 };
 
 export type SessionStatus = "idle" | "working" | "needs_attention";

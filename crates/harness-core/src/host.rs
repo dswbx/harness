@@ -121,6 +121,7 @@ impl Harness {
             pr_refs: Default::default(),
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
             host: Default::default(),
+            notices: Default::default(),
         });
         // One watch on `shared/` for the life of the Host (ADR 0024 addendum): changes from any
         // Session, the no-Session view or an editor reach every View.
@@ -156,6 +157,7 @@ impl Harness {
         });
         let host = Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, prs_refreshed: Default::default(), _lock: lock });
         let _ = host.shared.host.set(Arc::downgrade(&host));
+        crate::sub_sessions::watch(&host);
         Ok(host)
     }
 
