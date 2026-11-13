@@ -330,10 +330,22 @@ function permIndex(c: Ctx): Map<string, number> {
    return c.perms;
 }
 
+/**
+ * Adds a chunk to the last message or thought of its type. Looks past a running subagent's tool calls:
+ * they arrive between the parent's chunks but render inside the subagent card, so they must not split the text.
+ * A subagent's report still does: text after it is a new reply.
+ */
 function appendText(c: Ctx, type: "agent" | "thought", text: string, id: string, ts: number) {
    const items = own(c);
-   const last = items[items.length - 1];
-   if (last && last.type === type) items[items.length - 1] = { ...last, text: last.text + text };
+   const idx = toolIndex(c);
+   let n = items.length - 1;
+   while (n >= 0) {
+      const it = items[n]!;
+      if (it.type !== "tool" || !it.parent || !idx.has(it.parent) || it.report != null) break;
+      n--;
+   }
+   const last = items[n];
+   if (last && last.type === type) items[n] = { ...last, text: last.text + text };
    else items.push({ type, id, text, ts });
 }
 

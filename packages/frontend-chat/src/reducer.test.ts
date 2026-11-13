@@ -392,6 +392,38 @@ describe("continuity", () => {
 });
 
 describe("tool calls (synthetic)", () => {
+   it("a subagent's tool call does not split the parent's thought", () => {
+      const call = (id: string, parent?: string): Event =>
+         ev({
+            type: "ToolCall",
+            tool_call_id: id,
+            title: id,
+            kind: "execute",
+            status: "pending",
+            content: [],
+            locations: [],
+            raw_input: {},
+            ...(parent ? { parent_tool_call_id: parent } : {}),
+         });
+      const s = fold([
+         call("task"),
+         ev({ type: "AgentThoughtChunk", text: "Mark revi" }),
+         call("sub1", "task"),
+         call("sub2", "task"),
+         ev({ type: "AgentThoughtChunk", text: "ewed" }),
+         call("own"),
+         ev({ type: "AgentThoughtChunk", text: "next" }),
+      ]);
+      expect(s.items.map((i) => (i.type === "thought" ? i.text : i.id))).toEqual([
+         "task",
+         "Mark reviewed",
+         "sub1",
+         "sub2",
+         "own",
+         "next",
+      ]);
+   });
+
    it("merges updates: status, content replaced, title kept", () => {
       const s = fold([
          ev({
