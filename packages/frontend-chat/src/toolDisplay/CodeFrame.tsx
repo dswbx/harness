@@ -14,11 +14,14 @@ export function CodeFrame({
    meta,
    code,
    lang,
+   command,
 }: {
    label: string;
    meta?: ReactNode;
    code: string;
    lang?: string;
+   /** A shell command shown as `$ command` above the code (its output). */
+   command?: string;
 }) {
    const [all, setAll] = useState(false);
    const wrap = useWrapCode();
@@ -36,9 +39,19 @@ export function CodeFrame({
             </>
          }
       >
-         <Markdown plainCode className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE)}>
-            {"````" + (lang ?? "") + "\n" + shown + "\n````"}
-         </Markdown>
+         {command && (
+            <Markdown
+               plainCode
+               className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE, code && "border-b")}
+            >
+               {"````console\n$ " + command + "\n````"}
+            </Markdown>
+         )}
+         {code && (
+            <Markdown plainCode className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE)}>
+               {"````" + (lang ?? "") + "\n" + shown + "\n````"}
+            </Markdown>
+         )}
          {folded && (
             <button
                type="button"

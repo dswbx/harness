@@ -4,6 +4,7 @@ import { fileName, uiFormats } from "./exportFormats";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import type { Item } from "./reducer";
 import { quotableAttrs } from "./SelectionComment";
+import { CodeFrame } from "./toolDisplay/CodeFrame";
 import type { RawNode } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
@@ -53,14 +54,14 @@ export function FrontendToolRow({
       return (
          <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-xs">
             <div className="font-medium text-destructive">Invalid {item.tool} input</div>
-            <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+            <ul className="mt-1 list-disc pl-4 text-muted-foreground [overflow-wrap:anywhere]">
                {item.render.errors.map((e, i) => (
                   <li key={i}>{e}</li>
                ))}
             </ul>
-            <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-code">
-               {raw(item.input)}
-            </pre>
+            <div className="mt-2">
+               <CodeFrame label="input" code={raw(item.input)} lang="json" />
+            </div>
          </div>
       );
    }

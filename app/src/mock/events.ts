@@ -102,6 +102,31 @@ export function mockEvents(): Event[] {
       }),
       ev({
          type: "ToolCall",
+         tool_call_id: "mock-info",
+         title: "mcp__harness__render_ui",
+         kind: "other",
+         status: "completed",
+         content: content(
+            'Done. The Frontend received it (tools/render_ui/01a.json). Live items: [{"tool":"render_ui","id":"inspector","placement":"right","title":"Inspector"}]',
+         ),
+         locations: [],
+         raw_input: { id: "inspector" },
+         harness_tool: "render_ui",
+      }),
+      ev({
+         type: "ToolCall",
+         tool_call_id: "mock-grep",
+         title: "grep -n DELETE server.js",
+         kind: "execute",
+         status: "completed",
+         content: content(
+            "```console\n111:  if (rest.length === 0 && m === 'DELETE') {\n# a comment line in the output\n```",
+         ),
+         locations: [],
+         raw_input: { command: "grep -n DELETE server.js" },
+      }),
+      ev({
+         type: "ToolCall",
          tool_call_id: "mock-write",
          title: "Write docs/plan.md",
          kind: "edit",

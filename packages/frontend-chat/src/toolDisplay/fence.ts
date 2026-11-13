@@ -18,3 +18,36 @@ export function parseFence(
       to: nums.at(-1),
    };
 }
+
+/** Text that is, or ends in, a JSON object or array: the prose before it and the value, pretty-printed.
+ * Null when there is none, or it is empty (`[]`, `{}` read fine inline). */
+export function jsonTail(text: string): { prose: string; json: string } | null {
+   const t = text.trim();
+   const last = t.at(-1);
+   if (last !== "}" && last !== "]") return null;
+   // Try each `{` / `[` from the start: the first that parses to the end is the outermost value.
+   for (let i = 0, tries = 0; i < t.length && tries < 50; i++) {
+      const c = t[i];
+      if (c !== "{" && c !== "[") continue;
+      tries++;
+      try {
+         const v = JSON.parse(t.slice(i));
+         if (typeof v !== "object" || v === null || Object.keys(v).length === 0) return null;
+         return { prose: t.slice(0, i).trim(), json: JSON.stringify(v, null, 2) };
+      } catch {
+         /* not JSON from here */
+      }
+   }
+   return null;
+}
+
+/** The command line of an `execute` call: `rawInput.command` (a string, or argv like `["bash", "-lc", cmd]`), else its title. */
+export function commandOf(rawInput: unknown, title: string): string | null {
+   const cmd = (rawInput as { command?: unknown } | null)?.command;
+   if (typeof cmd === "string" && cmd.trim()) return cmd;
+   if (Array.isArray(cmd) && cmd.every((a) => typeof a === "string")) {
+      const shell = cmd.length === 3 && /^-l?c$/.test(cmd[1]!);
+      return shell ? cmd[2]! : cmd.join(" ");
+   }
+   return title && title !== "Terminal" ? title : null;
+}
