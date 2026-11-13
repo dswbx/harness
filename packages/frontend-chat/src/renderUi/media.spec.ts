@@ -73,7 +73,7 @@ export const specs = {
    },
    Html: {
       description:
-         "Free HTML/SVG in a sandboxed frame, for diagrams and custom visuals the catalog cannot show (e.g. an architecture diagram). Prefer catalog components for normal UI. Connects to the Session State with data-* attributes and `window.harness` (see above).",
+         "Free HTML/SVG in a sandboxed frame, for diagrams and custom visuals the catalog cannot show (e.g. an architecture diagram). Prefer catalog components for normal UI. Connects to the Session State with data-* attributes and `window.harness` (see above). As a whole panel (a `.html` source or an Html root), the frame fills the panel and the document scrolls itself: do not put `overflow: hidden` or a fixed height on `html`/`body`; use `position: sticky` for headers that must stay visible.",
       children: false,
       props: s.object({
          html: s.string({
