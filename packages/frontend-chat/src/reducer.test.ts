@@ -1266,14 +1266,14 @@ describe("background jobs", () => {
 
    it("adds a job on launch and removes it when it ends", () => {
       let s = fold([started(), call("c1", "bun run dev"), launched("c1", "j1")]);
-      expect(s.backgroundJobs).toEqual([{ id: "j1", label: "bun run dev" }]);
+      expect(s.backgroundJobs).toEqual([{ id: "j1", label: "bun run dev", since: 0 }]);
       s = reduce(s, ev({ type: "BackgroundJobEnded", job_id: "j1" }));
       expect(s.backgroundJobs).toEqual([]);
    });
 
    it("labels a job by its id when the call's title is unknown", () => {
       const s = fold([started(), launched("c1", "j1"), launched("c1", "j1")]);
-      expect(s.backgroundJobs).toEqual([{ id: "j1", label: "j1" }]);
+      expect(s.backgroundJobs).toEqual([{ id: "j1", label: "j1", since: 0 }]);
    });
 
    it("clears every Thread's jobs when the Agent process stops", () => {

@@ -8,8 +8,8 @@ import {
    type SlashCommand,
    sameRepo,
 } from "@harness/api";
-import { Button, cn, Tooltip } from "@harness/ui";
-import { AppWindow, ArrowUp, FileText, Loader2, Paperclip, Square, X } from "lucide-react";
+import { Button, cn, Tooltip, WorkingLoader } from "@harness/ui";
+import { AppWindow, ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
 import {
    type Ref,
    useEffect,
@@ -47,6 +47,7 @@ import {
    useReviewComments,
    withReviewComments,
 } from "./reviewComments";
+import { formatDuration } from "./time";
 
 /** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
 function AttachmentChips({
@@ -121,9 +122,14 @@ function ContextChip({ context }: { context: PromptContext }) {
    );
 }
 
-/** Context window use as a ring; details on hover. */
-/** "N background jobs running", above the box; the tooltip lists the jobs' commands. */
+/** "N background jobs running" and how long the oldest has run, above the box; the tooltip lists each job. */
 function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
+   const [now, setNow] = useState(Date.now);
+   useEffect(() => {
+      const t = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(t);
+   }, []);
+   const oldest = Math.min(...jobs.map((j) => j.since));
    return (
       <Tooltip
          side="top"
@@ -132,8 +138,9 @@ function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
          content={
             <ul className="space-y-0.5">
                {jobs.map((j) => (
-                  <li key={j.id} className="truncate font-mono">
-                     {j.label}
+                  <li key={j.id} className="flex gap-2">
+                     <span className="min-w-0 flex-1 truncate font-mono">{j.label}</span>
+                     <span className="shrink-0 tabular-nums">{formatDuration(now - j.since)}</span>
                   </li>
                ))}
             </ul>
@@ -143,15 +150,17 @@ function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
             role="status"
             className="mb-2 flex w-fit items-center gap-1.5 px-1 text-xs text-muted-foreground"
          >
-            <Loader2 className="size-3 animate-spin" aria-hidden />
+            <WorkingLoader />
             {jobs.length === 1
                ? "1 background job running"
                : `${jobs.length} background jobs running`}
+            <span className="tabular-nums">{formatDuration(now - oldest)}</span>
          </div>
       </Tooltip>
    );
 }
 
+/** Context window use as a ring; details on hover. */
 function ContextRing({ pct, used, size }: { pct: number; used: number; size: number }) {
    const r = 8;
    const c = 2 * Math.PI * r;

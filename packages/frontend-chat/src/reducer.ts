@@ -177,7 +177,8 @@ export type ToolCallRef = {
 export type Usage = { used: number; size: number };
 
 /** A shell command the Agent left running in the background. `label`: its tool call's title, else the job id. */
-export type BackgroundJobInfo = { id: string; label: string };
+/** `since`: when the job went to the background (ms). */
+export type BackgroundJobInfo = { id: string; label: string; since: number };
 
 export type ChatState = {
    items: Item[];
@@ -547,7 +548,7 @@ function applyThread(c: Ctx, e: Event) {
          const job = k.background_job;
          if (job && !d.backgroundJobs.some((j) => j.id === job.id)) {
             const label = next.title !== "Tool call" ? next.title : job.id;
-            d.backgroundJobs = [...d.backgroundJobs, { id: job.id, label }];
+            d.backgroundJobs = [...d.backgroundJobs, { id: job.id, label, since: e.ts_ms }];
          }
          return;
       }
