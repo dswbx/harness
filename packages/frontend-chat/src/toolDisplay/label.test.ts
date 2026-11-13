@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tool } from "./group";
-import { stepLabel } from "./label";
+import { stepLabel, toolSearchNames } from "./label";
 
 const tool = (title: string, kind: string | null, harnessTool: string | null = null): Tool => ({
    type: "tool",
@@ -49,7 +49,7 @@ describe("stepLabel", () => {
       expect(label(tool("mcp__claude_ai_Linear__get_document", null))).toBe(
          "Called claude_ai_Linear | get_document",
       );
-      expect(label(tool("ToolSearch", null))).toBe("Called | ToolSearch");
+      expect(label(tool("ToolSearch", null))).toBe("Loaded tools | ");
    });
 
    it("Harness git tools: verb by state, detail from the call", () => {
@@ -119,5 +119,39 @@ describe("stepLabel", () => {
          ),
       ).toBe("Checked sub session | Docs fix");
       expect(label(sub("session_list", {}, { sub_sessions: [] }))).toBe("Listed sub sessions | ");
+   });
+});
+
+describe("ToolSearch", () => {
+   const search = (query: string, rawOutput: unknown, content: Tool["content"] = []): Tool => ({
+      ...tool("ToolSearch", null),
+      rawInput: { query, max_results: 4 },
+      rawOutput,
+      content,
+   });
+   const refs = [
+      { type: "tool_reference", tool_name: "mcp__talat__list-meetings" },
+      { type: "tool_reference", tool_name: "mcp__talat__get-summary" },
+   ];
+
+   it("names from tool_reference output, else from text blocks", () => {
+      expect(toolSearchNames(search("select:a", refs))).toEqual([
+         "mcp__talat__list-meetings",
+         "mcp__talat__get-summary",
+      ]);
+      const text = (t: string) => ({ type: "content", content: { type: "text", text: t } });
+      expect(toolSearchNames(search("select:a", null, [text("Tool: WebFetch")]))).toEqual([
+         "WebFetch",
+      ]);
+      expect(toolSearchNames(tool("Grep", "search"))).toBeNull();
+   });
+
+   it("labels: count and short names, or the keywords", () => {
+      expect(label(search("select:a,b", refs))).toBe(
+         "Loaded 2 tools | talat list-meetings, talat get-summary",
+      );
+      expect(label(search("slack send", refs))).toBe('Loaded 2 tools | "slack send"');
+      expect(label(search("nothing", []))).toBe('Searched tools | "nothing"');
+      expect(label(search("select:a", null), "running")).toBe("Loading tools | ");
    });
 });

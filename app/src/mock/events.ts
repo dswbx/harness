@@ -115,6 +115,52 @@ export function mockEvents(): Event[] {
       }),
       ev({
          type: "ToolCall",
+         tool_call_id: "mock-harness-info",
+         title: "mcp__harness__harness_info",
+         kind: "other",
+         status: "completed",
+         content: content(
+            '{ "items": [], "state_keys": ["arch"], "panels_dir": "/mock/.harness/sessions/mock/panels", "shared": [] }',
+         ),
+         locations: [],
+         raw_input: {},
+         harness_tool: "harness_info",
+      }),
+      ev({
+         type: "ToolCall",
+         tool_call_id: "mock-toolsearch",
+         title: "ToolSearch",
+         kind: "other",
+         status: "completed",
+         content: [
+            ...content("Tool: mcp__talat__list-meetings"),
+            ...content("Tool: mcp__talat__get-summary"),
+            ...content("Tool: mcp__talat__get-transcript"),
+         ],
+         locations: [],
+         raw_input: {
+            query: "select:mcp__talat__list-meetings,mcp__talat__get-summary,mcp__talat__get-transcript",
+            max_results: 3,
+         },
+      }),
+      ev({
+         type: "FrontendToolOutput",
+         tool: "render_ui",
+         call_id: "mock-invalid",
+         path: "tools/render_ui/mock-invalid.json",
+         input: {
+            root: {
+               type: "Diagram",
+               props: {
+                  title: "Supabase architecture",
+                  height: 760,
+                  html: "<style>body{margin:0;font-family:system-ui,sans-serif;color:var(--foreground)}</style><div>architecture diagram</div>",
+               },
+            },
+         },
+      }),
+      ev({
+         type: "ToolCall",
          tool_call_id: "mock-grep",
          title: "grep -n DELETE server.js",
          kind: "execute",
