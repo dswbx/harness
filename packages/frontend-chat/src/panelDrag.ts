@@ -47,6 +47,8 @@ export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) 
       if (e.button !== 0) return;
       // No text selection (or native drag) from the press; a plain click still clicks.
       e.preventDefault();
+      const el = e.currentTarget as HTMLElement;
+      const pointer = e.pointerId;
       const sx = e.clientX;
       const sy = e.clientY;
       let active = false;
@@ -55,6 +57,9 @@ export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) 
          if (!active) {
             if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESHOLD) return;
             active = true;
+            // Keep the pointer here: over an iframe (an Html panel), moves and the release would go to the frame.
+            // Only once dragging: a capture earlier would turn a plain click into one on the header.
+            el.setPointerCapture?.(pointer);
             document.body.style.cursor = "grabbing";
             document.body.style.userSelect = "none";
          }
@@ -68,6 +73,7 @@ export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) 
          window.removeEventListener("keydown", onKey, true);
          cancel.current = null;
          if (!active) return;
+         if (el.hasPointerCapture?.(pointer)) el.releasePointerCapture(pointer);
          document.body.style.removeProperty("cursor");
          document.body.style.removeProperty("user-select");
          setDrag(null);
