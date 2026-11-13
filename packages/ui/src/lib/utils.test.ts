@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clamp } from "./utils";
+import { clamp, cn } from "./utils";
 
 describe("clamp", () => {
    it("keeps a value inside the range", () => {
@@ -11,5 +11,15 @@ describe("clamp", () => {
 
    it("min wins when the range is inverted", () => {
       expect(clamp(5, 10, 0)).toBe(10);
+   });
+});
+
+describe("cn", () => {
+   it("keeps our font sizes next to a text color", () => {
+      expect(cn("text-ui-xl", "text-emerald-600")).toBe("text-ui-xl text-emerald-600");
+      expect(cn("text-ui-sm text-muted-foreground")).toBe("text-ui-sm text-muted-foreground");
+   });
+   it("still merges two font sizes", () => {
+      expect(cn("text-ui-sm", "text-ui-xl")).toBe("text-ui-xl");
    });
 });

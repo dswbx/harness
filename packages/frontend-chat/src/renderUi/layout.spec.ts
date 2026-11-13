@@ -280,11 +280,23 @@ export const specs = {
                   type: "Grid",
                   props: { columns: 3 },
                   children: [
-                     { type: "Stat", props: { label: "Tests", value: "48", hint: "2 skipped" } },
-                     { type: "Stat", props: { label: "Coverage", value: "81%", tone: "success" } },
                      {
                         type: "Stat",
-                        props: { label: "Build", value: "42s", tone: "warning", hint: "+6s" },
+                        props: { label: "Tests", value: "48", icon: "test", hint: "2 skipped" },
+                     },
+                     {
+                        type: "Stat",
+                        props: {
+                           label: "Coverage",
+                           value: "81%",
+                           tone: "success",
+                           change: "+2.4%",
+                           trend: "up",
+                        },
+                     },
+                     {
+                        type: "Stat",
+                        props: { label: "Build", value: "42s", tone: "warning", badge: "+6s" },
                      },
                   ],
                },
