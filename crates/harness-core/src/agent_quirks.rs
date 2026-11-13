@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-use crate::api::EventKind;
+use crate::api::{BackgroundJob, EventKind};
 
 /// Host env vars removed before spawning any Agent.
 pub fn stripped_env() -> Vec<String> {
@@ -132,6 +132,10 @@ mod claude {
     /// - `_meta.claudeCode.parentToolUseId`: the Task call that started the subagent.
     /// - A Task call for a background subagent completes at once ("Async agent launched").
     /// - The background subagent's `SubagentHandback` call carries its final report.
+    ///
+    /// Background shell commands: a Bash call that runs in the background (or was moved there on
+    /// timeout) completes at once, and the Agent sends no signal when the job ends. Without this,
+    /// the Session looks idle while the job works.
     pub fn adjust(u: &Value, kind: &mut EventKind) {
         let parent = u.pointer("/_meta/claudeCode/parentToolUseId").and_then(Value::as_str).map(str::to_owned);
         match kind {
@@ -141,13 +145,27 @@ mod claude {
                 }
                 *parent_tool_call_id = parent;
             }
-            EventKind::ToolCallUpdate { content, parent_tool_call_id, background, .. } => {
-                let launched = |b: &Value| b.pointer("/content/text").and_then(Value::as_str).is_some_and(|t| t.starts_with("Async agent launched"));
-                *background = content.as_ref().and_then(Value::as_array).is_some_and(|c| c.iter().any(launched));
+            EventKind::ToolCallUpdate { content, parent_tool_call_id, background, background_job, .. } => {
+                let texts =
+                    || content.as_ref().and_then(Value::as_array).into_iter().flatten().filter_map(|b| b.pointer("/content/text").and_then(Value::as_str));
+                *background = texts().any(|t| t.starts_with("Async agent launched"));
+                *background_job = texts().find_map(background_job_of);
                 *parent_tool_call_id = parent;
             }
             _ => {}
         }
+    }
+
+    /// Reads "Command running in background with ID: <id>. Output is being written to: <file>.output"
+    /// or "... was moved to the background (ID: <id>). Output is being written to: ...".
+    fn background_job_of(text: &str) -> Option<BackgroundJob> {
+        let after = |marker: &str| text.find(marker).map(|i| &text[i + marker.len()..]);
+        let rest = after("Command running in background with ID: ").or_else(|| after("moved to the background (ID: "))?;
+        let id: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+        let file = after("Output is being written to: ")?;
+        let end = file.find(".output")? + ".output".len();
+        let output_file = file[..end].trim().to_owned();
+        (!id.is_empty() && output_file.starts_with('/')).then_some(BackgroundJob { id, output_file })
     }
 }
 
@@ -233,6 +251,7 @@ mod tests {
             raw_output: None,
             parent_tool_call_id: None,
             background: false,
+            background_job: None,
             harness_tool: None,
             plan: None,
             subagent: None,
@@ -240,6 +259,51 @@ mod tests {
         };
         adjust(&json!({}), &mut k);
         assert!(matches!(k, EventKind::ToolCallUpdate { background: true, .. }));
+    }
+
+    fn update_with_text(text: &str) -> EventKind {
+        EventKind::ToolCallUpdate {
+            tool_call_id: "bash1".into(),
+            title: None,
+            kind: None,
+            status: Some("completed".into()),
+            content: Some(json!([{ "type": "content", "content": { "type": "text", "text": text } }])),
+            locations: None,
+            raw_input: None,
+            raw_output: None,
+            parent_tool_call_id: None,
+            background: false,
+            background_job: None,
+            harness_tool: None,
+            plan: None,
+            subagent: None,
+            commit_message: None,
+        }
+    }
+
+    #[test]
+    fn claude_background_shell_job() {
+        let job = |text: &str| {
+            let mut k = update_with_text(text);
+            adjust(&json!({}), &mut k);
+            match k {
+                EventKind::ToolCallUpdate { background_job, background, .. } => {
+                    assert!(!background);
+                    background_job
+                }
+                _ => unreachable!(),
+            }
+        };
+        let want = |id: &str, f: &str| Some(BackgroundJob { id: id.into(), output_file: f.into() });
+
+        let started = "```console\nCommand running in background with ID: b771yrkd7. Output is being written to: /private/tmp/claude-501/-Users-x/abc/tasks/b771yrkd7.output. You will be notified when it completes.\n```";
+        assert_eq!(job(started), want("b771yrkd7", "/private/tmp/claude-501/-Users-x/abc/tasks/b771yrkd7.output"));
+
+        let moved = "Command did not complete within its 600s timeout and was moved to the background (ID: btk0ee6s2). Output is being written to: /private/tmp/x/tasks/btk0ee6s2.output. Check on it later.";
+        assert_eq!(job(moved), want("btk0ee6s2", "/private/tmp/x/tasks/btk0ee6s2.output"));
+
+        assert_eq!(job("total 0\ndrwxr-xr-x  2 me  staff  64 a"), None);
+        assert_eq!(job("Command running in background with ID: x1."), None);
     }
 
     #[test]

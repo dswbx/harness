@@ -1385,6 +1385,10 @@ pub enum EventKind {
         /// done when its report arrives).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         background: bool,
+        /// The call started a shell command that goes on running in the background: the job.
+        /// Done when `BackgroundJobEnded` names it, or when the Agent process stopped after it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        background_job: Option<BackgroundJob>,
         /// Set when the update changes the title to a Harness MCP tool.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         harness_tool: Option<String>,
@@ -1397,6 +1401,11 @@ pub enum EventKind {
         /// Set when the update carries the commit message (see `ToolCall`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         commit_message: Option<String>,
+    },
+    /// Appended by the Harness when a background job's output file is no longer open by any
+    /// process: the job ended (see `ToolCallUpdate.background_job`).
+    BackgroundJobEnded {
+        job_id: String,
     },
     TaskListUpdated {
         entries: Vec<TaskEntry>,
@@ -1553,6 +1562,15 @@ impl EventKind {
 /// The values a select config option offers.
 pub(crate) fn option_values(option: &Json) -> Vec<&str> {
     option["options"].as_array().into_iter().flatten().filter_map(|o| o["value"].as_str()).collect()
+}
+
+/// A shell command an Agent runs in the background after its tool call finished.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct BackgroundJob {
+    /// The Agent's id for the job.
+    pub id: String,
+    /// The file the job writes its output to.
+    pub output_file: String,
 }
 
 /// What a tool call that starts a subagent asked it to do.

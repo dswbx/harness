@@ -244,10 +244,13 @@ function SlotPanel({
    env,
    updated,
    shared,
+   onShare,
 }: {
    slot: Slot;
    env: UiEnv;
    updated: number;
+   /** Offers "Make shared" (ADR 0024); only for a panel that is not shared yet. */
+   onShare?: () => void;
    shared?: {
       meta: SharedArtifactMeta | undefined;
       onDetach: () => void;
@@ -259,17 +262,23 @@ function SlotPanel({
          <PanelHeader
             title={slot.title ?? slot.id}
             menu={
-               shared && (
-                  <>
-                     {shared.onOpenOutside && (
-                        <DropdownMenuItem onSelect={shared.onOpenOutside}>
-                           <ExternalLink /> Open outside Session
+               onShare ? (
+                  <DropdownMenuItem onSelect={onShare}>
+                     <Share2 /> Make shared
+                  </DropdownMenuItem>
+               ) : (
+                  shared && (
+                     <>
+                        {shared.onOpenOutside && (
+                           <DropdownMenuItem onSelect={shared.onOpenOutside}>
+                              <ExternalLink /> Open outside Session
+                           </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onSelect={shared.onDetach}>
+                           <Unlink /> Detach
                         </DropdownMenuItem>
-                     )}
-                     <DropdownMenuItem onSelect={shared.onDetach}>
-                        <Unlink /> Detach
-                     </DropdownMenuItem>
-                  </>
+                     </>
+                  )
                )
             }
          >
@@ -1083,6 +1092,14 @@ function ChatView({
                   slot={slot}
                   env={env}
                   updated={updatedAt(slot)}
+                  onShare={
+                     sharedId
+                        ? undefined
+                        : () =>
+                             void api
+                                .shareArtifact(slot.id)
+                                .catch((e) => console.error("share failed", e))
+                  }
                   shared={
                      sharedId
                         ? {

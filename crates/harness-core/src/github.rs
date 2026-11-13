@@ -113,7 +113,8 @@ pub(crate) fn graphql_data(mut v: Value) -> anyhow::Result<Value> {
 /// The PR fields both `PullRequest` and `PrInfo` read.
 pub(crate) const PR_FRAGMENT: &str = "fragment pr on PullRequest { number title url state isDraft isCrossRepository headRefName \
 baseRefName additions deletions changedFiles updatedAt author { login } commits(last: 1) { nodes { commit { statusCheckRollup { \
-contexts(first: 100) { nodes { ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } } }";
+contexts(first: 100) { nodes { ... on CheckRun { name status conclusion startedAt checkSuite { workflowRun { workflow { name } } } } \
+... on StatusContext { context state createdAt } } } } } } } }";
 
 /// The check runs and statuses of a PR from `PR_FRAGMENT`.
 pub(crate) fn rollup(pr: &Value) -> &[Value] {
@@ -169,6 +170,7 @@ fn pull_request(v: &Value) -> Option<PullRequest> {
 
 /// Rolls check runs (`conclusion`/`status`) and commit statuses (`state`) up into one state.
 pub(crate) fn checks(rollup: &[serde_json::Value]) -> PrChecks {
+    let rollup = latest_runs(rollup);
     if rollup.is_empty() {
         return PrChecks::None;
     }
@@ -185,7 +187,41 @@ pub(crate) fn checks(rollup: &[serde_json::Value]) -> PrChecks {
 
 /// Checks that passed, and all checks.
 pub(crate) fn check_counts(rollup: &[serde_json::Value]) -> (u32, u32) {
+    let rollup = latest_runs(rollup);
     (rollup.iter().filter(|c| check_passed(c) == Some(true)).count() as u32, rollup.len() as u32)
+}
+
+/// The newest run of each check, as GitHub shows them. A commit keeps the runs a re-run or a newer
+/// push replaced (often `CANCELLED`); they must not count. Key: workflow + check name (`context` for
+/// a commit status). Newest: latest `startedAt`/`createdAt`; no time yet (queued) is newest. Entries
+/// without a name stay.
+fn latest_runs(rollup: &[serde_json::Value]) -> Vec<&serde_json::Value> {
+    let text = |c: &serde_json::Value, k: &str| c[k].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    let key = |c: &serde_json::Value| {
+        let name = text(c, "name").or_else(|| text(c, "context"))?;
+        let workflow = text(c, "workflowName").or_else(|| text(&c["checkSuite"]["workflowRun"]["workflow"], "name"));
+        Some((workflow.unwrap_or_default(), name))
+    };
+    let time = |c: &serde_json::Value| text(c, "startedAt").or_else(|| text(c, "createdAt"));
+    let newer = |a: &serde_json::Value, b: &serde_json::Value| match (time(a), time(b)) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(a), Some(b)) => a >= b,
+    };
+    let mut out: Vec<&serde_json::Value> = vec![];
+    let mut keys: Vec<Option<(String, String)>> = vec![];
+    for c in rollup {
+        let k = key(c);
+        match k.as_ref().and_then(|k| keys.iter().position(|o| o.as_ref() == Some(k))) {
+            Some(i) if newer(c, out[i]) => out[i] = c,
+            Some(_) => {}
+            None => {
+                out.push(c);
+                keys.push(k);
+            }
+        }
+    }
+    out
 }
 
 /// One check: passed, failed, or `None` while it runs.
@@ -243,5 +279,29 @@ mod tests {
             json!({"conclusion": "FAILURE"}),
         ];
         assert_eq!(check_counts(&rollup), (3, 5));
+    }
+
+    #[test]
+    fn ignores_replaced_runs() {
+        // Flat shape (`workflowName`): a cancelled first run, then the re-run of the same check.
+        let rollup = [
+            json!({"name": "test", "workflowName": "CI", "conclusion": "CANCELLED", "startedAt": "2026-11-13T08:50:15Z"}),
+            json!({"name": "lint", "workflowName": "CI", "conclusion": "CANCELLED", "startedAt": "2026-11-13T08:50:15Z"}),
+            json!({"name": "test", "workflowName": "CI", "conclusion": "SUCCESS", "startedAt": "2026-11-13T08:50:22Z"}),
+            json!({"name": "lint", "workflowName": "CI", "status": "QUEUED", "conclusion": ""}),
+            json!({"name": "test", "workflowName": "Other", "conclusion": "SUCCESS", "startedAt": "2026-11-13T08:40:00Z"}),
+        ];
+        assert_eq!(checks(&rollup), PrChecks::Pending);
+        assert_eq!(check_counts(&rollup), (2, 3));
+        // GraphQL shape: the workflow name sits under checkSuite. Order does not matter.
+        let wf = json!({"workflowRun": {"workflow": {"name": "CI"}}});
+        let rollup = [
+            json!({"name": "test", "checkSuite": wf, "conclusion": "SUCCESS", "startedAt": "2026-11-13T08:50:22Z"}),
+            json!({"name": "test", "checkSuite": wf, "conclusion": "CANCELLED", "startedAt": "2026-11-13T08:50:15Z"}),
+            json!({"context": "ci/x", "state": "FAILURE", "createdAt": "2026-11-13T08:00:00Z"}),
+            json!({"context": "ci/x", "state": "SUCCESS", "createdAt": "2026-11-13T09:00:00Z"}),
+        ];
+        assert_eq!(checks(&rollup), PrChecks::Passing);
+        assert_eq!(check_counts(&rollup), (2, 2));
     }
 }
