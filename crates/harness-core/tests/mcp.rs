@@ -142,7 +142,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -1082,4 +1082,155 @@ async fn the_watcher_reports_shared_artifact_changes() {
     assert_eq!(*seen.lock().unwrap(), vec![meta.id.clone()]);
     let CommandResult::SharedArtifact { content, .. } = h.execute(Command::SharedArtifactRead { id: meta.id.clone() }).await.unwrap() else { panic!() };
     assert_eq!(content, "# Two");
+}
+
+// ---------- Sub Sessions ----------
+
+fn summary(h: &Harness, sid: &str) -> Option<harness_core::api::SessionSummary> {
+    let rt = tokio::runtime::Handle::current();
+    let CommandResult::Sessions { sessions } = tokio::task::block_in_place(|| rt.block_on(h.execute(Command::ListSessions))).unwrap() else { panic!() };
+    sessions.into_iter().find(|s| s.id == sid)
+}
+
+/// The Agent's reply to a Thread's prompt.
+async fn ask_on(h: &Harness, sid: &str, thread: &str, text: &str) -> String {
+    let before = events(h, sid).len();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: Some(thread.into()), text: text.into(), attachments: vec![] }).await.unwrap();
+    for _ in 0..800 {
+        let evs = events(h, sid);
+        let mine = || evs[before..].iter().filter(|e| e.thread_id.as_deref() == Some(thread));
+        if mine().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
+            return mine()
+                .filter_map(|e| match &e.kind {
+                    EventKind::AgentMessageChunk { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect();
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("turn did not end");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sub_session_start_send_and_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child"}"#).await;
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    assert_eq!(started["title"], "Child");
+    assert!(started["branch"].as_str().unwrap().starts_with("harness/"), "a repo folder gets a worktree by default: {started}");
+    assert_eq!(started["model"], "a", "the parent's model");
+    let parent = summary(&h, &child).unwrap().parent.expect("parent");
+    assert_eq!(parent.session_id, sid);
+    assert!(summary(&h, &sid).unwrap().parent.is_none());
+    let (origin, context) = events(&h, &child)
+        .into_iter()
+        .find_map(|e| match e.kind {
+            EventKind::TurnStarted { origin, context, .. } => Some((origin, context)),
+            _ => None,
+        })
+        .expect("the first prompt is logged before session_start returns");
+    assert_eq!(origin.map(|o| o.session_id), Some(sid.clone()));
+    let context = context.unwrap();
+    assert!(context.contains("Sub Session: the agent of Session") && context.contains("not from the user"), "{context}");
+
+    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    assert_eq!(done["status"], "idle", "{done}");
+    assert_eq!(done["stop_reason"], "end_turn");
+    assert_eq!(done["reply"], "Working on it. Done.");
+
+    let sent = mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"history"}}"#)).await;
+    assert_eq!(sent["session_id"], child.as_str());
+    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    assert_eq!(done["reply"], "history: hello");
+
+    // Not offered to a Sub Session (depth 1), nor to a Side Thread.
+    let tools = ask(&h, &child, "mcp-list", None).await;
+    assert!(!tools.contains("session_"), "{tools}");
+    let refused = ask(&h, &child, &format!(r#"mcp session_wait {{"id":"{child}"}}"#), None).await;
+    assert!(refused.starts_with("mcp error: session_wait is only available"), "{refused}");
+    let CommandResult::ThreadStarted { thread_id, .. } =
+        h.execute(Command::StartSideThread { session_id: sid.clone(), seed: None, source: harness_core::api::ThreadStart::Fresh, mode: None }).await.unwrap()
+    else {
+        panic!()
+    };
+    let tools = ask_on(&h, &sid, &thread_id, "mcp-list").await;
+    assert!(tools.starts_with("tools: ") && !tools.contains("session_"), "{tools}");
+
+    // Only its own children.
+    let other = create(&h, &repo, vec![]).await;
+    let foreign = ask(&h, &sid, &format!(r#"mcp session_wait {{"id":"{other}"}}"#), None).await;
+    assert_eq!(foreign, format!("mcp error: Session {other} is not a Sub Session of this Session"));
+    let foreign = ask(&h, &sid, &format!(r#"mcp session_send {{"id":"{other}","text":"x"}}"#), None).await;
+    assert!(foreign.contains("is not a Sub Session"), "{foreign}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sub_session_rules_cap_and_cascade() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    let refused = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false,"branch":"main"}"#, None).await;
+    assert_eq!(refused, "mcp error: branch needs a worktree: omit worktree or pass worktree: true");
+    let refused = ask(&h, &sid, r#"mcp session_start {"prompt":"x","model":"gpt"}"#, None).await;
+    assert_eq!(refused, "mcp error: unknown model \"gpt\". Valid: A (a), B (b)");
+
+    let mut children = vec![];
+    for _ in 0..4 {
+        let started = mcp_json(&h, &sid, r#"session_start {"prompt":"fault-hang","worktree":false}"#).await;
+        children.push(started["session_id"].as_str().unwrap().to_owned());
+    }
+    let child = children[0].clone();
+    let busy = ask(&h, &sid, &format!(r#"mcp session_send {{"id":"{child}","text":"hi"}}"#), None).await;
+    assert!(busy.starts_with("mcp error: Sub Session") && busy.contains("is still working"), "{busy}");
+    let waited = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}","timeout_s":1}}"#)).await;
+    assert_eq!(waited["status"], "working", "{waited}");
+    assert!(waited.get("stop_reason").is_none());
+    let capped = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false}"#, None).await;
+    assert!(capped.starts_with("mcp error: 4 Sub Sessions of this Session are running"), "{capped}");
+
+    // Archiving, unarchiving and deleting the parent takes its children along.
+    h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert!(children.iter().all(|c| summary(&h, c).unwrap().archived));
+    h.execute(Command::UnarchiveSession { session_id: sid.clone() }).await.unwrap();
+    assert!(children.iter().all(|c| !summary(&h, c).unwrap().archived));
+    let other = create(&h, &repo, vec![]).await;
+    h.execute(Command::DeleteSession { session_id: sid.clone(), force: false }).await.unwrap();
+    assert!(children.iter().all(|c| summary(&h, c).is_none()));
+    assert!(summary(&h, &other).is_some(), "other Sessions stay");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sub_session_model_overrides_remembered_config_without_saving_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    ask(&h, &sid, "hi", None).await;
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "model".into(), value: "b".into() }).await.unwrap();
+    let saved = || std::fs::read_to_string(data.join("agent-config.json")).unwrap();
+    let before = saved();
+    assert!(before.contains(r#""model": "b""#), "{before}");
+
+    let model_of = |sid: &str| {
+        events(&h, sid).into_iter().rev().find_map(|e| match e.kind {
+            EventKind::ConfigOptionsChanged { options, .. } => {
+                options.as_array().unwrap().iter().find(|o| o["id"] == "model").map(|o| o["currentValue"].clone())
+            }
+            _ => None,
+        })
+    };
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi","model":"A"}"#).await;
+    assert_eq!(started["model"], "a");
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    assert_eq!(model_of(&child), Some(serde_json::json!("a")), "initial_config wins over the remembered model");
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi"}"#).await;
+    assert_eq!(started["model"], "b", "defaults to the parent's model");
+    assert_eq!(saved(), before, "agent-config.json is unchanged");
 }

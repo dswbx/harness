@@ -1226,6 +1226,26 @@ pub struct SessionSummary {
     /// A Quick Session: `folder` is a folder the Harness made for it.
     pub quick: bool,
     pub workspace: WorkspaceInfo,
+    /// A Sub Session: the Session whose Agent started it (`session_start`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<SessionParent>,
+}
+
+/// Where a Sub Session comes from: the Session, Thread and tool call that started it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SessionParent {
+    pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Who sent a prompt when it was not the user: the Agent of another Session (a parent Session
+/// prompting its Sub Session).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct PromptOrigin {
+    pub session_id: SessionId,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1323,6 +1343,9 @@ pub enum EventKind {
         /// The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<String>,
+        /// Set when another Session's Agent sent the prompt, not the user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<PromptOrigin>,
     },
     TurnEnded {
         turn_id: TurnId,
@@ -1694,6 +1717,7 @@ pub enum AppEvent {
     /// A Turn ended (`stop_reason` as in `TurnEnded`).
     TurnFinished {
         session_id: SessionId,
+        thread_id: ThreadId,
         title: String,
         stop_reason: String,
     },

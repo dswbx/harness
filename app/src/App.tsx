@@ -339,6 +339,9 @@ function Shell({ transport }: { transport: Transport }) {
    const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
    const [deleteError, setDeleteError] = useState<string | null>(null);
    const [deleting, setDeleting] = useState(false);
+   const subSessionCount = toDelete
+      ? sessions.filter((s) => s.parent?.session_id === toDelete.id).length
+      : 0;
    const [menuError, setMenuError] = useState<string | null>(null);
    const [sidebarOpen, toggleSidebar] = useSidebarOpen();
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
@@ -625,6 +628,8 @@ function Shell({ transport }: { transport: Transport }) {
                         : toDelete?.workspace.worktree_branch
                           ? ", along with its Worktree and branch"
                           : ""}
+                     {subSessionCount > 0 &&
+                        `, and ${subSessionCount} sub session${subSessionCount === 1 ? "" : "s"}`}
                      . This cannot be undone.
                   </DialogDescription>
                </DialogHeader>

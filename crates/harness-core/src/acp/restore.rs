@@ -388,10 +388,13 @@ pub(super) async fn fork_agent_session(
 }
 
 /// Sets the config option values last picked for this Agent on a brand-new Agent Session, in the
-/// Agent's own option order (e.g. model before effort, whose choices can depend on it). Skips values
+/// Agent's own option order (e.g. model before effort, whose choices can depend on it). The
+/// Session's `initial_config` (a Sub Session's model and effort) wins over them. Skips values
 /// already current and any the Agent rejects. Returns the resulting options.
 pub(super) async fn apply_remembered_config(session: &Arc<Session>, conn: &Arc<AgentConn>, id: &acp::SessionId, mut options: Value) -> Value {
-    let remembered = session.shared().agents.remembered_config(&session.meta().agent.id);
+    let meta = session.meta();
+    let mut remembered = session.shared().agents.remembered_config(&meta.agent.id);
+    remembered.extend(meta.initial_config);
     if remembered.is_empty() {
         return options;
     }

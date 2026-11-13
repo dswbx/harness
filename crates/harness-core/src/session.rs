@@ -35,6 +35,15 @@ pub struct Shared {
     pub pr_refs: crate::github_refs::PrRefs,
     /// Shared Artifacts (ADR 0024), in `<data dir>/shared/`.
     pub artifacts: crate::shared::SharedArtifacts,
+    /// The Harness, so the Harness MCP can start and reach Sub Sessions. Set once it exists.
+    pub host: std::sync::OnceLock<std::sync::Weak<crate::host::Harness>>,
+}
+
+impl Shared {
+    /// The Harness, while it lives.
+    pub fn host(&self) -> anyhow::Result<Arc<crate::host::Harness>> {
+        self.host.get().and_then(std::sync::Weak::upgrade).ok_or_else(|| anyhow::anyhow!("the Harness is shutting down"))
+    }
 }
 
 type AppSink = Box<dyn Fn(&crate::api::AppEvent) -> bool + Send + Sync>;
@@ -110,13 +119,20 @@ pub struct SessionMeta {
     /// The title is a placeholder: the first Main Thread prompt replaces it.
     #[serde(default)]
     pub title_from_prompt: bool,
+    /// A Sub Session: the Session whose Agent started it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<crate::api::SessionParent>,
+    /// Config option values (id -> value) the first Agent Session starts with, over the remembered
+    /// ones (a Sub Session's model and effort). Never written to the remembered config.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub initial_config: std::collections::BTreeMap<String, String>,
 }
 
 /// Title of a Quick Session until its first prompt.
 pub const QUICK_TITLE: &str = "New Quick Session";
 
 /// A title from the first line of a prompt: up to 40 characters.
-fn title_from_text(text: &str) -> Option<String> {
+pub(crate) fn title_from_text(text: &str) -> Option<String> {
     const MAX: usize = 40;
     let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
     let mut title: String = line.chars().take(MAX).collect();
@@ -382,6 +398,8 @@ impl Session {
             quick: false,
             awaiting_first_prompt: false,
             title_from_prompt: false,
+            parent: None,
+            initial_config: Default::default(),
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
@@ -938,6 +956,7 @@ impl Session {
                 pr_checks: status.map(|s| s.checks),
                 branch,
             },
+            parent: m.parent.clone(),
         }
     }
 
@@ -950,11 +969,18 @@ impl Session {
         }
     }
 
-    pub async fn prompt(self: &Arc<Self>, thread_id: Option<ThreadId>, text: String, attachments: Vec<crate::api::AttachmentInput>) -> anyhow::Result<()> {
+    /// Starts a Turn. `origin`: another Session's Agent sent it (a parent prompting its Sub Session).
+    pub async fn prompt(
+        self: &Arc<Self>,
+        thread_id: Option<ThreadId>,
+        text: String,
+        attachments: Vec<crate::api::AttachmentInput>,
+        origin: Option<crate::api::PromptOrigin>,
+    ) -> anyhow::Result<()> {
         let thread = self.thread(thread_id)?;
         self.note_first_prompt(&thread, &text)?;
         self.adopt_repo();
-        crate::acp::prompt(self.clone(), thread, text, attachments).await
+        crate::acp::prompt(self.clone(), thread, text, attachments, origin).await
     }
 
     /// A Quick Session is used from its first prompt on, and takes its title from the first one
@@ -1017,7 +1043,7 @@ impl Session {
         let thread = self.thread(thread_id)?;
         crate::acp::continue_with_summary(self.clone(), thread.clone()).await?;
         if let Some(text) = text {
-            crate::acp::prompt(self.clone(), thread, text, attachments).await?;
+            crate::acp::prompt(self.clone(), thread, text, attachments, None).await?;
         }
         Ok(())
     }
@@ -1189,6 +1215,20 @@ impl Session {
         Ok(())
     }
 
+    /// Whether a Turn of `thread` is in flight: counted by the Agent slot, or started in the log and
+    /// not ended yet (the slot stops counting just before `TurnEnded` is logged).
+    pub fn thread_working(&self, thread: &ThreadId) -> anyhow::Result<bool> {
+        if self.agent.thread_working(thread) {
+            return Ok(true);
+        }
+        let open = self.log.events()?.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match e.kind {
+            EventKind::TurnStarted { .. } => Some(true),
+            EventKind::TurnEnded { .. } => Some(false),
+            _ => None,
+        });
+        Ok(open.unwrap_or(false))
+    }
+
     pub(crate) fn agent_slot(&self) -> &crate::acp::AgentSlot {
         &self.agent
     }
@@ -1277,5 +1317,21 @@ mod branch_pr_tests {
         assert_eq!(m.pr, Some(4));
         assert_eq!(m.branch_pr, None);
         assert!(!serde_json::to_string(&m).unwrap().contains("branch_pr"));
+    }
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::*;
+
+    #[test]
+    fn old_session_json_without_sub_session_fields_round_trips() {
+        let old = r#"{"id":"s","title":"T","folder":"/f","agent":{"id":"a","name":"A","command":"a","args":[],"env":{}},"frontend_id":"chat","created_ms":1,"main_thread_id":"m"}"#;
+        let m: SessionMeta = serde_json::from_str(old).unwrap();
+        assert_eq!((m.parent.as_ref(), m.initial_config.len()), (None, 0));
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("parent") && !json.contains("initial_config"), "{json}");
+        let again: SessionMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(again.id, "s");
     }
 }

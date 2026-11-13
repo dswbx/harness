@@ -120,6 +120,11 @@ impl AgentSlot {
         Self::status_of(&self.state.lock())
     }
 
+    /// Whether a Turn of `thread` is in flight.
+    pub fn thread_working(&self, thread: &ThreadId) -> bool {
+        self.state.lock().turns.get(thread).is_some_and(|n| *n > 0)
+    }
+
     pub(super) fn status_of(s: &SlotState) -> SessionStatus {
         if !s.pending.is_empty() {
             SessionStatus::NeedsAttention

@@ -251,6 +251,38 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
             }, "required": ["query"] }),
             "read",
         ),
+        (
+            "session_start",
+            "Start a Sub Session: another Session with its own agent, shown to the user under this one. Only for work the user asked to run separately (for example in another repository). It works in a new worktree when the folder is in a git repository, unless `worktree` is false. Returns once its first Turn started, as JSON: session_id, title, folder, repo, branch, model, effort. Then use session_wait for its reply.",
+            json!({ "type": "object", "properties": {
+                "prompt": { "type": "string", "description": "The first message to its agent" },
+                "folder": { "type": "string", "description": "Folder to work in (default: this Session's folder, outside its worktree)" },
+                "title": { "type": "string" },
+                "model": { "type": "string", "description": "Model value or name (default: this Session's model)" },
+                "effort": { "type": "string", "description": "Effort value or name (default: this Session's effort)" },
+                "worktree": { "type": "boolean", "description": "Work in a new worktree (default: true in a git repository)" },
+                "branch": { "type": "string", "description": "Branch to cut the worktree from (default: the current branch). Needs a worktree." }
+            }, "required": ["prompt"] }),
+            "session",
+        ),
+        (
+            "session_send",
+            "Send a message to one of your Sub Sessions. Refused while it is still working: call session_wait first. Returns JSON: session_id, title.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "session_id from session_start" },
+                "text": { "type": "string" }
+            }, "required": ["id", "text"] }),
+            "session",
+        ),
+        (
+            "session_wait",
+            "Wait until one of your Sub Sessions ends its Turn or needs the user, at most `timeout_s` seconds. Returns JSON: session_id, title, status (idle, needs_attention or working when the wait timed out; then call it again), stop_reason, duration_ms, reply (its last message).",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "session_id from session_start" },
+                "timeout_s": { "type": "integer", "minimum": 1, "maximum": 1800, "description": "Default 600" }
+            }, "required": ["id"] }),
+            "read",
+        ),
     ]
 }
 
@@ -264,9 +296,11 @@ impl ServerHandler for Handler {
     async fn list_tools(&self, _request: Option<PaginatedRequestParams>, cx: RequestContext<RoleServer>) -> Result<ListToolsResult, ErrorData> {
         let (session, thread) = target(&cx)?;
         let fresh = session.is_fresh_side(&thread);
+        let sub = crate::sub_sessions::offered(&session, &thread);
         let mut tools: Vec<Tool> = primitives()
             .into_iter()
             .filter(|(name, ..)| !(fresh && TRANSCRIPT_TOOLS.contains(name)))
+            .filter(|(name, ..)| sub || !crate::sub_sessions::TOOLS.contains(name))
             .map(|(name, desc, input, _)| Tool::new(name, desc, schema(input)))
             .collect();
         for t in session.frontend_tools() {
@@ -290,6 +324,9 @@ impl ServerHandler for Handler {
 /// Runs one tool call for the Session, after the Permission Policy agrees.
 async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value) -> anyhow::Result<Vec<ContentBlock>> {
     let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_owned);
+    if crate::sub_sessions::TOOLS.contains(&name) {
+        return Ok(vec![ContentBlock::text(crate::sub_sessions::call(session, thread, name, &args).await?)]);
+    }
     if let Some((_, desc, _, kind)) = primitives().into_iter().find(|p| p.0 == name) {
         anyhow::ensure!(
             !(TRANSCRIPT_TOOLS.contains(&name) && session.is_fresh_side(thread)),
