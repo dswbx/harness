@@ -691,10 +691,12 @@ pub enum CommandResult {
         content: String,
     },
     /// A panel source file; `hash`: sha256 of `content` (hex), to skip re-renders when unchanged;
-    /// `mtime_ms`: when the file was last written (ms epoch, 0 when unknown).
+    /// `mtime_ms`: when the file was last written (ms epoch, 0 when unknown); `path`: the file,
+    /// absolute (for "copy path").
     PanelSource {
         content: String,
         hash: String,
+        path: String,
         #[specta(type = specta_typescript::Number)]
         mtime_ms: i64,
     },

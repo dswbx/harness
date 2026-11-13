@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
-import { RenderUi } from "./RenderUi";
+import { checkSourceTree, RenderUi } from "./RenderUi";
 import { initialState, reduce } from "./reducer";
 import { Env, type UiEnv } from "./renderUi/runtime";
 import { SourceMarkdown, SourceView } from "./renderUi/source";
@@ -38,6 +38,7 @@ describe("render_ui source", () => {
       expect(valid({ ...at, source: "progress.html" })).toBe(true);
       expect(valid({ ...at, source: "progress.txt" })).toBe(false);
       expect(valid({ ...at, source: "progress.htm" })).toBe(false);
+      expect(valid({ ...at, source: "review/tree.json" })).toBe(true);
       // The node that names a file is the reducer's; the Agent cannot send one in a root.
       expect(valid({ ...at, root: { type: "Html", props: { source: "b.html" } } })).toBe(false);
       expect(valid({ ...at, root: { type: "Markdown", props: { source: "a.md" } } })).toBe(false);
@@ -201,6 +202,41 @@ describe("render_ui shared: source (ADR 0024)", () => {
       const out = renderToStaticMarkup(
          createElement(RenderUi, {
             root: { type: "Shared" as "Markdown", props: { id: "x" } },
+            env,
+         }),
+      );
+      expect(out).toContain("animate-pulse");
+   });
+
+   it("replays a .json source as a SourceTree node the Agent cannot send itself", () => {
+      const s = fold([ui({ id: "t", placement: "right", title: "T", source: "todo.json" })]);
+      expect(splitRenderUi(s.items).slots.right[0]!.root).toEqual({
+         type: "SourceTree",
+         props: { source: "todo.json" },
+      });
+      expect(valid({ id: "t", root: { type: "SourceTree", props: { source: "todo.json" } } })).toBe(
+         false,
+      );
+   });
+
+   it("checks a .json source's tree with the render_ui schema", () => {
+      const good = JSON.stringify({ root: md("hi") });
+      expect(checkSourceTree(good)).toEqual({ root: md("hi") });
+      expect(checkSourceTree("{")).toHaveProperty("error");
+      expect(checkSourceTree(JSON.stringify(md("hi")))).toEqual({ error: "The file has no root" });
+      const bad = checkSourceTree(JSON.stringify({ root: { type: "Nope", props: {} } }));
+      expect("error" in bad && bad.error).toMatch(/^\/root/);
+   });
+
+   it("renders a SourceTree node through the source reader, with a placeholder while it loads", () => {
+      const env = {
+         state: {},
+         files: {},
+         readSource: () => new Promise(() => {}),
+      } as unknown as UiEnv;
+      const out = renderToStaticMarkup(
+         createElement(RenderUi, {
+            root: { type: "SourceTree" as "Markdown", props: { source: "todo.json" } },
             env,
          }),
       );

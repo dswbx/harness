@@ -19,3 +19,9 @@ An Agent kept 7 `render_ui` panels open for days. Each change resent the whole t
 ## Addendum: `.html` sources
 
 `source` may also end in `.html`. The reducer turns such an item into an Html node that names the file (`{type: "Html", props: {source}}`; the Html schema has no `source` prop, so only a `source` item makes one). It renders in the same sandboxed frame as an inline Html node: same CSP, same state bridge, same actions and error reports; only the document comes from the file. Name checks, the watcher, reads, `ui_get`, `harness_info`, the permission default and the change dot treat both types the same. A file change gives a new document, so the frame reloads (its own script state is lost; Session State is not); an unchanged hash keeps the frame as it is. Use `.md` for text, `.html` for interactive or custom-styled panels.
+
+## Addendum: `.json` sources
+
+Agents kept choosing `.md` panels with `<details>` over render_ui components, because a file can be changed with Edit and a `root` must be sent again whole. So `source` may also end in `.json`: a render_ui tree as `{"root": node}`, the format of a Shared Artifact's `ui.json`. The reducer turns such an item into the internal `SourceTree` node (not in the catalog, like `Shared`); the renderer reads the file, checks it with the render_ui schema and renders it bound to the Session State, like a `root`. A bad file shows its errors in the panel.
+
+The core checks the tree with the Frontend's render_ui schema when the call comes in (the call fails, as for a bad `root`) and on each `harness_info` (the errors are listed on the item), so the Agent sees a broken edit. Local image paths are refused: only a `root` copies images (`frontend_files`); `https:` and `data:image/` work. `artifact_share` moves the file as the artifact's `ui.json` (kind `ui`) with the state it binds.

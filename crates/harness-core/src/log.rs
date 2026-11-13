@@ -372,6 +372,10 @@ impl Sub {
         if self.state.dead.load(Ordering::Relaxed) {
             return false;
         }
+        // Subscribed from a `seq` past the head: the Events before it are not this View's.
+        if self.last_seq.is_some_and(|last| ev.seq <= last) {
+            return true;
+        }
         match self.tx.try_send(ev.clone()) {
             Ok(()) => {
                 self.last_seq = Some(ev.seq);
@@ -873,6 +877,22 @@ mod tests {
         log.append(None, msg("x")).unwrap();
         eventually("replay and live", || seen.lock().len() == 4);
         assert_eq!(*seen.lock(), vec![2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn subscribing_past_the_head_skips_the_events_before_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        for i in 0..3 {
+            log.append(None, msg(&i.to_string())).unwrap();
+        }
+        let (sink, seen) = collector();
+        log.subscribe(6, sink).unwrap();
+        for i in 3..9 {
+            log.append(None, msg(&i.to_string())).unwrap();
+        }
+        eventually("live from 6", || seen.lock().last() == Some(&8));
+        assert_eq!(*seen.lock(), vec![6, 7, 8]);
     }
 
     #[test]

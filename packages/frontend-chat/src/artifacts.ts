@@ -1,5 +1,5 @@
 import type { Item } from "./reducer";
-import { type Placement, type RawNode, sharedRef } from "./tools";
+import { type Placement, type RawNode, sharedRef, sourceTreeName } from "./tools";
 
 export type ArtifactKind = "ui" | "diagram" | "table";
 
@@ -33,6 +33,8 @@ export type Artifact = {
    icon?: string | null;
    /** It shows a Shared Artifact (`source: "shared:<id>"`, ADR 0024). */
    shared?: { id: string };
+   /** A file-backed panel's file in the Session's panels_dir (`source`, ADR 0023). */
+   file?: string;
 };
 
 /** What the source view shows and copies: a render_ui `Html` root as its HTML, not as JSON around it. */
@@ -170,7 +172,15 @@ function uiSub(root: RawNode): string {
    if (root.type === "PullRequest" && typeof p.state === "string")
       return `PullRequest · ${p.state[0]!.toUpperCase()}${p.state.slice(1)}`;
    if (root.type === "Chart" && typeof p.kind === "string") return `Chart · ${p.kind}`;
+   // A `.json` panel source: the tree is in the file, not here.
+   if (sourceTreeName(root)) return "Tree";
    return root.type;
+}
+
+/** A render_ui call's input as the Agent sent it: without the `root` the reducer adds for a `source`. */
+function inputOf(v: { root?: unknown }): Record<string, unknown> {
+   const { root: _, ...rest } = v;
+   return rest;
 }
 
 /**
@@ -228,12 +238,14 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          ts: it.ts,
          turn: old?.placement === "inline" && placement === "inline" ? old.turn : turn,
          prompt: old?.placement === "inline" && placement === "inline" ? old.prompt : prompt,
-         source: JSON.stringify(v.root, null, 2),
+         // A file-backed item: the call as sent (the root is the reducer's node that names the file).
+         source: JSON.stringify(v.source ? inputOf(v) : v.root, null, 2),
          ui: { root: v.root, files: it.files },
          icon: v.icon ?? null,
       };
       const shared = sharedRef(v.source);
       if (shared) a.shared = { id: shared };
+      else if (v.source) a.file = v.source;
       if (old) {
          // Replaced in place while inline; moving to another placement makes it new again.
          if (old.placement === "inline" && placement === "inline") out[out.indexOf(old)] = a;

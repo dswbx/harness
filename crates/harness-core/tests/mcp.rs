@@ -752,8 +752,9 @@ async fn file_backed_panels() {
         true
     }));
     let read = |name: &str| Command::PanelSourceRead { session_id: sid.clone(), name: name.into() };
-    let CommandResult::PanelSource { content, hash, mtime_ms } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
+    let CommandResult::PanelSource { content, hash, mtime_ms, path } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
     assert_eq!(content, "# Progress\n\n- [x] one");
+    assert_eq!(std::path::Path::new(&path), panels.canonicalize().unwrap().join("plan/progress.md"));
     assert_eq!(hash.len(), 64);
     assert!(mtime_ms > 0);
     assert!(h.execute(read("../session.json")).await.is_err());
@@ -790,6 +791,51 @@ async fn file_backed_panels() {
     assert!(info.contains("Source missing: source \\\"plan/progress.md\\\" does not exist"), "{info}");
     let got = ask(&h, &sid, r#"mcp ui_get {"id":"p"}"#, None).await;
     assert!(got.contains("\"error\": \"source"), "{got}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn json_panel_sources_are_checked_trees() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let node = serde_json::json!({ "type": "object", "required": ["type"], "properties": { "type": { "enum": ["Markdown"] }, "src": { "type": "string", "format": "harness-image" } } });
+    h.register_frontend(FrontendManifest {
+        id: "chat".into(),
+        name: "Chat".into(),
+        version: "0".into(),
+        instructions: None,
+        frontend_tools: vec![FrontendToolDecl {
+            name: "render_ui".into(),
+            description: "Render a panel".into(),
+            input_schema: serde_json::json!({ "type": "object", "properties": { "id": { "type": "string" }, "source": { "type": "string" }, "root": node } }),
+            replies: false,
+        }],
+    });
+    let sid = create(&h, dir.path(), vec![]).await;
+    let panels = dir.path().join("data/sessions").join(&sid).join("panels");
+    let _ = ask(&h, &sid, "mcp harness_info {}", None).await;
+    let call = r#"mcp render_ui {"id":"t","placement":"right","title":"Tree","source":"tree.json"}"#;
+
+    // Refused at the call: not JSON, no root, a root the schema refuses, a local image.
+    for (bad, says) in [
+        ("{", "is not JSON"),
+        (r#"{"type":"Markdown"}"#, "must be {\"root\": node}"),
+        (r#"{"root":{"type":"Nope"}}"#, "invalid tree"),
+        (r#"{"root":{"type":"Markdown","src":"shot.png"}}"#, "local images (shot.png)"),
+    ] {
+        std::fs::write(panels.join("tree.json"), bad).unwrap();
+        let err = ask(&h, &sid, call, None).await;
+        assert!(err.starts_with("mcp error:") && err.contains(says) && err.contains("Fix the file"), "{bad}: {err}");
+    }
+
+    std::fs::write(panels.join("tree.json"), r#"{"root":{"type":"Markdown","src":"https://x.test/a.png"}}"#).unwrap();
+    let done = ask(&h, &sid, call, None).await;
+    assert!(done.contains(r#""source":"tree.json""#), "{done}");
+    assert!(!ask(&h, &sid, "mcp harness_info {}", None).await.contains("invalid tree"));
+
+    // A later edit that breaks the tree: harness_info lists it on the item.
+    std::fs::write(panels.join("tree.json"), r#"{"root":{"type":"Nope"}}"#).unwrap();
+    let info = ask(&h, &sid, "mcp harness_info {}", None).await;
+    assert!(info.contains("invalid tree"), "{info}");
 }
 
 // ---------- Shared Artifacts (ADR 0024) ----------
@@ -1233,4 +1279,25 @@ async fn sub_session_model_overrides_remembered_config_without_saving_it() {
     let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi"}"#).await;
     assert_eq!(started["model"], "b", "defaults to the parent's model");
     assert_eq!(saved(), before, "agent-config.json is unchanged");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn share_a_json_panel_as_a_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let panels = data.join("sessions").join(&a).join("panels");
+    ask(&h, &a, r#"mcp state_patch {"ops":[{"op":"add","path":"/todo","value":{"n":2}},{"op":"add","path":"/other","value":1}]}"#, None).await;
+    let tree = r#"{"root":{"type":"Text","props":{"text":{"$state":"/todo/n"}}}}"#;
+    std::fs::write(panels.join("todo.json"), tree).unwrap();
+    ask(&h, &a, r#"mcp render_ui {"id":"t","placement":"right","title":"Todo","source":"todo.json"}"#, None).await;
+
+    let shared = mcp_json(&h, &a, r#"artifact_share {"id":"t"}"#).await;
+    assert_eq!((shared["kind"].as_str(), shared["file"].as_str()), (Some("ui"), Some("ui.json")), "{shared}");
+    let folder = data.join("shared").join(shared["id"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(folder.join("ui.json")).unwrap(), tree);
+    // Only the state the tree binds goes with it.
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("state.json")).unwrap()).unwrap();
+    assert_eq!(state, serde_json::json!({ "todo": { "n": 2 } }));
 }

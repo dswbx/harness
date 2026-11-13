@@ -118,7 +118,9 @@ export interface SessionApi {
     * `hash` (sha256 of `content`) changes only when the content does; `mtime_ms`: when the file was
     * last written (ms epoch, 0 when unknown). Fails when it is missing.
     */
-   panelSourceRead(name: string): Promise<{ content: string; hash: string; mtime_ms: number }>;
+   panelSourceRead(
+      name: string,
+   ): Promise<{ content: string; hash: string; mtime_ms: number; path: string }>;
    /** Calls back with the name of each panel source file that changed (once per burst of writes). */
    panelSourceChanged(onChange: (name: string) => void): Promise<Unsubscribe>;
    /** Opens the Session's folder, or `path` in it at `line`, in the user's editor (Settings). */
@@ -308,7 +310,7 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             { type: "PanelSourceRead", session_id: sessionId, name },
             "PanelSource",
          );
-         return { content: r.content, hash: r.hash, mtime_ms: r.mtime_ms };
+         return { content: r.content, hash: r.hash, mtime_ms: r.mtime_ms, path: r.path };
       },
       panelSourceChanged: (onChange) =>
          transport.subscribeApp(
