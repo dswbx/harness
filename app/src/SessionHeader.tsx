@@ -41,6 +41,7 @@ import {
    Plus,
    RefreshCw,
    Settings,
+   Split,
    X,
    Zap,
 } from "lucide-react";
@@ -352,8 +353,11 @@ export function StatusDot({ status, className }: { status: SessionStatus; classN
    );
 }
 
-/** Folder, Worktree, Agent and timing of a Session: the sidebar hover card and the header's info popover. */
-export function SessionDetails({ s }: { s: SessionSummary }) {
+/**
+ * Folder, Worktree, Agent and timing of a Session: the sidebar hover card and the header's info
+ * popover. `parent` names the parent of a Sub Session.
+ */
+export function SessionDetails({ s, parent }: { s: SessionSummary; parent?: SessionSummary }) {
    const ws = s.workspace;
    const row = (label: string, value: ReactNode, mono = false) => (
       <>
@@ -372,6 +376,7 @@ export function SessionDetails({ s }: { s: SessionSummary }) {
          </div>
          <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5">
             {s.quick && row("Kind", "Quick Session")}
+            {s.parent && row("Kind", parent ? `Sub session of ${parent.title}` : "Sub session")}
             {row("Folder", s.folder, true)}
             {row(
                "Worktree",
@@ -413,7 +418,8 @@ const iconBtn =
  * The one header above a Session's View: title, info popover, actions menu, and a slot the Frontend
  * fills with its own actions (`toolbarRef`), and one after the title for its state badges (`statusRef`). At the
  * far right a gear menu: Settings, and entries the Frontend adds to `menuRef` (it exists while the menu is open).
- * `leading` sits left of the title (traffic lights, sidebar toggle).
+ * `leading` sits left of the title (traffic lights, sidebar toggle). A Sub Session's title is a
+ * breadcrumb after its `parent`, which `onOpenParent` opens.
  */
 export function SessionHeader({
    client,
@@ -427,9 +433,14 @@ export function SessionHeader({
    indicatorRef,
    menuRef,
    onOpenSettings,
+   parent,
+   onOpenParent,
 }: {
    client: HarnessClient;
    session: SessionSummary;
+   /** The parent Session of a Sub Session, when it is still listed. */
+   parent?: SessionSummary;
+   onOpenParent?: () => void;
    /** Branch, counts and PR; none outside a repository. */
    git?: GitRef;
    leading?: ReactNode;
@@ -482,8 +493,22 @@ export function SessionHeader({
       >
          {leading}
          {/* Not a drag region, so the title can be selected and copied. */}
-         <h1 className="mr-1 min-w-0 cursor-text select-text truncate text-sm font-semibold">
-            {session.title}
+         <h1 className="mr-1 flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+            {parent && (
+               <>
+                  <button
+                     onClick={onOpenParent}
+                     title={`Open ${parent.title}`}
+                     className="min-w-0 max-w-[45%] shrink truncate rounded font-normal text-muted-foreground hover:text-foreground"
+                  >
+                     {parent.title}
+                  </button>
+                  <span aria-hidden className="shrink-0 font-normal text-muted-foreground">
+                     ›
+                  </span>
+               </>
+            )}
+            <span className="min-w-0 cursor-text select-text truncate">{session.title}</span>
          </h1>
          <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -508,7 +533,7 @@ export function SessionHeader({
                onCloseAutoFocus={(e) => e.preventDefault()}
             >
                <div ref={statusRef} className="mb-2.5 border-b pb-2.5 empty:hidden" />
-               <SessionDetails s={session} />
+               <SessionDetails s={session} parent={parent} />
             </DropdownMenuContent>
          </DropdownMenu>
          <DropdownMenu onOpenChange={loadEditor}>
@@ -558,6 +583,12 @@ export function SessionHeader({
             <span className="flex shrink-0 items-center gap-1.5 px-1.5 text-xs text-muted-foreground">
                <Zap className="size-3" />
                Quick Session
+            </span>
+         )}
+         {session.parent && (
+            <span className="flex shrink-0 items-center gap-1.5 px-1.5 text-xs text-muted-foreground">
+               <Split className="size-3" />
+               Sub session
             </span>
          )}
          <div ref={toolbarRef} className="flex items-center gap-1" />

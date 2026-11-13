@@ -27,6 +27,7 @@ export function ViewHost({
    overlayFrame,
    context,
    onOpenShared,
+   onOpenSession,
 }: {
    transport: Transport;
    sessionId: string;
@@ -43,6 +44,7 @@ export function ViewHost({
    overlayFrame?: OverlayFrame;
    context?: PromptContext;
    onOpenShared?: (id: string) => void;
+   onOpenSession?: (sessionId: string) => void;
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const fe = registry[frontendId];
@@ -64,6 +66,7 @@ export function ViewHost({
          overlayFrame={overlayFrame}
          context={context}
          onOpenShared={onOpenShared}
+         onOpenSession={onOpenSession}
       />
    );
 }

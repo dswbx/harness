@@ -1,4 +1,4 @@
-import type { SessionSummary, WorkspaceInfo } from "@harness/api";
+import type { SessionStatus, SessionSummary, WorkspaceInfo } from "@harness/api";
 import { QUICK_TITLE } from "./composer";
 
 /** Sidebar Session list: search, sort, group and the detail row's labels (pure, see `SessionList.tsx`). */
@@ -48,14 +48,58 @@ export function highlight(title: string, q: string): [string, string, string] | 
 export const hideUnusedQuick = (list: SessionSummary[], selected: string | null) =>
    list.filter((s) => !s.quick || s.title !== QUICK_TITLE || s.id === selected);
 
-const timeOf = (s: SessionSummary, sort: SortBy) =>
-   sort === "recent" ? s.updated_ms : s.created_ms;
+/** Sub Sessions by their parent's id. */
+export type Children = Map<string, SessionSummary[]>;
+export type Nested = { roots: SessionSummary[]; children: Children };
 
-/** Sessions needing attention first, order kept otherwise. */
-const attentionFirst = (l: SessionSummary[]) => [
-   ...l.filter((s) => s.status === "needs_attention"),
-   ...l.filter((s) => s.status !== "needs_attention"),
-];
+/**
+ * Sub Sessions under their parent. A Sub Session whose parent is not in `list` (archived, deleted)
+ * is a root. With a search `q`, a root shows when it or one of its children matches; a parent that
+ * does not match itself keeps only its matching children.
+ */
+export function nestSubSessions(list: SessionSummary[], q = ""): Nested {
+   const ids = new Set(list.map((s) => s.id));
+   const all: Children = new Map();
+   const roots: SessionSummary[] = [];
+   for (const s of list) {
+      const p = s.parent?.session_id;
+      if (p && p !== s.id && ids.has(p)) {
+         if (!all.has(p)) all.set(p, []);
+         all.get(p)!.push(s);
+      } else roots.push(s);
+   }
+   if (!q) return { roots, children: all };
+   const children: Children = new Map();
+   const shown = roots.filter((r) => {
+      const kids = all.get(r.id) ?? [];
+      const own = matches(r, q);
+      const hits = own ? kids : kids.filter((k) => matches(k, q));
+      if (hits.length) children.set(r.id, hits);
+      return own || hits.length > 0;
+   });
+   return { roots: shown, children };
+}
+
+const RANK: Record<SessionStatus, number> = { idle: 0, working: 1, needs_attention: 2 };
+
+/** The status of a parent with its Sub Sessions: needs attention, else working, else idle. */
+export const bubbledStatus = (s: SessionSummary, children?: Children): SessionStatus =>
+   (children?.get(s.id) ?? []).reduce<SessionStatus>(
+      (a, c) => (RANK[c.status] > RANK[a] ? c.status : a),
+      s.status,
+   );
+
+/** The sort time; a parent's last activity includes its Sub Sessions'. */
+const timeOf = (s: SessionSummary, sort: SortBy, children?: Children) =>
+   sort === "recent"
+      ? Math.max(s.updated_ms, ...(children?.get(s.id) ?? []).map((c) => c.updated_ms))
+      : s.created_ms;
+
+/** Sessions needing attention (also through a Sub Session) first, order kept otherwise. */
+const attentionFirst = (l: SessionSummary[], children?: Children) => {
+   const att = (s: SessionSummary) => bubbledStatus(s, children) === "needs_attention";
+   return [...l.filter(att), ...l.filter((s) => !att(s))];
+};
 
 export type Group = {
    id: string;
@@ -77,14 +121,18 @@ const DATE_GROUPS: [id: string, label: string, maxAge: number][] = [
  * Newest first by the sort field, then grouped. Folder groups follow their newest Session, then
  * the Quick group, always last and also when empty (its + starts a Quick Session). Date groups use
  * the sort field's age and skip empty ones. Within each group, Sessions needing attention come
- * first. `none` gives one group with id "all".
+ * first. `none` gives one group with id "all". `list` holds roots only; `children` (from
+ * `nestSubSessions`) lends a parent its Sub Sessions' activity and attention.
  */
 export function groupSessions(
    list: SessionSummary[],
    v: Pick<ViewOptions, "sort" | "group">,
    now = Date.now(),
+   children?: Children,
 ): Group[] {
-   const sorted = [...list].sort((a, b) => timeOf(b, v.sort) - timeOf(a, v.sort));
+   const sorted = [...list].sort(
+      (a, b) => timeOf(b, v.sort, children) - timeOf(a, v.sort, children),
+   );
    let groups: Group[];
    if (v.group === "folder") {
       const byName = new Map<string, Group>();
@@ -103,13 +151,13 @@ export function groupSessions(
       groups = DATE_GROUPS.map(([id, label]) => ({ id: `date:${id}`, label, sessions: [] }));
       for (const s of sorted)
          groups[
-            DATE_GROUPS.findIndex(([, , max]) => now - timeOf(s, v.sort) <= max)
+            DATE_GROUPS.findIndex(([, , max]) => now - timeOf(s, v.sort, children) <= max)
          ]!.sessions.push(s);
       groups = groups.filter((g) => g.sessions.length);
    } else {
       groups = [{ id: "all", label: "", sessions: sorted }];
    }
-   return groups.map((g) => ({ ...g, sessions: attentionFirst(g.sessions) }));
+   return groups.map((g) => ({ ...g, sessions: attentionFirst(g.sessions, children) }));
 }
 
 /** "12m", "5h", "2d", "3w", else "Oct 12". */

@@ -79,9 +79,11 @@ export function App() {
    );
 }
 
-/** A window showing only one Session's View. */
-function Solo({ transport, sessionId }: { transport: Transport; sessionId: string }) {
+/** A window showing only one Session's View; a Sub Session's parent (or a child) opens in it too. */
+function Solo({ transport, sessionId: initialId }: { transport: Transport; sessionId: string }) {
+   const [sessionId, setSessionId] = useState(initialId);
    const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
+   const [parent, setParent] = useState<SessionSummary | undefined>(undefined);
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
    const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
@@ -90,7 +92,11 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
    useEffect(() => {
       new Client(transport)
          .listSessions()
-         .then((l) => setSession(l.find((s) => s.id === sessionId) ?? null))
+         .then((l) => {
+            const s = l.find((x) => x.id === sessionId) ?? null;
+            setSession(s);
+            setParent(l.find((x) => x.id === s?.parent?.session_id));
+         })
          .catch((e) => {
             report("Could not load session", e);
             setSession(null);
@@ -119,6 +125,8 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
          <SessionHeader
             client={new Client(transport)}
             session={session}
+            parent={parent}
+            onOpenParent={() => parent && setSessionId(parent.id)}
             toolbarRef={setToolbar}
             statusRef={setStatus}
             indicatorRef={setIndicator}
@@ -134,6 +142,7 @@ function Solo({ transport, sessionId }: { transport: Transport; sessionId: strin
                status={status}
                indicator={indicator}
                menu={menu}
+               onOpenSession={setSessionId}
             />
          </div>
       </div>
@@ -426,6 +435,9 @@ function Shell({ transport }: { transport: Transport }) {
    const listed = useMemo(() => hideUnusedQuick(sessions, selected), [sessions, selected]);
 
    const current = sessions.find((s) => s.id === selected) ?? null;
+   const currentParent = current?.parent
+      ? sessions.find((s) => s.id === current.parent?.session_id)
+      : undefined;
    const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
    const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
@@ -576,6 +588,8 @@ function Shell({ transport }: { transport: Transport }) {
                   <SessionHeader
                      client={client}
                      session={current}
+                     parent={currentParent}
+                     onOpenParent={() => currentParent && setSelected(currentParent.id)}
                      git={git}
                      leading={leading}
                      toolbarRef={setToolbar}
@@ -601,6 +615,7 @@ function Shell({ transport }: { transport: Transport }) {
                         menu={menu}
                         onGitRefresh={git.refresh}
                         onOpenShared={openShared}
+                        onOpenSession={setSelected}
                      />
                   </div>
                </>

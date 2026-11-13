@@ -1,11 +1,13 @@
 import type { SessionSummary, WorkspaceInfo } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import {
+   bubbledStatus,
    folderName,
    groupSessions,
    hideUnusedQuick,
    highlight,
    matches,
+   nestSubSessions,
    refTitle,
    relativeTime,
    viewChanges,
@@ -164,4 +166,60 @@ describe("hideUnusedQuick", () => {
       expect(ids(hideUnusedQuick(l, null))).toEqual(["used", "named", "a", "b", "c", "d"]));
    it("keeps the one this window has selected", () =>
       expect(ids(hideUnusedQuick(l, "draft"))).toEqual(ids(l)));
+});
+
+describe("Sub Sessions", () => {
+   const sub = (id: string, parent: string, updatedH: number, o: Partial<SessionSummary> = {}) =>
+      s(id, "/p/jsonv", updatedH, updatedH, {
+         parent: { session_id: parent, thread_id: "t" },
+         ...o,
+      });
+   const parent = s("p", "/p/harness", 50, 50, { title: "Parent" });
+   const other = s("o", "/p/harness", 5, 5);
+   const k1 = sub("k1", "p", 1, { title: "Fix RLS" });
+   const k2 = sub("k2", "p", 20, { status: "needs_attention" });
+   const all = [other, parent, k1, k2];
+
+   it("nests children under their parent", () => {
+      const n = nestSubSessions(all);
+      expect(ids(n.roots)).toEqual(["o", "p"]);
+      expect(ids(n.children.get("p")!)).toEqual(["k1", "k2"]);
+   });
+   it("makes a child whose parent is missing a root", () => {
+      const n = nestSubSessions([other, k1]);
+      expect(ids(n.roots)).toEqual(["o", "k1"]);
+      expect(n.children.size).toBe(0);
+   });
+   it("sorts a parent by its newest child and bubbles attention", () => {
+      const n = nestSubSessions([other, parent, k1]);
+      const g = groupSessions(n.roots, { sort: "recent", group: "none" }, NOW, n.children);
+      expect(ids(g[0]!.sessions)).toEqual(["p", "o"]);
+      // Folder groups follow the parent's newest activity too.
+      const f = groupSessions(n.roots, { sort: "recent", group: "folder" }, NOW, n.children);
+      expect(ids(f[0]!.sessions)).toEqual(["p", "o"]);
+      const withAttention = nestSubSessions([s("o2", "/p/x", 0, 0), parent, k2]);
+      const g2 = groupSessions(
+         withAttention.roots,
+         { sort: "recent", group: "none" },
+         NOW,
+         withAttention.children,
+      );
+      expect(ids(g2[0]!.sessions)).toEqual(["p", "o2"]);
+      expect(bubbledStatus(parent, withAttention.children)).toBe("needs_attention");
+      expect(
+         bubbledStatus(parent, new Map([["p", [sub("w", "p", 1, { status: "working" })]]])),
+      ).toBe("working");
+      expect(bubbledStatus(parent)).toBe("idle");
+   });
+   it("search: a child match shows its parent with the matching children", () => {
+      const n = nestSubSessions(all, "rls");
+      expect(ids(n.roots)).toEqual(["p"]);
+      expect(ids(n.children.get("p")!)).toEqual(["k1"]);
+   });
+   it("search: a parent match keeps all its children", () => {
+      const n = nestSubSessions(all, "parent");
+      expect(ids(n.roots)).toEqual(["p"]);
+      expect(ids(n.children.get("p")!)).toEqual(["k1", "k2"]);
+      expect(ids(nestSubSessions(all, "zzz").roots)).toEqual([]);
+   });
 });
