@@ -11,6 +11,7 @@ export * from "./components/resizable";
 export * from "./components/scroll-area";
 export * from "./components/select";
 export * from "./components/separator";
+export * from "./components/stat";
 export * from "./components/textarea";
 export * from "./components/toggle-group";
 export * from "./components/tooltip";
