@@ -89,8 +89,8 @@ pub fn plan_option_facts(name: &str, _id: &str) -> PlanOptionFacts {
 }
 
 /// What a tool call that starts a subagent asked it to do. ACP has no notion of subagents.
-pub fn subagent_prompt(raw_input: Option<&Value>) -> Option<String> {
-    claude::subagent_prompt(raw_input)
+pub fn subagent_info(raw_input: Option<&Value>) -> Option<crate::api::SubagentInfo> {
+    claude::subagent_info(raw_input)
 }
 
 /// Claude Agent (claude-agent-acp).
@@ -103,11 +103,16 @@ mod claude {
         (kind == Some("switch_mode") && !plan.is_empty()).then(|| plan.to_owned())
     }
 
-    /// The Task tool: `rawInput` is `{ description, prompt, subagent_type }`.
-    pub fn subagent_prompt(raw_input: Option<&Value>) -> Option<String> {
+    /// The Task tool: `rawInput` is `{ description, prompt, subagent_type, model? }`.
+    pub fn subagent_info(raw_input: Option<&Value>) -> Option<crate::api::SubagentInfo> {
         let i = raw_input?;
         let prompt = i.get("prompt")?.as_str()?;
-        (i.get("subagent_type").is_some() || i.get("description").is_some()).then(|| prompt.to_owned())
+        let str_of = |k: &str| i.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
+        (i.get("subagent_type").is_some() || i.get("description").is_some()).then(|| crate::api::SubagentInfo {
+            prompt: prompt.to_owned(),
+            agent_type: str_of("subagent_type"),
+            model: str_of("model"),
+        })
     }
 
     /// When the Harness itself runs under another agent app (e.g. launched from a Claude desktop
@@ -129,7 +134,8 @@ mod claude {
 
     /// Subagents. ACP has no notion of them; without this, a subagent's tool calls look like the
     /// main Agent's and it is unclear how far each subagent is.
-    /// - `_meta.claudeCode.parentToolUseId`: the Task call that started the subagent.
+    /// - `_meta.claudeCode.parentToolUseId`: the Task call that started the subagent. It is on
+    ///   message and thought chunks too; without it the subagent's text joins the main Agent's.
     /// - A Task call for a background subagent completes at once ("Async agent launched").
     /// - The background subagent's `SubagentHandback` call carries its final report.
     ///
@@ -150,6 +156,9 @@ mod claude {
                     || content.as_ref().and_then(Value::as_array).into_iter().flatten().filter_map(|b| b.pointer("/content/text").and_then(Value::as_str));
                 *background = texts().any(|t| t.starts_with("Async agent launched"));
                 *background_job = texts().find_map(background_job_of);
+                *parent_tool_call_id = parent;
+            }
+            EventKind::AgentMessageChunk { parent_tool_call_id, .. } | EventKind::AgentThoughtChunk { parent_tool_call_id, .. } => {
                 *parent_tool_call_id = parent;
             }
             _ => {}
@@ -206,6 +215,22 @@ mod tests {
     }
 
     #[test]
+    fn claude_subagent_chunks_get_parent() {
+        let u = json!({ "_meta": { "claudeCode": { "parentToolUseId": "task1" } } });
+        let mut t = EventKind::AgentThoughtChunk { text: "hm".into(), parent_tool_call_id: None };
+        adjust(&u, &mut t);
+        assert!(matches!(&t, EventKind::AgentThoughtChunk { parent_tool_call_id: Some(p), .. } if p == "task1"));
+        let mut m = EventKind::AgentMessageChunk { text: "hi".into(), parent_tool_call_id: None };
+        adjust(&u, &mut m);
+        assert!(matches!(&m, EventKind::AgentMessageChunk { parent_tool_call_id: Some(p), .. } if p == "task1"));
+
+        // The main Agent's chunks have no `_meta`.
+        let mut m = EventKind::AgentMessageChunk { text: "hi".into(), parent_tool_call_id: None };
+        adjust(&json!({}), &mut m);
+        assert!(matches!(&m, EventKind::AgentMessageChunk { parent_tool_call_id: None, .. }));
+    }
+
+    #[test]
     fn auto_modes() {
         for m in ["auto", "bypassPermissions", "agent", "agent-full-access"] {
             assert!(auto_mode(m), "{m}");
@@ -223,10 +248,13 @@ mod tests {
         assert_eq!(plan_of(Some("switch_mode"), &json!({})), None);
 
         let task = json!({ "description": "Find it", "prompt": "Look for X", "subagent_type": "Explore" });
-        assert_eq!(subagent_prompt(Some(&task)).as_deref(), Some("Look for X"));
+        let info = subagent_info(Some(&task)).unwrap();
+        assert_eq!((info.prompt.as_str(), info.agent_type.as_deref(), info.model), ("Look for X", Some("Explore"), None));
+        let task = json!({ "description": "Find it", "prompt": "P", "subagent_type": "Plan", "model": "opus" });
+        assert_eq!(subagent_info(Some(&task)).unwrap().model.as_deref(), Some("opus"));
         // A bare `prompt` is not a subagent task.
-        assert_eq!(subagent_prompt(Some(&json!({ "prompt": "hi" }))), None);
-        assert_eq!(subagent_prompt(None), None);
+        assert_eq!(subagent_info(Some(&json!({ "prompt": "hi" }))), None);
+        assert_eq!(subagent_info(None), None);
     }
 
     fn plan_of(kind: Option<&str>, i: &Value) -> Option<String> {

@@ -30,12 +30,7 @@ pub(crate) fn tool_facts(call: &Value, harness_tool: Option<&str>) -> ToolFacts 
         })
         .flatten()
         .filter(|n| !n.is_empty());
-    ToolFacts {
-        plan: crate::agent_quirks::plan(kind, raw_input),
-        subagent: crate::agent_quirks::subagent_prompt(raw_input).map(|prompt| crate::api::SubagentInfo { prompt }),
-        commit_message,
-        frontend_tool,
-    }
+    ToolFacts { plan: crate::agent_quirks::plan(kind, raw_input), subagent: crate::agent_quirks::subagent_info(raw_input), commit_message, frontend_tool }
 }
 
 #[cfg(test)]
@@ -66,6 +61,20 @@ mod tests {
         assert_eq!(call_fields(u), (None, None, None, None));
         let u = json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "rawInput": { "prompt": "P", "subagent_type": "x" } });
         assert_eq!(call_fields(u).2.as_deref(), Some("P"));
+    }
+
+    #[test]
+    fn claude_task_has_subagent_type_and_model() {
+        let u = json!({
+            "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Plan it", "kind": "think",
+            "rawInput": { "description": "Plan it", "prompt": "P", "subagent_type": "Plan", "model": "opus" },
+        });
+        let EventKind::ToolCall { subagent: Some(s), .. } = normalize(&u) else { panic!("no subagent") };
+        assert_eq!((s.agent_type.as_deref(), s.model.as_deref()), (Some("Plan"), Some("opus")));
+        // No `model`: the subagent inherits the Thread's.
+        let u = json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Look", "rawInput": { "description": "d", "prompt": "P", "subagent_type": "Explore" } });
+        let EventKind::ToolCall { subagent: Some(s), .. } = normalize(&u) else { panic!("no subagent") };
+        assert_eq!((s.agent_type.as_deref(), s.model), (Some("Explore"), None));
     }
 
     #[test]

@@ -10,23 +10,23 @@ const task = (t: Partial<SubagentTool>): SubagentTool => ({
    ...t,
 });
 
+const sub = (report: string | null) => ({ calls: [], steps: [], report, endedAt: null });
+
 describe("subagentState", () => {
    it("foreground: done when its call ends", () => {
-      expect(subagentState(task({ status: null }), { calls: [], report: null })).toBe("running");
-      expect(subagentState(task({}), { calls: [], report: null })).toBe("done");
+      expect(subagentState(task({ status: null }), sub(null))).toBe("running");
+      expect(subagentState(task({}), sub(null))).toBe("done");
    });
    it("background: done on its report", () => {
-      expect(subagentState(task({ background: true }), { calls: [], report: "ok" })).toBe("done");
+      expect(subagentState(task({ background: true }), sub("ok"))).toBe("done");
    });
    it("background without a report: running only while the Turn is active", () => {
       const bg = task({ background: true });
-      expect(subagentState(bg, { calls: [], report: null })).toBe("running");
-      expect(subagentState(bg, { calls: [], report: null }, true)).toBe("running");
-      expect(subagentState(bg, { calls: [], report: null }, false)).toBe("done");
+      expect(subagentState(bg, sub(null))).toBe("running");
+      expect(subagentState(bg, sub(null), true)).toBe("running");
+      expect(subagentState(bg, sub(null), false)).toBe("done");
    });
    it("failed wins", () => {
-      expect(subagentState(task({ status: "failed" }), { calls: [], report: null }, false)).toBe(
-         "failed",
-      );
+      expect(subagentState(task({ status: "failed" }), sub(null), false)).toBe("failed");
    });
 });

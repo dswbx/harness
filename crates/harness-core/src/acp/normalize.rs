@@ -67,8 +67,8 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
         (harness_tool, facts)
     };
     match s("sessionUpdate").as_deref() {
-        Some("agent_message_chunk") if let Some(text) = text() => EventKind::AgentMessageChunk { text },
-        Some("agent_thought_chunk") if let Some(text) = text() => EventKind::AgentThoughtChunk { text },
+        Some("agent_message_chunk") if let Some(text) = text() => EventKind::AgentMessageChunk { text, parent_tool_call_id: None },
+        Some("agent_thought_chunk") if let Some(text) = text() => EventKind::AgentThoughtChunk { text, parent_tool_call_id: None },
         Some("tool_call") => {
             let (harness_tool, facts) = tool();
             EventKind::ToolCall {
@@ -158,9 +158,9 @@ mod tests {
     #[test]
     fn message_and_thought_chunks() {
         let u = json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "Hello" } });
-        assert!(matches!(normalize(&u), EventKind::AgentMessageChunk { text } if text == "Hello"));
+        assert!(matches!(normalize(&u), EventKind::AgentMessageChunk { text, .. } if text == "Hello"));
         let u = json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "hm" } });
-        assert!(matches!(normalize(&u), EventKind::AgentThoughtChunk { text } if text == "hm"));
+        assert!(matches!(normalize(&u), EventKind::AgentThoughtChunk { text, .. } if text == "hm"));
         // A chunk without text is kept raw, not dropped.
         let u = json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "image" } });
         assert!(matches!(normalize(&u), EventKind::AgentUpdate { .. }));

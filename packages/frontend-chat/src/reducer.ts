@@ -16,6 +16,7 @@ import {
    toolFacts,
    toolFactsOfCall,
 } from "@harness/api";
+import { groupConfigOptions, valueName } from "./configGroups";
 import { planSteps, planTitle } from "./plans";
 import { parseReviewComments } from "./reviewComments";
 import {
@@ -52,8 +53,16 @@ export type Item =
         context: string | null;
      }
    /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
-   | { type: "agent"; id: string; text: string; ts: number; durationMs?: number }
-   | { type: "thought"; id: string; text: string; ts: number }
+   /** `parent`: the tool call that started the subagent which wrote this text; null for the Thread's own. */
+   | {
+        type: "agent";
+        id: string;
+        text: string;
+        ts: number;
+        parent: string | null;
+        durationMs?: number;
+     }
+   | { type: "thought"; id: string; text: string; ts: number; parent: string | null }
    | {
         type: "tool";
         id: string;
@@ -74,6 +83,11 @@ export type Item =
         harnessTool: string | null;
         /** What this call started a subagent for: its task. */
         subagentPrompt: string | null;
+        /** A subagent's type, model and effort, taken when the call first named its task. */
+        subagentMeta: SubagentMeta | null;
+        /** ms epoch of the call's first Event, and of its first completed or failed status. */
+        ts: number;
+        endedAt: number | null;
         /** git_commit: the commit message. */
         commitMessage: string | null;
         /** How a Harness tool call got through its approval: you answered, a rule, the Agent's auto mode, or it was denied. */
@@ -141,6 +155,17 @@ export type Item =
         toTree: string;
         files: FileChange[];
      };
+
+/**
+ * What a subagent runs as. `model`: the one its call asked for, else the Thread's model at that
+ * time (`modelInherited`). `effort`: the Thread's effort at that time.
+ */
+export type SubagentMeta = {
+   type: string | null;
+   model: string | null;
+   modelInherited: boolean;
+   effort: string | null;
+};
 
 /** One version of a plan the Agent asked to approve (Plan Mode). Its `permission` item has the same `requestId`. */
 export type PlanEntry = {
@@ -330,24 +355,72 @@ function permIndex(c: Ctx): Map<string, number> {
    return c.perms;
 }
 
+/** The subagent (its starting tool call) an item belongs to, when that call is known. */
+function subagentOf(it: Item, idx: Map<string, number>): string | null {
+   const parent =
+      it.type === "tool"
+         ? it.report == null
+            ? it.parent
+            : null
+         : it.type === "agent" || it.type === "thought"
+           ? it.parent
+           : null;
+   return parent && idx.has(parent) ? parent : null;
+}
+
 /**
- * Adds a chunk to the last message or thought of its type. Looks past a running subagent's tool calls:
- * they arrive between the parent's chunks but render inside the subagent card, so they must not split the text.
- * A subagent's report still does: text after it is a new reply.
+ * Adds a chunk to the last message or thought of its type.
+ * - A subagent's chunk (`parent`) joins that subagent's last item when it is of the same type, else
+ *   starts a new one. Its steps render in order inside the subagent.
+ * - The Thread's own chunk looks past a running subagent's items: they arrive between the parent's
+ *   chunks but render inside the subagent, so they must not split the text. A subagent's report
+ *   still does: text after it is a new reply.
  */
-function appendText(c: Ctx, type: "agent" | "thought", text: string, id: string, ts: number) {
+function appendText(
+   c: Ctx,
+   type: "agent" | "thought",
+   text: string,
+   id: string,
+   ts: number,
+   parent: string | null,
+) {
    const items = own(c);
    const idx = toolIndex(c);
-   let n = items.length - 1;
-   while (n >= 0) {
-      const it = items[n]!;
-      if (it.type !== "tool" || !it.parent || !idx.has(it.parent) || it.report != null) break;
-      n--;
+   const task = parent !== null ? idx.get(parent) : undefined;
+   if (parent !== null && task !== undefined) {
+      for (let n = items.length - 1; n > task; n--) {
+         const it = items[n]!;
+         if (subagentOf(it, idx) !== parent) continue;
+         if (it.type === type) {
+            items[n] = { ...it, text: it.text + text };
+            return;
+         }
+         break;
+      }
+      items.push({ type, id, text, ts, parent });
+      return;
    }
+   let n = items.length - 1;
+   while (n >= 0 && subagentOf(items[n]!, idx) !== null) n--;
    const last = items[n];
    if (last && last.type === type) items[n] = { ...last, text: last.text + text };
-   else items.push({ type, id, text, ts });
+   else items.push({ type, id, text, ts, parent: null });
 }
+
+/** A subagent's type, model and effort, from its call, else from the Thread's current options. */
+function subagentMeta(d: ChatState, agentType: string | null, model: string | null): SubagentMeta {
+   const g = groupConfigOptions(d.configOptions);
+   const effort = g.effort ?? d.configOptions.find((o) => o.category === "thought_level");
+   const threadModel = g.model ? valueName(g.model) : null;
+   return {
+      type: agentType,
+      model: model ?? threadModel,
+      modelInherited: model == null && threadModel != null,
+      effort: effort ? valueName(effort) : null,
+   };
+}
+
+const ended = (status: string | null | undefined) => status === "completed" || status === "failed";
 
 /** Puts the Turn's duration on its last agent message (none if the Turn produced no text). */
 function stampDuration(c: Ctx, durationMs: number) {
@@ -355,7 +428,7 @@ function stampDuration(c: Ctx, durationMs: number) {
    for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i]!;
       if (it.type === "user") return;
-      if (it.type === "agent") {
+      if (it.type === "agent" && !it.parent) {
          own(c)[i] = { ...it, durationMs };
          return;
       }
@@ -467,20 +540,22 @@ function applyThread(c: Ctx, e: Event) {
             notice(k.stop_reason === "error" ? "error" : "info", `Turn stopped: ${k.stop_reason}`);
          return;
       case "AgentMessageChunk":
-         appendText(c, "agent", k.text, id, e.ts_ms);
+         appendText(c, "agent", k.text, id, e.ts_ms, k.parent_tool_call_id ?? null);
          return;
       case "AgentThoughtChunk":
-         appendText(c, "thought", k.text, id, e.ts_ms);
+         appendText(c, "thought", k.text, id, e.ts_ms, k.parent_tool_call_id ?? null);
          return;
       case "ToolCall": {
          const idx = toolIndex(c);
          const existing = idx.get(k.tool_call_id);
+         const prev = existing !== undefined ? (d.items[existing] as Tool) : null;
          const facts = toolFacts({
             kind: k.kind,
             title: k.title,
             harnessTool: k.harness_tool,
             rawInput: k.raw_input,
          });
+         const subagentPrompt = k.subagent?.prompt ?? facts.subagentPrompt;
          const item: Tool = {
             type: "tool",
             id: k.tool_call_id,
@@ -497,7 +572,18 @@ function applyThread(c: Ctx, e: Event) {
             background: existing !== undefined ? (d.items[existing] as Tool).background : false,
             report: k.report ?? null,
             harnessTool: k.harness_tool ?? null,
-            subagentPrompt: k.subagent?.prompt ?? facts.subagentPrompt,
+            subagentPrompt,
+            subagentMeta:
+               prev?.subagentMeta ??
+               (subagentPrompt != null
+                  ? subagentMeta(
+                       d,
+                       k.subagent?.agent_type ?? facts.subagentType,
+                       k.subagent?.model ?? facts.subagentModel,
+                    )
+                  : null),
+            ts: prev?.ts ?? e.ts_ms,
+            endedAt: prev?.endedAt ?? (ended(k.status) ? e.ts_ms : null),
             commitMessage: k.commit_message ?? facts.commitMessage,
             ...(existing !== undefined &&
                (d.items[existing] as Tool).approval && {
@@ -530,6 +616,9 @@ function applyThread(c: Ctx, e: Event) {
             report: null,
             harnessTool: null,
             subagentPrompt: null,
+            subagentMeta: null,
+            ts: e.ts_ms,
+            endedAt: null,
             commitMessage: null,
          };
          const facts = toolFacts({
@@ -538,6 +627,7 @@ function applyThread(c: Ctx, e: Event) {
             harnessTool: k.harness_tool ?? base.harnessTool,
             rawInput: k.raw_input,
          });
+         const subagentPrompt = k.subagent?.prompt ?? facts.subagentPrompt ?? base.subagentPrompt;
          const next: Tool = {
             ...base,
             title: k.title ?? base.title,
@@ -550,7 +640,17 @@ function applyThread(c: Ctx, e: Event) {
             parent: k.parent_tool_call_id ?? base.parent,
             background: k.background || base.background,
             harnessTool: k.harness_tool ?? base.harnessTool,
-            subagentPrompt: k.subagent?.prompt ?? facts.subagentPrompt ?? base.subagentPrompt,
+            subagentPrompt,
+            subagentMeta:
+               base.subagentMeta ??
+               (subagentPrompt != null
+                  ? subagentMeta(
+                       d,
+                       k.subagent?.agent_type ?? facts.subagentType,
+                       k.subagent?.model ?? facts.subagentModel,
+                    )
+                  : null),
+            endedAt: base.endedAt ?? (ended(k.status) ? e.ts_ms : null),
             commitMessage: k.commit_message ?? facts.commitMessage ?? base.commitMessage,
          };
          if (at === undefined) {

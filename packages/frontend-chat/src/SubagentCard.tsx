@@ -1,10 +1,12 @@
-import { type Subagent, subagentState } from "@harness/api";
+import { subagentState } from "@harness/api";
 import { cn } from "@harness/ui";
 import { Bot, CheckCircle2, ChevronRight, Loader2, XCircle } from "lucide-react";
 import { useContext, useState } from "react";
 import { Markdown } from "./Markdown";
 import type { Item } from "./reducer";
 import { ToolCard } from "./ToolCard";
+import type { ChatSubagent } from "./toolDisplay/group";
+import { SubagentMeta } from "./toolDisplay/SubagentMeta";
 import { WaitingForUser } from "./toolDisplay/waiting";
 
 type Tool = Extract<Item, { type: "tool" }>;
@@ -16,7 +18,7 @@ export function SubagentCard({
    active = true,
 }: {
    task: Tool;
-   subagent: Subagent<Tool>;
+   subagent: ChatSubagent;
    /** The Turn runs (see `ToolGroupProps.active`). */
    active?: boolean;
 }) {
@@ -59,6 +61,7 @@ export function SubagentCard({
          </button>
          {open && (
             <div className="space-y-2 border-t px-3 py-2">
+               <SubagentMeta meta={task.subagentMeta} className="text-xs" />
                {typeof prompt === "string" && (
                   <details>
                      <summary className="cursor-pointer text-xs text-muted-foreground">

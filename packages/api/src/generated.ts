@@ -511,7 +511,11 @@ transcript?: TranscriptSize | null } | { type: "AgentProcessState"; state: Proce
 /**  The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session. */
 context?: string | null } | { type: "TurnEnded"; turn_id: string; 
 /**  ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
-stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null; 
+stop_reason: string } | { type: "AgentMessageChunk"; text: string; 
+/**  The tool call (a subagent's Task) this chunk belongs to; `None` for the Thread's own text. */
+parent_tool_call_id?: string | null } | { type: "AgentThoughtChunk"; text: string; 
+/**  The tool call (a subagent's Task) this chunk belongs to; `None` for the Thread's own text. */
+parent_tool_call_id?: string | null } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null; 
 /**  The tool call that started the subagent which made this call. */
 parent_tool_call_id?: string | null; 
 /**  This call hands the subagent's final report to its parent: the text. */
@@ -922,6 +926,10 @@ export type StateWriter = "agent" | "user";
 /**  What a tool call that starts a subagent asked it to do. */
 export type SubagentInfo = {
 	prompt: string,
+	/**  The subagent's type (e.g. `Explore`), when the Agent names one. */
+	agent_type?: string | null,
+	/**  The model the subagent runs on, when the call sets one; else it inherits the Thread's. */
+	model?: string | null,
 };
 
 export type TaskEntry = {

@@ -120,7 +120,7 @@ async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String
             return evs[before..]
                 .iter()
                 .filter_map(|e| match &e.kind {
-                    EventKind::AgentMessageChunk { text } => Some(text.as_str()),
+                    EventKind::AgentMessageChunk { text, .. } => Some(text.as_str()),
                     _ => None,
                 })
                 .collect();

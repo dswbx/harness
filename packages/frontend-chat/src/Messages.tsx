@@ -1,5 +1,5 @@
 import type { Attachment, SessionApi } from "@harness/api";
-import { groupSubagents, type Subagent } from "@harness/api";
+import { groupSubagents } from "@harness/api";
 import {
    cn,
    Dialog,
@@ -47,12 +47,16 @@ import { quotableAttrs } from "./SelectionComment";
 import { SideReplyFooter } from "./SideReplyFooter";
 import { splitRenderUi } from "./slots";
 import { formatDuration } from "./time";
-import { groupTools, type ToolGroup, type ToolGroupProps, useToolDisplay } from "./toolDisplay";
+import {
+   type ChatSubagent,
+   groupTools,
+   type ToolGroup,
+   type ToolGroupProps,
+   useToolDisplay,
+} from "./toolDisplay";
 import { NoticeStep } from "./toolDisplay/NoticeStep";
 import { WaitingForUser } from "./toolDisplay/waiting";
 import type { RawNode } from "./tools";
-
-type Tool = Extract<Item, { type: "tool" }>;
 
 /** One line under a Turn: totals and file names; opens the diff scoped to that Turn. */
 function ChangesRow({
@@ -339,7 +343,7 @@ export const Row = memo(function Row({
    threadId: string;
    side: boolean;
    onOpenDiff: (s: DiffScope) => void;
-   subagents: Map<string, Subagent<Tool>>;
+   subagents: Map<string, ChatSubagent>;
    /** A Turn is running. */
    active: boolean;
    /** The last row while a Turn runs: an agent message is still coming in. */
@@ -479,6 +483,7 @@ export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttache
             return ui.inline.get(i.id) !== null;
          }),
          (i) => (i.type === "tool" ? i : null),
+         (i) => (i.type === "thought" || i.type === "agent" ? i.parent : null),
       );
       return { rows: groupTools(g.rows), subagents: g.subagents };
    }, [items, ui]);
@@ -570,7 +575,7 @@ export function MessageList({
    env: UiEnv;
    ui: ReturnType<typeof splitRenderUi>;
    rows: ReturnType<typeof useRows>["rows"];
-   subagents: Map<string, Subagent<Tool>>;
+   subagents: Map<string, ChatSubagent>;
    onOpenDiff: (s: DiffScope) => void;
    /** Opens the Plan panel at a plan version. Without it, plans show inline (no panel). */
    onOpenPlan?: (requestId: string) => void;

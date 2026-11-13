@@ -1,6 +1,9 @@
+import type { Subagent } from "@harness/api";
 import type { Item } from "../reducer";
 
 export type Tool = Extract<Item, { type: "tool" }>;
+/** A subagent as the chat keeps it: its steps are chat items (tool calls, thoughts, text). */
+export type ChatSubagent = Subagent<Tool, Item>;
 export type Thought = Extract<Item, { type: "thought" }>;
 /** One line of a run: a tool call, or a thought between them. */
 export type Step = Tool | Thought;

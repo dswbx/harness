@@ -61,7 +61,8 @@ pub fn turns(events: &[Event], thread: &ThreadId, upto_seq: Option<u64>) -> Vec<
                     parts: Vec::new(),
                 });
             }
-            EventKind::AgentMessageChunk { text } => reply.push_str(text),
+            // A subagent's text is not the Thread's reply.
+            EventKind::AgentMessageChunk { text, parent_tool_call_id: None } => reply.push_str(text),
             EventKind::ToolCall { tool_call_id, title, raw_input, .. } if !out.is_empty() => {
                 flush(&mut out, &mut reply);
                 let Some(last) = out.last_mut() else { continue };
@@ -229,7 +230,7 @@ mod tests {
                     context: None,
                 },
             ),
-            ev("t", EventKind::AgentMessageChunk { text: "Sure, ".into() }),
+            ev("t", EventKind::AgentMessageChunk { text: "Sure, ".into(), parent_tool_call_id: None }),
             ev(
                 "t",
                 EventKind::ToolCall {
@@ -248,11 +249,13 @@ mod tests {
                     commit_message: None,
                 },
             ),
-            ev("t", EventKind::AgentMessageChunk { text: "done.".into() }),
+            ev("t", EventKind::AgentMessageChunk { text: "subagent text".into(), parent_tool_call_id: Some("task1".into()) }),
+            ev("t", EventKind::AgentMessageChunk { text: "done.".into(), parent_tool_call_id: None }),
             ev("other", EventKind::TurnStarted { turn_id: "2".into(), text: "elsewhere".into(), attachments: vec![], context: None }),
         ];
         let s = summarize(&events, &"t".to_owned());
         assert!(s.ends_with("User: add a README\n[image: shot.png]\nAgent: Sure,\n(tool: Write README.md)\nAgent: done.\n"), "{s}");
         assert!(!s.contains("elsewhere"));
+        assert!(!s.contains("subagent text"));
     }
 }

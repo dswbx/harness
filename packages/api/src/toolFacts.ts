@@ -9,6 +9,10 @@ export type ToolFacts = {
    plan: string | null;
    /** What a call that starts a subagent asked it to do. */
    subagentPrompt: string | null;
+   /** A subagent call: the subagent's type (e.g. `Explore`). */
+   subagentType: string | null;
+   /** A subagent call: the model it asked for; null when it inherits the Thread's. */
+   subagentModel: string | null;
    /** git_commit: the commit message. */
    commitMessage: string | null;
    /** A Frontend Tool request: the tool's name. */
@@ -42,9 +46,13 @@ export function toolFacts(call: ToolFactsInput): ToolFacts {
          ? (call.rawInput as Record<string, unknown>)
          : {};
    const isCommit = call.kind === "git_commit" || call.harnessTool === "git_commit";
+   const subagentPrompt =
+      "subagent_type" in input || "description" in input ? str(input.prompt) : null;
    return {
       plan: call.kind === "switch_mode" ? str(input.plan) : null,
-      subagentPrompt: "subagent_type" in input || "description" in input ? str(input.prompt) : null,
+      subagentPrompt,
+      subagentType: subagentPrompt != null ? str(input.subagent_type) : null,
+      subagentModel: subagentPrompt != null ? str(input.model) : null,
       commitMessage: isCommit
          ? str(typeof input.message === "string" ? input.message.trim() : null)
          : null,

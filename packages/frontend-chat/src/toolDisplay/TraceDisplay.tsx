@@ -1,4 +1,4 @@
-import { type Subagent, subagentState } from "@harness/api";
+import { subagentState } from "@harness/api";
 import {
    cn,
    Trace,
@@ -39,8 +39,9 @@ import { Markdown } from "../Markdown";
 import { Block, json, present, STEP_TEXT } from "../ToolCard";
 import type { ToolGroupProps } from ".";
 import { CodeFrame } from "./CodeFrame";
-import type { Tool } from "./group";
+import type { ChatSubagent, Step as StepItem, Tool } from "./group";
 import { gitSummary, type StepState, stepLabel } from "./label";
+import { SubagentMeta } from "./SubagentMeta";
 import { ThoughtStep } from "./ThoughtStep";
 import { WaitingForUser } from "./waiting";
 
@@ -120,7 +121,7 @@ const Step = memo(function Step({
    active,
 }: {
    tool: Tool;
-   subagent?: Subagent<Tool>;
+   subagent?: ChatSubagent;
    active: boolean;
 }) {
    const [open, setOpen] = useState(false);
@@ -259,19 +260,49 @@ function SubagentBody({
    active,
 }: {
    task: Tool;
-   subagent: Subagent<Tool>;
+   subagent: ChatSubagent;
    active: boolean;
 }) {
    const prompt = task.subagentPrompt;
+   // Its steps in order: runs of tool calls and thoughts as a Trace, its own text between them.
+   const runs = useMemo(() => {
+      const out: (
+         | { type: "steps"; steps: StepItem[] }
+         | { type: "text"; id: string; text: string }
+      )[] = [];
+      for (const i of subagent.steps) {
+         if (i.type === "tool" || i.type === "thought") {
+            const last = out.at(-1);
+            if (last?.type === "steps") last.steps.push(i);
+            else out.push({ type: "steps", steps: [i] });
+         } else if (i.type === "agent") out.push({ type: "text", id: i.id, text: i.text });
+      }
+      return out;
+   }, [subagent.steps]);
+   const waiting = useContext(WaitingForUser);
+   const running = subagentState(task, subagent, active && !waiting) === "running";
    return (
       <>
+         <SubagentMeta meta={task.subagentMeta} />
          {typeof prompt === "string" && (
             <Fold label="Task">
                <Markdown className={STEP_TEXT}>{prompt}</Markdown>
             </Fold>
          )}
-         {subagent.calls.length > 0 && (
-            <TraceDisplay steps={subagent.calls} subagents={new Map()} active={active} />
+         {runs.map((r, n) =>
+            r.type === "steps" ? (
+               <TraceDisplay
+                  key={r.steps[0]!.id}
+                  steps={r.steps}
+                  subagents={new Map()}
+                  active={active}
+                  streaming={running && n === runs.length - 1}
+               />
+            ) : (
+               <Markdown key={r.id} className={cn(STEP_TEXT, "text-muted-foreground")}>
+                  {r.text}
+               </Markdown>
+            ),
          )}
          {subagent.report != null && (
             <div className="flex flex-col gap-1.5">

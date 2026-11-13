@@ -15,6 +15,24 @@ describe("toolFacts (fallback for logs without the typed fields)", () => {
       expect(toolFacts({ rawInput: null }).subagentPrompt).toBeNull();
    });
 
+   it("reads a subagent's type and model", () => {
+      const task = { description: "d", prompt: "P", subagent_type: "Plan", model: "opus" };
+      expect(toolFacts({ rawInput: task })).toMatchObject({
+         subagentType: "Plan",
+         subagentModel: "opus",
+      });
+      const inherits = { description: "d", prompt: "P", subagent_type: "Explore" };
+      expect(toolFacts({ rawInput: inherits })).toMatchObject({
+         subagentType: "Explore",
+         subagentModel: null,
+      });
+      // Not a subagent call: no type or model.
+      expect(toolFacts({ rawInput: { subagent_type: "x", model: "m" } })).toMatchObject({
+         subagentType: null,
+         subagentModel: null,
+      });
+   });
+
    it("reads the commit message of git_commit", () => {
       expect(toolFacts({ kind: "git_commit", rawInput: { message: " Fix\n" } }).commitMessage).toBe(
          "Fix",

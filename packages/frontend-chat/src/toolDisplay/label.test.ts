@@ -17,6 +17,9 @@ const tool = (title: string, kind: string | null, harnessTool: string | null = n
    report: null,
    harnessTool,
    subagentPrompt: null,
+   subagentMeta: null,
+   ts: 0,
+   endedAt: null,
    commitMessage: null,
 });
 const label = (t: Tool, state: "running" | "done" | "failed" = "done", sub = false) => {
