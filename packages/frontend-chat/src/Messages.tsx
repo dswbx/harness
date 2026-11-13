@@ -23,7 +23,7 @@ import {
    ShieldCheck,
    ShieldX,
 } from "lucide-react";
-import { memo, type Ref, useEffect, useMemo, useState } from "react";
+import { memo, type Ref, useContext, useEffect, useMemo, useState } from "react";
 import { AuthCard } from "./Auth";
 import { CommentChips } from "./CommentChip";
 import type { DiffScope } from "./DiffPanel";
@@ -31,6 +31,7 @@ import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
+import { OpenSession } from "./OpenSession";
 import { isStepApproval, PermissionCard } from "./Permission";
 import { PlanContext, type PlanCtx, PlanNote } from "./PlanNote";
 import {
@@ -275,14 +276,42 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
 }
 
 /** A sent prompt's bubble: its review comments as chips (like the prompt box), then the typed text. */
-function UserText({ text }: { text: string }) {
+function UserText({ text, fromSession }: { text: string; fromSession?: boolean }) {
    const p = useMemo(() => parseReviewComments(text), [text]);
    return (
-      <div className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground">
+      <div
+         className={cn(
+            "max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground",
+            // Sent by another Session's Agent: a blue tint tells it apart from the user's own.
+            fromSession && "border-sky-500/30 bg-sky-500/10 dark:border-sky-500/30",
+         )}
+      >
          {p.comments.length > 0 && (
             <CommentChips comments={p.comments} className={p.text ? "pb-1.5" : undefined} />
          )}
          {p.text && <Markdown breaks>{p.text}</Markdown>}
+      </div>
+   );
+}
+
+/** "from <Session>" above a prompt another Session's Agent sent: a link when the host can open Sessions. */
+function FromSession({ from }: { from: { sessionId: string; title: string } }) {
+   const open = useContext(OpenSession);
+   const title = from.title || "another session";
+   return (
+      <div className="mb-1 text-ui-sm text-muted-foreground">
+         from{" "}
+         {open ? (
+            <button
+               type="button"
+               onClick={() => open(from.sessionId)}
+               className="text-sky-600 hover:underline dark:text-sky-400"
+            >
+               {title}
+            </button>
+         ) : (
+            title
+         )}
       </div>
    );
 }
@@ -369,7 +398,8 @@ export const Row = memo(function Row({
                {item.attachments.length > 0 && (
                   <UserAttachments api={api} items={item.attachments} />
                )}
-               {item.text && <UserText text={item.text} />}
+               {item.from && <FromSession from={item.from} />}
+               {item.text && <UserText text={item.text} fromSession={!!item.from} />}
                <MessageFooter text={item.text} ts={item.ts} align="end">
                   {item.context && <HarnessContext text={item.context} />}
                </MessageFooter>

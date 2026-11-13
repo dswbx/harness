@@ -87,6 +87,22 @@ describe("turns", () => {
          null,
       ]);
    });
+   it("marks a prompt another Session sent (from its origin; null for the user's)", () => {
+      const s = fold([
+         started(),
+         ev({
+            type: "TurnStarted",
+            turn_id: "t1",
+            text: "hi",
+            origin: { session_id: "p1", title: "Parent" },
+         }),
+         ev({ type: "TurnStarted", turn_id: "t2", text: "again" }),
+      ]);
+      expect(s.items.map((i) => i.type === "user" && i.from)).toEqual([
+         { sessionId: "p1", title: "Parent" },
+         null,
+      ]);
+   });
    it("tracks a running turn and shows non-end_turn stop reasons", () => {
       let s = fold([started(), ev({ type: "TurnStarted", turn_id: "t1", text: "hi" })]);
       expect(s.turnId).toBe("t1");

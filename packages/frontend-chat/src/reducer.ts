@@ -44,6 +44,7 @@ export type ConfigOption = {
 export type Item =
    /** `ts`: ms epoch of the message's first Event. */
    /** `context`: the `<harness_context>` the core sent before this text (first prompt of an Agent Session). */
+   /** `from`: the Session whose Agent sent this prompt (a sub session's parent); null when the user did. */
    | {
         type: "user";
         id: string;
@@ -51,6 +52,7 @@ export type Item =
         ts: number;
         attachments: Attachment[];
         context: string | null;
+        from: { sessionId: string; title: string } | null;
      }
    /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
    /** `parent`: the tool call that started the subagent which wrote this text; null for the Thread's own. */
@@ -526,6 +528,7 @@ function applyThread(c: Ctx, e: Event) {
             ts: e.ts_ms,
             attachments: k.attachments ?? [],
             context: k.context ?? null,
+            from: k.origin ? { sessionId: k.origin.session_id, title: k.origin.title } : null,
          });
          return;
       case "AgentCapabilities":

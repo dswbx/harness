@@ -76,4 +76,38 @@ describe("stepLabel", () => {
          label(git("git_status", {}, [{ type: "text", text: '{"branch":"main","files":[]}' }])),
       ).toBe("Checked status | main");
    });
+
+   it("Harness sub session tools: verb by state, detail title · repo", () => {
+      const sub = (name: string, rawInput: unknown, out: unknown = null): Tool => ({
+         ...tool(`mcp__harness__${name}`, null, name),
+         rawInput,
+         rawOutput: out === null ? null : [{ type: "text", text: JSON.stringify(out) }],
+      });
+      const start = sub(
+         "session_start",
+         { prompt: "Fix the docs", folder: "/w/docs" },
+         { session_id: "s2", title: "Docs fix", repo: "/w/docs", branch: "harness/docs-1" },
+      );
+      expect(label(start, "running")).toBe("Starting sub session | Docs fix · docs");
+      expect(label(start)).toBe("Started sub session | Docs fix · docs");
+      expect(label(sub("session_start", { prompt: "x" }), "failed")).toBe("Start failed | ");
+      expect(label(sub("session_send", { id: "s2", text: "More" }), "running")).toBe(
+         "Sending to sub session | ",
+      );
+      expect(
+         label(sub("session_send", { id: "s2" }, { session_id: "s2", title: "Docs fix" })),
+      ).toBe("Sent to sub session | Docs fix");
+      expect(label(sub("session_wait", { id: "s2" }), "running")).toBe(
+         "Waiting for sub session | ",
+      );
+      expect(
+         label(
+            sub(
+               "session_wait",
+               { id: "s2" },
+               { session_id: "s2", title: "Docs fix", status: "idle", duration_ms: 1, reply: "" },
+            ),
+         ),
+      ).toBe("Waited for sub session | Docs fix");
+   });
 });

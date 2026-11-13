@@ -13,6 +13,7 @@ export * from "./prRefs";
 export * from "./prStore";
 export * from "./state";
 export * from "./subagents";
+export * from "./subSessionTool";
 export * from "./threads";
 export * from "./toolFacts";
 export * from "./transport";

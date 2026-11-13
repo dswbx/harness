@@ -1,4 +1,9 @@
-import { type GitToolSummary, gitToolSummary } from "@harness/api";
+import {
+   type GitToolSummary,
+   gitToolSummary,
+   type SubSessionToolSummary,
+   subSessionToolSummary,
+} from "@harness/api";
 import type { Tool } from "./group";
 
 export type StepState = "running" | "pending" | "done" | "failed";
@@ -34,6 +39,18 @@ const GIT_VERBS: Record<string, [string, string, string]> = {
    list_branches: ["Listing branches", "Listed branches", "List failed"],
 };
 
+// [running, done, failed] for the Harness sub session tools.
+const SESSION_VERBS: Record<string, [string, string, string]> = {
+   session_start: ["Starting sub session", "Started sub session", "Start failed"],
+   session_send: ["Sending to sub session", "Sent to sub session", "Send failed"],
+   session_wait: ["Waiting for sub session", "Waited for sub session", "Wait failed"],
+};
+
+/** What a Harness sub session step did (null for any other call). */
+export function subSessionSummary(tool: Tool): SubSessionToolSummary | null {
+   return subSessionToolSummary(tool);
+}
+
 /** What a Harness git step did (null for any other call). */
 export function gitSummary(tool: Tool): GitToolSummary | null {
    return gitToolSummary(tool);
@@ -62,6 +79,12 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
    if (tool.harnessTool && git) {
       const verb = live ? git[0] : state === "failed" ? git[2] : git[1];
       return { verb, detail: gitDetail(tool.harnessTool, gitSummary(tool) ?? {}) };
+   }
+   const session = tool.harnessTool ? SESSION_VERBS[tool.harnessTool] : undefined;
+   if (session) {
+      const verb = live ? session[0] : state === "failed" ? session[2] : session[1];
+      const s = subSessionSummary(tool) ?? {};
+      return { verb, detail: [s.title, s.repo].filter(Boolean).join(" · ") };
    }
    if (tool.harnessTool)
       return { verb: pick(["Calling Harness", "Called Harness"]), detail: tool.harnessTool };

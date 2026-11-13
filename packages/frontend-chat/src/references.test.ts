@@ -20,6 +20,7 @@ const user = (id: string, text: string, ts = 0): Item => ({
    ts,
    attachments: [],
    context: null,
+   from: null,
 });
 const agent = (id: string, text: string, ts = 1): Item => ({
    type: "agent",

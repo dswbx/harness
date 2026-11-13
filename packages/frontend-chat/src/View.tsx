@@ -70,6 +70,7 @@ import { errorMessage } from "./errors";
 import { FileRefProvider } from "./FileRef";
 import { FilesPanel, type FileTarget, filesWindowTarget, filesWindowUrl } from "./FilesPanel";
 import { MessageList, useRows } from "./Messages";
+import { OpenSession } from "./OpenSession";
 import { PanelHeader } from "./PanelHeader";
 import { PlanPanel } from "./PlanPanel";
 import { usePanelDrag } from "./panelDrag";
@@ -344,6 +345,7 @@ export function View({
    overlayFrame,
    context,
    onOpenShared,
+   onOpenSession,
 }: {
    api: SessionApi;
    toolbar?: HTMLElement | null;
@@ -358,6 +360,7 @@ export function View({
    overlayFrame?: OverlayFrame;
    context?: PromptContext;
    onOpenShared?: (id: string) => void;
+   onOpenSession?: (sessionId: string) => void;
 }) {
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -366,21 +369,23 @@ export function View({
          <FilesPanel api={api} target={filesWindowFirst} popout />
       </FileRefProvider>
    ) : (
-      <ChatView
-         api={api}
-         toolbar={toolbar}
-         status={status}
-         indicator={indicator}
-         menu={menu}
-         onGitRefresh={onGitRefresh}
-         variant={variant}
-         agentSwitch={agentSwitch}
-         chatFrame={chatFrame}
-         onPanelWidth={onPanelWidth}
-         overlayFrame={overlayFrame}
-         context={context}
-         onOpenShared={onOpenShared}
-      />
+      <OpenSession.Provider value={onOpenSession ?? null}>
+         <ChatView
+            api={api}
+            toolbar={toolbar}
+            status={status}
+            indicator={indicator}
+            menu={menu}
+            onGitRefresh={onGitRefresh}
+            variant={variant}
+            agentSwitch={agentSwitch}
+            chatFrame={chatFrame}
+            onPanelWidth={onPanelWidth}
+            overlayFrame={overlayFrame}
+            context={context}
+            onOpenShared={onOpenShared}
+         />
+      </OpenSession.Provider>
    );
 }
 

@@ -697,6 +697,7 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
     {
       "attachments": [],
       "context": null,
+      "from": null,
       "id": "e7",
       "text": "Create hello.txt containing 'hi' using a shell command, then reply with one short sentence. Use a task list.",
       "ts": 1793013875615,
@@ -863,6 +864,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
     {
       "attachments": [],
       "context": "<harness_context>golden</harness_context>",
+      "from": null,
       "id": "e10",
       "text": "Add a greeting to main.rs",
       "ts": 1790000001507,
@@ -1017,6 +1019,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
     {
       "attachments": [],
       "context": null,
+      "from": null,
       "id": "e37",
       "text": "Now run the tests",
       "ts": 1790000005206,
@@ -1183,6 +1186,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
         {
           "attachments": [],
           "context": null,
+          "from": null,
           "id": "e34",
           "text": "btw, what does println do?",
           "ts": 1790000004795,
@@ -1246,6 +1250,7 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
     {
       "attachments": [],
       "context": null,
+      "from": null,
       "id": "e2",
       "text": "Make the release checklist shared",
       "ts": 1790000000274,

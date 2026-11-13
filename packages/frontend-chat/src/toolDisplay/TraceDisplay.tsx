@@ -1,4 +1,4 @@
-import { subagentState } from "@harness/api";
+import { type SubSessionToolSummary, subagentState } from "@harness/api";
 import {
    cn,
    Trace,
@@ -24,6 +24,7 @@ import {
    FileText,
    GitBranch,
    GitCommitHorizontal,
+   GitFork,
    Globe,
    Plug,
    Search,
@@ -36,11 +37,13 @@ import {
 import { memo, type ReactNode, useContext, useMemo, useState } from "react";
 import { diffLines } from "../diff";
 import { Markdown } from "../Markdown";
+import { OpenSession } from "../OpenSession";
 import { Block, json, present, STEP_TEXT } from "../ToolCard";
+import { formatDuration } from "../time";
 import type { ToolGroupProps } from ".";
 import { CodeFrame } from "./CodeFrame";
 import type { ChatSubagent, Step as StepItem, Tool } from "./group";
-import { gitSummary, type StepState, stepLabel } from "./label";
+import { gitSummary, type StepState, stepLabel, subSessionSummary } from "./label";
 import { useOpenStep } from "./openStep";
 import { SubagentMeta } from "./SubagentMeta";
 import { ThoughtStep } from "./ThoughtStep";
@@ -90,6 +93,9 @@ const GIT_ICONS: Record<string, typeof Wrench> = {
    git_diff: FileDiff,
    list_branches: GitBranch,
 };
+
+/** A sub session that is not idle when `session_wait` returned. */
+const SUB_STATUS = { needs_attention: "needs attention", working: "still working" } as const;
 
 const APPROVAL_META = {
    you: "allowed by you",
@@ -154,15 +160,18 @@ const Step = memo(function Step({
       () => (subagent ? null : gitSummary(tool)),
       [subagent, tool.harnessTool, tool.rawInput, tool.rawOutput, tool.content],
    );
+   const sub = useMemo(() => (subagent ? null : subSessionSummary(tool)), [subagent, tool]);
    const Icon = subagent
       ? Bot
       : state === "failed"
         ? XCircle
         : tool.harnessTool && GIT_ICONS[tool.harnessTool]
           ? GIT_ICONS[tool.harnessTool]!
-          : tool.harnessTool || tool.title.startsWith("mcp__")
-            ? Plug
-            : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
+          : sub
+            ? GitFork
+            : tool.harnessTool || tool.title.startsWith("mcp__")
+              ? Plug
+              : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
    const { verb, detail } = stepLabel(tool, state, !!subagent);
    // Live count for a subagent (never its last call: a long one pushed the title out).
    const n = subagent?.calls.length ?? 0;
@@ -170,7 +179,7 @@ const Step = memo(function Step({
    const metas: ReactNode[] = subagent
       ? [`${n} tool call${n === 1 ? "" : "s"}`]
       : state === "failed"
-        ? [git?.error ?? "failed"]
+        ? [git?.error ?? sub?.error ?? "failed"]
         : denied
           ? ["denied"]
           : state === "pending"
@@ -179,6 +188,8 @@ const Step = memo(function Step({
                  git?.changed !== undefined && `${git.changed} changed`,
                  git?.count !== undefined && `${git.count} branch${git.count === 1 ? "" : "es"}`,
                  git?.additions !== undefined && plusMinus(git.additions, git.deletions ?? 0),
+                 sub?.status && sub.status !== "idle" && SUB_STATUS[sub.status],
+                 sub?.durationMs !== undefined && formatDuration(sub.durationMs),
                  stat,
                  approval,
               ];
@@ -229,6 +240,8 @@ const Step = memo(function Step({
                   subagents={subagents}
                   active={active}
                />
+            ) : sub ? (
+               <SubSessionBody tool={tool} summary={sub} />
             ) : message ? (
                <CodeFrame label="commit message" meta={git?.hash} code={message} />
             ) : (
@@ -339,6 +352,52 @@ function SubagentBody({
                   {subagent.report}
                </Markdown>
             </div>
+         )}
+      </>
+   );
+}
+
+/** A sub session call: its config, the prompt or message sent, a link to it, and (wait) its reply. */
+function SubSessionBody({ tool, summary: s }: { tool: Tool; summary: SubSessionToolSummary }) {
+   const open = useContext(OpenSession);
+   const meta = [s.model, s.effort && `effort ${s.effort}`, s.branch].filter(Boolean);
+   const sent = s.prompt ?? s.text;
+   return (
+      <>
+         {meta.length > 0 && (
+            <div className="font-mono text-ui-sm text-muted-foreground">{meta.join(" · ")}</div>
+         )}
+         {sent && (
+            <Fold label={tool.harnessTool === "session_send" ? "Message" : "Prompt"}>
+               <Markdown className={STEP_TEXT}>{sent}</Markdown>
+            </Fold>
+         )}
+         {s.reply && (
+            <div className="flex flex-col gap-1.5">
+               <TraceLine>
+                  <TraceIcon>
+                     <FileCheck />
+                  </TraceIcon>
+                  <TraceTitle>
+                     <TraceVerb>Reply</TraceVerb>
+                  </TraceTitle>
+               </TraceLine>
+               <Markdown
+                  className={cn(STEP_TEXT, "rounded-lg border bg-card px-3 py-2 text-foreground")}
+               >
+                  {s.reply}
+               </Markdown>
+            </div>
+         )}
+         {s.error && <CallBody tool={tool} />}
+         {open && s.sessionId && (
+            <button
+               type="button"
+               onClick={() => open(s.sessionId!)}
+               className="text-ui-sm text-sky-600 hover:underline dark:text-sky-400"
+            >
+               Open sub session
+            </button>
          )}
       </>
    );
