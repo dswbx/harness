@@ -6,6 +6,7 @@ import { Markdown } from "./Markdown";
 import type { Item } from "./reducer";
 import { ToolCard } from "./ToolCard";
 import type { ChatSubagent } from "./toolDisplay/group";
+import { useOpenStep } from "./toolDisplay/openStep";
 import { SubagentMeta } from "./toolDisplay/SubagentMeta";
 import { WaitingForUser } from "./toolDisplay/waiting";
 
@@ -23,12 +24,13 @@ export function SubagentCard({
    active?: boolean;
 }) {
    const [open, setOpen] = useState(false);
+   useOpenStep(task.id, () => setOpen(true));
    const waiting = useContext(WaitingForUser);
    const state = subagentState(task, subagent, active && !waiting);
    const prompt = task.subagentPrompt;
    const n = subagent.calls.length;
    return (
-      <div className="rounded-lg border bg-card text-card-foreground">
+      <div data-step={task.id} className="rounded-lg border bg-card text-card-foreground">
          <button
             className="flex w-full items-center gap-2 px-3 py-2 text-left"
             onClick={() => setOpen(!open)}

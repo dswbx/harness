@@ -146,6 +146,16 @@ export function mockEvents(): Event[] {
          content: [],
          locations: [],
          raw_input: { prompt: "Find where the Harness stores Session data." },
+         subagent: {
+            prompt: "Find where the Harness stores Session data.",
+            agent_type: "Explore",
+            model: "haiku",
+         },
+      }),
+      ev({
+         type: "AgentThoughtChunk",
+         text: "Start with the crates: the data dir is likely set up in harness-core.",
+         parent_tool_call_id: "mock-task",
       }),
       ...[
          "ls -la && ls crates app packages docs docs/adr 2>/dev/null | head -100",
@@ -174,6 +184,10 @@ export function mockEvents(): Event[] {
          locations: [],
          raw_input: {
             prompt: "List the **10 biggest** files and the biggest source files by line count.",
+         },
+         subagent: {
+            prompt: "List the **10 biggest** files and the biggest source files by line count.",
+            agent_type: "general-purpose",
          },
       }),
       ev({

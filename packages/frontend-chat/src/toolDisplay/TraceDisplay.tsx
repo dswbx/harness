@@ -41,6 +41,7 @@ import type { ToolGroupProps } from ".";
 import { CodeFrame } from "./CodeFrame";
 import type { ChatSubagent, Step as StepItem, Tool } from "./group";
 import { gitSummary, type StepState, stepLabel } from "./label";
+import { useOpenStep } from "./openStep";
 import { SubagentMeta } from "./SubagentMeta";
 import { ThoughtStep } from "./ThoughtStep";
 import { WaitingForUser } from "./waiting";
@@ -57,7 +58,13 @@ export function TraceDisplay({ steps, subagents, active, streaming }: ToolGroupP
                   streaming={!!streaming && i === steps.length - 1}
                />
             ) : (
-               <Step key={s.id} tool={s} subagent={subagents.get(s.id)} active={active} />
+               <Step
+                  key={s.id}
+                  tool={s}
+                  subagent={subagents.get(s.id)}
+                  subagents={subagents}
+                  active={active}
+               />
             ),
          )}
       </Trace>
@@ -118,13 +125,17 @@ function diffStat(tool: Tool) {
 const Step = memo(function Step({
    tool,
    subagent,
+   subagents,
    active,
 }: {
    tool: Tool;
    subagent?: ChatSubagent;
+   /** All subagents, for those a subagent started. */
+   subagents: Map<string, ChatSubagent>;
    active: boolean;
 }) {
    const [open, setOpen] = useState(false);
+   useOpenStep(tool.id, () => setOpen(true));
    const waiting = useContext(WaitingForUser);
    const denied = !subagent && tool.approval === "denied";
    const state: StepState = subagent
@@ -173,6 +184,7 @@ const Step = memo(function Step({
               ];
    const line = (
       <TraceLine
+         data-step={tool.id}
          status={
             state === "running"
                ? "running"
@@ -207,11 +219,16 @@ const Step = memo(function Step({
       present(tool.rawOutput);
    if (!hasBody) return line;
    return (
-      <TraceCollapsible open={open} onOpenChange={setOpen}>
+      <TraceCollapsible data-step={tool.id} open={open} onOpenChange={setOpen}>
          <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
          <TraceCollapsibleContent className="space-y-2">
             {subagent ? (
-               <SubagentBody task={tool} subagent={subagent} active={active} />
+               <SubagentBody
+                  task={tool}
+                  subagent={subagent}
+                  subagents={subagents}
+                  active={active}
+               />
             ) : message ? (
                <CodeFrame label="commit message" meta={git?.hash} code={message} />
             ) : (
@@ -257,10 +274,12 @@ function CallBody({ tool }: { tool: Tool }) {
 function SubagentBody({
    task,
    subagent,
+   subagents,
    active,
 }: {
    task: Tool;
    subagent: ChatSubagent;
+   subagents: Map<string, ChatSubagent>;
    active: boolean;
 }) {
    const prompt = task.subagentPrompt;
@@ -294,7 +313,7 @@ function SubagentBody({
                <TraceDisplay
                   key={r.steps[0]!.id}
                   steps={r.steps}
-                  subagents={new Map()}
+                  subagents={subagents}
                   active={active}
                   streaming={running && n === runs.length - 1}
                />

@@ -85,3 +85,58 @@ export function subagentState(task: SubagentTool, s: Subagent, turnActive = true
    if (task.status === "completed" && !task.background) return "done";
    return task.background && !turnActive ? "done" : "running";
 }
+
+/** A subagent's type, model and effort, as a Frontend keeps them from its starting call. */
+export type SubagentLabel = {
+   type: string | null;
+   model: string | null;
+   modelInherited: boolean;
+   effort: string | null;
+};
+
+/** One subagent in a list (e.g. a Subagents panel). */
+export type SubagentRow = {
+   /** Its starting call's id. */
+   id: string;
+   title: string;
+   type: string | null;
+   model: string | null;
+   modelInherited: boolean;
+   effort: string | null;
+   /** How many tool calls it made. */
+   calls: number;
+   state: SubagentState;
+   startedAt: number | null;
+   endedAt: number | null;
+};
+
+/**
+ * The Session's subagents, running ones first, then newest first. `tools` are the tool calls (to find
+ * each subagent's starting call); `turnActive` as in `subagentState`.
+ */
+export function listSubagents<
+   T extends SubagentTool & { title: string; subagentMeta?: SubagentLabel | null },
+>(tools: Iterable<T>, subagents: Map<string, Subagent>, turnActive = true): SubagentRow[] {
+   const byId = new Map<string, T>();
+   for (const t of tools) byId.set(t.id, t);
+   const rows: SubagentRow[] = [];
+   for (const [id, s] of subagents) {
+      const task = byId.get(id);
+      if (!task) continue;
+      const m = task.subagentMeta;
+      rows.push({
+         id,
+         title: task.title,
+         type: m?.type ?? null,
+         model: m?.model ?? null,
+         modelInherited: m?.modelInherited ?? false,
+         effort: m?.effort ?? null,
+         calls: s.calls.length,
+         state: subagentState(task, s, turnActive),
+         startedAt: task.ts ?? null,
+         endedAt: s.endedAt,
+      });
+   }
+   const running = (r: SubagentRow) => (r.state === "running" ? 0 : 1);
+   return rows.sort((a, b) => running(a) - running(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0));
+}

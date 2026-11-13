@@ -8,7 +8,7 @@ import type {
    SharedArtifactMeta,
    ViewVariant,
 } from "@harness/api";
-import { openWindow, useSessionEvents, useSharedArtifacts } from "@harness/api";
+import { listSubagents, openWindow, useSessionEvents, useSharedArtifacts } from "@harness/api";
 import {
    Badge,
    Button,
@@ -22,6 +22,7 @@ import {
 } from "@harness/ui";
 import {
    Archive,
+   Bot,
    CheckCircle2,
    CircleDashed,
    ClipboardList,
@@ -118,9 +119,12 @@ import { addReviewComment, composerKey, setReviewComments } from "./reviewCommen
 import { quotableAttrs, SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
 import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
+import { SubagentsPanel } from "./SubagentsPanel";
 import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
 import { formatAge, formatRelativeTime, useNow } from "./time";
+import { placeSteps } from "./toolDisplay/group";
+import { OpenStep, type OpenStepRequest } from "./toolDisplay/openStep";
 import { RENDER_UI, sharedNodeId, sharedRef } from "./tools";
 import { FillFrame } from "./UiHtml";
 import { uiIcons } from "./uiIcons";
@@ -423,6 +427,7 @@ const BASE_LABEL: Record<string, string> = {
    events: "Events",
    artifacts: "Artifacts",
    references: "References",
+   subagents: "Subagents",
    plan: "Plan",
 };
 const BASE_ICON: Record<string, React.ReactNode> = {
@@ -433,6 +438,7 @@ const BASE_ICON: Record<string, React.ReactNode> = {
    events: <ScrollText />,
    artifacts: <Layers />,
    references: <Link2 />,
+   subagents: <Bot />,
    plan: <ClipboardList />,
 };
 
@@ -796,6 +802,44 @@ function ChatView({
       },
       [api, artifacts],
    );
+   // Subagents panel: its rows, and a click opens the subagent's step in the chat (nested ones through their parents).
+   const waitingForUser = useMemo(
+      () =>
+         turnRunning && state.items.some((i) => i.type === "permission" && !i.resolved && !i.auto),
+      [turnRunning, state.items],
+   );
+   const subagentRows = useMemo(
+      () =>
+         listSubagents(
+            state.items.flatMap((i) => (i.type === "tool" ? [i] : [])),
+            subagents,
+            turnRunning && !waitingForUser,
+         ),
+      [state.items, subagents, turnRunning, waitingForUser],
+   );
+   const runningSubagents = subagentRows.filter((r) => r.state === "running").length;
+   const stepPlaces = useMemo(() => placeSteps(rows, subagents), [rows, subagents]);
+   const [openStep, setOpenStep] = useState<OpenStepRequest | null>(null);
+   const jumpToStep = useCallback(
+      (id: string) => {
+         const place = stepPlaces.get(id);
+         if (!place) return;
+         setOpenStep((o) => ({ path: place.path, nonce: (o?.nonce ?? 0) + 1 }));
+         const { path } = place;
+         const at = (row: Element, id: string) =>
+            row.querySelector(`[data-step="${CSS.escape(id)}"]`);
+         let tries = 0;
+         // The step itself once its parents opened; Cards show only the outer subagent, so after a
+         // while the deepest step shown. Its first child is the line (Trace) or header (Cards).
+         jumpToRow(place.row, (row) => {
+            let el = at(row, path.at(-1)!);
+            if (!el && tries++ > 10)
+               for (let i = path.length - 2; i >= 0 && !el; i--) el = at(row, path[i]!);
+            return el && (el.firstElementChild ?? el);
+         });
+      },
+      [stepPlaces, jumpToRow],
+   );
    const jumpToMention = useCallback(
       (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),
       [jumpToRow],
@@ -826,6 +870,7 @@ function ChatView({
       [slots],
    );
    const hasPlans = state.plans.length > 0;
+   const hasSubagents = subagentRows.length > 0;
    // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
    const available = useMemo(() => {
       if (overlay) return new Set<PanelId>(slotById.keys());
@@ -840,8 +885,9 @@ function ChatView({
       ]);
       if (git) a.add("changes");
       if (hasPlans) a.add("plan");
+      if (hasSubagents) a.add("subagents");
       return a;
-   }, [overlay, slotById, git, hasPlans]);
+   }, [overlay, slotById, git, hasPlans, hasSubagents]);
    const shown = useMemo(() => {
       const renderable = new Set(available);
       if (openThreads.length === 0) renderable.delete("side");
@@ -923,7 +969,9 @@ function ChatView({
            ? artifacts.length
            : id === "references"
              ? resolved.count
-             : undefined;
+             : id === "subagents"
+               ? runningSubagents || undefined
+               : undefined;
    const shortcut = (id: PanelId) => (id === "terminal" ? ["⌘", "J"] : undefined);
    const group = (zone: Zone): StripeGroup => ({
       zone,
@@ -1100,6 +1148,12 @@ function ChatView({
          label: "References",
          children: <ReferencesPanel resolved={resolved} onJump={jumpToMention} />,
       });
+   if (open("subagents"))
+      panels.push({
+         id: "subagents",
+         label: "Subagents",
+         children: <SubagentsPanel rows={subagentRows} onJump={jumpToStep} />,
+      });
    for (const [id, slot] of slotById) {
       const sharedId = sharedRef(slot.source);
       if (open(id))
@@ -1212,21 +1266,23 @@ function ChatView({
          >
             {(inset) => (
                <ShareBlock.Provider value={overlay ? null : shareBlock}>
-                  <MessageList
-                     handle={list}
-                     api={api}
-                     state={state}
-                     threadId={state.mainThreadId ?? ""}
-                     side={false}
-                     env={env}
-                     ui={ui}
-                     rows={rows}
-                     subagents={subagents}
-                     onOpenDiff={openDiff}
-                     onOpenPlan={overlay ? undefined : openPlan}
-                     empty="Send a message to start."
-                     inset={inset}
-                  />
+                  <OpenStep value={openStep}>
+                     <MessageList
+                        handle={list}
+                        api={api}
+                        state={state}
+                        threadId={state.mainThreadId ?? ""}
+                        side={false}
+                        env={env}
+                        ui={ui}
+                        rows={rows}
+                        subagents={subagents}
+                        onOpenDiff={openDiff}
+                        onOpenPlan={overlay ? undefined : openPlan}
+                        empty="Send a message to start."
+                        inset={inset}
+                     />
+                  </OpenStep>
                </ShareBlock.Provider>
             )}
          </ScrollUnder>
