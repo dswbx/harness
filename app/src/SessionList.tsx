@@ -1,9 +1,10 @@
-import { type SessionSummary, useSessionHasDraft } from "@harness/api";
+import { type SessionStatus, type SessionSummary, useSessionHasDraft } from "@harness/api";
 import { cn, Popover, PopoverContent, PopoverTrigger, ScrollArea, Tooltip } from "@harness/ui";
 import {
    Archive,
    ArchiveRestore,
    Check,
+   ChevronDown,
    ChevronRight,
    Folder,
    GitBranch,
@@ -18,10 +19,11 @@ import {
    X,
    Zap,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 import { prStyle, SessionDetails, StatusDot } from "./SessionHeader";
 import {
    branchOf,
+   bubbledStatus,
    DEFAULT_VIEW,
    type Display,
    folderName,
@@ -29,6 +31,7 @@ import {
    groupSessions,
    highlight,
    matches,
+   nestSubSessions,
    refTitle,
    relativeTime,
    type SortBy,
@@ -102,8 +105,14 @@ function DetailLine({
    );
 }
 
+/** A parent row's Sub Session count and the caret that shows or hides them. */
+type SubToggle = { count: number; open: boolean; onToggle: () => void };
+
 function SessionRow({
    s,
+   status = s.status,
+   parent,
+   sub: subToggle,
    selected,
    display,
    query,
@@ -114,6 +123,11 @@ function SessionRow({
    onDelete,
 }: {
    s: SessionSummary;
+   /** The dot's status; a collapsed parent shows its Sub Sessions'. */
+   status?: SessionStatus;
+   /** The parent of a Sub Session, for the hover card. */
+   parent?: SessionSummary;
+   sub?: SubToggle;
    selected: boolean;
    display: Display;
    /** Lowercased search, highlighted in the title. */
@@ -148,7 +162,7 @@ function SessionRow({
             content={
                <>
                   <div className="mb-2 text-sm font-semibold">{s.title}</div>
-                  <SessionDetails s={s} />
+                  <SessionDetails s={s} parent={parent} />
                </>
             }
          >
@@ -172,7 +186,7 @@ function SessionRow({
                      sub && "transition-[padding] group-hover:pr-6 group-has-focus-visible:pr-6",
                   )}
                >
-                  <span className="min-w-0 flex-1 truncate">
+                  <span className={cn("min-w-0 truncate", !subToggle && "flex-1")}>
                      {hit ? (
                         <>
                            {hit[0]}
@@ -185,7 +199,40 @@ function SessionRow({
                         s.title
                      )}
                   </span>
-                  <StatusDot status={s.status} className="group-hover:hidden" />
+                  {subToggle && (
+                     <>
+                        <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground/70">
+                           {subToggle.count}
+                        </span>
+                        {/* A span: a button may not hold another button. */}
+                        <span
+                           role="button"
+                           tabIndex={0}
+                           aria-expanded={subToggle.open}
+                           aria-label={subToggle.open ? "Hide sub sessions" : "Show sub sessions"}
+                           onClick={(e) => {
+                              e.stopPropagation();
+                              subToggle.onToggle();
+                           }}
+                           onKeyDown={(e) => {
+                              if (e.key !== "Enter" && e.key !== " ") return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              subToggle.onToggle();
+                           }}
+                           className="-ml-1 grid size-4 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+                        >
+                           <ChevronDown
+                              className={cn(
+                                 "size-3 transition-transform",
+                                 !subToggle.open && "-rotate-90",
+                              )}
+                           />
+                        </span>
+                        <span className="flex-1" />
+                     </>
+                  )}
+                  <StatusDot status={status} className="group-hover:hidden" />
                   {inlineDate && (
                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
                         {relativeTime(s.updated_ms, now)}
@@ -401,34 +448,70 @@ export function SessionList({
 
    const q = query.trim().toLowerCase();
    const now = Date.now();
-   // While searching, groups flatten into one list.
-   const groups = useMemo(
-      () =>
-         groupSessions(
-            sessions.filter((s) => !s.archived && matches(s, q)),
-            { sort, group: q ? "none" : group },
-         ),
-      [sessions, q, sort, group],
-   );
+   // Sub Sessions nest under their parent. While searching, groups flatten into one list.
+   const { groups, subs } = useMemo(() => {
+      const n = nestSubSessions(
+         sessions.filter((s) => !s.archived),
+         q,
+      );
+      return {
+         groups: groupSessions(n.roots, { sort, group: q ? "none" : group }, undefined, n.children),
+         subs: n.children,
+      };
+   }, [sessions, q, sort, group]);
    const archived = sessions.filter((s) => s.archived && matches(s, q));
    const empty = q !== "" && groups.every((g) => g.sessions.length === 0) && archived.length === 0;
    const toggle = (id: string) =>
       setCollapsed(collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id]);
 
-   const row = (s: SessionSummary) => (
+   const row = (s: SessionSummary, parent?: SessionSummary) => (
       <SessionRow
          key={s.id}
          s={s}
+         parent={parent}
          selected={s.id === selected}
          display={display}
          query={q}
-         showFolder={group !== "folder" || q !== ""}
+         // A Sub Session can work in another repository than its parent: always named.
+         showFolder={!!parent || group !== "folder" || q !== ""}
          now={now}
          onSelect={() => onSelect(s.id)}
          onArchive={() => onArchive(s)}
          onDelete={() => onDelete(s)}
       />
    );
+   /** A root row, with its Sub Sessions indented below (expanded unless collapsed as `sub:<id>`). */
+   const rootRow = (s: SessionSummary) => {
+      const kids = subs.get(s.id);
+      if (!kids?.length) return row(s);
+      const key = `sub:${s.id}`;
+      // While searching, matching Sub Sessions always show.
+      const open = q !== "" || !collapsed.includes(key);
+      return (
+         <Fragment key={s.id}>
+            <SessionRow
+               s={s}
+               status={open ? s.status : bubbledStatus(s, subs)}
+               sub={{ count: kids.length, open, onToggle: () => toggle(key) }}
+               selected={s.id === selected}
+               display={display}
+               query={q}
+               showFolder={group !== "folder" || q !== ""}
+               now={now}
+               onSelect={() => onSelect(s.id)}
+               onArchive={() => onArchive(s)}
+               onDelete={() => onDelete(s)}
+            />
+            {open && (
+               <li>
+                  <ul className="ml-3 flex flex-col gap-px border-l pl-2">
+                     {kids.map((k) => row(k, s))}
+                  </ul>
+               </li>
+            )}
+         </Fragment>
+      );
+   };
 
    return (
       <>
@@ -520,7 +603,9 @@ export function SessionList({
                               )}
                            </div>
                         )}
-                        {open && <ul className="flex flex-col gap-px">{g.sessions.map(row)}</ul>}
+                        {open && (
+                           <ul className="flex flex-col gap-px">{g.sessions.map(rootRow)}</ul>
+                        )}
                      </div>
                   );
                })}
@@ -548,7 +633,9 @@ export function SessionList({
                      />
                      Archived ({archived.length})
                   </button>
-                  {archivedOpen && <ul className="flex flex-col gap-px">{archived.map(row)}</ul>}
+                  {archivedOpen && (
+                     <ul className="flex flex-col gap-px">{archived.map((s) => row(s))}</ul>
+                  )}
                </div>
             )}
             {children}

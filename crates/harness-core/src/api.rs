@@ -1228,6 +1228,26 @@ pub struct SessionSummary {
     /// A Quick Session: `folder` is a folder the Harness made for it.
     pub quick: bool,
     pub workspace: WorkspaceInfo,
+    /// A Sub Session: the Session whose Agent started it (`session_start`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<SessionParent>,
+}
+
+/// Where a Sub Session comes from: the Session, Thread and tool call that started it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SessionParent {
+    pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Who sent a prompt when it was not the user: the Agent of another Session (a parent Session
+/// prompting its Sub Session).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct PromptOrigin {
+    pub session_id: SessionId,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1325,6 +1345,9 @@ pub enum EventKind {
         /// The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<String>,
+        /// Set when another Session's Agent sent the prompt, not the user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<PromptOrigin>,
     },
     TurnEnded {
         turn_id: TurnId,
@@ -1333,9 +1356,15 @@ pub enum EventKind {
     },
     AgentMessageChunk {
         text: String,
+        /// The tool call (a subagent's Task) this chunk belongs to; `None` for the Thread's own text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
     },
     AgentThoughtChunk {
         text: String,
+        /// The tool call (a subagent's Task) this chunk belongs to; `None` for the Thread's own text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
     },
     ToolCall {
         tool_call_id: String,
@@ -1579,6 +1608,12 @@ pub struct BackgroundJob {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct SubagentInfo {
     pub prompt: String,
+    /// The subagent's type (e.g. `Explore`), when the Agent names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+    /// The model the subagent runs on, when the call sets one; else it inherits the Thread's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// How many of a Thread's Turns fit in a transcript.
@@ -1684,6 +1719,7 @@ pub enum AppEvent {
     /// A Turn ended (`stop_reason` as in `TurnEnded`).
     TurnFinished {
         session_id: SessionId,
+        thread_id: ThreadId,
         title: String,
         stop_reason: String,
     },

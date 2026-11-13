@@ -91,6 +91,11 @@ export interface Frontend {
        * Absent: the View offers no "Open outside Session".
        */
       onOpenShared?: (id: string) => void;
+      /**
+       * Opens another Session by id (a sub session from its parent's trace, or the parent from a child's
+       * "from" label). Absent: those show as plain text.
+       */
+      onOpenSession?: (sessionId: string) => void;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

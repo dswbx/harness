@@ -35,6 +35,7 @@ export const BASE_PANELS = [
    "events",
    "artifacts",
    "references",
+   "subagents",
    "plan",
 ] as const;
 /** A panel: one of the built-in ones, or a `render_ui` item placed left or right (`slot:<id>`). */
@@ -85,6 +86,7 @@ const DEFAULT_ZONE: Record<(typeof BASE_PANELS)[number], Zone> = {
    files: "rightTop",
    artifacts: "leftTop",
    references: "leftBottom",
+   subagents: "leftBottom",
    terminal: "bottomLeft",
    events: "bottomRight",
    side: "rightTop",
@@ -104,7 +106,7 @@ export function defaultLayout(): Layout {
    return {
       zones: {
          leftTop: ["artifacts"],
-         leftBottom: ["references"],
+         leftBottom: ["references", "subagents"],
          bottomLeft: ["terminal"],
          bottomRight: ["events"],
          rightBottom: [],

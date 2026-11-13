@@ -100,7 +100,7 @@ async fn smoke(registry_id: &str) {
     let reply: String = evs
         .iter()
         .filter_map(|e| match &e.kind {
-            EventKind::AgentMessageChunk { text } => Some(text.as_str()),
+            EventKind::AgentMessageChunk { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect();

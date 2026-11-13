@@ -22,7 +22,7 @@ export type AppEvent =
 /**  Sessions were created, deleted, archived or unarchived: reload the list. */
 { type: "SessionsChanged" } | { type: "SessionStatus"; session_id: string; title: string; status: SessionStatus } | 
 /**  A Turn ended (`stop_reason` as in `TurnEnded`). */
-{ type: "TurnFinished"; session_id: string; title: string; stop_reason: string } | 
+{ type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string } | 
 /**  Agents were installed, updated or removed. */
 { type: "AgentsChanged" } | 
 /**
@@ -510,9 +510,15 @@ transcript?: TranscriptSize | null } | { type: "AgentProcessState"; state: Proce
 /**  What the Agent accepts in prompts, from its `initialize` answer. */
 { type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[]; 
 /**  The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session. */
-context?: string | null } | { type: "TurnEnded"; turn_id: string; 
+context?: string | null; 
+/**  Set when another Session's Agent sent the prompt, not the user. */
+origin?: PromptOrigin | null } | { type: "TurnEnded"; turn_id: string; 
 /**  ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
-stop_reason: string } | { type: "AgentMessageChunk"; text: string } | { type: "AgentThoughtChunk"; text: string } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null; 
+stop_reason: string } | { type: "AgentMessageChunk"; text: string; 
+/**  The tool call (a subagent's Task) this chunk belongs to; `None` for the Thread's own text. */
+parent_tool_call_id?: string | null } | { type: "AgentThoughtChunk"; text: string; 
+/**  The tool call (a subagent's Task) this chunk belongs to; `None` for the Thread's own text. */
+parent_tool_call_id?: string | null } | { type: "ToolCall"; tool_call_id: string; title: string; kind: string | null; status: string | null; content: unknown; locations: unknown; raw_input: unknown | null; 
 /**  The tool call that started the subagent which made this call. */
 parent_tool_call_id?: string | null; 
 /**  This call hands the subagent's final report to its parent: the text. */
@@ -817,6 +823,15 @@ export type ProcessState = "starting" | "ready" |
 /**  Stopped by the Harness (idle); restarted on the next prompt. */
 "stopped" | "exited" | "failed";
 
+/**
+ *  Who sent a prompt when it was not the user: the Agent of another Session (a parent Session
+ *  prompting its Sub Session).
+ */
+export type PromptOrigin = {
+	session_id: string,
+	title: string,
+};
+
 export type PullRequest = {
 	number: number,
 	title: string,
@@ -856,6 +871,13 @@ export type RuleScope = { type: "global" } | { type: "agent"; agent_id: string }
 /**  What a Session subscription delivers to a View: Events, then possibly one `Lagged`. */
 export type SessionMessage = Event | Lagged;
 
+/**  Where a Sub Session comes from: the Session, Thread and tool call that started it. */
+export type SessionParent = {
+	session_id: string,
+	thread_id: string,
+	tool_call_id?: string | null,
+};
+
 export type SessionStatus = "idle" | "working" | "needs_attention";
 
 export type SessionSummary = {
@@ -872,6 +894,8 @@ export type SessionSummary = {
 	/**  A Quick Session: `folder` is a folder the Harness made for it. */
 	quick: boolean,
 	workspace: WorkspaceInfo,
+	/**  A Sub Session: the Session whose Agent started it (`session_start`). */
+	parent?: SessionParent | null,
 };
 
 /**  One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search. */
@@ -923,6 +947,10 @@ export type StateWriter = "agent" | "user";
 /**  What a tool call that starts a subagent asked it to do. */
 export type SubagentInfo = {
 	prompt: string,
+	/**  The subagent's type (e.g. `Explore`), when the Agent names one. */
+	agent_type?: string | null,
+	/**  The model the subagent runs on, when the call sets one; else it inherits the Thread's. */
+	model?: string | null,
 };
 
 export type TaskEntry = {

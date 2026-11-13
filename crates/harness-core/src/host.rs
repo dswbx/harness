@@ -120,6 +120,7 @@ impl Harness {
             prompts_dir: data_dir.join("prompts"),
             pr_refs: Default::default(),
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
+            host: Default::default(),
         });
         // One watch on `shared/` for the life of the Host (ADR 0024 addendum): changes from any
         // Session, the no-Session view or an editor reach every View.
@@ -153,7 +154,9 @@ impl Harness {
         let terminals = crate::terminal::Terminals::new(move |session_id| {
             app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
         });
-        Ok(Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, prs_refreshed: Default::default(), _lock: lock }))
+        let host = Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, prs_refreshed: Default::default(), _lock: lock });
+        let _ = host.shared.host.set(Arc::downgrade(&host));
+        Ok(host)
     }
 
     /// URL of the Harness MCP (starts it). For diagnostics and tests.
@@ -167,7 +170,25 @@ impl Harness {
         frontends.push(manifest);
     }
 
+    /// The Sub Sessions a Session started (`parent.session_id` names it).
+    pub(crate) fn children(&self, session_id: &str) -> Vec<Arc<Session>> {
+        let mut children: Vec<Arc<Session>> =
+            self.sessions.read().values().filter(|s| s.meta().parent.is_some_and(|p| p.session_id == session_id)).cloned().collect();
+        children.sort_by_key(|s| s.meta().created_ms);
+        children
+    }
+
+    /// A Session's title, if it exists.
+    pub(crate) fn session_title(&self, session_id: &str) -> Option<String> {
+        self.sessions.read().get(session_id).map(|s| s.meta().title)
+    }
+
+    /// Deletes a Session and, first, its Sub Sessions. A child that cannot be deleted (unmerged
+    /// work, without `force`) stops it before the parent is touched.
     async fn delete_session(&self, session_id: &SessionId, force: bool) -> anyhow::Result<()> {
+        for child in self.children(session_id) {
+            Box::pin(self.delete_session(&child.id(), force)).await?;
+        }
         let session = self.session(session_id)?;
         self.terminals.kill_all(session_id);
         session.delete_workspace(force).await?;
@@ -264,29 +285,20 @@ impl Harness {
                 CommandResult::Sessions { sessions }
             }
             Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
-                let agent = self.agent(&agent_id)?;
-                anyhow::ensure!(self.shared.frontends.read().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
-                let id = uuid::Uuid::now_v7().to_string();
-                let dir = self.data_dir.join("sessions").join(&id);
-                let start = match pr {
-                    Some(n) => Start::Pr { pr: crate::github::view_pr(Path::new(&folder), n).await?, worktree },
-                    None => Start::Branch { base: branch, new_branch, worktree },
+                let spec = NewSession {
+                    folder,
+                    agent_id,
+                    frontend_id,
+                    title,
+                    branch,
+                    worktree,
+                    new_branch,
+                    pr,
+                    mcp_servers,
+                    parent: None,
+                    initial_config: Default::default(),
                 };
-                let title = title.unwrap_or_else(|| match &start {
-                    Start::Pr { pr: p, .. } => format!("#{} {}", p.number, p.title),
-                    Start::Branch { .. } => folder_name(&folder),
-                });
-                let (folder, workspace) = self.prepare_workspace(&id, &title, folder, start).await?;
-                for m in &mcp_servers {
-                    self.shared.library.resolve(m)?;
-                }
-                let session = Session::create(&dir, id.clone(), title, folder, agent, frontend_id, workspace, mcp_servers, self.shared.clone())?;
-                if let Some(folder) = session.meta().repo_folder() {
-                    let shared = self.shared.clone();
-                    tokio::spawn(async move { shared.pr_refs.repo_of(&folder).await });
-                }
-                self.sessions.write().insert(id.clone(), Arc::new(session));
-                CommandResult::SessionCreated { session_id: id }
+                CommandResult::SessionCreated { session_id: self.create_session(spec).await?.id() }
             }
             Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
                 let agent = self.agent(&agent_id)?;
@@ -319,7 +331,7 @@ impl Harness {
                 CommandResult::SessionCreated { session_id: id }
             }
             Command::Prompt { session_id, thread_id, text, attachments } => {
-                self.session(&session_id)?.prompt(thread_id, text, attachments).await?;
+                self.session(&session_id)?.prompt(thread_id, text, attachments, None).await?;
                 CommandResult::Ok
             }
             Command::ReadAttachment { session_id, path } => {
@@ -501,13 +513,22 @@ impl Harness {
                 };
                 CommandResult::BranchPr { repo, pr, base }
             }
+            // Sub Sessions follow their parent.
             Command::ArchiveSession { session_id } => {
+                let session = self.session(&session_id)?;
+                for child in self.children(&session_id).into_iter().filter(|c| !c.meta().archived) {
+                    self.terminals.kill_all(&child.id());
+                    child.archive().await?;
+                }
                 self.terminals.kill_all(&session_id);
-                self.session(&session_id)?.archive().await?;
+                session.archive().await?;
                 CommandResult::Ok
             }
             Command::UnarchiveSession { session_id } => {
                 self.session(&session_id)?.unarchive().await?;
+                for child in self.children(&session_id).into_iter().filter(|c| c.meta().archived) {
+                    child.unarchive().await?;
+                }
                 CommandResult::Ok
             }
             Command::DeleteSession { session_id, force } => {
@@ -685,6 +706,42 @@ impl Harness {
         Ok(())
     }
 
+    /// Creates a Session (Command `CreateSession`, or a Sub Session). The caller tells the windows
+    /// (`SessionsChanged`).
+    pub(crate) async fn create_session(&self, spec: NewSession) -> anyhow::Result<Arc<Session>> {
+        let NewSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, parent, initial_config } = spec;
+        let agent = self.agent(&agent_id)?;
+        anyhow::ensure!(self.shared.frontends.read().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
+        let id = uuid::Uuid::now_v7().to_string();
+        let dir = self.data_dir.join("sessions").join(&id);
+        let start = match pr {
+            Some(n) => Start::Pr { pr: crate::github::view_pr(Path::new(&folder), n).await?, worktree },
+            None => Start::Branch { base: branch, new_branch, worktree },
+        };
+        let title = title.unwrap_or_else(|| match &start {
+            Start::Pr { pr: p, .. } => format!("#{} {}", p.number, p.title),
+            Start::Branch { .. } => folder_name(&folder),
+        });
+        let (folder, workspace) = self.prepare_workspace(&id, &title, folder, start).await?;
+        for m in &mcp_servers {
+            self.shared.library.resolve(m)?;
+        }
+        let session = Session::create(&dir, id.clone(), title, folder, agent, frontend_id, workspace, mcp_servers, self.shared.clone())?;
+        if parent.is_some() || !initial_config.is_empty() {
+            session.update_meta(|m| {
+                m.parent = parent;
+                m.initial_config = initial_config;
+            })?;
+        }
+        if let Some(folder) = session.meta().repo_folder() {
+            let shared = self.shared.clone();
+            tokio::spawn(async move { shared.pr_refs.repo_of(&folder).await });
+        }
+        let session = Arc::new(session);
+        self.sessions.write().insert(id, session.clone());
+        Ok(session)
+    }
+
     /// Resolves the Workspace Folder: a new Worktree, a checkout, or the folder as is.
     async fn prepare_workspace(&self, id: &str, title: &str, folder: String, start: Start) -> anyhow::Result<(String, WorkspaceMeta)> {
         let folder = std::fs::canonicalize(&folder).map_err(|e| anyhow::anyhow!("{folder}: {e}"))?;
@@ -754,7 +811,7 @@ impl Harness {
         }
     }
 
-    fn session(&self, id: &str) -> anyhow::Result<Arc<Session>> {
+    pub(crate) fn session(&self, id: &str) -> anyhow::Result<Arc<Session>> {
         self.sessions.read().get(id).cloned().ok_or_else(|| crate::error::not_found(format!("unknown session {id}")))
     }
 
@@ -775,6 +832,22 @@ fn scan_repos(shared: &Arc<Shared>, folders: Vec<PathBuf>) {
 
 fn folder_name(folder: &str) -> String {
     std::path::Path::new(folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.to_owned())
+}
+
+/// What `create_session` needs: the fields of `Command::CreateSession`, plus a Sub Session's
+/// parent and starting config.
+pub(crate) struct NewSession {
+    pub folder: String,
+    pub agent_id: String,
+    pub frontend_id: String,
+    pub title: Option<String>,
+    pub branch: Option<String>,
+    pub worktree: bool,
+    pub new_branch: Option<String>,
+    pub pr: Option<u32>,
+    pub mcp_servers: Vec<String>,
+    pub parent: Option<crate::api::SessionParent>,
+    pub initial_config: std::collections::BTreeMap<String, String>,
 }
 
 /// Where a new Session's work starts.

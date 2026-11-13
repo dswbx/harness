@@ -31,7 +31,13 @@ const NOT_RESTORED: &str = "The Agent could not reopen its earlier session.";
 /// Starts a Turn: ensures the Agent process and the Thread's Agent Session, then sends the prompt
 /// in the background. Returns once the Turn has started. Attachments are checked first: a rejected
 /// one fails the prompt before any Turn is logged.
-pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attachments: Vec<AttachmentInput>) -> anyhow::Result<()> {
+pub async fn prompt(
+    session: Arc<Session>,
+    thread: ThreadId,
+    text: String,
+    attachments: Vec<AttachmentInput>,
+    origin: Option<crate::api::PromptOrigin>,
+) -> anyhow::Result<()> {
     let meta = session.meta();
     if meta.archived {
         return Err(crate::error::conflict("this Session is archived; unarchive it first"));
@@ -67,10 +73,8 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         fork_note.then(|| crate::harness_context::fork_note(&session, &thread))
     };
     let errors = crate::harness_context::frontend_errors(&session, &thread).unwrap_or_default();
-    let context = match (context, errors) {
-        (Some(c), Some(e)) => Some(format!("{c}\n\n{e}")),
-        (c, e) => c.or(e),
-    };
+    let from = origin.as_ref().map(crate::harness_context::origin_note);
+    let context = [context, errors, from].into_iter().flatten().reduce(|a, b| format!("{a}\n\n{b}"));
     let turn_id = uuid::Uuid::now_v7().to_string();
     session.log().append(
         Some(thread.clone()),
@@ -79,6 +83,7 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
             text: text.clone(),
             attachments: attachments.iter().map(|a| a.attachment.clone()).collect(),
             context: context.clone(),
+            origin,
         },
     )?;
     slot.update(&session, |s| *s.turns.entry(thread.clone()).or_default() += 1);
@@ -136,7 +141,7 @@ pub async fn prompt(session: Arc<Session>, thread: ThreadId, text: String, attac
         });
         let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
         let meta = session.meta();
-        session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, title: meta.title, stop_reason });
+        session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
         let _ = session.log().sync();
     });
     Ok(())

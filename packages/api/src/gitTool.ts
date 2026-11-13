@@ -23,7 +23,7 @@ export type GitToolSummary = {
 };
 
 /** Text of a raw output (a string, or text blocks) or of ACP content blocks. */
-function textOf(v: unknown): string | null {
+export function textOf(v: unknown): string | null {
    if (typeof v === "string") return v;
    if (!Array.isArray(v)) return null;
    const parts: string[] = [];
@@ -34,10 +34,10 @@ function textOf(v: unknown): string | null {
    return parts.length ? parts.join("\n") : null;
 }
 
-const FENCED = /^\s*(`{3,})[\w+#.-]*\n([\s\S]*?)\n?\1\s*$/;
+export const FENCED = /^\s*(`{3,})[\w+#.-]*\n([\s\S]*?)\n?\1\s*$/;
 
 /** First line of a failure: Harness wraps it in a code fence. */
-function failure(text: string): string | undefined {
+export function failure(text: string): string | undefined {
    const m = FENCED.exec(text);
    if (!m) return undefined;
    return (
@@ -48,7 +48,7 @@ function failure(text: string): string | undefined {
    );
 }
 
-function parseJson(text: string): unknown {
+export function parseJson(text: string): unknown {
    try {
       return JSON.parse(text);
    } catch {

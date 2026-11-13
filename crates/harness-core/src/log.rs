@@ -507,14 +507,16 @@ impl Inner {
     }
 }
 
-/// Appends `text` to `pending` when both are chunks of the same kind and Thread.
+/// Appends `text` to `pending` when both are chunks of the same kind, Thread and parent tool call.
 fn merge_chunk(pending: &mut Event, thread_id: &Option<ThreadId>, kind: &EventKind) -> bool {
     if pending.thread_id != *thread_id {
         return false;
     }
     match (&mut pending.kind, kind) {
-        (EventKind::AgentMessageChunk { text: a }, EventKind::AgentMessageChunk { text: b })
-        | (EventKind::AgentThoughtChunk { text: a }, EventKind::AgentThoughtChunk { text: b }) => {
+        (EventKind::AgentMessageChunk { text: a, parent_tool_call_id: pa }, EventKind::AgentMessageChunk { text: b, parent_tool_call_id: pb })
+        | (EventKind::AgentThoughtChunk { text: a, parent_tool_call_id: pa }, EventKind::AgentThoughtChunk { text: b, parent_tool_call_id: pb })
+            if pa == pb =>
+        {
             a.push_str(b);
             true
         }
@@ -833,7 +835,7 @@ mod tests {
     }
 
     fn msg(t: &str) -> EventKind {
-        EventKind::AgentMessageChunk { text: t.into() }
+        EventKind::AgentMessageChunk { text: t.into(), parent_tool_call_id: None }
     }
 
     fn err(m: &str) -> EventKind {

@@ -87,6 +87,22 @@ describe("turns", () => {
          null,
       ]);
    });
+   it("marks a prompt another Session sent (from its origin; null for the user's)", () => {
+      const s = fold([
+         started(),
+         ev({
+            type: "TurnStarted",
+            turn_id: "t1",
+            text: "hi",
+            origin: { session_id: "p1", title: "Parent" },
+         }),
+         ev({ type: "TurnStarted", turn_id: "t2", text: "again" }),
+      ]);
+      expect(s.items.map((i) => i.type === "user" && i.from)).toEqual([
+         { sessionId: "p1", title: "Parent" },
+         null,
+      ]);
+   });
    it("tracks a running turn and shows non-end_turn stop reasons", () => {
       let s = fold([started(), ev({ type: "TurnStarted", turn_id: "t1", text: "hi" })]);
       expect(s.turnId).toBe("t1");
@@ -422,6 +438,140 @@ describe("tool calls (synthetic)", () => {
          "own",
          "next",
       ]);
+   });
+
+   it("a subagent's tagged thought goes into the subagent, not the parent's thought", () => {
+      const call = (id: string, parent?: string): Event =>
+         ev({
+            type: "ToolCall",
+            tool_call_id: id,
+            title: id,
+            kind: "think",
+            status: "pending",
+            content: [],
+            locations: [],
+            raw_input: {},
+            ...(parent ? { parent_tool_call_id: parent } : {}),
+         });
+      const s = fold([
+         ev({ type: "AgentThoughtChunk", text: "Let me " }),
+         call("task"),
+         ev({ type: "AgentThoughtChunk", text: "Sub ", parent_tool_call_id: "task" }),
+         ev({ type: "AgentThoughtChunk", text: "thinks", parent_tool_call_id: "task" }),
+         call("sub1", "task"),
+         ev({ type: "AgentThoughtChunk", text: "again", parent_tool_call_id: "task" }),
+         ev({ type: "AgentThoughtChunk", text: "wait" }),
+      ]);
+      expect(
+         s.items.map((i) => (i.type === "thought" ? `${i.parent ?? "-"}:${i.text}` : i.id)),
+      ).toEqual(["-:Let me ", "task", "task:Sub thinks", "sub1", "task:again", "-:wait"]);
+   });
+
+   it("a subagent's tagged message does not extend the parent's reply", () => {
+      const s = fold([
+         ev({ type: "AgentMessageChunk", text: "Starting." }),
+         ev({
+            type: "ToolCall",
+            tool_call_id: "task",
+            title: "task",
+            kind: "think",
+            status: "pending",
+            content: [],
+            locations: [],
+            raw_input: {},
+         }),
+         ev({ type: "AgentMessageChunk", text: "sub reply", parent_tool_call_id: "task" }),
+         ev({ type: "AgentMessageChunk", text: " Done.", parent_tool_call_id: null }),
+      ]);
+      const agents = s.items.filter((i) => i.type === "agent");
+      expect(agents.map((a) => [a.parent, a.text])).toEqual([
+         [null, "Starting."],
+         ["task", "sub reply"],
+         [null, " Done."],
+      ]);
+   });
+
+   it("a Task call snapshots the subagent's type, model and effort when it starts", () => {
+      const options = (model: string, effort: string) =>
+         ev({
+            type: "ConfigOptionsChanged",
+            options: [
+               {
+                  id: "model",
+                  name: "Model",
+                  category: "model",
+                  type: "select",
+                  currentValue: model,
+                  options: [
+                     { value: "opus", name: "Opus" },
+                     { value: "sonnet", name: "Sonnet" },
+                  ],
+               },
+               {
+                  id: "effort",
+                  name: "Effort",
+                  category: "thought_level",
+                  type: "select",
+                  currentValue: effort,
+                  options: [
+                     { value: "high", name: "High" },
+                     { value: "low", name: "Low" },
+                  ],
+               },
+            ],
+         });
+      const task = (id: string, input: Record<string, unknown>, ts: number) =>
+         ev(
+            {
+               type: "ToolCall",
+               tool_call_id: id,
+               title: id,
+               kind: "think",
+               status: "pending",
+               content: [],
+               locations: [],
+               raw_input: { description: "d", prompt: "P", ...input },
+            },
+            "main",
+            ts,
+         );
+      const done = (id: string, ts: number) =>
+         ev(
+            {
+               type: "ToolCallUpdate",
+               tool_call_id: id,
+               title: null,
+               kind: null,
+               status: "completed",
+               content: null,
+               locations: null,
+               raw_input: null,
+               raw_output: null,
+            },
+            "main",
+            ts,
+         );
+      const s = fold([
+         options("opus", "high"),
+         task("a", { subagent_type: "Explore" }, 10),
+         task("b", { subagent_type: "Plan", model: "haiku" }, 11),
+         // A later change does not move a started subagent's meta.
+         options("sonnet", "low"),
+         task("a", { subagent_type: "Explore" }, 12),
+         done("a", 20),
+         done("a", 30),
+      ]);
+      expect(s.items[0]).toMatchObject({
+         id: "a",
+         ts: 10,
+         endedAt: 20,
+         subagentMeta: { type: "Explore", model: "Opus", modelInherited: true, effort: "High" },
+      });
+      expect(s.items[1]).toMatchObject({
+         id: "b",
+         endedAt: null,
+         subagentMeta: { type: "Plan", model: "haiku", modelInherited: false, effort: "High" },
+      });
    });
 
    it("merges updates: status, content replaced, title kept", () => {

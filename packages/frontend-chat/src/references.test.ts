@@ -20,8 +20,15 @@ const user = (id: string, text: string, ts = 0): Item => ({
    ts,
    attachments: [],
    context: null,
+   from: null,
 });
-const agent = (id: string, text: string, ts = 1): Item => ({ type: "agent", id, text, ts });
+const agent = (id: string, text: string, ts = 1): Item => ({
+   type: "agent",
+   id,
+   text,
+   ts,
+   parent: null,
+});
 const pr = (r: RepoId, number: number, state: PrInfo["state"] = "merged"): PrInfo => ({
    repo: r,
    number,

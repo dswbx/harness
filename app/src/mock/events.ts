@@ -146,6 +146,16 @@ export function mockEvents(): Event[] {
          content: [],
          locations: [],
          raw_input: { prompt: "Find where the Harness stores Session data." },
+         subagent: {
+            prompt: "Find where the Harness stores Session data.",
+            agent_type: "Explore",
+            model: "haiku",
+         },
+      }),
+      ev({
+         type: "AgentThoughtChunk",
+         text: "Start with the crates: the data dir is likely set up in harness-core.",
+         parent_tool_call_id: "mock-task",
       }),
       ...[
          "ls -la && ls crates app packages docs docs/adr 2>/dev/null | head -100",
@@ -174,6 +184,10 @@ export function mockEvents(): Event[] {
          locations: [],
          raw_input: {
             prompt: "List the **10 biggest** files and the biggest source files by line count.",
+         },
+         subagent: {
+            prompt: "List the **10 biggest** files and the biggest source files by line count.",
+            agent_type: "general-purpose",
          },
       }),
       ev({
@@ -264,6 +278,7 @@ export function mockEvents(): Event[] {
          raw_input: { command: "bun test" },
       }),
       ...mockGitSteps(ev),
+      ...mockSubSessionSteps(ev),
       ev({
          type: "PermissionRequested",
          request_id: "mock-edit",
@@ -462,5 +477,75 @@ function mockGitSteps(ev: (kind: EventKind) => Event): Event[] {
             { option_id: "reject", name: "Reject", kind: "reject_once" },
          ],
       }),
+   ];
+}
+
+/** A sub session started in another repository, sent a follow-up, and waited for (`mock-p1-a` exists in the mock list). */
+function mockSubSessionSteps(ev: (kind: EventKind) => Event): Event[] {
+   const step = (id: string, tool: string, raw_input: unknown, out: unknown) => {
+      const json = JSON.stringify(out, null, 2);
+      return [
+         ev({
+            type: "ToolCall",
+            tool_call_id: id,
+            title: `mcp__harness__${tool}`,
+            kind: null,
+            status: "in_progress",
+            content: [],
+            locations: null,
+            raw_input,
+            harness_tool: tool,
+         }),
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: id,
+            title: null,
+            kind: null,
+            status: "completed",
+            content: content(json),
+            locations: null,
+            raw_input: null,
+            raw_output: text(json),
+         }),
+      ];
+   };
+   const session = { session_id: "mock-p1-a", title: "Bump jsonv-ts schema exports" };
+   return [
+      ...step(
+         "mock-sub-start",
+         "session_start",
+         {
+            prompt:
+               "Export the schema helpers from `jsonv-ts` so Harness can import them. Open a PR.",
+            folder: "/Users/me/jsonv-ts",
+            title: session.title,
+         },
+         {
+            ...session,
+            folder: "/Users/me/jsonv-ts/.harness/worktrees/bump-exports",
+            repo: "/Users/me/jsonv-ts",
+            branch: "bump-exports",
+            model: "opus",
+            effort: "high",
+         },
+      ),
+      ...step(
+         "mock-sub-send",
+         "session_send",
+         { id: session.session_id, text: "Also add a changeset for the release." },
+         session,
+      ),
+      ...step(
+         "mock-sub-wait",
+         "session_wait",
+         { id: session.session_id },
+         {
+            ...session,
+            status: "idle",
+            stop_reason: "end_turn",
+            duration_ms: 154_000,
+            reply: "Exported `s`, `Static` and `parse` from `src/index.ts`, added a changeset, and opened **#145**. Tests pass.",
+         },
+      ),
    ];
 }

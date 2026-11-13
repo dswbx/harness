@@ -38,9 +38,12 @@ const done = (id: string, background = false): Event =>
       background,
    });
 const fold = (events: Event[]) =>
-   groupSubagents(events.reduce(reduce, initialState()).items, (i) =>
-      i.type === "tool" ? i : null,
+   groupSubagents(
+      events.reduce(reduce, initialState()).items,
+      (i) => (i.type === "tool" ? i : null),
+      (i) => (i.type === "thought" || i.type === "agent" ? i.parent : null),
    );
+const at = (e: Event, ts_ms: number): Event => ({ ...e, ts_ms });
 
 describe("subagents", () => {
    it("moves a background subagent's calls under its Task call; its report ends it", () => {
@@ -77,6 +80,40 @@ describe("subagents", () => {
       const finished = fold([...events, done("task")]);
       const t2 = finished.rows[0]!;
       expect(t2.type === "tool" && subagentState(t2, finished.subagents.get("task")!)).toBe("done");
+   });
+
+   it("keeps a subagent's thoughts, text and calls in order as its steps", () => {
+      const { rows, subagents } = fold([
+         ev({ type: "AgentThoughtChunk", text: "plan" }),
+         at(call("task", "T"), 10),
+         ev({ type: "AgentThoughtChunk", text: "sub thinks", parent_tool_call_id: "task" }),
+         call("s1", "Read", "task"),
+         done("s1"),
+         ev({ type: "AgentMessageChunk", text: "sub says", parent_tool_call_id: "task" }),
+         call("hb", "SubagentHandback", "task", "R"),
+         at(done("task"), 42),
+      ]);
+      expect(rows.map((r) => r.type)).toEqual(["thought", "tool"]);
+      const s = subagents.get("task")!;
+      expect(s.steps.map((i) => (i.type === "tool" ? i.id : `${i.type}`))).toEqual([
+         "thought",
+         "s1",
+         "agent",
+      ]);
+      expect(s.calls.map((c) => c.id)).toEqual(["s1"]);
+      expect([s.report, s.endedAt]).toEqual(["R", 42]);
+   });
+
+   it("a background subagent ends with its report", () => {
+      const { subagents } = fold([
+         call("task", "T"),
+         at(done("task", true), 5),
+         call("s1", "Read", "task"),
+         at(call("hb", "SubagentHandback", "task", "R"), 77),
+      ]);
+      expect(subagents.get("task")!.endedAt).toBe(77);
+      const running = fold([call("task", "T"), done("task", true), call("s1", "Read", "task")]);
+      expect(running.subagents.get("task")!.endedAt).toBeNull();
    });
 
    it("leaves calls in place when their parent is unknown", () => {

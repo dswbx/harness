@@ -17,8 +17,15 @@ const user = (id: string, text: string): Item => ({
    ts: 0,
    attachments: [],
    context: null,
+   from: null,
 });
-const agent = (id: string, text: string): Item => ({ type: "agent", id, text, ts: 1 });
+const agent = (id: string, text: string): Item => ({
+   type: "agent",
+   id,
+   text,
+   ts: 1,
+   parent: null,
+});
 const ui = (id: string, value: RenderUiInput): Item => ({
    type: "frontend_tool",
    id,

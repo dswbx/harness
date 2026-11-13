@@ -44,10 +44,10 @@ const empty: Layout = {
 };
 
 describe("defaultLayout", () => {
-   it("has Artifacts left top, References left bottom, Changes then Files first in right top", () => {
+   it("has Artifacts left top, References then Subagents left bottom, Changes then Files first in right top", () => {
       const { zones } = defaultLayout();
       expect(zones.leftTop).toEqual(["artifacts"]);
-      expect(zones.leftBottom).toEqual(["references"]);
+      expect(zones.leftBottom).toEqual(["references", "subagents"]);
       expect(zones.rightTop).toEqual(["changes", "files", "side", "plan"]);
    });
 });
@@ -220,7 +220,14 @@ describe("reset", () => {
 
 describe("reconcile", () => {
    it("is the identity when nothing is missing", () => {
-      const full = { ...empty, zones: { ...empty.zones, rightTop: ["side", "plan"] as PanelId[] } };
+      const full = {
+         ...empty,
+         zones: {
+            ...empty.zones,
+            leftBottom: ["artifacts", "references", "subagents"] as PanelId[],
+            rightTop: ["side", "plan"] as PanelId[],
+         },
+      };
       expect(reconcile(full, [])).toBe(full);
    });
    it("puts built-in panels missing from the zones in their default zone", () => {
@@ -242,7 +249,7 @@ describe("reconcile", () => {
          zones: { ...empty.zones, leftBottom: ["nope", "changes", "artifacts"] as PanelId[] },
       };
       const r = reconcile(l, []);
-      expect(r.zones.leftBottom).toEqual(["artifacts", "references"]);
+      expect(r.zones.leftBottom).toEqual(["artifacts", "references", "subagents"]);
       expect(r.zones.leftTop).toEqual(["changes"]);
    });
    it("places new slots by placement and leaves placed ones where the user put them", () => {

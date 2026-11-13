@@ -1,5 +1,5 @@
 import type { Attachment, SessionApi } from "@harness/api";
-import { groupSubagents, type Subagent } from "@harness/api";
+import { groupSubagents } from "@harness/api";
 import {
    cn,
    Dialog,
@@ -23,7 +23,7 @@ import {
    ShieldCheck,
    ShieldX,
 } from "lucide-react";
-import { memo, type Ref, useEffect, useMemo, useState } from "react";
+import { memo, type Ref, useContext, useEffect, useMemo, useState } from "react";
 import { AuthCard } from "./Auth";
 import { CommentChips } from "./CommentChip";
 import type { DiffScope } from "./DiffPanel";
@@ -31,6 +31,7 @@ import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
+import { OpenSession } from "./OpenSession";
 import { isStepApproval, PermissionCard } from "./Permission";
 import { PlanContext, type PlanCtx, PlanNote } from "./PlanNote";
 import {
@@ -47,12 +48,16 @@ import { quotableAttrs } from "./SelectionComment";
 import { SideReplyFooter } from "./SideReplyFooter";
 import { splitRenderUi } from "./slots";
 import { formatDuration } from "./time";
-import { groupTools, type ToolGroup, type ToolGroupProps, useToolDisplay } from "./toolDisplay";
+import {
+   type ChatSubagent,
+   groupTools,
+   type ToolGroup,
+   type ToolGroupProps,
+   useToolDisplay,
+} from "./toolDisplay";
 import { NoticeStep } from "./toolDisplay/NoticeStep";
 import { WaitingForUser } from "./toolDisplay/waiting";
 import type { RawNode } from "./tools";
-
-type Tool = Extract<Item, { type: "tool" }>;
 
 /** One line under a Turn: totals and file names; opens the diff scoped to that Turn. */
 function ChangesRow({
@@ -271,14 +276,42 @@ function UserAttachments({ api, items }: { api: SessionApi; items: Attachment[] 
 }
 
 /** A sent prompt's bubble: its review comments as chips (like the prompt box), then the typed text. */
-function UserText({ text }: { text: string }) {
+function UserText({ text, fromSession }: { text: string; fromSession?: boolean }) {
    const p = useMemo(() => parseReviewComments(text), [text]);
    return (
-      <div className="max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground">
+      <div
+         className={cn(
+            "max-w-[80%] rounded-2xl border bg-card px-4.5 dark:border-transparent py-2.5 text-card-foreground",
+            // Sent by another Session's Agent: a blue tint tells it apart from the user's own.
+            fromSession && "border-sky-500/30 bg-sky-500/10 dark:border-sky-500/30",
+         )}
+      >
          {p.comments.length > 0 && (
             <CommentChips comments={p.comments} className={p.text ? "pb-1.5" : undefined} />
          )}
          {p.text && <Markdown breaks>{p.text}</Markdown>}
+      </div>
+   );
+}
+
+/** "from <Session>" above a prompt another Session's Agent sent: a link when the host can open Sessions. */
+function FromSession({ from }: { from: { sessionId: string; title: string } }) {
+   const open = useContext(OpenSession);
+   const title = from.title || "another session";
+   return (
+      <div className="mb-1 text-ui-sm text-muted-foreground">
+         from{" "}
+         {open ? (
+            <button
+               type="button"
+               onClick={() => open(from.sessionId)}
+               className="text-sky-600 hover:underline dark:text-sky-400"
+            >
+               {title}
+            </button>
+         ) : (
+            title
+         )}
       </div>
    );
 }
@@ -339,7 +372,7 @@ export const Row = memo(function Row({
    threadId: string;
    side: boolean;
    onOpenDiff: (s: DiffScope) => void;
-   subagents: Map<string, Subagent<Tool>>;
+   subagents: Map<string, ChatSubagent>;
    /** A Turn is running. */
    active: boolean;
    /** The last row while a Turn runs: an agent message is still coming in. */
@@ -365,7 +398,8 @@ export const Row = memo(function Row({
                {item.attachments.length > 0 && (
                   <UserAttachments api={api} items={item.attachments} />
                )}
-               {item.text && <UserText text={item.text} />}
+               {item.from && <FromSession from={item.from} />}
+               {item.text && <UserText text={item.text} fromSession={!!item.from} />}
                <MessageFooter text={item.text} ts={item.ts} align="end">
                   {item.context && <HarnessContext text={item.context} />}
                </MessageFooter>
@@ -479,6 +513,7 @@ export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttache
             return ui.inline.get(i.id) !== null;
          }),
          (i) => (i.type === "tool" ? i : null),
+         (i) => (i.type === "thought" || i.type === "agent" ? i.parent : null),
       );
       return { rows: groupTools(g.rows), subagents: g.subagents };
    }, [items, ui]);
@@ -570,7 +605,7 @@ export function MessageList({
    env: UiEnv;
    ui: ReturnType<typeof splitRenderUi>;
    rows: ReturnType<typeof useRows>["rows"];
-   subagents: Map<string, Subagent<Tool>>;
+   subagents: Map<string, ChatSubagent>;
    onOpenDiff: (s: DiffScope) => void;
    /** Opens the Plan panel at a plan version. Without it, plans show inline (no panel). */
    onOpenPlan?: (requestId: string) => void;

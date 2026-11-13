@@ -349,7 +349,7 @@ fn texts(h: &Harness, sid: &str) -> Vec<String> {
     h_events(h, sid)
         .into_iter()
         .filter_map(|k| match k {
-            EventKind::AgentMessageChunk { text } => Some(text),
+            EventKind::AgentMessageChunk { text, .. } => Some(text),
             _ => None,
         })
         .collect()
@@ -524,7 +524,7 @@ async fn ask_in(h: &Harness, sid: &str, thread: &str, text: &str) -> String {
         .iter()
         .filter(|e| e.thread_id.as_deref() == Some(thread))
         .filter_map(|e| match &e.kind {
-            EventKind::AgentMessageChunk { text } => Some(text.as_str()),
+            EventKind::AgentMessageChunk { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect()
@@ -571,7 +571,7 @@ async fn side_thread_without_fork_support_is_seeded_with_the_main_transcript() {
     let main_leaks = events(&h, &sid)
         .iter()
         .filter(|e| e.thread_id.as_deref() != Some(&side))
-        .any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text } if text.contains("seeded")));
+        .any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text, .. } if text.contains("seeded")));
     assert!(!main_leaks, "main Thread is unseeded");
 }
 

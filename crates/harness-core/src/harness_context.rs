@@ -78,6 +78,11 @@ fn side_note(session: &Session, thread: &ThreadId, forked: bool) -> Option<Strin
     ))
 }
 
+/// The note before a prompt that another Session's Agent sent (a parent prompting its Sub Session).
+pub fn origin_note(origin: &crate::api::PromptOrigin) -> String {
+    format!("<harness_context>\nThis message comes from the agent of Session \"{}\", not from the user.\n</harness_context>", origin.title)
+}
+
 fn read(dir: &Path, name: &str) -> Option<String> {
     let text = std::fs::read_to_string(dir.join(format!("{name}.md"))).ok()?;
     Some(text.trim().to_owned()).filter(|t| !t.is_empty())
@@ -100,6 +105,12 @@ fn facts(session: &Session) -> String {
     }
     if meta.quick {
         lines.push("- Quick Session: the folder is empty scratch space".to_owned());
+    }
+    if let Some(parent) = &meta.parent {
+        let title = session.shared().host().ok().and_then(|h| h.session_title(&parent.session_id)).unwrap_or_else(|| parent.session_id.clone());
+        lines.push(format!(
+            "- Sub Session: the agent of Session \"{title}\" started it. Prompts with a note that they come from that agent are its instructions; the user can also write here. Your last message of each Turn is returned to that agent, so end with a short, complete answer."
+        ));
     }
     let artifacts = &session.shared().artifacts;
     for id in session.attached_shared().unwrap_or_default() {

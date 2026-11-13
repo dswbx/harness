@@ -732,6 +732,40 @@ export class MockTransport implements Transport {
             });
          }
       });
+      // A parent with two Sub Sessions in other repositories: one with a PR, one needing attention.
+      const subs: [
+         string,
+         string,
+         string,
+         number,
+         Partial<WorkspaceInfo>,
+         SessionSummary["status"]?,
+      ][] = [
+         ["mock-p1", "Release prep across repos", "/Users/me/harness", 1, {}],
+         [
+            "mock-p1-a",
+            "Bump jsonv-ts schema exports",
+            "/Users/me/jsonv-ts",
+            1.5,
+            { branch: "bump-exports", pr: 145, pr_state: "open", pr_checks: "passing" },
+         ],
+         [
+            "mock-p1-b",
+            "Check supalite RLS cases",
+            "/Users/me/supalite",
+            0.5,
+            { branch: "rls-cases" },
+            "needs_attention",
+         ],
+      ];
+      for (const [id, title, folder, age, o, status] of subs) {
+         this.addSession(id, title, "chat", false, folder, ws(folder, o));
+         const s = this.sessions.at(-1)!;
+         s.created_ms = Date.now() - 3 * h;
+         s.updated_ms = Date.now() - age * h;
+         if (status) s.status = status;
+         if (id !== "mock-p1") s.parent = { session_id: "mock-p1", thread_id: "main" };
+      }
       const quick: [string, number][] = [
          ["Compare SQLite and libSQL", 3],
          ["Convert seconds to hours", 50],
