@@ -1,6 +1,7 @@
 //! ACP `session/update` to Harness Event, plus the tracked tool call state.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use agent_client_protocol::schema::v1 as acp;
 use serde_json::Value;
@@ -9,7 +10,7 @@ use super::thread_of;
 use crate::api::{EventKind, SlashCommand, TaskEntry};
 use crate::session::Session;
 
-pub(super) fn on_update(session: &Session, n: &acp::SessionNotification) {
+pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     let thread = thread_of(session, &n.session_id);
     let update = serde_json::to_value(&n.update).unwrap_or(Value::Null);
     track_tool_call(session, &update);
@@ -18,7 +19,15 @@ pub(super) fn on_update(session: &Session, n: &acp::SessionNotification) {
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
         session.set_agent_title(thread.as_ref(), t);
     }
-    let _ = session.log().append(thread, kind);
+    let job = match &kind {
+        EventKind::ToolCallUpdate { background_job: Some(job), .. } => Some(job.clone()),
+        _ => None,
+    };
+    let _ = session.log().append(thread.clone(), kind);
+    // After the launch is logged, so the end always comes after it.
+    if let Some(job) = job {
+        super::jobs::watch(session, thread, job);
+    }
 }
 
 pub(super) fn track_tool_call(session: &Session, u: &Value) {
@@ -91,6 +100,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 raw_output: u.get("rawOutput").cloned(),
                 parent_tool_call_id: None,
                 background: false,
+                background_job: None,
                 harness_tool,
                 plan: facts.plan,
                 subagent: facts.subagent,

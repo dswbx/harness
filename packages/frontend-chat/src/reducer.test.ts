@@ -1231,3 +1231,67 @@ describe("Shared Artifacts (ADR 0024)", () => {
       expect(s.items).toEqual([]);
    });
 });
+
+describe("background jobs", () => {
+   const call = (id: string, title: string, thread = "main") =>
+      ev(
+         {
+            type: "ToolCall",
+            tool_call_id: id,
+            title,
+            kind: "execute",
+            status: "pending",
+            content: [],
+            locations: [],
+            raw_input: null,
+         },
+         thread,
+      );
+   const launched = (id: string, jobId: string, thread = "main") =>
+      ev(
+         {
+            type: "ToolCallUpdate",
+            tool_call_id: id,
+            title: null,
+            kind: null,
+            status: "completed",
+            content: null,
+            locations: null,
+            raw_input: null,
+            raw_output: null,
+            background_job: { id: jobId, output_file: `/tmp/${jobId}.output` },
+         },
+         thread,
+      );
+
+   it("adds a job on launch and removes it when it ends", () => {
+      let s = fold([started(), call("c1", "bun run dev"), launched("c1", "j1")]);
+      expect(s.backgroundJobs).toEqual([{ id: "j1", label: "bun run dev" }]);
+      s = reduce(s, ev({ type: "BackgroundJobEnded", job_id: "j1" }));
+      expect(s.backgroundJobs).toEqual([]);
+   });
+
+   it("labels a job by its id when the call's title is unknown", () => {
+      const s = fold([started(), launched("c1", "j1"), launched("c1", "j1")]);
+      expect(s.backgroundJobs).toEqual([{ id: "j1", label: "j1" }]);
+   });
+
+   it("clears every Thread's jobs when the Agent process stops", () => {
+      const s = fold([
+         started(),
+         call("c1", "sleep 100"),
+         launched("c1", "j1"),
+         call("c2", "sleep 200", "side"),
+         launched("c2", "j2", "side"),
+      ]);
+      expect(s.threads.side!.backgroundJobs).toHaveLength(1);
+      const after = reduce(
+         s,
+         ev({ type: "AgentProcessState", state: "stopped", message: "app_restart" }, null),
+      );
+      expect(after.backgroundJobs).toEqual([]);
+      expect(after.threads.side!.backgroundJobs).toEqual([]);
+      expect(after.threads.side!.process).toBeNull();
+      expect(s.threads.side!.backgroundJobs).toHaveLength(1);
+   });
+});

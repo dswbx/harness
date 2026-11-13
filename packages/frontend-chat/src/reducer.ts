@@ -176,6 +176,9 @@ export type ToolCallRef = {
 
 export type Usage = { used: number; size: number };
 
+/** A shell command the Agent left running in the background. `label`: its tool call's title, else the job id. */
+export type BackgroundJobInfo = { id: string; label: string };
+
 export type ChatState = {
    items: Item[];
    /** The running Turn, if any. */
@@ -232,6 +235,8 @@ export type ChatState = {
    side: boolean;
    /** How the Thread's first Agent Session started; null until it has (it starts with the first prompt). */
    startBoundary: Boundary | null;
+   /** Background jobs still running, oldest first. They end with `BackgroundJobEnded` or when the Agent process stops. */
+   backgroundJobs: readonly BackgroundJobInfo[];
 };
 
 export const initialState = (): ChatState => ({
@@ -261,6 +266,7 @@ export const initialState = (): ChatState => ({
    forkedFrom: null,
    side: false,
    startBoundary: null,
+   backgroundJobs: [],
 });
 
 /** The state of a Thread: the Main Thread is `state` itself. Null for an unknown id. */
@@ -380,6 +386,11 @@ function apply(c: Ctx, e: Event) {
    }
    if (k.type === "ArtifactStateChanged") return;
    d.threadList = stepThreads(d.threadList, e);
+   // The Agent process is gone, and its background jobs with it: in every Thread.
+   if (k.type === "AgentProcessState" && agentGone(k.state)) {
+      for (const [id, t] of Object.entries(d.threads))
+         if (t.backgroundJobs.length > 0) sideCtx(c, id).d.backgroundJobs = [];
+   }
    if (k.type === "ThreadStarted" && k.main && !d.mainThreadId) d.mainThreadId = e.thread_id;
    // Side Threads fold into their own state; everything else (Main Thread, Session-level) into this one.
    if (e.thread_id && d.mainThreadId && e.thread_id !== d.mainThreadId) {
@@ -390,18 +401,23 @@ function apply(c: Ctx, e: Event) {
 }
 
 function applySide(c: Ctx, threadId: string, e: Event) {
+   applyThread(sideCtx(c, threadId), e);
+}
+
+/** The batch context of a Side Thread; its state (safe to mutate) is already in `c.d.threads`. */
+function sideCtx(c: Ctx, threadId: string): Ctx {
    c.sides ??= new Map();
    let sc = c.sides.get(threadId);
    if (!sc) {
       sc = newCtx({ ...(c.d.threads[threadId] ?? initialState()) });
       c.sides.set(threadId, sc);
    }
-   applyThread(sc, e);
    if (!c.threadsOwned) {
       c.d.threads = { ...c.d.threads };
       c.threadsOwned = true;
    }
    c.d.threads[threadId] = sc.d;
+   return sc;
 }
 
 /** Folds one Event into one Thread's state (`c.d`). */
@@ -528,8 +544,16 @@ function applyThread(c: Ctx, e: Event) {
             idx.set(next.id, own(c).length);
             push(c, next);
          } else own(c)[at] = next;
+         const job = k.background_job;
+         if (job && !d.backgroundJobs.some((j) => j.id === job.id)) {
+            const label = next.title !== "Tool call" ? next.title : job.id;
+            d.backgroundJobs = [...d.backgroundJobs, { id: job.id, label }];
+         }
          return;
       }
+      case "BackgroundJobEnded":
+         d.backgroundJobs = d.backgroundJobs.filter((j) => j.id !== k.job_id);
+         return;
       case "TaskListUpdated":
          d.taskList = k.entries;
          return;
@@ -556,6 +580,7 @@ function applyThread(c: Ctx, e: Event) {
       case "AgentProcessState": {
          const wasTurn = d.turnId !== null || d.lastTurnErrored;
          d.process = { state: k.state, message: k.message };
+         if (agentGone(k.state) && d.backgroundJobs.length > 0) d.backgroundJobs = [];
          // A stop needs no action: the header's status dot shows it.
          if (k.state === "stopped") return;
          if ((k.state === "failed" || k.state === "exited") && wasTurn) {
@@ -826,6 +851,10 @@ function addPlan(c: Ctx, requestId: string, markdown: string, ts: number) {
       },
    ];
 }
+
+/** The Agent process no longer runs (its background jobs ended with it). */
+const agentGone = (state: string) =>
+   state === "stopped" || state === "exited" || state === "failed";
 
 function transcriptInfo(t: TranscriptSize | null): string {
    const got = !t

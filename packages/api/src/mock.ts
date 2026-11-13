@@ -652,6 +652,40 @@ export class MockTransport implements Transport {
             this.logs.get(sid)!.at(-1)!.ts_ms -= 95e3;
             this.emit(sid, { type: "AgentMessageChunk", text: "Looking at `SessionHeader.tsx`…" });
          }
+         // An idle Session whose Agent left a shell command running: "1 background job running".
+         if (title === "Ping and pong greeting") {
+            const sid = `mock-s${i + 1}`;
+            this.emit(sid, {
+               type: "ToolCall",
+               tool_call_id: "bg-1",
+               title: "bun run dev",
+               kind: "execute",
+               status: "pending",
+               content: [],
+               locations: [],
+               raw_input: { command: "bun run dev", run_in_background: true },
+            });
+            this.emit(sid, {
+               type: "ToolCallUpdate",
+               tool_call_id: "bg-1",
+               title: null,
+               kind: null,
+               status: "completed",
+               content: [
+                  {
+                     type: "content",
+                     content: {
+                        type: "text",
+                        text: "Command running in background with ID: b771yrkd7.",
+                     },
+                  },
+               ],
+               locations: null,
+               raw_input: null,
+               raw_output: null,
+               background_job: { id: "b771yrkd7", output_file: "/tmp/tasks/b771yrkd7.output" },
+            });
+         }
       });
       const quick: [string, number][] = [
          ["Compare SQLite and libSQL", 3],

@@ -80,6 +80,14 @@ export type AuthMethodInfo = {
 	kind: string,
 };
 
+/**  A shell command an Agent runs in the background after its tool call finished. */
+export type BackgroundJob = {
+	/**  The Agent's id for the job. */
+	id: string,
+	/**  The file the job writes its output to. */
+	output_file: string,
+};
+
 export type Boundary = "initial" | "resumed" | "loaded" | "reseeded" | "agent_switched" | "continued_with_summary" | 
 /**  A Side Thread's Agent Session forked from the Main Thread's. */
 "forked";
@@ -523,6 +531,11 @@ raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: str
  *  done when its report arrives).
  */
 background?: boolean; 
+/**
+ *  The call started a shell command that goes on running in the background: the job.
+ *  Done when `BackgroundJobEnded` names it, or when the Agent process stopped after it.
+ */
+background_job?: BackgroundJob | null; 
 /**  Set when the update changes the title to a Harness MCP tool. */
 harness_tool?: string | null; 
 /**  Set when the update carries the plan (see `ToolCall`). */
@@ -530,7 +543,12 @@ plan?: string | null;
 /**  Set when the update carries the subagent's task (see `ToolCall`). */
 subagent?: SubagentInfo | null; 
 /**  Set when the update carries the commit message (see `ToolCall`). */
-commit_message?: string | null } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+commit_message?: string | null } | 
+/**
+ *  Appended by the Harness when a background job's output file is no longer open by any
+ *  process: the job ended (see `ToolCallUpdate.background_job`).
+ */
+{ type: "BackgroundJobEnded"; job_id: string } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown; 
 /**

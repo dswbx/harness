@@ -9,7 +9,7 @@ import {
    sameRepo,
 } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
-import { AppWindow, ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
+import { AppWindow, ArrowUp, FileText, Loader2, Paperclip, Square, X } from "lucide-react";
 import {
    type Ref,
    useEffect,
@@ -38,7 +38,7 @@ import { repoToken } from "./prMenu";
 import { lineCount } from "./promptMarkdown";
 import { usePrRefs } from "./prRefs";
 import { RecoveryCard } from "./RecoveryCard";
-import type { ChatState } from "./reducer";
+import type { BackgroundJobInfo, ChatState } from "./reducer";
 import {
    composerKey,
    getReviewComments,
@@ -122,6 +122,36 @@ function ContextChip({ context }: { context: PromptContext }) {
 }
 
 /** Context window use as a ring; details on hover. */
+/** "N background jobs running", above the box; the tooltip lists the jobs' commands. */
+function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
+   return (
+      <Tooltip
+         side="top"
+         align="start"
+         className="max-w-96"
+         content={
+            <ul className="space-y-0.5">
+               {jobs.map((j) => (
+                  <li key={j.id} className="truncate font-mono">
+                     {j.label}
+                  </li>
+               ))}
+            </ul>
+         }
+      >
+         <div
+            role="status"
+            className="mb-2 flex w-fit items-center gap-1.5 px-1 text-xs text-muted-foreground"
+         >
+            <Loader2 className="size-3 animate-spin" aria-hidden />
+            {jobs.length === 1
+               ? "1 background job running"
+               : `${jobs.length} background jobs running`}
+         </div>
+      </Tooltip>
+   );
+}
+
 function ContextRing({ pct, used, size }: { pct: number; used: number; size: number }) {
    const r = 8;
    const c = 2 * Math.PI * r;
@@ -527,6 +557,7 @@ export function PromptBox({
                {error}
             </div>
          )}
+         {state.backgroundJobs.length > 0 && <BackgroundJobs jobs={state.backgroundJobs} />}
          <div
             ref={boxRef}
             className={cn(
