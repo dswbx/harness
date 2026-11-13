@@ -89,7 +89,7 @@ function InvalidView({ item, errors }: { item: FT; errors: readonly string[] }) 
             </button>
          </div>
          {open && (
-            <div className="mt-1.5 flex flex-col gap-1 pl-6 font-mono text-ui-sm text-muted-foreground">
+            <div className="mt-1.5 flex flex-col gap-1 font-mono text-ui-sm text-muted-foreground">
                {errors.map((e) => (
                   <div key={e} className="[overflow-wrap:anywhere]">
                      {shortError(e)}
