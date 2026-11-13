@@ -118,6 +118,7 @@
       font-size: 0.875rem;
       letter-spacing: var(--letter-spacing, normal);
    }
+
    /* ScrollArea: hide the native scrollbar here too. Radix injects this as an inline <style>, which the built app's CSP blocks (Tauri adds hashes to style-src, so 'unsafe-inline' is ignored). */
    [data-radix-scroll-area-viewport] {
       scrollbar-width: none;
@@ -331,7 +332,7 @@
 
 /* WorkingLoader: 4 squares (box-shadows) of a 2x2 grid, 35 units wide; --size scales it to 16px. a/b = -/+ offset. */
 .working-loader {
-   --size: calc(10px / 35);
+   --size: calc(10px / 40);
    --a: calc(-10 * var(--size));
    --b: calc(10 * var(--size));
    --s: 0 calc(5 * var(--size));

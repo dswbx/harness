@@ -15,6 +15,7 @@ import {
 import {
    ArrowRightLeft,
    ArrowUpFromLine,
+   Blocks,
    Bot,
    Brain,
    CircleDot,
@@ -43,7 +44,14 @@ import { formatDuration } from "../time";
 import type { ToolGroupProps } from ".";
 import { CodeFrame } from "./CodeFrame";
 import type { ChatSubagent, Step as StepItem, Tool } from "./group";
-import { gitSummary, type StepState, stepLabel, subSessionSummary } from "./label";
+import {
+   gitSummary,
+   type StepState,
+   shortToolName,
+   stepLabel,
+   subSessionSummary,
+   toolSearchNames,
+} from "./label";
 import { useOpenStep } from "./openStep";
 import { SubagentMeta } from "./SubagentMeta";
 import { ThoughtStep } from "./ThoughtStep";
@@ -161,6 +169,7 @@ const Step = memo(function Step({
       [subagent, tool.harnessTool, tool.rawInput, tool.rawOutput, tool.content],
    );
    const sub = useMemo(() => (subagent ? null : subSessionSummary(tool)), [subagent, tool]);
+   const loaded = useMemo(() => (subagent ? null : toolSearchNames(tool)), [subagent, tool]);
    const Icon = subagent
       ? Bot
       : state === "failed"
@@ -169,9 +178,11 @@ const Step = memo(function Step({
           ? GIT_ICONS[tool.harnessTool]!
           : sub
             ? GitFork
-            : tool.harnessTool || tool.title.startsWith("mcp__")
-              ? Plug
-              : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
+            : loaded
+              ? Blocks
+              : tool.harnessTool || tool.title.startsWith("mcp__")
+                ? Plug
+                : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
    const { verb, detail } = stepLabel(tool, state, !!subagent);
    // Live count for a subagent (never its last call: a long one pushed the title out).
    const n = subagent?.calls.length ?? 0;
@@ -244,6 +255,8 @@ const Step = memo(function Step({
                />
             ) : sub ? (
                <SubSessionBody tool={tool} summary={sub} />
+            ) : loaded?.length ? (
+               <ToolSearchBody tool={tool} names={loaded} />
             ) : message ? (
                <CodeFrame label="commit message" meta={git?.hash} code={message} />
             ) : (
@@ -433,6 +446,26 @@ function SubSessionBody({ tool, summary: s }: { tool: Tool; summary: SubSessionT
             >
                Open sub session
             </button>
+         )}
+      </>
+   );
+}
+
+/** A ToolSearch call: the tools it loaded (made callable), then its query. */
+function ToolSearchBody({ tool, names }: { tool: Tool; names: string[] }) {
+   return (
+      <>
+         <ul className="flex flex-col gap-0.5 font-mono text-ui-sm">
+            {names.map((n) => (
+               <li key={n} className="truncate" title={n}>
+                  {shortToolName(n)}
+               </li>
+            ))}
+         </ul>
+         {present(tool.rawInput) && (
+            <Fold label="Input">
+               <CodeFrame label="input" code={json(tool.rawInput)} lang="json" />
+            </Fold>
          )}
       </>
    );

@@ -564,6 +564,17 @@ export function formatErrors(
    return out;
 }
 
+/** One `formatErrors` line, short enough for one line in the chat: the allowed values of an enum are cut
+ * (the node type list is ~30 names). `/root/type (Diagram): Expected enum: [...]` → `/root/type: "Diagram" is not a known component type`. */
+export function shortError(line: string): string {
+   const m = /^(\S+?)(?: \((.*)\))?: Expected enum: \[.*\]$/.exec(line);
+   if (!m) return line;
+   // The bracket names the node's type: the bad value itself only when the path is that `type`.
+   const [, path, node] = m;
+   if (path!.endsWith("/type") && node) return `${path}: "${node}" is not a known component type`;
+   return `${path}${node ? ` (${node})` : ""}: not an allowed value`;
+}
+
 /** The catalog as text for the tool description: agents that drop parts of a schema still see it. */
 function catalogText(): string {
    return names

@@ -6,7 +6,7 @@ import { diffLines, langOf, splitPatch, unifiedPatch } from "./diff";
 import { Markdown } from "./Markdown";
 import { blockText, type ContentBlock, type Item } from "./reducer";
 import { CodeFrame, Frame } from "./toolDisplay/CodeFrame";
-import { parseFence } from "./toolDisplay/fence";
+import { commandOf, jsonTail, parseFence } from "./toolDisplay/fence";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
@@ -73,7 +73,21 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
    if (text != null) {
       const read = tool?.kind === "read";
       const fence = parseFence(text, read);
-      if (!fence) return <Markdown className={STEP_TEXT}>{text}</Markdown>;
+      if (!fence) {
+         // MCP results are often JSON, or a sentence ending in JSON: show that part as code.
+         const j = jsonTail(text);
+         if (!j) return <Markdown className={STEP_TEXT}>{text}</Markdown>;
+         return (
+            <>
+               {j.prose && <Markdown className={STEP_TEXT}>{j.prose}</Markdown>}
+               <CodeFrame label="json" code={j.json} lang="json" />
+            </>
+         );
+      }
+      const command = tool?.kind === "execute" ? commandOf(tool.rawInput, tool.title) : null;
+      if (command)
+         // Plain output: `console` highlighting reads output lines starting with `#` or `$` as commands.
+         return <CodeFrame label="console" code={fence.code} command={command} />;
       const path = read ? readPath(tool) : null;
       const lines = fence.from != null ? `lines ${fence.from}–${fence.to}` : undefined;
       return (

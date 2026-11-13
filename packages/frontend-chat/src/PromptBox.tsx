@@ -148,7 +148,7 @@ function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
       >
          <div
             role="status"
-            className="mb-2 flex w-fit items-center gap-1.5 px-1 text-xs text-muted-foreground"
+            className="mb-2 flex w-fit items-center gap-1.5 px-5 text-xs text-muted-foreground"
          >
             <WorkingLoader />
             {jobs.length === 1

@@ -77,6 +77,26 @@ function gitDetail(name: string, g: GitToolSummary): string {
    }
 }
 
+/** Tools a Claude `ToolSearch` call loaded (it loads deferred tool schemas so the Agent can call them), by name;
+ * null for any other call. From its `tool_reference` output, else its `Tool: <name>` text blocks. */
+export function toolSearchNames(tool: Tool): string[] | null {
+   if (tool.title !== "ToolSearch") return null;
+   const refs = Array.isArray(tool.rawOutput)
+      ? (tool.rawOutput as { type?: unknown; tool_name?: unknown }[])
+           .filter((r) => r?.type === "tool_reference" && typeof r.tool_name === "string")
+           .map((r) => r.tool_name as string)
+      : [];
+   if (refs.length) return refs;
+   return tool.content.flatMap((b) => {
+      const text = b.type === "content" ? (b.content as { text?: unknown })?.text : undefined;
+      const m = typeof text === "string" ? /^Tool: (\S+)$/.exec(text.trim()) : null;
+      return m ? [m[1]!] : [];
+   });
+}
+
+/** `mcp__talat__get-summary` → `talat get-summary`. */
+export const shortToolName = (name: string) => name.replace(/^mcp__(.+?)__/, "$1 ");
+
 export function stepLabel(tool: Tool, state: StepState, subagent = false): StepLabel {
    const live = state === "running" || state === "pending";
    const pick = ([run, done]: [string, string]) => (live ? run : done);
@@ -95,6 +115,20 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
    }
    if (tool.harnessTool)
       return { verb: pick(["Calling Harness", "Called Harness"]), detail: tool.harnessTool };
+   const loaded = toolSearchNames(tool);
+   if (loaded) {
+      const query = (tool.rawInput as { query?: unknown } | null)?.query;
+      const keywords = typeof query === "string" && !query.startsWith("select:") ? query : "";
+      const n = loaded.length;
+      const verb = live
+         ? "Loading tools"
+         : n
+           ? `Loaded ${n} tool${n === 1 ? "" : "s"}`
+           : keywords
+             ? "Searched tools"
+             : "Loaded tools";
+      return { verb, detail: keywords ? `"${keywords}"` : loaded.map(shortToolName).join(", ") };
+   }
    const mcp = /^mcp__(.+?)__(.+)$/.exec(tool.title);
    if (mcp) return { verb: pick([`Calling ${mcp[1]}`, `Called ${mcp[1]}`]), detail: mcp[2]! };
    const title = BARE.has(tool.title) ? "" : tool.title;
