@@ -242,7 +242,8 @@ const LIST_FIELDS: &str = "number,title,author,state,isDraft,additions,deletions
 
 const PR_FRAGMENT: &str = "fragment pr on PullRequest { number title url state isDraft additions deletions changedFiles updatedAt \
 author { login } commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { \
-... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } } }";
+... on CheckRun { name status conclusion startedAt checkSuite { workflowRun { workflow { name } } } } \
+... on StatusContext { context state createdAt } } } } } } } }";
 
 async fn gh_lookup(refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
     let Some((query, repos)) = lookup_query(&refs) else { return Ok(vec![None; refs.len()]) };
