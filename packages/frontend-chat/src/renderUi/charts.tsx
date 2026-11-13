@@ -1,7 +1,18 @@
-import { cn } from "@harness/ui";
+import {
+   cn,
+   Stat,
+   StatDescription,
+   StatIndicator,
+   StatLabel,
+   StatTrend,
+   StatValue,
+} from "@harness/ui";
+import { ArrowDown, ArrowRight, ArrowUp } from "lucide-react";
 import { lazy, Suspense, useMemo } from "react";
 import type { UiNode } from "../tools";
-import { type Renderers, type Tone, tip, tones } from "./runtime";
+import { IconOf, type Renderers, type Tone, tip, tones } from "./runtime";
+
+const trendIcon = { up: ArrowUp, down: ArrowDown, neutral: ArrowRight };
 
 export * from "./charts.spec";
 
@@ -84,23 +95,35 @@ function Trace({ node }: { node: Extract<UiNode, { type: "Trace" }> }) {
 
 export const renderers = {
    Stat: ({ node }) => {
-      const t = tones[node.props.tone ?? "neutral"];
+      const p = node.props;
+      const tone = p.tone ?? "neutral";
+      const color = tone === "neutral" ? "default" : tone;
+      const trend = (p.trend ?? "neutral") as "up" | "down" | "neutral";
+      const Arrow = trendIcon[trend];
       return tip(
-         node.props.tooltip,
-         <div className="min-w-0">
-            <div className="text-ui-sm text-muted-foreground">{node.props.label}</div>
-            <div
-               className={cn(
-                  "text-ui-xl font-semibold tabular-nums",
-                  node.props.tone && node.props.tone !== "neutral" && t.fg,
-               )}
-            >
-               {String(node.props.value ?? "")}
-            </div>
-            {node.props.hint && (
-               <div className="text-ui-sm text-muted-foreground">{node.props.hint}</div>
+         p.tooltip,
+         <Stat>
+            <StatLabel>{p.label}</StatLabel>
+            {p.badge ? (
+               <StatIndicator variant="badge" color={color}>
+                  {p.badge}
+               </StatIndicator>
+            ) : p.icon ? (
+               <StatIndicator variant="icon" color={color}>
+                  <IconOf name={p.icon} />
+               </StatIndicator>
+            ) : null}
+            <StatValue className={cn(!p.badge && !p.icon && tone !== "neutral" && tones[tone].fg)}>
+               {String(p.value ?? "")}
+            </StatValue>
+            {p.change && (
+               <StatTrend trend={trend}>
+                  <Arrow />
+                  {p.change}
+               </StatTrend>
             )}
-         </div>,
+            {p.hint && <StatDescription>{p.hint}</StatDescription>}
+         </Stat>,
          true,
       );
    },

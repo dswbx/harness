@@ -565,7 +565,7 @@ pub async fn run_shim() -> anyhow::Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let url = std::env::var("HARNESS_MCP_URL")?;
     let token = std::env::var("HARNESS_MCP_TOKEN")?;
-    let http = reqwest::Client::new();
+    let http = crate::http::builder().build()?;
     let mut session: Option<String> = None;
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     let mut out = tokio::io::stdout();

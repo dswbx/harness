@@ -16,6 +16,7 @@ mod github;
 mod github_refs;
 mod harness_context;
 pub mod host;
+mod http;
 pub mod library;
 pub mod log;
 pub mod mcp;
