@@ -23,7 +23,8 @@ axum = "0.8"
 http = "1"
 jsonschema = { version = "0.33", default-features = false }
 keyring = { version = "3", features = ["apple-native"] }
-reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "http2", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
 agent-client-protocol = { version = "3.5", features = ["process", "unstable_session_fork"] }
 base64 = "0.22"

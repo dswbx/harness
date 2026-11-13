@@ -1,27 +1,65 @@
 import { s } from "jsonv-ts";
-import { type Entry, tone, tooltip } from "./shared";
+import { type Entry, icon, tone, tooltip } from "./shared";
 
 /** Numbers and charts: Stat, Progress, Chart, Trace. */
 
 export const specs = {
    Stat: {
-      description: "One number or short value with a label, e.g. a count, a total or a status.",
+      description:
+         'One number or short value with a label, e.g. a count, a total or a status, in a small box. `change` with `trend` (up green, down red, neutral grey) shows a change with an arrow, e.g. "+20.1% from last month". `icon` or `badge` (short text, e.g. "+24") shows at the top right, tinted by `tone`; without them `tone` tints the value. `hint` is a muted line below. Put several in a Grid.',
       children: false,
       props: s.object({
          label: s.string(),
          value: s.anyOf([s.string(), s.number()]),
          hint: s.string().optional(),
+         change: s.string({ description: 'A change, e.g. "+20.1% from last month".' }).optional(),
+         trend: s
+            .string({
+               enum: ["up", "down", "neutral"],
+               description: "Arrow and color of `change`.",
+            })
+            .optional(),
+         icon: icon.optional(),
+         badge: s.string({ description: 'Short text at the top right, e.g. "+24".' }).optional(),
          tone: tone.optional(),
          tooltip: tooltip.optional(),
       }),
       example: {
          node: {
-            type: "Stat",
-            props: {
-               label: "Tests passing",
-               value: { $template: "${/tests/passed} / ${/tests/total}" },
-               hint: "2 failing in api/",
-            },
+            type: "Grid",
+            props: { columns: 3 },
+            children: [
+               {
+                  type: "Stat",
+                  props: {
+                     label: "Tests passing",
+                     value: { $template: "${/tests/passed} / ${/tests/total}" },
+                     icon: "test",
+                     tone: "success",
+                     change: "+4 since last run",
+                     trend: "up",
+                     hint: "2 failing in api/",
+                  },
+               },
+               {
+                  type: "Stat",
+                  props: {
+                     label: "Build time",
+                     value: "42s",
+                     badge: "+6s",
+                     tone: "warning",
+                     change: "-12% from main",
+                     trend: "down",
+                  },
+               },
+               {
+                  type: "Stat",
+                  props: {
+                     label: "Open issues",
+                     value: 12,
+                  },
+               },
+            ],
          },
          state: { tests: { passed: 46, total: 48 } },
       },
