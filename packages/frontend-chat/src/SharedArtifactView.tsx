@@ -40,6 +40,7 @@ import { sharedSourceText, useSharedArtifact } from "./renderUi/sharedSource";
 import { Segmented } from "./Segmented";
 import { formatRelativeTime, useNow } from "./time";
 import { sharedNode } from "./tools";
+import { FillFrame } from "./UiHtml";
 
 const KIND: Record<SharedArtifactMeta["kind"], string> = { md: "Markdown", html: "HTML", ui: "UI" };
 
@@ -207,11 +208,20 @@ export function SharedArtifactView({
          </header>
          {error && <p className="px-4 pt-2 text-xs text-destructive">{error}</p>}
          <div className="flex min-h-0 flex-1">
-            <ScrollArea className="min-h-0 min-w-0 flex-1">
-               <div className="mx-auto max-w-3xl p-6">
-                  <RenderUi root={root} env={env} />
+            {meta?.kind === "html" ? (
+               // HTML fills the view and scrolls itself (like an HTML panel): its real size, one scrollbar.
+               <div className="relative min-h-0 min-w-0 flex-1">
+                  <FillFrame.Provider value>
+                     <RenderUi root={root} env={env} />
+                  </FillFrame.Provider>
                </div>
-            </ScrollArea>
+            ) : (
+               <ScrollArea className="min-h-0 min-w-0 flex-1">
+                  <div className="mx-auto max-w-3xl p-6">
+                     <RenderUi root={root} env={env} />
+                  </div>
+               </ScrollArea>
+            )}
             <aside
                className="relative hidden shrink-0 flex-col border-l md:flex"
                style={{ width: side.width }}

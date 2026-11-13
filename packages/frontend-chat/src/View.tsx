@@ -121,7 +121,7 @@ import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
 import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
 import { formatAge, formatRelativeTime, useNow } from "./time";
-import { RENDER_UI, sharedRef } from "./tools";
+import { RENDER_UI, sharedNodeId, sharedRef } from "./tools";
 import { FillFrame } from "./UiHtml";
 import { uiIcons } from "./uiIcons";
 
@@ -258,6 +258,10 @@ function SlotPanel({
       onOpenOutside?: () => void;
    };
 }) {
+   // One Html node, or a shared HTML artifact (its `Shared` node loads the HTML later): the frame
+   // fills the panel and scrolls itself, no padding.
+   const fill =
+      slot.root.type === "Html" || (!!sharedNodeId(slot.root) && shared?.meta?.kind === "html");
    return (
       <>
          <PanelHeader
@@ -286,8 +290,7 @@ function SlotPanel({
             {shared && <SharedBadge meta={shared.meta} />}
             {updated > 0 && <UpdatedAgo ts={updated} />}
          </PanelHeader>
-         {slot.root.type === "Html" ? (
-            // One Html node: the frame fills the panel and scrolls itself, no padding.
+         {fill ? (
             <div
                className="relative min-h-0 flex-1"
                {...quotableAttrs(null, false, { source: "artifact", label: slot.title ?? slot.id })}
