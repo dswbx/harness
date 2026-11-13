@@ -122,6 +122,7 @@ import { type Slot, slotChangeKey } from "./slots";
 import type { SideStart } from "./ThreadView";
 import { formatAge, formatRelativeTime, useNow } from "./time";
 import { RENDER_UI, sharedRef } from "./tools";
+import { FillFrame } from "./UiHtml";
 import { uiIcons } from "./uiIcons";
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
@@ -285,14 +286,29 @@ function SlotPanel({
             {shared && <SharedBadge meta={shared.meta} />}
             {updated > 0 && <UpdatedAgo ts={updated} />}
          </PanelHeader>
-         <ScrollArea className="min-h-0 flex-1">
+         {slot.root.type === "Html" ? (
+            // One Html node: the frame fills the panel and scrolls itself, no padding.
             <div
-               className="p-4"
+               className="relative min-h-0 flex-1"
                {...quotableAttrs(null, false, { source: "artifact", label: slot.title ?? slot.id })}
             >
-               <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
+               <FillFrame.Provider value>
+                  <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
+               </FillFrame.Provider>
             </div>
-         </ScrollArea>
+         ) : (
+            <ScrollArea className="min-h-0 flex-1">
+               <div
+                  className="p-4"
+                  {...quotableAttrs(null, false, {
+                     source: "artifact",
+                     label: slot.title ?? slot.id,
+                  })}
+               >
+                  <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
+               </div>
+            </ScrollArea>
+         )}
       </>
    );
 }

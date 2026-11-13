@@ -80,6 +80,7 @@ export type FrameMessage =
    | { type: "send"; text: unknown }
    | { type: "height"; px: unknown }
    | { type: "snapshot"; id: unknown; xml: unknown; width: unknown; height: unknown }
+   | { type: "open"; url: unknown }
    | { type: "error"; message: unknown };
 
 /**
@@ -190,7 +191,13 @@ export const BRIDGE = `(function () {
   });
   document.addEventListener("click", function (e) {
     var el = e.target && e.target.closest && e.target.closest("[data-on-click]");
-    if (el) h.run(json(el, "data-on-click"));
+    if (el) return h.run(json(el, "data-on-click"));
+    // The sandbox blocks navigation and popups: web links open outside the app, through the host.
+    var a = e.target && e.target.closest && e.target.closest("a[href]");
+    if (a && /^(https?:|mailto:)/i.test(a.href)) {
+      e.preventDefault();
+      post({ type: "open", url: a.href });
+    }
   });
   document.addEventListener("change", function (e) {
     var el = e.target;
