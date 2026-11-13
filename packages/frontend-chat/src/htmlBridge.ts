@@ -48,12 +48,12 @@ export function themeCss(read: (name: string) => string, scheme: string): string
    return `:root { ${vars} color-scheme: ${scheme || "light"}; }`;
 }
 
-/** The theme of the app's <html> now (`.dark` class and inline preset tokens). */
-export function currentTheme(): string {
+/** The theme of the app's <html> now (`.dark` class and inline preset tokens). In a panel, chat-sized text uses the UI font size. */
+export function currentTheme(inPanel = false): string {
    const root = document.documentElement;
    const style = getComputedStyle(root);
    return themeCss(
-      (n) => style.getPropertyValue(n),
+      (n) => style.getPropertyValue(inPanel && n === "--chat-font-size" ? "--app-font-size" : n),
       root.classList.contains("dark") ? "dark" : "light",
    );
 }
