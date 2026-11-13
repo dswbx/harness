@@ -57,8 +57,6 @@ export const specs = {
                   props: {
                      label: "Open issues",
                      value: 12,
-                     change: "No change from last week",
-                     trend: "neutral",
                   },
                },
             ],
