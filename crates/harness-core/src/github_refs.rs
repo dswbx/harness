@@ -1,4 +1,4 @@
-//! PR references (`#17`, `owner/repo#17`): PRs of any GitHub repository via `gh`, cached for all Sessions, and the
+//! PR references (`#17`, `owner/repo#17`): PRs of any GitHub repository via the GitHub API, cached for all Sessions, and the
 //! GitHub repos the Sessions work in.
 
 use parking_lot::Mutex;
@@ -9,10 +9,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::future::{BoxFuture, FutureExt, Shared};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::api::{KnownRepo, PrInfo, PrRefKey, PrState, RepoId};
-use crate::github::{check_counts, checks, gh_in, gh_lenient};
+use crate::github::{PR_FRAGMENT, author, check_counts, checks, graphql, graphql_data, graphql_raw, rest_get, rollup, search_prs};
 
 const OPEN_TTL: Duration = Duration::from_secs(60);
 const DONE_TTL: Duration = Duration::from_secs(24 * 3600);
@@ -34,7 +34,7 @@ struct Cache {
 pub struct PrRefs {
     cache: Arc<Mutex<Cache>>,
     fetch: Fetch,
-    /// The `gh` user and when it was asked; a missing one is asked again after `NOT_FOUND_TTL`.
+    /// The GitHub user and when it was asked; a missing one is asked again after `NOT_FOUND_TTL`.
     me: Mutex<Option<(Instant, Option<String>)>>,
     /// GitHub repo per repository folder of a Session (a Worktree's main repo).
     repos: Mutex<HashMap<PathBuf, Option<RepoId>>>,
@@ -43,7 +43,7 @@ pub struct PrRefs {
 
 impl Default for PrRefs {
     fn default() -> Self {
-        Self::with_fetch(Arc::new(|refs| gh_lookup(refs).boxed()))
+        Self::with_fetch(Arc::new(|refs| fetch_lookup(refs).boxed()))
     }
 }
 
@@ -57,7 +57,7 @@ impl PrRefs {
         self.cache.lock().entries.remove(&(repo_key(repo), number));
     }
 
-    /// PRs in the order of `refs`, from the cache or one `gh` call for the rest.
+    /// PRs in the order of `refs`, from the cache or one GraphQL call for the rest.
     pub async fn lookup(&self, refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
         let keys: Vec<Key> = refs.iter().map(key).collect();
         let mut out = vec![None; refs.len()];
@@ -118,14 +118,22 @@ impl PrRefs {
     /// Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. Fills the cache.
     pub async fn search(&self, repo: &RepoId, query: Option<&str>) -> anyhow::Result<Vec<PrInfo>> {
         anyhow::ensure!(valid_repo(repo), "invalid repository {}/{}", repo.owner, repo.name);
-        let full = format!("{}/{}", repo.owner, repo.name);
-        let search = query.map(str::trim).filter(|q| !q.is_empty()).map(|q| format!("{q} in:title"));
-        let mut args = vec!["pr", "list", "--repo", &full, "--state", "all", "--limit", "30", "--json", LIST_FIELDS];
-        if let Some(s) = &search {
-            args.extend(["--search", s]);
-        }
-        let (out, me) = tokio::join!(gh_in(None, &args), self.me());
-        let list: Vec<Value> = serde_json::from_str(&out?)?;
+        let search = query.map(str::trim).filter(|q| !q.is_empty());
+        let list = async {
+            match search {
+                Some(q) => search_prs(&format!("repo:{}/{} is:pr {q} in:title sort:updated-desc", repo.owner, repo.name), 30).await,
+                None => {
+                    let q = format!(
+                        "query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ pullRequests(first: 30, \
+                         orderBy: {{field: UPDATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {PR_FRAGMENT}"
+                    );
+                    Ok(graphql(&q, json!({ "owner": repo.owner, "name": repo.name })).await?["repository"]["pullRequests"]["nodes"].take())
+                }
+            }
+        };
+        let (out, me) = tokio::join!(list, self.me());
+        let out = out?;
+        let list = out.as_array().map_or(&[][..], Vec::as_slice);
         let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
         prs.sort_by_key(|p| me.as_deref() != Some(p.author.as_str()));
         let now = Instant::now();
@@ -136,11 +144,13 @@ impl PrRefs {
     /// The PR whose head is `branch` in `repo`: an open one first, else the most recently updated. Fills the cache.
     pub async fn for_branch(&self, repo: &RepoId, branch: &str) -> anyhow::Result<Option<PrInfo>> {
         anyhow::ensure!(valid_repo(repo), "invalid repository {}/{}", repo.owner, repo.name);
-        let full = format!("{}/{}", repo.owner, repo.name);
-        let fields = format!("{LIST_FIELDS},isCrossRepository");
-        let args = ["pr", "list", "--repo", &full, "--head", branch, "--state", "all", "--limit", "10", "--json", &fields];
-        let list: Vec<Value> = serde_json::from_str(&gh_in(None, &args).await?)?;
-        let mut prs = branch_prs(repo, &list);
+        let q = format!(
+            "query($owner: String!, $name: String!, $branch: String!) {{ repository(owner: $owner, name: $name) {{ \
+             pullRequests(headRefName: $branch, first: 10) {{ nodes {{ ...pr }} }} }} }} {PR_FRAGMENT}"
+        );
+        let mut data = graphql(&q, json!({ "owner": repo.owner, "name": repo.name, "branch": branch })).await?;
+        let list = data["repository"]["pullRequests"]["nodes"].take();
+        let mut prs = branch_prs(repo, list.as_array().map_or(&[][..], Vec::as_slice));
         let now = Instant::now();
         self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
         prs.sort_by(|a, b| {
@@ -150,7 +160,7 @@ impl PrRefs {
         Ok(prs.into_iter().next())
     }
 
-    /// The `gh` user; None when `gh` is missing or not signed in.
+    /// The GitHub user; None without a token or connection.
     pub async fn me(&self) -> Option<String> {
         let cached = self.me.lock().clone();
         if let Some((at, me)) = cached
@@ -158,7 +168,7 @@ impl PrRefs {
         {
             return me;
         }
-        let me = gh_in(None, &["api", "user", "--jq", ".login"]).await.ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+        let me = rest_get("/user").await.ok().and_then(|u| u["login"].as_str().map(str::to_owned)).filter(|s| !s.is_empty());
         *self.me.lock() = Some((Instant::now(), me.clone()));
         me
     }
@@ -238,15 +248,9 @@ pub(crate) fn valid_repo(r: &RepoId) -> bool {
     ok(&r.owner) && ok(&r.name)
 }
 
-const LIST_FIELDS: &str = "number,title,author,state,isDraft,additions,deletions,changedFiles,updatedAt,url,statusCheckRollup";
-
-const PR_FRAGMENT: &str = "fragment pr on PullRequest { number title url state isDraft additions deletions changedFiles updatedAt \
-author { login } commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { \
-... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } } }";
-
-async fn gh_lookup(refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
+async fn fetch_lookup(refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
     let Some((query, repos)) = lookup_query(&refs) else { return Ok(vec![None; refs.len()]) };
-    let body = gh_lenient(&["api", "graphql", "-f", &format!("query={query}")]).await?;
+    let body = graphql_raw(&query, json!({})).await?;
     parse_lookup(&refs, &repos, &body)
 }
 
@@ -280,11 +284,7 @@ fn lookup_query(refs: &[PrRefKey]) -> Option<(String, Vec<String>)> {
 
 /// Missing repos and PRs come back as `null` aliases (with NOT_FOUND errors): None. Fails only without `data`.
 fn parse_lookup(refs: &[PrRefKey], repos: &[String], body: &str) -> anyhow::Result<Vec<Option<PrInfo>>> {
-    let v: Value = serde_json::from_str(body)?;
-    let data = &v["data"];
-    if !data.is_object() {
-        anyhow::bail!("GitHub: {}", v["errors"][0]["message"].as_str().unwrap_or("no data"));
-    }
+    let data = graphql_data(serde_json::from_str(body)?)?;
     Ok(refs
         .iter()
         .map(|r| {
@@ -294,16 +294,14 @@ fn parse_lookup(refs: &[PrRefKey], repos: &[String], body: &str) -> anyhow::Resu
         .collect())
 }
 
-/// PRs of a `gh pr list --head` result, minus fork PRs: `--head` matches the branch name in any fork (a fork's `main` too).
+/// PRs of a `headRefName` result, minus fork PRs: `headRefName` matches the branch name in any fork (a fork's `main` too).
 fn branch_prs(repo: &RepoId, list: &[Value]) -> Vec<PrInfo> {
     list.iter().filter(|v| v["isCrossRepository"] != true).filter_map(|v| pr_info(repo, v)).collect()
 }
 
-/// A PR from GraphQL (checks under `commits`) or `gh pr list --json` (checks in `statusCheckRollup`).
+/// A PR from `PR_FRAGMENT`.
 fn pr_info(repo: &RepoId, v: &Value) -> Option<PrInfo> {
-    let rollup =
-        if v["statusCheckRollup"].is_array() { &v["statusCheckRollup"] } else { &v["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"] };
-    let rollup = rollup.as_array().map_or(&[][..], Vec::as_slice);
+    let rollup = rollup(v);
     let (checks_passed, checks_total) = check_counts(rollup);
     let num = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
     let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
@@ -317,8 +315,7 @@ fn pr_info(repo: &RepoId, v: &Value) -> Option<PrInfo> {
         repo: repo.clone(),
         number: v["number"].as_u64()? as u32,
         title: text("title"),
-        // A deleted account shows as null.
-        author: v["author"]["login"].as_str().unwrap_or("ghost").to_owned(),
+        author: author(v),
         state,
         checks: checks(rollup),
         checks_passed,
@@ -387,7 +384,7 @@ mod tests {
     fn parses_lookup_with_missing_prs() {
         let refs = [pr_ref("dswbx", "harness", 17), pr_ref("dswbx", "harness", 99), pr_ref("nope", "gone", 1), pr_ref("x y", "z", 2)];
         let repos = vec!["dswbx/harness".to_owned(), "nope/gone".to_owned()];
-        // `gh api graphql` prints this (and exits 1) when some aliases do not resolve.
+        // GitHub answers this (status 200) when some aliases do not resolve.
         let body = json!({
             "data": {
                 "r0": {
@@ -421,18 +418,17 @@ mod tests {
     }
 
     #[test]
-    fn reads_states_and_list_output() {
+    fn reads_states_and_checks() {
         let r = repo("supabase", "spark");
         let state = |s: &str, draft: bool| pr_info(&r, &json!({"number": 1, "state": s, "isDraft": draft})).unwrap().state;
         assert_eq!(state("OPEN", false), PrState::Open);
         assert_eq!(state("OPEN", true), PrState::Draft);
         assert_eq!(state("MERGED", false), PrState::Merged);
         assert_eq!(state("CLOSED", true), PrState::Closed);
-        // `gh pr list --json` shape.
         let p = pr_info(
             &r,
-            &json!({"number": 4, "state": "OPEN", "isDraft": false, "author": null,
-            "statusCheckRollup": [{"conclusion": "SUCCESS"}, {"status": "IN_PROGRESS", "conclusion": ""}]}),
+            &json!({"number": 4, "state": "OPEN", "isDraft": false, "author": null, "commits": {"nodes": [{"commit": {"statusCheckRollup":
+            {"contexts": {"nodes": [{"conclusion": "SUCCESS"}, {"status": "IN_PROGRESS", "conclusion": null}]}}}}]}}),
         )
         .unwrap();
         assert_eq!((p.author.as_str(), p.checks, p.checks_passed, p.checks_total), ("ghost", PrChecks::Pending, 1, 2));
@@ -521,7 +517,7 @@ mod tests {
         let count = n.clone();
         let refs = PrRefs::with_fetch(Arc::new(move |_| {
             count.fetch_add(1, Ordering::SeqCst);
-            async { Err(anyhow::anyhow!("gh: not signed in")) }.boxed()
+            async { Err(anyhow::anyhow!("GitHub 401 Unauthorized: Bad credentials")) }.boxed()
         }));
         assert!(refs.lookup(vec![pr_ref("o", "r", 1)]).await.is_err());
         assert!(refs.lookup(vec![pr_ref("o", "r", 1)]).await.is_err());
