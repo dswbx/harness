@@ -1,5 +1,13 @@
-import { htmlFrameUrl, type StatePatchOp } from "@harness/api";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { htmlFrameUrl, openExternalUrl, type StatePatchOp } from "@harness/api";
+import {
+   createContext,
+   useCallback,
+   useContext,
+   useEffect,
+   useMemo,
+   useRef,
+   useState,
+} from "react";
 import { InExpanded } from "./Expandable";
 import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
 import { PanelContext } from "./PanelHeader";
@@ -26,6 +34,12 @@ type Props = {
    checkActions: (actions: unknown) => string | null;
 };
 
+/**
+ * Set by a panel whose whole body is one Html node: the frame fills the panel (a positioned
+ * parent) and its document scrolls itself, so the HTML sees the panel's real size.
+ */
+export const FillFrame = createContext(false);
+
 const isOps = (x: unknown): x is StatePatchOp[] =>
    Array.isArray(x) &&
    x.every(
@@ -42,6 +56,7 @@ export function UiHtml(p: Props) {
    // The expanded view is for seeing all of it: no maximum height there.
    const expanded = useContext(InExpanded);
    const inPanel = useContext(PanelContext) !== null;
+   const fill = useContext(FillFrame);
    const latest = useRef(p);
    latest.current = p;
    const [auto, setAuto] = useState(() => heights.get(p.html) ?? 120);
@@ -86,6 +101,12 @@ export function UiHtml(p: Props) {
             heights.set(cur.html, px);
             setAuto(px);
          } else if (m?.type === "error") setError(String(m.message));
+         else if (
+            m?.type === "open" &&
+            typeof m.url === "string" &&
+            /^(https?:|mailto:)/i.test(m.url)
+         )
+            openExternalUrl(m.url);
          else if (m?.type === "actions") {
             const bad = latest.current.checkActions(m.actions);
             if (bad) setError(bad);
@@ -115,7 +136,7 @@ export function UiHtml(p: Props) {
    }, []);
 
    return (
-      <div className="min-w-0">
+      <div className={fill ? "absolute inset-0" : "min-w-0"}>
          <iframe
             // New HTML, new frame: once the loader has written the document, nothing there takes another.
             key={srcdoc}
@@ -130,11 +151,21 @@ export function UiHtml(p: Props) {
             }}
             className="block w-full border-0"
             style={{
-               height: p.height && !expanded ? Math.min(auto, p.height) : auto,
+               height: fill ? "100%" : p.height && !expanded ? Math.min(auto, p.height) : auto,
                visibility: loaded === srcdoc ? undefined : "hidden",
             }}
          />
-         {error && <p className="mt-1 text-ui-sm text-destructive">{error}</p>}
+         {error && (
+            <p
+               className={
+                  fill
+                     ? "absolute inset-x-0 bottom-0 border-t bg-background px-3 py-1.5 text-ui-sm text-destructive"
+                     : "mt-1 text-ui-sm text-destructive"
+               }
+            >
+               {error}
+            </p>
+         )}
       </div>
    );
 }

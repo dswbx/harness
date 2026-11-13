@@ -16,6 +16,9 @@ export function useDragDelta(opts: DragOptions) {
    latest.current = opts;
    return React.useCallback((e: React.PointerEvent<HTMLElement>) => {
       e.preventDefault();
+      // Keep the pointer on the handle: over an iframe (an Html panel), moves and the release would go to the frame.
+      const el = e.currentTarget;
+      el.setPointerCapture?.(e.pointerId);
       const { clientX: startX, clientY: startY } = e;
       latest.current.onStart?.();
       const move = (ev: PointerEvent) =>
@@ -23,6 +26,8 @@ export function useDragDelta(opts: DragOptions) {
       const up = () => {
          window.removeEventListener("pointermove", move);
          window.removeEventListener("pointerup", up);
+         window.removeEventListener("pointercancel", up);
+         if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
          document.body.style.removeProperty("cursor");
          document.body.style.removeProperty("user-select");
          latest.current.onEnd?.();
@@ -31,6 +36,7 @@ export function useDragDelta(opts: DragOptions) {
       document.body.style.userSelect = "none";
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
    }, []);
 }
 
