@@ -1400,3 +1400,24 @@ async fn until_request(h: &Harness, sid: &str) -> String {
     }
     panic!("no permission request");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_running_session_wait_replaces_the_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // "slow": the child still works when the wait starts, so the wait sees the end and reports it.
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"slow","worktree":false}"#).await;
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    assert_eq!(done["status"], "idle", "{done}");
+    assert_eq!(done["reply"], "Working on it. Done.");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(notices(&h, &sid).is_empty(), "the wait already told the parent: {:?}", notices(&h, &sid));
+
+    // The same kind of Turn without a wait: the parent hears of it.
+    mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"slow again"}}"#)).await;
+    until("the parent hears the child ended", || notices(&h, &sid).len() == 1).await;
+}

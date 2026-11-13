@@ -8,6 +8,7 @@
 //! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`)
 //!   with that title, asking for permission under that title; answers "spoof: allowed" or
 //!   "spoof: rejected"
+//! - contains "slow": waits 1.5 s before answering
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
 //! - "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn carries on
@@ -482,6 +483,9 @@ async fn main() -> agent_client_protocol::Result<()> {
                         use std::io::Write;
                         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(cwd.join("fake.txt")).unwrap();
                         writeln!(f, "hello").unwrap();
+                    }
+                    if prompt.contains("slow") {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
                     }
                     if prompt.contains("crash") {
                         std::process::exit(1);
