@@ -385,9 +385,10 @@ export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo
 { type: "PrContext"; session_repo: RepoId | null; known_repos: KnownRepo[]; me: string | null } | { type: "PrLookup"; prs: (PrInfo | null)[] } | { type: "PrSearch"; prs: PrInfo[] } | { type: "BranchPr"; repo: RepoId | null; pr: PrInfo | null; base: string | null } | { type: "GitStatus"; status: GitStatus } | { type: "GitLog"; commits: Commit[] } | { type: "Terminals"; terminals: TerminalInfo[] } | { type: "TerminalOpened"; terminal_id: number } | { type: "Diff"; diff: Diff } | { type: "Committed"; commit: string } | { type: "McpServers"; servers: McpServerDef[] } | { type: "McpServerSaved"; server: McpServerDef } | { type: "FileContent"; content: string } | 
 /**
  *  A panel source file; `hash`: sha256 of `content` (hex), to skip re-renders when unchanged;
- *  `mtime_ms`: when the file was last written (ms epoch, 0 when unknown).
+ *  `mtime_ms`: when the file was last written (ms epoch, 0 when unknown); `path`: the file,
+ *  absolute (for "copy path").
  */
-{ type: "PanelSource"; content: string; hash: string; mtime_ms: number } | 
+{ type: "PanelSource"; content: string; hash: string; path: string; mtime_ms: number } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
 /**  The file `ExportPlan` wrote (absolute). */

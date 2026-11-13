@@ -8,7 +8,7 @@ import {
    markdownTitle,
 } from "./artifacts";
 import type { Item } from "./reducer";
-import type { RenderUiInput } from "./tools";
+import { type RenderUiInput, withSourceRoot } from "./tools";
 
 const user = (id: string, text: string): Item => ({
    type: "user",
@@ -122,6 +122,16 @@ describe("collectArtifacts", () => {
       expect(filterArtifacts(list, "table", "").length).toBe(1);
       expect(filterArtifacts(list, "all", "SEARCH").map((a) => a.kind)).toEqual(["table"]);
       expect(filterArtifacts(list, "ui", "search")).toEqual([]);
+   });
+
+   it("keeps a file-backed panel's file and shows the call as sent, not the reducer's node", () => {
+      const input = { id: "p", placement: "right" as const, title: "P", source: "progress.md" };
+      const [a] = collectArtifacts([ui("x", withSourceRoot(input))]);
+      expect(a!.file).toBe("progress.md");
+      expect(JSON.parse(a!.source)).toEqual(input);
+      const [s] = collectArtifacts([ui("y", withSourceRoot({ ...input, source: "shared:x-1" }))]);
+      expect(s!.shared).toEqual({ id: "x-1" });
+      expect(s!.file).toBeUndefined();
    });
 });
 

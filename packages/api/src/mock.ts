@@ -1531,7 +1531,8 @@ export class MockTransport implements Transport {
                throw new Error(`source "${cmd.name}" does not exist in panels_dir`);
             const mtime_ms =
                this.panelMtimes.get(`${cmd.session_id}/${cmd.name}`) ?? Date.now() - 3 * 3_600_000;
-            return { type: "PanelSource", content, hash: mockHash(content), mtime_ms };
+            const path = `/Users/mock/.harness-dev/sessions/${cmd.session_id}/panels/${cmd.name}`;
+            return { type: "PanelSource", content, hash: mockHash(content), mtime_ms, path };
          }
          case "GetAppSetting":
             return { type: "Json", value: this.appSettings[cmd.key] ?? null };

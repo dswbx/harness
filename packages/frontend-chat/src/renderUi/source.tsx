@@ -2,25 +2,22 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Markdown } from "../Markdown";
 import { type UiEnv, useEnv } from "./runtime";
 
-type Shown = { content: string; hash: string } | { missing: true } | null;
+type Shown = { content: string; hash: string; path?: string } | { missing: true } | null;
 
 /**
- * A file-backed panel (ADR 0023): the file `name` in the Session's `panels/` folder, read through
- * the core and shown by `children`. Re-read when the core says the file changed, and on window
- * focus (in case the watch failed). Same content (hash), same `content` string: an Html frame
- * then keeps its document.
+ * A file-backed panel's file (ADR 0023): `name` in the Session's `panels/` folder, read through the
+ * core. Re-read when the core says the file changed, and on window focus (in case the watch
+ * failed). Same content (hash), same object: an Html frame then keeps its document. null while it
+ * loads or with no reader.
  */
-export function SourceView({
-   name,
-   children,
-}: {
-   name: string;
-   children: (content: string) => ReactNode;
-}) {
-   const { readSource, watchSources } = useEnv();
+export function usePanelSource(
+   env: Pick<UiEnv, "readSource" | "watchSources">,
+   name: string | null,
+): Shown {
+   const { readSource, watchSources } = env;
    const [shown, setShown] = useState<Shown>(null);
    useEffect(() => {
-      if (!readSource) return;
+      if (!readSource || !name) return;
       let live = true;
       const read = () =>
          readSource(name).then(
@@ -39,11 +36,32 @@ export function SourceView({
          void off?.then((f) => f());
       };
    }, [name, readSource, watchSources]);
+   return shown;
+}
+
+/** A file-backed panel: the file `name`, shown by `children` (see `usePanelSource`). */
+export function SourceView({
+   name,
+   children,
+}: {
+   name: string;
+   children: (content: string) => ReactNode;
+}) {
+   const env = useEnv();
+   const shown = usePanelSource(env, name);
+   const { readSource } = env;
    // A placeholder while it loads: a capture (view_artifact) waits while one shows.
    if (!shown) return readSource ? <div className="h-16 animate-pulse rounded bg-muted" /> : null;
    if ("missing" in shown)
       return <p className="text-ui-sm text-muted-foreground">Source missing: {name}</p>;
    return <>{children(shown.content)}</>;
+}
+
+/** The highlight language of a panel source file, by its extension. */
+export function sourceLang(name: string): string {
+   if (name.endsWith(".html")) return "html";
+   if (name.endsWith(".json")) return "json";
+   return "markdown";
 }
 
 /** A `.md` source: `<details>`/`<summary>` work; other raw HTML is sanitized. */

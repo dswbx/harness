@@ -33,6 +33,8 @@ export type Artifact = {
    icon?: string | null;
    /** It shows a Shared Artifact (`source: "shared:<id>"`, ADR 0024). */
    shared?: { id: string };
+   /** A file-backed panel's file in the Session's panels_dir (`source`, ADR 0023). */
+   file?: string;
 };
 
 /** What the source view shows and copies: a render_ui `Html` root as its HTML, not as JSON around it. */
@@ -175,6 +177,12 @@ function uiSub(root: RawNode): string {
    return root.type;
 }
 
+/** A render_ui call's input as the Agent sent it: without the `root` the reducer adds for a `source`. */
+function inputOf(v: { root?: unknown }): Record<string, unknown> {
+   const { root: _, ...rest } = v;
+   return rest;
+}
+
 /**
  * Every artifact of the Session, oldest first. render_ui calls with an id are one artifact
  * (latest content; inline ones stay at the row where they first appeared), removed ones drop out.
@@ -230,12 +238,14 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          ts: it.ts,
          turn: old?.placement === "inline" && placement === "inline" ? old.turn : turn,
          prompt: old?.placement === "inline" && placement === "inline" ? old.prompt : prompt,
-         source: JSON.stringify(v.root, null, 2),
+         // A file-backed item: the call as sent (the root is the reducer's node that names the file).
+         source: JSON.stringify(v.source ? inputOf(v) : v.root, null, 2),
          ui: { root: v.root, files: it.files },
          icon: v.icon ?? null,
       };
       const shared = sharedRef(v.source);
       if (shared) a.shared = { id: shared };
+      else if (v.source) a.file = v.source;
       if (old) {
          // Replaced in place while inline; moving to another placement makes it new again.
          if (old.placement === "inline" && placement === "inline") out[out.indexOf(old)] = a;

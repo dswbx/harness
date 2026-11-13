@@ -16,7 +16,8 @@ const BUTTON =
    "flex size-6 items-center justify-center rounded-[5px] hover:bg-muted hover:text-foreground";
 
 /** Copies `text`; a check for a moment after, in the same place (nothing shifts). */
-export function CopyButton({ text }: { text: string }) {
+/** `label`: what it copies, for screen readers (default "Copy"). */
+export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
    const [copied, setCopied] = useState(false);
    const copy = () =>
       void navigator.clipboard.writeText(text).then(
@@ -29,7 +30,7 @@ export function CopyButton({ text }: { text: string }) {
    return (
       <button
          type="button"
-         aria-label={copied ? "Copied" : "Copy"}
+         aria-label={copied ? "Copied" : label}
          className={cn(BUTTON, copied && "text-emerald-500 hover:text-emerald-500")}
          onClick={copy}
       >

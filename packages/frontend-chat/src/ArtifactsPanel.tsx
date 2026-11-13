@@ -48,6 +48,7 @@ import { Highlighted } from "./highlight";
 import { PanelHeader } from "./PanelHeader";
 import type { UiEnv } from "./RenderUi";
 import { parseTree, sharedSourceText, useSharedArtifact } from "./renderUi/sharedSource";
+import { sourceLang, usePanelSource } from "./renderUi/source";
 import { Segmented } from "./Segmented";
 import { quotableAttrs } from "./SelectionComment";
 import { fullMessageTime, useNow } from "./time";
@@ -80,6 +81,9 @@ function KindIcon({ a }: { a: Artifact }) {
    return <LayoutDashboard />;
 }
 
+/** A Shared Artifact's content file in its folder, by kind (core `shared::content_name`). */
+const SHARED_FILE = { md: "content.md", html: "content.html", ui: "ui.json" } as const;
+
 const PLACED: Record<string, string> = {
    top: "Top",
    bottom: "Bottom",
@@ -88,12 +92,21 @@ const PLACED: Record<string, string> = {
 };
 
 /** The artifact's source, highlighted, with wrap and copy. `src`: shown instead (a Shared Artifact's file). */
-export function Source({ a, src }: { a: Artifact; src?: { lang: string; text: string } }) {
+export function Source({
+   a,
+   src,
+   label,
+}: {
+   a: Artifact;
+   src?: { lang: string; text: string };
+   /** Frame label; default the language. */
+   label?: string;
+}) {
    const wrap = useWrapCode();
    const { lang, text } = src ?? artifactSource(a);
    return (
       <Frame
-         label={lang}
+         label={label ?? lang}
          action={
             <>
                <WrapButton />
@@ -124,10 +137,15 @@ export function ArtifactsPanel({
    env,
    onJump,
    shared,
+   target,
+   onTargetShown,
 }: {
    artifacts: Artifact[];
    env: UiEnv;
    onJump: (a: Artifact) => void;
+   /** An artifact to open (its key), e.g. from a panel's "Show in Artifacts"; a new object each time. */
+   target?: { key: string } | null;
+   onTargetShown?: () => void;
    /** Shared Artifacts (ADR 0024): absent, the panel shows only the Session's own. */
    shared?: SharedActions;
 }) {
@@ -136,6 +154,14 @@ export function ArtifactsPanel({
    const [selected, setSelected] = useState<string | null>(null);
    const [inspecting, setInspecting] = useState<string | null>(null);
    const [error, setError] = useState<string | null>(null);
+   useEffect(() => {
+      if (!target) return;
+      setKind("all");
+      setQuery("");
+      setSelected(target.key);
+      setInspecting(target.key);
+      onTargetShown?.();
+   }, [target, onTargetShown]);
    const groupsOf = useMemo(
       () => groupShared(all, shared?.attached ?? [], shared?.copies),
       [all, shared?.attached, shared?.copies],
@@ -702,6 +728,15 @@ function Inspect({
    );
    const data = sharedId && read && "data" in read ? read.data : null;
    const src = useMemo(() => (data ? sharedSourceText(data) : undefined), [data]);
+   // A file-backed panel's file (ADR 0023), or a Shared Artifact's content file: shown with its path.
+   const file = usePanelSource(env, a.file ?? null);
+   const filePath = a.file
+      ? file && "content" in file
+         ? (file.path ?? null)
+         : null
+      : data
+        ? `${data.dir}/${SHARED_FILE[data.meta.kind]}`
+        : null;
    const shown = useMemo(() => (data ? { ...a, source: data.content } : a), [a, data]);
    const formats = (shoot: Parameters<typeof artifactFormats>[2]) => {
       if (!sharedId) return artifactFormats(a, env, shoot);
@@ -830,9 +865,39 @@ function Inspect({
                   (sharedId && !src ? (
                      <div className="h-16 animate-pulse rounded bg-muted" />
                   ) : (
-                     <Source a={a} src={src} />
+                     <Source a={a} src={src} label={a.file ? "render_ui" : undefined} />
                   ))}
-               <dl className="mt-4 grid grid-cols-[88px_1fr] gap-y-1.5 px-0.5 text-[13px]">
+               {tab === "source" && a.file && (
+                  <div className="mt-3">
+                     {!file ? (
+                        <div className="h-16 animate-pulse rounded bg-muted" />
+                     ) : "missing" in file ? (
+                        <p className="text-xs text-muted-foreground">Source missing: {a.file}</p>
+                     ) : (
+                        <Source
+                           a={a}
+                           src={{ lang: sourceLang(a.file), text: file.content }}
+                           label={a.file}
+                        />
+                     )}
+                  </div>
+               )}
+               <dl className="mt-4 grid grid-cols-[88px_minmax(0,1fr)] items-center gap-y-1.5 px-0.5 text-[13px]">
+                  {filePath && (
+                     <>
+                        <dt className="text-muted-foreground">File</dt>
+                        <dd className="flex min-w-0 items-center gap-1">
+                           {/* Cut from the left, so the file name stays visible. */}
+                           <span
+                              className="min-w-0 flex-1 truncate text-left font-mono text-xs [direction:rtl]"
+                              title={filePath}
+                           >
+                              <bdi>{filePath}</bdi>
+                           </span>
+                           <CopyButton text={filePath} label="Copy file path" />
+                        </dd>
+                     </>
+                  )}
                   <dt className="text-muted-foreground">From</dt>
                   <dd>
                      {sharedId

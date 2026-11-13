@@ -14,6 +14,7 @@ import {
    Button,
    cn,
    DropdownMenuItem,
+   DropdownMenuSeparator,
    MenuButton,
    Portal,
    ScrollArea,
@@ -25,6 +26,7 @@ import {
    CheckCircle2,
    CircleDashed,
    ClipboardList,
+   Copy,
    ExternalLink,
    Folder,
    GitCompare,
@@ -236,6 +238,16 @@ function SharedBadge({ meta }: { meta: SharedArtifactMeta | undefined }) {
    );
 }
 
+/** Copies the absolute path of a panel source file (read through the core, which knows panels_dir). */
+async function copySourcePath(env: UiEnv, name: string) {
+   try {
+      const r = await env.readSource!(name);
+      await navigator.clipboard.writeText(r.path ?? name);
+   } catch (e) {
+      console.error("copy path failed", e);
+   }
+}
+
 /**
  * `updated`: when it last changed (its latest call, or a later write of its source file). `shared`:
  * the Shared Artifact it shows (ADR 0024): a share icon with its details on hover, and its menu.
@@ -246,10 +258,13 @@ function SlotPanel({
    updated,
    shared,
    onShare,
+   onShowInArtifacts,
 }: {
    slot: Slot;
    env: UiEnv;
    updated: number;
+   /** Opens the Artifacts panel on this panel's detail page. */
+   onShowInArtifacts: () => void;
    /** Offers "Make shared" (ADR 0024); only for a panel that is not shared yet. */
    onShare?: () => void;
    shared?: {
@@ -262,29 +277,42 @@ function SlotPanel({
    // fills the panel and scrolls itself, no padding.
    const fill =
       slot.root.type === "Html" || (!!sharedNodeId(slot.root) && shared?.meta?.kind === "html");
+   // A file in this Session's panels_dir (not a Shared Artifact's).
+   const localSource = slot.source && !sharedRef(slot.source) ? slot.source : null;
    return (
       <>
          <PanelHeader
             title={slot.title ?? slot.id}
             menu={
-               onShare ? (
-                  <DropdownMenuItem onSelect={onShare}>
-                     <Share2 /> Make shared
+               <>
+                  <DropdownMenuItem onSelect={onShowInArtifacts}>
+                     <Layers /> Show in Artifacts
                   </DropdownMenuItem>
-               ) : (
-                  shared && (
-                     <>
-                        {shared.onOpenOutside && (
-                           <DropdownMenuItem onSelect={shared.onOpenOutside}>
-                              <ExternalLink /> Open outside Session
+                  {localSource && env.readSource && (
+                     <DropdownMenuItem onSelect={() => void copySourcePath(env, localSource)}>
+                        <Copy /> Copy file path
+                     </DropdownMenuItem>
+                  )}
+                  {(onShare || shared) && <DropdownMenuSeparator />}
+                  {onShare ? (
+                     <DropdownMenuItem onSelect={onShare}>
+                        <Share2 /> Make shared
+                     </DropdownMenuItem>
+                  ) : (
+                     shared && (
+                        <>
+                           {shared.onOpenOutside && (
+                              <DropdownMenuItem onSelect={shared.onOpenOutside}>
+                                 <ExternalLink /> Open outside Session
+                              </DropdownMenuItem>
+                           )}
+                           <DropdownMenuItem onSelect={shared.onDetach}>
+                              <Unlink /> Detach
                            </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onSelect={shared.onDetach}>
-                           <Unlink /> Detach
-                        </DropdownMenuItem>
-                     </>
-                  )
-               )
+                        </>
+                     )
+                  )}
+               </>
             }
          >
             {shared && <SharedBadge meta={shared.meta} />}
@@ -666,6 +694,16 @@ function ChatView({
       [overlay, api.sessionId, update],
    );
    const clearFileTarget = useCallback(() => setFileTarget(null), []);
+   /** The artifact the Artifacts panel opens next (its key; a new object each time). */
+   const [artifactTarget, setArtifactTarget] = useState<{ key: string } | null>(null);
+   const showArtifact = useCallback(
+      (key: string) => {
+         setArtifactTarget({ key });
+         update((l) => show(l, "artifacts"));
+      },
+      [update],
+   );
+   const clearArtifactTarget = useCallback(() => setArtifactTarget(null), []);
    const env = useMemo<UiEnv>(
       () => ({
          state: state.uiState,
@@ -1083,7 +1121,14 @@ function ChatView({
          id: "artifacts",
          label: "Artifacts",
          children: (
-            <ArtifactsPanel artifacts={artifacts} env={env} onJump={jump} shared={sharedActions} />
+            <ArtifactsPanel
+               artifacts={artifacts}
+               env={env}
+               onJump={jump}
+               shared={sharedActions}
+               target={artifactTarget}
+               onTargetShown={clearArtifactTarget}
+            />
          ),
       });
    if (open("plan"))
@@ -1111,6 +1156,9 @@ function ChatView({
                   slot={slot}
                   env={env}
                   updated={updatedAt(slot)}
+                  onShowInArtifacts={() =>
+                     showArtifact(sharedId ? `shared:${sharedId}` : `ui:${slot.id}`)
+                  }
                   onShare={
                      sharedId
                         ? undefined

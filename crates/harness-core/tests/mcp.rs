@@ -752,8 +752,9 @@ async fn file_backed_panels() {
         true
     }));
     let read = |name: &str| Command::PanelSourceRead { session_id: sid.clone(), name: name.into() };
-    let CommandResult::PanelSource { content, hash, mtime_ms } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
+    let CommandResult::PanelSource { content, hash, mtime_ms, path } = h.execute(read("plan/progress.md")).await.unwrap() else { panic!() };
     assert_eq!(content, "# Progress\n\n- [x] one");
+    assert_eq!(std::path::Path::new(&path), panels.canonicalize().unwrap().join("plan/progress.md"));
     assert_eq!(hash.len(), 64);
     assert!(mtime_ms > 0);
     assert!(h.execute(read("../session.json")).await.is_err());
