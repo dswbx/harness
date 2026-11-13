@@ -27,7 +27,7 @@ export const specs = {
       example: {
          node: {
             type: "Grid",
-            props: { columns: 2 },
+            props: { columns: 3 },
             children: [
                {
                   type: "Stat",
@@ -50,6 +50,15 @@ export const specs = {
                      tone: "warning",
                      change: "-12% from main",
                      trend: "down",
+                  },
+               },
+               {
+                  type: "Stat",
+                  props: {
+                     label: "Open issues",
+                     value: 12,
+                     change: "No change from last week",
+                     trend: "neutral",
                   },
                },
             ],
