@@ -94,7 +94,7 @@ const GIT_ICONS: Record<string, typeof Wrench> = {
    list_branches: GitBranch,
 };
 
-/** A sub session that is not idle when `session_wait` returned. */
+/** A sub session that is not idle (`session_wait`, `session_list`). */
 const SUB_STATUS = { needs_attention: "needs attention", working: "still working" } as const;
 
 const APPROVAL_META = {
@@ -188,6 +188,8 @@ const Step = memo(function Step({
                  git?.changed !== undefined && `${git.changed} changed`,
                  git?.count !== undefined && `${git.count} branch${git.count === 1 ? "" : "es"}`,
                  git?.additions !== undefined && plusMinus(git.additions, git.deletions ?? 0),
+                 sub?.sessions &&
+                    `${sub.sessions.length} sub session${sub.sessions.length === 1 ? "" : "s"}`,
                  sub?.status && sub.status !== "idle" && SUB_STATUS[sub.status],
                  sub?.durationMs !== undefined && formatDuration(sub.durationMs),
                  stat,
@@ -362,6 +364,39 @@ function SubSessionBody({ tool, summary: s }: { tool: Tool; summary: SubSessionT
    const open = useContext(OpenSession);
    const meta = [s.model, s.effort && `effort ${s.effort}`, s.branch].filter(Boolean);
    const sent = s.prompt ?? s.text;
+   if (s.sessions)
+      return (
+         <>
+            {s.sessions.length === 0 && (
+               <div className="text-ui-sm text-muted-foreground">No sub sessions</div>
+            )}
+            {s.sessions.map((row) => (
+               <div key={row.sessionId} className="flex items-baseline gap-2 text-ui-sm">
+                  {open ? (
+                     <button
+                        type="button"
+                        onClick={() => open(row.sessionId)}
+                        className="truncate text-sky-600 hover:underline dark:text-sky-400"
+                     >
+                        {row.title}
+                     </button>
+                  ) : (
+                     <span className="truncate">{row.title}</span>
+                  )}
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                     {[
+                        row.repo,
+                        row.status && row.status !== "idle" ? SUB_STATUS[row.status] : "idle",
+                        row.archived && "archived",
+                     ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                  </span>
+               </div>
+            ))}
+            {s.error && <CallBody tool={tool} />}
+         </>
+      );
    return (
       <>
          {meta.length > 0 && (
