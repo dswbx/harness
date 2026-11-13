@@ -155,6 +155,72 @@
       /* Long paths and URLs wrap instead of widening the column. */
       overflow-wrap: anywhere;
    }
+
+   /* <details> (file-backed .md panels) look like render_ui's Accordion: a bordered box, a chevron row
+      as the summary, the body indented under the title. Adjacent ones join into one box. */
+   .typeset-chat details {
+      --chat-bleed: 0px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 0 0.75rem 0.75rem 2.25rem;
+   }
+   .typeset-chat details:not([open]) {
+      padding-block-end: 0;
+   }
+   .typeset-chat details + details {
+      margin-block-start: 0;
+      border-block-start: 0;
+      border-start-start-radius: 0;
+      border-start-end-radius: 0;
+   }
+   .typeset-chat details:has(+ details) {
+      border-end-start-radius: 0;
+      border-end-end-radius: 0;
+   }
+   .typeset-chat details > summary {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      margin: 0 -0.75rem 0 -2.25rem;
+      padding: 0.5rem 0.75rem;
+      list-style: none;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: inherit;
+      &::-webkit-details-marker {
+         display: none;
+      }
+      &::before {
+         content: "";
+         flex-shrink: 0;
+         width: 1rem;
+         height: 1rem;
+         /* On the first line when the title wraps. */
+         margin-block-start: calc((1lh - 1rem) / 2);
+         background-color: var(--color-muted-foreground);
+         mask:
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E")
+            center / contain no-repeat;
+         transition: rotate 150ms;
+      }
+      &:hover {
+         background-color: color-mix(in oklab, var(--color-accent) 50%, transparent);
+      }
+      &:focus-visible {
+         outline: 2px solid var(--color-ring);
+         outline-offset: -2px;
+      }
+   }
+   .typeset-chat details[open] > summary {
+      border-end-start-radius: 0;
+      border-end-end-radius: 0;
+      &::before {
+         rotate: 90deg;
+      }
+   }
+   .typeset-chat details > summary + * {
+      margin-block-start: 0.25em;
+   }
 }
 
 /* Artifacts (code, tables, diagrams, render_ui views) stand out past the text column by --chat-bleed
