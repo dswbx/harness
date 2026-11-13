@@ -49,7 +49,9 @@ export type UiEnv = {
    /** Tells the core an item failed (e.g. an Html frame's script error), so the Agent learns about it. */
    report?: (item: string, message: string) => void;
    /** Reads a file-backed panel's Markdown (`source`, ADR 0023); absent: such panels show nothing. */
-   readSource?: (name: string) => Promise<{ content: string; hash: string; mtime_ms: number }>;
+   readSource?: (
+      name: string,
+   ) => Promise<{ content: string; hash: string; mtime_ms: number; path?: string }>;
    /** Calls back with the name of each panel source file that changed. Returns an unsubscribe. */
    watchSources?: (onChange: (name: string) => void) => Promise<() => void>;
    /** Reads a Shared Artifact (ADR 0024); absent: items showing one show nothing. */

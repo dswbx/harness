@@ -181,7 +181,7 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, `panels_dir`: the folder for the .md or .html files of file-backed panels (render_ui `source`), and `shared`: the Shared Artifacts attached to this Session (id, title, kind, `dir`: their folder, `file`: the content file in it).",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, `panels_dir`: the folder for the .md, .html or .json files of file-backed panels (render_ui `source`), and `shared`: the Shared Artifacts attached to this Session (id, title, kind, `dir`: their folder, `file`: the content file in it).",
             empty.clone(),
             "read",
         ),
@@ -402,7 +402,11 @@ async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value
         match crate::shared::reference(source) {
             Some(id) => drop(session.ensure_attached(id)?),
             None => {
-                drop(crate::panels::read(&session.panels_dir(), source).map_err(|e| anyhow::anyhow!("{e:#}. Write the file first, then call {name} again."))?)
+                let (content, _) =
+                    crate::panels::read(&session.panels_dir(), source).map_err(|e| anyhow::anyhow!("{e:#}. Write the file first, then call {name} again."))?;
+                if let Some(e) = tree_error(session, source, &content) {
+                    anyhow::bail!("{e}\n\nFix the file, then call {name} again.");
+                }
             }
         }
     }
@@ -509,6 +513,29 @@ fn shared_info(session: &Session, meta: &crate::api::SharedArtifactMeta) -> Valu
     json!({ "id": meta.id, "title": meta.title, "kind": meta.kind, "dir": dir, "file": crate::shared::content_name(meta.kind) })
 }
 
+/// Why a `.json` panel source cannot show: not JSON, no `root`, a root the render_ui schema refuses,
+/// or a local image (only `root` input copies those). None for other sources and good trees.
+fn tree_error(session: &Session, source: &str, content: &str) -> Option<String> {
+    if !source.ends_with(".json") {
+        return None;
+    }
+    let ui: Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(e) => return Some(format!("source {source:?} is not JSON: {e}")),
+    };
+    let Some(root) = ui.get("root").filter(|r| r.is_object()) else {
+        return Some(format!("source {source:?} must be {{\"root\": node}}, the same root you would pass to render_ui"));
+    };
+    let tool = session.frontend_tools().into_iter().find(|t| t.name == crate::session::RENDER_UI)?;
+    let (validator, images) = crate::frontend_files::validator(&tool.input_schema).ok()?;
+    let errors = crate::frontend_files::format_errors(&validator, &json!({ "root": root }));
+    if !errors.is_empty() {
+        return Some(format!("source {source:?} has an invalid tree:\n{errors}"));
+    }
+    let local: Vec<String> = images.lock().iter().filter(|s| !s.starts_with("https://") && !s.starts_with("data:image/")).cloned().collect();
+    (!local.is_empty()).then(|| format!("source {source:?} uses local images ({}); a .json source can only show https: or data: images", local.join(", ")))
+}
+
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
 /// them, and a missing `source` file; `updated_ms`), the Session State's top-level keys and `panels_dir`.
 fn info(session: &Session) -> anyhow::Result<Value> {
@@ -534,7 +561,10 @@ fn info(session: &Session) -> anyhow::Result<Value> {
                         Err(_) => errs.push(format!("Shared artifact missing: {sid}")),
                     },
                     None => match crate::panels::read(&panels, source) {
-                        Ok(_) => updated = updated.max(crate::panels::mtime_ms(&panels, source).unwrap_or(0)),
+                        Ok((content, _)) => {
+                            updated = updated.max(crate::panels::mtime_ms(&panels, source).unwrap_or(0));
+                            errs.extend(tree_error(session, source, &content));
+                        }
                         Err(e) => errs.push(format!("Source missing: {e:#}")),
                     },
                 }
