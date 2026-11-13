@@ -44,7 +44,13 @@ const SESSION_VERBS: Record<string, [string, string, string]> = {
    session_start: ["Starting sub session", "Started sub session", "Start failed"],
    session_send: ["Sending to sub session", "Sent to sub session", "Send failed"],
    session_wait: ["Waiting for sub session", "Waited for sub session", "Wait failed"],
+   session_list: ["Listing sub sessions", "Listed sub sessions", "List failed"],
 };
+const CHECK_VERBS: [string, string, string] = [
+   "Checking sub session",
+   "Checked sub session",
+   "Check failed",
+];
 
 /** What a Harness sub session step did (null for any other call). */
 export function subSessionSummary(tool: Tool): SubSessionToolSummary | null {
@@ -80,10 +86,11 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
       const verb = live ? git[0] : state === "failed" ? git[2] : git[1];
       return { verb, detail: gitDetail(tool.harnessTool, gitSummary(tool) ?? {}) };
    }
-   const session = tool.harnessTool ? SESSION_VERBS[tool.harnessTool] : undefined;
-   if (session) {
-      const verb = live ? session[0] : state === "failed" ? session[2] : session[1];
+   const sessionVerbs = tool.harnessTool ? SESSION_VERBS[tool.harnessTool] : undefined;
+   if (sessionVerbs) {
       const s = subSessionSummary(tool) ?? {};
+      const session = s.check ? CHECK_VERBS : sessionVerbs;
+      const verb = live ? session[0] : state === "failed" ? session[2] : session[1];
       return { verb, detail: [s.title, s.repo].filter(Boolean).join(" · ") };
    }
    if (tool.harnessTool)

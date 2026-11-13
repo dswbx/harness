@@ -1,5 +1,6 @@
 //! Sub Sessions: a Session's Agent starts another Session (its own Agent process, by default in its
-//! own Worktree) through the Harness MCP tools `session_start`, `session_send` and `session_wait`.
+//! own Worktree) through the Harness MCP tools `session_start`, `session_send`, `session_wait` and
+//! `session_list`.
 //! The child keeps `parent` in its meta; the user sees it under the parent. Depth 1: only the Main
 //! Thread of a Session that is not a Sub Session gets the tools. Results are JSON text, so the UI can
 //! read them.
@@ -16,13 +17,13 @@ use crate::host::{Harness, NewSession};
 use crate::session::Session;
 
 /// The tools, as named in `mcp::primitives`.
-pub const TOOLS: [&str; 3] = ["session_start", "session_send", "session_wait"];
+pub const TOOLS: [&str; 4] = ["session_start", "session_send", "session_wait", "session_list"];
 
 /// Safety guard, not a product limit: each running Sub Session is a separate Agent process (memory,
 /// CPU, API cost), and the cap stops a looping Agent from starting many. Raise or remove freely.
 pub const MAX_RUNNING_SUB_SESSIONS: usize = 4;
 
-/// Default and longest wait of `session_wait`, in seconds.
+/// Default and longest wait of `session_wait`, in seconds. `timeout_s: 0` only checks.
 const WAIT_DEFAULT_S: u64 = 600;
 const WAIT_MAX_S: u64 = 1800;
 
@@ -40,6 +41,7 @@ pub async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: &
         "session_start" => start(&host, session, thread, args).await?,
         "session_send" => send(&host, session, thread, args).await?,
         "session_wait" => wait(&host, session, thread, args).await?,
+        "session_list" => list(&host, session, thread, args).await?,
         _ => anyhow::bail!("unknown tool {name}"),
     };
     Ok(serde_json::to_string_pretty(&v)?)
@@ -176,6 +178,30 @@ async fn wait(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
         }
     }
     report(&child)
+}
+
+/// Every Sub Session of this Session (oldest first), with its status, so the Agent finds them again
+/// after its context lost the `session_start` results.
+async fn list(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, args: &Value) -> anyhow::Result<Value> {
+    crate::acp::authorize(session, thread, "session_list", "List sub sessions", "read", args).await?;
+    let rows = host
+        .children(&session.id())
+        .iter()
+        .map(|c| {
+            let m = c.meta();
+            let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
+            Ok(json!({
+                "session_id": m.id,
+                "title": m.title,
+                "folder": m.folder,
+                "repo": m.repo_folder().map(|p| p.display().to_string()),
+                "branch": branch,
+                "status": status(c)?,
+                "archived": m.archived,
+            }))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(json!({ "sub_sessions": rows }))
 }
 
 /// `needs_attention` (a permission request waits for the user), `working` (a Main Thread Turn is in

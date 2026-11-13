@@ -276,11 +276,17 @@ fn primitives() -> Vec<(&'static str, &'static str, Value, &'static str)> {
         ),
         (
             "session_wait",
-            "Wait until one of your Sub Sessions ends its Turn or needs the user, at most `timeout_s` seconds. Returns JSON: session_id, title, status (idle, needs_attention or working when the wait timed out; then call it again), stop_reason, duration_ms, reply (its last message).",
+            "Wait until one of your Sub Sessions ends its Turn or needs the user, at most `timeout_s` seconds (0: check its status now, without waiting). Returns JSON: session_id, title, status (idle, needs_attention or working when the wait timed out; then call it again), stop_reason, duration_ms, reply (its last message).",
             json!({ "type": "object", "properties": {
                 "id": { "type": "string", "description": "session_id from session_start" },
-                "timeout_s": { "type": "integer", "minimum": 1, "maximum": 1800, "description": "Default 600" }
+                "timeout_s": { "type": "integer", "minimum": 0, "maximum": 1800, "description": "Default 600. 0 checks now." }
             }, "required": ["id"] }),
+            "read",
+        ),
+        (
+            "session_list",
+            "List your Sub Sessions, oldest first. Returns JSON: sub_sessions, each with session_id, title, folder, repo, branch, status (idle, needs_attention or working), archived.",
+            json!({ "type": "object", "properties": {} }),
             "read",
         ),
     ]
