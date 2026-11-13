@@ -299,7 +299,8 @@ export function DockLayout({
                         <section
                            aria-label={p.label}
                            className={cn(
-                              "flex flex-col overflow-hidden bg-background",
+                              // Panels use the UI font size: chat-sized content (Markdown, render_ui) follows it here.
+                              "flex flex-col overflow-hidden bg-background [--chat-font-size:var(--app-font-size)]",
                               !rect && "hidden",
                               isExpanded
                                  ? "fixed inset-x-[3vw] inset-y-[5vh] z-50 rounded-lg border shadow-lg"

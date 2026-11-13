@@ -2,6 +2,7 @@ import { htmlFrameUrl, type StatePatchOp } from "@harness/api";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { InExpanded } from "./Expandable";
 import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
+import { PanelContext } from "./PanelHeader";
 
 const MAX_HEIGHT = 2000;
 /** Set in Tauri: the frame loads this and asks for its document. Otherwise the document goes in `srcdoc`. */
@@ -40,6 +41,7 @@ export function UiHtml(p: Props) {
    const frame = useRef<HTMLIFrameElement>(null);
    // The expanded view is for seeing all of it: no maximum height there.
    const expanded = useContext(InExpanded);
+   const inPanel = useContext(PanelContext) !== null;
    const latest = useRef(p);
    latest.current = p;
    const [auto, setAuto] = useState(() => heights.get(p.html) ?? 120);
@@ -55,8 +57,8 @@ export function UiHtml(p: Props) {
    }, []);
    // A new document only for new HTML; state and theme then go in by message.
    const srcdoc = useMemo(
-      () => buildSrcdoc(p.html, currentTheme(), latest.current.state),
-      [p.html],
+      () => buildSrcdoc(p.html, currentTheme(inPanel), latest.current.state),
+      [p.html, inPanel],
    );
 
    const doc = useRef(srcdoc);
@@ -104,7 +106,7 @@ export function UiHtml(p: Props) {
    // Theme changes (light/dark, presets) reach the frame without a reload.
    // biome-ignore lint/correctness/useExhaustiveDependencies: post reads the ref
    useEffect(() => {
-      const o = new MutationObserver(() => post({ type: "theme", css: currentTheme() }));
+      const o = new MutationObserver(() => post({ type: "theme", css: currentTheme(inPanel) }));
       o.observe(document.documentElement, {
          attributes: true,
          attributeFilter: ["class", "style"],
