@@ -11,7 +11,7 @@ import {
    tableRows,
 } from "./RenderUi";
 import { JS_LIMIT_MS, loadJs, runJs, setJsLimit } from "./sandbox";
-import { calculatorExample, components, formatErrors, renderUiSchema } from "./tools";
+import { calculatorExample, components, formatErrors, renderUiSchema, shortError } from "./tools";
 
 describe("render_ui binding", () => {
    const state = {
@@ -416,5 +416,19 @@ describe("render_ui validation errors", () => {
       expect(out).toHaveLength(6);
       expect(out[5]).toBe("(3 more)");
       expect(out[0]).toBe("/a/0: bad");
+   });
+});
+
+describe("shortError", () => {
+   it("cuts enum lists; names the bad type only at a type path", () => {
+      expect(shortError('/root/type (Diagram): Expected enum: ["Stack","Card"]')).toBe(
+         '/root/type: "Diagram" is not a known component type',
+      );
+      expect(shortError('/root/props/variant (Badge): Expected enum: ["a","b"]')).toBe(
+         "/root/props/variant (Badge): not an allowed value",
+      );
+      expect(shortError("/root/props (Card): missing title")).toBe(
+         "/root/props (Card): missing title",
+      );
    });
 });

@@ -183,7 +183,10 @@ export function Working({ since, waiting = false }: { since: number | null; wait
       return () => clearInterval(t);
    }, [since, waiting]);
    return (
-      <div className="flex h-5 items-center gap-2 text-sm text-muted-foreground" role="status">
+      <div
+         className="flex h-5 items-center gap-2 ml-0.5 text-sm text-muted-foreground"
+         role="status"
+      >
          {since !== null && waiting && (
             <>
                <CircleDot className="size-4 text-amber-500" /> Waiting for you
