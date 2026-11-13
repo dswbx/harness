@@ -1240,14 +1240,35 @@ pub struct SessionParent {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Whether the parent's Agent gets a message when a Turn it started here ends, or this Session
+    /// waits for the user meanwhile. Default on.
+    #[serde(default = "yes")]
+    pub notify: bool,
 }
 
-/// Who sent a prompt when it was not the user: the Agent of another Session (a parent Session
-/// prompting its Sub Session).
+fn yes() -> bool {
+    true
+}
+
+/// Who sent a prompt when it was not the user: the Agent of a parent Session prompting its Sub
+/// Session, or the Harness telling a parent about its Sub Sessions (`session_id` and `title` then
+/// name the first of them).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct PromptOrigin {
     pub session_id: SessionId,
     pub title: String,
+    #[serde(default)]
+    pub kind: PromptOriginKind,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptOriginKind {
+    /// The parent Session's Agent.
+    #[default]
+    Parent,
+    /// The Harness, with news from Sub Sessions.
+    SubSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

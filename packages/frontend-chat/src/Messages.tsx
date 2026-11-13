@@ -295,12 +295,16 @@ function UserText({ text, fromSession }: { text: string; fromSession?: boolean }
 }
 
 /** "from <Session>" above a prompt another Session's Agent sent: a link when the host can open Sessions. */
-function FromSession({ from }: { from: { sessionId: string; title: string } }) {
+function FromSession({
+   from,
+}: {
+   from: { sessionId: string; title: string; subSession: boolean };
+}) {
    const open = useContext(OpenSession);
    const title = from.title || "another session";
    return (
       <div className="mb-1 text-ui-sm text-muted-foreground">
-         from{" "}
+         {from.subSession ? "from sub session" : "from"}{" "}
          {open ? (
             <button
                type="button"

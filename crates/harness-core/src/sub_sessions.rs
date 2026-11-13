@@ -4,15 +4,19 @@
 //! The child keeps `parent` in its meta; the user sees it under the parent. Depth 1: only the Main
 //! Thread of a Session that is not a Sub Session gets the tools. Results are JSON text, so the UI can
 //! read them.
+//!
+//! An Agent acts only on a prompt, so a parent that ended its Turn would never learn that a child
+//! finished. `watch` closes that gap: when a Turn the parent started in a child ends, or the child
+//! starts waiting for the user, the parent's Agent gets a message (`Notices`), once it is idle.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::api::{AppEvent, EventKind, PromptOrigin, SessionParent, SessionStatus, ThreadId};
+use crate::api::{AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, ThreadId};
 use crate::host::{Harness, NewSession};
 use crate::session::Session;
 
@@ -53,7 +57,7 @@ fn text_arg(args: &Value, key: &str) -> Option<String> {
 
 fn origin(session: &Session) -> PromptOrigin {
     let m = session.meta();
-    PromptOrigin { session_id: m.id, title: m.title }
+    PromptOrigin { session_id: m.id, title: m.title, kind: PromptOriginKind::Parent }
 }
 
 /// Errors when the parent already has `MAX_RUNNING_SUB_SESSIONS` children working or waiting for the user.
@@ -97,7 +101,12 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
             new_branch: None,
             pr: None,
             mcp_servers: Vec::new(),
-            parent: Some(SessionParent { session_id: meta.id.clone(), thread_id: thread.clone(), tool_call_id: None }),
+            parent: Some(SessionParent {
+                session_id: meta.id.clone(),
+                thread_id: thread.clone(),
+                tool_call_id: None,
+                notify: args.get("notify").and_then(Value::as_bool).unwrap_or(true),
+            }),
             initial_config: config.values.clone(),
         })
         .await?;
@@ -158,6 +167,8 @@ async fn wait(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
     let timeout = args.get("timeout_s").and_then(Value::as_u64).unwrap_or(WAIT_DEFAULT_S).min(WAIT_MAX_S);
     let m = child.meta();
     crate::acp::authorize(session, thread, "session_wait", &format!("Wait for sub session: {}", m.title), "read", args).await?;
+    // The wait reports this child's Turn end itself: no notice for it meanwhile.
+    let _waiting = session.shared().notices.waiting(&m.id);
     // Subscribe before looking, so an end between the look and the wait still wakes it.
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let (id, main) = (m.id.clone(), m.main_thread_id.clone());
@@ -177,7 +188,11 @@ async fn wait(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
             Ok(None) | Err(_) => break,
         }
     }
-    report(&child)
+    let out = report(&child)?;
+    if out["status"] != "working" {
+        session.shared().notices.drop_for(&session.id(), &m.id);
+    }
+    Ok(out)
 }
 
 /// Every Sub Session of this Session (oldest first), with its status, so the Agent finds them again
@@ -249,6 +264,164 @@ fn report(child: &Session) -> anyhow::Result<Value> {
         out["stop_reason"] = json!(stop_reason);
     }
     Ok(out)
+}
+
+/// Messages for parents about their Sub Sessions, held until the parent's Main Thread is idle,
+/// then sent as one prompt.
+#[derive(Default)]
+pub struct Notices(parking_lot::Mutex<NoticeState>);
+
+#[derive(Default)]
+struct NoticeState {
+    /// By parent: (child, child title, text), oldest first.
+    pending: HashMap<SessionId, Vec<(SessionId, String, String)>>,
+    /// Children a `session_wait` waits for, and how many waits.
+    waiting: HashMap<SessionId, usize>,
+    /// Children already reported as waiting for the user (until they stop waiting).
+    attention: HashSet<SessionId>,
+    /// Parents a notice prompt is being sent to.
+    sending: HashSet<SessionId>,
+}
+
+/// Counts a running `session_wait` for a child until dropped.
+pub struct Waiting<'a>(&'a Notices, SessionId);
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        let mut st = self.0.0.lock();
+        if let Some(n) = st.waiting.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                st.waiting.remove(&self.1);
+            }
+        }
+    }
+}
+
+impl Notices {
+    fn waiting(&self, child: &SessionId) -> Waiting<'_> {
+        *self.0.lock().waiting.entry(child.clone()).or_default() += 1;
+        Waiting(self, child.clone())
+    }
+
+    /// Drops what a parent was still to hear about a child (a `session_wait` just told it).
+    fn drop_for(&self, parent: &SessionId, child: &SessionId) {
+        if let Some(list) = self.0.lock().pending.get_mut(parent) {
+            list.retain(|(c, ..)| c != child);
+        }
+    }
+
+    fn push(&self, parent: &SessionId, child: &SessionId, title: String, text: String) {
+        self.0.lock().pending.entry(parent.clone()).or_default().push((child.clone(), title, text));
+    }
+}
+
+/// Watches Turn ends and status changes for `Notices`, for the Harness's lifetime.
+pub(crate) fn watch(host: &Arc<Harness>) {
+    let weak = Arc::downgrade(host);
+    host.subscribe_app(Box::new(move |e| {
+        let Some(host) = weak.upgrade() else { return false };
+        on_event(&host, e);
+        true
+    }));
+}
+
+fn on_event(host: &Arc<Harness>, e: &AppEvent) {
+    let (session_id, ended) = match e {
+        AppEvent::TurnFinished { session_id, thread_id, .. } => (session_id, Some(thread_id)),
+        AppEvent::SessionStatus { session_id, .. } => (session_id, None),
+        _ => return,
+    };
+    let Ok(session) = host.session(session_id) else { return };
+    let m = session.meta();
+    if let Some(thread) = ended
+        && *thread != m.main_thread_id
+    {
+        return;
+    }
+    // As a parent: its Main Thread may be idle now.
+    if ended.is_some() && m.parent.is_none() {
+        flush(host, session_id);
+    }
+    let Some(parent) = m.parent.filter(|p| p.notify) else { return };
+    let notices = &session.shared().notices;
+    let needs_user = session.agent_slot().status() == SessionStatus::NeedsAttention;
+    {
+        let mut st = notices.0.lock();
+        if !needs_user {
+            st.attention.remove(session_id);
+        }
+        // A status change only matters when the child starts waiting for the user.
+        if ended.is_none() && (!needs_user || st.attention.contains(session_id)) {
+            return;
+        }
+        if st.waiting.contains_key(session_id) {
+            return;
+        }
+    }
+    if !started_by(&session, &parent.session_id) {
+        return;
+    }
+    let text = if ended.is_some() {
+        let Ok(r) = report(&session) else { return };
+        let mut text = format!("Sub Session \"{}\" (session_id {}) ended its Turn", m.title, m.id);
+        if let Some(stop) = r["stop_reason"].as_str() {
+            text += &format!(" ({stop})");
+        }
+        match r["reply"].as_str().filter(|r| !r.trim().is_empty()) {
+            Some(reply) => text + ". Its last reply:\n\n" + reply,
+            None => text + " without a reply.",
+        }
+    } else {
+        notices.0.lock().attention.insert(session_id.clone());
+        format!("Sub Session \"{}\" (session_id {}) waits for the user to answer a permission request there. It goes on once the user answers.", m.title, m.id)
+    };
+    notices.push(&parent.session_id, session_id, m.title, text);
+    flush(host, &parent.session_id);
+}
+
+/// Whether the latest Main Thread Turn of `child` came from the parent's Agent (not from the user).
+fn started_by(child: &Session, parent: &SessionId) -> bool {
+    let main = child.meta().main_thread_id;
+    let Ok(events) = child.log().events() else { return false };
+    events.iter().rev().find_map(|e| match &e.kind {
+        EventKind::TurnStarted { origin, .. } if e.thread_id.as_ref() == Some(&main) => {
+            Some(origin.as_ref().is_some_and(|o| o.session_id == *parent && o.kind == PromptOriginKind::Parent))
+        }
+        _ => None,
+    }) == Some(true)
+}
+
+/// Sends a parent its pending notices as one prompt, when its Main Thread is idle. Otherwise its
+/// next Turn end comes back here.
+fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
+    let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+    let Ok(parent) = host.session(parent_id) else { return };
+    let notices = &parent.shared().notices;
+    if notices.0.lock().pending.get(parent_id).is_none_or(Vec::is_empty) {
+        return;
+    }
+    let m = parent.meta();
+    if m.archived || parent.thread_working(&m.main_thread_id).unwrap_or(true) {
+        return;
+    }
+    let list = {
+        let mut st = notices.0.lock();
+        if !st.sending.insert(parent_id.clone()) {
+            return;
+        }
+        st.pending.remove(parent_id).unwrap_or_default()
+    };
+    let parent_id = parent_id.clone();
+    rt.spawn(async move {
+        let titles: Vec<&str> = list.iter().map(|(_, t, _)| t.as_str()).collect();
+        let origin = PromptOrigin { session_id: list[0].0.clone(), title: titles.join(", "), kind: PromptOriginKind::SubSession };
+        let text = list.iter().map(|(.., text)| text.as_str()).collect::<Vec<_>>().join("\n\n---\n\n");
+        if let Err(e) = parent.prompt(None, text, Vec::new(), Some(origin)).await {
+            tracing::warn!("telling Session {parent_id} about its Sub Sessions: {e:#}");
+        }
+        parent.shared().notices.0.lock().sending.remove(&parent_id);
+    });
 }
 
 /// The latest config options of the Session's Main Thread (empty before its Agent reported any).

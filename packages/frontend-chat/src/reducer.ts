@@ -52,7 +52,8 @@ export type Item =
         ts: number;
         attachments: Attachment[];
         context: string | null;
-        from: { sessionId: string; title: string } | null;
+        /** Who sent it when not the user: a parent's Agent, or the Harness with news from sub sessions. */
+        from: { sessionId: string; title: string; subSession: boolean } | null;
      }
    /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
    /** `parent`: the tool call that started the subagent which wrote this text; null for the Thread's own. */
@@ -528,7 +529,13 @@ function applyThread(c: Ctx, e: Event) {
             ts: e.ts_ms,
             attachments: k.attachments ?? [],
             context: k.context ?? null,
-            from: k.origin ? { sessionId: k.origin.session_id, title: k.origin.title } : null,
+            from: k.origin
+               ? {
+                    sessionId: k.origin.session_id,
+                    title: k.origin.title,
+                    subSession: k.origin.kind === "sub_session",
+                 }
+               : null,
          });
          return;
       case "AgentCapabilities":

@@ -624,9 +624,9 @@ export function PromptBox({
                ref={ref}
                placeholder={
                   running
-                     ? "Agent is working... (you can still queue a prompt)"
+                     ? "Agent is working... (a message goes to it now)"
                      : sending && (state.restoring || state.process?.state === "starting")
-                       ? "Agent is starting... (you can still queue a prompt)"
+                       ? "Agent is starting... (a message goes to it once ready)"
                        : threadId
                          ? "Ask in this side thread"
                          : "Message the Agent. Type / for commands."

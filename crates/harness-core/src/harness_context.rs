@@ -80,7 +80,13 @@ fn side_note(session: &Session, thread: &ThreadId, forked: bool) -> Option<Strin
 
 /// The note before a prompt that another Session's Agent sent (a parent prompting its Sub Session).
 pub fn origin_note(origin: &crate::api::PromptOrigin) -> String {
-    format!("<harness_context>\nThis message comes from the agent of Session \"{}\", not from the user.\n</harness_context>", origin.title)
+    let from = match origin.kind {
+        crate::api::PromptOriginKind::Parent => format!("This message comes from the agent of Session \"{}\", not from the user.", origin.title),
+        crate::api::PromptOriginKind::SubSession => {
+            "This message comes from the Harness, not from the user: news from your Sub Sessions. Tell the user what matters; give a Sub Session more work with session_send if the user's task needs it.".to_owned()
+        }
+    };
+    format!("<harness_context>\n{from}\n</harness_context>")
 }
 
 fn read(dir: &Path, name: &str) -> Option<String> {
