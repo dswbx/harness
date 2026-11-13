@@ -13,6 +13,49 @@ const content = (v: unknown) => [
 ];
 
 describe("subSessionToolSummary", () => {
+   it("wait with timeout_s 0 is a check", () => {
+      expect(
+         call(
+            "session_wait",
+            { id: "s2", timeout_s: 0 },
+            blocks({ session_id: "s2", status: "working" }),
+         ),
+      ).toEqual({ sessionId: "s2", status: "working", check: true });
+   });
+
+   it("list: rows with repo name, status, archived; bad rows dropped", () => {
+      expect(
+         call(
+            "session_list",
+            {},
+            blocks({
+               sub_sessions: [
+                  {
+                     session_id: "s2",
+                     title: "Docs fix",
+                     repo: "/w/docs",
+                     status: "working",
+                     archived: false,
+                  },
+                  {
+                     session_id: "s3",
+                     title: "Old",
+                     folder: "/w/api",
+                     status: "idle",
+                     archived: true,
+                  },
+                  { title: "no id" },
+               ],
+            }),
+         ),
+      ).toEqual({
+         sessions: [
+            { sessionId: "s2", title: "Docs fix", repo: "docs", status: "working" },
+            { sessionId: "s3", title: "Old", repo: "api", status: "idle", archived: true },
+         ],
+      });
+   });
+
    it("null for other tools", () => {
       expect(call("git_push", {}, null)).toBeNull();
       expect(call(null, {}, null)).toBeNull();

@@ -109,5 +109,15 @@ describe("stepLabel", () => {
             ),
          ),
       ).toBe("Waited for sub session | Docs fix");
+      expect(
+         label(
+            sub(
+               "session_wait",
+               { id: "s2", timeout_s: 0 },
+               { session_id: "s2", title: "Docs fix", status: "working" },
+            ),
+         ),
+      ).toBe("Checked sub session | Docs fix");
+      expect(label(sub("session_list", {}, { sub_sessions: [] }))).toBe("Listed sub sessions | ");
    });
 });

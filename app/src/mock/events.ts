@@ -547,5 +547,37 @@ function mockSubSessionSteps(ev: (kind: EventKind) => Event): Event[] {
             reply: "Exported `s`, `Static` and `parse` from `src/index.ts`, added a changeset, and opened **#145**. Tests pass.",
          },
       ),
+      ...step(
+         "mock-sub-check",
+         "session_wait",
+         { id: session.session_id, timeout_s: 0 },
+         { ...session, status: "idle", stop_reason: "end_turn", duration_ms: 154_000, reply: "" },
+      ),
+      ...step(
+         "mock-sub-list",
+         "session_list",
+         {},
+         {
+            sub_sessions: [
+               {
+                  ...session,
+                  folder: "/Users/me/jsonv-ts/.harness/worktrees/bump-exports",
+                  repo: "/Users/me/jsonv-ts",
+                  branch: "bump-exports",
+                  status: "idle",
+                  archived: false,
+               },
+               {
+                  session_id: "mock-p1-c2",
+                  title: "Run e2e on harness-web",
+                  folder: "/Users/me/harness-web",
+                  repo: "/Users/me/harness-web",
+                  branch: "main",
+                  status: "needs_attention",
+                  archived: false,
+               },
+            ],
+         },
+      ),
    ];
 }

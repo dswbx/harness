@@ -1,11 +1,28 @@
 /**
- * What a Harness sub session tool call (`session_start`, `session_send`, `session_wait`) did, read
+ * What a Harness sub session tool call (`session_start`, `session_send`, `session_wait`,
+ * `session_list`) did, read
  * from its raw input and JSON output (ADR 0012, shared helper). Parsing is defensive: anything
  * unreadable just leaves a field out.
  */
 import { FENCED, failure, type GitToolCall, parseJson, textOf } from "./gitTool";
 
-export const SUB_SESSION_TOOLS = ["session_start", "session_send", "session_wait"] as const;
+export const SUB_SESSION_TOOLS = [
+   "session_start",
+   "session_send",
+   "session_wait",
+   "session_list",
+] as const;
+
+export type SubSessionStatus = "idle" | "needs_attention" | "working";
+
+/** One row of `session_list`. */
+export type SubSessionRow = {
+   sessionId: string;
+   title: string;
+   repo?: string;
+   status?: SubSessionStatus;
+   archived?: boolean;
+};
 
 export type SubSessionToolSummary = {
    sessionId?: string;
@@ -22,14 +39,21 @@ export type SubSessionToolSummary = {
    /** session_wait: the sub session's last reply, how long its last Turn took, and its state. */
    reply?: string;
    durationMs?: number;
-   status?: "idle" | "needs_attention" | "working";
+   status?: SubSessionStatus;
    stopReason?: string;
+   /** session_wait with `timeout_s: 0`: only checked the status. */
+   check?: boolean;
+   /** session_list: every sub session. */
+   sessions?: SubSessionRow[];
    /** The first line of the failure text. */
    error?: string;
 };
 
 const str = (v: unknown): string | undefined =>
    typeof v === "string" && v.trim() ? v.trim() : undefined;
+
+const statusOf = (v: unknown): SubSessionStatus | undefined =>
+   v === "idle" || v === "needs_attention" || v === "working" ? v : undefined;
 
 /** Last part of a path: `/a/b/harness` → `harness`. */
 const baseName = (p: string) =>
@@ -79,10 +103,31 @@ export function subSessionToolSummary(tool: GitToolCall): SubSessionToolSummary 
       case "session_wait": {
          if (typeof r.reply === "string" && r.reply.trim()) out.reply = r.reply;
          if (typeof r.duration_ms === "number") out.durationMs = r.duration_ms;
-         if (r.status === "idle" || r.status === "needs_attention" || r.status === "working")
-            out.status = r.status;
+         const status = statusOf(r.status);
+         if (status) out.status = status;
          const stop = str(r.stop_reason);
          if (stop) out.stopReason = stop;
+         if (input.timeout_s === 0) out.check = true;
+         break;
+      }
+      case "session_list": {
+         if (!Array.isArray(r.sub_sessions)) break;
+         out.sessions = r.sub_sessions.flatMap((v): SubSessionRow[] => {
+            const row = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+            const sessionId = str(row.session_id);
+            if (!sessionId) return [];
+            const repo = str(row.repo) ?? str(row.folder);
+            const status = statusOf(row.status);
+            return [
+               {
+                  sessionId,
+                  title: str(row.title) ?? sessionId,
+                  ...(repo && { repo: baseName(repo) }),
+                  ...(status && { status }),
+                  ...(row.archived === true && { archived: true }),
+               },
+            ];
+         });
          break;
       }
    }

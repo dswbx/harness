@@ -142,7 +142,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -1238,6 +1238,15 @@ async fn sub_session_rules_cap_and_cascade() {
     let waited = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}","timeout_s":1}}"#)).await;
     assert_eq!(waited["status"], "working", "{waited}");
     assert!(waited.get("stop_reason").is_none());
+    // timeout_s 0 only checks.
+    let t = std::time::Instant::now();
+    let checked = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}","timeout_s":0}}"#)).await;
+    assert_eq!(checked["status"], "working", "{checked}");
+    assert!(t.elapsed() < std::time::Duration::from_millis(900), "{:?}", t.elapsed());
+    let listed = mcp_json(&h, &sid, "session_list {}").await;
+    let rows = listed["sub_sessions"].as_array().unwrap();
+    assert_eq!(rows.iter().map(|r| r["session_id"].as_str().unwrap()).collect::<Vec<_>>(), children, "oldest first");
+    assert!(rows.iter().all(|r| r["status"] == "working" && r["archived"] == false), "{listed}");
     let capped = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false}"#, None).await;
     assert!(capped.starts_with("mcp error: 4 Sub Sessions of this Session are running"), "{capped}");
 
