@@ -73,9 +73,9 @@ function InvalidView({ item, errors }: { item: FT; errors: readonly string[] }) 
    const [input, setInput] = useState(false);
    const name = viewName(item.input);
    return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-ui-sm text-amber-800 dark:text-amber-200/80">
+      <div className="chat-wide rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-ui text-amber-800 dark:text-amber-200/80">
          <div className="flex items-center gap-2">
-            <ImageOff className="size-3.5 shrink-0 text-amber-500" aria-hidden />
+            <ImageOff className="size-4 shrink-0 text-amber-500" aria-hidden />
             <span className="min-w-0 flex-1">
                {name ? `View “${name}” could not be shown` : "A view could not be shown"}
             </span>
@@ -89,7 +89,7 @@ function InvalidView({ item, errors }: { item: FT; errors: readonly string[] }) 
             </button>
          </div>
          {open && (
-            <div className="mt-1.5 flex flex-col gap-1 pl-5.5 font-mono text-muted-foreground">
+            <div className="mt-1.5 flex flex-col gap-1 pl-6 font-mono text-ui-sm text-muted-foreground">
                {errors.map((e) => (
                   <div key={e} className="[overflow-wrap:anywhere]">
                      {shortError(e)}
