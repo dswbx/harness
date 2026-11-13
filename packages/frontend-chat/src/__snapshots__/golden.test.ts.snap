@@ -3,6 +3,7 @@
 exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat state 1`] = `
 {
   "archived": false,
+  "backgroundJobs": [],
   "commands": [
     {
       "description": "Turn plan mode on.",
@@ -830,6 +831,7 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
 exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat state 1`] = `
 {
   "archived": true,
+  "backgroundJobs": [],
   "commands": [
     {
       "description": "Review changes",
@@ -1141,6 +1143,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
   "threads": {
     "golden-thread-side": {
       "archived": false,
+      "backgroundJobs": [],
       "commands": [],
       "configOptions": [],
       "forkedFrom": {
@@ -1212,6 +1215,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
 exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed chat state 1`] = `
 {
   "archived": false,
+  "backgroundJobs": [],
   "commands": [],
   "configOptions": [],
   "forkedFrom": null,

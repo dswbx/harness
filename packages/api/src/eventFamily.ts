@@ -8,6 +8,7 @@ const FAMILY: Record<EventKind["type"], string> = {
    AgentThoughtChunk: "Messages",
    ToolCall: "Tools",
    ToolCallUpdate: "Tools",
+   BackgroundJobEnded: "Tools",
    TaskListUpdated: "Tools",
    FrontendToolOutput: "Tools",
    FrontendError: "Errors",

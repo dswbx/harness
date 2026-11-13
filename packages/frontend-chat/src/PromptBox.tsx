@@ -8,7 +8,7 @@ import {
    type SlashCommand,
    sameRepo,
 } from "@harness/api";
-import { Button, cn, Tooltip } from "@harness/ui";
+import { Button, cn, Tooltip, WorkingLoader } from "@harness/ui";
 import { AppWindow, ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
 import {
    type Ref,
@@ -38,7 +38,7 @@ import { repoToken } from "./prMenu";
 import { lineCount } from "./promptMarkdown";
 import { usePrRefs } from "./prRefs";
 import { RecoveryCard } from "./RecoveryCard";
-import type { ChatState } from "./reducer";
+import type { BackgroundJobInfo, ChatState } from "./reducer";
 import {
    composerKey,
    getReviewComments,
@@ -47,6 +47,7 @@ import {
    useReviewComments,
    withReviewComments,
 } from "./reviewComments";
+import { formatDuration } from "./time";
 
 /** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
 function AttachmentChips({
@@ -118,6 +119,44 @@ function ContextChip({ context }: { context: PromptContext }) {
             </span>
          </Tooltip>
       </div>
+   );
+}
+
+/** "N background jobs running" and how long the oldest has run, above the box; the tooltip lists each job. */
+function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
+   const [now, setNow] = useState(Date.now);
+   useEffect(() => {
+      const t = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(t);
+   }, []);
+   const oldest = Math.min(...jobs.map((j) => j.since));
+   return (
+      <Tooltip
+         side="top"
+         align="start"
+         className="max-w-96"
+         content={
+            <ul className="space-y-0.5">
+               {jobs.map((j) => (
+                  <li key={j.id} className="flex gap-2">
+                     <span className="min-w-0 flex-1 truncate font-mono">{j.label}</span>
+                     <span className="shrink-0 tabular-nums">{formatDuration(now - j.since)}</span>
+                  </li>
+               ))}
+            </ul>
+         }
+      >
+         <div
+            role="status"
+            className="mb-2 flex w-fit items-center gap-1.5 px-1 text-xs text-muted-foreground"
+         >
+            <WorkingLoader />
+            {jobs.length === 1
+               ? "1 background job running"
+               : `${jobs.length} background jobs running`}
+            <span className="tabular-nums">{formatDuration(now - oldest)}</span>
+         </div>
+      </Tooltip>
    );
 }
 
@@ -527,6 +566,7 @@ export function PromptBox({
                {error}
             </div>
          )}
+         {state.backgroundJobs.length > 0 && <BackgroundJobs jobs={state.backgroundJobs} />}
          <div
             ref={boxRef}
             className={cn(
