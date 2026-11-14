@@ -1,4 +1,4 @@
-import type { Commit, SessionApi } from "@harness/api";
+import { type Commit, type SessionApi, storedNumber } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { formatRelativeTime, fullMessageTime } from "../../lib/time";
@@ -65,14 +65,8 @@ export function CommitInfo({ commit: c }: { commit: Commit }) {
    );
 }
 
-const HEIGHT_KEY = "harness:commits-pane-height";
-const readHeight = (fallback: number) => {
-   try {
-      return Number(localStorage.getItem(HEIGHT_KEY)) || fallback;
-   } catch {
-      return fallback;
-   }
-};
+const heightStore = storedNumber("harness:commits-pane-height");
+const readHeight = (fallback: number) => heightStore.get() || fallback;
 
 /** Bottom pane: All changes, Uncommitted changes, then the Session's commits. ⌘/Ctrl/⇧-click combines; drag the top edge to resize. */
 export function CommitsPane({
@@ -162,11 +156,7 @@ export function CommitsPane({
             }}
             onPointerUp={() => {
                drag.current = null;
-               try {
-                  localStorage.setItem(HEIGHT_KEY, String(height));
-               } catch {
-                  /* per-viewer convenience only */
-               }
+               heightStore.set(height);
             }}
          />
          <div className="flex items-center gap-1.5 px-3 pb-1 text-xs text-muted-foreground">

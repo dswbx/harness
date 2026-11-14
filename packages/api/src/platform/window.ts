@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "../transport/transport";
+import { storedValue } from "./storage";
 
 /** Lets the user save `data` under a suggested `name`: the native save dialog in Tauri, a browser download otherwise. Returns where it went (in a browser, `name`), or null on cancel. */
 export async function saveFile(name: string, data: Blob): Promise<string | null> {
@@ -23,15 +24,21 @@ export async function saveFile(name: string, data: Blob): Promise<string | null>
 
 /** A window's last place and size, in logical pixels. */
 type Frame = { x: number; y: number; width: number; height: number };
-const frameKey = (key: string) => `harness:window-frame:${key}`;
-const readFrame = (key: string): Frame | null => {
-   try {
-      const f = JSON.parse(localStorage.getItem(frameKey(key)) ?? "null");
-      return f && [f.x, f.y, f.width, f.height].every(Number.isFinite) ? f : null;
-   } catch {
-      return null;
-   }
-};
+const frameStore = (key: string) =>
+   storedValue<Frame | null>({
+      key: `harness:window-frame:${key}`,
+      scope: "app",
+      parse: (raw) => {
+         try {
+            const f = JSON.parse(raw ?? "null");
+            return f && [f.x, f.y, f.width, f.height].every(Number.isFinite) ? f : null;
+         } catch {
+            return null;
+         }
+      },
+      sync: false,
+   });
+const readFrame = (key: string): Frame | null => frameStore(key).get();
 
 /** Opens an app URL (e.g. `/?session=..&solo=1`) in a new window. Frontends can't import Tauri, so this lives here. With `pane=...` the host adds no Session header.
  * `remember`: the window opens at the frame last saved under this key (see `rememberWindowFrame`).
@@ -97,11 +104,7 @@ export function rememberWindowFrame(key: string): () => void {
             const p = pos.toLogical(scale);
             const s = size.toLogical(scale);
             const frame: Frame = { x: p.x, y: p.y, width: s.width, height: s.height };
-            try {
-               localStorage.setItem(frameKey(key), JSON.stringify(frame));
-            } catch {
-               /* convenience only */
-            }
+            frameStore(key).set(frame);
          }, 300);
       };
       for (const u of await Promise.all([w.onMoved(save), w.onResized(save)])) {

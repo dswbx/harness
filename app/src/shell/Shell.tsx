@@ -1,5 +1,5 @@
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
-import { HarnessClient as Client, errText, useSharedArtifacts } from "@harness/api";
+import { HarnessClient as Client, errText, forgetSession, useSharedArtifacts } from "@harness/api";
 import { cn, ResizeHandle } from "@harness/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerDialog } from "../composer/ComposerDialog";
@@ -147,6 +147,7 @@ export function Shell({ transport }: { transport: Transport }) {
       setDeleting(true);
       try {
          await client.deleteSession(toDelete.id, deleteError !== null);
+         forgetSession(toDelete.id);
          if (selected === toDelete.id) setSelected(null);
          setToDelete(null);
          await refresh();

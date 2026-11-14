@@ -1,4 +1,4 @@
-import type { HarnessClient } from "@harness/api";
+import { type HarnessClient, onStoredChange, storedValue } from "@harness/api";
 import type { ImportedTheme } from "./importTheme";
 import { PRESETS, type ThemePreset } from "./presets";
 import { syncWindowBackground } from "./windowBackground";
@@ -166,17 +166,34 @@ export function normalize(raw: unknown): Appearance {
    };
 }
 
-export function loadAppearance(storage: Pick<Storage, "getItem">): Appearance {
+export const parseAppearance = (raw: string | null): Appearance => {
    try {
-      return normalize(JSON.parse(storage.getItem(STORAGE_KEY) ?? "null"));
+      return normalize(JSON.parse(raw ?? "null"));
    } catch {
       return DEFAULT_APPEARANCE;
    }
-}
+};
 
-export function saveAppearance(storage: Pick<Storage, "setItem">, a: Appearance) {
-   storage.setItem(STORAGE_KEY, JSON.stringify(normalize(a)));
-}
+export const serializeAppearance = (a: Appearance): string => JSON.stringify(normalize(a));
+
+// The first-paint copies; the core keeps the truth.
+const appearanceStore = storedValue<Appearance>({
+   key: STORAGE_KEY,
+   scope: "app",
+   parse: parseAppearance,
+   serialize: serializeAppearance,
+});
+const themesStore = storedValue<unknown>({
+   key: THEMES_KEY,
+   scope: "app",
+   parse: (raw) => {
+      try {
+         return JSON.parse(raw ?? "null");
+      } catch {
+         return null;
+      }
+   },
+});
 
 function fontVar(
    choice: string,
@@ -360,14 +377,6 @@ function applyToWindow(a: Appearance) {
 let current = DEFAULT_APPEARANCE;
 let client: HarnessClient | null = null;
 
-function cache(key: string, value: unknown) {
-   try {
-      localStorage.setItem(key, JSON.stringify(value));
-   } catch {
-      /* the core keeps the truth */
-   }
-}
-
 export const getAppearance = () => current;
 
 /** What a failed write leaves: `previous`, unless a later change already replaced `attempted`. */
@@ -382,14 +391,14 @@ export async function setAppearance(a: Appearance) {
    const previous = current;
    const attempted = normalize(a);
    current = attempted;
-   saveAppearance(localStorage, current);
+   appearanceStore.set(current);
    applyToWindow(current);
    try {
       await client?.setAppSetting("appearance", attempted);
    } catch (e) {
       current = rolledBack(current, attempted, previous);
       if (current === previous) {
-         saveAppearance(localStorage, current);
+         appearanceStore.set(current);
          applyToWindow(current);
       }
       throw e;
@@ -404,14 +413,14 @@ export async function setImportedThemes(next: Record<string, ImportedTheme>) {
    const previous = imported;
    loadThemes(normalizeThemes(next));
    const attempted = imported;
-   cache(THEMES_KEY, imported);
+   themesStore.set(imported);
    applyToWindow(current);
    try {
       await client?.setAppSetting("themes", attempted);
    } catch (e) {
       if (rolledBack(imported, attempted, previous) === previous) {
          loadThemes(previous);
-         cache(THEMES_KEY, imported);
+         themesStore.set(imported);
          applyToWindow(current);
       }
       throw e;
@@ -428,11 +437,11 @@ export async function syncAppearance(c: HarnessClient) {
    const [a, t] = await Promise.all([c.getAppSetting("appearance"), c.getAppSetting("themes")]);
    if (t != null) {
       loadThemes(normalizeThemes(t));
-      cache(THEMES_KEY, imported);
+      themesStore.set(imported);
    } else if (Object.keys(imported).length) await c.setAppSetting("themes", imported);
    if (a != null) {
       current = normalize(a);
-      saveAppearance(localStorage, current);
+      appearanceStore.set(current);
    } else await c.setAppSetting("appearance", current);
    applyToWindow(current);
 }
@@ -450,27 +459,28 @@ export function revertPreview() {
 /** Call once per window before the first render. */
 export function initAppearance() {
    try {
-      loadThemes(normalizeThemes(JSON.parse(localStorage.getItem(THEMES_KEY) ?? "null")));
+      loadThemes(normalizeThemes(themesStore.get()));
    } catch {
       /* none cached */
    }
-   current = loadAppearance(localStorage);
+   current = appearanceStore.get();
    applyAppearance(current);
    // Windows start hidden: they appear here, on the theme's background.
    syncWindowBackground(true);
    window
       .matchMedia(DARK_QUERY)
       .addEventListener("change", () => current.mode === "system" && applyToWindow(current));
-   window.addEventListener("storage", (e) => {
-      if (e.key === THEMES_KEY || e.key === null) {
+   onStoredChange((key, source) => {
+      if (source !== "remote") return;
+      if (key === THEMES_KEY || key === null) {
          try {
-            loadThemes(normalizeThemes(JSON.parse(localStorage.getItem(THEMES_KEY) ?? "null")));
+            loadThemes(normalizeThemes(themesStore.get()));
          } catch {
             /* keep */
          }
       }
-      if (e.key !== STORAGE_KEY && e.key !== THEMES_KEY && e.key !== null) return;
-      current = loadAppearance(localStorage);
+      if (key !== STORAGE_KEY && key !== THEMES_KEY && key !== null) return;
+      current = appearanceStore.get();
       applyToWindow(current);
    });
 }

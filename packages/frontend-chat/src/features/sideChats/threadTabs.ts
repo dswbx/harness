@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { sessionJson } from "../../lib/jsonStore";
 
 /**
  * The Side Chats panel's tabs: the open Side Threads, in tab order, and the one shown. Closing a tab only
@@ -79,14 +80,7 @@ const KEY = (sessionId: string) => `harness.chat.sideThreads.${sessionId}`;
 const LAYOUT_KEY = (sessionId: string) => `harness.chat.layout.${sessionId}`;
 const RIGHT_PANEL_KEY = (sessionId: string) => `harness.chat.panel.${sessionId}`;
 
-function readJson(key: string): unknown {
-   try {
-      const s = localStorage.getItem(key);
-      return s === null ? undefined : JSON.parse(s);
-   } catch {
-      return undefined;
-   }
-}
+const readJson = (key: string, sessionId: string): unknown => sessionJson(key, sessionId).get();
 
 /** `threads` and `thread` of a stored value, dropping what is invalid; the active one falls back to the last. */
 export function parseThreadTabs(raw: unknown): ThreadTabs {
@@ -103,20 +97,18 @@ export function parseThreadTabs(raw: unknown): ThreadTabs {
 
 /** The Session's tabs: its own key, else the `threads`/`thread` fields an older build kept in the layout's value. */
 export function loadThreadTabs(sessionId: string): ThreadTabs {
-   const own = readJson(KEY(sessionId));
+   const own = readJson(KEY(sessionId), sessionId);
    if (own !== undefined) return parseThreadTabs(own);
-   return parseThreadTabs(readJson(LAYOUT_KEY(sessionId)) ?? readJson(RIGHT_PANEL_KEY(sessionId)));
+   return parseThreadTabs(
+      readJson(LAYOUT_KEY(sessionId), sessionId) ?? readJson(RIGHT_PANEL_KEY(sessionId), sessionId),
+   );
 }
 
 /** Whether the tabs have a key of their own yet. */
-const hasOwnKey = (sessionId: string) => readJson(KEY(sessionId)) !== undefined;
+const hasOwnKey = (sessionId: string) => readJson(KEY(sessionId), sessionId) !== undefined;
 
 export function saveThreadTabs(sessionId: string, t: ThreadTabs) {
-   try {
-      localStorage.setItem(KEY(sessionId), JSON.stringify({ v: 1, ...t }));
-   } catch {
-      /* not kept */
-   }
+   sessionJson(KEY(sessionId), sessionId).set({ v: 1, ...t });
 }
 
 /**

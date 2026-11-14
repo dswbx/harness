@@ -23,6 +23,18 @@ describe("drafts", () => {
       setDraft("s1", null);
       expect(getDraft("s1")).toBeNull();
    });
+   it("setDraft reports a full storage instead of throwing", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const real = localStorage.setItem;
+      localStorage.setItem = () => {
+         throw Object.assign(new Error("full"), { name: "QuotaExceededError" });
+      };
+      expect(setDraft("s9", snap)).toBe(false);
+      localStorage.setItem = real;
+      expect(setDraft("s9", snap)).toBe(true);
+      warn.mockRestore();
+      setDraft("s9", null);
+   });
    it("clearDraft drops text and attachments", () => {
       setDraft("s2", snap);
       let seen: PendingAttachment[] = [];

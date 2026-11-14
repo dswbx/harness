@@ -1,4 +1,12 @@
-import { openWindow, type SessionApi, useGitStatus, type WorkspaceInfo } from "@harness/api";
+import {
+   openWindow,
+   type SessionApi,
+   type Stored,
+   storedNumber,
+   storedValue,
+   useGitStatus,
+   type WorkspaceInfo,
+} from "@harness/api";
 import { Button, cn, Input, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import { ExternalLink, File, ListTree, Maximize2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -34,22 +42,26 @@ export function filesWindowTarget(
 
 /** What the panel remembers per Session (per viewer): the open file, the open folders, the tree's visibility. */
 type Saved = { path?: string; open?: string[]; tree?: boolean };
-const storeKey = (sessionId: string) => `harness.files.${sessionId}`;
-function readSaved(sessionId: string): Saved {
-   try {
-      const v: unknown = JSON.parse(localStorage.getItem(storeKey(sessionId)) ?? "null");
-      return v && typeof v === "object" ? (v as Saved) : {};
-   } catch {
-      return {};
+const treeWidth = storedNumber("harness:files-tree-width");
+const savedStores = new Map<string, Stored<Saved>>();
+const savedStore = (sessionId: string) => {
+   let s = savedStores.get(sessionId);
+   if (!s) {
+      s = storedValue<Saved>({
+         key: `harness.files.${sessionId}`,
+         scope: { session: sessionId },
+         parse: (raw) => {
+            const v: unknown = JSON.parse(raw ?? "null");
+            return v && typeof v === "object" ? (v as Saved) : {};
+         },
+         sync: false,
+      });
+      savedStores.set(sessionId, s);
    }
-}
-function writeSaved(sessionId: string, s: Saved) {
-   try {
-      localStorage.setItem(storeKey(sessionId), JSON.stringify(s));
-   } catch {
-      /* per-viewer convenience only */
-   }
-}
+   return s;
+};
+const readSaved = (sessionId: string): Saved => savedStore(sessionId).get();
+const writeSaved = (sessionId: string, s: Saved) => void savedStore(sessionId).set(s);
 
 /** git status letters, as the Changes views color them. */
 const GIT: Record<string, { className: string; label: string }> = {
@@ -122,7 +134,7 @@ export function FilesPanel({
    const comments = useFileComments(sessionId);
    const wrap = useWrapCode();
    const sidebar = useResizableWidth({
-      storageKey: "harness:files-tree-width",
+      store: treeWidth,
       initial: 220,
       min: 160,
       max: 480,
