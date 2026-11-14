@@ -1,7 +1,7 @@
 import type { SubagentRow } from "@harness/api";
 import { describe, expect, test } from "vitest";
 import type { PanelStatus } from "../panels/contract";
-import { defaultLayout, type PanelId, slotPanel } from "./panelLayout";
+import { defaultLayout } from "./panelLayout";
 import { PANELS, panelDef, zoneOfHint } from "./panels";
 import { availablePanels } from "./viewState";
 
@@ -29,6 +29,7 @@ const registered = (f: Facts = {}) =>
             plan: { hasPlans: !!f.plans },
             artifacts: { artifacts: Array.from({ length: f.artifacts ?? 0 }) },
             references: { count: undefined },
+            side: { open: [], count: 0 },
             subagents: {
                rows: f.subagents ?? [],
                running: (f.subagents ?? []).filter((r) => r.state === "running").length,
@@ -37,13 +38,17 @@ const registered = (f: Facts = {}) =>
          return [p.id, p.status(models[p.id] ?? null)];
       }),
    );
-const none = { overlay: false, slotPanels: [] as PanelId[] };
+const none = { overlay: false };
+/** The status a render_ui panel has: always ready. */
+const slotStatus = new Map<string, PanelStatus>([["slot:a", { presence: "ready" }]]);
+const withSlot = (m: Map<string, PanelStatus>) => new Map([...m, ...slotStatus]);
 
 describe("registry", () => {
    test("lists the panels in default order", () => {
       expect(PANELS.map((p) => p.id)).toEqual([
          "changes",
          "files",
+         "side",
          "plan",
          "artifacts",
          "references",
@@ -52,7 +57,7 @@ describe("registry", () => {
          "subagents",
       ]);
       expect(panelDef("subagents")?.label).toBe("Subagents");
-      expect(panelDef("side")).toBeUndefined();
+      expect(panelDef("side")?.label).toBe("Side chats");
    });
 
    test("yields the default layout (Side chats sits before Plan)", () => {
@@ -70,6 +75,7 @@ describe("registry", () => {
       expect(PANELS.map((p) => [p.id, p.label, zoneOfHint(p.placement)])).toEqual([
          ["changes", "Changes", "rightTop"],
          ["files", "Files", "rightTop"],
+         ["side", "Side chats", "rightTop"],
          ["plan", "Plan", "rightTop"],
          ["artifacts", "Artifacts", "leftTop"],
          ["references", "References", "leftBottom"],
@@ -79,13 +85,13 @@ describe("registry", () => {
       ]);
    });
 
-   test("only the Terminal stays mounted once opened; Events can expand", () => {
-      for (const p of PANELS)
-         expect(p.mount ?? "whenOpen").toBe(p.id === "terminal" ? "afterFirstOpen" : "whenOpen");
+   test("the Terminal stays mounted once opened, Side chats while it has tabs; Events can expand", () => {
+      const mounts: Record<string, string> = { terminal: "afterFirstOpen", side: "whileReady" };
+      for (const p of PANELS) expect(p.mount ?? "whenOpen").toBe(mounts[p.id] ?? "whenOpen");
       expect(PANELS.filter((p) => p.expandable).map((p) => p.id)).toEqual(["events"]);
    });
 
-   test("the Quick overlay shows no registered panel, only render_ui panels", () => {
+   test("the Quick overlay shows no registered panel (Side chats included), only render_ui panels", () => {
       expect(PANELS.filter((p) => p.overlay)).toEqual([]);
    });
 
@@ -186,14 +192,32 @@ describe("Plan status", () => {
    });
 });
 
+describe("Side chats status", () => {
+   test("has an icon always, and shows once a tab has something to show", () => {
+      expect(statusOf("side", { open: [], count: 0 })).toEqual({
+         presence: "icon",
+         badge: 0,
+         tip: "Side chats (⇧⌘B new)",
+      });
+      expect(statusOf("side", { open: ["a"], count: 3 })).toEqual({
+         presence: "ready",
+         badge: 3,
+         tip: "Side chats (⇧⌘B new)",
+      });
+   });
+   test("has no shortcut of the generic kind: its key starts a new chat", () => {
+      expect(panelDef("side")!.shortcut).toBeUndefined();
+   });
+});
+
 describe("availablePanels", () => {
    test("base panels without git, plans or subagents", () => {
-      expect([...availablePanels({ ...none, registered: registered() })].sort()).toEqual(
+      expect([...availablePanels({ ...none, statuses: registered() })].sort()).toEqual(
          ["artifacts", "events", "files", "references", "side", "terminal"].sort(),
       );
    });
    test("git, plans and subagents each add one", () => {
-      const a = (f: Facts) => availablePanels({ ...none, registered: registered(f) });
+      const a = (f: Facts) => availablePanels({ ...none, statuses: registered(f) });
       expect(a({ git: true }).has("changes")).toBe(true);
       expect(a({ plans: true }).has("plan")).toBe(true);
       expect(a({ subagents: [row("done")] }).has("subagents")).toBe(true);
@@ -202,27 +226,21 @@ describe("availablePanels", () => {
       expect(a({}).has("subagents")).toBe(false);
    });
    test("slot panels are always available", () => {
-      const a = availablePanels({
-         ...none,
-         slotPanels: [slotPanel("a")],
-         registered: registered(),
-      });
+      const a = availablePanels({ ...none, statuses: withSlot(registered()) });
       expect(a.has("slot:a")).toBe(true);
    });
    test("the overlay shows only slot panels, whatever else is set", () => {
       const a = availablePanels({
          overlay: true,
-         slotPanels: [slotPanel("a")],
-         registered: registered({ git: true, plans: true, subagents: [row("running")] }),
-         overlayPanels: new Set(PANELS.filter((p) => p.overlay).map((p) => p.id)),
+         statuses: withSlot(registered({ git: true, plans: true, subagents: [row("running")] })),
+         overlayPanels: new Set([...PANELS.filter((p) => p.overlay).map((p) => p.id), "slot:a"]),
       });
       expect([...a]).toEqual(["slot:a"]);
    });
    test("the overlay also shows a registered panel marked for it", () => {
       const a = availablePanels({
          overlay: true,
-         slotPanels: [],
-         registered: registered({ git: true }),
+         statuses: registered({ git: true }),
          overlayPanels: new Set(["changes", "plan"]),
       });
       expect([...a]).toEqual(["changes"]);

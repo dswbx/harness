@@ -35,8 +35,6 @@ const RAW_ALLOWED: Record<string, string> = {
 
 /** frontend-chat layering edges (`file -> target`, relative to its src/) that break the layer rule today. New ones must not. */
 const LAYER_ALLOWED: Record<string, string> = {
-   "features/sideChats/SidePanel.tsx -> shell/panelLayout":
-      "known: to be cut when the panel contract lands",
    "state/slices/timeline.ts -> features/prompt/configGroups":
       "known: to be cut when the panel contract lands",
    "state/slices/timeline.ts -> features/renderUi/tools":

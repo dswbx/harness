@@ -1,17 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
    clampSize,
-   closeThread,
    computeRects,
    defaultLayout,
    dropRects,
    expand,
    hide,
    type Layout,
+   loadLayout,
    migratePanel,
    move,
    OVERLAY_ZONES,
-   openThread,
    overlayGeometry,
    overlayProfile,
    type PanelId,
@@ -19,7 +18,7 @@ import {
    reconcile,
    resetLayout,
    resize,
-   selectThread,
+   saveLayout,
    show,
    shownOpen,
    sideWidths,
@@ -154,65 +153,16 @@ describe("move", () => {
    });
 });
 
-describe("Side Threads", () => {
-   it("opening a thread appends it, activates it and shows the side chats panel", () => {
-      const s = openThread(openThread(empty, "a"), "b");
-      expect(s.threads).toEqual(["a", "b"]);
-      expect(s.thread).toBe("b");
-      expect(s.open.rightTop).toBe("side");
-      expect(openThread(s, "a").thread).toBe("a");
-      expect(openThread(s, "a").threads).toEqual(["a", "b"]);
-   });
-   it("the panel opens in whatever zone it was moved to", () => {
-      expect(openThread(move(empty, "side", "leftBottom"), "a").open.leftBottom).toBe("side");
-   });
-   it("hiding the panel keeps the open threads", () => {
-      const s = toggle(openThread(empty, "a"), "side");
-      expect(s.open.rightTop).toBeNull();
-      expect(s.threads).toEqual(["a"]);
-      expect(s.thread).toBe("a");
-   });
-   it("selecting only works for open threads", () => {
-      const s = openThread(openThread(empty, "a"), "b");
-      expect(selectThread(s, "a").thread).toBe("a");
-      expect(selectThread(s, "zzz")).toBe(s);
-   });
-   it("closing the active thread shows its left neighbour, else right", () => {
-      let s = ["a", "b", "c"].reduce(openThread, empty);
-      s = closeThread(s, "c");
-      expect(s.thread).toBe("b");
-      s = selectThread(s, "a");
-      expect(closeThread(s, "a").thread).toBe("b");
-   });
-   it("closing a background thread keeps the active one", () => {
-      const s = closeThread(["a", "b"].reduce(openThread, empty), "a");
-      expect(s.threads).toEqual(["b"]);
-      expect(s.thread).toBe("b");
-      expect(s.open.rightTop).toBe("side");
-   });
-   it("closing the last thread hides the panel", () => {
-      const s = closeThread(openThread(empty, "a"), "a");
-      expect(s.threads).toEqual([]);
-      expect(s.thread).toBeNull();
-      expect(s.open.rightTop).toBeNull();
-   });
-   it("closing the last thread leaves other panels alone", () => {
-      const s = closeThread(open(openThread(empty, "a"), "terminal"), "a");
-      expect(s.open.bottomLeft).toBe("terminal");
-   });
-});
-
 describe("reset", () => {
-   it("restores places and sizes but keeps the threads, and shows them", () => {
-      const l = resize(move(openThread(empty, "a"), "side", "leftTop"), { left: 500 });
-      const r = resetLayout(l);
+   // Owner decision: Reset layout resets placement only. It no longer reopens Side chats because tabs exist
+   // (the tabs are not part of the layout any more).
+   it("restores places and sizes, and opens nothing", () => {
+      const l = resize(open(move(empty, "side", "leftTop"), "side", "events"), { left: 500 });
+      const r = resetLayout();
       expect(r.zones).toEqual(defaultLayout().zones);
       expect(r.sizes).toEqual(empty.sizes);
-      expect(r.threads).toEqual(["a"]);
-      expect(r.open.rightTop).toBe("side");
-   });
-   it("shows nothing without threads", () => {
-      expect(resetLayout(open(empty, "events")).open).toEqual(empty.open);
+      expect(r.open).toEqual(empty.open);
+      expect(l.open.leftTop).toBe("side");
    });
 });
 
@@ -293,28 +243,19 @@ describe("shownOpen", () => {
 describe("persistence", () => {
    it("round-trips through parseLayout, minus expanded", () => {
       const l = expand(
-         resize(open(move(openThread(empty, "a"), "events", "rightBottom"), "events", "terminal"), {
+         resize(open(move(show(empty, "side"), "events", "rightBottom"), "events", "terminal"), {
             right: 450,
             rightSplit: 0.4,
          }),
          "events",
       );
-      const stored = JSON.parse(
-         JSON.stringify({
-            zones: l.zones,
-            open: l.open,
-            sizes: l.sizes,
-            threads: l.threads,
-            thread: l.thread,
-         }),
-      );
+      const stored = JSON.parse(JSON.stringify({ zones: l.zones, open: l.open, sizes: l.sizes }));
       const r = parseLayout(stored);
       expect(r.zones).toEqual(l.zones);
       expect(r.open.rightBottom).toBe("events");
       expect(r.open.rightTop).toBe("side");
       expect(r.open.bottomLeft).toBe("terminal");
       expect(r.sizes.right).toBe(450);
-      expect(r.threads).toEqual(["a"]);
       expect(r.expanded).toBeNull();
    });
    it("garbage gives the defaults", () => {
@@ -340,10 +281,8 @@ describe("persistence", () => {
 });
 
 describe("migration of the old right panel state", () => {
-   it("keeps threads and opens the old view in its zone", () => {
+   it("opens the old view in its zone (its threads went to the Side chats tabs)", () => {
       const l = migratePanel({ threads: ["a", "b"], thread: "a", view: { kind: "events" } });
-      expect(l.threads).toEqual(["a", "b"]);
-      expect(l.thread).toBe("a");
       expect(l.open.bottomRight).toBe("events");
       expect(l.open.rightTop).toBeNull();
    });
@@ -361,9 +300,6 @@ describe("migration of the old right panel state", () => {
       expect(migratePanel({ threads: [], view: null }).open).toEqual(empty.open);
       expect(migratePanel(null)).toEqual(defaultLayout());
       expect(migratePanel({ view: { kind: "terminal" } }).open).toEqual(empty.open);
-   });
-   it("the active thread falls back to the last", () => {
-      expect(migratePanel({ threads: ["a", "b"], thread: "zzz" }).thread).toBe("b");
    });
 });
 
@@ -573,5 +509,45 @@ describe("overlayGeometry", () => {
    it("does not draw a stripe without room", () => {
       const g = overlayGeometry(empty, { left: 0, right: 0 }, { left: true, right: true }, 540);
       expect(g).toMatchObject({ width: 540, stripes: none });
+   });
+});
+
+const mem = new Map<string, string>();
+const useMemoryStorage = () => {
+   beforeEach(() => {
+      mem.clear();
+      vi.stubGlobal("localStorage", {
+         getItem: (k: string) => mem.get(k) ?? null,
+         setItem: (k: string, v: string) => void mem.set(k, String(v)),
+         removeItem: (k: string) => void mem.delete(k),
+         clear: () => mem.clear(),
+      });
+   });
+   afterEach(() => vi.unstubAllGlobals());
+};
+
+describe("saved layout and the Side chats tabs", () => {
+   useMemoryStorage();
+   const key = "harness.chat.layout.s1";
+   it("leaves the older threads fields of the stored value as they were", () => {
+      localStorage.setItem(
+         key,
+         JSON.stringify({ zones: {}, threads: ["a", "draft:x"], thread: "a" }),
+      );
+      saveLayout("s1", resize(loadLayout("s1"), { left: 321 }));
+      const stored = JSON.parse(localStorage.getItem(key)!);
+      expect(stored.threads).toEqual(["a", "draft:x"]);
+      expect(stored.thread).toBe("a");
+      expect(stored.sizes.left).toBe(321);
+   });
+   it("never writes tabs of its own, and drops a plain layout", () => {
+      saveLayout("s1", resize(defaultLayout(), { left: 321 }));
+      expect(Object.keys(JSON.parse(localStorage.getItem(key)!)).sort()).toEqual([
+         "open",
+         "sizes",
+         "zones",
+      ]);
+      saveLayout("s1", defaultLayout());
+      expect(localStorage.getItem(key)).toBeNull();
    });
 });

@@ -84,20 +84,29 @@ export type PanelDef<M = unknown, T = void> = PanelRef<T> & {
 
 export const definePanel = <M, T = void>(d: PanelDef<M, T>) => d;
 
+/** One panel of a family. Its id is `${prefix}:${key}`. */
+export type FamilyInstance = {
+   key: string;
+   label: string;
+   /** None: the host picks one for the place the panel is in. */
+   icon?: PanelDef["icon"];
+   placement: PlacementHint;
+   status: PanelStatus;
+   /** Shown in the Quick Overlay (default false). */
+   overlay?: boolean;
+   expandable?: boolean;
+};
+
 /**
- * Panels the Agent creates at runtime. Ids are `${prefix}:${key}`.
- * @internal Not used by a panel yet.
+ * Panels the Agent creates at runtime (the render_ui panels). Ids are `${prefix}:${key}`. One model for the
+ * family; its instances are listed from it, mounted while open, and share one `Body`, told which instance it is.
+ * An instance that goes away keeps its place in the layout and comes back there.
  */
 export type PanelFamily<M = unknown> = {
    prefix: string;
    useModel: (ctx: PanelCtx) => M;
-   instances: (model: M) => (Omit<
-      PanelDef<unknown>,
-      "id" | "useModel" | "status" | "Body" | "icon" | "_target"
-   > & {
-      key: string;
-      status: PanelStatus;
-      icon?: PanelDef["icon"];
-      Body: ComponentType<{ ctx: PanelCtx; self: PanelSelf }>;
-   })[];
+   instances: (model: M) => FamilyInstance[];
+   Body: ComponentType<{ model: M; ctx: PanelCtx; self: PanelSelf; instance: string }>;
 };
+
+export const definePanelFamily = <M>(f: PanelFamily<M>) => f;

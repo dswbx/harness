@@ -4,19 +4,19 @@ import { eventsPanel } from "../features/events/panel";
 import { filesPanel } from "../features/files/panel";
 import { planPanel } from "../features/plan/panel";
 import { referencesPanel } from "../features/references/panel";
+import { slotPanels } from "../features/renderUi/slotPanels";
+import { sideChatsPanel } from "../features/sideChats/panel";
 import { subagentsPanel } from "../features/subagents/panel";
 import { terminalPanel } from "../features/terminal/panel";
-import type { PanelDef, PlacementHint } from "../panels/contract";
+import type { PanelDef, PanelFamily, PlacementHint } from "../panels/contract";
 import type { Zone } from "./panelLayout";
 
-/**
- * The panels defined through the panel contract, in default order (within a zone). Side chats and the
- * render_ui panels are still wired by hand in `View.tsx`.
- */
+/** The panels defined through the panel contract, in default order (within a zone). */
 // biome-ignore lint/suspicious/noExplicitAny: the registry holds panels of different model and target types
 export const PANELS: readonly PanelDef<any, any>[] = [
    changesPanel,
    filesPanel,
+   sideChatsPanel,
    planPanel,
    artifactsPanel,
    referencesPanel,
@@ -24,6 +24,10 @@ export const PANELS: readonly PanelDef<any, any>[] = [
    eventsPanel,
    subagentsPanel,
 ];
+
+/** The panel families: panels the Agent creates at runtime. */
+// biome-ignore lint/suspicious/noExplicitAny: the registry holds families of different model types
+export const FAMILIES: readonly PanelFamily<any>[] = [slotPanels];
 
 /** A registered panel by id. */
 // biome-ignore lint/suspicious/noExplicitAny: as PANELS
