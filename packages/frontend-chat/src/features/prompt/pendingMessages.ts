@@ -1,0 +1,82 @@
+import type { AttachmentInput } from "@harness/api";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import type { ReviewComment } from "../review/reviewComments";
+import type { PendingAttachment } from "./attachments";
+import type { PromptSnapshot } from "./promptMarkdown";
+
+/**
+ * A message the user sent that is not in the Session Log yet: the Harness logs `TurnStarted` only
+ * once the Agent is up. It is still composer state, like a draft (ADR 0003), so "Edit" can put back
+ * exactly what was sent. Kept per composer (`composerKey`) outside React: the prompt box sends it,
+ * the message list shows it, and a send outlives switching to another Session.
+ */
+export type PendingMessage = {
+   id: string;
+   prompt: string;
+   inputs: AttachmentInput[];
+   files: PendingAttachment[];
+   comments: ReviewComment[];
+   snap: PromptSnapshot;
+   status: "sending" | "sent" | "failed";
+   /** It is in the list once the Thread has more user messages than this. */
+   base: number;
+};
+
+/** What the prompt box does for a pending message's buttons. */
+export type PendingActions = { retry: () => void; edit: (item: PendingMessage) => void };
+
+const EMPTY: PendingMessage[] = [];
+const byKey = new Map<string, PendingMessage[]>();
+const actions = new Map<string, PendingActions>();
+const listeners = new Set<() => void>();
+
+export const getPendingMessages = (key: string) => byKey.get(key) ?? EMPTY;
+
+export function updatePendingMessages(key: string, f: (cur: PendingMessage[]) => PendingMessage[]) {
+   const next = f(getPendingMessages(key));
+   if (next.length) byKey.set(key, next);
+   else byKey.delete(key);
+   for (const l of listeners) l();
+}
+
+/** The Turn's row has arrived (it may do so before `api.prompt` answers). */
+export const hasArrived = (p: PendingMessage, userCount: number) =>
+   p.status !== "failed" && userCount > p.base;
+
+/**
+ * `base` for `itemId` when it is (re)sent: the user messages in the Thread plus the other pending
+ * ones still on their way (not failed, row not arrived), taken from the store's current list so a
+ * retry loop counts each. `userCount` must be the current count, not one from an older render.
+ */
+export const nextBase = (cur: PendingMessage[], itemId: string, userCount: number) =>
+   userCount +
+   cur.filter((p) => p.id !== itemId && p.status !== "failed" && !hasArrived(p, userCount)).length;
+
+export const setPendingActions = (key: string, a: PendingActions) => {
+   actions.set(key, a);
+};
+export const pendingActions = (key: string) => actions.get(key);
+
+function subscribe(cb: () => void) {
+   listeners.add(cb);
+   return () => {
+      listeners.delete(cb);
+   };
+}
+
+export const usePendingMessages = (key: string) =>
+   useSyncExternalStore(subscribe, () => getPendingMessages(key));
+
+/** True once `active` has lasted a moment, so a ready Agent does not flash a state. */
+export function useSlow(active: boolean) {
+   const [slow, setSlow] = useState(false);
+   useEffect(() => {
+      if (!active) {
+         setSlow(false);
+         return;
+      }
+      const t = setTimeout(() => setSlow(true), 300);
+      return () => clearTimeout(t);
+   }, [active]);
+   return slow;
+}
