@@ -92,13 +92,10 @@ type Change = { path: string; additions: number; deletions: number };
 export function FilesPanel({
    api,
    target,
-   onTargetShown,
    popout = false,
 }: {
    api: SessionApi;
    target?: FileTarget | null;
-   /** The panel took `target`: the parent can drop it, so a later mount shows the remembered file. */
-   onTargetShown?: () => void;
    popout?: boolean;
 }) {
    const sessionId = api.sessionId;
@@ -188,8 +185,7 @@ export function FilesPanel({
       setCursor(null);
       setReveal(target.path);
       setRange(target.start ? { start: target.start, end: target.end ?? target.start } : null);
-      onTargetShown?.();
-   }, [target, onTargetShown]);
+   }, [target]);
 
    useEffect(
       () =>

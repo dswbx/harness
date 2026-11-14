@@ -8,7 +8,7 @@ import type {
    SharedArtifactMeta,
    ViewVariant,
 } from "@harness/api";
-import { openWindow, useSessionEvents, useSharedArtifacts } from "@harness/api";
+import { useSessionEvents, useSharedArtifacts } from "@harness/api";
 import {
    Badge,
    Button,
@@ -56,13 +56,8 @@ import { changesPanel } from "../features/changes/panel";
 import { MessageList, useRows } from "../features/conversation/Messages";
 import { ScrollUnder } from "../features/conversation/ScrollUnder";
 import { FileRefProvider, FileViewProvider } from "../features/files/FileRef";
-import {
-   FilesPanel,
-   type FileTarget,
-   filesWindowTarget,
-   filesWindowUrl,
-} from "../features/files/FilesPanel";
-import type { FilesBridge } from "../features/files/panel";
+import { FilesPanel, type FileTarget, filesWindowTarget } from "../features/files/FilesPanel";
+import { filesPanel } from "../features/files/panel";
 import { ShareBlock } from "../features/markdown/Expandable";
 import { planPanel } from "../features/plan/panel";
 import { clearDraft } from "../features/prompt/drafts";
@@ -642,35 +637,6 @@ function ChatBody({
       return () => window.removeEventListener("keydown", onKey, true);
    }, [overlay, update, newSideThread]);
    const [archiveError, setArchiveError] = useState<string | null>(null);
-   /** The file the Files panel shows next (a new object each time, so the same file scrolls again). */
-   const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
-   /** Shows a file (a code lens, a comment chip) in the Files panel; the Quick overlay has none, so a window. */
-   const openFile = useCallback(
-      (ref: FileTarget) => {
-         if (overlay) {
-            void openWindow(
-               `files-${api.sessionId}`,
-               filesWindowUrl(api.sessionId, ref.path, ref.start),
-               { title: `Files: ${ref.path}` },
-            );
-            return;
-         }
-         setFileTarget({ ...ref });
-         update((l) => show(l, "files"));
-      },
-      [overlay, api.sessionId, update],
-   );
-   const clearFileTarget = useCallback(() => setFileTarget(null), []);
-   /** The artifact the Artifacts panel opens next (its key; a new object each time). */
-   const [artifactTarget, setArtifactTarget] = useState<{ key: string } | null>(null);
-   const showArtifact = useCallback(
-      (key: string) => {
-         setArtifactTarget({ key });
-         update((l) => show(l, "artifacts"));
-      },
-      [update],
-   );
-   const clearArtifactTarget = useCallback(() => setArtifactTarget(null), []);
    const env = useMemo<UiEnv>(
       () => ({
          state: state.uiState,
@@ -765,24 +731,17 @@ function ChatBody({
       chat: panelChat,
       host: panelHostApi,
    });
-   // The old target props: a panel's model keeps what it needs (diff scope, selected plan) and View writes through it.
-   const setDiffScope = panelHost.modelOf(changesPanel).setScope;
-   const openDiff = useCallback(
-      (scope: DiffScope) => {
-         setDiffScope(scope);
-         update((l) => show(l, "changes"));
-      },
-      [setDiffScope, update],
-   );
-   const selectPlan = panelHost.modelOf(planPanel).select;
+   // Opening a panel at a target goes through the context (stable, so the chat's callbacks keep their identity).
+   const openPanel = panelHost.ctx.open;
+   /** Shows a file (a code lens, a comment chip) in the Files panel (the Quick overlay: the Files window). */
+   const openFile = useCallback((ref: FileTarget) => openPanel(filesPanel, ref), [openPanel]);
+   const openDiff = useCallback((scope: DiffScope) => openPanel(changesPanel, scope), [openPanel]);
    const openPlan = useCallback(
-      (requestId: string) => {
-         selectPlan(requestId);
-         update((l) => show(l, "plan"));
-      },
-      [selectPlan, update],
+      (requestId: string) => openPanel(planPanel, requestId),
+      [openPanel],
    );
-   const { artifacts } = panelHost.modelOf(artifactsPanel);
+   const showArtifact = useCallback((key: string) => openPanel(artifactsPanel, key), [openPanel]);
+   const { artifacts } = panelHost.models.artifacts as ArtifactsModel;
    const shareBlock = useCallback(
       (markdown: string, title?: string) => {
          const origin = artifacts.find(
@@ -961,14 +920,6 @@ function ChatBody({
    );
 
    const panels: DockPanel[] = [];
-   // The old target props: View keeps the state and hands it to the panel through its model.
-   const bridges: Record<string, object> = {
-      files: { target: fileTarget, onTargetShown: clearFileTarget } satisfies FilesBridge,
-      artifacts: {
-         target: artifactTarget,
-         onTargetShown: clearArtifactTarget,
-      } satisfies Partial<ArtifactsModel>,
-   };
    /** A panel defined through the panel contract: its mount block, from its definition. */
    const registeredPanel = (id: PanelId) => {
       const def = panelDef(id);
@@ -983,18 +934,13 @@ function ChatBody({
       if (!mounted) return;
       const Body = def.Body;
       const model = panelHost.models[id];
-      const bridge = bridges[id];
       panels.push({
          id,
          label: def.label,
          expandable: def.expandable,
          children: (
             <Suspense fallback={null}>
-               <Body
-                  model={bridge ? { ...(model as object), ...bridge } : model}
-                  ctx={panelHost.ctx}
-                  self={self}
-               />
+               <Body model={model} ctx={panelHost.ctx} self={self} />
             </Suspense>
          ),
       });

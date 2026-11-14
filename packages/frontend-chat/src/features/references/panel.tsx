@@ -11,7 +11,8 @@ export const referencesPanel = definePanel<ResolvedReferences>({
    label: "References",
    icon: Link2,
    placement: { edge: "left", end: true },
-   useModel: (ctx, self) => useReferences(ctx.state.items, self.opened || self.open),
+   useModel: (ctx, self) =>
+      useReferences(ctx.state.items, self.opened || self.open, ctx.variant !== "overlay"),
    status: (r) => ({ presence: "ready", badge: r.count }),
    Body: ({ model, ctx }: PanelBodyProps<ResolvedReferences>) => (
       <ReferencesPanel

@@ -1,6 +1,7 @@
 import { GitCompare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
+import { usePanelTarget } from "../../panels/usePanelTarget";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
 
 export type ChangesModel = {
@@ -12,14 +13,16 @@ export type ChangesModel = {
    refreshKey: string;
 };
 
-/** The Workspace's diff. Without a repository it has no icon (but keeps its place). */
-export const changesPanel = definePanel<ChangesModel>({
+/** The Workspace's diff, opened at a scope. Without a repository it has no icon (but keeps its place). */
+export const changesPanel = definePanel<ChangesModel, DiffScope>({
    id: "changes",
    label: "Changes",
    icon: GitCompare,
    placement: { edge: "right" },
-   useModel: ({ api, state }) => {
+   useModel: ({ api, state }, self) => {
       const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
+      // Opened at a scope, it shows that one (also while hidden: the scope outlives the panel's body).
+      usePanelTarget(self, setScope);
       const [git, setGit] = useState(false);
       const turnRunning = state.turnId !== null;
       // The folder can become a repository later (`git init`): look again after each Turn, and for a
@@ -57,7 +60,7 @@ export const changesPanel = definePanel<ChangesModel>({
       return useMemo(() => ({ git, scope, setScope, refreshKey }), [git, scope, refreshKey]);
    },
    status: (m) => ({ presence: m.git ? "ready" : "absent" }),
-   Body: ({ model, ctx }: PanelBodyProps<ChangesModel>) => (
+   Body: ({ model, ctx }: PanelBodyProps<ChangesModel, DiffScope>) => (
       <DiffPanel
          api={ctx.api}
          scope={model.scope}

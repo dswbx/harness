@@ -138,14 +138,12 @@ export function ArtifactsPanel({
    onJump,
    shared,
    target,
-   onTargetShown,
 }: {
    artifacts: Artifact[];
    env: UiEnv;
    onJump: (a: Artifact) => void;
    /** An artifact to open (its key), e.g. from a panel's "Show in Artifacts"; a new object each time. */
    target?: { key: string } | null;
-   onTargetShown?: () => void;
    /** Shared Artifacts (ADR 0024): absent, the panel shows only the Session's own. */
    shared?: SharedActions;
 }) {
@@ -160,8 +158,7 @@ export function ArtifactsPanel({
       setQuery("");
       setSelected(target.key);
       setInspecting(target.key);
-      onTargetShown?.();
-   }, [target, onTargetShown]);
+   }, [target]);
    const groupsOf = useMemo(
       () => groupShared(all, shared?.attached ?? [], shared?.copies),
       [all, shared?.attached, shared?.copies],
