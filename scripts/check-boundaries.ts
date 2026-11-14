@@ -11,6 +11,8 @@ import {
    importViolation,
    layerViolation,
    leaks,
+   PORTABLE_FILES,
+   portableViolation,
    uiViolation,
 } from "./boundaries";
 
@@ -92,6 +94,17 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
          console.error(
             `${file}:${line}: ${why}; use the typed Event fields or an @harness/api helper`,
          );
+         bad++;
+      }
+   }
+}
+
+// Pure chat modules meant to move to @harness/api later stay React-free and state-free.
+for (const f of PORTABLE_FILES) {
+   for (const spec of importSpecs(readFileSync(resolve("packages/frontend-chat/src", f), "utf8"))) {
+      const why = portableViolation(f, spec);
+      if (why) {
+         console.error(`${f}: forbidden import "${spec}": ${why}`);
          bad++;
       }
    }

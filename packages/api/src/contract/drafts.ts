@@ -6,6 +6,19 @@ import { useSyncExternalStore } from "react";
  * Sessions have one (the sidebar's pencil) without knowing what a Frontend stores in it.
  */
 const PREFIX = "harness.draft.";
+const SEP = "#";
+
+/** The composer key: the Session id (Main Thread) or `sessionId#threadId` (a Side Thread). */
+export const draftKey = (sessionId: string, threadId: string | null): string =>
+   threadId ? `${sessionId}${SEP}${threadId}` : sessionId;
+
+/** Inverse of `draftKey` (the Session id has no `#`). */
+export function parseDraftKey(key: string): { sessionId: string; threadId: string | null } {
+   const i = key.indexOf(SEP);
+   return i < 0
+      ? { sessionId: key, threadId: null }
+      : { sessionId: key.slice(0, i), threadId: key.slice(i + 1) };
+}
 export const draftStorageKey = (composerKey: string) => PREFIX + composerKey;
 
 const listeners = new Set<() => void>();
@@ -26,10 +39,12 @@ function subscribe(l: () => void) {
 /** Whether any composer of the Session (Main or a Side Thread) holds a draft. */
 export function sessionHasDraft(sessionId: string): boolean {
    try {
-      const main = draftStorageKey(sessionId);
-      if (localStorage.getItem(main) !== null) return true;
-      for (let i = 0; i < localStorage.length; i++)
-         if (localStorage.key(i)?.startsWith(`${main}#`)) return true;
+      if (localStorage.getItem(draftStorageKey(draftKey(sessionId, null))) !== null) return true;
+      for (let i = 0; i < localStorage.length; i++) {
+         const k = localStorage.key(i);
+         if (k?.startsWith(PREFIX) && parseDraftKey(k.slice(PREFIX.length)).sessionId === sessionId)
+            return true;
+      }
    } catch {
       // Storage blocked: no drafts.
    }
