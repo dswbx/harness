@@ -85,9 +85,14 @@ impl Library {
 
     pub fn save(&self, mut server: McpServerDef, secrets: BTreeMap<String, String>) -> anyhow::Result<McpServerDef> {
         anyhow::ensure!(!server.name.trim().is_empty(), "the server needs a name");
-        anyhow::ensure!(crate::workspace::slug(&server.name) != "harness" || !server.id.is_empty(), "\"harness\" is reserved for the Harness MCP");
-        if server.id.is_empty() {
+        let is_new = server.id.is_empty();
+        if is_new {
             server.id = crate::workspace::slug(&server.name);
+        }
+        anyhow::ensure!(server.id != "harness", "\"harness\" is reserved for the Harness MCP");
+        let mut all = self.servers.write();
+        if is_new && all.iter().any(|s| s.id == server.id) {
+            return Err(crate::error::conflict(format!("an MCP server named {:?} already exists", server.name.trim())));
         }
         // Secret values never land in mcp.json.
         match &mut server.transport {
@@ -98,7 +103,6 @@ impl Library {
             anyhow::ensure!(server.secret_keys.contains(k), "{k} is not one of the server's secret keys");
             self.secrets.set(&secret_key(&server.id, k), v)?;
         }
-        let mut all = self.servers.write();
         if let Some(old) = all.iter().find(|s| s.id == server.id) {
             for k in old.secret_keys.iter().filter(|k| !server.secret_keys.contains(k)) {
                 self.secrets.delete(&secret_key(&server.id, k))?;
@@ -175,5 +179,58 @@ mod tests {
         again.secret_keys.clear();
         lib.save(again, BTreeMap::new()).unwrap();
         assert_eq!(lib.secrets.get("my-api/Authorization").unwrap(), None);
+    }
+
+    fn lib() -> (tempfile::TempDir, Library) {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::open(dir.path().join("mcp.json"), Box::new(MemorySecrets::default())).unwrap();
+        (dir, lib)
+    }
+
+    fn def(id: &str, name: &str, secret_keys: &[&str]) -> McpServerDef {
+        McpServerDef {
+            id: id.into(),
+            name: name.into(),
+            transport: McpTransport::Http { url: "https://example.com/mcp".into(), headers: Default::default() },
+            secret_keys: secret_keys.iter().map(|k| (*k).to_owned()).collect(),
+        }
+    }
+
+    fn secret(k: &str, v: &str) -> BTreeMap<String, String> {
+        [(k.to_owned(), v.to_owned())].into()
+    }
+
+    #[test]
+    fn a_new_server_never_replaces_an_existing_one() {
+        let (_dir, lib) = lib();
+        lib.save(def("", "My API", &["Authorization"]), secret("Authorization", "one")).unwrap();
+        // A different name with the same slug.
+        let err = lib.save(def("", "my  api!", &["Token"]), secret("Token", "two")).unwrap_err();
+        assert!(format!("{err:#}").contains("already exists"), "{err:#}");
+        let all = lib.list();
+        assert_eq!((all.len(), all[0].name.as_str()), (1, "My API"));
+        assert_eq!(lib.secrets.get("my-api/Authorization").unwrap().as_deref(), Some("one"));
+        assert_eq!(lib.secrets.get("my-api/Token").unwrap(), None);
+    }
+
+    #[test]
+    fn an_explicit_id_updates_and_prunes_secrets() {
+        let (_dir, lib) = lib();
+        lib.save(def("", "My API", &["A", "B"]), [("A".to_owned(), "a".to_owned()), ("B".to_owned(), "b".to_owned())].into()).unwrap();
+        let saved = lib.save(def("my-api", "Renamed", &["A"]), BTreeMap::new()).unwrap();
+        assert_eq!(saved.id, "my-api");
+        let all = lib.list();
+        assert_eq!((all.len(), all[0].name.as_str()), (1, "Renamed"));
+        assert_eq!(lib.secrets.get("my-api/A").unwrap().as_deref(), Some("a"));
+        assert_eq!(lib.secrets.get("my-api/B").unwrap(), None);
+    }
+
+    #[test]
+    fn the_harness_id_is_reserved() {
+        let (_dir, lib) = lib();
+        assert!(lib.save(def("", "Harness", &[]), BTreeMap::new()).is_err());
+        assert!(lib.save(def("harness", "Mine", &[]), BTreeMap::new()).is_err());
+        assert!(lib.save(def("harness", "Harness", &[]), BTreeMap::new()).is_err());
+        assert!(lib.list().is_empty());
     }
 }
