@@ -2,7 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Event } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { type ChatState, initialState, reduce, reduceBatch } from "./reducer";
+import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
+import { type ChatState, initialState } from "./reducer";
 
 /**
  * The reducer is a pure function of (state, event): React compares states by identity, so a state

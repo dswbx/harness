@@ -69,6 +69,7 @@ import { clearDraft } from "../features/prompt/drafts";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
 import { usePendingMessages, useSlow } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
+import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { RenderUi, type UiEnv } from "../features/renderUi/RenderUi";
 import { Env } from "../features/renderUi/runtime";
 import type { Slot } from "../features/renderUi/slots";
@@ -91,7 +92,7 @@ import { flash } from "../lib/flash";
 import { OpenSession } from "../lib/OpenSession";
 import { formatAge, formatRelativeTime, useNow } from "../lib/time";
 import { PanelHeader } from "../panels/PanelHeader";
-import { type ChatState, initialState, reduce, reduceBatch } from "../state/reducer";
+import { type ChatState, initialState } from "../state/reducer";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { usePanelDrag } from "./panelDrag";
 import {

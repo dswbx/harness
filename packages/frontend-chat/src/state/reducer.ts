@@ -6,7 +6,7 @@ import { plansSlice } from "./slices/plans";
 import { adoptMainThread, sessionLevel, sessionSlice, trackThreadList } from "./slices/session";
 import { timelineSlice } from "./slices/timeline";
 import { turnSlice } from "./slices/turn";
-import type { ChatState, ContentBlock, ToolCallRef } from "./types";
+import type { ChatState, ContentBlock, ToolCallRef, ToolDecoder } from "./types";
 
 /** Chat state is a pure fold over the Session Log: replay and live share this one path. */
 
@@ -19,23 +19,28 @@ export type {
    PlanEntry,
    SubagentMeta,
    ToolCallRef,
+   ToolDecoder,
 } from "./types";
 export { initialState };
 
-/** Folds one Event. Pure from the caller's view: never mutates `state`. */
-export function reduce(state: ChatState, e: Event): ChatState {
-   return reduceBatch(state, [e]);
-}
-
 /**
- * Folds many Events at once (replay, per-frame batches). Same result as folding one by one,
- * but copies `items` at most once and looks tool calls up through an index.
+ * The reducer, with the Frontend's decoder for Frontend Tool inputs (`render_ui`) injected, so this
+ * file does not import `features/`. The app's instance is `features/renderUi/chatReducer.ts`.
  */
-export function reduceBatch(state: ChatState, events: readonly Event[]): ChatState {
-   if (events.length === 0) return state;
-   const c = newCtx({ ...state });
-   for (const e of events) apply(c, e);
-   return c.d;
+export function createReducer({ decodeTool }: { decodeTool: ToolDecoder }) {
+   /**
+    * Folds many Events at once (replay, per-frame batches). Same result as folding one by one,
+    * but copies `items` at most once and looks tool calls up through an index.
+    */
+   function reduceBatch(state: ChatState, events: readonly Event[]): ChatState {
+      if (events.length === 0) return state;
+      const c = newCtx({ ...state }, decodeTool);
+      for (const e of events) apply(c, e);
+      return c.d;
+   }
+   /** Folds one Event. Pure from the caller's view: never mutates `state`. */
+   const reduce = (state: ChatState, e: Event): ChatState => reduceBatch(state, [e]);
+   return { init: initialState, reduce, reduceBatch };
 }
 
 type Slice = (c: Ctx, e: Event) => void;

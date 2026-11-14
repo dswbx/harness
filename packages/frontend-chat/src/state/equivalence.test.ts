@@ -3,7 +3,8 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Event } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { type ChatState, initialState, reduceBatch } from "./reducer";
+import { reduceBatch } from "../features/renderUi/chatReducer";
+import { type ChatState, initialState } from "./reducer";
 import { syntheticLog } from "./syntheticLog";
 
 // Proof that restructuring the reducer changed nothing it computes. `equivalence.json` was recorded
