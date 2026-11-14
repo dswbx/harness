@@ -18,11 +18,12 @@ pub fn serves_tool(session: &Session, name: &str) -> bool {
 
 /// Whether an Agent's permission request for a tool call may skip the Permission Policy because the
 /// Harness MCP checks it itself (`authorize`). The title is untrusted Agent text, so it is not
-/// enough: the tool must really be served for the Session, and the call must not look like a
-/// command, edit or fetch (`kind`, or a `command` in the input) that only borrows the title.
+/// enough: the tool must really be served for the Session, and the call must look like a plain tool
+/// call: no `command`, no paths, and a kind that is absent, `other` or `think`. Any other kind
+/// (a plan approval, a read, an edit, ...) goes through the Policy.
 pub fn trusted_harness_call(served: bool, facts: &crate::permissions::ToolFacts) -> bool {
-    let risky = matches!(facts.kind.as_deref(), Some("execute" | "edit" | "delete" | "move" | "fetch"));
-    served && !risky && facts.command.is_none()
+    let plain = matches!(facts.kind.as_deref(), None | Some("other" | "think"));
+    served && plain && facts.command.is_none() && facts.paths.is_empty()
 }
 
 use parking_lot::RwLock;
@@ -696,17 +697,23 @@ mod harness_tool_tests {
     }
 
     #[test]
-    fn trust_needs_a_served_tool_and_a_benign_call() {
+    fn trust_needs_a_served_tool_and_a_plain_call() {
         use super::trusted_harness_call as t;
         use crate::permissions::ToolFacts;
-        let facts = |kind: Option<&str>, command: Option<&str>| ToolFacts { kind: kind.map(Into::into), command: command.map(Into::into), paths: vec![] };
-        assert!(t(true, &facts(Some("other"), None)));
-        assert!(t(true, &facts(Some("read"), None)));
-        assert!(t(true, &facts(None, None)));
-        assert!(!t(false, &facts(Some("other"), None)));
-        for kind in ["execute", "edit", "delete", "move", "fetch"] {
-            assert!(!t(true, &facts(Some(kind), None)), "{kind}");
+        let facts = |kind: Option<&str>, command: Option<&str>, paths: &[&str]| ToolFacts {
+            kind: kind.map(Into::into),
+            command: command.map(Into::into),
+            paths: paths.iter().map(Into::into).collect(),
+        };
+        for kind in [Some("other"), Some("think"), None] {
+            assert!(t(true, &facts(kind, None, &[])), "{kind:?}");
+            assert!(!t(false, &facts(kind, None, &[])), "{kind:?} unserved");
+            assert!(!t(true, &facts(kind, Some("rm -rf ~"), &[])), "{kind:?} command");
+            assert!(!t(true, &facts(kind, None, &["/etc/passwd"])), "{kind:?} paths");
         }
-        assert!(!t(true, &facts(Some("other"), Some("rm -rf ~"))));
+        for kind in ["execute", "edit", "delete", "move", "fetch", "read", "search", "switch_mode", "unknown"] {
+            assert!(!t(true, &facts(Some(kind), None, &[])), "{kind}");
+        }
+        assert!(!t(true, &facts(Some("read"), None, &["/outside/secret"])));
     }
 }

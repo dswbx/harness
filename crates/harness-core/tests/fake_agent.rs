@@ -208,6 +208,17 @@ async fn harness_looking_titles_do_not_skip_the_policy() {
     assert_eq!(option_id.as_deref(), Some("allow"));
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
 
+    // A served tool name on a plan approval, or a read outside the Workspace, still asks.
+    for kind in ["switch_mode", "read-outside"] {
+        let before = h_events(&h, &sid).iter().filter(|k| matches!(k, EventKind::PermissionRequested { .. })).count();
+        h.execute(prompt(&format!("spoof {kind} mcp__harness__git_status"))).await.unwrap();
+        let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { request_id, .. } if !h_events(&h, &sid).iter().any(|r| matches!(r, EventKind::PermissionResolved { request_id: q, .. } if q == request_id)))).await;
+        let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+        assert_eq!(h_events(&h, &sid).iter().filter(|k| matches!(k, EventKind::PermissionRequested { .. })).count(), before + 1, "{kind}");
+        h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+        until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    }
+
     // An unserved tool name in a benign kind asks (the default Policy asks for "other").
     h.execute(prompt("spoof other mcp__harness__nope")).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { harness_tool: Some(t), .. } if t == "nope")).await;

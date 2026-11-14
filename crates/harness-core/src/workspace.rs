@@ -29,6 +29,15 @@ async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) ->
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// A revision, branch or ref from outside, checked before it reaches git: not empty and not option-like.
+/// Pair it with `--end-of-options` where the subcommand takes it.
+fn rev(s: &str) -> anyhow::Result<&str> {
+    if s.is_empty() || s.starts_with('-') {
+        return Err(crate::error::invalid(format!("invalid revision {s:?}")));
+    }
+    Ok(s)
+}
+
 /// The repository root containing `folder`, or `None` when it is not in a git repository.
 pub async fn repo_root(folder: &Path) -> Option<PathBuf> {
     git(folder, &["rev-parse", "--show-toplevel"]).await.ok().map(|s| PathBuf::from(s.trim()))
@@ -156,7 +165,7 @@ pub async fn create_worktree(
     short_id: &str,
 ) -> anyhow::Result<WorktreeMeta> {
     let base = match base {
-        Some(b) => b,
+        Some(b) => rev(&b)?.to_owned(),
         None => current_branch(repo_root).await?.ok_or_else(|| anyhow::anyhow!("HEAD is detached; pick a base branch"))?,
     };
     let branch = branch.unwrap_or_else(|| format!("harness/{slug}-{short_id}"));
@@ -166,16 +175,13 @@ pub async fn create_worktree(
     let p = path.display().to_string();
     let start = worktree_start(repo_root, &base).await;
     // `--no-track`: the new branch must not get `origin/<base>` as its upstream.
-    git(repo_root, &["worktree", "add", "--no-track", "-b", &branch, &p, &start]).await?;
+    git(repo_root, &["worktree", "add", "--no-track", "-b", &branch, "--end-of-options", &p, &start]).await?;
     Ok(WorktreeMeta { repo_root: repo_root.to_owned(), path: path.to_owned(), branch, base })
 }
 
 /// Start point for a Worktree on `base`: its freshly fetched remote copy when there is one, else `base`.
 /// A failed or slow fetch is logged and the last known remote ref is used.
 async fn worktree_start(repo_root: &Path, base: &str) -> String {
-    if base.starts_with('-') {
-        return base.to_owned();
-    }
     let remotes = git(repo_root, &["remote"]).await.unwrap_or_default();
     let tracking = match base.split_once('/') {
         Some((r, b))
@@ -186,14 +192,12 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
         _ => None,
     };
     let (remote, branch) = tracking.unwrap_or(("origin", base));
-    if !branch.starts_with('-') {
-        let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
-        let args = ["fetch", "--quiet", "--no-tags", remote, &spec];
-        match tokio::time::timeout(std::time::Duration::from_secs(15), git(repo_root, &args)).await {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}"),
-            Err(_) => tracing::warn!("fetching {remote}/{branch} timed out, using the last known copy"),
-        }
+    let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+    let args = ["fetch", "--quiet", "--no-tags", remote, &spec];
+    match tokio::time::timeout(std::time::Duration::from_secs(15), git(repo_root, &args)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}"),
+        Err(_) => tracing::warn!("fetching {remote}/{branch} timed out, using the last known copy"),
     }
     if tracking.is_some() {
         return base.to_owned();
@@ -207,7 +211,9 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
 pub async fn create_branch(dir: &Path, branch: &str, base: Option<&str>) -> anyhow::Result<()> {
     git(dir, &["check-ref-format", "--branch", branch]).await.map_err(|_| anyhow::anyhow!("{branch:?} is not a valid branch name"))?;
     let mut args = vec!["switch", "-c", branch];
-    args.extend(base);
+    if let Some(base) = base {
+        args.extend(["--end-of-options", rev(base)?]);
+    }
     git(dir, &args).await?;
     Ok(())
 }
@@ -218,7 +224,7 @@ pub async fn checkout(dir: &Path, branch: &str) -> anyhow::Result<()> {
         git(dir, &["status", "--porcelain"]).await?.trim().is_empty(),
         "the folder has uncommitted changes; commit or stash them, or use a Worktree"
     );
-    git(dir, &["checkout", branch]).await?;
+    git(dir, &["checkout", "--end-of-options", rev(branch)?]).await?;
     Ok(())
 }
 
@@ -313,9 +319,10 @@ pub async fn wip_commit(dir: &Path) -> anyhow::Result<()> {
 
 /// Commits on `branch` that are not on `base`, local or on any remote.
 pub async fn unmerged_count(repo_root: &Path, base: &str, branch: &str) -> anyhow::Result<u64> {
+    let (base, branch) = (rev(base)?, rev(branch)?);
     let refs = base_refs(repo_root, base).await;
     let out = if refs.is_empty() {
-        git(repo_root, &["rev-list", "--count", &format!("{base}..{branch}")]).await?
+        git(repo_root, &["rev-list", "--count", "--end-of-options", &format!("{base}..{branch}")]).await?
     } else {
         let mut args = vec!["rev-list", "--count", branch, "--not"];
         args.extend(refs.iter().map(String::as_str));
@@ -349,6 +356,11 @@ pub async fn snapshot(dir: &Path) -> anyhow::Result<String> {
 
 pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
     let out = git(dir, &["status", "--porcelain=v2", "--branch", "--untracked-files=all"]).await?;
+    Ok(parse_status(&out))
+}
+
+/// `git status --porcelain=v2 --branch` output as a `GitStatus`.
+fn parse_status(out: &str) -> GitStatus {
     let mut st = GitStatus { branch: None, upstream: None, ahead: 0, behind: 0, files: vec![] };
     for line in out.lines() {
         if let Some(h) = line.strip_prefix("# branch.head ") {
@@ -361,6 +373,11 @@ pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
             st.behind = it.next().and_then(|b| b.trim_start_matches('-').parse().ok()).unwrap_or(0);
         } else if let Some(p) = line.strip_prefix("? ") {
             st.files.push(FileChange { path: p.to_owned(), status: "?".into(), additions: None, deletions: None });
+        } else if line.starts_with("u ") {
+            // "u XY sub m1 m2 m3 mW h1 h2 h3 path": the path is the rest of the line.
+            if let Some(path) = line.splitn(11, ' ').nth(10) {
+                st.files.push(FileChange { path: path.to_owned(), status: "U".into(), additions: None, deletions: None });
+            }
         } else if line.starts_with("1 ") || line.starts_with("2 ") {
             // "1 XY sub mH mI mW hH hI path" / "2 XY ... Xscore path\torig"
             let fields: Vec<&str> = line.splitn(if line.starts_with('1') { 9 } else { 10 }, ' ').collect();
@@ -370,17 +387,18 @@ pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
             st.files.push(FileChange { path: path.to_owned(), status: code.into(), additions: None, deletions: None });
         }
     }
-    Ok(st)
+    st
 }
 
 /// Diff between two trees or commits, as file list plus unified patch.
 pub async fn diff(dir: &Path, from: &str, to: &str) -> anyhow::Result<Diff> {
     // "HEAD" (the Uncommitted changes scope) does not resolve before the first commit.
+    let (from, to) = (rev(from)?, rev(to)?);
     let empty = if from == "HEAD" && !has_commits(dir).await { Some(empty_tree(dir).await?) } else { None };
     let from = empty.as_deref().unwrap_or(from);
-    let names = git(dir, &["diff", "--no-renames", "--name-status", from, to]).await?;
-    let nums = git(dir, &["diff", "--no-renames", "--numstat", from, to]).await?;
-    let patch = git(dir, &["diff", "--no-renames", from, to]).await?;
+    let names = git(dir, &["diff", "--no-renames", "--name-status", "--end-of-options", from, to]).await?;
+    let nums = git(dir, &["diff", "--no-renames", "--numstat", "--end-of-options", from, to]).await?;
+    let patch = git(dir, &["diff", "--no-renames", "--end-of-options", from, to]).await?;
     let mut files: Vec<FileChange> = names
         .lines()
         .filter_map(|l| l.split_once('\t'))
@@ -399,18 +417,18 @@ pub async fn diff(dir: &Path, from: &str, to: &str) -> anyhow::Result<Diff> {
 
 /// `path` at `rev`, or empty when it does not exist there (added or deleted file).
 pub async fn show_file(dir: &Path, rev: &str, path: &str) -> anyhow::Result<String> {
-    anyhow::ensure!(!rev.starts_with('-') && !path.starts_with('-'), "invalid rev or path");
-    Ok(git(dir, &["show", &format!("{rev}:{path}")]).await.unwrap_or_default())
+    let rev = self::rev(rev)?;
+    Ok(git(dir, &["show", "--end-of-options", &format!("{rev}:{path}")]).await.unwrap_or_default())
 }
 
 /// Commits in `base..HEAD`, newest first.
 pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
-    anyhow::ensure!(!base.starts_with('-'), "invalid base");
+    let base = rev(base)?;
     if !has_commits(dir).await {
         return Ok(vec![]);
     }
     // Records end with \x1e: the body spans lines.
-    let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%cn%x1f%ct%x1f%b%x1e", &format!("{base}..HEAD")]).await?;
+    let out = git(dir, &["log", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%cn%x1f%ct%x1f%b%x1e", "--end-of-options", &format!("{base}..HEAD")]).await?;
     Ok(out
         .split('\x1e')
         .filter_map(|r| {
@@ -436,6 +454,7 @@ pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
 /// with no commits yet starts from the empty tree, so every file counts as added.
 pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String> {
     if let Some(base) = base {
+        let base = rev(base)?;
         let mut refs = base_refs(dir, base).await;
         if refs.is_empty() {
             for remote in git(dir, &["remote"]).await.unwrap_or_default().lines() {
@@ -475,7 +494,7 @@ async fn empty_tree(dir: &Path) -> anyhow::Result<String> {
 /// `base` as a local branch (or any ref) and as `<remote>/<base>` on every remote, those that exist.
 async fn base_refs(dir: &Path, base: &str) -> Vec<String> {
     let mut refs = vec![];
-    if !base.starts_with('-') && git(dir, &["rev-parse", "--verify", "--quiet", &format!("{base}^{{commit}}")]).await.is_ok() {
+    if git(dir, &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{base}^{{commit}}")]).await.is_ok() {
         refs.push(base.to_owned());
     }
     let pattern = format!("refs/remotes/*/{base}");
@@ -515,7 +534,7 @@ pub async fn push(dir: &Path) -> anyhow::Result<String> {
 /// worktree), `pull --ff-only` runs there, as git refuses to fetch into a checked-out branch; that also
 /// refuses non-fast-forwards and local changes it would overwrite. A branch checked out nowhere is fetched into.
 pub async fn update_branch(dir: &Path, branch: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(!branch.is_empty() && !branch.starts_with('-'), "invalid branch name");
+    let branch = rev(branch)?;
     let out = git(dir, &["for-each-ref", "--format=%(worktreepath)", &format!("refs/heads/{branch}")]).await?;
     let checkout = out.trim();
     if checkout.is_empty() {
@@ -543,6 +562,71 @@ pub fn slug(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parses_porcelain_v2_status() {
+        let head = "# branch.oid abc\n# branch.head main\n";
+        let one = |xy: &str, path: &str| format!("1 {xy} N... 100644 100644 100644 aaa bbb {path}\n");
+        // (name, text, branch, upstream, (ahead, behind), files)
+        #[allow(clippy::type_complexity)]
+        let table: Vec<(&str, String, Option<&str>, Option<&str>, (u32, u32), Vec<(&str, &str)>)> = vec![
+            (
+                "ordinary",
+                format!("{head}{}{}{}", one(".M", "src/a.rs"), one("M.", "b.rs"), one(".D", "d.rs")),
+                Some("main"),
+                None,
+                (0, 0),
+                vec![("src/a.rs", "M"), ("b.rs", "M"), ("d.rs", "D")],
+            ),
+            ("rename", format!("{head}2 R. N... 100644 100644 100644 aaa bbb R100 new.rs\told.rs\n"), Some("main"), None, (0, 0), vec![("new.rs", "R")]),
+            ("untracked", format!("{head}? notes/todo.txt\n"), Some("main"), None, (0, 0), vec![("notes/todo.txt", "?")]),
+            (
+                "unmerged",
+                format!(
+                    "{head}u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.rs\nu AA N... 000000 100644 100644 100644 000 bbb ccc dir/both added.rs\n"
+                ),
+                Some("main"),
+                None,
+                (0, 0),
+                vec![("conflict.rs", "U"), ("dir/both added.rs", "U")],
+            ),
+            ("detached", format!("# branch.oid abc\n# branch.head (detached)\n{}", one(".M", "a.rs")), None, None, (0, 0), vec![("a.rs", "M")]),
+            (
+                "spaces",
+                format!("{head}{}2 R. N... 100644 100644 100644 aaa bbb R90 new name.rs\told name.rs\n? un tracked.txt\n", one(".M", "my dir/a b.rs")),
+                Some("main"),
+                None,
+                (0, 0),
+                vec![("my dir/a b.rs", "M"), ("new name.rs", "R"), ("un tracked.txt", "?")],
+            ),
+            (
+                "ahead and behind",
+                "# branch.oid abc\n# branch.head feat/x\n# branch.upstream origin/feat/x\n# branch.ab +3 -2\n".into(),
+                Some("feat/x"),
+                Some("origin/feat/x"),
+                (3, 2),
+                vec![],
+            ),
+        ];
+        for (name, text, branch, upstream, (ahead, behind), want) in table {
+            let st = parse_status(&text);
+            assert_eq!(st.branch.as_deref(), branch, "{name}");
+            assert_eq!(st.upstream.as_deref(), upstream, "{name}");
+            assert_eq!((st.ahead, st.behind), (ahead, behind), "{name}");
+            let got: Vec<(&str, &str)> = st.files.iter().map(|f| (f.path.as_str(), f.status.as_str())).collect();
+            assert_eq!(got, want, "{name}");
+        }
+    }
+
+    #[test]
+    fn rev_rejects_empty_and_option_like() {
+        assert_eq!(rev("main").unwrap(), "main");
+        assert_eq!(rev("HEAD~1").unwrap(), "HEAD~1");
+        assert_eq!(rev("origin/feature/x").unwrap(), "origin/feature/x");
+        for bad in ["", "-x", "--output=/tmp/x", "--"] {
+            assert!(rev(bad).is_err(), "{bad:?}");
+        }
+    }
+
     #[test]
     fn worktree_base_resolves_relative_absolute_and_home() {
         let root = Path::new("/r/proj");
