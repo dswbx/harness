@@ -544,6 +544,9 @@ function Shell({ transport }: { transport: Transport }) {
                   onSelect={setSelected}
                   onArchive={toggleArchive}
                   onDelete={askDelete}
+                  onOpenWindow={(s) =>
+                     openViewWindow(s.id, s.title).catch((e) => report("Could not open window", e))
+                  }
                   onNewQuick={() => void startQuick()}
                   onNewInFolder={(folder) => {
                      setComposerFolder(folder);

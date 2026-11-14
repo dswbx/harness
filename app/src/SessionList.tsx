@@ -1,6 +1,7 @@
 import { type SessionStatus, type SessionSummary, useSessionHasDraft } from "@harness/api";
 import { cn, Popover, PopoverContent, PopoverTrigger, ScrollArea, Tooltip } from "@harness/ui";
 import {
+   AppWindow,
    Archive,
    ArchiveRestore,
    Check,
@@ -121,6 +122,7 @@ function SessionRow({
    onSelect,
    onArchive,
    onDelete,
+   onOpenWindow,
 }: {
    s: SessionSummary;
    /** The dot's status; a collapsed parent shows its Sub Sessions'. */
@@ -137,6 +139,7 @@ function SessionRow({
    onSelect: () => void;
    onArchive: () => void;
    onDelete: () => void;
+   onOpenWindow?: () => void;
 }) {
    const [menu, setMenu] = useState(false);
    const item =
@@ -261,8 +264,20 @@ function SessionRow({
                />
                <div
                   role="menu"
-                  className="absolute right-1 top-8 z-20 w-36 rounded-md border bg-popover p-1 shadow-md"
+                  className="absolute right-1 top-8 z-20 w-48 rounded-md border bg-popover p-1 shadow-md"
                >
+                  {onOpenWindow && (
+                     <button
+                        role="menuitem"
+                        className={item}
+                        onClick={() => {
+                           setMenu(false);
+                           onOpenWindow();
+                        }}
+                     >
+                        <AppWindow className="size-4" /> Open in new window
+                     </button>
+                  )}
                   <button
                      role="menuitem"
                      className={item}
@@ -402,6 +417,7 @@ export function SessionList({
    onSelect,
    onArchive,
    onDelete,
+   onOpenWindow,
    onNewInFolder,
    onNewQuick,
    children,
@@ -411,6 +427,8 @@ export function SessionList({
    onSelect: (id: string) => void;
    onArchive: (s: SessionSummary) => void;
    onDelete: (s: SessionSummary) => void;
+   /** Opens the Session in its own window. */
+   onOpenWindow?: (s: SessionSummary) => void;
    /** Opens the Composer with this folder picked (the + on a folder group). */
    onNewInFolder?: (folder: string) => void;
    /** Starts a Quick Session right away (the + on the Quick group). */
@@ -478,6 +496,7 @@ export function SessionList({
          onSelect={() => onSelect(s.id)}
          onArchive={() => onArchive(s)}
          onDelete={() => onDelete(s)}
+         onOpenWindow={onOpenWindow && (() => onOpenWindow(s))}
       />
    );
    /** A root row, with its Sub Sessions indented below (expanded unless collapsed as `sub:<id>`). */
@@ -501,6 +520,7 @@ export function SessionList({
                onSelect={() => onSelect(s.id)}
                onArchive={() => onArchive(s)}
                onDelete={() => onDelete(s)}
+               onOpenWindow={onOpenWindow && (() => onOpenWindow(s))}
             />
             {open && (
                <li>
