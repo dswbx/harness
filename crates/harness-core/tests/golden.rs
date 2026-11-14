@@ -93,10 +93,10 @@ fn variant_name(kind: &EventKind) -> &'static str {
     }
 }
 
-/// The variant names declared in `api.rs`, read from the source (a variant starts a line at four
+/// The variant names declared in `api/event.rs`, read from the source (a variant starts a line at four
 /// spaces of indent inside `enum EventKind`).
 fn declared_variants() -> Vec<String> {
-    let src = include_str!("../src/api.rs");
+    let src = include_str!("../src/api/event.rs");
     let start = src.find("pub enum EventKind").unwrap();
     let body = &src[start..];
     let body = &body[..body.find("\nimpl EventKind").unwrap()];
@@ -119,7 +119,7 @@ fn every_event_kind_appears_in_a_golden_log() {
         }
     }
     let declared = declared_variants();
-    assert!(declared.len() > 30 && declared.iter().any(|v| v == "Unknown"), "reading the enum from api.rs failed: {declared:?}");
+    assert!(declared.len() > 30 && declared.iter().any(|v| v == "Unknown"), "reading the enum from api/event.rs failed: {declared:?}");
     let missing: Vec<_> = declared.iter().filter(|v| *v != "Unknown" && !seen.contains(*v)).collect();
     assert!(missing.is_empty(), "no golden log holds these Event kinds (add lines to one, ADR 0021): {missing:?}");
 }

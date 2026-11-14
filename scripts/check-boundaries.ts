@@ -19,8 +19,10 @@ import {
  * the typed Event fields or `@harness/api` helpers.
  */
 const RAW_ALLOWED: Record<string, string> = {
-   "frontend-chat/src/state/reducer.ts":
+   "frontend-chat/src/state/slices/timeline.ts":
       "folds Events: stores raw_input/raw_output for the raw JSON view, and hands raw_input to the @harness/api fallback for old logs",
+   "frontend-chat/src/state/syntheticLog.ts":
+      "test helper (builds a synthetic log for the reducer benchmark and equivalence tests), not shipped",
    "frontend-chat/src/features/toolDisplay/label.ts":
       "known leak: reads rawInput/rawOutput and the mcp__server__tool title convention for step labels; to be replaced by typed core tool fields",
    "frontend-chat/src/features/toolDisplay/fence.ts":
@@ -36,11 +38,12 @@ const LAYER_ALLOWED: Record<string, string> = {
    "features/sideChats/SidePanel.tsx -> shell/panelLayout":
       "known: to be cut when the panel contract lands",
    "panels/PanelHeader.tsx -> shell/panelLayout": "known: to be cut when the panel contract lands",
-   "state/reducer.ts -> features/plan/plans": "known: to be cut when the panel contract lands",
-   "state/reducer.ts -> features/prompt/configGroups":
+   "state/slices/timeline.ts -> features/prompt/configGroups":
       "known: to be cut when the panel contract lands",
-   "state/reducer.ts -> features/renderUi/tools": "known: to be cut when the panel contract lands",
-   "state/reducer.ts -> features/review/reviewComments":
+   "state/slices/timeline.ts -> features/renderUi/tools":
+      "known: to be cut when the panel contract lands",
+   "state/types.ts -> features/renderUi/tools": "known: to be cut when the panel contract lands",
+   "state/slices/plans.ts -> features/review/reviewComments":
       "known: to be cut when the panel contract lands",
 };
 
@@ -48,7 +51,7 @@ const LAYER_ALLOWED: Record<string, string> = {
 const APP_ALLOWED: Record<string, string> = {
    "app/src/mock/events.ts":
       "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
-   "app/src/App.tsx":
+   "app/src/shell/Shell.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
    "app/src/settings/SettingsDialog.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
