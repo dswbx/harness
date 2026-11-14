@@ -29,8 +29,12 @@ const RAW_ALLOWED: Record<string, string> = {
       "known leak: reads rawInput.command to show an execute call's command line; to be replaced by a typed core tool field",
    "frontend-chat/src/features/toolDisplay/stepView.ts":
       "known leak: reads rawInput/rawOutput (body presence checks) and the mcp__ title prefix (icon) for the step view model; moves to typed core tool fields",
-   "frontend-chat/src/features/toolDisplay/TraceDisplay.tsx":
-      "known leak: reads rawInput/rawOutput (memo deps, presence checks, the raw JSON view) and the mcp__ title prefix; the raw JSON view may stay, the rest moves to typed core tool fields",
+   "frontend-chat/src/features/toolDisplay/bodies/CallBody.tsx":
+      "known leak: presence checks and the raw JSON view of rawInput/rawOutput; the raw JSON view may stay, the checks move to typed core tool fields",
+   "frontend-chat/src/features/toolDisplay/bodies/ToolSearchBody.tsx":
+      "known leak: presence check and the raw JSON view of rawInput; the raw JSON view may stay",
+   "frontend-chat/src/features/toolDisplay/blocks.tsx":
+      "known leak: passes rawInput to commandOf (an execute call's command line); the command moves to a typed core tool field",
    "frontend-chat/src/features/toolDisplay/ToolCard.tsx":
       "known leak: passes rawInput to commandOf and shows rawInput/rawOutput in the raw JSON view; the command moves to a typed core tool field, the raw JSON view may stay",
 };

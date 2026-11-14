@@ -1,6 +1,4 @@
-import { type SubSessionToolSummary, subagentState } from "@harness/api";
 import {
-   cn,
    Trace,
    TraceCollapsible,
    TraceCollapsibleContent,
@@ -12,41 +10,15 @@ import {
    TraceTitle,
    TraceVerb,
 } from "@harness/ui";
-import {
-   ArrowRightLeft,
-   ArrowUpFromLine,
-   Blocks,
-   Bot,
-   Brain,
-   CircleDot,
-   FileCheck,
-   FileDiff,
-   FilePen,
-   FileText,
-   GitBranch,
-   GitCommitHorizontal,
-   Globe,
-   Plug,
-   Search,
-   SquareTerminal,
-   ToggleRight,
-   Trash2,
-   Wrench,
-   XCircle,
-} from "lucide-react";
-import { memo, type ReactNode, useContext, useMemo, useState } from "react";
-import { OpenSession } from "../../lib/OpenSession";
-import { Markdown } from "../markdown/Markdown";
+import { memo, useContext, useMemo, useState } from "react";
 import type { ToolGroupProps } from ".";
-import { CodeFrame } from "./CodeFrame";
-import type { ChatSubagent, Step as StepItem, Tool } from "./group";
-import { shortToolName } from "./label";
+import { PlusMinus } from "./blocks";
+import { StepBodyView } from "./bodies";
+import type { ChatSubagent, Tool } from "./group";
 import { useOpenStep } from "./openStep";
-import { json, present } from "./raw";
-import { SubagentMeta } from "./SubagentMeta";
-import { type StepIcon, SUB_STATUS, stepView } from "./stepView";
+import { STEP_ICONS } from "./stepIcons";
+import { stepView } from "./stepView";
 import { ThoughtStep } from "./ThoughtStep";
-import { Block, STEP_TEXT } from "./ToolCard";
 import { WaitingForUser } from "./waiting";
 
 /** Steps of a run, one line each (shadcn Trace); a step opens only on a click. */
@@ -74,38 +46,6 @@ export function TraceDisplay({ steps, subagents, active, streaming }: ToolGroupP
    );
 }
 
-const ICONS: Record<StepIcon, typeof Wrench> = {
-   bot: Bot,
-   failed: XCircle,
-   git_commit: GitCommitHorizontal,
-   git_push: ArrowUpFromLine,
-   git_status: CircleDot,
-   git_diff: FileDiff,
-   list_branches: GitBranch,
-   blocks: Blocks,
-   plug: Plug,
-   read: FileText,
-   edit: FilePen,
-   delete: Trash2,
-   move: ArrowRightLeft,
-   search: Search,
-   execute: SquareTerminal,
-   think: Brain,
-   fetch: Globe,
-   switch_mode: ToggleRight,
-   wrench: Wrench,
-};
-
-/** `+a -d`, green and red. */
-function plusMinus(add: number, del: number) {
-   return (
-      <>
-         <span className="text-emerald-500">+{add}</span>{" "}
-         <span className="text-red-400">-{del}</span>
-      </>
-   );
-}
-
 const Step = memo(function Step({
    tool,
    subagent,
@@ -125,7 +65,7 @@ const Step = memo(function Step({
       () => stepView({ tool, subagent, active, waiting }),
       [tool, subagent, active, waiting],
    );
-   const Icon = ICONS[v.icon];
+   const Icon = STEP_ICONS[v.icon];
    const line = (
       <TraceLine data-step={tool.id} status={v.lineStatus}>
          <TraceIcon>
@@ -142,7 +82,7 @@ const Step = memo(function Step({
          </TraceTitle>
          {v.metas.map((m, i) => (
             <TraceDescription key={i}>
-               {typeof m === "string" ? m : plusMinus(m.add, m.del)}
+               {typeof m === "string" ? m : <PlusMinus add={m.add} del={m.del} />}
             </TraceDescription>
          ))}
       </TraceLine>
@@ -153,246 +93,8 @@ const Step = memo(function Step({
       <TraceCollapsible data-step={tool.id} open={open} onOpenChange={setOpen}>
          <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
          <TraceCollapsibleContent className="space-y-2">
-            {body.kind === "subagent" ? (
-               <SubagentBody
-                  task={tool}
-                  subagent={body.subagent}
-                  subagents={subagents}
-                  active={active}
-               />
-            ) : body.kind === "subSession" ? (
-               <SubSessionBody tool={tool} summary={body.summary} />
-            ) : body.kind === "toolSearch" ? (
-               <ToolSearchBody tool={tool} names={body.names} />
-            ) : body.kind === "commit" ? (
-               <CodeFrame label="commit message" meta={body.hash} code={body.message} />
-            ) : (
-               <CallBody tool={tool} />
-            )}
+            <StepBodyView body={body} tool={tool} subagents={subagents} active={active} />
          </TraceCollapsibleContent>
       </TraceCollapsible>
    );
 });
-
-function CallBody({ tool }: { tool: Tool }) {
-   return (
-      <>
-         {tool.content.map((b, i) => (
-            <Block key={i} b={b} tool={tool} />
-         ))}
-         {(present(tool.rawInput) || present(tool.rawOutput)) && (
-            <div className="flex flex-col gap-1">
-               {present(tool.rawInput) && (
-                  <Fold label="Input">
-                     <CodeFrame
-                        label="input"
-                        code={json(tool.rawInput)}
-                        lang={typeof tool.rawInput === "string" ? "" : "json"}
-                     />
-                  </Fold>
-               )}
-               {present(tool.rawOutput) && (
-                  <Fold label="Output">
-                     <CodeFrame
-                        label="output"
-                        code={json(tool.rawOutput)}
-                        lang={typeof tool.rawOutput === "string" ? "" : "json"}
-                     />
-                  </Fold>
-               )}
-            </div>
-         )}
-      </>
-   );
-}
-
-function SubagentBody({
-   task,
-   subagent,
-   subagents,
-   active,
-}: {
-   task: Tool;
-   subagent: ChatSubagent;
-   subagents: Map<string, ChatSubagent>;
-   active: boolean;
-}) {
-   const prompt = task.subagentPrompt;
-   // Its steps in order: runs of tool calls and thoughts as a Trace, its own text between them.
-   const runs = useMemo(() => {
-      const out: (
-         | { type: "steps"; steps: StepItem[] }
-         | { type: "text"; id: string; text: string }
-      )[] = [];
-      for (const i of subagent.steps) {
-         if (i.type === "tool" || i.type === "thought") {
-            const last = out.at(-1);
-            if (last?.type === "steps") last.steps.push(i);
-            else out.push({ type: "steps", steps: [i] });
-         } else if (i.type === "agent") out.push({ type: "text", id: i.id, text: i.text });
-      }
-      return out;
-   }, [subagent.steps]);
-   const waiting = useContext(WaitingForUser);
-   const running = subagentState(task, subagent, active && !waiting) === "running";
-   return (
-      <>
-         <SubagentMeta meta={task.subagentMeta} />
-         {typeof prompt === "string" && (
-            <Fold label="Task">
-               <Markdown className={STEP_TEXT}>{prompt}</Markdown>
-            </Fold>
-         )}
-         {runs.map((r, n) =>
-            r.type === "steps" ? (
-               <TraceDisplay
-                  key={r.steps[0]!.id}
-                  steps={r.steps}
-                  subagents={subagents}
-                  active={active}
-                  streaming={running && n === runs.length - 1}
-               />
-            ) : (
-               <Markdown key={r.id} className={cn(STEP_TEXT, "text-muted-foreground")}>
-                  {r.text}
-               </Markdown>
-            ),
-         )}
-         {subagent.report != null && (
-            <div className="flex flex-col gap-1.5">
-               <TraceLine>
-                  <TraceIcon>
-                     <FileCheck />
-                  </TraceIcon>
-                  <TraceTitle>
-                     <TraceVerb>Report</TraceVerb>
-                  </TraceTitle>
-               </TraceLine>
-               <Markdown
-                  className={cn(STEP_TEXT, "rounded-lg border bg-card px-3 py-2 text-foreground")}
-               >
-                  {subagent.report}
-               </Markdown>
-            </div>
-         )}
-      </>
-   );
-}
-
-/** A sub session call: its config, the prompt or message sent, a link to it, and (wait) its reply. */
-function SubSessionBody({ tool, summary: s }: { tool: Tool; summary: SubSessionToolSummary }) {
-   const open = useContext(OpenSession);
-   const meta = [s.model, s.effort && `effort ${s.effort}`, s.branch].filter(Boolean);
-   const sent = s.prompt ?? s.text;
-   if (s.sessions)
-      return (
-         <>
-            {s.sessions.length === 0 && (
-               <div className="text-ui-sm text-muted-foreground">No sub sessions</div>
-            )}
-            {s.sessions.map((row) => (
-               <div key={row.sessionId} className="flex items-baseline gap-2 text-ui-sm">
-                  {open ? (
-                     <button
-                        type="button"
-                        onClick={() => open(row.sessionId)}
-                        className="truncate text-sky-600 hover:underline dark:text-sky-400"
-                     >
-                        {row.title}
-                     </button>
-                  ) : (
-                     <span className="truncate">{row.title}</span>
-                  )}
-                  <span className="shrink-0 font-mono text-muted-foreground">
-                     {[
-                        row.repo,
-                        row.status && row.status !== "idle" ? SUB_STATUS[row.status] : "idle",
-                        row.archived && "archived",
-                     ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                  </span>
-               </div>
-            ))}
-            {s.error && <CallBody tool={tool} />}
-         </>
-      );
-   return (
-      <>
-         {meta.length > 0 && (
-            <div className="font-mono text-ui-sm text-muted-foreground">{meta.join(" · ")}</div>
-         )}
-         {sent && (
-            <Fold label={tool.harnessTool === "session_send" ? "Message" : "Prompt"}>
-               <Markdown className={STEP_TEXT}>{sent}</Markdown>
-            </Fold>
-         )}
-         {s.reply && (
-            <div className="flex flex-col gap-1.5">
-               <TraceLine>
-                  <TraceIcon>
-                     <FileCheck />
-                  </TraceIcon>
-                  <TraceTitle>
-                     <TraceVerb>Reply</TraceVerb>
-                  </TraceTitle>
-               </TraceLine>
-               <Markdown
-                  className={cn(STEP_TEXT, "rounded-lg border bg-card px-3 py-2 text-foreground")}
-               >
-                  {s.reply}
-               </Markdown>
-            </div>
-         )}
-         {s.error && <CallBody tool={tool} />}
-         {open && s.sessionId && (
-            <button
-               type="button"
-               onClick={() => open(s.sessionId!)}
-               className="text-ui-sm text-sky-600 hover:underline dark:text-sky-400"
-            >
-               Open sub session
-            </button>
-         )}
-      </>
-   );
-}
-
-/** A ToolSearch call: the tools it loaded (made callable), then its query. */
-function ToolSearchBody({ tool, names }: { tool: Tool; names: string[] }) {
-   return (
-      <>
-         <ul className="flex flex-col gap-0.5 font-mono text-ui-sm">
-            {names.map((n) => (
-               <li key={n} className="truncate" title={n}>
-                  {shortToolName(n)}
-               </li>
-            ))}
-         </ul>
-         {present(tool.rawInput) && (
-            <Fold label="Input">
-               <CodeFrame label="input" code={json(tool.rawInput)} lang="json" />
-            </Fold>
-         )}
-      </>
-   );
-}
-
-/** A secondary part of a step body (raw input, a subagent's task), one click away. */
-export function Fold({ label, children }: { label: string; children: ReactNode }) {
-   const [open, setOpen] = useState(false);
-   return (
-      <TraceCollapsible open={open} onOpenChange={setOpen}>
-         <TraceCollapsibleTrigger className="text-ui-sm">
-            <TraceLine>
-               <TraceTitle>
-                  <TraceVerb className="text-muted-foreground in-[button:hover]:text-foreground">
-                     {label}
-                  </TraceVerb>
-               </TraceTitle>
-            </TraceLine>
-         </TraceCollapsibleTrigger>
-         <TraceCollapsibleContent>{children}</TraceCollapsibleContent>
-      </TraceCollapsible>
-   );
-}
