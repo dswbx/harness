@@ -1,8 +1,8 @@
 import type { HarnessClient } from "@harness/api";
 import { Input } from "@harness/ui";
 import { useEffect, useState } from "react";
+import { useReportError } from "../platform/toast";
 import { SectionHeader } from "./SectionHeader";
-import { useReportError } from "./toast";
 
 const DEFAULT = ".harness";
 

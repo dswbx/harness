@@ -21,8 +21,8 @@ import {
 } from "@harness/ui";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { openExternal } from "../platform/openExternal";
 import { checkLine, parseEnvLines } from "./agents";
-import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
 
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";

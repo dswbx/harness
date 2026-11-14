@@ -11,7 +11,7 @@ import {
 } from "@harness/ui";
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
-import { folderName, matches, relativeTime } from "./sessionGroups";
+import { folderName, matches, relativeTime } from "../sessions/sessionGroups";
 
 /** "Attach to Session…" for a Shared Artifact (ADR 0024): pick a Session, newest first. */
 export function AttachDialog({

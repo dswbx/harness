@@ -21,7 +21,8 @@ import {
    Zap,
 } from "lucide-react";
 import { Fragment, type ReactNode, useMemo, useState } from "react";
-import { prStyle, SessionDetails, StatusDot } from "./SessionHeader";
+import { useStored } from "../platform/useStored";
+import { prStyle, SessionDetails, StatusDot } from "../session-header/SessionHeader";
 import {
    branchOf,
    bubbledStatus,
@@ -39,7 +40,6 @@ import {
    type ViewOptions,
    viewChanges,
 } from "./sessionGroups";
-import { useStored } from "./useStored";
 
 const oneOf =
    <T extends string>(...opts: T[]) =>

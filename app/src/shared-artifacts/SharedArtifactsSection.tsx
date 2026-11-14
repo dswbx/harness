@@ -2,7 +2,8 @@ import type { SharedArtifactEntry } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, Search, Share2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { relativeTime } from "./sessionGroups";
+import { useStored } from "../platform/useStored";
+import { relativeTime } from "../sessions/sessionGroups";
 import {
    hasChanged,
    isSharedSeen,
@@ -10,7 +11,6 @@ import {
    type SharedSeen,
    visibleShared,
 } from "./sharedSection";
-import { useStored } from "./useStored";
 
 const SEEN_KEY = "harness.sharedArtifacts.seen";
 const isBool = (v: unknown): v is boolean => typeof v === "boolean";

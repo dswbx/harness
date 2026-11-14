@@ -18,7 +18,9 @@ import {
    useRef,
    useState,
 } from "react";
-import { QUICK_TITLE, quickAgent } from "./composer";
+import { QUICK_TITLE, quickAgent } from "../composer/composer";
+import { useReportError } from "../platform/toast";
+import { ViewHost } from "../platform/ViewHost";
 import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
 import {
    INITIAL_OVERLAY,
@@ -27,8 +29,6 @@ import {
    panelRoomStep,
    samePanels,
 } from "./overlayMode";
-import { useReportError } from "./toast";
-import { ViewHost } from "./ViewHost";
 import {
    contextAction,
    contextAttachment,
