@@ -1,5 +1,4 @@
 import { type Event, type PermissionRule, toolFacts, toolFactsOfCall } from "@harness/api";
-import { groupConfigOptions, valueName } from "../../features/prompt/configGroups";
 import {
    formatErrors,
    RENDER_UI,
@@ -7,6 +6,7 @@ import {
    renderUiSchema,
    withSourceRoot,
 } from "../../features/renderUi/tools";
+import { groupConfigOptions, valueName } from "../configGroups";
 import { type Ctx, notice, own, permIndex, push, toolIndex } from "../draft";
 import type { ChatState, ContentBlock, Item, SubagentMeta, Tool, ToolCallRef } from "../types";
 import { addPlan, resolvePlan } from "./plans";
