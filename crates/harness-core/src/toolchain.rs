@@ -1,10 +1,8 @@
 //! Harness-managed runtimes for Agents (ADR 0007): pinned Node and uv in app data, verified by
-//! sha256, never the user's system installs. Downloads use the system `curl`; archives are
+//! sha256, never the user's system installs. Downloads go through `http::download` (timeouts, size cap, sha256 checked while streaming); archives are
 //! unpacked with the system `tar` (bsdtar reads zip too).
 
 use std::path::{Path, PathBuf};
-
-use sha2::{Digest, Sha256};
 
 use crate::proc;
 
@@ -82,7 +80,9 @@ impl Toolchain {
         let result = async {
             std::fs::create_dir_all(&staging)?;
             let archive = staging.join("archive.tar.gz");
-            download(&pin.url, &archive, Some(pin.sha256)).await?;
+            crate::http::download(&pin.url, &archive, &crate::http::Opts::download().sha256(Some(pin.sha256)))
+                .await
+                .map_err(|e| anyhow::anyhow!("download {}: {e}", pin.url))?;
             unpack(&archive, &staging).await?;
             std::fs::rename(staging.join(&pin.top), &dir)?;
             anyhow::Ok(())
@@ -113,23 +113,6 @@ impl Toolchain {
 /// Node's `bin/npm` and `bin/npx` must be symlinks into `lib/`; a copy that resolved them is broken.
 fn intact(pin: &Pin, bin: &Path) -> bool {
     pin.name != "node" || ["npm", "npx"].iter().all(|f| bin.join(f).is_symlink())
-}
-
-/// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given. Returns the
-/// sha256 of what was downloaded.
-pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
-    // Bounded in total, and curl gives up on a stalled connection: a hang must not hold the toolchain lock.
-    let opts = proc::Opts::new(proc::DOWNLOAD)
-        .args(["-fsSL", "--retry", "2", "--connect-timeout", "30", "--speed-limit", "1024", "--speed-time", "60", "-o"])
-        .arg(dest)
-        .arg(url);
-    let out = proc::run("curl", opts).await.map_err(|e| anyhow::anyhow!("download {url}: {e}"))?;
-    anyhow::ensure!(out.success(), "download {url}: {}", out.stderr_lossy().trim());
-    let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
-    if let Some(expected) = sha256 {
-        anyhow::ensure!(actual.eq_ignore_ascii_case(expected), "checksum mismatch for {url}: expected {expected}, got {actual}");
-    }
-    Ok(actual)
 }
 
 pub async fn unpack(archive: &Path, into: &Path) -> anyhow::Result<()> {

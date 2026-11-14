@@ -14,3 +14,9 @@ The Harness installs Agents from the ACP Registry (npx, uvx, or per-platform bin
 - On a pass the Agent switches. The version it replaces stays installed as `install.previous` for `RollbackAgent`; older versions are deleted. `RollbackAgent` swaps back and holds the Agent. `HoldAgentVersion` keeps an Agent at its version: installs of a different version are refused until released.
 - The registry index itself is still fetched without a signature; the sha256 in it protects the archive only as far as the CDN is trusted.
 - A nightly workflow (`agents-nightly.yml`, example `conformance`) installs the current registry versions of the Claude and Codex Agents and runs the check.
+
+## Addendum: downloads use the core's HTTP client, not `curl`
+
+Toolchain, Agent and registry downloads first ran the system `curl`, with different flags per call site. No reason for that is recorded; it was the shortest way to stream a file. They now use `http::download`/`get_json` on the same reqwest client as the rest of the core: one stack, a connect timeout, a stall timeout (no bytes for 60 s), a total limit, a per-call size cap, limited redirects, https only (an `http://` or `file://` registry, used in tests, allows the same for its archives), and the sha256 is computed while streaming and checked before the file is renamed into place, so a mismatch leaves no file. Transient failures retry twice.
+- Certificates: rustls with the platform verifier, so the system trust store (and corporate roots in it) applies, as it did for `curl`.
+- Proxy: the standard env vars (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`) as before. The macOS system proxy setting is read by neither; an app started from Finder has no shell env, so it needs the proxy set in the login environment as before.

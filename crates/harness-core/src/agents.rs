@@ -177,12 +177,22 @@ impl Agents {
         let cache = self.data_dir.join("registry-cache.json");
         if refresh || !cache.exists() {
             let tmp = cache.with_extension("json.tmp");
-            crate::toolchain::download(&self.registry_url, &tmp, None).await?;
+            let url = &self.registry_url;
+            crate::http::download(url, &tmp, &self.http_opts().max_bytes(32 << 20)).await.map_err(|e| anyhow::anyhow!("download {url}: {e}"))?;
             std::fs::rename(&tmp, &cache)?;
         }
         let index: Index = serde_json::from_slice(&std::fs::read(&cache)?)?;
         // Skip entries this version of the Harness cannot parse rather than failing the list.
         Ok(index.agents.into_iter().filter_map(|a| serde_json::from_value(a).ok()).collect())
+    }
+
+    /// A registry that is not https (a file or local test registry) may list such URLs too.
+    fn http_opts(&self) -> crate::http::Opts {
+        crate::http::Opts::download().insecure(!self.registry_url.starts_with("https://"))
+    }
+
+    async fn fetch(&self, url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
+        crate::http::download(url, dest, &self.http_opts().sha256(sha256)).await.map_err(|e| anyhow::anyhow!("download {url}: {e}"))
     }
 
     /// The installed (not fixed) record of `id`.
@@ -316,12 +326,12 @@ impl Agents {
                 if crate::toolchain::is_archive(&b.archive) {
                     let name = b.archive.rsplit('/').next().unwrap_or("archive").split('?').next().unwrap_or("archive");
                     let archive = dir.join(format!(".download-{name}"));
-                    sha256 = crate::toolchain::download(&b.archive, &archive, b.sha256.as_deref()).await?;
+                    sha256 = self.fetch(&b.archive, &archive, b.sha256.as_deref()).await?;
                     crate::toolchain::unpack(&archive, dir).await?;
                     std::fs::remove_file(&archive)?;
                 } else {
                     let target = dir.join(b.cmd.trim_start_matches("./"));
-                    sha256 = crate::toolchain::download(&b.archive, &target, b.sha256.as_deref()).await?;
+                    sha256 = self.fetch(&b.archive, &target, b.sha256.as_deref()).await?;
                 }
                 let cmd = dir.join(b.cmd.trim_start_matches("./"));
                 anyhow::ensure!(cmd.exists(), "{} not found in the downloaded archive", b.cmd);

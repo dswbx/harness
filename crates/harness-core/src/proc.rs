@@ -1,4 +1,4 @@
-//! The one way the core runs an external program to completion (git, gh, curl, tar, lsof, npm, ...).
+//! The one way the core runs an external program to completion (git, gh, tar, lsof, npm, ...).
 //! Every call has a timeout, kills the child and its process group on timeout or drop, reads no
 //! stdin unless given some, and caps what it captures. Agent processes, the Terminal PTY and the
 //! MCP shim are not run through here.
@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 /// A read-only local query (`git status`, `lsof`, `open`).
 pub const LOCAL: Duration = Duration::from_secs(30);
-/// Background or opportunistic network work (a fetch that refreshes a base ref, a small `curl`, a `gh` query).
+/// Background or opportunistic network work (a fetch that refreshes a base ref, a `gh` query).
 pub const NETWORK: Duration = Duration::from_secs(60);
 /// User-initiated git that may run hooks or scale with the repository (`commit`, `push`, `checkout`, `add -A`, ...).
 pub const GIT_LONG: Duration = Duration::from_secs(600);
@@ -20,8 +20,6 @@ pub const GIT_LONG: Duration = Duration::from_secs(600);
 pub const GH_LONG: Duration = Duration::from_secs(300);
 /// Unpacking a downloaded archive.
 pub const UNPACK: Duration = Duration::from_secs(300);
-/// A download, in total (curl also gives up on a stalled connection).
-pub const DOWNLOAD: Duration = Duration::from_secs(600);
 /// `npm install` / `uv tool install`: download and build.
 pub const INSTALL: Duration = Duration::from_secs(900);
 
@@ -336,6 +334,10 @@ mod tests {
             let code = text.split("#[cfg(test)]").next().unwrap();
             if code.contains("Command::new(") || code.contains("process::Command") {
                 bad.push(f.display().to_string());
+            }
+            // HTTP goes through `crate::http`, never a `curl` subprocess.
+            if code.contains(concat!("\"cur", "l\"")) {
+                bad.push(format!("{}: runs curl, use crate::http", f.display()));
             }
         }
         assert!(bad.is_empty(), "spawn through crate::proc::run instead: {bad:?}");
