@@ -36,24 +36,17 @@ import {
 } from "lucide-react";
 import { memo, type ReactNode, useContext, useMemo, useState } from "react";
 import { OpenSession } from "../../lib/OpenSession";
-import { formatDuration } from "../../lib/time";
-import { diffLines } from "../changes/diff";
 import { Markdown } from "../markdown/Markdown";
 import type { ToolGroupProps } from ".";
 import { CodeFrame } from "./CodeFrame";
 import type { ChatSubagent, Step as StepItem, Tool } from "./group";
-import {
-   gitSummary,
-   type StepState,
-   shortToolName,
-   stepLabel,
-   subSessionSummary,
-   toolSearchNames,
-} from "./label";
+import { shortToolName } from "./label";
 import { useOpenStep } from "./openStep";
+import { json, present } from "./raw";
 import { SubagentMeta } from "./SubagentMeta";
+import { type StepIcon, SUB_STATUS, stepView } from "./stepView";
 import { ThoughtStep } from "./ThoughtStep";
-import { Block, json, present, STEP_TEXT } from "./ToolCard";
+import { Block, STEP_TEXT } from "./ToolCard";
 import { WaitingForUser } from "./waiting";
 
 /** Steps of a run, one line each (shadcn Trace); a step opens only on a click. */
@@ -81,7 +74,16 @@ export function TraceDisplay({ steps, subagents, active, streaming }: ToolGroupP
    );
 }
 
-const KIND_ICONS: Record<string, typeof Wrench> = {
+const ICONS: Record<StepIcon, typeof Wrench> = {
+   bot: Bot,
+   failed: XCircle,
+   git_commit: GitCommitHorizontal,
+   git_push: ArrowUpFromLine,
+   git_status: CircleDot,
+   git_diff: FileDiff,
+   list_branches: GitBranch,
+   blocks: Blocks,
+   plug: Plug,
    read: FileText,
    edit: FilePen,
    delete: Trash2,
@@ -91,25 +93,8 @@ const KIND_ICONS: Record<string, typeof Wrench> = {
    think: Brain,
    fetch: Globe,
    switch_mode: ToggleRight,
+   wrench: Wrench,
 };
-
-const GIT_ICONS: Record<string, typeof Wrench> = {
-   git_commit: GitCommitHorizontal,
-   git_push: ArrowUpFromLine,
-   git_status: CircleDot,
-   git_diff: FileDiff,
-   list_branches: GitBranch,
-};
-
-/** A sub session that is not idle (`session_wait`, `session_list`). */
-const SUB_STATUS = { needs_attention: "needs attention", working: "still working" } as const;
-
-const APPROVAL_META = {
-   you: "allowed by you",
-   rule: "allowed by rule",
-   auto: "auto mode",
-   denied: "denied",
-} as const;
 
 /** `+a -d`, green and red. */
 function plusMinus(add: number, del: number) {
@@ -119,20 +104,6 @@ function plusMinus(add: number, del: number) {
          <span className="text-red-400">-{del}</span>
       </>
    );
-}
-
-/** `+3 -1` over the call's diffs. */
-function diffStat(tool: Tool) {
-   let add = 0;
-   let del = 0;
-   for (const b of tool.content) {
-      if (b.type !== "diff") continue;
-      for (const l of diffLines(b.oldText as string | null, String(b.newText ?? ""))) {
-         if (l.op === "+") add++;
-         else if (l.op === "-") del++;
-      }
-   }
-   return add || del ? plusMinus(add, del) : null;
 }
 
 const Step = memo(function Step({
@@ -150,114 +121,51 @@ const Step = memo(function Step({
    const [open, setOpen] = useState(false);
    useOpenStep(tool.id, () => setOpen(true));
    const waiting = useContext(WaitingForUser);
-   const denied = !subagent && tool.approval === "denied";
-   const state: StepState = subagent
-      ? subagentState(tool, subagent, active && !waiting)
-      : denied
-        ? "pending"
-        : tool.status === "failed"
-          ? "failed"
-          : tool.status === "completed"
-            ? "done"
-            : active
-              ? "running"
-              : "pending";
-   const stat = useMemo(() => diffStat(tool), [tool.content]);
-   const git = useMemo(
-      () => (subagent ? null : gitSummary(tool)),
-      [subagent, tool.harnessTool, tool.rawInput, tool.rawOutput, tool.content],
+   const v = useMemo(
+      () => stepView({ tool, subagent, active, waiting }),
+      [tool, subagent, active, waiting],
    );
-   const sub = useMemo(() => (subagent ? null : subSessionSummary(tool)), [subagent, tool]);
-   const loaded = useMemo(() => (subagent ? null : toolSearchNames(tool)), [subagent, tool]);
-   const Icon = subagent
-      ? Bot
-      : state === "failed"
-        ? XCircle
-        : tool.harnessTool && GIT_ICONS[tool.harnessTool]
-          ? GIT_ICONS[tool.harnessTool]!
-          : sub
-            ? Bot
-            : loaded
-              ? Blocks
-              : tool.harnessTool || tool.title.startsWith("mcp__")
-                ? Plug
-                : (KIND_ICONS[tool.kind ?? ""] ?? Wrench);
-   const { verb, detail } = stepLabel(tool, state, !!subagent);
-   // Live count for a subagent (never its last call: a long one pushed the title out).
-   const n = subagent?.calls.length ?? 0;
-   const approval = tool.approval && !subagent ? APPROVAL_META[tool.approval] : null;
-   const metas: ReactNode[] = subagent
-      ? [`${n} tool call${n === 1 ? "" : "s"}`]
-      : state === "failed"
-        ? [git?.error ?? sub?.error ?? "failed"]
-        : denied
-          ? ["denied"]
-          : state === "pending"
-            ? ["stopped"]
-            : [
-                 git?.changed !== undefined && `${git.changed} changed`,
-                 git?.count !== undefined && `${git.count} branch${git.count === 1 ? "" : "es"}`,
-                 git?.additions !== undefined && plusMinus(git.additions, git.deletions ?? 0),
-                 sub?.sessions &&
-                    `${sub.sessions.length} sub session${sub.sessions.length === 1 ? "" : "s"}`,
-                 sub?.status && sub.status !== "idle" && SUB_STATUS[sub.status],
-                 sub?.durationMs !== undefined && formatDuration(sub.durationMs),
-                 stat,
-                 approval,
-              ];
+   const Icon = ICONS[v.icon];
    const line = (
-      <TraceLine
-         data-step={tool.id}
-         status={
-            state === "running"
-               ? "running"
-               : state === "failed"
-                 ? "error"
-                 : state === "pending"
-                   ? "pending"
-                   : undefined
-         }
-      >
+      <TraceLine data-step={tool.id} status={v.lineStatus}>
          <TraceIcon>
             <Icon />
          </TraceIcon>
          <TraceTitle>
-            <TraceVerb>{verb}</TraceVerb>
-            {detail && <TraceDetail>{detail}</TraceDetail>}
-            {git?.hash && (
+            <TraceVerb>{v.verb}</TraceVerb>
+            {v.detail && <TraceDetail>{v.detail}</TraceDetail>}
+            {v.hash && (
                <span className="shrink-0 rounded bg-muted px-1 text-ui-sm text-muted-foreground">
-                  {git.hash}
+                  {v.hash}
                </span>
             )}
          </TraceTitle>
-         {metas.map((m, i) => m && <TraceDescription key={i}>{m}</TraceDescription>)}
+         {v.metas.map((m, i) => (
+            <TraceDescription key={i}>
+               {typeof m === "string" ? m : plusMinus(m.add, m.del)}
+            </TraceDescription>
+         ))}
       </TraceLine>
    );
-   const message = tool.commitMessage ?? "";
-   const hasBody =
-      !!subagent ||
-      !!message ||
-      tool.content.length > 0 ||
-      present(tool.rawInput) ||
-      present(tool.rawOutput);
-   if (!hasBody) return line;
+   const body = v.body;
+   if (body.kind === "none") return line;
    return (
       <TraceCollapsible data-step={tool.id} open={open} onOpenChange={setOpen}>
          <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
          <TraceCollapsibleContent className="space-y-2">
-            {subagent ? (
+            {body.kind === "subagent" ? (
                <SubagentBody
                   task={tool}
-                  subagent={subagent}
+                  subagent={body.subagent}
                   subagents={subagents}
                   active={active}
                />
-            ) : sub ? (
-               <SubSessionBody tool={tool} summary={sub} />
-            ) : loaded?.length ? (
-               <ToolSearchBody tool={tool} names={loaded} />
-            ) : message ? (
-               <CodeFrame label="commit message" meta={git?.hash} code={message} />
+            ) : body.kind === "subSession" ? (
+               <SubSessionBody tool={tool} summary={body.summary} />
+            ) : body.kind === "toolSearch" ? (
+               <ToolSearchBody tool={tool} names={body.names} />
+            ) : body.kind === "commit" ? (
+               <CodeFrame label="commit message" meta={body.hash} code={body.message} />
             ) : (
                <CallBody tool={tool} />
             )}

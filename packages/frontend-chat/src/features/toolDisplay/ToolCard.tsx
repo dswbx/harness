@@ -7,6 +7,7 @@ import { diffLines, langOf, splitPatch, unifiedPatch } from "../changes/diff";
 import { Markdown } from "../markdown/Markdown";
 import { CodeFrame, Frame } from "./CodeFrame";
 import { commandOf, jsonTail, parseFence } from "./fence";
+import { json, present } from "./raw";
 
 type Tool = Extract<Item, { type: "tool" }>;
 
@@ -113,11 +114,6 @@ const readPath = (t: Tool): string | null => {
    const loc = (t.locations as { path?: unknown }[] | null)?.[0]?.path;
    return typeof loc === "string" ? loc : (/^Read (.+)$/.exec(t.title)?.[1] ?? null);
 };
-
-export const json = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
-/** null, `{}` and `[]` carry nothing worth showing. */
-export const present = (v: unknown) =>
-   v != null && !(typeof v === "object" && Object.keys(v).length === 0);
 
 export const ToolCard = memo(function ToolCard({ tool }: { tool: Tool }) {
    const [open, setOpen] = useState(false);

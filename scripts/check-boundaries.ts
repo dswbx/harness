@@ -27,6 +27,8 @@ const RAW_ALLOWED: Record<string, string> = {
       "known leak: reads rawInput/rawOutput and the mcp__server__tool title convention for step labels; to be replaced by typed core tool fields",
    "frontend-chat/src/features/toolDisplay/fence.ts":
       "known leak: reads rawInput.command to show an execute call's command line; to be replaced by a typed core tool field",
+   "frontend-chat/src/features/toolDisplay/stepView.ts":
+      "known leak: reads rawInput/rawOutput (body presence checks) and the mcp__ title prefix (icon) for the step view model; moves to typed core tool fields",
    "frontend-chat/src/features/toolDisplay/TraceDisplay.tsx":
       "known leak: reads rawInput/rawOutput (memo deps, presence checks, the raw JSON view) and the mcp__ title prefix; the raw JSON view may stay, the rest moves to typed core tool fields",
    "frontend-chat/src/features/toolDisplay/ToolCard.tsx":
