@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { HarnessClient } from "./client";
+import { HarnessClient } from "./client/client";
 import { CommandError, errText, isCommandError, toCommandError } from "./errors";
-import { MockTransport } from "./mock";
-import type { Transport } from "./transport";
+import { MockTransport } from "./mock/mock";
+import type { Transport } from "./transport/transport";
 
 describe("CommandError", () => {
    it("reads the core's { code, message } shape", () => {

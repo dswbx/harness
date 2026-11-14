@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import {
+   apiEntryViolation,
    appViolation,
    importedNames,
    importSpecs,
@@ -49,9 +50,9 @@ const APP_ALLOWED: Record<string, string> = {
       "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
    "app/src/App.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/SettingsDialog.tsx":
+   "app/src/settings/SettingsDialog.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/AppearancePanel.tsx":
+   "app/src/appearance/AppearancePanel.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
 };
 
@@ -115,6 +116,15 @@ for (const file of walk(resolve("packages/ui/src"))) {
          console.error(`${file}: forbidden import "${spec}": ${why}`);
          bad++;
       }
+   }
+}
+
+// The API entry stays free of the mock.
+for (const spec of importSpecs(readFileSync("packages/api/src/index.ts", "utf8"))) {
+   const why = apiEntryViolation(spec);
+   if (why) {
+      console.error(`packages/api/src/index.ts: forbidden import "${spec}": ${why}`);
+      bad++;
    }
 }
 

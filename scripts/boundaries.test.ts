@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+   apiEntryViolation,
    appViolation,
    importedNames,
    importSpecs,
@@ -31,6 +32,22 @@ describe("layerViolation", () => {
       expect(layerViolation("panels/P.tsx", "lib/time")).toBeNull();
       expect(layerViolation("state/reducer.ts", "lib/time")).toBeNull();
       expect(layerViolation("index.ts", "shell/View")).toBeNull();
+   });
+});
+
+describe("apiEntryViolation", () => {
+   it("rejects the mock, allows the rest", () => {
+      for (const s of ["./mock", "./mock/mock", "./mock/index"])
+         expect(apiEntryViolation(s), s).not.toBeNull();
+      for (const s of ["./client/client", "./mockery", "./generated"])
+         expect(apiEntryViolation(s), s).toBeNull();
+   });
+});
+
+describe("importViolation: @harness/api subpaths", () => {
+   it("rejects @harness/api/mock in Frontend source", () => {
+      expect(importViolation("@harness/api/mock", "/r/src/a.ts", "/r", new Set())).not.toBeNull();
+      expect(importViolation("@harness/api", "/r/src/a.ts", "/r", new Set())).toBeNull();
    });
 });
 
