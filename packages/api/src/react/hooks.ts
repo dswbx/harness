@@ -128,7 +128,6 @@ export function useGitStatus(
    // Changes seen before this view's own first load finished are not its changes.
    const [base, setBase] = useState(snap.changes);
    const last = useRef<{ store: unknown; key: unknown } | null>(null);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: `refreshKey` only triggers a reload.
    useEffect(() => {
       if (!store) return;
       if (last.current?.store !== store) {
