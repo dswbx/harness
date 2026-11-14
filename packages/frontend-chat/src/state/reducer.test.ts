@@ -1380,6 +1380,22 @@ describe("typed tool facts", () => {
          update({ status: "completed" }),
       ]);
       expect(s.items[0]).toMatchObject({ detail: { command: "ls" } });
+      // An empty detail (a late update) does not replace a good one, and is none on a new call.
+      const late = fold([
+         ev({
+            type: "ToolCall",
+            tool_call_id: "c",
+            ...base,
+            raw_input: {},
+            detail: { command: "ls" },
+         }),
+         update({ detail: {} }),
+      ]);
+      expect(late.items[0]).toMatchObject({ detail: { command: "ls" } });
+      const empty = fold([
+         ev({ type: "ToolCall", tool_call_id: "d", ...base, raw_input: {}, detail: {} }),
+      ]);
+      expect("detail" in empty.items[0]!).toBe(false);
       // Old logs have none: the property is absent, not undefined.
       const old = fold([ev({ type: "ToolCall", tool_call_id: "b", ...base, raw_input: {} })]);
       expect("detail" in old.items[0]!).toBe(false);

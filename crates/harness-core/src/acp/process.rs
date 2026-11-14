@@ -52,6 +52,8 @@ pub(super) struct SlotState {
     /// Latest known state of each tool call (merged updates), since permission requests may
     /// carry only an id and a title.
     pub(super) tool_calls: HashMap<String, Value>,
+    /// What each tool call's Events already carried of its facts (see `tool_facts::fill_detail`).
+    pub(super) tool_sent: HashMap<String, crate::tool_facts::Sent>,
     pub(super) last_active: Option<Instant>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,

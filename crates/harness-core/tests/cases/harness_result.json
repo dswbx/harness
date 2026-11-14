@@ -133,7 +133,7 @@
          "rawOutput": [
             {
                "type": "text",
-               "text": "{\n  \"branch\": \"main\",\n  \"upstream\": null,\n  \"ahead\": 0,\n  \"behind\": 0,\n  \"files\": [\n    {},\n    {}\n  ]\n}"
+               "text": "{\n  \"branch\": \"main\",\n  \"upstream\": null,\n  \"ahead\": 0,\n  \"behind\": 0,\n  \"files\": [\n    {\n      \"path\": \"a\",\n      \"status\": \"M\",\n      \"additions\": 1,\n      \"deletions\": 0\n    },\n    {\n      \"path\": \"a\",\n      \"status\": \"M\",\n      \"additions\": 1,\n      \"deletions\": 0\n    }\n  ]\n}"
             }
          ]
       },
@@ -407,6 +407,75 @@
                "text": "Committed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             }
          ]
+      },
+      "result": null
+   },
+   {
+      "name": "status: an array is not a status",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": "[]"
+      },
+      "result": null
+   },
+   {
+      "name": "status: no files, no count",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": "{\"branch\": \"main\"}"
+      },
+      "result": {
+         "type": "git_status",
+         "branch": "main"
+      }
+   },
+   {
+      "name": "status: detached has no branch",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": "{\n  \"branch\": null,\n  \"upstream\": null,\n  \"ahead\": 0,\n  \"behind\": 0,\n  \"files\": []\n}"
+      },
+      "result": {
+         "type": "git_status",
+         "changed": 0
+      }
+   },
+   {
+      "name": "session_list: a row without an id is dropped",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": "{\"sub_sessions\": [{\"title\": \"x\"}, {\"session_id\": \"s9\"}]}"
+      },
+      "result": {
+         "type": "sub_session_list",
+         "sessions": [
+            {
+               "session_id": "s9"
+            }
+         ]
+      }
+   },
+   {
+      "name": "session_list: archived",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": "{\"sub_sessions\": [{\"session_id\": \"s9\", \"archived\": true}]}"
+      },
+      "result": {
+         "type": "sub_session_list",
+         "sessions": [
+            {
+               "session_id": "s9",
+               "archived": true
+            }
+         ]
+      }
+   },
+   {
+      "name": "session_list: not a list",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": "{\"sub_sessions\": \"x\"}"
       },
       "result": null
    }

@@ -16,8 +16,10 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     track_tool_call(session, &update);
     let mut kind = normalize(&update);
     crate::agent_quirks::adjust(&update, &mut kind);
-    if let Some(call) = update.get("toolCallId").and_then(Value::as_str).and_then(|id| session.agent_slot().state.lock().tool_calls.get(id).cloned()) {
-        crate::tool_facts::fill_detail(&call, &mut kind);
+    {
+        let mut st = session.agent_slot().state.lock();
+        let st = &mut *st;
+        crate::tool_facts::fill_detail(&st.tool_calls, &mut st.tool_sent, &update, &mut kind);
     }
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
         session.set_agent_title(thread.as_ref(), t);

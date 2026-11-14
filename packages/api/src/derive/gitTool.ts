@@ -80,8 +80,8 @@ export function harnessResult(tool: GitToolCall): HarnessResult | null {
    return tool.harnessResult ?? deriveResult(tool);
 }
 
-// Removal: `deriveResult` only serves Session Logs recorded before `harness_result` existed
-// (ADR 0021). Once no supported log lacks it, delete it and the text parsing below.
+// Needed for Session Logs written before `harness_result` existed: an upcaster is stateless per
+// line and cannot rebuild it from a call's output. Permanent unless logs get a migration.
 function deriveResult(tool: GitToolCall): HarnessResult | null {
    const name = tool.harnessTool;
    if (!name) return null;
@@ -97,8 +97,8 @@ function deriveResult(tool: GitToolCall): HarnessResult | null {
          return branch ? { type: "git_push", branch } : null;
       }
       case "git_status": {
-         const s = parseJson(text) as { branch?: unknown; files?: unknown } | null | undefined;
-         if (!s || typeof s !== "object") return null;
+         const s = parseJson(text) as Record<string, unknown> | null | undefined;
+         if (!s || typeof s !== "object" || Array.isArray(s)) return null;
          return {
             type: "git_status",
             ...(typeof s.branch === "string" && s.branch && { branch: s.branch }),

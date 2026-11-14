@@ -3,12 +3,76 @@
 //! Tool output is text for the Agent. Views need what it says (the commit's hash, the branch
 //! pushed, the Sub Session's id), so the core reads its own text back here when the call's output
 //! arrives and puts the result on the Event. A string that is reworded must be reworded in its
-//! reader too: the tests pin both against `tests/cases/harness_result.json`, which `@harness/api`
+//! reader too: commit and push share `committed_text` / `pushed_text` with their parsers, the others
+//! are serde types that the tools serialize and `result_of` deserializes (`SubSession*`, and
+//! `GitStatus`), so renaming a key changes both. The tests also pin both against `tests/cases/harness_result.json`, which `@harness/api`
 //! (`harnessResult`, the reader for logs recorded before the typed field) runs as well.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::api::{HarnessResult, ListedSubSession, SubSessionState};
+
+/// The part of the `git_status` answer (the API's `GitStatus`, serialized) a result reads.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct GitStatusAnswer {
+    branch: Option<String>,
+    files: Option<Vec<serde::de::IgnoredAny>>,
+}
+
+/// The `session_start` answer. Every field is optional on reading: a log's answer may lack any.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct SubSessionStarted {
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+    pub folder: Option<String>,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// The `session_send` answer.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct SubSessionSent {
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+}
+
+/// The `session_wait` answer.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct SubSessionWaited {
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+    pub status: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub reply: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+}
+
+/// The `session_list` answer.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct SubSessionListing {
+    pub sub_sessions: Vec<SubSessionEntry>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct SubSessionEntry {
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+    pub folder: Option<String>,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub status: Option<String>,
+    pub archived: bool,
+}
 
 /// The `git_commit` answer.
 pub(super) fn committed_text(hash: &str) -> String {
@@ -30,10 +94,9 @@ pub(crate) fn result_of(tool: &str, call: &Value) -> Option<HarnessResult> {
         "git_commit" => committed(text).map(|hash| HarnessResult::GitCommit { hash }),
         "git_push" => pushed(text).map(|branch| HarnessResult::GitPush { branch }),
         "git_status" => {
-            let v: Value = serde_json::from_str(text).ok().filter(|v: &Value| v.is_object() || v.is_array())?;
-            let branch = v.get("branch").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_owned);
-            let changed = v.get("files").and_then(Value::as_array).map(|f| f.len() as u32);
-            Some(HarnessResult::GitStatus { branch, changed })
+            let v: GitStatusAnswer = object(text)?;
+            let branch = v.branch.filter(|b| !b.is_empty());
+            Some(HarnessResult::GitStatus { branch, changed: v.files.map(|f| f.len() as u32) })
         }
         "git_diff" if !text.is_empty() => {
             let (mut additions, mut deletions) = (0, 0);
@@ -47,37 +110,67 @@ pub(crate) fn result_of(tool: &str, call: &Value) -> Option<HarnessResult> {
             Some(HarnessResult::GitDiff { additions, deletions })
         }
         "list_branches" => {
-            let v: Value = serde_json::from_str(text).ok()?;
-            v.as_array().map(|b| HarnessResult::ListBranches { count: b.len() as u32 })
+            let v: Vec<serde::de::IgnoredAny> = serde_json::from_str(text).ok()?;
+            Some(HarnessResult::ListBranches { count: v.len() as u32 })
         }
-        "session_start" | "session_send" | "session_wait" => {
-            let v: Value = serde_json::from_str(text).ok().filter(Value::is_object)?;
-            let s = |k: &str| str_of(&v[k]);
+        "session_start" => {
+            let v: SubSessionStarted = object(text)?;
+            let s = |v: Option<String>| v.and_then(clean);
             Some(HarnessResult::SubSession {
-                session_id: s("session_id"),
-                title: s("title"),
-                repo: s("repo").or_else(|| s("folder")),
-                branch: s("branch"),
-                model: s("model"),
-                effort: s("effort"),
-                reply: v["reply"].as_str().filter(|r| !r.trim().is_empty()).map(str::to_owned),
-                duration_ms: v["duration_ms"].as_f64().map(|n| n as i64),
-                stop_reason: s("stop_reason"),
-                status: state_of(&v["status"]),
+                session_id: s(v.session_id),
+                title: s(v.title),
+                repo: s(v.repo).or_else(|| s(v.folder)),
+                branch: s(v.branch),
+                model: s(v.model),
+                effort: s(v.effort),
+                reply: None,
+                duration_ms: None,
+                stop_reason: None,
+                status: None,
+            })
+        }
+        "session_send" => {
+            let v: SubSessionSent = object(text)?;
+            Some(HarnessResult::SubSession {
+                session_id: v.session_id.and_then(clean),
+                title: v.title.and_then(clean),
+                repo: None,
+                branch: None,
+                model: None,
+                effort: None,
+                reply: None,
+                duration_ms: None,
+                stop_reason: None,
+                status: None,
+            })
+        }
+        "session_wait" => {
+            let v: SubSessionWaited = object(text)?;
+            Some(HarnessResult::SubSession {
+                session_id: v.session_id.and_then(clean),
+                title: v.title.and_then(clean),
+                repo: None,
+                branch: None,
+                model: None,
+                effort: None,
+                reply: v.reply.filter(|r| !r.trim().is_empty()),
+                duration_ms: v.duration_ms,
+                stop_reason: v.stop_reason.and_then(clean),
+                status: v.status.as_deref().and_then(state_of),
             })
         }
         "session_list" => {
-            let v: Value = serde_json::from_str(text).ok().filter(Value::is_object)?;
-            let rows = v.get("sub_sessions")?.as_array()?;
-            let sessions = rows
-                .iter()
+            let v: SubSessionListing = object(text)?;
+            let sessions = v
+                .sub_sessions
+                .into_iter()
                 .filter_map(|row| {
                     Some(ListedSubSession {
-                        session_id: str_of(&row["session_id"])?,
-                        title: str_of(&row["title"]),
-                        repo: str_of(&row["repo"]).or_else(|| str_of(&row["folder"])),
-                        status: state_of(&row["status"]),
-                        archived: row["archived"] == Value::Bool(true),
+                        session_id: row.session_id.and_then(clean)?,
+                        title: row.title.and_then(clean),
+                        repo: row.repo.and_then(clean).or_else(|| row.folder.and_then(clean)),
+                        status: row.status.as_deref().and_then(state_of),
+                        archived: row.archived,
                     })
                 })
                 .collect();
@@ -87,12 +180,19 @@ pub(crate) fn result_of(tool: &str, call: &Value) -> Option<HarnessResult> {
     }
 }
 
-fn str_of(v: &Value) -> Option<String> {
-    v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
+/// `text` as a JSON object of type `T` (a derived reader would also take an array as a struct).
+fn object<T: serde::de::DeserializeOwned>(text: &str) -> Option<T> {
+    let v: Value = serde_json::from_str(text).ok().filter(Value::is_object)?;
+    serde_json::from_value(v).ok()
 }
 
-fn state_of(v: &Value) -> Option<SubSessionState> {
-    match v.as_str()? {
+fn clean(s: String) -> Option<String> {
+    let t = s.trim();
+    (!t.is_empty()).then(|| t.to_owned())
+}
+
+fn state_of(v: &str) -> Option<SubSessionState> {
+    match v {
         "idle" => Some(SubSessionState::Idle),
         "needs_attention" => Some(SubSessionState::NeedsAttention),
         "working" => Some(SubSessionState::Working),
@@ -177,5 +277,49 @@ mod tests {
         for branch in ["main", "harness/fix-it-1", "release/1.2.x"] {
             assert_eq!(result_of("git_push", &out(pushed_text(branch))), Some(HarnessResult::GitPush { branch: branch.into() }), "{branch}");
         }
+    }
+
+    /// The answers are the serde types, and their text is what the tools always wrote.
+    #[test]
+    fn the_answers_keep_their_wire_text() {
+        let text = |v: Value| serde_json::to_string_pretty(&v).unwrap();
+        let s = |v: &str| Some(v.to_owned());
+        let started = SubSessionStarted { session_id: s("s2"), title: s("T"), folder: s("/w/t"), repo: None, branch: s("b"), model: None, effort: s("high") };
+        assert_eq!(
+            text(serde_json::to_value(started).unwrap()),
+            text(json!({ "session_id": "s2", "title": "T", "folder": "/w/t", "repo": null, "branch": "b", "model": null, "effort": "high" }))
+        );
+        let sent = SubSessionSent { session_id: s("s2"), title: s("T") };
+        assert_eq!(text(serde_json::to_value(sent).unwrap()), text(json!({ "session_id": "s2", "title": "T" })));
+        let waited =
+            |stop_reason| SubSessionWaited { session_id: s("s2"), title: s("T"), status: s("idle"), duration_ms: Some(5), reply: s("ok"), stop_reason };
+        assert_eq!(
+            text(serde_json::to_value(waited(s("end_turn"))).unwrap()),
+            text(json!({ "session_id": "s2", "title": "T", "status": "idle", "duration_ms": 5, "reply": "ok", "stop_reason": "end_turn" }))
+        );
+        assert_eq!(
+            text(serde_json::to_value(waited(None)).unwrap()),
+            text(json!({ "session_id": "s2", "title": "T", "status": "idle", "duration_ms": 5, "reply": "ok" }))
+        );
+        let entry = SubSessionEntry { session_id: s("s2"), title: s("T"), folder: s("/w"), repo: None, branch: None, status: s("idle"), archived: true };
+        assert_eq!(
+            text(serde_json::to_value(SubSessionListing { sub_sessions: vec![entry] }).unwrap()),
+            text(
+                json!({ "sub_sessions": [{ "session_id": "s2", "title": "T", "folder": "/w", "repo": null, "branch": null, "status": "idle", "archived": true }] })
+            )
+        );
+    }
+
+    #[test]
+    fn git_status_is_read_from_the_api_type() {
+        let status = crate::api::GitStatus {
+            branch: Some("main".into()),
+            upstream: None,
+            ahead: 1,
+            behind: 0,
+            files: vec![crate::api::FileChange { path: "a".into(), status: "M".into(), additions: Some(1), deletions: None }],
+        };
+        let call = json!({ "rawOutput": serde_json::to_string_pretty(&status).unwrap() });
+        assert_eq!(result_of("git_status", &call), Some(HarnessResult::GitStatus { branch: Some("main".into()), changed: Some(1) }));
     }
 }

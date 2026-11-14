@@ -119,9 +119,7 @@
          "title": "Read File"
       },
       "detail": {
-         "read": {
-            "path": "File"
-         },
+         "read": {},
          "target": ""
       }
    },
@@ -392,5 +390,127 @@
          "title": "Tool call"
       },
       "detail": {}
+   },
+   {
+      "name": "execute: bash -lc",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["bash", "-lc", "ls -la"]
+         }
+      },
+      "detail": {
+         "command": "ls -la"
+      }
+   },
+   {
+      "name": "execute: sh -ec by path",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["/bin/sh", "-ec", "make"]
+         }
+      },
+      "detail": {
+         "command": "make"
+      }
+   },
+   {
+      "name": "execute: zsh -ilc",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["zsh", "-ilc", "echo hi"]
+         }
+      },
+      "detail": {
+         "command": "echo hi"
+      }
+   },
+   {
+      "name": "execute: grep -ic is not a wrapper",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["grep", "-ic", "foo"]
+         }
+      },
+      "detail": {
+         "command": "grep -ic foo"
+      }
+   },
+   {
+      "name": "execute: head -c is not a wrapper",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["head", "-c", "10"]
+         }
+      },
+      "detail": {
+         "command": "head -c 10"
+      }
+   },
+   {
+      "name": "execute: wrapper with an empty script",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["bash", "-lc", ""]
+         }
+      },
+      "detail": {}
+   },
+   {
+      "name": "execute: a wrapper with more args is joined",
+      "call": {
+         "kind": "execute",
+         "title": "x",
+         "rawInput": {
+            "command": ["bash", "-c", "a", "b"]
+         }
+      },
+      "detail": {
+         "command": "bash -c a b"
+      }
+   },
+   {
+      "name": "read: 'Read file' prefix",
+      "call": {
+         "kind": "read",
+         "title": "Read file x"
+      },
+      "detail": {
+         "read": {
+            "path": "file x"
+         },
+         "target": "x"
+      }
+   },
+   {
+      "name": "edit: bare title",
+      "call": {
+         "kind": "edit",
+         "title": "Edit"
+      },
+      "detail": {
+         "target": ""
+      }
+   },
+   {
+      "name": "bare Web search title",
+      "call": {
+         "kind": "other",
+         "title": "Web search"
+      },
+      "detail": {
+         "target": ""
+      }
    }
 ]

@@ -1,5 +1,7 @@
 //! Typed facts out of a tool call's raw ACP JSON, so no Frontend parses Agent payloads (ADR 0012).
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 /// What Frontends need out of a tool call's raw ACP JSON (`kind`, `title`, `rawInput`), read here
@@ -12,16 +14,45 @@ pub struct ToolFacts {
     pub frontend_tool: Option<String>,
 }
 
-/// Sets `detail` on a tool Event from the call as tracked so far (the update merged over its
-/// `tool_call`), so each Event carries the call's facts as of then.
-pub(crate) fn fill_detail(call: &Value, kind: &mut crate::api::EventKind) {
+/// What was last sent of a tool call, so an Event carries a fact only when it is new.
+#[derive(Default)]
+pub(crate) struct Sent {
+    detail: Option<crate::api::ToolDetail>,
+    result: Option<crate::api::HarnessResult>,
+}
+
+/// Sets `detail` on a tool Event from the call as tracked (`calls`: the update merged over its
+/// `tool_call`). Only a new, non-empty value is sent, and only for a call whose `tool_call` this
+/// Turn saw (`sent` has it): a late update after the tracked state was cleared has no call behind
+/// it. A status-only update changes no fact, so it is not even read.
+pub(crate) fn fill_detail(calls: &HashMap<String, Value>, sent: &mut HashMap<String, Sent>, update: &Value, kind: &mut crate::api::EventKind) {
     use crate::api::EventKind::{ToolCall, ToolCallUpdate};
-    if let ToolCall { detail, .. } | ToolCallUpdate { detail, .. } = kind {
-        *detail = Some(crate::agent_quirks::tool_detail(call));
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    match kind {
+        ToolCall { .. } => {
+            sent.insert(id.to_owned(), Sent::default());
+        }
+        ToolCallUpdate { .. }
+            if ["title", "kind", "locations", "rawInput", "rawOutput", "content"].iter().any(|k| update.get(k).is_some_and(|v| !v.is_null())) => {}
+        _ => return,
+    }
+    let (Some(call), Some(sent)) = (calls.get(id), sent.get_mut(id)) else { return };
+    let d = crate::agent_quirks::tool_detail(call);
+    let fresh = d != crate::api::ToolDetail::default() && sent.detail.as_ref() != Some(&d);
+    if let ToolCall { detail, .. } | ToolCallUpdate { detail, .. } = kind
+        && fresh
+    {
+        sent.detail = Some(d.clone());
+        *detail = Some(d);
     }
     if let ToolCallUpdate { harness_result, .. } = kind {
         let tool = call.get("title").and_then(Value::as_str).and_then(crate::mcp::harness_tool_name);
-        *harness_result = tool.and_then(|t| crate::mcp::result_of(t, call)).map(Box::new);
+        if let Some(r) = tool.and_then(|t| crate::mcp::result_of(t, call))
+            && sent.result.as_ref() != Some(&r)
+        {
+            sent.result = Some(r.clone());
+            *harness_result = Some(Box::new(r));
+        }
     }
 }
 
@@ -153,26 +184,61 @@ mod tests {
         }
     }
 
-    #[test]
-    fn events_carry_the_detail_of_the_merged_call() {
-        let call = json!({ "kind": "execute", "title": "ls", "rawInput": { "command": "ls" } });
-        let mut k = normalize(&json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c" }));
-        fill_detail(&call, &mut k);
-        let EventKind::ToolCallUpdate { detail: Some(d), .. } = k else { panic!("no detail") };
-        assert_eq!(d.command.as_deref(), Some("ls"));
-        // A Harness tool's output becomes its typed result, whatever the Agent's title format.
-        for title in ["mcp__harness__git_push", "mcp.harness.git_push"] {
-            let call = json!({ "title": title, "rawOutput": "Pushed main." });
-            let mut k = normalize(&json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c" }));
-            fill_detail(&call, &mut k);
-            assert!(
-                matches!(k, EventKind::ToolCallUpdate { harness_result: Some(r), .. } if *r == crate::api::HarnessResult::GitPush { branch: "main".into() })
-            );
+    fn run(calls: &HashMap<String, Value>, sent: &mut HashMap<String, Sent>, u: Value) -> EventKind {
+        let mut k = normalize(&u);
+        fill_detail(calls, sent, &u, &mut k);
+        k
+    }
+
+    fn detail_of(k: &EventKind) -> Option<&crate::api::ToolDetail> {
+        match k {
+            EventKind::ToolCall { detail, .. } | EventKind::ToolCallUpdate { detail, .. } => detail.as_ref(),
+            _ => None,
         }
-        let mut k = normalize(&json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c" }));
-        fill_detail(&json!({ "title": "git push", "rawOutput": "Pushed main." }), &mut k);
-        assert!(matches!(k, EventKind::ToolCallUpdate { harness_result: None, .. }));
-        let mut other = EventKind::TurnEnded { turn_id: "1".into(), stop_reason: "end_turn".into() };
-        fill_detail(&call, &mut other);
+    }
+
+    #[test]
+    fn a_fact_is_sent_once_and_only_while_the_call_is_known() {
+        let mut calls = HashMap::new();
+        let mut sent = HashMap::new();
+        let start = json!({ "sessionUpdate": "tool_call", "toolCallId": "c", "kind": "execute", "title": "Terminal", "rawInput": {} });
+        calls.insert("c".to_owned(), start.clone());
+        // Nothing to say yet: no `detail` on the wire, not an empty one.
+        assert_eq!(detail_of(&run(&calls, &mut sent, start)), Some(&crate::api::ToolDetail { target: Some(String::new()), ..Default::default() }));
+
+        let mut streamed = 0;
+        let mut events = 1;
+        for n in 0..50 {
+            let u = if n == 5 {
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c", "rawInput": { "command": "ls" }, "title": "ls" })
+            } else if n == 6 {
+                // Output arrives: a fact-bearing field, but the facts did not change.
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c", "content": [] })
+            } else {
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "in_progress" })
+            };
+            for (k, v) in u.as_object().unwrap().iter().filter(|(_, v)| !v.is_null()) {
+                calls.get_mut("c").unwrap().as_object_mut().unwrap().insert(k.clone(), v.clone());
+            }
+            streamed += detail_of(&run(&calls, &mut sent, u)).is_some() as usize;
+            events += 1;
+        }
+        assert_eq!(streamed, 1, "of {events} Events");
+
+        // The tracked state is cleared when the Turns end; a late update has no call behind it.
+        calls.clear();
+        sent.clear();
+        let late = json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed", "title": "ls" });
+        calls.insert("c".to_owned(), late.clone());
+        assert_eq!(detail_of(&run(&calls, &mut sent, late)), None);
+    }
+
+    #[test]
+    fn a_call_without_facts_sends_none() {
+        let mut calls = HashMap::new();
+        let mut sent = HashMap::new();
+        let start = json!({ "sessionUpdate": "tool_call", "toolCallId": "c", "kind": "other", "title": "Tool call" });
+        calls.insert("c".to_owned(), start.clone());
+        assert_eq!(detail_of(&run(&calls, &mut sent, start)), None);
     }
 }

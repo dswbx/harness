@@ -76,6 +76,10 @@ function subagentMeta(d: ChatState, agentType: string | null, model: string | nu
    };
 }
 
+/** A tool `detail` that says something (an empty one is none). */
+const usable = (d: ToolDetail | null | undefined) =>
+   d && Object.keys(d).length > 0 ? d : undefined;
+
 const ended = (status: string | null | undefined) => status === "completed" || status === "failed";
 
 /** Puts the Turn's duration on its last agent message (none if the Turn produced no text). */
@@ -193,7 +197,7 @@ export function timelineSlice(c: Ctx, e: Event) {
             ts: prev?.ts ?? e.ts_ms,
             endedAt: prev?.endedAt ?? (ended(k.status) ? e.ts_ms : null),
             commitMessage: k.commit_message ?? facts.commitMessage,
-            ...(k.detail && { detail: k.detail }),
+            ...(usable(k.detail) && { detail: k.detail as ToolDetail }),
             ...(existing !== undefined &&
                (d.items[existing] as Tool).approval && {
                   approval: (d.items[existing] as Tool).approval,
@@ -237,7 +241,7 @@ export function timelineSlice(c: Ctx, e: Event) {
             rawInput: k.raw_input,
          });
          const subagentPrompt = k.subagent?.prompt ?? facts.subagentPrompt ?? base.subagentPrompt;
-         const detail: ToolDetail | undefined = k.detail ?? base.detail;
+         const detail: ToolDetail | undefined = usable(k.detail) ?? base.detail;
          const harnessResult: HarnessResult | undefined = k.harness_result ?? base.harnessResult;
          const next: Tool = {
             ...base,

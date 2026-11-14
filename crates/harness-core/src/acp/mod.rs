@@ -137,6 +137,7 @@ pub async fn prompt(
             }
             if s.turns.values().all(|n| *n == 0) {
                 s.tool_calls.clear();
+                s.tool_sent.clear();
             }
         });
         let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });

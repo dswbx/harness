@@ -5,7 +5,7 @@
 
 mod frontend_tools;
 mod info;
-mod results;
+pub(crate) mod results;
 mod server;
 mod shim;
 mod tools;
