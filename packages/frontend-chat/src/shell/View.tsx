@@ -85,6 +85,7 @@ import {
    ReferencesProbe,
    type ResolvedReferences,
 } from "../features/references/ReferencesPanel";
+import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { RenderUi, type UiEnv } from "../features/renderUi/RenderUi";
 import type { Slot } from "../features/renderUi/slots";
 import { useSourceStamps } from "../features/renderUi/source";
@@ -105,7 +106,7 @@ import { errorMessage } from "../lib/errors";
 import { OpenSession } from "../lib/OpenSession";
 import { formatAge, formatRelativeTime, useNow } from "../lib/time";
 import { PanelHeader } from "../panels/PanelHeader";
-import { type ChatState, initialState, reduce, reduceBatch } from "../state/reducer";
+import { type ChatState, initialState } from "../state/reducer";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { usePanelDrag } from "./panelDrag";
 import {

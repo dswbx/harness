@@ -1,4 +1,4 @@
-import type { ChatState, Item } from "./types";
+import type { ChatState, Item, ToolDecoder } from "./types";
 
 export const initialState = (): ChatState => ({
    items: [],
@@ -43,15 +43,17 @@ export type Ctx = {
    /** Side Thread contexts touched in this batch (their `d` goes into `d.threads`). */
    sides: Map<string, Ctx> | null;
    threadsOwned: boolean;
+   decodeTool: ToolDecoder;
 };
 
-export const newCtx = (d: ChatState): Ctx => ({
+export const newCtx = (d: ChatState, decodeTool: ToolDecoder): Ctx => ({
    d,
    owned: false,
    tools: null,
    perms: null,
    sides: null,
    threadsOwned: false,
+   decodeTool,
 });
 
 export function own(c: Ctx): Item[] {
@@ -92,7 +94,7 @@ export function sideCtx(c: Ctx, threadId: string): Ctx {
    c.sides ??= new Map();
    let sc = c.sides.get(threadId);
    if (!sc) {
-      sc = newCtx({ ...(c.d.threads[threadId] ?? initialState()) });
+      sc = newCtx({ ...(c.d.threads[threadId] ?? initialState()) }, c.decodeTool);
       c.sides.set(threadId, sc);
    }
    if (!c.threadsOwned) {
