@@ -3,6 +3,7 @@ import {
    revealPath,
    type SharedArtifactMeta,
    type StatePatchOp,
+   storedNumber,
 } from "@harness/api";
 import {
    Button,
@@ -44,6 +45,7 @@ import { useCapture } from "./Capture";
 
 const KIND: Record<SharedArtifactMeta["kind"], string> = { md: "Markdown", html: "HTML", ui: "UI" };
 
+const sideWidth = storedNumber("harness:shared-artifact-side-width");
 const noSession = () => Promise.reject(new Error("This view has no Session."));
 
 /**
@@ -106,7 +108,7 @@ export function SharedArtifactView({
    const [tab, setTab] = useState<"info" | "image" | "source">("info");
    const { stage, shoot } = useCapture();
    const side = useResizableWidth({
-      storageKey: "harness:shared-artifact-side-width",
+      store: sideWidth,
       initial: 320,
       min: 240,
       max: 640,

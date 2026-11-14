@@ -1,5 +1,5 @@
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
-import { HarnessClient as Client, errText, useSharedArtifacts } from "@harness/api";
+import { HarnessClient as Client, errText, forgetSession, useSharedArtifacts } from "@harness/api";
 import { cn, ResizeHandle } from "@harness/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerDialog } from "../composer/ComposerDialog";
@@ -12,6 +12,7 @@ import { useQuickLifecycle } from "../quick/useQuickLifecycle";
 import { SessionHeader, trafficLights } from "../session-header/SessionHeader";
 import { useGitRef } from "../session-header/useGitRef";
 import { DeleteSessionDialog } from "../sessions/DeleteSessionDialog";
+import { forgetGone, withSubSessions } from "../sessions/forgetGone";
 import { SessionList } from "../sessions/SessionList";
 import { hideUnusedQuick } from "../sessions/sessionGroups";
 import { useSessions } from "../sessions/useSessions";
@@ -146,7 +147,15 @@ export function Shell({ transport }: { transport: Transport }) {
       if (!toDelete) return;
       setDeleting(true);
       try {
-         await client.deleteSession(toDelete.id, deleteError !== null);
+         const ids = withSubSessions(sessions, toDelete.id);
+         try {
+            await client.deleteSession(toDelete.id, deleteError !== null);
+            for (const id of ids) forgetSession(id);
+         } catch (e) {
+            // Failed partway: the Sessions the core did remove lose their local state too.
+            await forgetGone(client, ids);
+            throw e;
+         }
          if (selected === toDelete.id) setSelected(null);
          setToDelete(null);
          await refresh();

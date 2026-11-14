@@ -1,10 +1,11 @@
-import { errText } from "@harness/api";
+import { errText, onStorageFailure } from "@harness/api";
 import { AlertTriangle, X } from "lucide-react";
 import {
    createContext,
    type ReactNode,
    useCallback,
    useContext,
+   useEffect,
    useMemo,
    useRef,
    useState,
@@ -36,6 +37,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
          setTimeout(() => dismiss(id), TTL_MS);
       },
       [dismiss],
+   );
+   // A failed localStorage write (a full quota, mostly): drafts and settings would silently not persist.
+   useEffect(
+      () =>
+         onStorageFailure((f) =>
+            report(
+               "Could not save locally",
+               new Error(
+                  f.quota
+                     ? "browser storage is full, so drafts and settings may not be kept"
+                     : "browser storage is not writable",
+               ),
+            ),
+         ),
+      [report],
    );
    const value = useMemo(() => report, [report]);
    return (

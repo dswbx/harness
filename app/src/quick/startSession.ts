@@ -1,4 +1,10 @@
-import type { AgentInfo, FrontendManifest, HarnessClient, SessionSummary } from "@harness/api";
+import {
+   type AgentInfo,
+   type FrontendManifest,
+   type HarnessClient,
+   type SessionSummary,
+   storedValue,
+} from "@harness/api";
 import { quickAgent } from "../composer/composer";
 
 /**
@@ -38,21 +44,18 @@ export function pickStart(p: StartPolicy): { agent?: AgentInfo; frontendId?: str
 /** The Agent of the last Session sent from the overlay; the next draft starts with it. */
 const AGENT_KEY = "harness.overlay.agent";
 
-export function savedAgent(): string | null {
-   try {
-      return localStorage.getItem(AGENT_KEY);
-   } catch {
-      return null;
-   }
-}
+const agentStore = storedValue<string | null>({
+   key: AGENT_KEY,
+   scope: "app",
+   parse: (raw) => raw,
+   serialize: (v) => v ?? "",
+   sync: false,
+});
 
-export function saveAgent(id: string) {
-   try {
-      localStorage.setItem(AGENT_KEY, id);
-   } catch {
-      /* the next draft falls back to the newest Session's Agent */
-   }
-}
+export const savedAgent = (): string | null => agentStore.get();
+
+/** A failed write: the next draft falls back to the newest Session's Agent. */
+export const saveAgent = (id: string) => void agentStore.set(id);
 
 export type StartedQuick = {
    id: string;

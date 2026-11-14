@@ -1,4 +1,4 @@
-import { draftStorageKey, notifyDraftsChanged } from "@harness/api";
+import { draftStorageKey, parseDraftKey, storedValue } from "@harness/api";
 import { useCallback, useSyncExternalStore } from "react";
 import type { PendingAttachment } from "./attachments";
 import type { PromptSnapshot } from "./promptMarkdown";
@@ -8,27 +8,25 @@ import type { PromptSnapshot } from "./promptMarkdown";
  * The editor content goes to localStorage (it also survives a restart); attachments stay in memory
  * (image previews are data URLs, too big to store).
  */
+const store = (key: string) =>
+   storedValue<PromptSnapshot | null>({
+      key: draftStorageKey(key),
+      scope: { session: parseDraftKey(key).sessionId },
+      parse: (raw) => (raw ? (JSON.parse(raw) as PromptSnapshot) : null),
+      sync: false,
+   });
+
 export function getDraft(key: string): PromptSnapshot | null {
-   try {
-      const raw = localStorage.getItem(draftStorageKey(key));
-      return raw ? (JSON.parse(raw) as PromptSnapshot) : null;
-   } catch {
-      return null;
-   }
+   return store(key).get();
 }
 
-/** Stores `snap` for `key`; `null` (an empty box) removes it. */
-export function setDraft(key: string, snap: PromptSnapshot | null) {
-   try {
-      const k = draftStorageKey(key);
-      const had = localStorage.getItem(k) !== null;
-      if (snap) localStorage.setItem(k, JSON.stringify(snap));
-      else localStorage.removeItem(k);
-      // Only having a draft or not matters to the sidebar: don't wake it on every keystroke.
-      if (had !== !!snap) notifyDraftsChanged();
-   } catch {
-      // Storage blocked or full: the draft stays unsaved.
-   }
+/**
+ * Stores `snap` for `key`; `null` (an empty box) removes it. False when it could not be saved
+ * (storage full or blocked): the draft stays unsaved; the host is told once through `onStorageFailure`.
+ */
+export function setDraft(key: string, snap: PromptSnapshot | null): boolean {
+   const s = store(key);
+   return snap ? s.set(snap) : s.remove();
 }
 
 const EMPTY: PendingAttachment[] = [];

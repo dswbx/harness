@@ -14,6 +14,7 @@ import {
    PORTABLE_FILES,
    portableViolation,
    uiViolation,
+   usesWebStorage,
 } from "./boundaries";
 
 /**
@@ -36,6 +37,14 @@ const LAYER_ALLOWED: Record<string, string> = {};
 const APP_ALLOWED: Record<string, string> = {
    "app/src/mock/events.ts":
       "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
+};
+
+/**
+ * The only files that may use localStorage/sessionStorage directly (paths from the repo root), with
+ * the reason. Everything else goes through `storedValue` and the `STORAGE_KEYS` registry.
+ */
+const STORAGE_ALLOWED: Record<string, string> = {
+   "packages/api/src/platform/storage.ts": "the helper itself",
 };
 
 let bad = 0;
@@ -129,6 +138,24 @@ for (const file of walk(resolve("app/src"))) {
       const why = appViolation(spec, names, file, resolve("."));
       if (why) {
          console.error(`${file}: forbidden import "${spec}": ${why}`);
+         bad++;
+      }
+   }
+}
+
+// Web storage goes through the helper, so keys stay declared and writes report failures.
+for (const root of ["app/src", ...readdirSync("packages").map((p) => `packages/${p}/src`)]) {
+   let files: string[];
+   try {
+      files = walk(resolve(root));
+   } catch {
+      continue;
+   }
+   for (const file of files) {
+      const rel = relative(resolve("."), file);
+      if (/\.test\.tsx?$/.test(file) || rel in STORAGE_ALLOWED) continue;
+      if (usesWebStorage(readFileSync(file, "utf8"))) {
+         console.error(`${rel}: uses localStorage/sessionStorage directly, use storedValue`);
          bad++;
       }
    }

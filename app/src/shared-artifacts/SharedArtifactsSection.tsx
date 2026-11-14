@@ -1,4 +1,4 @@
-import type { SharedArtifactEntry } from "@harness/api";
+import { type SharedArtifactEntry, storedValue } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, Search, Share2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +13,8 @@ import {
 } from "./sharedSection";
 
 const SEEN_KEY = "harness.sharedArtifacts.seen";
+// Only asked whether it exists yet (useStored keeps the value).
+const seenStore = storedValue<null>({ key: SEEN_KEY, scope: "app", parse: () => null });
 const isBool = (v: unknown): v is boolean => typeof v === "boolean";
 
 /**
@@ -42,11 +44,7 @@ export function SharedArtifactsSection({
 
    // Keep the first `since`, so a reload does not hide what changed while the app was closed.
    useEffect(() => {
-      try {
-         if (localStorage.getItem(SEEN_KEY) === null) setSeen(seen);
-      } catch {
-         /* per-window convenience only */
-      }
+      if (!seenStore.has()) setSeen(seen);
    }, [seen, setSeen]);
 
    // Opening an artifact marks it seen, and so does each change while it is open.

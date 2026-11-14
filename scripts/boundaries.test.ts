@@ -13,6 +13,7 @@ import {
    portableViolation,
    stripComments,
    uiViolation,
+   usesWebStorage,
 } from "./boundaries";
 
 describe("layerViolation", () => {
@@ -202,5 +203,18 @@ describe("portableViolation", () => {
    it("lists only existing files", () => {
       for (const f of PORTABLE_FILES)
          expect(existsSync(resolve("packages/frontend-chat/src", f))).toBe(true);
+   });
+});
+
+describe("usesWebStorage", () => {
+   it("flags direct localStorage / sessionStorage use", () => {
+      expect(usesWebStorage('localStorage.getItem("k")')).toBe(true);
+      expect(usesWebStorage("globalThis.localStorage")).toBe(true);
+      expect(usesWebStorage('vi.stubGlobal("sessionStorage", s)')).toBe(true);
+   });
+   it("ignores comments and a name in a string list", () => {
+      expect(usesWebStorage("// kept in localStorage\nconst a = 1;")).toBe(false);
+      expect(usesWebStorage("/** localStorage key */ const a = 1;")).toBe(false);
+      expect(usesWebStorage('grep "sqlite|localStorage|sessionStorage|indexedDB"')).toBe(false);
    });
 });

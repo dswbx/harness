@@ -1,4 +1,10 @@
-import type { AgentInfo, Branches, BranchInfo, SessionSummary } from "@harness/api";
+import {
+   type AgentInfo,
+   type Branches,
+   type BranchInfo,
+   type SessionSummary,
+   storedValue,
+} from "@harness/api";
 
 /** Title of a Quick Session until its first prompt (the core's `QUICK_TITLE`). */
 export const QUICK_TITLE = "New Quick Session";
@@ -18,26 +24,27 @@ const MAX_RECENT = 20;
 
 export type RecentFolder = { path: string; at: number };
 
-export function loadRecent(): RecentFolder[] {
-   try {
-      const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-      return Array.isArray(v)
-         ? v.filter((x) => typeof x?.path === "string" && typeof x?.at === "number")
-         : [];
-   } catch {
-      return [];
-   }
-}
+const recentStore = storedValue<RecentFolder[]>({
+   key: RECENT_KEY,
+   scope: "app",
+   parse: (raw) => {
+      try {
+         const v = JSON.parse(raw ?? "[]");
+         return Array.isArray(v)
+            ? v.filter((x) => typeof x?.path === "string" && typeof x?.at === "number")
+            : [];
+      } catch {
+         return [];
+      }
+   },
+   sync: false,
+});
 
+export const loadRecent = (): RecentFolder[] => recentStore.get();
+
+/** Storage unavailable or full: the list falls back to Sessions. */
 export function rememberFolder(path: string, now = Date.now()) {
-   try {
-      localStorage.setItem(
-         RECENT_KEY,
-         JSON.stringify(mergeRecent([{ path, at: now }], loadRecent())),
-      );
-   } catch {
-      // Storage unavailable: the list falls back to Sessions.
-   }
+   recentStore.set(mergeRecent([{ path, at: now }], loadRecent()));
 }
 
 /** Newest first, one entry per path (its newest use), at most MAX_RECENT. */

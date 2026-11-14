@@ -1,3 +1,4 @@
+import { sessionJson } from "../../lib/jsonStore";
 import {
    DEFAULT_SIZES,
    defaultLayout,
@@ -91,20 +92,13 @@ export function migratePanel(raw: unknown): Layout {
    return show(withId, id);
 }
 
-function readJson(key: string): unknown {
-   try {
-      const s = localStorage.getItem(key);
-      return s === null ? undefined : JSON.parse(s);
-   } catch {
-      return undefined;
-   }
-}
+const readJson = (key: string, sessionId: string): unknown => sessionJson(key, sessionId).get();
 
 /** Per Session, so switching Sessions (and restarting the app) keeps it. Migrates the old right-panel key. */
 export function loadLayout(sessionId: string): Layout {
-   const stored = readJson(KEY(sessionId));
+   const stored = readJson(KEY(sessionId), sessionId);
    if (stored !== undefined) return parseLayout(stored);
-   const old = readJson(OLD_KEY(sessionId));
+   const old = readJson(OLD_KEY(sessionId), sessionId);
    return old !== undefined ? migratePanel(old) : defaultLayout();
 }
 
@@ -120,9 +114,9 @@ export function saveLayout(sessionId: string, l: Layout) {
       // The Side chats tabs keep their own key. Until it exists, the `threads`/`thread` fields of the value
       // this replaces (v1, or the v0 key) travel along untouched, so no tab is lost whatever the order of the
       // two writes. An older build reads them too.
-      const prev = readJson(KEY(sessionId)) ?? readJson(OLD_KEY(sessionId));
+      const prev = readJson(KEY(sessionId), sessionId) ?? readJson(OLD_KEY(sessionId), sessionId);
       const kept: Record<string, unknown> = {};
-      if (hasOldTabs(prev) && localStorage.getItem(TABS_KEY(sessionId)) === null) {
+      if (hasOldTabs(prev) && !sessionJson(TABS_KEY(sessionId), sessionId).has()) {
          for (const k of ["threads", "thread"]) {
             const p = prev as Record<string, unknown>;
             if (k in p) kept[k] = p[k];
@@ -134,9 +128,9 @@ export function saveLayout(sessionId: string, l: Layout) {
          ZONES.every((z) => !open[z]) &&
          JSON.stringify(out.zones) === JSON.stringify(defaultLayout().zones) &&
          JSON.stringify(out.sizes) === JSON.stringify(DEFAULT_SIZES);
-      if (plain) localStorage.removeItem(KEY(sessionId));
-      else localStorage.setItem(KEY(sessionId), JSON.stringify(out));
-      localStorage.removeItem(OLD_KEY(sessionId));
+      const own = sessionJson(KEY(sessionId), sessionId);
+      // The legacy key is the fallback copy: drop it only once the new write went through.
+      if (plain ? own.remove() : own.set(out)) sessionJson(OLD_KEY(sessionId), sessionId).remove();
    } catch {
       /* not kept */
    }

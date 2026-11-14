@@ -1,4 +1,4 @@
-import type { Frontend } from "@harness/api";
+import { type Frontend, storedValue } from "@harness/api";
 import manifest from "../manifest.json";
 import { ArtifactRequest } from "./features/artifacts/ArtifactRequest";
 import { RenderUiGallery } from "./features/artifacts/Gallery";
@@ -53,8 +53,4 @@ export {
 } from "./features/renderUi/tools";
 
 // Cards were removed; drop the stored tool display choice. Can go after a few releases.
-try {
-   localStorage.removeItem("harness.chat.toolDisplay");
-} catch {
-   /* storage unavailable */
-}
+storedValue({ key: "harness.chat.toolDisplay", scope: "app", parse: () => null }).remove();

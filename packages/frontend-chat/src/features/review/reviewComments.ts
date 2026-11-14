@@ -1,5 +1,12 @@
-import { draftKey } from "@harness/api";
-import { useMemo, useSyncExternalStore } from "react";
+import {
+   draftKey,
+   onSessionForgotten,
+   parseDraftKey,
+   type Stored,
+   storedValue,
+   useStoredValue,
+} from "@harness/api";
+import { useMemo } from "react";
 import {
    type DiffComment,
    type FileComment,
@@ -12,43 +19,35 @@ import {
 export * from "../../state/reviewCommentText";
 
 // Store: localStorage per Session, so the pop-out diff window and the main window share it.
-// The `storage` event tells other windows; `listeners` tells this one.
-const PREFIX = "harness.review-comments.";
-const listeners = new Set<() => void>();
-const cache = new Map<string, { raw: string | null; list: ReviewComment[] }>();
 const EMPTY: ReviewComment[] = [];
-
-function readRaw(sessionId: string): string | null {
-   try {
-      return localStorage.getItem(PREFIX + sessionId);
-   } catch {
-      return null;
+// `sessionId` is the composer key here (see `composerKey`): `sessionId#threadId` for a Side Thread.
+const stores = new Map<string, Stored<ReviewComment[]>>();
+onSessionForgotten((id) => {
+   for (const k of [...stores.keys()]) if (parseDraftKey(k).sessionId === id) stores.delete(k);
+});
+const storeOf = (sessionId: string) => {
+   let s = stores.get(sessionId);
+   if (!s) {
+      s = storedValue<ReviewComment[]>({
+         key: `harness.review-comments.${sessionId}`,
+         scope: { session: parseDraftKey(sessionId).sessionId },
+         // Corrupt entry: treat as empty.
+         parse: (raw) => {
+            const v: unknown = raw ? JSON.parse(raw) : null;
+            return Array.isArray(v) ? (v as ReviewComment[]) : EMPTY;
+         },
+      });
+      stores.set(sessionId, s);
    }
-}
+   return s;
+};
 
-export function getReviewComments(sessionId: string): ReviewComment[] {
-   const raw = readRaw(sessionId);
-   const hit = cache.get(sessionId);
-   if (hit && hit.raw === raw) return hit.list;
-   let list = EMPTY;
-   try {
-      const v: unknown = raw ? JSON.parse(raw) : null;
-      if (Array.isArray(v)) list = v as ReviewComment[];
-   } catch {
-      // Corrupt entry: treat as empty.
-   }
-   cache.set(sessionId, { raw, list });
-   return list;
-}
+export const getReviewComments = (sessionId: string): ReviewComment[] => storeOf(sessionId).get();
 
 export function setReviewComments(sessionId: string, list: ReviewComment[]) {
-   try {
-      if (list.length) localStorage.setItem(PREFIX + sessionId, JSON.stringify(list));
-      else localStorage.removeItem(PREFIX + sessionId);
-   } catch {
-      // Storage blocked: comments stay unsaved.
-   }
-   for (const l of listeners) l();
+   const s = storeOf(sessionId);
+   if (list.length) s.set(list);
+   else s.remove();
 }
 
 /**
@@ -69,21 +68,8 @@ export const removeReviewComment = (sessionId: string, id: string) =>
       getReviewComments(sessionId).filter((c) => c.id !== id),
    );
 
-function subscribe(cb: () => void) {
-   listeners.add(cb);
-   const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key.startsWith(PREFIX)) cb();
-   };
-   window.addEventListener("storage", onStorage);
-   return () => {
-      listeners.delete(cb);
-      window.removeEventListener("storage", onStorage);
-   };
-}
-
-export function useReviewComments(sessionId: string): ReviewComment[] {
-   return useSyncExternalStore(subscribe, () => getReviewComments(sessionId));
-}
+export const useReviewComments = (sessionId: string): ReviewComment[] =>
+   useStoredValue(storeOf(sessionId));
 
 /** This Session's diff line comments (for the diff views). */
 export function useDiffComments(sessionId: string): DiffComment[] {

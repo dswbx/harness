@@ -78,6 +78,12 @@ export function uiViolation(spec: string): string | null {
    return null;
 }
 
+/** localStorage / sessionStorage used as an API (not a word in a string list). */
+const STORAGE_USE = /(?<![\w|])(?:local|session)Storage\b(?!\s*\|)/;
+
+/** Whether `src` (comments ignored) touches web storage directly: only `@harness/api`'s storage helper may. */
+export const usesWebStorage = (src: string): boolean => STORAGE_USE.test(stripComments(src));
+
 /** Why the `@harness/api` entry may not import `spec`; null when it may. The browser mock stays out of the production bundle. */
 export function apiEntryViolation(spec: string): string | null {
    return /^\.\/mock(\/|$)/.test(spec)
