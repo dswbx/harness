@@ -15,19 +15,17 @@ fn file(key: AppSettingKey) -> &'static str {
 }
 
 pub fn load(data_dir: &Path, key: AppSettingKey) -> Option<Json> {
-    serde_json::from_slice(&std::fs::read(data_dir.join(file(key))).ok()?).ok()
+    json_file(data_dir, key).load_logged()
+}
+
+fn json_file(data_dir: &Path, key: AppSettingKey) -> crate::persist::JsonFile<Json> {
+    crate::persist::JsonFile::in_dir(data_dir, file(key))
 }
 
 pub fn save(data_dir: &Path, key: AppSettingKey, value: Option<&Json>) -> anyhow::Result<()> {
-    let path = data_dir.join(file(key));
     match value {
-        Some(v) => {
-            // Write then rename: a crash never leaves half a file.
-            crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(v)?)?;
-        }
-        None => {
-            let _ = std::fs::remove_file(path);
-        }
+        Some(v) => json_file(data_dir, key).save(v)?,
+        None => json_file(data_dir, key).remove(),
     }
     Ok(())
 }
@@ -49,6 +47,16 @@ pub async fn fetch_json(url: &str) -> anyhow::Result<Json> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_corrupt_setting_is_moved_aside_and_reads_as_unset() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("themes.json"), r#"{"zen":{"label":"Zen"}}"#).unwrap();
+        assert_eq!(load(dir.path(), AppSettingKey::Themes), Some(serde_json::json!({"zen": {"label": "Zen"}})));
+        std::fs::write(dir.path().join("themes.json"), b"{").unwrap();
+        assert_eq!(load(dir.path(), AppSettingKey::Themes), None);
+        assert!(std::fs::read_dir(dir.path()).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("themes.json.corrupt-")));
+    }
     use super::*;
 
     #[test]

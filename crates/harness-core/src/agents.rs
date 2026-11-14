@@ -91,19 +91,8 @@ pub struct Agents {
 
 impl Agents {
     pub fn open(data_dir: &Path, registry_url: String, fixed: Vec<AgentInfo>) -> anyhow::Result<Self> {
-        let installed = match std::fs::read(data_dir.join("agents.json")) {
-            Ok(b) => serde_json::from_slice(&b)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
-        let config = match std::fs::read(data_dir.join("agent-config.json")) {
-            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
-                tracing::warn!("agent-config.json unreadable, starting empty: {e}");
-                BTreeMap::new()
-            }),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-            Err(e) => return Err(e.into()),
-        };
+        let installed = Self::installed_file(data_dir).load_or_default()?;
+        let config = Self::config_file(data_dir).load_or_default()?;
         Ok(Self {
             data_dir: data_dir.to_owned(),
             registry_url,
@@ -113,6 +102,14 @@ impl Agents {
             toolchain: Toolchain::new(data_dir),
             install_lock: Default::default(),
         })
+    }
+
+    fn installed_file(data_dir: &Path) -> crate::persist::JsonFile<Vec<AgentInfo>> {
+        crate::persist::JsonFile::in_dir(data_dir, "agents.json")
+    }
+
+    fn config_file(data_dir: &Path) -> crate::persist::JsonFile<BTreeMap<String, BTreeMap<String, String>>> {
+        crate::persist::JsonFile::in_dir(data_dir, "agent-config.json")
     }
 
     pub fn list(&self) -> Vec<AgentInfo> {
@@ -126,8 +123,7 @@ impl Agents {
     }
 
     fn save(&self, agents: &[AgentInfo]) -> anyhow::Result<()> {
-        let path = self.data_dir.join("agents.json");
-        crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(agents)?)
+        crate::persist::JsonFile::<Vec<AgentInfo>>::in_dir(&self.data_dir, "agents.json").save(&agents.to_vec())
     }
 
     /// Config option values last picked for the Agent (id -> value).
@@ -139,8 +135,7 @@ impl Agents {
     pub fn remember_config(&self, agent_id: &str, config_id: &str, value: &str) -> anyhow::Result<()> {
         let mut all = self.config.write();
         all.entry(agent_id.to_owned()).or_default().insert(config_id.to_owned(), value.to_owned());
-        let path = self.data_dir.join("agent-config.json");
-        crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(&*all)?)
+        Self::config_file(&self.data_dir).save(&all)
     }
 
     fn upsert(&self, agent: AgentInfo) -> anyhow::Result<()> {
@@ -462,6 +457,39 @@ fn make_executable(p: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    fn open(dir: &Path) -> Agents {
+        Agents::open(dir, REGISTRY_URL.to_owned(), vec![]).unwrap()
+    }
+
+    #[test]
+    fn reads_the_file_formats_of_today() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("agents.json"),
+            r#"[{"id":"mine","name":"Mine","command":"/bin/mine","args":["--acp"],"env":{"A":"b"},"source":{"type":"custom"},"version":null,"icon":null}]"#,
+        )
+        .unwrap();
+        std::fs::write(d.path().join("agent-config.json"), r#"{"mine":{"model":"fast"}}"#).unwrap();
+        let a = open(d.path());
+        assert_eq!(a.get("mine").unwrap().args, vec!["--acp"]);
+        assert_eq!(a.remembered_config("mine")["model"], "fast");
+        a.remember_config("mine", "effort", "high").unwrap();
+        let written: serde_json::Value = serde_json::from_slice(&std::fs::read(d.path().join("agent-config.json")).unwrap()).unwrap();
+        assert_eq!(written, serde_json::json!({"mine": {"effort": "high", "model": "fast"}}));
+    }
+
+    #[test]
+    fn corrupt_files_no_longer_block_the_start() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("agents.json"), b"[{").unwrap();
+        std::fs::write(d.path().join("agent-config.json"), b"nope").unwrap();
+        let a = open(d.path());
+        assert!(a.list().is_empty());
+        assert!(a.remembered_config("x").is_empty());
+        let moved = |p: &str| std::fs::read_dir(d.path()).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(p)).count();
+        assert_eq!((moved("agents.json.corrupt-"), moved("agent-config.json.corrupt-")), (1, 1));
+    }
     use super::*;
 
     #[test]

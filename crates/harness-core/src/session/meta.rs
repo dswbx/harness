@@ -144,7 +144,7 @@ impl Session {
 }
 
 pub(super) fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
-    crate::fsutil::write_atomic(&dir.join("session.json"), &serde_json::to_vec_pretty(meta)?)
+    crate::persist::JsonFile::<SessionMeta>::in_dir(dir, "session.json").save(meta)
 }
 
 #[cfg(test)]
@@ -160,5 +160,17 @@ mod meta_tests {
         assert!(!json.contains("parent") && !json.contains("initial_config"), "{json}");
         let again: SessionMeta = serde_json::from_str(&json).unwrap();
         assert_eq!(again.id, "s");
+    }
+
+    #[test]
+    fn write_meta_is_atomic_and_keeps_the_shape() {
+        let old = r#"{"id":"s","title":"T","folder":"/f","agent":{"id":"a","name":"A","command":"a","args":[],"env":{}},"frontend_id":"chat","created_ms":1,"main_thread_id":"m"}"#;
+        let m: SessionMeta = serde_json::from_str(old).unwrap();
+        let d = tempfile::tempdir().unwrap();
+        write_meta(d.path(), &m).unwrap();
+        write_meta(d.path(), &m).unwrap();
+        let back: SessionMeta = serde_json::from_slice(&std::fs::read(d.path().join("session.json")).unwrap()).unwrap();
+        assert_eq!((back.id, back.title), ("s".to_owned(), "T".to_owned()));
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
     }
 }

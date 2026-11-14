@@ -48,11 +48,8 @@ pub struct Policy {
 
 impl Policy {
     pub fn open(path: PathBuf) -> anyhow::Result<Self> {
-        let rules = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<File>(&bytes)?.rules,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
+        // A corrupt file is moved aside and the built-in defaults apply (ask), never a looser policy.
+        let rules = crate::persist::JsonFile::<File>::new(path.clone()).load_or_default()?.rules;
         Ok(Self { path, rules: RwLock::new(rules) })
     }
 
@@ -90,7 +87,7 @@ impl Policy {
     }
 
     fn save(&self, rules: &[PermissionRule]) -> anyhow::Result<()> {
-        crate::fsutil::write_atomic(&self.path, &serde_json::to_vec_pretty(&File { rules: rules.to_vec() })?)
+        crate::persist::JsonFile::new(self.path.clone()).save(&File { rules: rules.to_vec() })
     }
 
     pub fn evaluate(&self, cx: &Context, facts: &ToolFacts) -> Verdict {
@@ -209,6 +206,44 @@ fn normalize(p: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+
+    fn corrupt_files(d: &Path) -> usize {
+        std::fs::read_dir(d).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("permissions.json.corrupt-")).count()
+    }
+
+    #[test]
+    fn reads_the_file_format_of_today() {
+        let d = tempfile::tempdir().unwrap();
+        let fixture = r#"{"rules":[{"id":"r1","scope":{"type":"agent","agent_id":"claude"},"tool_kind":"fetch","pattern":null,"decision":"deny"},{"id":"r2","scope":{"type":"global"},"tool_kind":"read","pattern":"src/**","decision":"allow"}]}"#;
+        std::fs::write(d.path().join("permissions.json"), fixture).unwrap();
+        let p = Policy::open(d.path().join("permissions.json")).unwrap();
+        assert_eq!(p.list().len(), 2);
+        p.remove("r1").unwrap();
+        let written: Value = serde_json::from_slice(&std::fs::read(d.path().join("permissions.json")).unwrap()).unwrap();
+        assert_eq!(written["rules"].as_array().unwrap().len(), 1);
+        assert_eq!(written["rules"][0]["id"], "r2");
+        assert_eq!(written["rules"][0]["pattern"], "src/**");
+    }
+
+    #[test]
+    fn a_corrupt_file_is_moved_aside_and_the_safe_defaults_apply() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("permissions.json"), b"{\"rules\": [{\"id\":").unwrap();
+        let p = Policy::open(d.path().join("permissions.json")).unwrap();
+        assert!(p.list().is_empty());
+        assert_eq!(corrupt_files(d.path()), 1);
+        // Fresh-install behaviour: edits, commands and fetches ask.
+        for facts in [
+            ToolFacts { kind: Some("edit".into()), command: None, paths: vec![PathBuf::from("/work/a.rs")] },
+            exec("rm -rf /"),
+            ToolFacts { kind: Some("fetch".into()), ..Default::default() },
+        ] {
+            assert_eq!(p.evaluate(&cx(), &facts).decision, Decision::Ask);
+        }
+        // Rules can be added again afterwards.
+        p.add(rule(RuleScope::Global, Some("fetch"), None, Decision::Deny)).unwrap();
+        assert_eq!(Policy::open(d.path().join("permissions.json")).unwrap().list().len(), 1);
+    }
     use super::*;
     use serde_json::json;
 

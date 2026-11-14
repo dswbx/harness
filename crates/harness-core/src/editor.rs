@@ -6,16 +6,17 @@ use std::path::{Path, PathBuf};
 use crate::api::Editor;
 
 pub fn load(data_dir: &Path) -> Option<Editor> {
-    serde_json::from_slice(&std::fs::read(data_dir.join("editor.json")).ok()?).ok()
+    file(data_dir).load_logged()
+}
+
+fn file(data_dir: &Path) -> crate::persist::JsonFile<Editor> {
+    crate::persist::JsonFile::in_dir(data_dir, "editor.json")
 }
 
 pub fn save(data_dir: &Path, editor: Option<&Editor>) -> anyhow::Result<()> {
-    let path = data_dir.join("editor.json");
     match editor {
-        Some(e) => std::fs::write(path, serde_json::to_vec_pretty(e)?)?,
-        None => {
-            let _ = std::fs::remove_file(path);
-        }
+        Some(e) => file(data_dir).save(e)?,
+        None => file(data_dir).remove(),
     }
     Ok(())
 }
@@ -197,6 +198,22 @@ fn encode(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn editor_file_round_trips_and_a_corrupt_one_reads_as_unset() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("editor.json"), r#"{"type":"custom","template":"x://{path}"}"#).unwrap();
+        assert_eq!(load(d.path()), Some(Editor::Custom { template: "x://{path}".into() }));
+        save(d.path(), Some(&Editor::Zed)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(d.path().join("editor.json")).unwrap()).unwrap(),
+            serde_json::json!({"type": "zed"})
+        );
+        std::fs::write(d.path().join("editor.json"), b"{oops").unwrap();
+        assert_eq!(load(d.path()), None);
+        assert!(std::fs::read_dir(d.path()).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("editor.json.corrupt-")));
+        save(d.path(), None).unwrap();
+    }
     use super::*;
 
     #[test]

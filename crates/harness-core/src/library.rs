@@ -71,11 +71,7 @@ fn secret_key(server_id: &str, key: &str) -> String {
 
 impl Library {
     pub fn open(path: PathBuf, secrets: Box<dyn Secrets>) -> anyhow::Result<Self> {
-        let servers = match std::fs::read(&path) {
-            Ok(b) => serde_json::from_slice(&b)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
+        let servers = crate::persist::JsonFile::<Vec<McpServerDef>>::new(path.clone()).load_or_default()?;
         Ok(Self { path, servers: RwLock::new(servers), secrets })
     }
 
@@ -127,7 +123,7 @@ impl Library {
     }
 
     fn write(&self, servers: &[McpServerDef]) -> anyhow::Result<()> {
-        crate::fsutil::write_atomic(&self.path, &serde_json::to_vec_pretty(servers)?)
+        crate::persist::JsonFile::<Vec<McpServerDef>>::new(self.path.clone()).save(&servers.to_vec())
     }
 
     /// The server with its secrets filled in, ready to hand to an Agent.
@@ -148,6 +144,22 @@ impl Library {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn reads_the_file_format_of_today_and_survives_corruption() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("mcp.json");
+        std::fs::write(&path, r#"[{"id":"a","name":"A","transport":{"type":"http","url":"https://x/mcp","headers":{}},"secret_keys":[]}]"#).unwrap();
+        let lib = Library::open(path.clone(), Box::new(MemorySecrets::default())).unwrap();
+        assert_eq!(lib.list().len(), 1);
+        lib.remove("a").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "[]");
+        std::fs::write(&path, b"[{").unwrap();
+        let lib = Library::open(path.clone(), Box::new(MemorySecrets::default())).unwrap();
+        assert!(lib.list().is_empty());
+        let n = std::fs::read_dir(d.path()).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("mcp.json.corrupt-")).count();
+        assert_eq!(n, 1);
+    }
     use super::*;
 
     #[test]

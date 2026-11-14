@@ -24,6 +24,7 @@ pub mod log;
 pub mod mcp;
 mod panels;
 pub mod permissions;
+mod persist;
 pub mod session;
 pub mod shared;
 mod shell;
