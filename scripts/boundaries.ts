@@ -22,6 +22,8 @@ export function importViolation(
          ? null
          : "relative import leaves the package";
    }
+   if (spec.startsWith("@harness/api/"))
+      return "@harness/api subpaths (the mock) are for tests only";
    if (ALWAYS.has(spec) || ALWAYS.has(packageName(spec))) return null;
    if (declared.has(packageName(spec))) return null;
    return "not @harness/api, @harness/ui, react or a dependency declared in this package.json";
@@ -74,6 +76,13 @@ export function uiViolation(spec: string): string | null {
       return "@harness/ui must not depend on @harness/api";
    if (spec.startsWith("@harness/frontend-")) return "@harness/ui must not import a Frontend";
    return null;
+}
+
+/** Why the `@harness/api` entry may not import `spec`; null when it may. The browser mock stays out of the production bundle. */
+export function apiEntryViolation(spec: string): string | null {
+   return /^\.\/mock(\/|$)/.test(spec)
+      ? "the entry must not import the mock (use @harness/api/mock)"
+      : null;
 }
 
 /**

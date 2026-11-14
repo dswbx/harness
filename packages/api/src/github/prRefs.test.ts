@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { KnownRepo, RepoId } from "./generated";
+import type { KnownRepo, RepoId } from "../generated";
 import {
    displayRef,
    findPrRefs,

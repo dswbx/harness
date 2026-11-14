@@ -1,7 +1,7 @@
 // PR info for PR references, looked up in batches and cached like the Host does (`github_refs.rs`).
 
-import type { SessionApi } from "./client";
-import type { PrInfo, PrRefKey, RepoId } from "./generated";
+import type { SessionApi } from "../client/client";
+import type { PrInfo, PrRefKey, RepoId } from "../generated";
 import { prKey, repoName } from "./prRefs";
 
 /** `missing`: no such PR. `unavailable`: the lookup failed (no `gh`, offline); shown as plain text, retried later. */

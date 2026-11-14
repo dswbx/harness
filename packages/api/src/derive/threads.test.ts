@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Event, EventKind } from "./generated";
+import type { Event, EventKind } from "../generated";
 import { threadsOf } from "./threads";
 
 let seq = 0;

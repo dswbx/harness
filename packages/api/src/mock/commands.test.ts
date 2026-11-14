@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Command } from "./generated";
+import type { Command } from "../generated";
 import { MockTransport } from "./mock";
 
 const S = "mock-s1";

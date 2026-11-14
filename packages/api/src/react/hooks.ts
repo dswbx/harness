@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import type { SessionApi } from "./client";
-import type { Event, PrRefKey, SharedArtifactEntry } from "./generated";
-import { prKey } from "./prRefs";
-import type { PrEntry, PrStore } from "./prStore";
-import type { Unsubscribe } from "./transport";
+import type { SessionApi } from "../client/client";
+import type { Event, PrRefKey, SharedArtifactEntry } from "../generated";
+import { prKey } from "../github/prRefs";
+import type { PrEntry, PrStore } from "../github/prStore";
+import type { Unsubscribe } from "../transport/transport";
 
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
