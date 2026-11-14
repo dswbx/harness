@@ -6,26 +6,39 @@ type Rect = { left: number; top: number; right: number; bottom: number };
 /** A prompt box that can take files dropped on the window. */
 export type DropTarget = {
    el: () => HTMLElement | null;
+   /** The area that belongs to this box (the chat column, a Side chat panel body). */
+   region: () => HTMLElement | null;
+   /** The box of the Main Thread: it takes drops that are over no box or region. */
+   main: boolean;
    /** The drag is over the window and this target would take the drop. */
    over: (on: boolean) => void;
    drop: (paths: string[]) => void;
 };
 
+export type TargetRects = { box: Rect | null; region: Rect | null; main: boolean };
+
+const area = (r: Rect) => (r.right - r.left) * (r.bottom - r.top);
+
 /**
- * Which target takes a drop at `point`: the one under the point, else the focused one, else the
- * first. A drop anywhere on the window lands in a prompt box, and in one only. -1: no target.
+ * Which target takes a drop at `point`: the box under the point, else the box of the smallest
+ * region under it, else the Main Thread's box (else the first). Focus plays no role. -1: no target.
  */
-export function pickTarget(
-   rects: (Rect | null)[],
-   point: DropPoint | undefined,
-   focused: number,
-): number {
+export function pickTarget(targets: TargetRects[], point: DropPoint | undefined): number {
    if (point) {
-      const under = rects.findIndex((r) => r !== null && inside(r, point));
+      const under = targets.findIndex((t) => t.box !== null && inside(t.box, point));
       if (under >= 0) return under;
+      let best = -1;
+      let bestArea = Number.POSITIVE_INFINITY;
+      targets.forEach((t, i) => {
+         if (!t.region || !inside(t.region, point) || area(t.region) >= bestArea) return;
+         best = i;
+         bestArea = area(t.region);
+      });
+      if (best >= 0) return best;
    }
-   if (focused >= 0 && focused < rects.length) return focused;
-   return rects.length ? 0 : -1;
+   const main = targets.findIndex((t) => t.main);
+   if (main >= 0) return main;
+   return targets.length ? 0 : -1;
 }
 
 const targets: DropTarget[] = [];
@@ -34,11 +47,12 @@ let stop: (() => void) | null = null;
 let run = 0;
 
 function chosen(point: DropPoint | undefined): DropTarget | undefined {
-   const els = targets.map((t) => t.el());
-   const active = document.activeElement;
-   const focused = els.findIndex((el) => !!el && !!active && el.contains(active));
-   const rects = els.map((el) => el?.getBoundingClientRect() ?? null);
-   return targets[pickTarget(rects, point, focused)];
+   const rects = targets.map((t) => ({
+      box: t.el()?.getBoundingClientRect() ?? null,
+      region: t.region()?.getBoundingClientRect() ?? null,
+      main: t.main,
+   }));
+   return targets[pickTarget(rects, point)];
 }
 
 /**

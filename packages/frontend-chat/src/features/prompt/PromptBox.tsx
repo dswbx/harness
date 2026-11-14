@@ -128,7 +128,14 @@ export function PromptBox({
       return () => ro.disconnect();
    }, []);
    const { attachments, setAttachments, dragging, fileInput, attach, boxHandlers, inputProps } =
-      useAttachments({ key, api, caps: state.promptCaps, boxRef, setError });
+      useAttachments({
+         key,
+         api,
+         caps: state.promptCaps,
+         boxRef,
+         main: threadId === null,
+         setError,
+      });
 
    // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
    const send = () => {

@@ -24,12 +24,15 @@ export function useAttachments({
    api,
    caps,
    boxRef,
+   main,
    setError,
 }: {
    key: string;
    api: SessionApi;
    caps: ChatState["promptCaps"];
    boxRef: RefObject<HTMLDivElement | null>;
+   /** The box of the Main Thread (a Side Thread's box is not). */
+   main: boolean;
    setError: (message: string | null) => void;
 }) {
    const [attachments, setAttachments] = useDraftAttachments(key);
@@ -58,17 +61,20 @@ export function useAttachments({
       else addPaths(paths);
    };
    // Tauri delivers file drops as paths to the window (no HTML5 drop). With several prompt boxes
-   // (a Side Thread panel) one of them takes it: see `pickTarget`.
+   // (a Side Thread panel) one of them takes it: see `pickTarget`. The region is the `data-drop-region`
+   // element around the box: the chat column, or the Side chat panel body.
    const addRef = useRef(addPaths);
    addRef.current = addPaths;
    useEffect(
       () =>
          registerDropTarget({
             el: () => boxRef.current,
+            region: () => boxRef.current?.closest<HTMLElement>("[data-drop-region]") ?? null,
+            main,
             over: setDragging,
             drop: (paths) => addRef.current(paths),
          }),
-      [boxRef],
+      [boxRef, main],
    );
 
    /** Props for the box element: paste and HTML5 drop. */

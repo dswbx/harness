@@ -265,7 +265,7 @@ export function DockLayout({
       >
          {size && (
             <>
-               <div className="absolute flex flex-col" style={px(g.chat)}>
+               <div data-drop-region className="absolute flex flex-col" style={px(g.chat)}>
                   {chat}
                </div>
                {panels.map((p) => {

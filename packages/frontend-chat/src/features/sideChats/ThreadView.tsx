@@ -38,7 +38,11 @@ export function ThreadView({
    }, [focusKey]);
 
    return (
-      <aside className="flex h-full w-full min-w-0 flex-col bg-background" aria-label="Side chat">
+      <aside
+         data-drop-region
+         className="flex h-full w-full min-w-0 flex-col bg-background"
+         aria-label="Side chat"
+      >
          <ScrollUnder
             bottom={<PromptBox ref={prompt} api={api} state={thread} threadId={threadId} />}
          >
@@ -129,6 +133,7 @@ export function SideDraft({
    }, [focusKey]);
    return (
       <aside
+         data-drop-region
          className="flex h-full w-full min-w-0 flex-col bg-background"
          aria-label="New side chat"
       >
