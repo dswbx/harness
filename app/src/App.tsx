@@ -41,6 +41,7 @@ import { ToastProvider, useReportError } from "./toast";
 import { makeTransport } from "./transport";
 import { UpdateFooter } from "./UpdateFooter";
 import { useUpdate } from "./updates";
+import { useSessions } from "./useSessions";
 import { ViewHost } from "./ViewHost";
 
 const params = new URLSearchParams(window.location.search);
@@ -82,26 +83,14 @@ export function App() {
 /** A window showing only one Session's View; a Sub Session's parent (or a child) opens in it too. */
 function Solo({ transport, sessionId: initialId }: { transport: Transport; sessionId: string }) {
    const [sessionId, setSessionId] = useState(initialId);
-   const [session, setSession] = useState<SessionSummary | null | undefined>(undefined);
-   const [parent, setParent] = useState<SessionSummary | undefined>(undefined);
    const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
    const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
-   const report = useReportError();
-   useEffect(() => {
-      new Client(transport)
-         .listSessions()
-         .then((l) => {
-            const s = l.find((x) => x.id === sessionId) ?? null;
-            setSession(s);
-            setParent(l.find((x) => x.id === s?.parent?.session_id));
-         })
-         .catch((e) => {
-            report("Could not load session", e);
-            setSession(null);
-         });
-   }, [transport, sessionId, report]);
+   const client = useMemo(() => new Client(transport), [transport]);
+   const { sessions, settled } = useSessions(client);
+   const session = settled ? (sessions.find((x) => x.id === sessionId) ?? null) : undefined;
+   const parent = sessions.find((x) => x.id === session?.parent?.session_id);
    useEffect(() => {
       if (session) document.title = session.title;
    }, [session]);
@@ -123,7 +112,7 @@ function Solo({ transport, sessionId: initialId }: { transport: Transport; sessi
    return (
       <div className="flex h-full flex-col">
          <SessionHeader
-            client={new Client(transport)}
+            client={client}
             session={session}
             parent={parent}
             onOpenParent={() => parent && setSessionId(parent.id)}
@@ -308,7 +297,9 @@ type Selection = { session: string } | { shared: string } | null;
 
 function Shell({ transport }: { transport: Transport }) {
    const [client] = useState<HarnessClient>(() => new Client(transport));
-   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+   const [agentsVersion, setAgentsVersion] = useState(0);
+   const bumpAgents = useCallback(() => setAgentsVersion((v) => v + 1), []);
+   const { sessions, setSessions } = useSessions(client, bumpAgents);
    const [selection, setSelection] = useState<Selection>(null);
    const selected = selection && "session" in selection ? selection.session : null;
    const sharedId = selection && "shared" in selection ? selection.shared : null;
@@ -343,7 +334,6 @@ function Shell({ transport }: { transport: Transport }) {
    /** Folder the Composer opens with (the + on a sidebar folder group); null: its own default. */
    const [composerFolder, setComposerFolder] = useState<string | null>(null);
    const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-   const [agentsVersion, setAgentsVersion] = useState(0);
    const [mcpVersion, setMcpVersion] = useState(0);
    const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
    const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -373,53 +363,6 @@ function Shell({ transport }: { transport: Transport }) {
       window.addEventListener("keydown", onKey, true);
       return () => window.removeEventListener("keydown", onKey, true);
    }, []);
-
-   // Push-driven: SessionsChanged reloads, SessionStatus patches one row. The slow poll is a safety net.
-   useEffect(() => {
-      let stop = false;
-      let failed = false;
-      const load = () =>
-         client.listSessions().then(
-            (l) => {
-               failed = false;
-               if (!stop) setSessions(l);
-            },
-            (e) => {
-               if (!failed) report("Could not load sessions", e);
-               failed = true;
-            },
-         );
-      void load();
-      const poll = setInterval(load, 30_000);
-      let unsub: (() => void) | undefined;
-      client
-         .subscribeApp((e) => {
-            if (stop) return;
-            if (e.type === "SessionsChanged") void load();
-            else if (e.type === "SessionStatus") {
-               setSessions((l) => {
-                  const i = l.findIndex((s) => s.id === e.session_id);
-                  if (i < 0) {
-                     void load(); // unknown Session: the list is stale
-                     return l;
-                  }
-                  // Also counts as activity, so "Recent activity" order updates live.
-                  return l.map((s, n) =>
-                     n === i
-                        ? { ...s, status: e.status, title: e.title, updated_ms: Date.now() }
-                        : s,
-                  );
-               });
-            } else if (e.type === "AgentsChanged") setAgentsVersion((v) => v + 1);
-         })
-         .then((u) => (stop ? u() : (unsub = u)))
-         .catch((e) => report("Live updates unavailable (falling back to polling)", e));
-      return () => {
-         stop = true;
-         clearInterval(poll);
-         unsub?.();
-      };
-   }, [client, report]);
 
    // The Quick overlay's "Open in main window" (ADR 0022).
    useEffect(
