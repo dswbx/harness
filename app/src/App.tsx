@@ -49,11 +49,16 @@ const params = new URLSearchParams(window.location.search);
 function useTransport() {
    const [t, setT] = useState<Transport | null>(null);
    useEffect(() => {
+      let cancelled = false; // StrictMode runs the effect twice: only the last run's transport is used
       void makeTransport().then((t) => {
+         if (cancelled) return;
          // Appearance and imported themes live in the core; the local copy painted the first frame.
          void syncAppearance(new Client(t)).catch(() => {});
          setT(t);
       });
+      return () => {
+         cancelled = true;
+      };
    }, []);
    return t;
 }
@@ -296,7 +301,7 @@ function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
 type Selection = { session: string } | { shared: string } | null;
 
 function Shell({ transport }: { transport: Transport }) {
-   const [client] = useState<HarnessClient>(() => new Client(transport));
+   const client = useMemo<HarnessClient>(() => new Client(transport), [transport]);
    const [agentsVersion, setAgentsVersion] = useState(0);
    const bumpAgents = useCallback(() => setAgentsVersion((v) => v + 1), []);
    const { sessions, setSessions } = useSessions(client, bumpAgents);
