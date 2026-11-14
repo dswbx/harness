@@ -25,25 +25,20 @@ import {
    Archive,
    CheckCircle2,
    CircleDashed,
-   ClipboardList,
    Copy,
    ExternalLink,
-   Folder,
-   GitCompare,
    Layers,
-   Link2,
    Loader2,
    MessagesSquare,
    PanelLeft,
    PanelRight,
    RotateCcw,
    Share2,
-   SquareTerminal,
    Unlink,
    X,
 } from "lucide-react";
 import {
-   lazy,
+   type ComponentProps,
    type ReactNode,
    Suspense,
    useCallback,
@@ -52,40 +47,30 @@ import {
    useRef,
    useState,
 } from "react";
-import { ALL_CHANGES, DiffPanel, type DiffScope } from "../features/changes/DiffPanel";
-import { ScrollUnder } from "../features/conversation/ScrollUnder";
-import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
-
-// xterm.js stays out of the main chunk until the Terminal is first opened.
-const TerminalPanel = lazy(() => import("../features/terminal/TerminalPanel"));
-
-import {
-   ArtifactsPanel,
-   type SharedActions,
-   sessionCount,
-} from "../features/artifacts/ArtifactsPanel";
-import { type Artifact, blockMarkdown, collectArtifacts } from "../features/artifacts/artifacts";
+import { sessionCount } from "../features/artifacts/ArtifactsPanel";
+import { blockMarkdown } from "../features/artifacts/artifacts";
+import { type ArtifactsModel, artifactsPanel } from "../features/artifacts/panel";
+import type { DiffScope } from "../features/changes/DiffPanel";
 import { DiffWindow, diffWindowScope } from "../features/changes/DiffWindow";
+import { changesPanel } from "../features/changes/panel";
 import { MessageList, useRows } from "../features/conversation/Messages";
-import { FileRefProvider } from "../features/files/FileRef";
+import { ScrollUnder } from "../features/conversation/ScrollUnder";
+import { FileRefProvider, FileViewProvider } from "../features/files/FileRef";
 import {
    FilesPanel,
    type FileTarget,
    filesWindowTarget,
    filesWindowUrl,
 } from "../features/files/FilesPanel";
+import type { FilesBridge } from "../features/files/panel";
 import { ShareBlock } from "../features/markdown/Expandable";
-import { PlanPanel } from "../features/plan/PlanPanel";
+import { planPanel } from "../features/plan/panel";
 import { clearDraft } from "../features/prompt/drafts";
+import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
 import { usePendingMessages, useSlow } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
-import {
-   NO_REFERENCES,
-   ReferencesPanel,
-   ReferencesProbe,
-   type ResolvedReferences,
-} from "../features/references/ReferencesPanel";
 import { RenderUi, type UiEnv } from "../features/renderUi/RenderUi";
+import { Env } from "../features/renderUi/runtime";
 import type { Slot } from "../features/renderUi/slots";
 import { useSourceStamps } from "../features/renderUi/source";
 import { RENDER_UI, sharedNodeId, sharedRef } from "../features/renderUi/tools";
@@ -102,6 +87,7 @@ import type { SideStart } from "../features/sideChats/ThreadView";
 import { placeSteps } from "../features/toolDisplay/group";
 import { OpenStep, type OpenStepRequest } from "../features/toolDisplay/openStep";
 import { errorMessage } from "../lib/errors";
+import { flash } from "../lib/flash";
 import { OpenSession } from "../lib/OpenSession";
 import { formatAge, formatRelativeTime, useNow } from "../lib/time";
 import { PanelHeader } from "../panels/PanelHeader";
@@ -138,7 +124,7 @@ import {
    toggle,
    type Zone,
 } from "./panelLayout";
-import { panelDef } from "./panels";
+import { PANELS, panelDef } from "./panels";
 import { Stripe, type StripeGroup } from "./Stripe";
 import { usePanelHost } from "./usePanelHost";
 import {
@@ -148,8 +134,6 @@ import {
    newThreadTabId,
    nextSeen,
    openThreadIds,
-   panelCount,
-   planToAutoOpen,
    renderablePanels,
    slotToAutoOpen,
    stripeGroup,
@@ -373,6 +357,11 @@ function SlotPanel({
    );
 }
 
+/** The registered panels the Quick overlay shows (none: only render_ui panels, ADR 0022 Phase 2). */
+const OVERLAY_PANELS: ReadonlySet<string> = new Set(
+   PANELS.filter((p) => p.overlay).map((p) => p.id),
+);
+
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
 // The pop-out Files window likewise, with `pane=files`.
@@ -465,37 +454,24 @@ const PROCESS_INFO: Record<string, { title: string; text: string; dot: string }>
    },
 };
 
-/** Briefly rings an element the user jumped to. */
-function flash(el: Element) {
-   el.animate(
-      [
-         { outline: "2px solid var(--ring)", outlineOffset: "4px", borderRadius: "8px" },
-         { outline: "2px solid transparent", outlineOffset: "4px", borderRadius: "8px" },
-      ],
-      { duration: 1600, easing: "ease-in" },
+/** Side chats is the only built-in panel not defined through the panel contract yet. */
+const BASE_LABEL: Record<string, string> = { side: "Side chats" };
+
+/**
+ * The PR and file ref lookups sit above the chat, so the panels' models (which run in `ChatBody`) can use them.
+ * `ChatBody` adds the viewer that shows a file in the Files panel.
+ */
+function ChatView(props: ComponentProps<typeof ChatBody>) {
+   return (
+      <PrRefProvider api={props.api}>
+         <FileRefProvider api={props.api}>
+            <ChatBody {...props} />
+         </FileRefProvider>
+      </PrRefProvider>
    );
 }
 
-const BASE_LABEL: Record<string, string> = {
-   side: "Side chats",
-   changes: "Changes",
-   files: "Files",
-   terminal: "Terminal",
-   artifacts: "Artifacts",
-   references: "References",
-   plan: "Plan",
-};
-const BASE_ICON: Record<string, React.ReactNode> = {
-   side: <MessagesSquare />,
-   changes: <GitCompare />,
-   files: <Folder />,
-   terminal: <SquareTerminal />,
-   artifacts: <Layers />,
-   references: <Link2 />,
-   plan: <ClipboardList />,
-};
-
-function ChatView({
+function ChatBody({
    api,
    toolbar,
    status,
@@ -647,11 +623,12 @@ function ChatView({
       // The Quick overlay has no Terminal or side chats panel.
       if (overlay) return;
       const onKey = (e: KeyboardEvent) => {
-         // Cmd+J toggles the Terminal, as in VS Code. Capture phase, so xterm never sees it.
-         if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyJ") {
+         // A registered panel's shortcut (Cmd+J: the Terminal). Capture phase, so xterm never sees it.
+         const def = PANELS.find((p) => p.shortcut?.match(e));
+         if (def) {
             e.preventDefault();
             e.stopPropagation();
-            update((l) => toggle(l, "terminal"));
+            update((l) => toggle(l, def.id as PanelId));
          }
          // Cmd/Ctrl+Shift+B: a new Side Thread ("by the way").
          else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyB") {
@@ -663,45 +640,7 @@ function ChatView({
       window.addEventListener("keydown", onKey, true);
       return () => window.removeEventListener("keydown", onKey, true);
    }, [overlay, update, newSideThread]);
-   const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
    const [archiveError, setArchiveError] = useState<string | null>(null);
-   // Changes need git; hidden until the Workspace is known to be a repository.
-   const [git, setGit] = useState(false);
-   const turnRunning = state.turnId !== null;
-   // The folder can become a repository later (`git init`): look again after each Turn, and for a
-   // terminal command every 20s and on focus, until it is one.
-   // biome-ignore lint/correctness/useExhaustiveDependencies: turnRunning triggers the check.
-   useEffect(() => {
-      let off = false;
-      const check = () => {
-         if (document.hidden) return;
-         api.workspace().then(
-            (w) => !off && setGit(!!w?.repo_root),
-            () => {},
-         );
-      };
-      check();
-      if (git) {
-         return () => {
-            off = true;
-         };
-      }
-      const timer = setInterval(check, 20_000);
-      window.addEventListener("focus", check);
-      return () => {
-         off = true;
-         clearInterval(timer);
-         window.removeEventListener("focus", check);
-      };
-   }, [api, turnRunning, git]);
-
-   const openDiff = useCallback(
-      (s: DiffScope) => {
-         setScope(s);
-         update((l) => show(l, "changes"));
-      },
-      [update],
-   );
    /** The file the Files panel shows next (a new object each time, so the same file scrolls again). */
    const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
    /** Shows a file (a code lens, a comment chip) in the Files panel; the Quick overlay has none, so a window. */
@@ -758,25 +697,6 @@ function ChatView({
       const open = slotToAutoOpen(newestSlot, openedAt);
       if (open) update((l) => show(l, slotPanel(open.id)));
    }, [newestSlot?.id, newestSlot?.ts, openedAt, update]);
-   // The Plan panel shows this version (null: the latest). A new pending plan opens the panel, once.
-   const [planShown, setPlanShown] = useState<string | null>(null);
-   const openPlan = useCallback(
-      (requestId: string) => {
-         setPlanShown(requestId);
-         update((l) => show(l, "plan"));
-      },
-      [update],
-   );
-   const lastPlan = state.plans.at(-1);
-   const pendingPlan = lastPlan?.status === "pending" ? lastPlan.requestId : null;
-   const planOpened = useRef(new Set<string>());
-   useEffect(() => {
-      const id = planToAutoOpen(overlay, pendingPlan, planOpened.current);
-      if (!id) return;
-      planOpened.current.add(id);
-      openPlan(id);
-   }, [overlay, pendingPlan, openPlan]);
-   const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
    const list = useRef<VirtualListHandle>(null);
    /** Scrolls the chat to a row; once the virtual list renders it, flashes what `pick` finds in it. */
    const jumpToRow = useCallback(
@@ -795,70 +715,13 @@ function ChatView({
       },
       [],
    );
-   const jump = useCallback(
-      (a: Artifact) => {
-         if (a.placement === "right" || a.placement === "left") {
-            if (a.slotId) update((l) => show(l, slotPanel(a.slotId!)));
-            return;
-         }
-         if (!a.rowId) {
-            const el = document.querySelector(`[data-slot="${CSS.escape(a.slotId ?? "")}"]`);
-            if (el) flash(el);
-            return;
-         }
-         // The diagram or table inside the row.
-         jumpToRow(a.rowId, (row) =>
-            a.index !== null
-               ? row.querySelectorAll(`[data-artifact="${a.kind}"]`)[a.index]
-               : row.firstElementChild,
-         );
-      },
-      [update, jumpToRow],
-   );
-   // Shared Artifacts (ADR 0024): the Artifacts panel's group and actions, and "Make shared" on blocks.
+   // Shared Artifacts (ADR 0024): the Artifacts panel shows the panel of a shared artifact.
    const showShared = useCallback(
       (id: string) => {
          const slot = slots.find((s) => sharedRef(s.slot.source) === id)?.slot;
          if (slot) update((l) => show(l, slotPanel(slot.id)));
       },
       [slots, update],
-   );
-   // Message blocks this Session shared, by their artifact key: the copy stands in for them.
-   const sharedCopies = useMemo(() => {
-      const m = new Map<string, string>();
-      for (const { id } of state.sharedAttached) {
-         const by = sharedMetas.get(id)?.created_by;
-         if (by?.origin && by.session_id === api.sessionId) m.set(by.origin, id);
-      }
-      return m;
-   }, [state.sharedAttached, sharedMetas, api.sessionId]);
-   const sharedActions = useMemo<SharedActions>(
-      () => ({
-         attached: state.sharedAttached,
-         metas: sharedMetas,
-         copies: sharedCopies,
-         search: (q) => api.listShared(q),
-         share: (a) =>
-            a.kind === "ui"
-               ? api.shareArtifact(a.slotId!)
-               : api.shareMarkdown(blockMarkdown(a), a.title, a.key),
-         attach: (id) => api.attachShared(id),
-         detach: (id) => api.detachShared(id),
-         open: showShared,
-         openOutside: onOpenShared,
-      }),
-      [api, state.sharedAttached, sharedMetas, sharedCopies, showShared, onOpenShared],
-   );
-   const shareBlock = useCallback(
-      (markdown: string, title?: string) => {
-         const origin = artifacts.find(
-            (a) => a.kind !== "ui" && blockMarkdown(a) === markdown,
-         )?.key;
-         void api
-            .shareMarkdown(markdown, title, origin)
-            .catch((e) => console.error("share failed", e));
-      },
-      [api, artifacts],
    );
    // A click in the Subagents panel opens the subagent's step in the chat (nested ones through their parents).
    const stepPlaces = useMemo(() => placeSteps(rows, subagents), [rows, subagents]);
@@ -883,18 +746,14 @@ function ChatView({
       },
       [stepPlaces, jumpToRow],
    );
-   const jumpToMention = useCallback(
-      (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),
-      [jumpToRow],
-   );
    // The panels defined through the panel contract (shell/panels.ts): their context, selves, models and statuses.
    const panelChat = useMemo(
       () => ({ toRow: jumpToRow, toStep: jumpToStep }),
       [jumpToRow, jumpToStep],
    );
    const panelHostApi = useMemo(
-      () => ({ openShared: onOpenShared, gitRefresh: onGitRefresh }),
-      [onOpenShared, onGitRefresh],
+      () => ({ openShared: onOpenShared, gitRefresh: onGitRefresh, sharedMetas, showShared }),
+      [onOpenShared, onGitRefresh, sharedMetas, showShared],
    );
    const panelHost = usePanelHost({
       api,
@@ -905,16 +764,34 @@ function ChatView({
       chat: panelChat,
       host: panelHostApi,
    });
-   const [resolved, setResolved] = useState<ResolvedReferences>(NO_REFERENCES);
-   // References are looked up from the first time their panel opens.
-   const [referencesOpened, setReferencesOpened] = useState(false);
-   const referencesOpen = isOpen(lay, "references");
-   useEffect(() => {
-      if (referencesOpen) setReferencesOpened(true);
-   }, [referencesOpen]);
-   const changeCount = useMemo(
-      () => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0),
-      [state.items],
+   // The old target props: a panel's model keeps what it needs (diff scope, selected plan) and View writes through it.
+   const setDiffScope = panelHost.modelOf(changesPanel).setScope;
+   const openDiff = useCallback(
+      (scope: DiffScope) => {
+         setDiffScope(scope);
+         update((l) => show(l, "changes"));
+      },
+      [setDiffScope, update],
+   );
+   const selectPlan = panelHost.modelOf(planPanel).select;
+   const openPlan = useCallback(
+      (requestId: string) => {
+         selectPlan(requestId);
+         update((l) => show(l, "plan"));
+      },
+      [selectPlan, update],
+   );
+   const { artifacts } = panelHost.modelOf(artifactsPanel);
+   const shareBlock = useCallback(
+      (markdown: string, title?: string) => {
+         const origin = artifacts.find(
+            (a) => a.kind !== "ui" && blockMarkdown(a) === markdown,
+         )?.key;
+         void api
+            .shareMarkdown(markdown, title, origin)
+            .catch((e) => console.error("share failed", e));
+      },
+      [api, artifacts],
    );
 
    const sideThreads = useMemo(() => state.threadList.filter((t) => !t.main), [state.threadList]);
@@ -929,30 +806,22 @@ function ChatView({
       () => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])),
       [slots],
    );
-   const hasPlans = state.plans.length > 0;
    // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
    const available = useMemo(
       () =>
          availablePanels({
             overlay,
             slotPanels: slotById.keys(),
-            git,
-            hasPlans,
             registered: panelHost.statuses,
+            overlayPanels: OVERLAY_PANELS,
          }),
-      [overlay, slotById, git, hasPlans, panelHost.statuses],
+      [overlay, slotById, panelHost.statuses],
    );
    const shown = useMemo(() => {
       return shownOpen(lay, renderablePanels(available, openThreads.length));
       // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [available, lay, openThreads.length]);
    const open = (id: PanelId) => isOpen(shown, id);
-
-   /** The Terminal stays mounted (hidden) once opened, so its screen survives hiding and moving. */
-   const [terminalOpened, setTerminalOpened] = useState(false);
-   useEffect(() => {
-      if (open("terminal")) setTerminalOpened(true);
-   });
 
    // File-backed panels (ADR 0023): their files' hashes and write times.
    const sourceNames = useMemo(
@@ -999,7 +868,7 @@ function ChatView({
    const icon = (id: PanelId) => {
       const Registered = panelDef(id)?.icon;
       if (Registered) return <Registered />;
-      if (!isSlotPanel(id)) return BASE_ICON[id];
+      if (!isSlotPanel(id)) return <MessagesSquare />;
       const Custom = uiIcons[slotById.get(id)?.icon as keyof typeof uiIcons];
       if (Custom) return <Custom />;
       return lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? (
@@ -1011,16 +880,8 @@ function ChatView({
    const tip = (id: PanelId) =>
       id === "side" ? "Side chats (⇧⌘B new)" : (panelHost.statuses.get(id)?.tip ?? label(id));
    const count = (id: PanelId) =>
-      panelHost.statuses.has(id)
-         ? panelHost.statuses.get(id)!.badge
-         : panelCount(id, {
-              sideThreads: sideThreads.length,
-              artifacts: artifacts.length,
-              references: resolved.count,
-              runningSubagents: 0,
-           });
-   const shortcut = (id: PanelId) =>
-      id === "terminal" ? ["⌘", "J"] : panelDef(id)?.shortcut?.keys;
+      id === "side" ? sideThreads.length : panelHost.statuses.get(id)?.badge;
+   const shortcut = (id: PanelId) => panelDef(id)?.shortcut?.keys;
    const group = (zone: Zone): StripeGroup =>
       stripeGroup(zone, {
          zones: lay.zones,
@@ -1055,9 +916,7 @@ function ChatView({
    };
    const onToggle = (id: PanelId) => (id === "side" ? toggleSide() : update((l) => toggle(l, id)));
 
-   const running = state.turnId !== null;
    const proc = state.process;
-   const refreshKey = `${changeCount}:${running}`;
    // The host's header shows it as a dot on its info icon, explained in that icon's menu; a header
    // of our own (no host header) shows a badge. Archived and deleted Sessions say so elsewhere.
    // Restoring the Agent Session takes longer than starting its process, and the process is
@@ -1101,6 +960,14 @@ function ChatView({
    );
 
    const panels: DockPanel[] = [];
+   // The old target props: View keeps the state and hands it to the panel through its model.
+   const bridges: Record<string, object> = {
+      files: { target: fileTarget, onTargetShown: clearFileTarget } satisfies FilesBridge,
+      artifacts: {
+         target: artifactTarget,
+         onTargetShown: clearArtifactTarget,
+      } satisfies Partial<ArtifactsModel>,
+   };
    /** A panel defined through the panel contract: its mount block, from its definition. */
    const registeredPanel = (id: PanelId) => {
       const def = panelDef(id);
@@ -1114,13 +981,19 @@ function ChatView({
               : open(id);
       if (!mounted) return;
       const Body = def.Body;
+      const model = panelHost.models[id];
+      const bridge = bridges[id];
       panels.push({
          id,
          label: def.label,
          expandable: def.expandable,
          children: (
             <Suspense fallback={null}>
-               <Body model={panelHost.models[id]} ctx={panelHost.ctx} self={self} />
+               <Body
+                  model={bridge ? { ...(model as object), ...bridge } : model}
+                  ctx={panelHost.ctx}
+                  self={self}
+               />
             </Suspense>
          ),
       });
@@ -1153,68 +1026,8 @@ function ChatView({
          ),
       });
    }
-   if (open("changes"))
-      panels.push({
-         id: "changes",
-         label: "Changes",
-         children: (
-            <DiffPanel
-               api={api}
-               scope={scope}
-               onScope={setScope}
-               refreshKey={refreshKey}
-               onRefresh={onGitRefresh}
-            />
-         ),
-      });
-   if (open("files"))
-      panels.push({
-         id: "files",
-         label: "Files",
-         children: <FilesPanel api={api} target={fileTarget} onTargetShown={clearFileTarget} />,
-      });
-   if (terminalOpened) {
-      panels.push({
-         id: "terminal",
-         label: "Terminal",
-         children: (
-            <Suspense fallback={null}>
-               <TerminalPanel api={api} active={open("terminal")} />
-            </Suspense>
-         ),
-      });
-   }
-   registeredPanel("events");
-   if (open("artifacts"))
-      panels.push({
-         id: "artifacts",
-         label: "Artifacts",
-         children: (
-            <ArtifactsPanel
-               artifacts={artifacts}
-               env={env}
-               onJump={jump}
-               shared={sharedActions}
-               target={artifactTarget}
-               onTargetShown={clearArtifactTarget}
-            />
-         ),
-      });
-   if (open("plan"))
-      panels.push({
-         id: "plan",
-         label: "Plan",
-         children: (
-            <PlanPanel api={api} state={state} selected={planShown} onSelect={setPlanShown} />
-         ),
-      });
-   if (open("references"))
-      panels.push({
-         id: "references",
-         label: "References",
-         children: <ReferencesPanel resolved={resolved} onJump={jumpToMention} />,
-      });
-   registeredPanel("subagents");
+   // The registered panels, in the registry's order.
+   for (const p of PANELS) registeredPanel(p.id as PanelId);
    for (const [id, slot] of slotById) {
       const sharedId = sharedRef(slot.source);
       if (open(id))
@@ -1411,8 +1224,8 @@ function ChatView({
          </div>
       );
       return (
-         <PrRefProvider api={api}>
-            <FileRefProvider api={api} onView={openFile}>
+         <Env.Provider value={env}>
+            <FileViewProvider onView={openFile}>
                {overlayDraft ? (
                   <div className="relative flex h-full flex-col justify-end">{promptBox}</div>
                ) : (
@@ -1448,19 +1261,14 @@ function ChatView({
                      {ghost}
                   </div>
                )}
-            </FileRefProvider>
-         </PrRefProvider>
+            </FileViewProvider>
+         </Env.Provider>
       );
    }
 
    return (
-      <PrRefProvider api={api}>
-         <FileRefProvider api={api} onView={openFile}>
-            <ReferencesProbe
-               items={state.items}
-               active={referencesOpened}
-               onResolved={setResolved}
-            />
+      <Env.Provider value={env}>
+         <FileViewProvider onView={openFile}>
             <div className="relative flex h-full">
                {(!leftEmpty || drag) && (
                   <Stripe
@@ -1493,7 +1301,7 @@ function ChatView({
                />
                {ghost}
             </div>
-         </FileRefProvider>
-      </PrRefProvider>
+         </FileViewProvider>
+      </Env.Provider>
    );
 }

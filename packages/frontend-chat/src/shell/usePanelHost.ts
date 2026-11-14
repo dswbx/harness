@@ -1,6 +1,6 @@
 import type { SessionApi, ViewVariant } from "@harness/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PanelCtx, PanelRef, PanelSelf, PanelStatus } from "../panels/contract";
+import type { PanelCtx, PanelDef, PanelRef, PanelSelf, PanelStatus } from "../panels/contract";
 import type { ChatState } from "../state/reducer";
 import {
    hide as hidePanel,
@@ -120,5 +120,9 @@ export function usePanelHost(o: {
          : next;
    statusesRef.current = statuses;
 
-   return { ctx, selves, models, statuses };
+   /** A registered panel's model, typed by its definition. */
+   // biome-ignore lint/suspicious/noExplicitAny: any target type
+   const modelOf = <M>(def: PanelDef<M, any>) => models[def.id] as M;
+
+   return { ctx, selves, models, modelOf, statuses };
 }

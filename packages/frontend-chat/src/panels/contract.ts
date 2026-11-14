@@ -1,4 +1,4 @@
-import type { SessionApi, ViewVariant } from "@harness/api";
+import type { SessionApi, SharedArtifactMeta, ViewVariant } from "@harness/api";
 import type { ComponentType, LazyExoticComponent } from "react";
 import type { ChatState } from "../state/reducer";
 
@@ -33,7 +33,15 @@ export type PanelCtx = {
       toRow(rowId: string, pick?: (row: Element) => Element | null | undefined): void;
       toStep(stepId: string): void;
    } | null;
-   host: { openShared?: (id: string) => void; gitRefresh?: () => void };
+   host: {
+      /** Opens a Shared Artifact outside the Session (the host app). */
+      openShared?: (id: string) => void;
+      gitRefresh?: () => void;
+      /** Meta of every Shared Artifact by id (titles, "N sessions"); missing while loading. */
+      sharedMetas?: ReadonlyMap<string, SharedArtifactMeta>;
+      /** Shows the panel of the Shared Artifact `id` (when one of the Session's panels shows it). */
+      showShared?: (id: string) => void;
+   };
 };
 
 /** One panel's view of its own place in the layout. */

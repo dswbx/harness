@@ -1,14 +1,29 @@
+import { artifactsPanel } from "../features/artifacts/panel";
+import { changesPanel } from "../features/changes/panel";
 import { eventsPanel } from "../features/events/panel";
+import { filesPanel } from "../features/files/panel";
+import { planPanel } from "../features/plan/panel";
+import { referencesPanel } from "../features/references/panel";
 import { subagentsPanel } from "../features/subagents/panel";
+import { terminalPanel } from "../features/terminal/panel";
 import type { PanelDef, PlacementHint } from "../panels/contract";
 import type { Zone } from "./panelLayout";
 
 /**
- * The panels defined through the panel contract, in default order. The other built-in panels are
- * still wired by hand in `View.tsx` and move here one by one.
+ * The panels defined through the panel contract, in default order (within a zone). Side chats and the
+ * render_ui panels are still wired by hand in `View.tsx`.
  */
 // biome-ignore lint/suspicious/noExplicitAny: the registry holds panels of different model and target types
-export const PANELS: readonly PanelDef<any, any>[] = [eventsPanel, subagentsPanel];
+export const PANELS: readonly PanelDef<any, any>[] = [
+   changesPanel,
+   filesPanel,
+   planPanel,
+   artifactsPanel,
+   referencesPanel,
+   terminalPanel,
+   eventsPanel,
+   subagentsPanel,
+];
 
 /** A registered panel by id. */
 // biome-ignore lint/suspicious/noExplicitAny: as PANELS

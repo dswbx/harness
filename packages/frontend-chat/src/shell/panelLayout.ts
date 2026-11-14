@@ -82,32 +82,17 @@ export const DEFAULT_SIZES: Sizes = {
    bottomSplit: 0.5,
 };
 
-/** Panels defined through the panel contract start where their placement hint says. */
-const registryZone = (id: string): Zone => zoneOfHint(panelDef(id)!.placement);
+/** The zone a built-in panel starts in: its placement hint, except Side chats (not in the registry yet). */
+const defaultZone = (id: (typeof BASE_PANELS)[number]): Zone =>
+   id === "side" ? "rightTop" : zoneOfHint(panelDef(id)!.placement);
 
-const DEFAULT_ZONE: Record<(typeof BASE_PANELS)[number], Zone> = {
-   changes: "rightTop",
-   files: "rightTop",
-   artifacts: "leftTop",
-   references: "leftBottom",
-   subagents: registryZone("subagents"),
-   terminal: "bottomLeft",
-   events: registryZone("events"),
-   side: "rightTop",
-   plan: "rightTop",
-};
-
-/** The default order within a zone: the panels still wired by hand, then the registry's. */
-const DEFAULT_ORDER: readonly (typeof BASE_PANELS)[number][] = [
-   "changes",
-   "files",
-   "side",
-   "plan",
-   "artifacts",
-   "references",
-   "terminal",
-   ...PANELS.map((p) => p.id as (typeof BASE_PANELS)[number]),
-];
+/**
+ * The default order within a zone: the registry's order, with Side chats (not in the registry yet) before
+ * Plan.
+ */
+const DEFAULT_ORDER: readonly (typeof BASE_PANELS)[number][] = PANELS.flatMap((p) =>
+   p.id === "plan" ? (["side", "plan"] as const) : [p.id as (typeof BASE_PANELS)[number]],
+);
 
 const noOpen = (): Record<Zone, PanelId | null> => ({
    leftTop: null,
@@ -127,7 +112,7 @@ export function defaultLayout(): Layout {
       rightBottom: [],
       rightTop: [],
    };
-   for (const id of DEFAULT_ORDER) zones[DEFAULT_ZONE[id]].push(id);
+   for (const id of DEFAULT_ORDER) zones[defaultZone(id)].push(id);
    return {
       zones,
       open: noOpen(),
@@ -268,7 +253,7 @@ export function reconcile(l: Layout, slots: { id: PanelId; zone: Zone }[]): Layo
    }
    for (const id of BASE_PANELS) {
       if (!seen.has(id)) {
-         zones[DEFAULT_ZONE[id]].push(id);
+         zones[defaultZone(id)].push(id);
          seen.add(id);
          changed = true;
       }

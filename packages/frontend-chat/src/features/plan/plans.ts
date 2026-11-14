@@ -46,6 +46,15 @@ export function defaultApproveOption(
 export const keepPlanningOption = (options: PermissionOption[]) =>
    options.find((o) => o.kind.startsWith("reject")) ?? null;
 
+/** A new pending plan opens the Plan panel, once per request (not in the Quick overlay). */
+export function planToAutoOpen(
+   overlay: boolean,
+   pendingPlan: string | null,
+   opened: ReadonlySet<string>,
+): string | null {
+   return overlay || !pendingPlan || opened.has(pendingPlan) ? null : pendingPlan;
+}
+
 /** "14:05" in the local time. */
 export const clockTime = (ts: number) =>
    new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
