@@ -1,9 +1,10 @@
 import { Layers } from "lucide-react";
 import { useMemo } from "react";
 import { flash } from "../../lib/flash";
-import { definePanel, type PanelBodyProps, type PanelRef } from "../../panels/contract";
+import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { usePanelTargetState } from "../../panels/usePanelTarget";
 import { useEnv } from "../renderUi/runtime";
+import { slotRef } from "../renderUi/slots";
 import { ArtifactsPanel, type SharedActions } from "./ArtifactsPanel";
 import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 
@@ -11,9 +12,6 @@ export type ArtifactsModel = {
    artifacts: Artifact[];
    shared: SharedActions;
 };
-
-/** A render_ui panel the Agent placed (ids are `slot:<id>`). */
-const slotRef = (id: string): PanelRef => ({ id: `slot:${id}` });
 
 const NO_METAS: NonNullable<SharedActions["metas"]> = new Map();
 

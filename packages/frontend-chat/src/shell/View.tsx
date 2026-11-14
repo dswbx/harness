@@ -5,7 +5,6 @@ import type {
    PanelWidth,
    PromptContext,
    SessionApi,
-   SharedArtifactMeta,
    ViewVariant,
 } from "@harness/api";
 import { useSessionEvents, useSharedArtifacts } from "@harness/api";
@@ -13,11 +12,8 @@ import {
    Badge,
    Button,
    cn,
-   DropdownMenuItem,
-   DropdownMenuSeparator,
    MenuButton,
    Portal,
-   ScrollArea,
    Tooltip,
    type VirtualListHandle,
 } from "@harness/ui";
@@ -25,16 +21,10 @@ import {
    Archive,
    CheckCircle2,
    CircleDashed,
-   Copy,
-   ExternalLink,
-   Layers,
    Loader2,
-   MessagesSquare,
    PanelLeft,
    PanelRight,
    RotateCcw,
-   Share2,
-   Unlink,
    X,
 } from "lucide-react";
 import {
@@ -47,9 +37,8 @@ import {
    useRef,
    useState,
 } from "react";
-import { sessionCount } from "../features/artifacts/ArtifactsPanel";
 import { blockMarkdown } from "../features/artifacts/artifacts";
-import { type ArtifactsModel, artifactsPanel } from "../features/artifacts/panel";
+import type { ArtifactsModel } from "../features/artifacts/panel";
 import type { DiffScope } from "../features/changes/DiffPanel";
 import { DiffWindow, diffWindowScope } from "../features/changes/DiffWindow";
 import { changesPanel } from "../features/changes/panel";
@@ -60,7 +49,6 @@ import { FilesPanel, type FileTarget, filesWindowTarget } from "../features/file
 import { filesPanel } from "../features/files/panel";
 import { ShareBlock } from "../features/markdown/Expandable";
 import { planPanel } from "../features/plan/panel";
-import { clearDraft } from "../features/prompt/drafts";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
 import { usePendingMessages, useSlow } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
@@ -68,41 +56,25 @@ import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { RenderUi, type UiEnv } from "../features/renderUi/RenderUi";
 import { Env } from "../features/renderUi/runtime";
 import type { Slot } from "../features/renderUi/slots";
-import { useSourceStamps } from "../features/renderUi/source";
-import { RENDER_UI, sharedNodeId, sharedRef } from "../features/renderUi/tools";
-import { FillFrame } from "../features/renderUi/UiHtml";
-import { uiIcons } from "../features/renderUi/uiIcons";
-import {
-   addReviewComment,
-   composerKey,
-   setReviewComments,
-} from "../features/review/reviewComments";
+import { RENDER_UI, sharedRef } from "../features/renderUi/tools";
 import { quotableAttrs, SelectionComment } from "../features/review/SelectionComment";
-import { SidePanel } from "../features/sideChats/SidePanel";
-import type { SideStart } from "../features/sideChats/ThreadView";
+import type { SideChatsModel } from "../features/sideChats/panel";
 import { placeSteps } from "../features/toolDisplay/group";
 import { OpenStep, type OpenStepRequest } from "../features/toolDisplay/openStep";
-import { errorMessage } from "../lib/errors";
 import { flash } from "../lib/flash";
 import { OpenSession } from "../lib/OpenSession";
-import { formatAge, formatRelativeTime, useNow } from "../lib/time";
-import { PanelHeader } from "../panels/PanelHeader";
 import { type ChatState, initialState } from "../state/reducer";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { usePanelDrag } from "./panelDrag";
 import {
-   closeThread,
    defaultLayout,
    expand,
    hide,
-   isDraftThread,
    isOpen,
-   isSlotPanel,
    type Layout,
    loadLayout,
    move,
    OVERLAY_ZONES,
-   openThread,
    overlayGeometry,
    overlayProfile,
    type PanelId,
@@ -111,30 +83,17 @@ import {
    resize,
    STRIPE_W,
    saveLayout,
-   selectThread,
    show,
    shownOpen,
    sideWidths,
-   slotIdOf,
    slotPanel,
    toggle,
    type Zone,
 } from "./panelLayout";
-import { PANELS, panelDef } from "./panels";
+import { PANELS } from "./panels";
 import { Stripe, type StripeGroup } from "./Stripe";
-import { usePanelHost } from "./usePanelHost";
-import {
-   activeThreadId,
-   availablePanels,
-   lastSlot,
-   newThreadTabId,
-   nextSeen,
-   openThreadIds,
-   renderablePanels,
-   slotToAutoOpen,
-   stripeGroup,
-   threadStarted,
-} from "./viewState";
+import { type PanelPlace, usePanelHost } from "./usePanelHost";
+import { availablePanels, renderablePanels, stripeGroup } from "./viewState";
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
    if (entries.length === 0) return null;
@@ -198,165 +157,6 @@ function Slots({ slots, env, className }: { slots: Slot[]; env: UiEnv; className
       </div>
    );
 }
-
-/**
- * "5m ago" at the right of a panel header. It takes only the room the title leaves and hides when
- * that room is too small, so the title always wins.
- */
-function UpdatedAgo({ ts }: { ts: number }) {
-   const now = useNow();
-   const age = formatAge(ts, now);
-   return (
-      <div className="@container min-w-0 flex-1 basis-0">
-         <time
-            dateTime={new Date(ts).toISOString()}
-            className="hidden text-right text-[11px] whitespace-nowrap text-muted-foreground @min-[3.5rem]:block"
-         >
-            {age === "now" ? "now" : `${age} ago`}
-         </time>
-      </div>
-   );
-}
-
-/** Share icon in a shared Panel's header; hover shows that it is shared, its Session count and last update. */
-function SharedBadge({ meta }: { meta: SharedArtifactMeta | undefined }) {
-   const now = useNow();
-   return (
-      <Tooltip
-         content={
-            <div className="flex flex-col gap-0.5">
-               <span className="font-medium">Shared artifact</span>
-               {meta && (
-                  <>
-                     <span>Attached in {sessionCount(meta)}</span>
-                     <span>Updated {formatRelativeTime(meta.updated_ms, now)}</span>
-                  </>
-               )}
-            </div>
-         }
-      >
-         <span
-            role="img"
-            aria-label="Shared artifact"
-            tabIndex={0}
-            className="flex shrink-0 items-center text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
-         >
-            <Share2 className="size-3.5" />
-         </span>
-      </Tooltip>
-   );
-}
-
-/** Copies the absolute path of a panel source file (read through the core, which knows panels_dir). */
-async function copySourcePath(env: UiEnv, name: string) {
-   try {
-      const r = await env.readSource!(name);
-      await navigator.clipboard.writeText(r.path ?? name);
-   } catch (e) {
-      console.error("copy path failed", e);
-   }
-}
-
-/**
- * `updated`: when it last changed (its latest call, or a later write of its source file). `shared`:
- * the Shared Artifact it shows (ADR 0024): a share icon with its details on hover, and its menu.
- */
-function SlotPanel({
-   slot,
-   env,
-   updated,
-   shared,
-   onShare,
-   onShowInArtifacts,
-}: {
-   slot: Slot;
-   env: UiEnv;
-   updated: number;
-   /** Opens the Artifacts panel on this panel's detail page. */
-   onShowInArtifacts: () => void;
-   /** Offers "Make shared" (ADR 0024); only for a panel that is not shared yet. */
-   onShare?: () => void;
-   shared?: {
-      meta: SharedArtifactMeta | undefined;
-      onDetach: () => void;
-      onOpenOutside?: () => void;
-   };
-}) {
-   // One Html node, or a shared HTML artifact (its `Shared` node loads the HTML later): the frame
-   // fills the panel and scrolls itself, no padding.
-   const fill =
-      slot.root.type === "Html" || (!!sharedNodeId(slot.root) && shared?.meta?.kind === "html");
-   // A file in this Session's panels_dir (not a Shared Artifact's).
-   const localSource = slot.source && !sharedRef(slot.source) ? slot.source : null;
-   return (
-      <>
-         <PanelHeader
-            title={slot.title ?? slot.id}
-            menu={
-               <>
-                  <DropdownMenuItem onSelect={onShowInArtifacts}>
-                     <Layers /> Show in Artifacts
-                  </DropdownMenuItem>
-                  {localSource && env.readSource && (
-                     <DropdownMenuItem onSelect={() => void copySourcePath(env, localSource)}>
-                        <Copy /> Copy file path
-                     </DropdownMenuItem>
-                  )}
-                  {(onShare || shared) && <DropdownMenuSeparator />}
-                  {onShare ? (
-                     <DropdownMenuItem onSelect={onShare}>
-                        <Share2 /> Make shared
-                     </DropdownMenuItem>
-                  ) : (
-                     shared && (
-                        <>
-                           {shared.onOpenOutside && (
-                              <DropdownMenuItem onSelect={shared.onOpenOutside}>
-                                 <ExternalLink /> Open outside Session
-                              </DropdownMenuItem>
-                           )}
-                           <DropdownMenuItem onSelect={shared.onDetach}>
-                              <Unlink /> Detach
-                           </DropdownMenuItem>
-                        </>
-                     )
-                  )}
-               </>
-            }
-         >
-            {shared && <SharedBadge meta={shared.meta} />}
-            {updated > 0 && <UpdatedAgo ts={updated} />}
-         </PanelHeader>
-         {fill ? (
-            <div
-               className="relative min-h-0 flex-1"
-               {...quotableAttrs(null, false, { source: "artifact", label: slot.title ?? slot.id })}
-            >
-               <FillFrame.Provider value>
-                  <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
-               </FillFrame.Provider>
-            </div>
-         ) : (
-            <ScrollArea className="min-h-0 flex-1">
-               <div
-                  className="p-4"
-                  {...quotableAttrs(null, false, {
-                     source: "artifact",
-                     label: slot.title ?? slot.id,
-                  })}
-               >
-                  <RenderUi root={slot.root} env={{ ...env, files: slot.files, item: slot.id }} />
-               </div>
-            </ScrollArea>
-         )}
-      </>
-   );
-}
-
-/** The registered panels the Quick overlay shows (none: only render_ui panels, ADR 0022 Phase 2). */
-const OVERLAY_PANELS: ReadonlySet<string> = new Set(
-   PANELS.filter((p) => p.overlay).map((p) => p.id),
-);
 
 // A pop-out diff window boots like a solo View window, with `pane=diff` in its URL.
 const diffScope = typeof window === "undefined" ? null : diffWindowScope(window.location.search);
@@ -450,9 +250,6 @@ const PROCESS_INFO: Record<string, { title: string; text: string; dot: string }>
    },
 };
 
-/** Side chats is the only built-in panel not defined through the panel contract yet. */
-const BASE_LABEL: Record<string, string> = { side: "Side chats" };
-
 /**
  * The PR and file ref lookups sit above the chat, so the panels' models (which run in `ChatBody`) can use them.
  * `ChatBody` adds the viewer that shows a file in the Files panel.
@@ -524,28 +321,8 @@ function ChatBody({
       [sharedList],
    );
 
-   // render_ui items placed left or right are panels. Their default zone follows the placement.
-   // A panel showing a Shared Artifact takes the artifact's title (it can be renamed).
-   const slots = useMemo(() => {
-      const titled = (slot: Slot) => {
-         const id = sharedRef(slot.source);
-         const title = id ? sharedMetas.get(id)?.title : undefined;
-         return title && title !== slot.title ? { ...slot, title } : slot;
-      };
-      return [
-         ...ui.slots.left.map((slot) => ({ slot: titled(slot), zone: "leftTop" as Zone })),
-         ...ui.slots.right.map((slot) => ({ slot: titled(slot), zone: "rightTop" as Zone })),
-      ];
-   }, [ui.slots.left, ui.slots.right, sharedMetas]);
-   const slotPanels = useMemo(
-      () => slots.map((s) => ({ id: slotPanel(s.slot.id), zone: s.zone })),
-      [slots],
-   );
-   const slotPanelsRef = useRef(slotPanels);
-   slotPanelsRef.current = slotPanels;
-
    /**
-    * Where the panels sit, their sizes and the open side chats. Kept per Session. The Quick overlay
+    * Where the panels sit and their sizes. Kept per Session. The Quick overlay
     * has only the side zones (`overlayProfile`) and keeps its layout in memory: the main window's
     * stored layout of the Session stays as it is.
     */
@@ -557,66 +334,20 @@ function ChatBody({
       if (!overlay) saveLayout(api.sessionId, layout);
    }, [overlay, api.sessionId, layout]);
    /** Every change goes through reconcile first, so a panel that just appeared (a slot) has its place. */
+   const placesRef = useRef<PanelPlace[]>([]);
    const update = useCallback(
-      (f: (l: Layout) => Layout) =>
-         setLayout((l) => fit(f(fit(reconcile(l, slotPanelsRef.current))))),
+      (f: (l: Layout) => Layout) => setLayout((l) => fit(f(fit(reconcile(l, placesRef.current))))),
       [fit],
    );
-   const lay = useMemo(() => fit(reconcile(layout, slotPanels)), [fit, layout, slotPanels]);
+   // The render_ui panels that exist (the panel host lists them, after the layout): each gets a place once.
+   const [places, setPlaces] = useState<PanelPlace[]>([]);
+   const lay = useMemo(() => fit(reconcile(layout, places)), [fit, layout, places]);
    useEffect(() => {
       if (lay !== layout) setLayout(lay);
    }, [lay, layout]);
 
-   // Side chats: a prompt box takes focus in the chat that was just created.
-   const [focus, setFocus] = useState<{ id: string; n: number }>({ id: "", n: 0 });
-   const [sideError, setSideError] = useState<string | null>(null);
-   const layRef = useRef(lay);
-   layRef.current = lay;
-   /**
-    * Starts a Side Thread now (forked from Main when the Agent can; `start` from a draft tab can pick fresh and a mode),
-    * in place of tab `draft` or as a new tab, and sends it `text`.
-    */
-   const startSideThread = useCallback(
-      async (text: string, attachments: AttachmentInput[], draft?: string, start?: SideStart) => {
-         setSideError(null);
-         let thread_id: string;
-         try {
-            ({ thread_id } = await api.startSideThread(start));
-         } catch (e) {
-            setSideError(errorMessage(e));
-            throw e;
-         }
-         update((l) => threadStarted(l, draft, thread_id));
-         setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
-         await api.prompt(text, attachments, thread_id);
-      },
-      [api, update],
-   );
-   /** A new side chat tab (an open draft is reused). Its Side Thread starts with its first message. */
-   const newSideThread = useCallback(() => {
-      const id = newThreadTabId(layRef.current, () => crypto.randomUUID());
-      update((l) => openThread(l, id));
-      setFocus((f) => ({ id, n: f.n + 1 }));
-      return id;
-   }, [update]);
-   /** "Ask in side thread": a new side chat with the selected text as a quote chip in its prompt box. */
-   const askSideThread = useCallback(
-      (quote: string) =>
-         addReviewComment(composerKey(api.sessionId, newSideThread()), {
-            kind: "quote",
-            quote,
-            text: "",
-         }),
-      [api, newSideThread],
-   );
-   /** `/btw <text>` in the Main prompt box: a Side Thread whose first prompt is `text`. */
-   const btw = useCallback(
-      (text: string, attachments: AttachmentInput[]) => startSideThread(text, attachments),
-      [startSideThread],
-   );
-
    useEffect(() => {
-      // The Quick overlay has no Terminal or side chats panel.
+      // The Quick overlay has no Terminal.
       if (overlay) return;
       const onKey = (e: KeyboardEvent) => {
          // A registered panel's shortcut (Cmd+J: the Terminal). Capture phase, so xterm never sees it.
@@ -626,16 +357,10 @@ function ChatBody({
             e.stopPropagation();
             update((l) => toggle(l, def.id as PanelId));
          }
-         // Cmd/Ctrl+Shift+B: a new Side Thread ("by the way").
-         else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyB") {
-            e.preventDefault();
-            e.stopPropagation();
-            newSideThread();
-         }
       };
       window.addEventListener("keydown", onKey, true);
       return () => window.removeEventListener("keydown", onKey, true);
-   }, [overlay, update, newSideThread]);
+   }, [overlay, update]);
    const [archiveError, setArchiveError] = useState<string | null>(null);
    const env = useMemo<UiEnv>(
       () => ({
@@ -657,13 +382,6 @@ function ChatBody({
       }),
       [api, state.uiState],
    );
-   // A left or right item the Agent adds or changes while the Session is open shows at once (not replayed ones).
-   const [openedAt] = useState(() => Date.now());
-   const newestSlot = useMemo(() => lastSlot(slots.map((s) => s.slot)), [slots]);
-   useEffect(() => {
-      const open = slotToAutoOpen(newestSlot, openedAt);
-      if (open) update((l) => show(l, slotPanel(open.id)));
-   }, [newestSlot?.id, newestSlot?.ts, openedAt, update]);
    const list = useRef<VirtualListHandle>(null);
    /** Scrolls the chat to a row; once the virtual list renders it, flashes what `pick` finds in it. */
    const jumpToRow = useCallback(
@@ -685,10 +403,10 @@ function ChatBody({
    // Shared Artifacts (ADR 0024): the Artifacts panel shows the panel of a shared artifact.
    const showShared = useCallback(
       (id: string) => {
-         const slot = slots.find((s) => sharedRef(s.slot.source) === id)?.slot;
+         const slot = [...ui.slots.left, ...ui.slots.right].find((s) => sharedRef(s.source) === id);
          if (slot) update((l) => show(l, slotPanel(slot.id)));
       },
-      [slots, update],
+      [ui.slots.left, ui.slots.right, update],
    );
    // A click in the Subagents panel opens the subagent's step in the chat (nested ones through their parents).
    const stepPlaces = useMemo(() => placeSteps(rows, subagents), [rows, subagents]);
@@ -740,7 +458,6 @@ function ChatBody({
       (requestId: string) => openPanel(planPanel, requestId),
       [openPanel],
    );
-   const showArtifact = useCallback((key: string) => openPanel(artifactsPanel, key), [openPanel]);
    const { artifacts } = panelHost.models.artifacts as ArtifactsModel;
    const shareBlock = useCallback(
       (markdown: string, title?: string) => {
@@ -754,102 +471,65 @@ function ChatBody({
       [api, artifacts],
    );
 
-   const sideThreads = useMemo(() => state.threadList.filter((t) => !t.main), [state.threadList]);
-   // Open side chats that have something to show (they arrive with the replay).
-   const openThreads = openThreadIds(lay.threads, state.threads);
-   const activeThread = activeThreadId(lay.thread, openThreads);
-   const threadTitle = (id: string) =>
-      isDraftThread(id) ? "New chat" : (sideThreads.find((x) => x.id === id)?.title ?? "Side chat");
+   // The side chats' own actions: `/btw` in the Main prompt box, and "Ask in side thread" on a selection.
+   const side = panelHost.models.side as SideChatsModel;
+   const { start: startSideThread, ask: askSideThread } = side;
+   const btw = useCallback(
+      (text: string, attachments: AttachmentInput[]) => startSideThread(text, attachments),
+      [startSideThread],
+   );
 
    // Panels with an icon, and those that can show now. The layout keeps the rest where they are.
-   const slotById = useMemo(
-      () => new Map(slots.map((s) => [slotPanel(s.slot.id), s.slot])),
-      [slots],
-   );
-   // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
+   // The Quick overlay shows only the panels marked `overlay` (ADR 0022 Phase 2).
    const available = useMemo(
       () =>
          availablePanels({
             overlay,
-            slotPanels: slotById.keys(),
-            registered: panelHost.statuses,
-            overlayPanels: OVERLAY_PANELS,
+            statuses: panelHost.statuses,
+            overlayPanels: panelHost.overlayIds,
          }),
-      [overlay, slotById, panelHost.statuses],
+      [overlay, panelHost.statuses, panelHost.overlayIds],
    );
-   const shown = useMemo(() => {
-      return shownOpen(lay, renderablePanels(available, openThreads.length));
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, [available, lay, openThreads.length]);
+   const renderable = useMemo(
+      () => renderablePanels(available, panelHost.statuses),
+      [available, panelHost.statuses],
+   );
+   const shown = useMemo(() => shownOpen(lay, renderable), [lay, renderable]);
    const open = (id: PanelId) => isOpen(shown, id);
 
-   // File-backed panels (ADR 0023): their files' hashes and write times.
-   const sourceNames = useMemo(
-      () =>
-         [
-            ...new Set(
-               slots.flatMap(({ slot }) =>
-                  slot.source && !sharedRef(slot.source) ? [slot.source] : [],
-               ),
-            ),
-         ].sort(),
-      [slots],
-   );
-   const stamps = useSourceStamps(api.panelSourceRead, api.panelSourceChanged, sourceNames);
-   const updatedAt = (x: Slot) => {
-      const id = sharedRef(x.source);
-      if (id) return sharedMetas.get(id)?.updated_ms ?? 0;
-      return Math.max(x.ts, x.source ? (stamps[x.source]?.mtime ?? 0) : 0);
-   };
-
-   // A dot on a slot's icon marks changes made while it was closed (its first sight counts as seen),
-   // including writes of a source file.
-   const [seen, setSeen] = useState<Record<string, string>>({});
-   useEffect(() => {
-      setSeen((prev) =>
-         nextSeen(
-            prev,
-            slots.map((s) => s.slot),
-            stamps,
-            (source) => !!sharedRef(source),
-            (slot) => open(slotPanel(slot.id)),
-         ),
-      );
-   });
+   // The render_ui panels the host lists get a place in the layout (a frame later, through `places`).
+   placesRef.current = panelHost.places;
+   useEffect(() => setPlaces(panelHost.places), [panelHost.places]);
 
    const { drag, start: startDrag } = usePanelDrag((id, t) =>
       update((l) => move(l, id, t.zone, t.index ?? undefined)),
    );
 
-   const label = (id: PanelId) =>
-      isSlotPanel(id)
-         ? (slotById.get(id)?.title ?? slotIdOf(id)!)
-         : (panelDef(id)?.label ?? BASE_LABEL[id]!);
+   const entryOf = useMemo(
+      () => new Map(panelHost.entries.map((e) => [e.id as string, e])),
+      [panelHost.entries],
+   );
+   const label = (id: PanelId) => entryOf.get(id)?.label ?? id;
+   // A panel without an icon of its own (a render_ui one without `icon`) gets the one of the side it is on.
    const icon = (id: PanelId) => {
-      const Registered = panelDef(id)?.icon;
-      if (Registered) return <Registered />;
-      if (!isSlotPanel(id)) return <MessagesSquare />;
-      const Custom = uiIcons[slotById.get(id)?.icon as keyof typeof uiIcons];
-      if (Custom) return <Custom />;
+      const Own = entryOf.get(id)?.icon;
+      if (Own) return <Own />;
       return lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? (
          <PanelLeft />
       ) : (
          <PanelRight />
       );
    };
-   const tip = (id: PanelId) =>
-      id === "side" ? "Side chats (⇧⌘B new)" : (panelHost.statuses.get(id)?.tip ?? label(id));
-   const count = (id: PanelId) =>
-      id === "side" ? sideThreads.length : panelHost.statuses.get(id)?.badge;
-   const shortcut = (id: PanelId) => panelDef(id)?.shortcut?.keys;
+   const tip = (id: PanelId) => panelHost.statuses.get(id)?.tip ?? label(id);
+   const count = (id: PanelId) => panelHost.statuses.get(id)?.badge;
+   const shortcut = (id: PanelId) => entryOf.get(id)?.shortcut;
+   const dotOf = (id: PanelId) => panelHost.statuses.get(id)?.dot;
    const group = (zone: Zone): StripeGroup =>
       stripeGroup(zone, {
          zones: lay.zones,
          openIn: shown.open[zone],
          available,
-         slotById,
-         seen,
-         stamps,
+         dot: dotOf,
          label,
          tip,
          count,
@@ -868,13 +548,12 @@ function ChatBody({
    ];
    const leftEmpty = left.every((g) => g.items.length === 0);
 
-   /** A stripe icon or shortcut for the side chats: hides them, else shows the last active chat, else starts a new one. */
-   const toggleSide = () => {
-      if (open("side")) update((l) => hide(l, "side"));
-      else if (activeThread) update((l) => show(selectThread(l, activeThread), "side"));
-      else newSideThread();
+   /** A stripe icon: hides the panel when it is shown, else the panel's own way to show (Side chats: its last chat), else shows it. */
+   const onToggle = (id: PanelId) => {
+      const entry = entryOf.get(id);
+      if (!open(id) && entry?.activate) entry.activate();
+      else update((l) => toggle(l, id));
    };
-   const onToggle = (id: PanelId) => (id === "side" ? toggleSide() : update((l) => toggle(l, id)));
 
    const proc = state.process;
    // The host's header shows it as a dot on its info icon, explained in that icon's menu; a header
@@ -920,98 +599,26 @@ function ChatBody({
    );
 
    const panels: DockPanel[] = [];
-   /** A panel defined through the panel contract: its mount block, from its definition. */
-   const registeredPanel = (id: PanelId) => {
-      const def = panelDef(id);
-      if (!def) return;
-      const self = panelHost.selves[id]!;
+   // Each hosted panel when it is mounted: open, or (by its definition) once opened or while it can show.
+   for (const e of panelHost.entries) {
       const mounted =
-         def.mount === "afterFirstOpen"
-            ? self.opened
-            : def.mount === "whileReady"
-              ? available.has(id)
-              : open(id);
-      if (!mounted) return;
-      const Body = def.Body;
-      const model = panelHost.models[id];
+         e.mount === "afterFirstOpen"
+            ? e.self.opened
+            : e.mount === "whileReady"
+              ? renderable.has(e.id)
+              : open(e.id);
+      if (!mounted) continue;
+      const Body = e.Body;
       panels.push({
-         id,
-         label: def.label,
-         expandable: def.expandable,
+         id: e.id,
+         label: e.label,
+         expandable: e.expandable,
          children: (
             <Suspense fallback={null}>
-               <Body model={model} ctx={panelHost.ctx} self={self} />
+               <Body {...e.props} />
             </Suspense>
          ),
       });
-   };
-   if (openThreads.length > 0) {
-      panels.push({
-         id: "side",
-         label: "Side chats",
-         children: (
-            <SidePanel
-               api={api}
-               state={state}
-               threads={openThreads}
-               active={activeThread}
-               titleOf={threadTitle}
-               env={env}
-               focus={focus}
-               onSelect={(id) => update((l) => selectThread(l, id))}
-               onClose={(id) => {
-                  if (isDraftThread(id)) {
-                     setReviewComments(composerKey(api.sessionId, id), []);
-                     clearDraft(composerKey(api.sessionId, id));
-                  }
-                  update((l) => closeThread(l, id));
-               }}
-               onNew={newSideThread}
-               onSendDraft={(id, text, files, start) => startSideThread(text, files, id, start)}
-               onOpenDiff={openDiff}
-            />
-         ),
-      });
-   }
-   // The registered panels, in the registry's order.
-   for (const p of PANELS) registeredPanel(p.id as PanelId);
-   for (const [id, slot] of slotById) {
-      const sharedId = sharedRef(slot.source);
-      if (open(id))
-         panels.push({
-            id,
-            label: slot.title ?? slot.id,
-            children: (
-               <SlotPanel
-                  slot={slot}
-                  env={env}
-                  updated={updatedAt(slot)}
-                  onShowInArtifacts={() =>
-                     showArtifact(sharedId ? `shared:${sharedId}` : `ui:${slot.id}`)
-                  }
-                  onShare={
-                     sharedId
-                        ? undefined
-                        : () =>
-                             void api
-                                .shareArtifact(slot.id)
-                                .catch((e) => console.error("share failed", e))
-                  }
-                  shared={
-                     sharedId
-                        ? {
-                             meta: sharedMetas.get(sharedId),
-                             onDetach: () =>
-                                void api
-                                   .detachShared(sharedId)
-                                   .catch((e) => console.error("detach failed", e)),
-                             onOpenOutside: onOpenShared && (() => onOpenShared(sharedId)),
-                          }
-                        : undefined
-                  }
-               />
-            ),
-         });
    }
 
    // The Quick overlay's draft: before the first message the window has room only below the box
@@ -1056,9 +663,9 @@ function ChatBody({
             bottom={
                <>
                   <Slots slots={ui.slots.bottom} env={env} className="pt-1" />
-                  {sideError && (
+                  {side.error && (
                      <p role="alert" className="px-6 pb-2 text-xs text-destructive">
-                        {sideError}
+                        {side.error}
                      </p>
                   )}
                   {state.archived ? (

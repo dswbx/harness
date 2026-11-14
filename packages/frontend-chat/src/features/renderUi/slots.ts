@@ -1,3 +1,4 @@
+import type { PanelRef } from "../../panels/contract";
 import type { Item } from "../../state/reducer";
 import { asRenderUi } from "./decode";
 import { type Placement, type RawNode, sharedNode, sharedNodeId, sharedRef } from "./tools";
@@ -120,4 +121,49 @@ export function splitRenderUi(
       });
    }
    return { inline, slots };
+}
+
+/** The handle of the panel of render_ui item `id` (instance ids are `slot:<id>`). */
+export const slotRef = (id: string): PanelRef => ({ id: `slot:${id}` });
+
+/** A dot on a slot's icon: changed since it was seen, while closed. */
+export function slotDot(
+   slot: Slot | undefined,
+   on: boolean,
+   seen: Record<string, string>,
+   stamps: Record<string, { hash: string }>,
+): boolean {
+   return !!slot && !on && slot.id in seen && seen[slot.id] !== slotChangeKey(slot, stamps);
+}
+
+/**
+ * The "seen" map after a render: a slot's first sight counts as seen, and one that is open follows
+ * its changes. A file-backed slot whose file was not read yet is skipped. Same object when nothing changed.
+ */
+export function nextSeen(
+   prev: Record<string, string>,
+   slots: readonly Slot[],
+   stamps: Record<string, { hash: string }>,
+   isShared: (source: string | null) => boolean,
+   isOpen: (slot: Slot) => boolean,
+): Record<string, string> {
+   let next = prev;
+   for (const slot of slots) {
+      if (slot.source && !isShared(slot.source) && !(slot.source in stamps) && !(slot.id in prev))
+         continue;
+      const k = slotChangeKey(slot, stamps);
+      if ((isOpen(slot) || !(slot.id in prev)) && prev[slot.id] !== k)
+         next = { ...next, [slot.id]: k };
+   }
+   return next;
+}
+
+/** The newest slot (first one on a tie). */
+export function lastSlot(slots: readonly Slot[]): Slot | null {
+   return slots.reduce<Slot | null>((a, x) => (!a || x.ts > a.ts ? x : a), null);
+}
+
+/** A slot the Agent placed or changed after the Session was opened shows at once (replayed ones do not). */
+export function slotToAutoOpen(last: Slot | null, openedAt: number): Slot | null {
+   return last && last.ts >= openedAt ? last : null;
 }

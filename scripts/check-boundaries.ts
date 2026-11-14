@@ -40,10 +40,7 @@ const RAW_ALLOWED: Record<string, string> = {
 };
 
 /** frontend-chat layering edges (`file -> target`, relative to its src/) that break the layer rule today. New ones must not. */
-const LAYER_ALLOWED: Record<string, string> = {
-   "features/sideChats/SidePanel.tsx -> shell/panelLayout":
-      "known: to be cut when the panel contract lands",
-};
+const LAYER_ALLOWED: Record<string, string> = {};
 
 /** App files that break the Frontend-package rule today, with the reason. New files must not. */
 const APP_ALLOWED: Record<string, string> = {

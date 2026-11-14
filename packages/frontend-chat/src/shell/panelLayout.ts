@@ -2,7 +2,7 @@ import { clamp } from "@harness/ui";
 import { PANELS, panelDef, zoneOfHint } from "./panels";
 
 /**
- * Where the chat's panels sit: six zones, one open panel per zone, sizes, and the open Side Threads.
+ * Where the chat's panels sit: six zones, one open panel per zone and sizes.
  * Pure, so the rules (and the geometry the dock draws from) are testable. ADR 0019.
  */
 export const ZONES = [
@@ -43,7 +43,6 @@ export const BASE_PANELS = [
 export type PanelId = (typeof BASE_PANELS)[number] | `slot:${string}`;
 export const slotPanel = (id: string): PanelId => `slot:${id}`;
 export const isSlotPanel = (id: PanelId): id is `slot:${string}` => id.startsWith("slot:");
-export const slotIdOf = (id: PanelId) => (isSlotPanel(id) ? id.slice(5) : null);
 const isPanelId = (x: unknown): x is PanelId =>
    typeof x === "string" &&
    ((BASE_PANELS as readonly string[]).includes(x) || (x.startsWith("slot:") && x.length > 5));
@@ -67,10 +66,6 @@ export type Layout = {
    sizes: Sizes;
    /** The panel grown to near full-screen (only while open). */
    expanded: PanelId | null;
-   /** Open Side Threads, in tab order. Closing only hides one; it stays in the Session Log (ADR 0018). */
-   threads: string[];
-   /** The Side Thread shown in the side chats panel. */
-   thread: string | null;
 };
 
 export const DEFAULT_SIZES: Sizes = {
@@ -82,17 +77,11 @@ export const DEFAULT_SIZES: Sizes = {
    bottomSplit: 0.5,
 };
 
-/** The zone a built-in panel starts in: its placement hint, except Side chats (not in the registry yet). */
-const defaultZone = (id: (typeof BASE_PANELS)[number]): Zone =>
-   id === "side" ? "rightTop" : zoneOfHint(panelDef(id)!.placement);
+/** The zone a built-in panel starts in: its placement hint. */
+const defaultZone = (id: (typeof BASE_PANELS)[number]): Zone => zoneOfHint(panelDef(id)!.placement);
 
-/**
- * The default order within a zone: the registry's order, with Side chats (not in the registry yet) before
- * Plan.
- */
-const DEFAULT_ORDER: readonly (typeof BASE_PANELS)[number][] = PANELS.flatMap((p) =>
-   p.id === "plan" ? (["side", "plan"] as const) : [p.id as (typeof BASE_PANELS)[number]],
-);
+/** The default order within a zone: the registry's order. */
+const DEFAULT_ORDER = PANELS.map((p) => p.id as (typeof BASE_PANELS)[number]);
 
 const noOpen = (): Record<Zone, PanelId | null> => ({
    leftTop: null,
@@ -118,8 +107,6 @@ export function defaultLayout(): Layout {
       open: noOpen(),
       sizes: { ...DEFAULT_SIZES },
       expanded: null,
-      threads: [],
-      thread: null,
    };
 }
 
@@ -192,46 +179,8 @@ export const resize = (l: Layout, patch: Partial<Sizes>): Layout => ({
    sizes: { ...l.sizes, ...patch },
 });
 
-/** Opens a Side Thread (appended when new), makes it the active one and shows the side chats panel. */
-export function openThread(l: Layout, id: string): Layout {
-   return show(
-      { ...l, threads: l.threads.includes(id) ? l.threads : [...l.threads, id], thread: id },
-      "side",
-   );
-}
-
-/** A side chat tab not started yet: its Side Thread forks on the first message (`draft:<uuid>`). */
-export const isDraftThread = (id: string) => id.startsWith("draft:");
-
-/** The draft tab became Side Thread `to`: same place in the tabs, still active if it was. */
-export const replaceThread = (l: Layout, from: string, to: string): Layout =>
-   l.threads.includes(from)
-      ? {
-           ...l,
-           threads: l.threads.map((t) => (t === from ? to : t)),
-           thread: l.thread === from ? to : l.thread,
-        }
-      : l;
-
-/** Selects an open Side Thread. */
-export const selectThread = (l: Layout, id: string): Layout =>
-   l.threads.includes(id) ? { ...l, thread: id } : l;
-
-/** Closes a Side Thread; if it was active the neighbour on its left (else right) takes over. The last one hides the panel. */
-export function closeThread(l: Layout, id: string): Layout {
-   const at = l.threads.indexOf(id);
-   if (at < 0) return l;
-   const threads = l.threads.filter((t) => t !== id);
-   const thread = l.thread === id ? (threads[at - 1] ?? threads[at] ?? null) : l.thread;
-   const next = { ...l, threads, thread };
-   return threads.length === 0 ? hide(next, "side") : next;
-}
-
-/** "Reset layout": default places and sizes; open Side Threads stay (and the panel shows when there are any). */
-export function resetLayout(l: Layout): Layout {
-   const next: Layout = { ...defaultLayout(), threads: l.threads, thread: l.thread };
-   return l.threads.length ? show(next, "side") : next;
-}
+/** "Reset layout": default places and sizes. Nothing opens (the Side chats tabs are not part of it). */
+export const resetLayout = (): Layout => defaultLayout();
 
 /**
  * Makes the layout agree with the panels that exist: built-in ones missing from `zones` go to their
@@ -530,8 +479,6 @@ export function parseLayout(raw: unknown): Layout {
       zones?: Record<string, unknown>;
       open?: Record<string, unknown>;
       sizes?: Record<string, unknown>;
-      threads?: unknown;
-      thread?: unknown;
    };
    const seen = new Set<PanelId>();
    const zones = noZones();
@@ -559,17 +506,10 @@ export function parseLayout(raw: unknown): Layout {
       rightSplit: num(sz.rightSplit, d.sizes.rightSplit, 0.1, 0.9),
       bottomSplit: num(sz.bottomSplit, d.sizes.bottomSplit, 0.1, 0.9),
    };
-   const threads = Array.isArray(v.threads)
-      ? v.threads.filter((t): t is string => typeof t === "string")
-      : [];
-   const thread =
-      typeof v.thread === "string" && threads.includes(v.thread)
-         ? v.thread
-         : (threads.at(-1) ?? null);
    // Nothing stored for the zones at all: the defaults (reconcile fills in any panel a stored layout lacks).
    return seen.size === 0
-      ? { ...d, open: noOpen(), sizes, threads, thread }
-      : { zones, open, sizes, expanded: null, threads, thread };
+      ? { ...d, open: noOpen(), sizes }
+      : { zones, open, sizes, expanded: null };
 }
 
 const noZones = (): Record<Zone, PanelId[]> => ({
@@ -581,16 +521,9 @@ const noZones = (): Record<Zone, PanelId[]> => ({
    rightTop: [],
 });
 
-/** The old right-panel state (`harness.chat.panel.<id>`: threads, active thread, one view) as a layout: its view opens in its zone. */
+/** The old right-panel state (`harness.chat.panel.<id>`: one view; its threads went to the Side chats tabs) as a layout: its view opens in its zone. */
 export function migratePanel(raw: unknown): Layout {
-   const v = (raw ?? {}) as { threads?: unknown; thread?: unknown; view?: unknown };
-   const threads = Array.isArray(v.threads)
-      ? v.threads.filter((t): t is string => typeof t === "string")
-      : [];
-   const thread =
-      typeof v.thread === "string" && threads.includes(v.thread)
-         ? v.thread
-         : (threads.at(-1) ?? null);
+   const v = (raw ?? {}) as { view?: unknown };
    const x = v.view as Record<string, unknown> | null | undefined;
    const id: PanelId | null =
       x?.kind === "side" || x?.kind === "changes" || x?.kind === "events" || x?.kind === "artifacts"
@@ -598,7 +531,7 @@ export function migratePanel(raw: unknown): Layout {
          : x?.kind === "slot" && typeof x.id === "string" && x.id
            ? slotPanel(x.id)
            : null;
-   const base: Layout = { ...defaultLayout(), threads, thread };
+   const base = defaultLayout();
    if (!id) return base;
    // A slot is not in the default zones yet: it was right-placed, so it starts in right top.
    const withId = isSlotPanel(id)
@@ -627,9 +560,15 @@ export function loadLayout(sessionId: string): Layout {
 export function saveLayout(sessionId: string, l: Layout) {
    try {
       const open = l.open;
-      const out = { zones: l.zones, open, sizes: l.sizes, threads: l.threads, thread: l.thread };
+      // The Side chats tabs keep their own key now. Their older fields in this value stay as they are: the
+      // tabs read them while they have no key of their own, and an older build reads them.
+      const prev = readJson(KEY(sessionId)) as Record<string, unknown> | undefined;
+      const kept: Record<string, unknown> = {};
+      for (const k of ["threads", "thread"])
+         if (prev && typeof prev === "object" && k in prev) kept[k] = prev[k];
+      const out = { zones: l.zones, open, sizes: l.sizes, ...kept };
       const plain =
-         out.threads.length === 0 &&
+         Object.keys(kept).length === 0 &&
          ZONES.every((z) => !open[z]) &&
          JSON.stringify(out.zones) === JSON.stringify(defaultLayout().zones) &&
          JSON.stringify(out.sizes) === JSON.stringify(DEFAULT_SIZES);
