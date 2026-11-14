@@ -5,11 +5,11 @@ import { registry } from "./registry";
 export async function makeTransport(): Promise<Transport> {
    if (inTauri()) return tauriTransport;
    const { MockTransport } = await import("@harness/api/mock");
-   const { mockEvents } = await import("./mock/events");
+   const { mockEvents } = await import("../mock/events");
    // `?stress`: a long synthetic Session, for profiling.
    const stress = new URLSearchParams(location.search).has("stress");
    return new MockTransport(
-      stress ? (await import("./mock/stressEvents")).stressEvents() : mockEvents(),
+      stress ? (await import("../mock/stressEvents")).stressEvents() : mockEvents(),
       Object.values(registry).map((f) => f.manifest),
    );
 }

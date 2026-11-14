@@ -1,5 +1,5 @@
 import type { SessionStatus, SessionSummary, WorkspaceInfo } from "@harness/api";
-import { QUICK_TITLE } from "./composer";
+import { QUICK_TITLE } from "../composer/composer";
 
 /** Sidebar Session list: search, sort, group and the detail row's labels (pure, see `SessionList.tsx`). */
 

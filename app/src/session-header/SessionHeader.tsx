@@ -46,7 +46,7 @@ import {
    Zap,
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { useReportError } from "./toast";
+import { useReportError } from "../platform/toast";
 
 /** The Session's git ref as the header shows it (see App's `useGitRef`). */
 export type GitRef = {

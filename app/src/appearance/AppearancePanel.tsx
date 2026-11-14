@@ -29,6 +29,9 @@ import {
 } from "@harness/ui";
 import { Minus, Plus, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { openExternal } from "../platform/openExternal";
+import { useReportError } from "../platform/toast";
+import { SectionHeader } from "../settings/SectionHeader";
 import {
    type Appearance,
    CODE_FONT_SIZE_MAX,
@@ -57,12 +60,9 @@ import {
    setImportedThemes,
    TERMINAL_FONT_SIZE_MAX,
    TERMINAL_FONT_SIZE_MIN,
-} from "./appearance/appearance";
-import { fromCss, fromRegistryItem, registryUrl, themeId } from "./appearance/importTheme";
-import { openExternal } from "./openExternal";
-import { SectionHeader } from "./SectionHeader";
+} from "./appearance";
+import { fromCss, fromRegistryItem, registryUrl, themeId } from "./importTheme";
 import { ThemePicker } from "./ThemePicker";
-import { useReportError } from "./toast";
 
 /** Where themes come from: browse, make your own, then copy the link. */
 const TWEAKCN = "https://tweakcn.com/editor/theme";

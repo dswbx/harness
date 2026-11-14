@@ -41,7 +41,7 @@ import {
    Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AgentIcon } from "./AgentsPanel";
+import { AgentIcon } from "../settings/AgentsPanel";
 import {
    branchChoices,
    loadRecent,
