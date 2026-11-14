@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::cmd::{current_branch, git, rev};
+use super::cmd::{current_branch, git, git_with, rev};
 use super::diff::base_refs;
 
 /// A Worktree the Harness created for one Session.
@@ -58,10 +58,9 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
     let (remote, branch) = tracking.unwrap_or(("origin", base));
     let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
     let args = ["fetch", "--quiet", "--no-tags", remote, &spec];
-    match tokio::time::timeout(std::time::Duration::from_secs(15), git(repo_root, &args)).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(e)) => tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}"),
-        Err(_) => tracing::warn!("fetching {remote}/{branch} timed out, using the last known copy"),
+    // Bounded: a timeout kills the fetch (and its hooks and credential helpers), not just stops waiting.
+    if let Err(e) = git_with(repo_root, &args, &[], std::time::Duration::from_secs(15)).await {
+        tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}");
     }
     if tracking.is_some() {
         return base.to_owned();

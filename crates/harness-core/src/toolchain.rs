@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::proc;
+
 struct Pin {
     name: &'static str,
     url: String,
@@ -116,8 +118,13 @@ fn intact(pin: &Pin, bin: &Path) -> bool {
 /// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given. Returns the
 /// sha256 of what was downloaded.
 pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
-    let out = tokio::process::Command::new("curl").args(["-fsSL", "--retry", "2", "-o"]).arg(dest).arg(url).output().await?;
-    anyhow::ensure!(out.status.success(), "download {url}: {}", String::from_utf8_lossy(&out.stderr).trim());
+    // Bounded in total, and curl gives up on a stalled connection: a hang must not hold the toolchain lock.
+    let opts = proc::Opts::new(proc::DOWNLOAD)
+        .args(["-fsSL", "--retry", "2", "--connect-timeout", "30", "--speed-limit", "1024", "--speed-time", "60", "-o"])
+        .arg(dest)
+        .arg(url);
+    let out = proc::run("curl", opts).await.map_err(|e| anyhow::anyhow!("download {url}: {e}"))?;
+    anyhow::ensure!(out.success(), "download {url}: {}", out.stderr_lossy().trim());
     let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
     if let Some(expected) = sha256 {
         anyhow::ensure!(actual.eq_ignore_ascii_case(expected), "checksum mismatch for {url}: expected {expected}, got {actual}");
@@ -126,8 +133,9 @@ pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::R
 }
 
 pub async fn unpack(archive: &Path, into: &Path) -> anyhow::Result<()> {
-    let out = tokio::process::Command::new("tar").arg("-xf").arg(archive).arg("-C").arg(into).output().await?;
-    anyhow::ensure!(out.status.success(), "unpack {}: {}", archive.display(), String::from_utf8_lossy(&out.stderr).trim());
+    let opts = proc::Opts::new(proc::UNPACK).arg("-xf").arg(archive).arg("-C").arg(into);
+    let out = proc::run("tar", opts).await.map_err(|e| anyhow::anyhow!("unpack {}: {e}", archive.display()))?;
+    anyhow::ensure!(out.success(), "unpack {}: {}", archive.display(), out.stderr_lossy().trim());
     Ok(())
 }
 

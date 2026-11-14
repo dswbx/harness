@@ -166,8 +166,8 @@ impl Session {
         std::fs::write(&path, script)?;
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
-        let status = tokio::process::Command::new("open").args(["-a", "Terminal"]).arg(&path).status().await?;
-        anyhow::ensure!(status.success(), "could not open Terminal");
+        let out = crate::proc::run("open", crate::proc::Opts::new(crate::proc::LOCAL).args(["-a", "Terminal"]).arg(&path)).await?;
+        anyhow::ensure!(out.success(), "could not open Terminal");
         Ok(())
     }
 

@@ -1,29 +1,42 @@
 //! The `git` runner and the guard for revisions that come from outside.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::proc;
 
 use super::parse::{parse_gitdir, parse_head};
 
 pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
-    git_env(dir, args, &[]).await
+    git_with(dir, args, &[], timeout_for(args)).await
 }
 
+/// `git` with extra env (a scratch index for the diff snapshot); those calls scale with the repository.
 pub(super) async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> anyhow::Result<String> {
-    let out = tokio::process::Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("PATH", crate::env::login_path())
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .envs(env.iter().map(|(k, v)| (*k, *v)))
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let msg = if err.trim().is_empty() { String::from_utf8_lossy(&out.stdout).into_owned() } else { err.into_owned() };
+    git_with(dir, args, env, proc::HEAVY).await
+}
+
+/// `git` bounded by `timeout`; a hang fails with a timeout error and kills git and what it spawned.
+pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)], timeout: Duration) -> anyhow::Result<String> {
+    let mut opts = proc::Opts::new(timeout).args(args).cwd(dir).env("PATH", crate::env::login_path()).env("GIT_TERMINAL_PROMPT", "0");
+    for (k, v) in env {
+        opts = opts.env(k, v);
+    }
+    let out = proc::run("git", opts).await.map_err(|e| anyhow::anyhow!("git {}: {e}", args.join(" ")))?;
+    if !out.success() {
+        let err = out.stderr_lossy();
+        let msg = if err.trim().is_empty() { out.stdout_lossy() } else { err };
         anyhow::bail!("git {}: {}", args.join(" "), msg.trim());
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.stdout_lossy())
+}
+
+/// Network subcommands get the network timeout, everything else the local one.
+fn timeout_for(args: &[&str]) -> Duration {
+    match args.first() {
+        Some(&("fetch" | "pull" | "push" | "clone" | "ls-remote")) => proc::NETWORK,
+        _ => proc::LOCAL,
+    }
 }
 
 /// A revision, branch or ref from outside, checked before it reaches git: not empty and not option-like.

@@ -81,7 +81,7 @@ impl Harness {
         let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
         let file = crate::editor::resolve(&folder, path.as_deref())?;
         let target = crate::editor::target(&editor, &file, line);
-        tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+        crate::editor::open(&target).await?;
         Ok(CommandResult::Ok)
     }
 
@@ -102,7 +102,7 @@ impl Harness {
         if let Some(editor) = editor {
             // The file was just written by Harness inside the Session's data dir, so `resolve` does not apply.
             let target = crate::editor::target(&editor, &file, None);
-            tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+            crate::editor::open(&target).await?;
         }
         Ok(CommandResult::PlanFile { path: file.to_string_lossy().into_owned() })
     }

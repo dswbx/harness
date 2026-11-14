@@ -5,7 +5,6 @@
 //! `BackgroundJobEnded` is logged.
 
 use std::collections::HashSet;
-use std::process::Stdio;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -48,15 +47,8 @@ pub(super) fn watch(session: &Arc<Session>, thread: Option<ThreadId>, job: Backg
 
 /// Whether any process has `file` open. A missing file or a failed `lsof` counts as not open.
 async fn is_open(file: &str) -> bool {
-    tokio::process::Command::new("lsof")
-        .arg("--")
-        .arg(file)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .await
-        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty())
+    let opts = crate::proc::Opts::new(crate::proc::LOCAL).arg("--").arg(file).max_output(1024 * 1024).truncate();
+    crate::proc::run("lsof", opts).await.is_ok_and(|o| o.success() && !o.stdout.is_empty())
 }
 
 #[cfg(test)]

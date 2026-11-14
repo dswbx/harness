@@ -93,6 +93,7 @@ pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String>
         let mut refs = base_refs(dir, base).await;
         if refs.is_empty() {
             for remote in git(dir, &["remote"]).await.unwrap_or_default().lines() {
+                // A failed or slow fetch is skipped; each is bounded and killed on timeout.
                 let _ = git(dir, &["fetch", "--quiet", "--no-tags", remote, &format!("refs/heads/{base}:refs/remotes/{remote}/{base}")]).await;
             }
             refs = base_refs(dir, base).await;

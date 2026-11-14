@@ -11,25 +11,24 @@ pub(super) async fn gh(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     gh_in(Some(dir), args).await
 }
 
-/// `gh` in `dir`, or anywhere.
+/// `gh` in `dir`, or anywhere. Bounded: a hang (a prompt, the network) fails with a timeout error.
 pub(crate) async fn gh_in(dir: Option<&Path>, args: &[&str]) -> anyhow::Result<String> {
-    let mut cmd = tokio::process::Command::new("gh");
-    if let Some(dir) = dir {
-        cmd.current_dir(dir);
-    }
-    let out = cmd
+    let mut opts = crate::proc::Opts::new(crate::proc::NETWORK)
         .args(args)
         .env("PATH", crate::env::login_path())
         .env("GH_PROMPT_DISABLED", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .map_err(|e| anyhow::anyhow!("gh: {e} (is the GitHub CLI installed?)"))?;
-    if !out.status.success() {
-        anyhow::bail!("gh {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+        .env("GIT_TERMINAL_PROMPT", "0");
+    if let Some(dir) = dir {
+        opts = opts.cwd(dir);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    let out = crate::proc::run("gh", opts).await.map_err(|e| match e {
+        crate::proc::ProcError::Spawn { source, .. } => anyhow::anyhow!("gh: {source} (is the GitHub CLI installed?)"),
+        e => anyhow::anyhow!("gh {}: {e}", args.join(" ")),
+    })?;
+    if !out.success() {
+        anyhow::bail!("gh {}: {}", args.join(" "), out.stderr_lossy().trim());
+    }
+    Ok(out.stdout_lossy())
 }
 
 const API: &str = "https://api.github.com";
