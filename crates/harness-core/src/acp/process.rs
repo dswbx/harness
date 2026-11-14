@@ -347,6 +347,8 @@ pub(super) async fn ensure_conn(session: &Arc<Session>) -> anyhow::Result<Arc<Ag
     if let Some(conn) = slot.conn() {
         return Ok(conn);
     }
+    // No Agent for a Session whose log cannot record what it does.
+    session.log().writable()?;
     let conn = spawn_agent(session.clone()).await?;
     slot.update(session, |s| s.conn = Some(conn.clone()));
     spawn_watchdog(Arc::downgrade(session), conn.generation);

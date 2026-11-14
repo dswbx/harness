@@ -587,9 +587,10 @@ impl SessionLog {
         })
     }
 
-    fn writable(&self) -> anyhow::Result<()> {
+    /// An error (`Conflict`) with the reason when the log refuses appends.
+    pub fn writable(&self) -> anyhow::Result<()> {
         match &self.read_only {
-            Some(reason) => anyhow::bail!("{reason}"),
+            Some(reason) => Err(crate::error::conflict(reason.clone())),
             None => Ok(()),
         }
     }
@@ -602,10 +603,10 @@ impl SessionLog {
     /// Logs that the Agent process of an earlier run of the Harness is gone: quitting logs nothing.
     /// It keeps the last Event's time, so it does not move the Session up in the list.
     pub fn note_agent_gone(&self) -> anyhow::Result<()> {
-        if !self.agent_was_running {
+        // A read-only log is not touched: it stays as the newer Harness left it.
+        if !self.agent_was_running || self.read_only.is_some() {
             return Ok(());
         }
-        self.writable()?;
         let mut inner = self.inner.lock();
         let event = Event {
             v: EVENT_SCHEMA_VERSION,

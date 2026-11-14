@@ -1385,3 +1385,41 @@ async fn session_log_survives_a_crash_mid_append() {
     let text = std::fs::read_to_string(&log_path).unwrap();
     assert!(text.ends_with('\n') && text.lines().all(|l| serde_json::from_str::<serde_json::Value>(l).is_ok()), "the file holds only whole lines");
 }
+
+/// ADR 0021: a Session Log a newer Harness wrote opens read-only. The Session stays in the list,
+/// and a prompt is refused before anything starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
+    use std::io::Write as _;
+    let (h, sid, dir) = setup().await;
+    turn(&h, &sid, None, "hi").await;
+    let next = events(&h, &sid).len();
+    drop(h);
+    let data = dir.path().join("data");
+    let log = data.join("sessions").join(&sid).join("log.jsonl");
+    // The newer Harness quit while its Agent ran (quitting logs nothing), after an Event this
+    // build cannot read.
+    let line =
+        |seq: usize, v: u32, kind: &str| format!("{{\"v\":{v},\"seq\":{seq},\"session_id\":\"{sid}\",\"thread_id\":null,\"ts_ms\":5,\"kind\":{kind}}}\n");
+    let tail = [line(next, 1, r#"{"type":"AgentProcessState","state":"ready","message":null}"#), line(next + 1, 99, r#"{"type":"Shiny"}"#)].concat();
+    std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(tail.as_bytes()).unwrap();
+    let _ = std::fs::remove_file(log.with_extension("checkpoint.json"));
+    let before = std::fs::read(&log).unwrap();
+
+    let h2 = harness(&data, &[], Duration::from_secs(900));
+    let CommandResult::Sessions { sessions } = h2.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert!(sessions.iter().any(|s| s.id == sid), "the Session is still listed");
+    assert_eq!(events(&h2, &sid).len(), next + 2, "and its Events can be read");
+
+    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "again".into(), attachments: vec![] };
+    let e = h2.execute(prompt).await.unwrap_err();
+    assert_eq!(e.code, harness_core::api::ErrorCode::Conflict, "{e}");
+    assert!(e.message.contains("newer version"), "{e}");
+    let side = Command::StartSideThread { session_id: sid.clone(), seed: None, source: ThreadStart::Fresh, mode: None };
+    assert_eq!(h2.execute(side).await.unwrap_err().code, harness_core::api::ErrorCode::Conflict);
+    h2.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let CommandResult::Sessions { sessions } = h2.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert_eq!(sessions.iter().find(|s| s.id == sid).unwrap().status, SessionStatus::Idle, "no Agent was started");
+    assert_eq!(std::fs::read(&log).unwrap(), before, "the log is untouched");
+}

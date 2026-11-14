@@ -1025,6 +1025,7 @@ impl Session {
         attachments: Vec<crate::api::AttachmentInput>,
         origin: Option<crate::api::PromptOrigin>,
     ) -> anyhow::Result<()> {
+        self.log.writable()?;
         let thread = self.thread(thread_id)?;
         self.note_first_prompt(&thread, &text)?;
         self.adopt_repo();
@@ -1100,7 +1101,7 @@ impl Session {
     /// Only for a Thread that never had one: resuming waits for the next prompt.
     pub fn warm_up(self: &Arc<Self>) {
         let m = self.meta();
-        if m.archived || m.agent_sessions.contains_key(&m.main_thread_id) {
+        if m.archived || m.agent_sessions.contains_key(&m.main_thread_id) || self.log.read_only_reason().is_some() {
             return;
         }
         let session = self.clone();
@@ -1114,6 +1115,7 @@ impl Session {
     /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
     /// whether that will be a fork of the Main Thread's Agent Session.
     pub fn start_side_thread(&self, seed: Option<String>, source: crate::api::ThreadStart, mode: Option<String>) -> anyhow::Result<(ThreadId, bool)> {
+        self.log.writable()?;
         let thread = uuid::Uuid::now_v7().to_string();
         let main = self.meta().main_thread_id;
         let point = crate::summary::last_finished_turn(&self.log.events()?, &main);
