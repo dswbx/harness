@@ -1,7 +1,6 @@
 import {
    type AgentSwitch,
    type AttachmentInput,
-   onFileDrop,
    type PromptContext,
    pickFiles,
    type SessionApi,
@@ -19,12 +18,13 @@ import {
    useRef,
    useState,
 } from "react";
-import { fromFile, fromPickedPath, inside, type PendingAttachment } from "./attachments";
+import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { CommentChips } from "./CommentChip";
 import { ConfigBar, type MenuSide } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { getDraft, setDraft, useDraftAttachments } from "./drafts";
 import { errorMessage } from "./errors";
+import { registerDropTarget } from "./fileDropTargets";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
 import {
@@ -363,26 +363,19 @@ export function PromptBox({
       if (paths === null) fileInput.current?.click();
       else addPaths(paths);
    };
-   // Tauri delivers file drops as paths to the window (no HTML5 drop); any drop on this window lands here.
+   // Tauri delivers file drops as paths to the window (no HTML5 drop). With several prompt boxes
+   // (a Side Thread panel) one of them takes it: see `pickTarget`.
    const addRef = useRef(addPaths);
    addRef.current = addPaths;
-   useEffect(() => {
-      let off: (() => void) | null = null;
-      let gone = false;
-      void onFileDrop((e) => {
-         // Only the box under the cursor takes the drop (a Side Thread panel adds a second box).
-         // Without a position every box takes it.
-         const pos = e.type === "leave" ? undefined : e.position;
-         const el = boxRef.current;
-         const here = !pos || (!!el && inside(el.getBoundingClientRect(), pos));
-         setDragging(e.type === "over" && here);
-         if (e.type === "drop" && here) addRef.current(e.paths);
-      }).then((u) => (gone ? u?.() : (off = u)));
-      return () => {
-         gone = true;
-         off?.();
-      };
-   }, []);
+   useEffect(
+      () =>
+         registerDropTarget({
+            el: () => boxRef.current,
+            over: setDragging,
+            drop: (paths) => addRef.current(paths),
+         }),
+      [],
+   );
 
    // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
    const send = () => {
