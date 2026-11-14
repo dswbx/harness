@@ -162,3 +162,22 @@ export function layerViolation(file: string, target: string): string | null {
       return `${from}/ must not import features/`;
    return null;
 }
+
+/**
+ * Pure chat modules that could move to `@harness/api` when a second Frontend lands (paths relative
+ * to `frontend-chat/src`): no React, nothing from `state/`. Only the files where this holds.
+ */
+export const PORTABLE_FILES = [
+   "features/prRefs/prMenu.ts",
+   "features/prRefs/prChip.ts",
+   "features/prompt/commands.ts",
+];
+
+/** Why a `PORTABLE_FILES` file (relative to `src`) may not import `spec`; null when it may. */
+export function portableViolation(file: string, spec: string): string | null {
+   if (spec === "react" || spec === "react-dom" || spec.startsWith("react/"))
+      return "portable module must stay React-free";
+   if (spec.startsWith(".") && resolve("/src", dirname(file), spec).startsWith("/src/state/"))
+      return "portable module must not import state/";
+   return null;
+}
