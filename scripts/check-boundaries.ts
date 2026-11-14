@@ -36,7 +36,6 @@ const LAYER_ALLOWED: Record<string, string> = {
    "features/sideChats/SidePanel.tsx -> shell/panelLayout":
       "known: to be cut when the panel contract lands",
    "panels/PanelHeader.tsx -> shell/panelLayout": "known: to be cut when the panel contract lands",
-   "state/slices/plans.ts -> features/plan/plans": "known: to be cut when the panel contract lands",
    "state/slices/timeline.ts -> features/prompt/configGroups":
       "known: to be cut when the panel contract lands",
    "state/slices/timeline.ts -> features/renderUi/tools":
