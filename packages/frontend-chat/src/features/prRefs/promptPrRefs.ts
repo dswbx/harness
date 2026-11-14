@@ -6,7 +6,10 @@ import {
    type PrRefContext,
    type PrRefKey,
    type PrStore,
+   QUALIFIED_REF,
    qualify,
+   REF_END,
+   REF_START,
 } from "@harness/api";
 import { $isCodeNode } from "@lexical/code";
 import { $isLinkNode } from "@lexical/link";
@@ -26,7 +29,7 @@ import {
 import { $createPrRefNode, $isPrRefNode, $nodeAt, PrRefNode } from "./PrRefNode";
 
 /** `owner/repo#N`, with the same boundaries as `findPrRefs`. */
-const QUALIFIED = /(?<=^|[\s(])([\w-]+)\/([\w.-]+)#(\d+)(?=$|\s|[.,;:!?](?!\w)|[)\]}'"])/;
+const QUALIFIED = new RegExp(`${REF_START}${QUALIFIED_REF}${REF_END}`);
 
 const keyOf = (m: RegExpMatchArray): PrRefKey => ({
    repo: { owner: m[1]!, name: m[2]! },

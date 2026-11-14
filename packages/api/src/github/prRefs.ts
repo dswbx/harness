@@ -1,6 +1,7 @@
 // PR references in text (`#17`, `PR #17`, `spark#17`, `supabase/spark#17`, PR URLs): finding, resolving the repo, display.
 // Pure, shared by every Frontend that shows PR chips (ADR 0012).
 import type { KnownRepo, PrRefKey, RepoId } from "../generated";
+import { PR_URL, PULL_PATH, REF_END, REF_START, SHORT_REF } from "./prGrammar";
 
 /** What refs resolve against: the Session's repo (for `#17`) and the user's known repos (for `repo#17`). */
 export type PrRefContext = { sessionRepo: RepoId | null; knownRepos: KnownRepo[] };
@@ -28,16 +29,7 @@ export type RepoResolution =
    | { kind: "ambiguous"; repos: RepoId[] }
    | { kind: "none" };
 
-/** GitHub owners have no dots (so `x.com/a#3` is no ref); repo names may. */
-const OWNER = String.raw`[\w-]+`;
-const NAME = String.raw`[\w.-]+`;
-// A ref starts at the start, after whitespace or `(`, and ends at the end, whitespace, closing brackets/quotes or
-// punctuation not followed by a word (`#3.5` is no ref). So `https://x.com/a#3` and `a/b#3x` stay text.
-const REF = new RegExp(
-   String.raw`(?<=^|[\s(])(?:https?://(?:www\.)?github\.com/(${OWNER})/(${NAME})/pull/(\d+)(?:/[\w/-]*)?(?:#[\w-]*)?|(?:(?:(${OWNER})/)?(${NAME}))?#(\d+))` +
-      String.raw`(?=$|\s|[.,;:!?](?!\w)|[)\]}'"])`,
-   "g",
-);
+const REF = new RegExp(`${REF_START}(?:${PR_URL}|${SHORT_REF})${REF_END}`, "g");
 
 const toNumber = (s: string) => {
    const n = Number(s);
@@ -184,7 +176,7 @@ export function displayRef(key: PrRefKey, ctx: PrRefContext): string {
 
 /** A PR number from "142", "#142" or a GitHub PR URL. */
 export function parsePrRef(q: string): number | null {
-   const m = q.trim().match(/^#?(\d+)$/) ?? q.match(/\/pull\/(\d+)/);
+   const m = q.trim().match(/^#?(\d+)$/) ?? q.match(new RegExp(PULL_PATH));
    const n = m ? Number(m[1]) : NaN;
    return Number.isSafeInteger(n) && n > 0 ? n : null;
 }

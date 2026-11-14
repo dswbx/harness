@@ -5,6 +5,7 @@ import {
    type PrInfo,
    type PrRefContext,
    type PrRefKey,
+   PULL_PATH,
    prKey,
    qualify,
    type RepoId,
@@ -80,7 +81,8 @@ const quoteAfter = (s: string) => {
 };
 
 const http = (url: string) => /^https?:\/\//i.test(url);
-const prUrl = (url: string) => /\/pull\/\d+/.test(url);
+const PULL = new RegExp(PULL_PATH);
+const prUrl = (url: string) => PULL.test(url);
 
 type Target =
    | { kind: "pr"; ref: PrRefKey }

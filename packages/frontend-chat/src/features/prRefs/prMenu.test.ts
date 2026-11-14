@@ -5,6 +5,7 @@ import {
    type RepoId,
    repoName,
 } from "@harness/api";
+import { CASE_CTX, MENU_CASES, REF_CASES } from "@harness/api/testing";
 import { describe, expect, it } from "vitest";
 import {
    exactNumber,
@@ -187,4 +188,13 @@ it("a repo pick becomes owner/repo#", () => {
    const s = st("sp#")!;
    if (s.mode !== "repos") throw new Error("expected repos");
    expect(repoToken(s.repos[0]!)).toBe("supabase/spark#");
+});
+
+describe("shared case table", () => {
+   it.each(Object.entries(REF_CASES))("menu token: %s", (_, c) => {
+      for (const raw of c.qualified) expect(prMenuState(raw, CASE_CTX)?.mode).toBe("exact");
+   });
+   it.each(MENU_CASES.map((c) => [c.token, c] as const))("menu text token: %s", (_, c) => {
+      expect(prMenuState(c.token, CASE_CTX)?.mode ?? null).toBe(c.mode);
+   });
 });

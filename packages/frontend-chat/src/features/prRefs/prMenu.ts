@@ -3,6 +3,7 @@
 import {
    fuzzyRank,
    type KnownRepo,
+   MENU_TOKEN,
    type PrInfo,
    type PrRefContext,
    type RepoId,
@@ -33,7 +34,7 @@ export type PrMenuRow =
    | { kind: "pr"; pr: PrInfo; hit: [number, number] | null }
    | { kind: "repo"; hit: RepoHit };
 
-const TOKEN = /^(?:([\w-]+)\/([\w.-]+)|([\w.-]+))?#([^#\s]*)$/;
+const TOKEN = new RegExp(MENU_TOKEN);
 
 /**
  * What the `#` token at the caret (`#`, `#fix`, `#2`, `spark#1`, `sp#`, `owner/repo#17`) asks for; null for no menu

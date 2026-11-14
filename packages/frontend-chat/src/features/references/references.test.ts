@@ -1,4 +1,5 @@
 import type { PrEntry, PrInfo, PrRefKey, RepoId } from "@harness/api";
+import { CASE_CTX, REF_CASES } from "@harness/api/testing";
 import { describe, expect, it } from "vitest";
 import type { Item } from "../../state/reducer";
 import type { FileRef } from "../files/fileRefs";
@@ -244,5 +245,28 @@ describe("groupReferences", () => {
       ]);
       expect(byRecency(refs).map((r) => r.ts)).toEqual([3, 2, 1]);
       expect(filterReferences(refs, " B.DEV ").map((r) => r.ts)).toEqual([3]);
+   });
+});
+
+describe("shared case table", () => {
+   // The line scanner has its own code and link context rules; rows where it differs from the rendered chips say why.
+   it.each(Object.entries(REF_CASES))("PR references: %s", (_, c) => {
+      const prs = collectReferences([agent("a", c.text)], CASE_CTX).filter((x) => x.kind === "pr");
+      expect(prs.map((x) => x.key)).toEqual([...new Set((c.references ?? c).chips)]);
+   });
+});
+
+describe("collectReferences cost", () => {
+   it("scans 2k settled messages cheaply (a parse per message would not)", () => {
+      const items = Array.from({ length: 2000 }, (_, i) =>
+         agent(
+            `a${i}`,
+            `Step ${i}: see \`src/a${i}.ts:12\` and dswbx/harness#${i + 1}.\n\n- [docs](https://x.dev/${i}) then https://y.dev/z\n\nSome more prose about the change, with **bold** text and a list:\n\n1. one\n2. two`,
+         ),
+      );
+      const t = performance.now();
+      collectReferences(items, ctx);
+      // The line scanner takes about 40 ms here; parsing each message with remark took 700.
+      expect(performance.now() - t).toBeLessThan(400);
    });
 });
