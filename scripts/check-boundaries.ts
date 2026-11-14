@@ -36,9 +36,9 @@ const APP_ALLOWED: Record<string, string> = {
       "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
    "app/src/App.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/SettingsDialog.tsx":
+   "app/src/settings/SettingsDialog.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/AppearancePanel.tsx":
+   "app/src/appearance/AppearancePanel.tsx":
       "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
 };
 

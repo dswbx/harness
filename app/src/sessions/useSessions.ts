@@ -1,6 +1,6 @@
 import type { AppEvent, HarnessClient, SessionSummary } from "@harness/api";
 import { useEffect, useRef, useState } from "react";
-import { useReportError } from "./toast";
+import { useReportError } from "../platform/toast";
 
 type StatusEvent = Extract<AppEvent, { type: "SessionStatus" }>;
 

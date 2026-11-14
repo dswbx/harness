@@ -1,13 +1,7 @@
 import { cn, ScrollArea } from "@harness/ui";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
-import {
-   filterThemes,
-   getThemes,
-   onThemesChange,
-   stepIndex,
-   swatch,
-} from "./appearance/appearance";
+import { filterThemes, getThemes, onThemesChange, stepIndex, swatch } from "./appearance";
 
 function Dots({ theme, isDark }: { theme: string; isDark: boolean }) {
    return (

@@ -1,6 +1,6 @@
 import { Button } from "@harness/ui";
 import { ArrowUpRight, Check, Loader2, RefreshCw } from "lucide-react";
-import { openExternal } from "./openExternal";
+import { openExternal } from "../platform/openExternal";
 import { releaseUrl, type useUpdate } from "./updates";
 
 const link =

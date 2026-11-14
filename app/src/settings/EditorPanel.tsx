@@ -1,8 +1,8 @@
 import type { Editor, HarnessClient } from "@harness/api";
 import { cn, Input } from "@harness/ui";
 import { useEffect, useState } from "react";
+import { useReportError } from "../platform/toast";
 import { SectionHeader } from "./SectionHeader";
-import { useReportError } from "./toast";
 
 const CHOICES: { type: Editor["type"]; label: string; hint: string }[] = [
    { type: "vscode", label: "VS Code", hint: "vscode://file/…" },

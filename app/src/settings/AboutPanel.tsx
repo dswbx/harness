@@ -1,8 +1,8 @@
 import { Button } from "@harness/ui";
 import { ArrowUpRight } from "lucide-react";
-import { openExternal } from "./openExternal";
+import { openExternal } from "../platform/openExternal";
+import { releaseUrl, useAppVersion, useUpdate, useUpdateCheck } from "../updates/updates";
 import { SectionHeader } from "./SectionHeader";
-import { releaseUrl, useAppVersion, useUpdate, useUpdateCheck } from "./updates";
 
 /** Version, and the same opt-in update flow as the sidebar footer. */
 export function AboutPanel() {

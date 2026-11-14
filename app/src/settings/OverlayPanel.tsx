@@ -2,7 +2,7 @@ import type { OverlayPosition } from "@harness/api";
 import { errText, inTauri } from "@harness/api";
 import { Button, cn, Input } from "@harness/ui";
 import { useEffect, useState } from "react";
-import { getOverlaySettings, type OverlayConfig, setOverlaySettings } from "./overlayHost";
+import { getOverlaySettings, type OverlayConfig, setOverlaySettings } from "../overlay/overlayHost";
 import { SectionHeader } from "./SectionHeader";
 
 const POSITIONS: { id: OverlayPosition; label: string; hint: string }[] = [
