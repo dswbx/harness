@@ -1,4 +1,5 @@
 import type { AttachmentInput } from "@harness/api";
+import { BROWSER_BUNDLE_IDS, type WindowContext } from "../platform/generated";
 
 /**
  * The Quick overlay's window context (ADR 0022 Phase 3): what the user is looking at in another app
@@ -6,20 +7,7 @@ import type { AttachmentInput } from "@harness/api";
  * box's chip and the Markdown attachment sent with each message.
  */
 
-/** `WindowContext` in `crates/harness-tauri/src/context.rs`. */
-export type WindowContext = {
-   app: string;
-   bundleId: string;
-   windowTitle?: string;
-   url?: string;
-   pageTitle?: string;
-   documentPath?: string;
-   selectedText?: string;
-   folder?: string;
-   files?: string[];
-   /** Permissions that would give more context. */
-   missing: ("accessibility" | "automation")[];
-};
+export type { WindowContext };
 
 /** Longest selected text sent (characters); the host keeps at most as much. */
 const SELECTED_MAX = 2000;
@@ -86,8 +74,7 @@ export function contextKey(c: WindowContext): string {
    return [c.bundleId, c.windowTitle, c.documentPath, c.url].map((v) => v ?? "").join("\n");
 }
 
-const BROWSERS =
-   /^(com\.apple\.Safari|com\.google\.Chrome|company\.thebrowser\.Browser|com\.brave\.Browser|com\.microsoft\.edgemac|org\.chromium\.Chromium|com\.vivaldi\.Vivaldi)/;
+const isBrowser = (bundleId: string) => BROWSER_BUNDLE_IDS.some((id) => bundleId.startsWith(id));
 
 /** The chip's link to the System Settings pane that would give more: Automation first (the URL, the folder). */
 export function contextAction(
@@ -95,7 +82,7 @@ export function contextAction(
 ): { label: string; pane: "accessibility" | "automation" } | undefined {
    if (c.missing.includes("automation"))
       return {
-         label: BROWSERS.test(c.bundleId) ? "Allow browser access" : `Allow access to ${c.app}`,
+         label: isBrowser(c.bundleId) ? "Allow browser access" : `Allow access to ${c.app}`,
          pane: "automation",
       };
    if (c.missing.includes("accessibility"))

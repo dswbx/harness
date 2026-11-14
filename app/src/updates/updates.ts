@@ -1,13 +1,8 @@
 import { errText, inTauri } from "@harness/api";
 import { useCallback, useEffect, useState } from "react";
+import type { UpdateState } from "../platform/generated";
 
-/** Mirrors `UpdateState` in the Tauri adapter (`updates.rs`). */
-export type UpdateState =
-   | { kind: "idle" }
-   | { kind: "available"; version: string }
-   | { kind: "downloading"; version: string; percent: number | null }
-   | { kind: "ready"; version: string }
-   | { kind: "failed"; version: string; error: string };
+export type { UpdateState };
 
 const invoke = async <T>(cmd: string) => (await import("@tauri-apps/api/core")).invoke<T>(cmd);
 
