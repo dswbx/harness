@@ -1,7 +1,7 @@
 //! Agent process lifecycle: the per-Session slot, spawn, watchdog, exit and shutdown.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -105,14 +105,41 @@ pub(super) struct AgentConn {
     pub(super) init: acp::InitializeResponse,
     /// Agent Session per Thread.
     pub(super) acp_sessions: Mutex<HashMap<ThreadId, acp::SessionId>>,
-    /// Drop notifications while `session/load` replays history (the Session Log already has it).
-    pub(super) replaying: Arc<AtomicBool>,
+    /// The Agent Sessions whose `session/load` is replaying history right now.
+    pub(super) replaying: Arc<Replaying>,
     /// Drop notifications for Agent Sessions not yet mapped to a Thread while `session/fork` runs
     /// (a fork may replay the source's history under its new id).
     pub(super) forking: Arc<AtomicBool>,
     /// Why the Harness stopped the process, when it did so on purpose.
     pub(super) stop_reason: Arc<Mutex<Option<String>>>,
     pub(super) shutdown: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+/// Agent Sessions whose `session/load` is replaying history. Their notifications are dropped: the
+/// Session Log already has that history. Every other Agent Session of the connection keeps
+/// streaming (another Thread may be mid-Turn).
+#[derive(Default)]
+pub(super) struct Replaying(Mutex<HashSet<String>>);
+
+impl Replaying {
+    /// Drops `id`'s notifications until the guard is dropped.
+    pub(super) fn start(self: &Arc<Self>, id: &acp::SessionId) -> ReplayGuard {
+        let id = id.to_string();
+        self.0.lock().insert(id.clone());
+        ReplayGuard(self.clone(), id)
+    }
+
+    pub(super) fn has(&self, id: &acp::SessionId) -> bool {
+        self.0.lock().contains(&id.to_string())
+    }
+}
+
+pub(super) struct ReplayGuard(Arc<Replaying>, String);
+
+impl Drop for ReplayGuard {
+    fn drop(&mut self) {
+        self.0.0.lock().remove(&self.1);
+    }
 }
 
 impl AgentSlot {
@@ -394,7 +421,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
     });
 
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
-    let replaying = Arc::new(AtomicBool::new(false));
+    let replaying = Arc::new(Replaying::default());
     let forking = Arc::new(AtomicBool::new(false));
     let stop_reason = Arc::new(Mutex::new(None::<String>));
     let (ready_tx, ready_rx) = oneshot::channel::<Result<(ConnectionTo<Agent>, acp::InitializeResponse), String>>();
@@ -414,7 +441,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
             .on_receive_notification(
                 async move |n: acp::SessionNotification, _cx| {
                     let fork_replay = forking_n.load(Ordering::SeqCst) && thread_of(&s_notify, &n.session_id).is_none();
-                    if !replaying_n.load(Ordering::SeqCst) && !fork_replay {
+                    if !replaying_n.has(&n.session_id) && !fork_replay {
                         on_update(&s_notify, &n);
                     }
                     Ok(())
@@ -523,5 +550,21 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
     if current || on_purpose {
         let _ = session.log().append(None, EventKind::AgentProcessState { state, message });
         let _ = session.log().sync();
+    }
+}
+
+#[cfg(test)]
+mod replaying_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_loading_agent_session_is_muted_and_only_while_it_loads() {
+        let replaying = Arc::new(Replaying::default());
+        let (loading, live) = (acp::SessionId::new("fake-1"), acp::SessionId::new("fake-2"));
+        let guard = replaying.start(&loading);
+        assert!(replaying.has(&loading));
+        assert!(!replaying.has(&live), "another Thread's Agent Session keeps streaming");
+        drop(guard);
+        assert!(!replaying.has(&loading));
     }
 }
