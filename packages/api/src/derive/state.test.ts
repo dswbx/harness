@@ -14,9 +14,7 @@ describe("applyStatePatch shared cases", () => {
    }[])
       it(c.name, () => {
          const run = () => applyStatePatch(c.doc, c.ops as StatePatchOp[]);
-         // Known divergence from Rust: TS shows its current behaviour (see `tsDivergence` in the table).
-         if (c.tsDivergence) expect(run).toThrow("test failed");
-         else if (c.error !== undefined) expect(run).toThrow(c.error);
+         if (c.error !== undefined) expect(run).toThrow(c.error);
          else expect(run()).toEqual(c.expect);
       });
 });

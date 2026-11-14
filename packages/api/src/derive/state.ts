@@ -11,12 +11,25 @@ export function applyStatePatch(doc: unknown, ops: StatePatchOp[]): unknown {
    for (const op of ops) {
       if (op.op === "test") {
          const found = getAt(out, op.path);
-         if (JSON.stringify(found) !== JSON.stringify(op.value))
-            throw new Error(`test failed at ${op.path}`);
+         if (!deepEqual(found, op.value)) throw new Error(`test failed at ${op.path}`);
       } else if (op.op === "remove") out = removeAt(out, op.path);
       else out = setAt(out, op.path, structuredClone(op.value), op.op === "add");
    }
    return out;
+}
+
+/** JSON value equality: object key order is ignored, array order counts (as Rust's `Value ==`). */
+function deepEqual(a: unknown, b: unknown): boolean {
+   if (a === b) return true;
+   if (Array.isArray(a))
+      return Array.isArray(b) && a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+   if (isObj(a) && isObj(b)) {
+      const ka = Object.keys(a);
+      return (
+         ka.length === Object.keys(b).length && ka.every((k) => k in b && deepEqual(a[k], b[k]))
+      );
+   }
+   return false;
 }
 
 function tokens(path: string): string[] {

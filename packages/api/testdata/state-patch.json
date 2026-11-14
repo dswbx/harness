@@ -114,9 +114,32 @@
    },
    {
       "name": "test compares objects regardless of key order",
-      "tsDivergence": "TS compares JSON.stringify, so key order matters; Rust does not. Today TS throws.",
       "doc": { "a": { "x": 1, "y": 2 } },
       "ops": [{ "op": "test", "path": "/a", "value": { "y": 2, "x": 1 } }],
       "expect": { "a": { "x": 1, "y": 2 } }
+   },
+   {
+      "name": "test ignores key order in nested objects",
+      "doc": { "a": { "x": { "p": 1, "q": [1, { "m": 1, "n": 2 }] }, "y": 2 } },
+      "ops": [
+         {
+            "op": "test",
+            "path": "/a",
+            "value": { "y": 2, "x": { "q": [1, { "n": 2, "m": 1 }], "p": 1 } }
+         }
+      ],
+      "expect": { "a": { "x": { "p": 1, "q": [1, { "m": 1, "n": 2 }] }, "y": 2 } }
+   },
+   {
+      "name": "test keeps array order",
+      "doc": { "a": [1, 2] },
+      "ops": [{ "op": "test", "path": "/a", "value": [2, 1] }],
+      "error": "test failed"
+   },
+   {
+      "name": "test fails on a different key set",
+      "doc": { "a": { "x": 1 } },
+      "ops": [{ "op": "test", "path": "/a", "value": { "x": 1, "y": 1 } }],
+      "error": "test failed"
    }
 ]
