@@ -16,6 +16,11 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     track_tool_call(session, &update);
     let mut kind = normalize(&update);
     crate::agent_quirks::adjust(&update, &mut kind);
+    {
+        let mut st = session.agent_slot().state.lock();
+        let st = &mut *st;
+        crate::tool_facts::fill_detail(&st.tool_calls, &mut st.tool_sent, &update, &mut kind);
+    }
     if let EventKind::ModeChanged { mode_id, .. } = &kind {
         // No mode in the update: nothing to record.
         if mode_id.is_empty() {
@@ -92,6 +97,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 plan: facts.plan,
                 subagent: facts.subagent,
                 commit_message: facts.commit_message,
+                detail: None,
             }
         }
         Some("tool_call_update") => {
@@ -112,6 +118,8 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 plan: facts.plan,
                 subagent: facts.subagent,
                 commit_message: facts.commit_message,
+                detail: None,
+                harness_result: None,
             }
         }
         Some("notice") => EventKind::AgentNotice {

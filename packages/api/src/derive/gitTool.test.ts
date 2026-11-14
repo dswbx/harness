@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type GitToolCall, gitToolSummary as summarize } from "./gitTool";
+import type { HarnessResult } from "../generated";
+import { type GitToolCall, harnessResult, gitToolSummary as summarize } from "./gitTool";
 
 const gitToolSummary = (
    harnessTool: string | null,
@@ -97,5 +100,45 @@ describe("gitToolSummary", () => {
          count: 2,
       });
       expect(gitToolSummary("list_branches", {}, blocks("x"))).toEqual({});
+   });
+});
+
+// The core runs the same table (`mcp/results.rs` `harness_result_cases`) over `result_of`, and
+// pins the strings its tools write against their readers.
+const cases = JSON.parse(
+   readFileSync(
+      join(__dirname, "../../../../crates/harness-core/tests/cases/harness_result.json"),
+      "utf8",
+   ),
+) as {
+   name: string;
+   tool: string;
+   call: { content?: unknown; rawOutput?: unknown };
+   result: HarnessResult | null;
+}[];
+
+describe("harnessResult", () => {
+   for (const c of cases) {
+      it(`reads the output text like the core: ${c.name}`, () => {
+         const got = harnessResult({
+            harnessTool: c.tool,
+            rawInput: null,
+            rawOutput: c.call.rawOutput ?? null,
+            content: c.call.content,
+         });
+         expect(got).toEqual(c.result);
+      });
+   }
+
+   it("the typed result wins over the output text", () => {
+      expect(gitToolSummary("git_push", {}, "Pushed old.", undefined)).toEqual({ branch: "old" });
+      expect(
+         summarize({
+            harnessTool: "git_push",
+            rawInput: {},
+            rawOutput: "Pushed old.",
+            harnessResult: { type: "git_push", branch: "typed" },
+         }),
+      ).toEqual({ branch: "typed" });
    });
 });

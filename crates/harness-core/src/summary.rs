@@ -248,6 +248,7 @@ mod tests {
                     plan: None,
                     subagent: None,
                     commit_message: None,
+                    detail: None,
                 },
             ),
             ev("t", EventKind::AgentMessageChunk { text: "subagent text".into(), parent_tool_call_id: Some("task1".into()) }),

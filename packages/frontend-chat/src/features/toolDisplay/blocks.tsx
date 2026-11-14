@@ -1,10 +1,11 @@
+import { toolDetail } from "@harness/api";
 import { useMemo } from "react";
 import { blockText, type ContentBlock } from "../../state/reducer";
 import { DiffViewer } from "../changes/DiffViewer";
 import { diffLines, langOf, splitPatch, unifiedPatch } from "../changes/diff";
 import { Markdown } from "../markdown/Markdown";
 import { CodeFrame, Frame } from "./CodeFrame";
-import { commandOf, jsonTail, parseFence } from "./fence";
+import { jsonTail, parseFence } from "./fence";
 import type { Tool } from "./group";
 
 /** `+a -d`, green and red. */
@@ -59,8 +60,8 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
    }
    const text = blockText(b);
    if (text != null) {
-      const read = tool?.kind === "read";
-      const fence = parseFence(text, read);
+      const detail = tool ? toolDetail(tool) : null;
+      const fence = parseFence(text, detail?.read?.lineNumbered);
       if (!fence) {
          // MCP results are often JSON, or a sentence ending in JSON: show that part as code.
          const j = jsonTail(text);
@@ -72,11 +73,11 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
             </>
          );
       }
-      const command = tool?.kind === "execute" ? commandOf(tool.rawInput, tool.title) : null;
+      const command = detail?.command;
       if (command)
          // Plain output: `console` highlighting reads output lines starting with `#` or `$` as commands.
          return <CodeFrame label="console" code={fence.code} command={command} />;
-      const path = read ? readPath(tool) : null;
+      const path = detail?.read?.path;
       const lines = fence.from != null ? `lines ${fence.from}–${fence.to}` : undefined;
       return (
          <CodeFrame
@@ -96,8 +97,3 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
 
 /** Prose in a step body (prompts, reports): the step size, not the chat's. */
 export const STEP_TEXT = "[--typeset-size:calc(var(--chat-font-size,14px)*0.93)]";
-
-const readPath = (t: Tool): string | null => {
-   const loc = (t.locations as { path?: unknown }[] | null)?.[0]?.path;
-   return typeof loc === "string" ? loc : (/^Read (.+)$/.exec(t.title)?.[1] ?? null);
-};

@@ -5,10 +5,12 @@
 
 mod frontend_tools;
 mod info;
+pub(crate) mod results;
 mod server;
 mod shim;
 mod tools;
 
+pub(crate) use results::result_of;
 pub use server::HarnessMcp;
 pub use shim::run_shim;
 

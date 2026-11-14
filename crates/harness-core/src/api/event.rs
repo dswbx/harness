@@ -140,6 +140,10 @@ pub enum EventKind {
         /// `git_commit`: the commit message.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         commit_message: Option<String>,
+        /// Typed facts for Views, read from the call by the core (`agent_quirks`). Absent on Events
+        /// recorded before it existed: `@harness/api` `toolDetail` derives them then.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<ToolDetail>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -177,6 +181,12 @@ pub enum EventKind {
         /// Set when the update carries the commit message (see `ToolCall`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         commit_message: Option<String>,
+        /// The call's facts as of this update (see `ToolCall`); replaces the earlier ones.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<ToolDetail>,
+        /// A Harness MCP tool call's result, read from its output: what its text says, typed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_result: Option<Box<HarnessResult>>,
     },
     /// Appended by the Harness when a background job's output file is no longer open by any
     /// process: the job ended (see `ToolCallUpdate.background_job`).
@@ -418,6 +428,139 @@ pub struct SubagentInfo {
     /// The model the subagent runs on, when the call sets one; else it inherits the Thread's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+/// What a View needs to show a tool call, read from the call by the core so no Frontend parses
+/// an Agent's payloads (ADR 0012). Each field is set only when the call has that fact.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ToolDetail {
+    /// An `execute` call's command line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// A `read` call: the file and how its output is formatted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<ReadDetail>,
+    /// A tool search call: the tools it loaded (made callable). `Some` even when it loaded none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loaded_tools: Option<Vec<ToolRef>>,
+    /// A tool search call: its search words (not a `select:` lookup).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_query: Option<String>,
+    /// The call is to a tool of an MCP server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpTool>,
+    /// What the call does when its kind alone does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<ToolOp>,
+    /// What the call acts on (a path, a URL, a query) when that differs from its title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+/// A `read` call's file and output format.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ReadDetail {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The output's code carries `N<tab>` line numbers that count up by one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub line_numbered: bool,
+}
+
+/// A tool an Agent names: its own id, and the MCP server it belongs to when it is one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ToolRef {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpTool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct McpTool {
+    pub server: String,
+    pub tool: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolOp {
+    /// Creates or overwrites a file (ACP kind `edit`).
+    Write,
+    /// Searches the web (ACP kind `search` or `fetch`).
+    WebSearch,
+}
+
+/// What a Harness MCP tool call did, typed from its output text so no Frontend parses it. Set on
+/// `ToolCallUpdate` once the output is there; `mcp::results` writes the text and reads it back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HarnessResult {
+    /// `git_commit`: the new commit's full hash.
+    GitCommit { hash: String },
+    /// `git_push`: the branch pushed.
+    GitPush { branch: String },
+    /// `git_status`: the current branch and how many files changed.
+    GitStatus {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changed: Option<u32>,
+    },
+    /// `git_diff`: added and removed lines of the patch.
+    GitDiff { additions: u32, deletions: u32 },
+    /// `list_branches`: how many branches.
+    ListBranches { count: u32 },
+    /// `session_start`, `session_send`, `session_wait`: the Sub Session and what the answer says of it.
+    SubSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// The repository's folder (else the Sub Session's own folder), as a path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repo: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        /// `session_wait`: its last reply, how long its last Turn took, how it ended, its state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(type = Option<specta_typescript::Number>)]
+        duration_ms: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop_reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<SubSessionState>,
+    },
+    /// `session_list`: every Sub Session.
+    SubSessionList { sessions: Vec<ListedSubSession> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SubSessionState {
+    Idle,
+    NeedsAttention,
+    Working,
+}
+
+/// One Sub Session of a `session_list` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ListedSubSession {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The repository's folder (else its own folder), as a path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<SubSessionState>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 /// How many of a Thread's Turns fit in a transcript.

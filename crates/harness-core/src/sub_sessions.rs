@@ -14,12 +14,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::api::{
     AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, SubSessionReport, SubSessionReportKind, ThreadId,
 };
 use crate::host::{Harness, NewSession};
+use crate::mcp::results::{SubSessionEntry, SubSessionListing, SubSessionSent, SubSessionStarted, SubSessionWaited};
 use crate::session::Session;
 
 /// The tools, as named in `mcp::primitives`.
@@ -138,15 +139,15 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
     }
     let m = child.meta();
     let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
-    Ok(json!({
-        "session_id": id,
-        "title": m.title,
-        "folder": m.folder,
-        "repo": m.repo_folder().map(|p| p.display().to_string()),
-        "branch": branch,
-        "model": config.model,
-        "effort": config.effort,
-    }))
+    Ok(serde_json::to_value(SubSessionStarted {
+        session_id: Some(id),
+        title: Some(m.title.clone()),
+        folder: Some(m.folder.clone()),
+        repo: m.repo_folder().map(|p| p.display().to_string()),
+        branch,
+        model: config.model,
+        effort: config.effort,
+    })?)
 }
 
 /// A Sub Session of `parent` by id; any other Session is refused.
@@ -170,7 +171,7 @@ async fn send(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
     crate::acp::authorize(session, thread, "session_send", &format!("Send to sub session: {}", m.title), "session", args).await?;
     busy()?;
     child.prompt(None, text, Vec::new(), Some(origin(session))).await?;
-    Ok(json!({ "session_id": m.id, "title": m.title }))
+    Ok(serde_json::to_value(SubSessionSent { session_id: Some(m.id), title: Some(m.title) })?)
 }
 
 /// Unsubscribes from AppEvents when the wait ends in any way.
@@ -225,18 +226,18 @@ async fn list(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
         .map(|c| {
             let m = c.meta();
             let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
-            Ok(json!({
-                "session_id": m.id,
-                "title": m.title,
-                "folder": m.folder,
-                "repo": m.repo_folder().map(|p| p.display().to_string()),
-                "branch": branch,
-                "status": status(c)?,
-                "archived": m.archived,
-            }))
+            Ok(SubSessionEntry {
+                session_id: Some(m.id.clone()),
+                title: Some(m.title.clone()),
+                folder: Some(m.folder.clone()),
+                repo: m.repo_folder().map(|p| p.display().to_string()),
+                branch,
+                status: Some(status(c)?.to_owned()),
+                archived: m.archived,
+            })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(json!({ "sub_sessions": rows }))
+    Ok(serde_json::to_value(SubSessionListing { sub_sessions: rows })?)
 }
 
 /// `needs_attention` (a permission request waits for the user), `working` (a Main Thread Turn is in
@@ -279,11 +280,15 @@ fn report(child: &Session) -> anyhow::Result<Value> {
             })
         })
         .unwrap_or_default();
-    let mut out = json!({ "session_id": m.id, "title": m.title, "status": status, "duration_ms": duration_ms, "reply": reply });
-    if let Some((stop_reason, _)) = ended.filter(|_| status != "working") {
-        out["stop_reason"] = json!(stop_reason);
-    }
-    Ok(out)
+    let stop_reason = ended.filter(|_| status != "working").map(|(stop_reason, _)| stop_reason);
+    Ok(serde_json::to_value(SubSessionWaited {
+        session_id: Some(m.id),
+        title: Some(m.title),
+        status: Some(status.to_owned()),
+        duration_ms: Some(duration_ms),
+        reply: Some(reply),
+        stop_reason,
+    })?)
 }
 
 /// Messages for parents about their Sub Sessions, held until the parent's Main Thread is idle,
@@ -625,6 +630,8 @@ fn choice(o: &Value) -> Option<(String, String)> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn options() -> Vec<Value> {

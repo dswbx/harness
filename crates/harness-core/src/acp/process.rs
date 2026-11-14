@@ -55,6 +55,8 @@ pub(super) struct SlotState {
     /// The Agent's legacy session modes (id -> name) from its last `session/new` or `load`, to
     /// name the `ModeChanged` events that carry only an id.
     pub(super) mode_names: HashMap<String, String>,
+    /// What each tool call's Events already carried of its facts (see `tool_facts::fill_detail`).
+    pub(super) tool_sent: HashMap<String, crate::tool_facts::Sent>,
     pub(super) last_active: Option<Instant>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,
