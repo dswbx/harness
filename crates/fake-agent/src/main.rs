@@ -1,37 +1,49 @@
-//! Deterministic ACP agent for Harness tests. Behaviour is driven by the prompt text:
-//! - always: one message chunk, a Task List, then `end_turn`
-//! - contains "tool": a tool call that completes
-//! - contains "permission": the tool call (`echo hi`) first asks for permission; rejection fails it
-//! - contains "write": appends a line to `fake.txt` in the session's cwd
-//! - starts with "mcp <tool> <json>": calls `<tool>` on the `harness` MCP server it was given and
-//!   answers "mcp: <result text>" (or "mcp error: ..."); "mcp-list" answers the tool names
-//! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`,
-//!   `read-outside` a read of `/etc/hosts`, `switch_mode` a plan approval) with that title, asking for permission under that title; answers "spoof: allowed" or
-//!   "spoof: rejected"
+//! Deterministic ACP agent for Harness tests. Behaviour is driven by the user's own prompt text:
+//! the last text block of the prompt (`command`). Earlier blocks (a Context Seed, quoted excerpts)
+//! never trigger anything, except that a `<context>` block anywhere makes the answer "seeded".
+//!
+//! Every Turn answers "Working on it.", sets a Task List, and ends `end_turn` with " Done.", unless
+//! a trigger below returns early. Triggers:
+//! - contains "tool": a tool call (`echo hi`) that completes
+//! - contains "permission": the same tool call first asks for permission; rejection fails it
+//! - contains "write": appends a line to `fake.txt` in the Session's cwd
+//! - contains "title": sets the Session title "Fake title"
 //! - contains "slow": waits 1.5 s before answering
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
-//! - "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn carries on
-//! - "fault-hang": never answers the prompt (and ignores `session/cancel`)
-//! - "fault-big": a `tool_call_update` with a 10 MB `rawOutput`, then the Turn ends
-//! - "fault-late-permission": waits for `session/cancel`, then asks for permission and answers the
-//!   prompt `cancelled` once the request is answered
-//! - a prompt carrying a `<context>` block (Context Seed) is answered with "seeded"
-//! - a `<harness_context>` block is not part of the prompt text; "show-context" answers
+//! - contains "echo-prompt": answers "prompt: <the whole prompt text, blocks joined by ' '>"
+//! - contains "show-context": a `<harness_context>` block is not part of the prompt text; answers
 //!   "context: <the block>" (or "context: none")
-//! - "history" answers "history: <earlier prompts of this Agent Session, joined by ' | '>" (a fork
-//!   starts with a copy of its source's); "echo-prompt" answers "prompt: <this prompt's text>"
+//! - starts with "history": answers "history: <earlier prompts of this Agent Session, joined by
+//!   ' | '>" (a fork starts with a copy of its source's) and ends the Turn
+//! - starts with "mcp-servers": answers "servers: <name:kind of each MCP server it was given>"
+//! - starts with "mcp-list": answers "tools: <the tool names of the `harness` MCP server>"
+//! - starts with "mcp <tool> <json>": calls `<tool>` on the `harness` MCP server and answers
+//!   "mcp: <result text>" (or "mcp error: ...")
+//! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`,
+//!   `read-outside` a read of `/etc/hosts`, `switch_mode` a plan approval) with that title, asking
+//!   for permission under that title; answers "spoof: allowed" or "spoof: rejected"
+//! - starts with "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn
+//!   carries on
+//! - starts with "fault-hang": never answers the prompt (and ignores `session/cancel`)
+//! - starts with "fault-big": a `tool_call_update` with a 10 MB `rawOutput`, then the Turn ends
+//! - starts with "fault-late-permission": waits for `session/cancel`, then asks for permission and
+//!   answers the prompt `cancelled` once the request is answered
+//! - a prompt carrying a `<context>` block (Context Seed) first answers "seeded"
 //! - a prompt with non-text blocks first answers "blocks: <kinds>" (e.g. `text,image,resource_link`)
+//!
+//! `session/set_config_option` answers with the new options (a `model` select `a`/`b` and a `mode`
+//! select `default`/`auto`).
 //!
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
 //! replays one message chunk ("replayed") before answering. `--resume-fails=N` fails the first N
-//! resumes of this process; `--resume-delay-ms=N` makes each resume take N ms. `--no-http-mcp` makes the Harness
-//! use the stdio shim. `--auth` advertises an agent auth
-//! method (`login`) and a terminal one (`tui`, args `--login`), and refuses `session/new` with
-//! `auth_required` until `authenticate(login)` succeeds. `--images` advertises image and
-//! embedded-context prompt capabilities. `--fork` advertises `session/fork` (new id, copy of the
-//! source's history); with `--fork-fail` the request is refused. `--exit` prints a line to stderr
-//! and exits at startup (Agent conformance check tests).
+//! resumes of this process; `--resume-delay-ms=N` makes each resume take N ms. `--no-http-mcp`
+//! makes the Harness use the stdio shim. `--auth` advertises an agent auth method (`login`) and a
+//! terminal one (`tui`, args `--login`), and refuses `session/new` with `auth_required` until
+//! `authenticate(login)` succeeds. `--images` advertises image and embedded-context prompt
+//! capabilities. `--fork` advertises `session/fork` (new id, copy of the source's history); with
+//! `--fork-fail` the request is refused. `--exit` prints a line to stderr and exits at startup
+//! (Agent conformance check tests).
 
 use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
@@ -44,13 +56,13 @@ fn text(t: &str) -> SessionUpdate {
     SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(TextContent::new(t))))
 }
 
-/// cwd per Agent Session.
 /// How long `session/resume` takes (`--resume-delay-ms=N`).
 static RESUME_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How many more resumes must fail (`--resume-fails=N`).
 static RESUME_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// cwd per Agent Session.
 static CWDS: std::sync::Mutex<Vec<(String, std::path::PathBuf)>> = std::sync::Mutex::new(Vec::new());
 
 fn remember_cwd(id: &SessionId, cwd: &std::path::Path) {
@@ -131,7 +143,6 @@ fn cwd_of(id: &SessionId) -> Option<std::path::PathBuf> {
     CWDS.lock().unwrap().iter().rev().find(|(s, _)| *s == id.to_string()).map(|(_, p)| p.clone())
 }
 
-/// A `model` select with values `a` and `b`.
 /// Config per Agent Session: (model, mode).
 static CONFIG: std::sync::Mutex<Vec<(String, (String, String))>> = std::sync::Mutex::new(Vec::new());
 
@@ -146,7 +157,7 @@ fn set_config(id: &SessionId, config: (String, String)) -> Vec<SessionConfigOpti
     options
 }
 
-/// A model option, and a mode option whose "default" asks before writes and "auto" does not.
+/// A `model` select with values `a` and `b`, and a mode option whose "default" asks before writes and "auto" does not.
 fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> {
     vec![
         SessionConfigOption::select("model", "Model", model.clone(), vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")]),
@@ -404,7 +415,7 @@ async fn main() -> agent_client_protocol::Result<()> {
                     }
                     let earlier = history_of(&sid);
                     remember_prompt(&sid, &prompt);
-                    if prompt.contains("echo-prompt") {
+                    if command.contains("echo-prompt") {
                         update(&cx, &sid, text(&format!("prompt: {prompt}")))?;
                     }
                     if command.starts_with("history") {
@@ -414,7 +425,7 @@ async fn main() -> agent_client_protocol::Result<()> {
                     if prompt.contains("<context>") {
                         update(&cx, &sid, text("seeded"))?;
                     }
-                    if prompt.contains("show-context") {
+                    if command.contains("show-context") {
                         update(&cx, &sid, text(&format!("context: {}", harness_context.as_deref().unwrap_or("none"))))?;
                     }
                     if command.starts_with("mcp-servers") {
@@ -473,23 +484,23 @@ async fn main() -> agent_client_protocol::Result<()> {
                         return fault(&cx, &sid, &command, responder).await;
                     }
                     update(&cx, &sid, text("Working on it."))?;
-                    if prompt.contains("title") {
+                    if command.contains("title") {
                         update(&cx, &sid, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Fake title")))?;
                     }
-                    if prompt.contains("write")
+                    if command.contains("write")
                         && let Some(cwd) = cwd_of(&sid)
                     {
                         use std::io::Write;
                         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(cwd.join("fake.txt")).unwrap();
                         writeln!(f, "hello").unwrap();
                     }
-                    if prompt.contains("slow") {
+                    if command.contains("slow") {
                         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
                     }
-                    if prompt.contains("crash") {
+                    if command.contains("crash") {
                         std::process::exit(1);
                     }
-                    if prompt.contains("hangup") {
+                    if command.contains("hangup") {
                         use std::os::fd::FromRawFd;
                         // SAFETY: fd 1 is our stdout; nothing writes to it after this.
                         drop(unsafe { std::fs::File::from_raw_fd(1) });
@@ -503,14 +514,14 @@ async fn main() -> agent_client_protocol::Result<()> {
                             PlanEntry::new("Answer", PlanEntryPriority::Medium, PlanEntryStatus::InProgress),
                         ])),
                     )?;
-                    if prompt.contains("tool") || prompt.contains("permission") {
+                    if command.contains("tool") || command.contains("permission") {
                         let call = ToolCall::new("call-1", "Run fake tool")
                             .kind(ToolKind::Execute)
                             .status(ToolCallStatus::Pending)
                             .raw_input(serde_json::json!({ "command": "echo hi" }));
                         update(&cx, &sid, SessionUpdate::ToolCall(call))?;
                         let mut allowed = true;
-                        if prompt.contains("permission") {
+                        if command.contains("permission") {
                             let options = vec![
                                 PermissionOption::new("allow", "Allow", PermissionOptionKind::AllowOnce),
                                 PermissionOption::new("always", "Always allow", PermissionOptionKind::AllowAlways),

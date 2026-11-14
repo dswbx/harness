@@ -22,3 +22,24 @@ pub fn fake_agent_bin() -> PathBuf {
     })
     .clone()
 }
+
+/// Polls `f` every 10 ms until it holds; panics with `what` after `timeout`. Use it instead of a
+/// fixed sleep before a positive assertion. Fixed sleeps are for negative assertions only.
+#[allow(dead_code, reason = "not every test binary waits")]
+pub async fn wait_until(what: &str, timeout: std::time::Duration, mut f: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + timeout;
+    while !f() {
+        assert!(std::time::Instant::now() < deadline, "timed out after {timeout:?} waiting for {what}");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+/// [`wait_until`] for synchronous code.
+#[allow(dead_code, reason = "not every test binary waits")]
+pub fn wait_until_blocking(what: &str, timeout: std::time::Duration, mut f: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + timeout;
+    while !f() {
+        assert!(std::time::Instant::now() < deadline, "timed out after {timeout:?} waiting for {what}");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}

@@ -1,0 +1,296 @@
+//! What each webview is subscribed to (Session Logs, AppEvents, Terminals), so a reload or a
+//! closed window drops them all and never leaks one. Knows labels and the `Harness`, not Tauri.
+
+use parking_lot::Mutex;
+use std::collections::HashMap;
+
+use harness_core::Harness;
+use harness_core::api::{AppEvent, EventSink};
+use harness_core::terminal::TerminalSink;
+
+/// Receives AppEvents; returns `false` to unsubscribe.
+type AppSink = Box<dyn Fn(&AppEvent) -> bool + Send + Sync>;
+
+/// (session id, terminal id, terminal attach id).
+type TerminalAttach = (String, u32, u64);
+
+#[derive(Default)]
+pub struct Subscriptions {
+    /// Webview label -> (session id, subscription id).
+    by_webview: Mutex<HashMap<String, Vec<(String, u64)>>>,
+    /// Webview label -> app subscription ids.
+    app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
+    /// Webview label -> (session id, terminal id, terminal attach id).
+    terminals_by_webview: Mutex<HashMap<String, Vec<TerminalAttach>>>,
+}
+
+impl Subscriptions {
+    /// Subscribes the webview to a Session Log.
+    pub fn subscribe(&self, harness: &Harness, label: &str, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<u64, String> {
+        let id = harness.subscribe_session(session_id, from_seq, sink)?;
+        self.by_webview.lock().entry(label.to_owned()).or_default().push((session_id.to_owned(), id));
+        Ok(id)
+    }
+
+    pub fn unsubscribe(&self, harness: &Harness, label: &str, session_id: &str, id: u64) {
+        harness.unsubscribe_session(session_id, id);
+        if let Some(list) = self.by_webview.lock().get_mut(label) {
+            list.retain(|(s, i)| !(s == session_id && *i == id));
+        }
+    }
+
+    /// Subscribes the webview to Harness-wide events.
+    pub fn subscribe_app(&self, harness: &Harness, label: &str, sink: AppSink) -> u64 {
+        let id = harness.subscribe_app(sink);
+        self.app_by_webview.lock().entry(label.to_owned()).or_default().push(id);
+        id
+    }
+
+    /// Attaches the webview to a Terminal tab.
+    #[allow(clippy::too_many_arguments, reason = "mirrors the Tauri command's IPC arguments")]
+    pub fn terminal_attach(
+        &self,
+        harness: &Harness,
+        label: &str,
+        session_id: &str,
+        terminal_id: u32,
+        cols: u16,
+        rows: u16,
+        sink: TerminalSink,
+    ) -> Result<u64, String> {
+        let id = harness.terminal_attach(session_id, terminal_id, cols, rows, sink).map_err(|e| format!("{e:#}"))?;
+        self.terminals_by_webview.lock().entry(label.to_owned()).or_default().push((session_id.to_owned(), terminal_id, id));
+        Ok(id)
+    }
+
+    pub fn terminal_detach(&self, harness: &Harness, label: &str, session_id: &str, terminal_id: u32, id: u64) {
+        harness.terminal_detach(session_id, terminal_id, id);
+        if let Some(list) = self.terminals_by_webview.lock().get_mut(label) {
+            list.retain(|(s, t, i)| !(s == session_id && *t == terminal_id && *i == id));
+        }
+    }
+
+    /// Drops every subscription of the webview: it reloaded or its window is gone.
+    pub fn drop_webview(&self, harness: &Harness, label: &str) {
+        let subs = self.by_webview.lock().remove(label).unwrap_or_default();
+        for (session_id, id) in subs {
+            harness.unsubscribe_session(&session_id, id);
+        }
+        for id in self.app_by_webview.lock().remove(label).unwrap_or_default() {
+            harness.unsubscribe_app(id);
+        }
+        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().remove(label).unwrap_or_default() {
+            harness.terminal_detach(&session_id, terminal_id, id);
+        }
+    }
+
+    /// How many subscriptions the webview holds: (Session Logs, app, Terminals).
+    #[cfg(test)]
+    fn counts(&self, label: &str) -> (usize, usize, usize) {
+        let n = |len: Option<usize>| len.unwrap_or(0);
+        (
+            n(self.by_webview.lock().get(label).map(Vec::len)),
+            n(self.app_by_webview.lock().get(label).map(Vec::len)),
+            n(self.terminals_by_webview.lock().get(label).map(Vec::len)),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
+    use super::*;
+    use harness_core::api::{AgentInfo, Command, CommandResult, Event, FrontendManifest};
+    use harness_core::terminal::TerminalOutput;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    async fn harness() -> (Arc<Harness>, String, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = AgentInfo {
+            id: "a".into(),
+            name: "A".into(),
+            command: "true".into(),
+            args: vec![],
+            env: Default::default(),
+            source: Default::default(),
+            version: None,
+            icon: None,
+            install: Default::default(),
+        };
+        let h = Harness::with_options(dir.path().join("data"), vec![agent], Default::default()).unwrap();
+        h.register_frontend(FrontendManifest { id: "chat".into(), name: "C".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
+        let create = Command::CreateSession {
+            folder: dir.path().display().to_string(),
+            agent_id: "a".into(),
+            frontend_id: "chat".into(),
+            title: None,
+            branch: None,
+            worktree: false,
+            new_branch: None,
+            pr: None,
+            mcp_servers: vec![],
+        };
+        let CommandResult::SessionCreated { session_id } = h.execute(create).await.unwrap() else { panic!() };
+        (h, session_id, dir)
+    }
+
+    /// A Session sink that counts what it receives.
+    fn counting() -> (Arc<AtomicUsize>, Box<dyn EventSink>) {
+        let n = Arc::new(AtomicUsize::new(0));
+        let seen = n.clone();
+        (
+            n,
+            Box::new(move |_: &Event| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                true
+            }),
+        )
+    }
+
+    fn app_counting() -> (Arc<AtomicUsize>, AppSink) {
+        let n = Arc::new(AtomicUsize::new(0));
+        let seen = n.clone();
+        (
+            n,
+            Box::new(move |_: &AppEvent| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                true
+            }),
+        )
+    }
+
+    /// Something that logs an Event in the Session and emits an AppEvent.
+    async fn poke(h: &Harness, sid: &str) {
+        h.execute(Command::ArchiveSession { session_id: sid.into() }).await.unwrap();
+    }
+
+    async fn eventually(what: &str, f: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !f() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Lets a quiet period pass, for "nothing arrives" assertions.
+    async fn settle() {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_subscription_is_added_and_unsubscribed_alone() {
+        let (h, sid, _dir) = harness().await;
+        let subs = Subscriptions::default();
+        let (a, sink_a) = counting();
+        let (b, sink_b) = counting();
+        let id_a = subs.subscribe(&h, "main", &sid, 0, sink_a).unwrap();
+        let id_b = subs.subscribe(&h, "main", &sid, 0, sink_b).unwrap();
+        assert_ne!(id_a, id_b);
+        assert_eq!(subs.counts("main"), (2, 0, 0));
+        // Both replay the log so far.
+        eventually("the replay", || a.load(Ordering::SeqCst) > 0 && b.load(Ordering::SeqCst) > 0).await;
+
+        subs.unsubscribe(&h, "main", &sid, id_a);
+        assert_eq!(subs.counts("main"), (1, 0, 0));
+        settle().await;
+        let (a_before, b_before) = (a.load(Ordering::SeqCst), b.load(Ordering::SeqCst));
+        poke(&h, &sid).await;
+        eventually("the remaining subscription to hear", || b.load(Ordering::SeqCst) > b_before).await;
+        settle().await;
+        assert_eq!(a.load(Ordering::SeqCst), a_before, "the unsubscribed sink hears nothing more");
+
+        // Unknown subscriptions and labels are ignored.
+        subs.unsubscribe(&h, "main", &sid, 9999);
+        subs.unsubscribe(&h, "nobody", &sid, id_b);
+        assert_eq!(subs.counts("main"), (1, 0, 0));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_subscription_to_a_missing_session_is_an_error_and_not_tracked() {
+        let (h, _sid, _dir) = harness().await;
+        let subs = Subscriptions::default();
+        let (_, sink) = counting();
+        assert!(subs.subscribe(&h, "main", "no-such-session", 0, sink).is_err());
+        assert_eq!(subs.counts("main"), (0, 0, 0));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_a_webview_removes_all_its_subscriptions_and_only_its() {
+        let (h, sid, _dir) = harness().await;
+        let subs = Subscriptions::default();
+
+        let (main_log, sink) = counting();
+        subs.subscribe(&h, "main", &sid, 0, sink).unwrap();
+        let (main_app, sink) = app_counting();
+        subs.subscribe_app(&h, "main", sink);
+        let (_, main_term) = terminal_sink();
+        let term_id = h.execute(Command::TerminalOpen { session_id: sid.clone() }).await.unwrap();
+        let CommandResult::TerminalOpened { terminal_id } = term_id else { panic!("{term_id:?}") };
+        subs.terminal_attach(&h, "main", &sid, terminal_id, 80, 24, main_term).unwrap();
+        assert_eq!(subs.counts("main"), (1, 1, 1));
+
+        let (other_log, sink) = counting();
+        subs.subscribe(&h, "overlay", &sid, 0, sink).unwrap();
+        let (other_app, sink) = app_counting();
+        subs.subscribe_app(&h, "overlay", sink);
+        assert_eq!(subs.counts("overlay"), (1, 1, 0));
+        eventually("the replays", || main_log.load(Ordering::SeqCst) > 0 && other_log.load(Ordering::SeqCst) > 0).await;
+
+        subs.drop_webview(&h, "main");
+        assert_eq!(subs.counts("main"), (0, 0, 0));
+        assert_eq!(subs.counts("overlay"), (1, 1, 0), "the other webview keeps its own");
+
+        settle().await;
+        let before = (main_log.load(Ordering::SeqCst), main_app.load(Ordering::SeqCst), other_log.load(Ordering::SeqCst), other_app.load(Ordering::SeqCst));
+        poke(&h, &sid).await;
+        eventually("the other webview to hear both", || other_log.load(Ordering::SeqCst) > before.2 && other_app.load(Ordering::SeqCst) > before.3).await;
+        settle().await;
+        assert_eq!((main_log.load(Ordering::SeqCst), main_app.load(Ordering::SeqCst)), (before.0, before.1), "the dropped webview hears nothing");
+
+        // Dropping again, or a label that never subscribed, is a no-op.
+        subs.drop_webview(&h, "main");
+        subs.drop_webview(&h, "never-seen");
+        assert_eq!(subs.counts("overlay"), (1, 1, 0));
+        subs.drop_webview(&h, "overlay");
+        assert_eq!(subs.counts("overlay"), (0, 0, 0));
+        h.execute(Command::TerminalClose { session_id: sid.clone(), terminal_id }).await.unwrap();
+    }
+
+    /// A Terminal sink that records nothing but keeps the attachment alive.
+    fn terminal_sink() -> (Arc<AtomicUsize>, TerminalSink) {
+        let n = Arc::new(AtomicUsize::new(0));
+        let seen = n.clone();
+        (
+            n,
+            Box::new(move |o: TerminalOutput| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                !matches!(o, TerminalOutput::Exit(_))
+            }),
+        )
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn terminal_attachments_are_tracked_and_detached_one_by_one() {
+        let (h, sid, _dir) = harness().await;
+        let subs = Subscriptions::default();
+        let CommandResult::TerminalOpened { terminal_id } = h.execute(Command::TerminalOpen { session_id: sid.clone() }).await.unwrap() else { panic!() };
+        let (_, a) = terminal_sink();
+        let (_, b) = terminal_sink();
+        let id_a = subs.terminal_attach(&h, "main", &sid, terminal_id, 80, 24, a).unwrap();
+        let id_b = subs.terminal_attach(&h, "main", &sid, terminal_id, 80, 24, b).unwrap();
+        assert_eq!(subs.counts("main"), (0, 0, 2));
+        subs.terminal_detach(&h, "main", &sid, terminal_id, id_a);
+        assert_eq!(subs.counts("main"), (0, 0, 1));
+        subs.terminal_detach(&h, "main", &sid, terminal_id, id_a);
+        assert_eq!(subs.counts("main"), (0, 0, 1), "detaching twice changes nothing");
+        // A failed attach is not tracked.
+        let (_, c) = terminal_sink();
+        assert!(subs.terminal_attach(&h, "main", &sid, 999, 80, 24, c).is_err());
+        assert_eq!(subs.counts("main"), (0, 0, 1));
+        subs.terminal_detach(&h, "main", &sid, terminal_id, id_b);
+        assert_eq!(subs.counts("main"), (0, 0, 0));
+        h.execute(Command::TerminalClose { session_id: sid.clone(), terminal_id }).await.unwrap();
+    }
+}
