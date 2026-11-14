@@ -9,6 +9,7 @@ import {
    type PermissionOption,
    type PermissionRule,
    type SlashCommand,
+   type SubSessionReport,
    stepThreads,
    type TaskEntry,
    type ThreadInfo,
@@ -53,7 +54,13 @@ export type Item =
         attachments: Attachment[];
         context: string | null;
         /** Who sent it when not the user: a parent's Agent, or the Harness with news from sub sessions. */
-        from: { sessionId: string; title: string; subSession: boolean } | null;
+        from: {
+           sessionId: string;
+           title: string;
+           subSession: boolean;
+           /** Harness news about Sub Sessions: shown instead of the text (written for the Agent). */
+           reports: SubSessionReport[];
+        } | null;
      }
    /** `durationMs`: on the last agent message of a finished Turn, how long the Turn took. */
    /** `parent`: the tool call that started the subagent which wrote this text; null for the Thread's own. */
@@ -534,6 +541,7 @@ function applyThread(c: Ctx, e: Event) {
                     sessionId: k.origin.session_id,
                     title: k.origin.title,
                     subSession: k.origin.kind === "sub_session",
+                    reports: k.origin.reports ?? [],
                  }
                : null,
          });

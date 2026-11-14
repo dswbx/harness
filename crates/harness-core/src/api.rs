@@ -1259,6 +1259,40 @@ pub struct PromptOrigin {
     pub title: String,
     #[serde(default)]
     pub kind: PromptOriginKind,
+    /// `SubSession`: what the Harness reported, one per Sub Session, so a Frontend can show that
+    /// instead of the prompt text (which is written for the Agent).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reports: Vec<SubSessionReport>,
+}
+
+/// One Sub Session in a prompt the Harness sent its parent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SubSessionReport {
+    pub session_id: SessionId,
+    pub title: String,
+    pub kind: SubSessionReportKind,
+    /// `Ended`: the ACP stop reason (`end_turn`, `cancelled`, ...) or `error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    /// `Ended`: how long the Turn took.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub duration_ms: Option<i64>,
+    /// The prompt that started the Turn (from the parent's Agent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<String>,
+    /// `Ended`: its last reply, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SubSessionReportKind {
+    /// Its Turn ended.
+    Ended,
+    /// It waits for the user to answer a permission request.
+    NeedsUser,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]

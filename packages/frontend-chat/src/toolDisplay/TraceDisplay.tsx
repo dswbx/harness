@@ -25,7 +25,6 @@ import {
    FileText,
    GitBranch,
    GitCommitHorizontal,
-   GitFork,
    Globe,
    Plug,
    Search,
@@ -177,7 +176,7 @@ const Step = memo(function Step({
         : tool.harnessTool && GIT_ICONS[tool.harnessTool]
           ? GIT_ICONS[tool.harnessTool]!
           : sub
-            ? GitFork
+            ? Bot
             : loaded
               ? Blocks
               : tool.harnessTool || tool.title.startsWith("mcp__")
@@ -472,7 +471,7 @@ function ToolSearchBody({ tool, names }: { tool: Tool; names: string[] }) {
 }
 
 /** A secondary part of a step body (raw input, a subagent's task), one click away. */
-function Fold({ label, children }: { label: string; children: ReactNode }) {
+export function Fold({ label, children }: { label: string; children: ReactNode }) {
    const [open, setOpen] = useState(false);
    return (
       <TraceCollapsible open={open} onOpenChange={setOpen}>

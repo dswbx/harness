@@ -29,6 +29,7 @@ import type {
    WorkspaceInfo,
 } from "./generated";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
+import { mockSubSessionLogs } from "./mockSubSessions";
 import { applyStatePatch } from "./state";
 import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 
@@ -765,6 +766,14 @@ export class MockTransport implements Transport {
          s.updated_ms = Date.now() - age * h;
          if (status) s.status = status;
          if (id !== "mock-p1") s.parent = { session_id: "mock-p1", thread_id: "main" };
+      }
+      for (const [sid, kinds] of Object.entries(mockSubSessionLogs())) {
+         for (const k of kinds) this.emit(sid, k);
+         // Spread over the last ~3 hours, oldest first.
+         const log = this.logs.get(sid)!;
+         log.forEach((e, i) => {
+            e.ts_ms = Date.now() - 3 * h + (i * 3 * h) / log.length;
+         });
       }
       const quick: [string, number][] = [
          ["Compare SQLite and libSQL", 3],

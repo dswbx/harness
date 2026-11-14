@@ -101,13 +101,23 @@ describe("turns", () => {
             type: "TurnStarted",
             turn_id: "t3",
             text: "done",
-            origin: { session_id: "c1", title: "Child", kind: "sub_session" },
+            origin: {
+               session_id: "c1",
+               title: "Child",
+               kind: "sub_session",
+               reports: [{ session_id: "c1", title: "Child", kind: "ended", reply: "here" }],
+            },
          }),
       ]);
       expect(s.items.map((i) => i.type === "user" && i.from)).toEqual([
-         { sessionId: "p1", title: "Parent", subSession: false },
+         { sessionId: "p1", title: "Parent", subSession: false, reports: [] },
          null,
-         { sessionId: "c1", title: "Child", subSession: true },
+         {
+            sessionId: "c1",
+            title: "Child",
+            subSession: true,
+            reports: [{ session_id: "c1", title: "Child", kind: "ended", reply: "here" }],
+         },
       ]);
    });
    it("tracks a running turn and shows non-end_turn stop reasons", () => {

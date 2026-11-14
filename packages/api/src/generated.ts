@@ -832,6 +832,11 @@ export type PromptOrigin = {
 	session_id: string,
 	title: string,
 	kind?: PromptOriginKind,
+	/**
+	 *  `SubSession`: what the Harness reported, one per Sub Session, so a Frontend can show that
+	 *  instead of the prompt text (which is written for the Agent).
+	 */
+	reports?: SubSessionReport[],
 };
 
 export type PromptOriginKind = 
@@ -956,6 +961,27 @@ export type StatePatchOp = { op: "add"; path: string; value: unknown } | { op: "
 
 /**  Who changed the Session State. */
 export type StateWriter = "agent" | "user";
+
+/**  One Sub Session in a prompt the Harness sent its parent. */
+export type SubSessionReport = {
+	session_id: string,
+	title: string,
+	kind: SubSessionReportKind,
+	/**  `Ended`: the ACP stop reason (`end_turn`, `cancelled`, ...) or `error`. */
+	stop_reason?: string | null,
+	/**  `Ended`: how long the Turn took. */
+	duration_ms?: number | null,
+	/**  The prompt that started the Turn (from the parent's Agent). */
+	asked?: string | null,
+	/**  `Ended`: its last reply, if any. */
+	reply?: string | null,
+};
+
+export type SubSessionReportKind = 
+/**  Its Turn ended. */
+"ended" | 
+/**  It waits for the user to answer a permission request. */
+"needs_user";
 
 /**  What a tool call that starts a subagent asked it to do. */
 export type SubagentInfo = {
