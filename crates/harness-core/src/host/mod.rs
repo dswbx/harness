@@ -1,5 +1,6 @@
 //! The Harness entry point: owns Sessions and dispatches Commands.
 
+mod boot;
 mod create;
 mod dispatch;
 
@@ -13,6 +14,7 @@ use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared};
 
+pub use boot::{builtin_frontends, default_data_dir};
 pub(crate) use create::NewSession;
 
 /// Default for `Shared::idle_timeout`.
