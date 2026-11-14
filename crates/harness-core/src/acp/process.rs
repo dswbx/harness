@@ -198,6 +198,18 @@ impl AgentSlot {
         self.state.lock().cancelling.contains(thread)
     }
 
+    /// Marks `thread` as cancelling when a Turn of it is in flight, and says whether it did. One
+    /// lock for the look and the mark: a Turn that ends in between must not leave the mark behind
+    /// (it would cancel the next Turn's permission requests).
+    fn mark_cancelling(&self, thread: &ThreadId) -> bool {
+        let mut s = self.state.lock();
+        let in_turn = s.turns.get(thread).is_some_and(|n| *n > 0);
+        if in_turn {
+            s.cancelling.insert(thread.clone());
+        }
+        in_turn
+    }
+
     pub(super) fn conn(&self) -> Option<Arc<AgentConn>> {
         self.state.lock().conn.clone()
     }
@@ -208,9 +220,7 @@ impl AgentSlot {
         if let Some(id) = id {
             conn.cx.send_notification(acp::CancelNotification::new(id))?;
         }
-        let in_turn = self.state.lock().turns.get(thread).is_some_and(|n| *n > 0);
-        if in_turn {
-            self.state.lock().cancelling.insert(thread.clone());
+        if self.mark_cancelling(thread) {
             // ACP wants the Agent to answer the prompt with `cancelled`. One that never does would
             // leave the Turn running forever, so after a grace period its process is stopped (the
             // next prompt restarts it and resumes the Agent Session).
@@ -556,8 +566,19 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
 }
 
 #[cfg(test)]
-mod replaying_tests {
+mod tests {
     use super::*;
+
+    #[test]
+    fn a_cancel_marks_only_a_thread_with_a_turn_in_flight() {
+        let slot = AgentSlot::default();
+        let thread: ThreadId = "t".into();
+        assert!(!slot.mark_cancelling(&thread));
+        assert!(!slot.cancelling(&thread), "no Turn: nothing to leave behind for the next one");
+        slot.state.lock().turns.insert(thread.clone(), 1);
+        assert!(slot.mark_cancelling(&thread));
+        assert!(slot.cancelling(&thread));
+    }
 
     #[test]
     fn only_the_loading_agent_session_is_muted_and_only_while_it_loads() {
