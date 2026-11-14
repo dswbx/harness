@@ -56,12 +56,15 @@ import {
    tildify,
 } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
-
-/** What the Session starts from in a repository. */
-type Target =
-   | { kind: "local"; name: string }
-   | { kind: "remote"; name: string }
-   | { kind: "new"; name: string };
+import {
+   createArgs,
+   defaultTarget,
+   startPointReady,
+   type Target,
+   targetInfo,
+   worktreeAfterPick,
+   worktreeSwitch,
+} from "./startPoint";
 
 /** A PR picked from the list, or typed by number (title unknown). */
 type PickedPr = Pick<PullRequest, "number"> & Partial<PullRequest>;
@@ -318,11 +321,7 @@ export function ComposerDialog({
             .then((b) => {
                if (off) return;
                setBranches(b);
-               const first =
-                  b.current ??
-                  b.branches.find((x) => x.name === b.default_branch)?.name ??
-                  b.branches[0]?.name;
-               setTarget(first ? { kind: "local", name: first } : null);
+               setTarget(defaultTarget(b));
                setWorktree(false);
             })
             .catch((e) => !off && setError(errText(e)));
@@ -380,36 +379,23 @@ export function ComposerDialog({
    }, [isRepo, folder, prFilter, client]);
 
    const local = useMemo(() => new Map(branches?.branches.map((b) => [b.name, b])), [branches]);
-   const targetInfo =
-      target?.kind === "local"
-         ? local.get(target.name)
-         : target?.kind === "remote"
-           ? branches?.remote.find((b) => b.name === target.name)
-           : undefined;
-   /** Another branch than the folder's, checked out elsewhere, or remote-only: needs a Worktree. */
-   const mustWorktree =
-      target?.kind === "remote" || (target?.kind === "local" && !!targetInfo?.worktree);
-
-   const wtLocked = mode === "branch" && mustWorktree;
-   const wtOn = mode === "pr" ? prWorktree : worktree || mustWorktree;
-   const wtNote = wtLocked
-      ? target?.kind === "remote"
-         ? "needed for a remote branch"
-         : "the branch is checked out elsewhere"
-      : wtOn
-        ? "keeps this folder untouched"
-        : "switches this folder's branch";
+   const targetBranch = targetInfo(target, branches);
+   const {
+      locked: wtLocked,
+      on: wtOn,
+      note: wtNote,
+   } = worktreeSwitch({ mode, target, info: targetBranch, worktree, prWorktree });
 
    const pickTarget = (t: Target) => {
       setTarget(t);
       setStartOpen(false);
       setBranchQuery("");
-      const info = t.kind === "local" ? local.get(t.name) : undefined;
-      // Switching the folder to another branch would need a clean tree; a Worktree avoids that.
       setWorktree(
-         t.kind === "remote" ||
-            (t.kind === "local" && (t.name !== branches?.current || !!info?.worktree)) ||
-            (t.kind === "new" && worktree),
+         worktreeAfterPick(t, {
+            current: branches?.current ?? null,
+            info: t.kind === "local" ? local.get(t.name) : undefined,
+            worktree,
+         }),
       );
    };
 
@@ -435,18 +421,15 @@ export function ComposerDialog({
       setBusy(true);
       setError(null);
       try {
-         const repoArgs = !isRepo
-            ? {}
-            : mode === "pr" && pr
-              ? { pr: pr.number, worktree: prWorktree }
-              : target?.kind === "new"
-                ? { newBranch: target.name, worktree }
-                : target?.kind === "remote"
-                  ? { branch: target.name, worktree: true }
-                  : {
-                       branch: target && target.name !== branches?.current ? target.name : null,
-                       worktree,
-                    };
+         const repoArgs = createArgs({
+            isRepo,
+            mode,
+            pr,
+            target,
+            current: branches?.current ?? null,
+            worktree,
+            prWorktree,
+         });
          const common = { agentId, frontendId, title: title.trim() || null, mcpServers: mcpIds };
          const id = noFolder
             ? await client.createQuickSession(common)
@@ -469,7 +452,7 @@ export function ComposerDialog({
       (noFolder || !!folder.trim()) &&
       !!agentId &&
       !!frontendId &&
-      (!isRepo || (mode === "pr" ? !!pr : !!target?.name.trim()));
+      startPointReady({ isRepo, mode, pr, target });
 
    const onKeyDown = (e: React.KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -925,7 +908,7 @@ export function ComposerDialog({
                                           )}
                                           {target.kind === "remote" && <Pill>remote</Pill>}
                                           <span className="flex-1" />
-                                          <AheadBehind b={targetInfo} />
+                                          <AheadBehind b={targetBranch} />
                                        </span>
                                     )
                                  }
@@ -946,16 +929,16 @@ export function ComposerDialog({
                            )
                         }
                      />
-                     {targetInfo?.behind && mode === "branch" ? (
+                     {targetBranch?.behind && mode === "branch" ? (
                         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                            <span>
-                              {targetInfo.name} is {targetInfo.behind}{" "}
-                              {targetInfo.behind === 1 ? "commit" : "commits"} behind origin
+                              {targetBranch.name} is {targetBranch.behind}{" "}
+                              {targetBranch.behind === 1 ? "commit" : "commits"} behind origin
                               {wtOn ? "; the new worktree starts from origin." : "."}
                            </span>
                            <UpdateBranch
-                              b={targetInfo}
-                              busy={updating === targetInfo.name}
+                              b={targetBranch}
+                              busy={updating === targetBranch.name}
                               onUpdate={updateBranch}
                            />
                         </p>

@@ -59,3 +59,55 @@ export function rowEdge(
 ): "left" | "right" {
    return from.left !== to.left && from.right === to.right ? "right" : "left";
 }
+
+type Room = { left: number; right: number };
+
+/** The two side widths are the same. */
+export const samePanels = (a: Room, b: Room) => a.left === b.left && a.right === b.right;
+
+/** The menu room (the window grows right and down while a menu is open): what the host call chain has done so far. */
+export type MenuRoom = { busy: boolean; grown: boolean; held: boolean };
+
+/** What the menu room does next: pin the card to its size, grow or shrink the window, or unpin it. */
+export type MenuRoomAct = "none" | "pin" | "open" | "close" | "unpin";
+
+/**
+ * One step of the menu room. `want`: a menu is open and the overlay is on screen. `pinned`: the card
+ * is pinned to the old window size. `held` (after a show or mode change) means no new room until the
+ * menus close; it drops as soon as nothing wants room, also while a host call is running.
+ * The pin is on the page before the window grows (`pin`, then `open` on the next step).
+ */
+export function menuRoomStep(
+   r: MenuRoom,
+   want: boolean,
+   pinned: boolean,
+): { held: boolean; act: MenuRoomAct } {
+   const held = want ? r.held : false;
+   if (r.busy) return { held, act: "none" };
+   if (want && !r.grown && !held) return { held, act: pinned ? "open" : "pin" };
+   if (!want && r.grown) return { held, act: "close" };
+   if (!want && pinned) return { held, act: "unpin" };
+   return { held, act: "none" };
+}
+
+/** What the side panels' room does next: the row moves to the edge that stays, or the host resizes the window. */
+export type PanelRoomAct =
+   | { type: "none" }
+   | { type: "edge"; edge: "left" | "right" }
+   | { type: "resize"; to: Room };
+
+/**
+ * One step of the panel room. `want`: what the View asks for; `host`: what the window has now. The
+ * row is on its edge before the window changes; one host call at a time (`busy`).
+ */
+export function panelRoomStep(o: {
+   busy: boolean;
+   want: Room;
+   host: Room;
+   edge: "left" | "right";
+}): PanelRoomAct {
+   if (o.busy || samePanels(o.want, o.host)) return { type: "none" };
+   const next = rowEdge(o.host, o.want);
+   if (next !== o.edge) return { type: "edge", edge: next };
+   return { type: "resize", to: o.want };
+}

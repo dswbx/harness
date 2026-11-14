@@ -20,7 +20,13 @@ import {
 } from "react";
 import { QUICK_TITLE, quickAgent } from "./composer";
 import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
-import { INITIAL_OVERLAY, overlayReducer, rowEdge } from "./overlayMode";
+import {
+   INITIAL_OVERLAY,
+   menuRoomStep,
+   overlayReducer,
+   panelRoomStep,
+   samePanels,
+} from "./overlayMode";
 import { useReportError } from "./toast";
 import { ViewHost } from "./ViewHost";
 import {
@@ -87,7 +93,6 @@ function useMenuOpen(): boolean {
 type Draft = { id: string; frontendId: string; agentId: string };
 
 const NO_PANELS: PanelWidth = { left: 0, right: 0 };
-const samePanels = (a: PanelWidth, b: PanelWidth) => a.left === b.left && a.right === b.right;
 
 /**
  * The Quick overlay window (`?overlay=1`, ADR 0022): a draft Quick Session's prompt box, then the
@@ -187,7 +192,8 @@ export function Overlay({ transport }: { transport: Transport }) {
    // biome-ignore lint/correctness/useExhaustiveDependencies: `synced` re-runs it after each host call.
    useEffect(() => {
       const r = room.current;
-      if (!want) r.held = false;
+      const step = menuRoomStep(r, want, !!pin);
+      r.held = step.held;
       if (r.busy) return;
       const call = (open: boolean) => {
          r.busy = true;
@@ -201,12 +207,11 @@ export function Overlay({ transport }: { transport: Transport }) {
                setSynced((n) => n + 1);
             });
       };
-      if (want && !r.grown && !r.held) {
-         // The pin is on the page before the window grows.
-         if (pin) call(true);
-         else setPin({ w: window.innerWidth, h: window.innerHeight });
-      } else if (!want && r.grown) call(false);
-      else if (!want && pin) setPin(null);
+      if (step.act === "open") call(true);
+      // The pin is on the page before the window grows.
+      else if (step.act === "pin") setPin({ w: window.innerWidth, h: window.innerHeight });
+      else if (step.act === "close") call(false);
+      else if (step.act === "unpin") setPin(null);
    }, [want, pin, synced]);
 
    // Side panels (Phase 2): the View says how much room its panels and stripes want beside the chat;
@@ -231,14 +236,19 @@ export function Overlay({ transport }: { transport: Transport }) {
       [],
    );
    useEffect(() => {
-      if (panelsBusy.current || samePanels(panelsWant, panelsHost)) return;
-      const w = panelsWant;
-      const next = rowEdge(panelsHost, w);
+      const step = panelRoomStep({
+         busy: panelsBusy.current,
+         want: panelsWant,
+         host: panelsHost,
+         edge,
+      });
+      if (step.type === "none") return;
       // The row is on its edge before the window changes.
-      if (next !== edge) {
-         setEdge(next);
+      if (step.type === "edge") {
+         setEdge(step.edge);
          return;
       }
+      const w = step.to;
       panelsBusy.current = true;
       overlayHost
          .setPanels(w.left, w.right)

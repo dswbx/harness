@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttachDialog } from "./AttachDialog";
 import { syncAppearance } from "./appearance/appearance";
 import { ComposerDialog } from "./ComposerDialog";
+import { watchingChecks } from "./checks";
 import { QUICK_TITLE, quickAgent } from "./composer";
 import { FrontendRequests } from "./FrontendRequests";
 import { Overlay } from "./Overlay";
@@ -222,13 +223,6 @@ const useSidebarWidth = () =>
       max: 480,
       edge: "right",
    });
-
-/** Checks are running or may be about to start: an open PR with pending checks, or none yet and just updated. */
-const watchingChecks = (pr: PrInfo | null) =>
-   !!pr &&
-   (pr.state === "open" || pr.state === "draft") &&
-   (pr.checks === "pending" ||
-      (pr.checks_total === 0 && Date.now() - Date.parse(pr.updated_at) < 5 * 60_000));
 
 /**
  * The Session's git ref for the header: branch with ahead/behind, its GitHub repo and PR. Reloaded as the

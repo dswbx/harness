@@ -21,26 +21,11 @@ import {
 } from "@harness/ui";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { checkLine, parseEnvLines } from "./agents";
 import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
 
 const heading = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
-
-/** One line on an installed Agent's last conformance check. */
-function checkLine(a: AgentInfo): { text: string; ok: boolean } | null {
-   const c = a.install?.check;
-   if (!c) return null;
-   if (c.passed) {
-      return {
-         ok: true,
-         text: c.auth_required
-            ? `v${c.version} check passed (sign-in needed)`
-            : `v${c.version} check passed`,
-      };
-   }
-   const first = (c.error ?? "").split("\n")[0];
-   return { ok: false, text: `Update to v${c.version} was refused, check failed: ${first}` };
-}
 
 export function AgentIcon({
    icon,
@@ -178,14 +163,7 @@ export function AgentsPanel({
       setAdding(true);
       setCustomError(null);
       try {
-         const envMap: Record<string, string> = {};
-         for (const line of env.split("\n")) {
-            const l = line.trim();
-            if (!l) continue;
-            const i = l.indexOf("=");
-            if (i < 1) throw new Error(`Invalid env line "${l}", expected KEY=VALUE`);
-            envMap[l.slice(0, i).trim()] = l.slice(i + 1);
-         }
+         const envMap = parseEnvLines(env);
          await client.addCustomAgent({
             name: name.trim(),
             command: command.trim(),
