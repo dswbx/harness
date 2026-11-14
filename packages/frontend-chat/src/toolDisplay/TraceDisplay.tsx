@@ -471,16 +471,8 @@ function ToolSearchBody({ tool, names }: { tool: Tool; names: string[] }) {
 }
 
 /** A secondary part of a step body (raw input, a subagent's task), one click away. */
-export function Fold({
-   label,
-   defaultOpen = false,
-   children,
-}: {
-   label: string;
-   defaultOpen?: boolean;
-   children: ReactNode;
-}) {
-   const [open, setOpen] = useState(defaultOpen);
+export function Fold({ label, children }: { label: string; children: ReactNode }) {
+   const [open, setOpen] = useState(false);
    return (
       <TraceCollapsible open={open} onOpenChange={setOpen}>
          <TraceCollapsibleTrigger className="text-ui-sm">

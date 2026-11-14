@@ -36,12 +36,7 @@ export function SubSessionReportStep({ report: r }: { report: SubSessionReport }
    const stop = r.stop_reason && r.stop_reason !== "end_turn" ? r.stop_reason : null;
    const metas = waits
       ? ["waits for you"]
-      : [
-           stop,
-           !r.reply && "no reply",
-           !open && r.reply && preview(r.reply),
-           r.duration_ms != null && formatDuration(r.duration_ms),
-        ];
+      : [stop, !r.reply && "no reply", r.duration_ms != null && formatDuration(r.duration_ms)];
    return (
       <TraceCollapsible open={open} onOpenChange={setOpen}>
          <TraceCollapsibleTrigger>
@@ -53,6 +48,12 @@ export function SubSessionReportStep({ report: r }: { report: SubSessionReport }
                   <TraceVerb>Message from sub session</TraceVerb>
                   <TraceDetail>{r.title}</TraceDetail>
                </TraceTitle>
+               {/* Gives way first, so the title and the rest keep their place. */}
+               {!open && r.reply && (
+                  <TraceDescription className="min-w-0 shrink-[999] truncate">
+                     {preview(r.reply)}
+                  </TraceDescription>
+               )}
                {metas.map(
                   (m, i) =>
                      m && (
@@ -93,12 +94,12 @@ export function SubSessionReportStep({ report: r }: { report: SubSessionReport }
                </span>
             </div>
             {r.asked && (
-               <Fold label="Asked" defaultOpen>
+               <Fold label="Asked">
                   <Markdown className={STEP_TEXT}>{r.asked}</Markdown>
                </Fold>
             )}
             {r.reply && (
-               <Fold label="Reply" defaultOpen>
+               <Fold label="Reply">
                   <Markdown className={`${STEP_TEXT} text-foreground`}>{r.reply}</Markdown>
                </Fold>
             )}
