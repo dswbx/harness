@@ -1,3 +1,4 @@
+import { draftKey } from "@harness/api";
 import { useMemo, useSyncExternalStore } from "react";
 import {
    type DiffComment,
@@ -54,8 +55,7 @@ export function setReviewComments(sessionId: string, list: ReviewComment[]) {
  * Whose composer holds the comments: the Main Thread's (the Session id, as the diff views use it) or a
  * Side Thread's own (its quotes are not sent to Main).
  */
-export const composerKey = (sessionId: string, sideThreadId: string | null) =>
-   sideThreadId ? `${sessionId}#${sideThreadId}` : sessionId;
+export const composerKey = draftKey;
 
 export const addReviewComment = (sessionId: string, c: NewComment) =>
    setReviewComments(sessionId, [
