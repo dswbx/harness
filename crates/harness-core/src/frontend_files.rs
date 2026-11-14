@@ -81,38 +81,63 @@ pub fn format_errors(validator: &Validator, input: &Value) -> String {
     out
 }
 
-/// Local images to copy: `(src as given, file)`. Checks them all before anything is written.
-/// Relative paths are relative to the Workspace Folder; a source must lie inside it once symbolic
-/// links are resolved.
-pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<(String, PathBuf)>> {
-    let mut out: Vec<(String, PathBuf)> = Vec::new();
+/// A local image checked by `plan`: the file is opened then, and `store` copies from that handle,
+/// so a file swapped in the meantime is not the one copied.
+#[derive(Debug)]
+pub struct Planned {
+    /// The source as the Frontend gave it.
+    pub src: String,
+    /// Its resolved location.
+    pub path: PathBuf,
+    /// The file lies outside the Workspace Folder: the user approves each such file.
+    pub outside: bool,
+    file: std::fs::File,
+}
+
+/// Local images to copy. Checks them all before anything is written. Relative paths are relative
+/// to the Workspace Folder; a source outside it is allowed but flagged `outside`.
+pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<Planned>> {
+    use std::os::unix::fs::MetadataExt;
+    let mut out: Vec<Planned> = Vec::new();
     for src in srcs {
-        if src.starts_with("https://") || src.starts_with("data:image/") || out.iter().any(|(s, _)| s == src) {
+        if src.starts_with("https://") || src.starts_with("data:image/") || out.iter().any(|p| &p.src == src) {
             continue;
         }
         anyhow::ensure!(!src.contains("://"), "{src}: only https URLs or local image files");
-        let p = std::fs::canonicalize(folder.join(src)).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
-        let inside = crate::fsutil::inside_existing(folder, &p).is_ok_and(|r| r.within());
-        if !inside {
-            return Err(crate::error::invalid(format!("{src}: image files must lie inside the Session folder")));
-        }
-        anyhow::ensure!(p.is_file(), "{src} is not a file");
-        anyhow::ensure!(is_image(guess_mime(&p)), "{src} is not an image (png, jpg, gif, webp)");
-        anyhow::ensure!(std::fs::metadata(&p)?.len() <= MAX_IMAGE, "{src} is larger than 20 MB");
-        out.push((src.clone(), p));
+        let path = std::fs::canonicalize(folder.join(src)).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
+        let file = std::fs::File::open(&path).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
+        let meta = file.metadata()?;
+        anyhow::ensure!(meta.is_file(), "{src} is not a file");
+        anyhow::ensure!(is_image(guess_mime(&path)), "{src} is not an image (png, jpg, gif, webp)");
+        anyhow::ensure!(meta.len() <= MAX_IMAGE, "{src} is larger than 20 MB");
+        // The path must still name the file that was opened.
+        let now = std::fs::metadata(&path)?;
+        anyhow::ensure!((now.dev(), now.ino()) == (meta.dev(), meta.ino()), "{src} changed while it was read");
+        let outside = !crate::fsutil::inside_existing(folder, &path).is_ok_and(|r| r.within());
+        out.push(Planned { src: src.clone(), path, outside, file });
     }
     Ok(out)
 }
 
 /// Copies the planned images into `frontend_dir/files/`: `src -> path relative to frontend_dir`.
-pub fn store(frontend_dir: &Path, planned: Vec<(String, PathBuf)>) -> anyhow::Result<BTreeMap<String, String>> {
+/// `files` must be a real directory below the real `frontend_dir`.
+pub fn store(frontend_dir: &Path, planned: Vec<Planned>) -> anyhow::Result<BTreeMap<String, String>> {
+    use std::io::Read;
     let mut files = BTreeMap::new();
-    for (src, file) in planned {
-        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    for Planned { src, path, file, .. } in planned {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let rel = format!("{DIR}/{}", stored_name(&name));
         let dest = frontend_dir.join(&rel);
-        std::fs::create_dir_all(crate::fsutil::parent_of(&dest)?)?;
-        std::fs::copy(&file, &dest)?;
+        let dir = crate::fsutil::parent_of(&dest)?;
+        std::fs::create_dir_all(dir)?;
+        let real_dir = std::fs::symlink_metadata(dir)?.file_type().is_dir() && crate::fsutil::resolve_below_via_ancestor(frontend_dir, dir).is_some();
+        anyhow::ensure!(real_dir, "{DIR} is not a plain directory of the Frontend's folder");
+        let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&dest)?;
+        let copied = std::io::copy(&mut file.take(MAX_IMAGE + 1), &mut out)?;
+        if copied > MAX_IMAGE {
+            let _ = std::fs::remove_file(&dest);
+            anyhow::bail!("{src} is larger than 20 MB");
+        }
         files.insert(src, rel);
     }
     Ok(files)
@@ -151,6 +176,7 @@ mod tests {
         let srcs = seen.lock().clone();
         let planned = plan(dir.path(), &srcs).unwrap();
         assert_eq!(planned.len(), 1);
+        assert!(!planned[0].outside);
         let fe = dir.path().join("frontend");
         let files = store(&fe, planned).unwrap();
         assert_eq!(files.len(), 1);
@@ -164,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn sources_must_lie_inside_the_folder() {
+    fn sources_outside_the_folder_are_flagged_and_inside_ones_are_not() {
         let d = tempfile::tempdir().unwrap();
         let (folder, other) = (d.path().join("work"), d.path().join("other"));
         std::fs::create_dir_all(folder.join("pkg")).unwrap();
@@ -175,12 +201,42 @@ mod tests {
         std::os::unix::fs::symlink(other.join("out.png"), folder.join("a_link_that_leaves.png")).unwrap();
         std::os::unix::fs::symlink(&other, folder.join("out")).unwrap();
 
-        assert_eq!(plan(&folder, &["inner/in.png".into(), "pkg/in.png".into()]).unwrap().len(), 2);
         let abs_in = folder.join("pkg/in.png").display().to_string();
-        assert_eq!(plan(&folder, &[abs_in]).unwrap().len(), 1);
-        for bad in ["a_link_that_leaves.png", "out/out.png", "../other/out.png", &other.join("out.png").display().to_string()] {
-            let e = plan(&folder, &[bad.to_owned()]).unwrap_err();
-            assert!(e.to_string().contains("inside the Session folder"), "{bad}: {e}");
+        for ok in ["inner/in.png", "pkg/in.png", abs_in.as_str()] {
+            assert!(!plan(&folder, &[ok.to_owned()]).unwrap()[0].outside, "{ok}");
         }
+        let abs_out = other.join("out.png").display().to_string();
+        for bad in ["a_link_that_leaves.png", "out/out.png", "../other/out.png", abs_out.as_str()] {
+            let p = plan(&folder, &[bad.to_owned()]).unwrap();
+            assert!(p[0].outside, "{bad}");
+            assert_eq!(p[0].path, other.canonicalize().unwrap().join("out.png"), "the resolved location is what is shown");
+        }
+    }
+
+    #[test]
+    fn the_copy_reads_the_file_that_was_checked() {
+        let d = tempfile::tempdir().unwrap();
+        let (folder, fe) = (d.path().join("work"), d.path().join("fe"));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("shot.png"), b"checked").unwrap();
+        std::fs::write(d.path().join("secret.png"), b"swapped").unwrap();
+        let planned = plan(&folder, &["shot.png".into()]).unwrap();
+        std::fs::remove_file(folder.join("shot.png")).unwrap();
+        std::os::unix::fs::symlink(d.path().join("secret.png"), folder.join("shot.png")).unwrap();
+        let files = store(&fe, planned).unwrap();
+        assert_eq!(std::fs::read(fe.join(&files["shot.png"])).unwrap(), b"checked");
+    }
+
+    #[test]
+    fn files_must_be_a_plain_directory_of_the_frontend_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let (folder, fe, out) = (d.path().join("work"), d.path().join("fe"), d.path().join("out"));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::create_dir_all(&fe).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(folder.join("shot.png"), b"png").unwrap();
+        std::os::unix::fs::symlink(&out, fe.join("files")).unwrap();
+        assert!(store(&fe, plan(&folder, &["shot.png".into()]).unwrap()).is_err());
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
     }
 }

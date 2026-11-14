@@ -199,7 +199,7 @@ impl SharedArtifacts {
 
     /// Replaces a `ui` artifact's tree: `ui.json` becomes `{root, files}`, the images in `images`
     /// (`src` as given, file) copied into `files/`.
-    pub fn write_ui(&self, id: &str, root: &Value, images: Vec<(String, PathBuf)>) -> anyhow::Result<()> {
+    pub fn write_ui(&self, id: &str, root: &Value, images: Vec<crate::frontend_files::Planned>) -> anyhow::Result<()> {
         let meta = self.get(id)?;
         if meta.kind != SharedKind::Ui {
             let msg = format!("shared artifact {id} is a {} file, not a render_ui tree: edit the file instead", content_name(meta.kind));

@@ -130,6 +130,17 @@ impl Session {
         Ok(rel)
     }
 
+    /// The Session's `frontend/` directory, created if missing. It must be a real directory (not
+    /// a link) inside the Session Directory.
+    pub(crate) fn frontend_root(&self) -> anyhow::Result<PathBuf> {
+        let root = self.dir.join("frontend");
+        std::fs::create_dir_all(&root)?;
+        let plain = std::fs::symlink_metadata(&root)?.file_type().is_dir();
+        let inside = matches!((root.canonicalize(), self.dir.canonicalize()), (Ok(r), Ok(d)) if r == d.join("frontend"));
+        anyhow::ensure!(plain && inside, "the Frontend's directory is not a plain directory of the Session");
+        Ok(root)
+    }
+
     /// A path inside `frontend/`; refuses absolute paths and `..`, and a path whose resolved real
     /// location (symbolic links followed; for a missing path its nearest existing ancestor) is not
     /// below the real `frontend/` directory.
@@ -139,15 +150,12 @@ impl Session {
             p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)),
             "{rel} is outside the Frontend's directory"
         );
-        let root = self.dir.join("frontend");
+        let root = self.frontend_root()?;
         let path = root.join(p);
         if p.components().all(|c| matches!(c, std::path::Component::CurDir)) {
             return Ok(path);
         }
-        // A `frontend/` that does not exist yet has no links to follow.
-        if root.exists() {
-            anyhow::ensure!(crate::fsutil::resolve_below_via_ancestor(&root, &path).is_some(), "{rel} is outside the Frontend's directory");
-        }
+        anyhow::ensure!(crate::fsutil::resolve_below_via_ancestor(&root, &path).is_some(), "{rel} is outside the Frontend's directory");
         Ok(path)
     }
 
@@ -277,7 +285,7 @@ impl Session {
     }
 
     pub fn frontend_list(&self, rel: &str) -> anyhow::Result<Vec<String>> {
-        let root = self.dir.join("frontend");
+        let root = self.frontend_root()?;
         let start = self.frontend_path(rel)?;
         let mut out = Vec::new();
         let mut stack = vec![start];
@@ -285,7 +293,9 @@ impl Session {
             let Ok(entries) = std::fs::read_dir(&dir) else { continue };
             for e in entries.flatten() {
                 let p = e.path();
-                if p.is_dir() {
+                // Links are listed as entries, never walked into.
+                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+                if is_dir {
                     stack.push(p);
                 } else if let Ok(r) = p.strip_prefix(&root) {
                     out.push(r.display().to_string());

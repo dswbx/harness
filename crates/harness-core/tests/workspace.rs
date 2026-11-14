@@ -442,4 +442,29 @@ async fn frontend_paths_resolve_links_and_stay_below_the_frontend_dir() {
     assert!(write("out/missing.txt").await.is_err(), "missing leaf under a link that leaves");
     assert!(!outside.join("missing.txt").exists());
     assert!(read("../state.json").await.is_err());
+
+    // `frontend/` itself must be a plain directory of the Session.
+    let elsewhere = dir.path().join("elsewhere2");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("s.txt"), "s").unwrap();
+    std::fs::remove_dir_all(&fe).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &fe).unwrap();
+    assert!(read("s.txt").await.is_err());
+    assert!(write("new.txt").await.is_err());
+    assert!(!elsewhere.join("new.txt").exists());
+}
+
+#[tokio::test]
+async fn frontend_list_does_not_follow_links() {
+    let (_dir, repo, data) = repo();
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    let fe = data.join("sessions").join(&sid).join("frontend");
+    std::fs::create_dir_all(fe.join("a")).unwrap();
+    std::fs::write(fe.join("a/f.txt"), "x").unwrap();
+    // A cycle: every walk that follows links would never end.
+    std::os::unix::fs::symlink(&fe, fe.join("a/back")).unwrap();
+    std::os::unix::fs::symlink(fe.join("a"), fe.join("a2")).unwrap();
+    let CommandResult::Files { files } = h.execute(Command::FrontendList { session_id: sid.clone(), dir: String::new() }).await.unwrap() else { panic!() };
+    assert_eq!(files, vec!["a/back", "a/f.txt", "a2"]);
 }

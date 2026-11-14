@@ -134,6 +134,42 @@ pub fn resolve_below_via_ancestor(root: &Path, path: &Path) -> Option<PathBuf> {
     (real != real_root && real.starts_with(&real_root)).then_some(real)
 }
 
+/// The real location of an absolute `path`, resolved component by component as the OS would:
+/// symbolic links are followed, `..` applies to the real directory reached so far (so `link/..`
+/// is the parent of the link's target). The part below the deepest existing component is appended
+/// as written. `None` for a relative path, a dangling link or a link loop, an unreadable
+/// component, or a `..` after a component that does not exist.
+pub fn resolve_physical(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut real = PathBuf::new();
+    let mut missing = false;
+    for c in path.components() {
+        match c {
+            Component::Prefix(_) | Component::RootDir => real.push(c),
+            Component::CurDir => {}
+            Component::ParentDir if missing => return None,
+            Component::ParentDir => {
+                real.pop();
+            }
+            Component::Normal(name) => {
+                real.push(name);
+                if missing {
+                    continue;
+                }
+                match std::fs::symlink_metadata(&real) {
+                    Ok(m) if m.file_type().is_symlink() => real = real.canonicalize().ok()?,
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing = true,
+                    Err(_) => return None,
+                }
+            }
+        }
+    }
+    Some(real)
+}
+
 /// The parent directory of a path the Harness built itself (always below a data directory).
 pub fn parent_of(path: &Path) -> anyhow::Result<&Path> {
     path.parent().ok_or_else(|| anyhow::anyhow!("{} has no parent directory", path.display()))
@@ -142,6 +178,25 @@ pub fn parent_of(path: &Path) -> anyhow::Result<&Path> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_physical_follows_links_and_applies_dotdot_to_the_real_directory() {
+        let d = tempfile::tempdir().unwrap();
+        let base = d.path().canonicalize().unwrap();
+        std::fs::create_dir_all(base.join("a/b")).unwrap();
+        std::fs::create_dir_all(base.join("far/deep")).unwrap();
+        std::os::unix::fs::symlink(base.join("far/deep"), base.join("a/link")).unwrap();
+        std::os::unix::fs::symlink(base.join("loop2"), base.join("loop1")).unwrap();
+        std::os::unix::fs::symlink(base.join("loop1"), base.join("loop2")).unwrap();
+        std::os::unix::fs::symlink(base.join("nowhere"), base.join("dangling")).unwrap();
+        assert_eq!(resolve_physical(&base.join("a/b/../b/x")), Some(base.join("a/b/x")));
+        assert_eq!(resolve_physical(&base.join("a/link/../x")), Some(base.join("far/x")));
+        assert_eq!(resolve_physical(&base.join("a/link/new/y")), Some(base.join("far/deep/new/y")));
+        assert_eq!(resolve_physical(&base.join("a/missing/../x")), None);
+        assert_eq!(resolve_physical(&base.join("loop1/x")), None);
+        assert_eq!(resolve_physical(&base.join("dangling")), None);
+        assert_eq!(resolve_physical(Path::new("rel/x")), None);
+    }
 
     #[test]
     fn the_data_dir_lock_waits_for_a_holder_that_lets_go() {
