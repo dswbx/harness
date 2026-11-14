@@ -1,12 +1,10 @@
-import { PRESETS, type ThemePreset } from "./presets";
+import { THEME_TOKENS, type ThemePreset } from "./presets";
 
 /** A theme the user imported: same tokens as a preset, plus where it came from. */
 export type ImportedTheme = ThemePreset & { source?: string };
 
 /** Token names a theme may set: those the bundled presets use. Anything else is dropped. */
-const KNOWN = new Set(
-   Object.values(PRESETS).flatMap((p) => [...Object.keys(p.light), ...Object.keys(p.dark)]),
-);
+const KNOWN = new Set(THEME_TOKENS);
 const MAX_VALUE = 200;
 
 /** A token value, or null when it could break out of a CSS value or load something. */

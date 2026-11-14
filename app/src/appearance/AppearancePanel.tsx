@@ -10,7 +10,7 @@ import {
    SelectValue,
 } from "@harness/ui";
 import { Minus, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { frontendToggles } from "../platform/frontends";
 import { useReportError } from "../platform/toast";
 import { SectionHeader } from "../settings/SectionHeader";
@@ -29,8 +29,11 @@ import {
    getAppearance,
    isDarkMode,
    LEADINGS,
+   loadPresets,
    MODES,
    MONO_FONTS,
+   onPresetsLoaded,
+   presetsLoaded,
    previewAppearance,
    type RhythmOption,
    revertPreview,
@@ -292,6 +295,9 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
    };
    // Leaving the panel mid-preview restores the saved theme.
    useEffect(() => revertPreview, []);
+   // The theme list's swatches and previews need the preset data, which a window only loads when it is wanted.
+   const presetsReady = useSyncExternalStore(onPresetsLoaded, presetsLoaded);
+   useEffect(() => void loadPresets().catch(() => {}), []);
    const isDark = isDarkMode(a.mode, window);
 
    return (
@@ -327,13 +333,17 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                   </div>
                </Row>
                <Row label="Theme">
-                  <ThemePicker
-                     value={a.theme}
-                     isDark={isDark}
-                     onPreview={(theme) => previewAppearance({ ...a, theme })}
-                     onCommit={(theme) => update({ theme })}
-                     onRevert={revertPreview}
-                  />
+                  {presetsReady ? (
+                     <ThemePicker
+                        value={a.theme}
+                        isDark={isDark}
+                        onPreview={(theme) => previewAppearance({ ...a, theme })}
+                        onCommit={(theme) => update({ theme })}
+                        onRevert={revertPreview}
+                     />
+                  ) : (
+                     <div className="h-8 w-72 rounded-md border border-input" aria-busy />
+                  )}
                   <ImportThemeDialog client={client} onImported={(theme) => update({ theme })} />
                </Row>
                <ImportedThemes current={a.theme} onRemoved={() => update({ theme: "default" })} />

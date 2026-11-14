@@ -1,6 +1,6 @@
 import type { HarnessClient } from "@harness/api";
 import type { ImportedTheme } from "./importTheme";
-import { PRESETS, type ThemePreset } from "./presets";
+import { importPresets, PRESET_INDEX, type ThemePreset } from "./presets";
 import { syncWindowBackground } from "./windowBackground";
 
 export const MODES = ["light", "dark", "system"] as const;
@@ -69,7 +69,14 @@ export const CODE_FONT_SIZE_MAX = 24;
 export const STORAGE_KEY = "harness.appearance";
 /** Imported themes, cached here so the first paint has them; the core's `themes.json` is the truth. */
 export const THEMES_KEY = "harness.themes";
+/** The active preset theme's resolved CSS vars (light and dark), so a window's first paint needs no preset data. */
+export const VARS_KEY = "harness.themeVars";
+declare const __THEME_VARS_VERSION__: string;
+/** Changes with `presets.json` and this file (vite.config.ts), so an old cache is never read after an update. */
+export const VARS_VERSION =
+   typeof __THEME_VARS_VERSION__ === "string" ? __THEME_VARS_VERSION__ : "dev";
 const USER_ID = /^user-[a-z0-9-]{1,60}$/;
+const PRESET_IDS = new Set(PRESET_INDEX.map(([id]) => id));
 
 export type FontOption = { id: string; label: string; family: string };
 
@@ -137,11 +144,7 @@ export function normalize(raw: unknown): Appearance {
       s === "theme" || s === "system" || s === "custom" || list.some((f) => f.id === s);
    return {
       // An imported theme id stays even before the themes load; an unknown one looks like default.
-      theme: pick(
-         r.theme,
-         (s) => s === "default" || Object.hasOwn(PRESETS, s) || USER_ID.test(s),
-         d.theme,
-      ),
+      theme: pick(r.theme, (s) => s === "default" || PRESET_IDS.has(s) || USER_ID.test(s), d.theme),
       mode: pick(r.mode, (s) => (MODES as readonly string[]).includes(s), d.mode) as Mode,
       font: pick(r.font, fontOk(SANS_FONTS), d.font),
       mono: pick(r.mono, fontOk(MONO_FONTS), d.mono),
@@ -246,8 +249,33 @@ export function swatch(theme: string, isDark: boolean): string[] {
 export type ThemeOption = { id: string; label: string; imported?: boolean };
 export const THEMES: ThemeOption[] = [
    { id: "default", label: "Default" },
-   ...Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label })),
+   ...PRESET_INDEX.map(([id, label]) => ({ id, label })),
 ];
+
+/** The preset data, once loaded (a separate chunk: only the Appearance settings and a cache miss need it). */
+let presets: Record<string, ThemePreset> | null = null;
+let presetsLoad: Promise<Record<string, ThemePreset>> | null = null;
+const presetListeners = new Set<() => void>();
+export const presetsLoaded = () => presets !== null;
+export function onPresetsLoaded(fn: () => void) {
+   presetListeners.add(fn);
+   return () => void presetListeners.delete(fn);
+}
+/** Loads the preset data once. */
+export function loadPresets(): Promise<Record<string, ThemePreset>> {
+   presetsLoad ??= importPresets().then(
+      (p) => {
+         presets = p;
+         for (const l of presetListeners) l();
+         return p;
+      },
+      (e) => {
+         presetsLoad = null;
+         throw e;
+      },
+   );
+   return presetsLoad;
+}
 
 let imported: Record<string, ImportedTheme> = {};
 let themeList: ThemeOption[] = THEMES;
@@ -256,8 +284,8 @@ const themeListeners = new Set<() => void>();
 const themeById = (id: string): ThemePreset | undefined =>
    Object.hasOwn(imported, id)
       ? imported[id]
-      : Object.hasOwn(PRESETS, id)
-        ? PRESETS[id]
+      : presets && Object.hasOwn(presets, id)
+        ? presets[id]
         : undefined;
 
 /** Imported themes by id. */
@@ -340,21 +368,78 @@ type Doc = {
 };
 const applied = new WeakMap<object, string[]>();
 
-/** Sets the `dark` class and the resolved CSS vars on <html>, removing vars set by the previous call. */
-export function applyAppearance(a: Appearance, doc: Doc = document) {
+/** Sets the `dark` class and the resolved CSS vars on <html>, removing vars set by the previous call. `vars`: already
+ * resolved (from the cache), else resolved here. */
+export function applyAppearance(
+   a: Appearance,
+   doc: Doc = document,
+   given?: Record<string, string>,
+) {
    const root = doc.documentElement;
    const isDark = isDarkMode(a.mode, doc.defaultView);
    root.classList.toggle("dark", isDark);
-   const vars = resolveVars(a, isDark);
+   const vars = given ?? resolveVars(a, isDark);
    for (const k of applied.get(root) ?? []) if (!(k in vars)) root.style.removeProperty(k);
    for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
    applied.set(root, Object.keys(vars));
 }
 
-/** Applies to this document and the native window behind it. */
-function applyToWindow(a: Appearance) {
-   applyAppearance(a);
-   syncWindowBackground();
+type VarsCache = {
+   v: string;
+   sig: string;
+   light: Record<string, string>;
+   dark: Record<string, string>;
+};
+const sigOf = (a: Appearance) => JSON.stringify(a);
+
+/** The cached vars for `a` (both modes), or null: none, another appearance, or another version. */
+export function readVarsCache(a: Appearance, version = VARS_VERSION): VarsCache | null {
+   try {
+      const c = JSON.parse(localStorage.getItem(VARS_KEY) ?? "null") as VarsCache | null;
+      return c?.v === version && c.sig === sigOf(a) && c.light && c.dark ? c : null;
+   } catch {
+      return null;
+   }
+}
+
+const usesPreset = (a: Appearance) => PRESET_IDS.has(a.theme);
+
+/** `a`'s vars for the mode without waiting: from the loaded data, or the cache; null when the preset data must load. */
+function varsFor(a: Appearance, isDark: boolean): Record<string, string> | null {
+   if (presets || !usesPreset(a)) return resolveVars(a, isDark);
+   return readVarsCache(a)?.[isDark ? "dark" : "light"] ?? null;
+}
+
+/** Applies `a` now if it can (see `varsFor`); false when the preset data must load first. With `remember`, and the data
+ * loaded, caches both modes' vars (an automatic light/dark switch then needs no data either). */
+function paint(a: Appearance, remember: boolean): boolean {
+   const vars = varsFor(a, isDarkMode(a.mode, window));
+   if (!vars) return false;
+   applyAppearance(a, document, vars);
+   if (remember && presets && usesPreset(a))
+      cache(VARS_KEY, {
+         v: VARS_VERSION,
+         sig: sigOf(a),
+         light: resolveVars(a, false),
+         dark: resolveVars(a, true),
+      } satisfies VarsCache);
+   return true;
+}
+
+let ticket = 0;
+/** Applies to this document and the native window behind it. A preset that is not cached waits for its data (what shows
+ * stays until then); a newer call replaces the wait. */
+function applyToWindow(a: Appearance, remember = true) {
+   const mine = ++ticket;
+   if (paint(a, remember)) return syncWindowBackground();
+   loadPresets().then(
+      () => {
+         if (mine !== ticket) return;
+         paint(a, remember);
+         syncWindowBackground();
+      },
+      () => {},
+   );
 }
 
 let current = DEFAULT_APPEARANCE;
@@ -439,7 +524,7 @@ export async function syncAppearance(c: HarnessClient) {
 
 /** Applies in this window without saving or changing the current appearance (theme picker preview). */
 export function previewAppearance(a: Appearance) {
-   applyToWindow(normalize(a));
+   applyToWindow(normalize(a), false);
 }
 
 /** Undoes a preview: applies the saved appearance again. */
@@ -455,9 +540,14 @@ export function initAppearance() {
       /* none cached */
    }
    current = loadAppearance(localStorage);
-   applyAppearance(current);
-   // Windows start hidden: they appear here, on the theme's background.
-   syncWindowBackground(true);
+   // Windows start hidden: they appear here, on the theme's background. A preset that is not cached (first start after an
+   // update) appears once its data is loaded, so it never shows the default theme first.
+   if (paint(current, true)) syncWindowBackground(true);
+   else
+      loadPresets()
+         .then(() => void paint(current, true))
+         .catch(() => {})
+         .finally(() => syncWindowBackground(true));
    window
       .matchMedia(DARK_QUERY)
       .addEventListener("change", () => current.mode === "system" && applyToWindow(current));

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
    type Appearance,
    applyAppearance,
@@ -6,6 +6,7 @@ import {
    DEFAULT_APPEARANCE,
    filterThemes,
    loadAppearance,
+   loadPresets,
    mapFontStack,
    modeVars,
    normalize,
@@ -17,7 +18,13 @@ import {
    swatch,
    THEMES,
 } from "./appearance";
-import { PRESETS } from "./presets";
+import type { ThemePreset } from "./presets";
+
+// The preset data loads on demand (its own chunk); resolving a preset theme needs it.
+let PRESETS: Record<string, ThemePreset>;
+beforeAll(async () => {
+   PRESETS = await loadPresets();
+});
 
 const store = (init: Record<string, string> = {}) => {
    const m = new Map(Object.entries(init));
