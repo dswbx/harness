@@ -1,4 +1,5 @@
-import { type Event, type EventKind, mockImage, mockRenderUi } from "@harness/api";
+import type { Event, EventKind } from "@harness/api";
+import { mockImage, mockRenderUi } from "@harness/api/mock";
 import codexLog from "../../../packages/frontend-chat/src/fixtures/codex-basic.jsonl?raw";
 
 /** Recorded Codex log plus a synthetic tail (task list, diff, plan approval) so the whole chat UI is exercisable. */

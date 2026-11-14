@@ -13,7 +13,6 @@ export * from "./errors";
 export * from "./generated";
 export * from "./github/prRefs";
 export * from "./github/prStore";
-export { MockTransport, mockImage, mockRenderUi } from "./mock/mock";
 export * from "./platform/files";
 export * from "./platform/window";
 export * from "./react/hooks";
