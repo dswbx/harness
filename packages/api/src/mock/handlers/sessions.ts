@@ -1,20 +1,25 @@
 import { CommandError } from "../../errors";
-import type { Command, CommandResult, WorkspaceInfo } from "../../generated";
+import type { WorkspaceInfo } from "../../generated";
 import { MOCK_PRS } from "../fixtures/branches";
 import type { MockTransport } from "../mock";
 import { MOCK_NEW } from "../mockRepo";
 import type { Handlers } from "./types";
 
-const setArchived = (
-   mock: MockTransport,
-   cmd: Extract<Command, { type: "ArchiveSession" | "UnarchiveSession" }>,
-): CommandResult => {
-   const archived = cmd.type === "ArchiveSession";
-   mock.session(cmd.session_id).archived = archived;
-   mock.emit(cmd.session_id, { type: "SessionArchived", archived });
+/** Like `Session::archive`/`unarchive`: logs the change, and refuses a no-op with `conflict`. */
+const setOne = (mock: MockTransport, id: string, archived: boolean) => {
+   const s = mock.session(id);
+   if (s.archived === archived)
+      throw new CommandError("conflict", archived ? "already archived" : "not archived");
+   s.archived = archived;
    mock.emitApp({ type: "SessionsChanged" });
-   return { type: "Ok" };
+   mock.emit(id, { type: "SessionArchived", archived });
 };
+
+/** Sub Sessions of `id`, oldest first. */
+const children = (mock: MockTransport, id: string) =>
+   mock.sessions
+      .filter((s) => s.parent?.session_id === id)
+      .sort((a, b) => a.created_ms - b.created_ms);
 
 export const sessionsHandlers = {
    ListSessions: (mock) => {
@@ -75,8 +80,20 @@ export const sessionsHandlers = {
       }
       return { type: "Ok" };
    },
-   ArchiveSession: setArchived,
-   UnarchiveSession: setArchived,
+   // Like the core: archiving a Session first archives its Sub Sessions, unarchiving restores them.
+   ArchiveSession: (mock, cmd) => {
+      mock.session(cmd.session_id);
+      for (const c of children(mock, cmd.session_id).filter((c) => !c.archived))
+         setOne(mock, c.id, true);
+      setOne(mock, cmd.session_id, true);
+      return { type: "Ok" };
+   },
+   UnarchiveSession: (mock, cmd) => {
+      setOne(mock, cmd.session_id, false);
+      for (const c of children(mock, cmd.session_id).filter((c) => c.archived))
+         setOne(mock, c.id, false);
+      return { type: "Ok" };
+   },
    DeleteSession: (mock, cmd) => {
       const s = mock.session(cmd.session_id);
       if (s.workspace.worktree_branch && !cmd.force)
