@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
    apiEntryViolation,
@@ -7,6 +9,8 @@ import {
    importViolation,
    layerViolation,
    leaks,
+   PORTABLE_FILES,
+   portableViolation,
    stripComments,
    uiViolation,
 } from "./boundaries";
@@ -182,5 +186,21 @@ describe("leaks", () => {
       expect(leaks("// Claude Code has /btw\nconst a = 1; // codex too")).toEqual([]);
       expect(leaks("/* rawInput.plan\n claude */ const a = 1; // mcp__x")).toEqual([]);
       expect(stripComments("a /* x\ny */ b")).toBe("a \n b");
+   });
+});
+
+describe("portableViolation", () => {
+   it("keeps portable modules free of React and state/", () => {
+      const f = "features/prRefs/prMenu.ts";
+      expect(portableViolation(f, "@harness/api")).toBeNull();
+      expect(portableViolation(f, "./prChip")).toBeNull();
+      expect(portableViolation(f, "../../lib/time")).toBeNull();
+      expect(portableViolation(f, "react")).not.toBeNull();
+      expect(portableViolation(f, "react/jsx-runtime")).not.toBeNull();
+      expect(portableViolation(f, "../../state/reducer")).not.toBeNull();
+   });
+   it("lists only existing files", () => {
+      for (const f of PORTABLE_FILES)
+         expect(existsSync(resolve("packages/frontend-chat/src", f))).toBe(true);
    });
 });

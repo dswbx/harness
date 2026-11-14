@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import ttls from "../../testdata/pr-ttl.json";
 import { createSessionApi } from "../client/client";
 import type { PrInfo, PrRefKey } from "../generated";
 import { MockTransport } from "../mock/mock";
-import { createPrSearch, createPrStore, PR_BATCH } from "./prStore";
+import { createPrSearch, createPrStore, PR_BATCH, prTtl } from "./prStore";
 
 const key = (full: string, number: number): PrRefKey => {
    const [owner, name] = full.split("/") as [string, string];
@@ -130,4 +131,13 @@ it("search: cached per repo and query (case-insensitive), failures not cached, r
    expect(calls).toEqual([null, "fix", "fix"]);
    now += 61_000;
    expect(search.peek(r, null)).toBeUndefined();
+});
+
+it("prTtl matches the Host cache constants (shared with github/refs.rs)", () => {
+   const pr = (state: PrInfo["state"]) => ({ state }) as PrInfo;
+   expect(prTtl(pr("open"))).toBe(ttls.openSecs * 1000);
+   expect(prTtl(pr("draft"))).toBe(ttls.openSecs * 1000);
+   expect(prTtl(pr("merged"))).toBe(ttls.doneSecs * 1000);
+   expect(prTtl(pr("closed"))).toBe(ttls.doneSecs * 1000);
+   expect(prTtl(null)).toBe(ttls.notFoundSecs * 1000);
 });

@@ -334,6 +334,15 @@ mod tests {
         assert_eq!(ttl(None), NOT_FOUND_TTL);
     }
 
+    /// `packages/api`'s `prTtl` reads the same file (`prStore.test.ts`).
+    #[test]
+    fn ttl_matches_the_shared_constants() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../../../../packages/api/testdata/pr-ttl.json")).unwrap();
+        assert_eq!(OPEN_TTL.as_secs(), v["openSecs"].as_u64().unwrap());
+        assert_eq!(DONE_TTL.as_secs(), v["doneSecs"].as_u64().unwrap());
+        assert_eq!(NOT_FOUND_TTL.as_secs(), v["notFoundSecs"].as_u64().unwrap());
+    }
+
     #[tokio::test]
     async fn dedupes_and_caches_lookups() {
         let calls = Arc::new(Mutex::new(Vec::<Vec<u32>>::new()));

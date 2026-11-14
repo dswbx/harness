@@ -215,4 +215,22 @@ mod tests {
         let doc = json!({ "quiz": { "score": 3, "other": 1 }, "n": 1, "a": { "q1": "x" }, "unrelated": true });
         assert_eq!(subset(&doc, &paths).unwrap(), json!({ "quiz": { "score": 3 }, "n": 1, "a": { "q1": "x" } }));
     }
+
+    /// The same cases run against `applyStatePatch` in `packages/api` (`state.test.ts`).
+    #[test]
+    fn shared_cases() {
+        let cases: Vec<Value> = serde_json::from_str(include_str!("../../../packages/api/testdata/state-patch.json")).unwrap();
+        for c in cases {
+            let name = c["name"].as_str().unwrap();
+            let ops: Vec<StatePatchOp> = serde_json::from_value(c["ops"].clone()).unwrap();
+            let got = apply(&c["doc"], &ops);
+            match c.get("error") {
+                Some(e) => {
+                    let msg = got.expect_err(name).to_string();
+                    assert!(msg.contains(e.as_str().unwrap()), "{name}: {msg}");
+                }
+                None => assert_eq!(got.expect(name), c["expect"], "{name}"),
+            }
+        }
+    }
 }
