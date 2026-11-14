@@ -123,6 +123,11 @@ pub struct BranchPrMeta {
 }
 
 impl SessionMeta {
+    /// A Quick Session with no prompt yet (`SessionSummary::unused`).
+    pub fn unused(&self) -> bool {
+        self.quick && self.awaiting_first_prompt
+    }
+
     /// The repository a Session works in: a Worktree's main repo (it outlives the Worktree), else the folder's.
     pub fn repo_folder(&self) -> Option<PathBuf> {
         self.workspace.worktree.as_ref().map(|w| w.repo_root.clone()).or_else(|| self.workspace.repo_root.clone())

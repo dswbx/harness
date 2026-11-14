@@ -15,21 +15,16 @@ pub enum AppEvent {
         session_id: SessionId,
         title: String,
         status: SessionStatus,
+        /// As `SessionSummary::unused`.
+        unused: bool,
     },
     /// A Turn ended (`stop_reason` as in `TurnEnded`).
-    TurnFinished {
-        session_id: SessionId,
-        thread_id: ThreadId,
-        title: String,
-        stop_reason: String,
-    },
+    TurnFinished { session_id: SessionId, thread_id: ThreadId, title: String, stop_reason: String },
     /// Agents were installed, updated or removed.
     AgentsChanged,
     /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
     /// Titles and `busy` change silently: poll while a Terminal is shown.
-    TerminalsChanged {
-        session_id: SessionId,
-    },
+    TerminalsChanged { session_id: SessionId },
     /// The Agent called a Frontend Tool that `replies`: a window answers with `AnswerFrontendRequest`.
     /// `last_seq` is the newest Session Log event at request time, so a UI can replay the log up to
     /// it. Live only and not logged: Views still render only from the Session Log.
@@ -44,15 +39,10 @@ pub enum AppEvent {
     },
     /// A file in the Session's `panels/` folder changed (ADR 0023): windows showing a panel with
     /// this `source` re-read it. Sent once per burst of writes; live only and not logged.
-    PanelSourceChanged {
-        session_id: SessionId,
-        name: String,
-    },
+    PanelSourceChanged { session_id: SessionId, name: String },
     /// A Shared Artifact's content, state or meta changed (ADR 0024): Views showing it re-read it.
     /// Live only, not logged.
-    SharedArtifactChanged {
-        id: String,
-    },
+    SharedArtifactChanged { id: String },
     /// Shared Artifacts were added, removed, renamed, attached or detached: reload the list.
     SharedArtifactsChanged,
 }

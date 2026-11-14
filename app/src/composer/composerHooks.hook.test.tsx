@@ -47,6 +47,30 @@ describe("useComposerCatalog", () => {
       expect(setError).not.toHaveBeenCalled();
    });
 
+   it("keeps the picked Agent on reload, and falls to the first when it disappears", async () => {
+      const client = mk();
+      const list = vi.spyOn(client, "listAgents");
+      const hook = renderHook(
+         (p: { v: number }) =>
+            useComposerCatalog({
+               client,
+               isOpen: true,
+               agentsVersion: p.v,
+               mcpVersion: 0,
+               setError: vi.fn(),
+            }),
+         { initialProps: { v: 0 } },
+      );
+      await waitFor(() => expect(hook.result.current.agentId).toBe("a1"));
+      act(() => hook.result.current.setAgentId("a2"));
+      hook.rerender({ v: 1 });
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+      expect(hook.result.current.agentId).toBe("a2");
+      list.mockResolvedValue([agent("a1")]);
+      hook.rerender({ v: 2 });
+      await waitFor(() => expect(hook.result.current.agentId).toBe("a1"));
+   });
+
    it("drops picked MCP servers that no longer exist and reports a failed MCP load", async () => {
       const client = mk();
       const setError = vi.fn();
