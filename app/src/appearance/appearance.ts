@@ -183,6 +183,8 @@ const appearanceStore = storedValue<Appearance>({
    parse: parseAppearance,
    serialize: serializeAppearance,
 });
+/** What `themesStore` reads when the stored text is not JSON: keep the themes in use. */
+const BAD_THEMES = Symbol("bad themes");
 const themesStore = storedValue<unknown>({
    key: THEMES_KEY,
    scope: "app",
@@ -190,10 +192,15 @@ const themesStore = storedValue<unknown>({
       try {
          return JSON.parse(raw ?? "null");
       } catch {
-         return null;
+         return BAD_THEMES;
       }
    },
 });
+/** Loads the cached themes unless they are unreadable. */
+export function loadCachedThemes() {
+   const t = themesStore.get();
+   if (t !== BAD_THEMES) loadThemes(normalizeThemes(t));
+}
 
 function fontVar(
    choice: string,
@@ -458,11 +465,7 @@ export function revertPreview() {
 
 /** Call once per window before the first render. */
 export function initAppearance() {
-   try {
-      loadThemes(normalizeThemes(themesStore.get()));
-   } catch {
-      /* none cached */
-   }
+   loadCachedThemes();
    current = appearanceStore.get();
    applyAppearance(current);
    // Windows start hidden: they appear here, on the theme's background.
@@ -473,11 +476,7 @@ export function initAppearance() {
    onStoredChange((key, source) => {
       if (source !== "remote") return;
       if (key === THEMES_KEY || key === null) {
-         try {
-            loadThemes(normalizeThemes(themesStore.get()));
-         } catch {
-            /* keep */
-         }
+         loadCachedThemes();
       }
       if (key !== STORAGE_KEY && key !== THEMES_KEY && key !== null) return;
       current = appearanceStore.get();

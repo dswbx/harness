@@ -27,26 +27,31 @@ let index: Map<string, Set<string>> | null = null;
 let indexedStorage: unknown;
 let hooked = false;
 
-function track(key: string) {
-   if (!index) return;
+/** Updates the index for a changed draft key; whether the Session's has-a-draft answer changed. */
+function track(key: string): boolean {
+   if (!index) return false;
    const sessionId = parseDraftKey(key.slice(PREFIX.length)).sessionId;
    const keys = index.get(sessionId);
    if (hasStoredKey(key)) {
       if (keys) keys.add(key);
       else index.set(sessionId, new Set([key]));
-   } else if (keys) {
-      keys.delete(key);
-      if (!keys.size) index.delete(sessionId);
+      return !keys;
    }
+   if (!keys) return false;
+   keys.delete(key);
+   if (keys.size) return false;
+   index.delete(sessionId);
+   return true;
 }
 
 function currentIndex(): Map<string, Set<string>> {
    if (!hooked) {
       hooked = true;
       onStoredChange((key) => {
+         // Typing into a draft that exists changes nothing the sidebar shows: no wake-up.
+         const changed = key === null || (key.startsWith(PREFIX) && track(key));
          if (key === null) index = null;
-         else if (key.startsWith(PREFIX)) track(key);
-         if (key === null || key.startsWith(PREFIX)) for (const l of listeners) l();
+         if (changed) for (const l of [...listeners]) l();
       });
    }
    const st = storageIdentity();
@@ -59,7 +64,7 @@ function currentIndex(): Map<string, Set<string>> {
 }
 
 const listeners = new Set<() => void>();
-function subscribe(l: () => void) {
+export function onSessionDraftsChange(l: () => void) {
    currentIndex();
    listeners.add(l);
    return () => void listeners.delete(l);
@@ -70,7 +75,7 @@ export const sessionHasDraft = (sessionId: string): boolean => currentIndex().ha
 
 export const useSessionHasDraft = (sessionId: string) =>
    useSyncExternalStore(
-      subscribe,
+      onSessionDraftsChange,
       () => sessionHasDraft(sessionId),
       () => false,
    );

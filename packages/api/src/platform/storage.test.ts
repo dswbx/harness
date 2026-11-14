@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { forgetSession } from "./forgetSession";
+import { forgetSession, onSessionForgotten } from "./forgetSession";
 import { codec, onStorageFailure, type StorageFailure, storedNumber, storedValue } from "./storage";
 import { matchKey, STORAGE_KEYS } from "./storageKeys";
 
@@ -131,7 +131,8 @@ describe("storedValue", () => {
          throw quota;
       };
       s.set("d");
-      expect(seen).toHaveLength(2);
+      // One report per window, not per key or streak.
+      expect(seen).toHaveLength(1);
       off();
    });
 
@@ -141,6 +142,21 @@ describe("storedValue", () => {
       expect(s.get()).toBe(7);
       expect(s.set(1)).toBe(false);
       expect(s.remove()).toBe(true);
+   });
+
+   it("does not try to write when storage is not readable", () => {
+      const setItem = vi.fn();
+      vi.stubGlobal("localStorage", {
+         getItem: () => {
+            throw new Error("blocked");
+         },
+         setItem,
+         removeItem: setItem,
+      });
+      const s = num("harness:diff-split");
+      expect(s.set(1)).toBe(false);
+      expect(s.remove()).toBe(true);
+      expect(setItem).not.toHaveBeenCalled();
    });
 
    it("notifies this window on set and remove", () => {
@@ -240,6 +256,14 @@ describe("registry", () => {
 });
 
 describe("forgetSession", () => {
+   it("tells modules that cache per-Session stores", () => {
+      const l = vi.fn();
+      const off = onSessionForgotten(l);
+      forgetSession("s1");
+      expect(l).toHaveBeenCalledWith("s1");
+      off();
+   });
+
    it("removes exactly the Session's keys", () => {
       const mine = [
          "harness.chat.layout.s1",

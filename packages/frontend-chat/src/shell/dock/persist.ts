@@ -129,9 +129,8 @@ export function saveLayout(sessionId: string, l: Layout) {
          JSON.stringify(out.zones) === JSON.stringify(defaultLayout().zones) &&
          JSON.stringify(out.sizes) === JSON.stringify(DEFAULT_SIZES);
       const own = sessionJson(KEY(sessionId), sessionId);
-      if (plain) own.remove();
-      else own.set(out);
-      sessionJson(OLD_KEY(sessionId), sessionId).remove();
+      // The legacy key is the fallback copy: drop it only once the new write went through.
+      if (plain ? own.remove() : own.set(out)) sessionJson(OLD_KEY(sessionId), sessionId).remove();
    } catch {
       /* not kept */
    }

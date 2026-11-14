@@ -1,4 +1,5 @@
 import {
+   onSessionForgotten,
    openWindow,
    type SessionApi,
    type Stored,
@@ -44,6 +45,7 @@ export function filesWindowTarget(
 type Saved = { path?: string; open?: string[]; tree?: boolean };
 const treeWidth = storedNumber("harness:files-tree-width");
 const savedStores = new Map<string, Stored<Saved>>();
+onSessionForgotten((id) => void savedStores.delete(id));
 const savedStore = (sessionId: string) => {
    let s = savedStores.get(sessionId);
    if (!s) {

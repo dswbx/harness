@@ -4,7 +4,6 @@ import {
    rememberWindowFrame,
    type SessionApi,
    storedNumber,
-   storedValue,
 } from "@harness/api";
 import { Button, cn, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import {
@@ -29,6 +28,7 @@ import { useDiffComments } from "../review/reviewComments";
 import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer, type FileContents } from "./DiffViewer";
 import { type FilePatch, splitPatch } from "./diff";
+import { type FileView, viewStore, wrapStore } from "./diffPrefs";
 import { type DiffScope, selectionScope } from "./scope";
 
 /** URL of the pop-out diff window. Boots through the app entry like any solo View window. */
@@ -81,21 +81,6 @@ function changeRows(root: HTMLElement | null): HTMLElement[] {
 
 const fileKey = (f: FilePatch) => fileRowKey(f.path);
 
-type FileView = "list" | "tree";
-const viewStore = storedValue<FileView>({
-   key: "harness:diff-file-view",
-   scope: "app",
-   parse: (raw) => (raw === "list" ? "list" : "tree"),
-   serialize: (v) => v,
-   sync: false,
-});
-const wrapStore = storedValue<boolean>({
-   key: "harness:diff-wrap",
-   scope: "app",
-   parse: (raw) => raw === "1",
-   serialize: (v) => (v ? "1" : "0"),
-   sync: false,
-});
 const sidebarWidth = storedNumber("harness:diff-sidebar-width");
 
 /** JetBrains-like diff viewer: files (list or tree) and commits left, one file's diff right, keyboard navigation through files and changes. */

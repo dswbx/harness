@@ -41,6 +41,7 @@ const changeListeners = new Set<ChangeListener>();
 const failureListeners = new Set<(f: StorageFailure) => void>();
 const failing = new Set<string>();
 let windowHooked = false;
+let reported = false;
 
 const storage = (): Storage | null => {
    try {
@@ -113,7 +114,7 @@ export function notifyStoredChange(key: string) {
    emit(key, "local");
 }
 
-/** A write failed (the first time per key until one succeeds): the host may show it. */
+/** A write failed (reported once per window, not per key): the host may show it. */
 export function onStorageFailure(l: (f: StorageFailure) => void): () => void {
    failureListeners.add(l);
    return () => void failureListeners.delete(l);
@@ -130,7 +131,22 @@ function failed(key: string, error: unknown) {
    failing.add(key);
    const quota = isQuota(error);
    console.warn(`localStorage write failed for ${key}${quota ? " (quota)" : ""}`, error);
+   // One report per window until it reloads: the host should not nag.
+   if (reported) return;
+   reported = true;
    for (const l of failureListeners) l({ key, quota, error });
+}
+
+/** Whether storage can be read at all (not in a sandbox that blocks it): writing is not attempted otherwise. */
+function readable(): boolean {
+   try {
+      const st = storage();
+      if (!st) return false;
+      st.getItem("harness.probe");
+      return true;
+   } catch {
+      return false;
+   }
 }
 
 function checkRegistered(key: string, scope: Scope) {
@@ -183,9 +199,9 @@ export function storedValue<T>(o: StoredOptions<T>): Stored<T> {
          try {
             const s = ser(v);
             const text = version === undefined ? s : JSON.stringify({ v: version, d: s });
-            const st = storage();
-            if (!st) throw new Error("localStorage unavailable");
-            st.setItem(key, text);
+            // Blocked storage: nothing to keep and nothing worth reporting.
+            if (!readable()) return false;
+            storage()?.setItem(key, text);
             failing.delete(key);
          } catch (e) {
             failed(key, e);
@@ -196,6 +212,7 @@ export function storedValue<T>(o: StoredOptions<T>): Stored<T> {
       },
       remove() {
          try {
+            if (!readable()) return true;
             storage()?.removeItem(key);
          } catch (e) {
             failed(key, e);

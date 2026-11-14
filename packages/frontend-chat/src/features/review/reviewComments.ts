@@ -1,4 +1,11 @@
-import { draftKey, parseDraftKey, type Stored, storedValue, useStoredValue } from "@harness/api";
+import {
+   draftKey,
+   onSessionForgotten,
+   parseDraftKey,
+   type Stored,
+   storedValue,
+   useStoredValue,
+} from "@harness/api";
 import { useMemo } from "react";
 import {
    type DiffComment,
@@ -15,6 +22,9 @@ export * from "../../state/reviewCommentText";
 const EMPTY: ReviewComment[] = [];
 // `sessionId` is the composer key here (see `composerKey`): `sessionId#threadId` for a Side Thread.
 const stores = new Map<string, Stored<ReviewComment[]>>();
+onSessionForgotten((id) => {
+   for (const k of [...stores.keys()]) if (parseDraftKey(k).sessionId === id) stores.delete(k);
+});
 const storeOf = (sessionId: string) => {
    let s = stores.get(sessionId);
    if (!s) {

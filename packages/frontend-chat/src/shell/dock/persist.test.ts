@@ -93,6 +93,26 @@ const useMemoryStorage = () => {
    afterEach(() => vi.unstubAllGlobals());
 };
 
+describe("saveLayout when storage is full", () => {
+   useMemoryStorage();
+   it("keeps the legacy key (the fallback copy) when the new write fails", () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const old = JSON.stringify({ threads: ["a"], view: { kind: "events" } });
+      localStorage.setItem("harness.chat.panel.s1", old);
+      const real = localStorage.setItem;
+      localStorage.setItem = (k: string, v: string) => {
+         if (k === "harness.chat.layout.s1") throw new Error("full");
+         real(k, v);
+      };
+      const l = loadLayout("s1");
+      saveLayout("s1", { ...l, open: { ...l.open, bottomRight: "events" } });
+      expect(localStorage.getItem("harness.chat.panel.s1")).toBe(old);
+      localStorage.setItem = real;
+      saveLayout("s1", { ...l, open: { ...l.open, bottomRight: "events" } });
+      expect(localStorage.getItem("harness.chat.panel.s1")).toBeNull();
+   });
+});
+
 describe("versions", () => {
    useMemoryStorage();
    const key = "harness.chat.layout.s1";

@@ -1,5 +1,6 @@
 import type { HarnessClient, SessionSummary } from "@harness/api";
 import { useEffect, useRef } from "react";
+import { discardEmpty } from "../sessions/forgetGone";
 import { startQuickSession } from "./startSession";
 
 /**
@@ -44,8 +45,7 @@ export function useQuickLifecycle({
       leaving.current = selected;
       if (!prev || prev === selected) return;
       if (!sessions.find((s) => s.id === prev)?.quick) return;
-      client
-         .discardEmptySession(prev)
+      discardEmpty(client, prev)
          .then(refresh)
          .catch((e) => report("Could not remove the empty Quick Session", e));
    }, [selected]);

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { storedValue } from "../platform/storage";
-import { draftKey, draftStorageKey, parseDraftKey, sessionHasDraft } from "./drafts";
+import {
+   draftKey,
+   draftStorageKey,
+   onSessionDraftsChange,
+   parseDraftKey,
+   sessionHasDraft,
+} from "./drafts";
 
 describe("draft keys (stored in localStorage: the format is pinned)", () => {
    it("Main Thread is the Session id, a Side Thread is sessionId#threadId", () => {
@@ -72,6 +78,28 @@ describe("sessionHasDraft", () => {
       mem.m.clear();
       win.dispatchEvent(Object.assign(new Event("storage"), { key: null }));
       expect(sessionHasDraft("s1")).toBe(false);
+   });
+
+   it("wakes the sidebar only when a Session gains or loses its draft, not on typing", () => {
+      const mem = new Mem();
+      vi.stubGlobal("window", win);
+      vi.stubGlobal("localStorage", mem);
+      const draft = storedValue<string>({
+         key: draftStorageKey("s5"),
+         scope: { session: "s5" },
+         parse: (r) => r ?? "",
+         serialize: (v) => v,
+      });
+      const l = vi.fn();
+      const off = onSessionDraftsChange(l);
+      draft.set("a");
+      expect(l).toHaveBeenCalledTimes(1);
+      draft.set("ab");
+      draft.set("abc");
+      expect(l).toHaveBeenCalledTimes(1);
+      draft.remove();
+      expect(l).toHaveBeenCalledTimes(2);
+      off();
    });
 
    it("a draft write keeps the exact key", () => {
