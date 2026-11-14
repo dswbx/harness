@@ -1,6 +1,7 @@
 import type { FrontendRequestProps, SessionApi } from "@harness/api";
 import { useEffect } from "react";
-import { type ChatState, initialState, reduceBatch } from "../../state/reducer";
+import { type ChatState, initialState } from "../../state/reducer";
+import { reduceBatch } from "../renderUi/chatReducer";
 import { checkActions, type UiEnv } from "../renderUi/RenderUi";
 import { UiHtml } from "../renderUi/UiHtml";
 import { artifactPng } from "./ArtifactExport";

@@ -2,7 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Event } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { initialState, reduceBatch } from "./reducer";
+import { reduceBatch } from "../features/renderUi/chatReducer";
+import { initialState } from "./reducer";
 
 // The same logs the Rust side parses (crates/harness-core/tests/golden.rs). A change that makes
 // an old log reduce differently fails here; update the snapshot only when that is intended.
