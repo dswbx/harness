@@ -331,6 +331,17 @@ impl Notices {
         }
     }
 
+    /// Takes what `parent` is still to hear and marks it as being sent (see `Sending`). `None`
+    /// when there is nothing, or a send is under way. One lock for the look and the take: a
+    /// `session_wait` that just told the parent may empty the list at any time.
+    fn take(&self, parent: &SessionId) -> Option<Vec<(SessionId, String, SubSessionReport)>> {
+        let mut st = self.0.lock();
+        if st.pending.get(parent).is_none_or(Vec::is_empty) || !st.sending.insert(parent.clone()) {
+            return None;
+        }
+        st.pending.remove(parent)
+    }
+
     fn push(&self, parent: &SessionId, text: String, report: SubSessionReport) {
         self.0.lock().pending.entry(parent.clone()).or_default().push((report.session_id.clone(), text, report));
     }
@@ -448,19 +459,19 @@ fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
     if m.archived || parent.thread_working(&m.main_thread_id).unwrap_or(true) {
         return;
     }
-    let list = {
-        let mut st = notices.0.lock();
-        if !st.sending.insert(parent_id.clone()) {
-            return;
-        }
-        st.pending.remove(parent_id).unwrap_or_default()
+    let Some(list) = notices.take(parent_id) else { return };
+    let Some(first) = list.first().map(|(child, ..)| child.clone()) else {
+        notices.0.lock().sending.remove(parent_id);
+        return;
     };
     let parent_id = parent_id.clone();
     rt.spawn(async move {
+        // Cleared however the task ends, or the parent would never hear from a Sub Session again.
+        let _sending = Sending(&parent.shared().notices, parent_id.clone());
         let titles: Vec<&str> = list.iter().map(|(.., r)| r.title.as_str()).collect();
         let text = list.iter().map(|(_, text, _)| text.as_str()).collect::<Vec<_>>().join("\n\n---\n\n");
         let origin = PromptOrigin {
-            session_id: list[0].0.clone(),
+            session_id: first,
             title: titles.join(", "),
             kind: PromptOriginKind::SubSession,
             reports: list.into_iter().map(|(.., r)| r).collect(),
@@ -468,8 +479,16 @@ fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
         if let Err(e) = parent.prompt(None, text, Vec::new(), Some(origin)).await {
             tracing::warn!("telling Session {parent_id} about its Sub Sessions: {e:#}");
         }
-        parent.shared().notices.0.lock().sending.remove(&parent_id);
     });
+}
+
+/// A parent's notices being sent; dropping it lets the next ones go.
+struct Sending<'a>(&'a Notices, SessionId);
+
+impl Drop for Sending<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().sending.remove(&self.1);
+    }
 }
 
 /// The latest config options of the Session's Main Thread (empty before its Agent reported any).
@@ -624,5 +643,40 @@ mod tests {
     fn options_without_categories_match_by_id() {
         let o: Vec<Value> = serde_json::from_value(json!([{ "id": "model", "currentValue": "a", "options": [{ "value": "a", "name": "A" }] }])).unwrap();
         assert_eq!(Config::choose(&o, None, None).unwrap().values["model"], "a");
+    }
+
+    fn ended(child: &str) -> SubSessionReport {
+        SubSessionReport {
+            session_id: child.into(),
+            title: child.into(),
+            kind: SubSessionReportKind::Ended,
+            stop_reason: None,
+            duration_ms: None,
+            asked: None,
+            reply: None,
+        }
+    }
+
+    #[test]
+    fn notices_are_taken_once_and_not_while_a_send_is_under_way() {
+        let (notices, parent): (Notices, SessionId) = (Notices::default(), "p".into());
+        assert!(notices.take(&parent).is_none());
+        assert!(!notices.0.lock().sending.contains(&parent), "nothing to send: the next notice can still go");
+
+        notices.push(&parent, "a ended".into(), ended("a"));
+        // A `session_wait` told the parent itself in the meantime.
+        notices.drop_for(&parent, &"a".into());
+        assert!(notices.take(&parent).is_none());
+        assert!(!notices.0.lock().sending.contains(&parent));
+
+        notices.push(&parent, "b ended".into(), ended("b"));
+        let list = notices.take(&parent).unwrap();
+        assert_eq!(list.len(), 1);
+        {
+            let _sending = Sending(&notices, parent.clone());
+            notices.push(&parent, "c ended".into(), ended("c"));
+            assert!(notices.take(&parent).is_none(), "one prompt at a time");
+        }
+        assert_eq!(notices.take(&parent).unwrap()[0].0, "c", "kept for the next send");
     }
 }

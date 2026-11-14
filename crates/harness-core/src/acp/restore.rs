@@ -303,10 +303,11 @@ pub(super) async fn restore_once(
         }
     }
     if boundary.is_none() && caps.load_session {
-        conn.replaying.store(true, Ordering::SeqCst);
-        let r =
-            conn.cx.send_request(acp::LoadSessionRequest::new(prev_id.clone(), cwd).mcp_servers(mcp_servers(session, conn, thread).await?)).block_task().await;
-        conn.replaying.store(false, Ordering::SeqCst);
+        let r = {
+            // Dropped on every way out, so a failed load never leaves the Agent Session muted.
+            let _replaying = conn.replaying.start(prev_id);
+            conn.cx.send_request(acp::LoadSessionRequest::new(prev_id.clone(), cwd).mcp_servers(mcp_servers(session, conn, thread).await?)).block_task().await
+        };
         match r {
             Ok(_) => boundary = Some(Boundary::Loaded),
             Err(e) if e.code == agent_client_protocol::ErrorCode::AuthRequired => return Err(e.into()),
