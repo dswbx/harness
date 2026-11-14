@@ -42,8 +42,8 @@ export function useJump(
          const at = (row: Element, id: string) =>
             row.querySelector(`[data-step="${CSS.escape(id)}"]`);
          let tries = 0;
-         // The step itself once its parents opened; Cards show only the outer subagent, so after a
-         // while the deepest step shown. Its first child is the line (Trace) or header (Cards).
+         // The step itself once its parents opened, else after a while the deepest step shown.
+         // Its first child is the line.
          jumpToRow(place.row, (row) => {
             let el = at(row, path.at(-1)!);
             if (!el && tries++ > 10)

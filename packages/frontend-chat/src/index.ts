@@ -16,4 +16,10 @@ export {
    type UiNode,
 } from "./features/renderUi/tools";
 export { setOptionIsMeta, useOptionIsMeta } from "./features/terminal/terminalOptions";
-export { setToolDisplay, toolDisplays, useToolDisplay } from "./features/toolDisplay";
+
+// Cards were removed; drop the stored tool display choice. Can go after a few releases.
+try {
+   localStorage.removeItem("harness.chat.toolDisplay");
+} catch {
+   /* storage unavailable */
+}

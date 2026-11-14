@@ -13,12 +13,8 @@ import type { UiEnv } from "../renderUi/RenderUi";
 import type { RawNode } from "../renderUi/tools";
 import { quotableAttrs } from "../review/SelectionComment";
 import { SideReplyFooter } from "../sideChats/SideReplyFooter";
-import {
-   type ChatSubagent,
-   type ToolGroup,
-   type ToolGroupProps,
-   useToolDisplay,
-} from "../toolDisplay";
+import type { ChatSubagent, ToolGroup, ToolGroupProps } from "../toolDisplay";
+import { TraceDisplay } from "../toolDisplay/TraceDisplay";
 import { ChangesRow } from "./items/ChangesRow";
 import { AgentNotice, Notice } from "./items/Notices";
 import { UserMessage } from "./items/UserMessage";
@@ -153,6 +149,5 @@ export const Row = memo(function Row({
 });
 
 function ToolGroupRow(props: ToolGroupProps) {
-   const { Group } = useToolDisplay();
-   return <Group {...props} />;
+   return <TraceDisplay {...props} />;
 }
