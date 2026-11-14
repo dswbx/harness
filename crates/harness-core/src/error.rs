@@ -48,6 +48,10 @@ pub fn invalid(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::Invalid, message)
 }
 
+pub fn unavailable(message: impl Into<String>) -> anyhow::Error {
+    coded(ErrorCode::Unavailable, message)
+}
+
 impl From<anyhow::Error> for HarnessError {
     fn from(e: anyhow::Error) -> Self {
         let code = e.chain().find_map(|c| c.downcast_ref::<Coded>()).map_or(ErrorCode::Internal, |c| c.code);

@@ -4,11 +4,12 @@
 //! file open as stdout/stderr. Once `lsof` finds no process with it open, the job has ended and
 //! `BackgroundJobEnded` is logged.
 
-use std::collections::HashSet;
-use std::sync::{Arc, LazyLock};
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use tokio::task::AbortHandle;
 
 use crate::api::{BackgroundJob, EventKind, ThreadId};
 use crate::session::Session;
@@ -17,17 +18,50 @@ const POLL: Duration = Duration::from_secs(3);
 /// Stop watching after this long; the job is then left as running until the Agent stops.
 const GIVE_UP: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// Output files watched now, so a repeated update does not start a second watcher.
-static WATCHED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+#[derive(Default)]
+struct State {
+    /// Shutdown: no watcher starts any more.
+    closed: bool,
+    /// Output files watched now, so a repeated update does not start a second watcher.
+    watching: HashMap<String, AbortHandle>,
+}
+
+/// A Session's job watchers. They end with the job, `stop_all` (the Session is deleted or archived)
+/// or `close` (the Harness shuts down).
+#[derive(Clone, Default)]
+pub struct JobWatchers(Arc<Mutex<State>>);
+
+impl JobWatchers {
+    pub(crate) fn stop_all(&self) {
+        for (_, h) in self.0.lock().watching.drain() {
+            h.abort();
+        }
+    }
+
+    /// Stops every watcher and refuses new ones.
+    pub(crate) fn close(&self) {
+        self.0.lock().closed = true;
+        self.stop_all();
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.lock().watching.len()
+    }
+}
 
 /// Starts watching `job` (needs a tokio runtime; without one, e.g. in sync tests, does nothing).
 pub(super) fn watch(session: &Arc<Session>, thread: Option<ThreadId>, job: BackgroundJob) {
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-    if !WATCHED.lock().insert(job.output_file.clone()) {
+    let watchers = session.job_watchers().clone();
+    // Held across the spawn: the task removes its entry under this lock, so it never runs before the insert.
+    let mut state = watchers.0.lock();
+    if state.closed || state.watching.contains_key(&job.output_file) {
         return;
     }
     let session = Arc::downgrade(session);
-    rt.spawn(async move {
+    let file = job.output_file.clone();
+    let done = watchers.clone();
+    let handle = rt.spawn(async move {
         let started = tokio::time::Instant::now();
         let ended = loop {
             if !is_open(&job.output_file).await {
@@ -38,11 +72,12 @@ pub(super) fn watch(session: &Arc<Session>, thread: Option<ThreadId>, job: Backg
             }
             tokio::time::sleep(POLL).await;
         };
-        WATCHED.lock().remove(&job.output_file);
+        done.0.lock().watching.remove(&job.output_file);
         if ended && let Some(s) = session.upgrade() {
             let _ = s.log().append(thread, EventKind::BackgroundJobEnded { job_id: job.id });
         }
     });
+    state.watching.insert(file, handle.abort_handle());
 }
 
 /// Whether any process has `file` open. A missing file or a failed `lsof` counts as not open.

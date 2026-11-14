@@ -25,7 +25,12 @@ pub const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10)
 pub const RESTORE_RETRIES: [std::time::Duration; 3] =
     [std::time::Duration::from_secs(2), std::time::Duration::from_secs(5), std::time::Duration::from_secs(15)];
 
+/// Default for `Options::shutdown_timeout`.
+pub const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct Options {
+    /// The most `Harness::shutdown` takes before it gives up waiting.
+    pub shutdown_timeout: std::time::Duration,
     pub idle_timeout: std::time::Duration,
     pub restore_retries: Vec<std::time::Duration>,
     pub cancel_grace: std::time::Duration,
@@ -39,6 +44,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            shutdown_timeout: SHUTDOWN_TIMEOUT,
             idle_timeout: IDLE_TIMEOUT,
             restore_retries: RESTORE_RETRIES.to_vec(),
             cancel_grace: CANCEL_GRACE,
@@ -56,6 +62,11 @@ pub struct Harness {
     terminals: crate::terminal::Terminals,
     /// When the PR states of the Session list were last refreshed.
     prs_refreshed: parking_lot::Mutex<Option<std::time::Instant>>,
+    /// `shutdown` started: Commands fail.
+    closing: std::sync::atomic::AtomicBool,
+    /// Set once `shutdown` is done, so a second call returns at once.
+    shut_down: tokio::sync::OnceCell<()>,
+    shutdown_timeout: std::time::Duration,
     /// Holds the data directory lock for as long as the Harness lives.
     _lock: std::fs::File,
 }
@@ -158,7 +169,18 @@ impl Harness {
         let terminals = crate::terminal::Terminals::new(move |session_id| {
             app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
         });
-        let host = Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, prs_refreshed: Default::default(), _lock: lock });
+        let shutdown_timeout = options.shutdown_timeout;
+        let host = Arc::new(Self {
+            data_dir,
+            shared,
+            sessions: RwLock::new(sessions),
+            terminals,
+            prs_refreshed: Default::default(),
+            closing: Default::default(),
+            shut_down: Default::default(),
+            shutdown_timeout,
+            _lock: lock,
+        });
         let _ = host.shared.host.set(Arc::downgrade(&host));
         crate::sub_sessions::watch(&host);
         Ok(host)
@@ -205,7 +227,55 @@ impl Harness {
         self.shared.policy.forget_session(session_id)
     }
 
+    /// Stops everything the Harness runs, then returns; at most `Options::shutdown_timeout`. Commands
+    /// fail from the first call on. Per Session: its job watchers stop, its Agent process (group)
+    /// is stopped and a Turn that was running ends in the log as `cancelled`, the Session Log is
+    /// written to disk and closed. Terminals and the Harness MCP stop too. Safe to call again:
+    /// later calls wait for the first and return.
+    pub async fn shutdown(&self) {
+        self.closing.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.shut_down.get_or_init(|| self.shutdown_once()).await;
+    }
+
+    async fn shutdown_once(&self) {
+        let started = std::time::Instant::now();
+        let sessions: Vec<Arc<Session>> = self.sessions.read().values().cloned().collect();
+        // Before any await, so a Turn ending meanwhile cannot make a parent start an Agent again.
+        for s in &sessions {
+            s.agent_slot().refuse_starts();
+        }
+        self.terminals.kill_everything();
+        self.shared.mcp.stop();
+        // The Agent's process group goes with its connection (the ACP crate kills it on drop).
+        let grace = self.shutdown_timeout * 3 / 5;
+        let stopping = futures_util::future::join_all(sessions.iter().map(|s| s.shutdown_stop(grace)));
+        if tokio::time::timeout(grace, stopping).await.is_err() {
+            tracing::warn!("shutdown: an Agent did not stop within {grace:?}");
+        }
+        let left = self.shutdown_timeout.saturating_sub(started.elapsed()).max(std::time::Duration::from_millis(500));
+        let flushing = tokio::task::spawn_blocking(move || sessions.iter().for_each(|s| s.shutdown_flush()));
+        if tokio::time::timeout(left, flushing).await.is_err() {
+            tracing::warn!("shutdown: writing the Session Logs took longer than {left:?}");
+        }
+    }
+
+    fn ensure_open(&self) -> anyhow::Result<()> {
+        if self.closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(crate::error::unavailable("the Harness is shutting down"));
+        }
+        Ok(())
+    }
+
+    /// How many job watchers the Session has now; the counter keeps working after the Session is
+    /// deleted. For tests.
+    #[doc(hidden)]
+    pub fn job_watcher_counter(&self, session_id: &str) -> anyhow::Result<impl Fn() -> usize + Send + Sync + use<>> {
+        let watchers = self.session(session_id)?.job_watchers().clone();
+        Ok(move || watchers.len())
+    }
+
     pub async fn execute(&self, cmd: Command) -> Result<CommandResult, HarnessError> {
+        self.ensure_open()?;
         let changes = match &cmd {
             Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => {
                 Some(AppEvent::SessionsChanged)
@@ -250,6 +320,7 @@ impl Harness {
     /// Attaches to a Terminal tab of the Session (a shell in its Workspace Folder, started if none runs):
     /// the replay buffer, then live output until the sink returns `false` or `terminal_detach`.
     pub fn terminal_attach(&self, session_id: &str, terminal_id: u32, cols: u16, rows: u16, sink: crate::terminal::TerminalSink) -> anyhow::Result<u64> {
+        self.ensure_open()?;
         let folder = PathBuf::from(self.session(session_id)?.meta().folder);
         self.terminals.attach(session_id, terminal_id, &folder, cols, rows, sink)
     }

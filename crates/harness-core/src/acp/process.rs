@@ -36,6 +36,8 @@ pub struct AgentSlot {
     /// Serializes Agent Session setup (warm-up racing the first prompt must not open two).
     pub(super) setup: AsyncMutex<()>,
     pub(super) state: Mutex<SlotState>,
+    /// The Harness shuts down: no Agent starts any more.
+    closed: AtomicBool,
 }
 
 #[derive(Default)]
@@ -345,6 +347,41 @@ impl AgentSlot {
             conn.stop(reason);
         }
     }
+
+    /// Refuses Agent starts from now on (Harness shutdown); a start in flight still finishes.
+    pub(crate) fn refuse_starts(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+    }
+
+    /// Harness shutdown: stops the Agent process like `shutdown`, and waits until it is gone and
+    /// every Turn that was running has ended in the log. Those Turns end as `cancelled`, the same
+    /// way a Cancel the Agent never answered does. Gives up after `grace`.
+    pub(crate) async fn close(&self, session: &Arc<Session>, reason: &str, grace: Duration) {
+        self.refuse_starts();
+        let deadline = tokio::time::Instant::now() + grace;
+        // A start in flight holds `start`; after it nothing new starts.
+        let _start = tokio::time::timeout_at(deadline, self.start.lock()).await;
+        let (conn, working) = {
+            let mut s = self.state.lock();
+            let working: Vec<ThreadId> = s.turns.iter().filter(|(_, n)| **n > 0).map(|(t, _)| t.clone()).collect();
+            s.cancelling.extend(working.iter().cloned());
+            (s.conn.clone(), working)
+        };
+        if let Some(conn) = conn {
+            conn.stop(reason);
+        }
+        let ended = || {
+            let gone = {
+                let s = self.state.lock();
+                s.conn.is_none() && s.turns.values().all(|n| *n == 0)
+            };
+            // The Turn stops counting just before `TurnEnded` is logged: the log has the last word.
+            gone && working.iter().all(|t| !session.thread_working(t).unwrap_or(false))
+        };
+        while !ended() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
 }
 
 impl AgentConn {
@@ -359,6 +396,9 @@ impl AgentConn {
 pub(super) async fn ensure_conn(session: &Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let slot = session.agent_slot();
     let _guard = slot.start.lock().await;
+    if slot.closed.load(Ordering::SeqCst) {
+        return Err(crate::error::unavailable("the Harness is shutting down"));
+    }
     if let Some(conn) = slot.conn() {
         return Ok(conn);
     }

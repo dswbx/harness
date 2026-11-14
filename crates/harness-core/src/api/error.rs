@@ -19,6 +19,8 @@ pub enum ErrorCode {
     AgentUnavailable,
     /// The Command's input is wrong (empty, malformed, not supported here).
     Invalid,
+    /// The Harness cannot serve the Command now (it is shutting down).
+    Unavailable,
     /// Anything else.
     Internal,
 }

@@ -23,6 +23,8 @@
 //! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`,
 //!   `read-outside` a read of `/etc/hosts`, `switch_mode` a plan approval) with that title, asking
 //!   for permission under that title; answers "spoof: allowed" or "spoof: rejected"
+//! - starts with "background-job <file>": a tool call that completes at once with the text Claude's
+//!   Bash tool uses for a job left running, writing to `<file>` (see `agent_quirks::background_job_of`)
 //! - starts with "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn
 //!   carries on
 //! - starts with "fault-hang": never answers the prompt (and ignores `session/cancel`)
@@ -45,7 +47,7 @@
 //! `--fork-fail` the request is refused. `--exit` prints a line to stderr and exits at startup
 //! (Agent conformance check tests). `--legacy-modes` makes it an Agent with legacy session modes
 //! (`default`, `plan`) and no config options (`session/set_mode` answers; the mode starts `default`);
-//! `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
+//! `--ignore-sigterm` makes the process ignore SIGTERM. `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
 //! `usage_update` (1200 of 200000).
 
 use agent_client_protocol::schema::v1::*;
@@ -253,6 +255,11 @@ async fn main() -> agent_client_protocol::Result<()> {
     if args.iter().any(|a| a == "--exit") {
         eprintln!("fake-agent: exiting on purpose");
         std::process::exit(3);
+    }
+    if args.iter().any(|a| a == "--ignore-sigterm") {
+        // A registered handler replaces the default action; this one does nothing.
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        tokio::spawn(async move { while term.recv().await.is_some() {} });
     }
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");
@@ -505,6 +512,15 @@ async fn main() -> agent_client_protocol::Result<()> {
                         let answer = cx.send_request(ask).block_task().await?;
                         let allowed = matches!(&answer.outcome, RequestPermissionOutcome::Selected(s) if s.option_id.to_string() != "reject");
                         update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
+                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    }
+                    if let Some(file) = command.strip_prefix("background-job ") {
+                        update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("bg-1", "Run job").kind(ToolKind::Execute).status(ToolCallStatus::Pending)))?;
+                        let note = format!("Command running in background with ID: job-1. Output is being written to: {}", file.trim());
+                        let fields = ToolCallUpdateFields::new()
+                            .status(ToolCallStatus::Completed)
+                            .content(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(TextContent::new(note))))]);
+                        update(&cx, &sid, SessionUpdate::ToolCallUpdate(ToolCallUpdate::new("bg-1", fields)))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
                     if command.starts_with("fault-") {

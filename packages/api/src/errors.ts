@@ -21,6 +21,7 @@ const CODE_TABLE = {
    policy_denied: true,
    agent_unavailable: true,
    invalid: true,
+   unavailable: true,
    internal: true,
 } satisfies Record<ErrorCode, true>;
 const CODES: ReadonlySet<string> = new Set(Object.keys(CODE_TABLE));

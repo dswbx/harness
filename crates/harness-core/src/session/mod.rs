@@ -32,6 +32,7 @@ pub struct Session {
     meta: Arc<parking_lot::Mutex<SessionMeta>>,
     log: SessionLog,
     agent: crate::acp::AgentSlot,
+    jobs: crate::acp::JobWatchers,
     shared: Arc<Shared>,
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: parking_lot::Mutex<()>,
@@ -127,6 +128,7 @@ impl Session {
             meta: Arc::new(parking_lot::Mutex::new(meta)),
             log,
             agent: Default::default(),
+            jobs: Default::default(),
             shared,
             state_lock: Default::default(),
             frontend_requests: Default::default(),
@@ -397,6 +399,37 @@ impl Session {
             _ => None,
         });
         Ok(open.unwrap_or(false))
+    }
+
+    pub(crate) fn job_watchers(&self) -> &crate::acp::JobWatchers {
+        &self.jobs
+    }
+
+    /// Stops what runs for the Session: its job watchers and its Agent process. The one path for
+    /// archive and delete (shutdown stops them in `shutdown_stop`, which also waits).
+    pub(crate) fn stop_processes(&self, reason: &str) {
+        self.jobs.stop_all();
+        self.agent.shutdown(reason);
+    }
+
+    /// Harness shutdown, part 1: no more watchers or Agent starts; stops the Agent, which ends its Turns in
+    /// the log as cancelled, and waits for that, at most `grace`.
+    pub(crate) async fn shutdown_stop(self: &Arc<Self>, grace: Duration) {
+        self.jobs.close();
+        self.agent.close(self, "app_restart", grace).await;
+    }
+
+    /// Harness shutdown, part 2: writes everything queued to disk, then refuses later appends. Blocking.
+    pub(crate) fn shutdown_flush(&self) {
+        if self.log.read_only_reason().is_none()
+            && let Err(e) = self.log.sync()
+        {
+            tracing::warn!("flushing the Session Log of {} at shutdown: {e:#}", self.dir.display());
+        }
+        self.log.close();
+        if let Err(e) = write_meta(&self.dir, &self.meta.lock()) {
+            tracing::warn!("writing the metadata of {} at shutdown: {e:#}", self.dir.display());
+        }
     }
 
     pub(crate) fn agent_slot(&self) -> &crate::acp::AgentSlot {

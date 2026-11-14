@@ -34,6 +34,8 @@ type Tokens = Arc<RwLock<HashMap<String, Target>>>;
 pub struct HarnessMcp {
     tokens: Tokens,
     url: tokio::sync::OnceCell<String>,
+    /// The serving task, to end it at shutdown.
+    task: parking_lot::Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl HarnessMcp {
@@ -51,15 +53,24 @@ impl HarnessMcp {
                 let app = axum::Router::new().nest_service("/mcp", svc).layer(axum::middleware::from_fn_with_state(tokens, auth));
                 let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
                 let addr = listener.local_addr()?;
-                tokio::spawn(async move {
+                let task = tokio::spawn(async move {
                     if let Err(e) = axum::serve(listener, app).await {
                         tracing::error!("harness mcp server stopped: {e}");
                     }
                 });
+                *self.task.lock() = Some(task.abort_handle());
                 anyhow::Ok(format!("http://{addr}/mcp"))
             })
             .await
             .cloned()
+    }
+
+    /// Ends the server and forgets every token (Harness shutdown).
+    pub fn stop(&self) {
+        if let Some(task) = self.task.lock().take() {
+            task.abort();
+        }
+        self.tokens.write().clear();
     }
 
     /// A fresh token for one Agent Session of a Thread.

@@ -271,6 +271,7 @@ pub fn run() {
                 main.set_title(&app.package_info().name)?;
             }
             updates::spawn_checks(app.handle());
+            stop_on_signal(app.handle());
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -338,9 +339,44 @@ pub fn run() {
             overlay::overlay_settings,
             overlay::overlay_set_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Harness");
+        .build(tauri::generate_context!())
+        .expect("error while building Harness")
+        .run(|app, event| match event {
+            // Every way out passes here: Cmd+Q, the last window closing, the updater's restart, and
+            // SIGINT/SIGTERM (`stop_on_signal`). A restart cannot be prevented, so shutdown runs
+            // right here and blocks (bounded) instead of deferring the exit.
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => shut_down(app),
+            _ => {}
+        });
 }
+
+/// Stops the Agents, Terminals and Session Logs before the process ends. Windows hide first, so
+/// quitting looks instant. Safe to run twice: `Harness::shutdown` is idempotent and bounded.
+fn shut_down(app: &tauri::AppHandle) {
+    let Some(harness) = app.try_state::<Arc<Harness>>() else { return };
+    for window in app.webview_windows().values() {
+        let _ = window.hide();
+    }
+    tauri::async_runtime::block_on(harness.shutdown());
+}
+
+/// SIGINT/SIGTERM (Ctrl-C in `bun run dev`) quit the app the normal way, through `shut_down`.
+#[cfg(unix)]
+fn stop_on_signal(app: &tauri::AppHandle) {
+    use tokio::signal::unix::{SignalKind, signal};
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let (Ok(mut int), Ok(mut term)) = (signal(SignalKind::interrupt()), signal(SignalKind::terminate())) else { return };
+        tokio::select! {
+            _ = int.recv() => {}
+            _ = term.recv() => {}
+        }
+        app.exit(0);
+    });
+}
+
+#[cfg(not(unix))]
+fn stop_on_signal(_app: &tauri::AppHandle) {}
 
 #[cfg(test)]
 mod frame_tests {
