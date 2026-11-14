@@ -2,13 +2,14 @@
 // own package.json declares (so they stay portable to another host), and must not read raw Agent
 // payloads or name Agents (ADR 0012).
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
    apiEntryViolation,
    appViolation,
    importedNames,
    importSpecs,
    importViolation,
+   layerViolation,
    leaks,
    uiViolation,
 } from "./boundaries";
@@ -18,16 +19,29 @@ import {
  * the typed Event fields or `@harness/api` helpers.
  */
 const RAW_ALLOWED: Record<string, string> = {
-   "frontend-chat/src/reducer.ts":
+   "frontend-chat/src/state/reducer.ts":
       "folds Events: stores raw_input/raw_output for the raw JSON view, and hands raw_input to the @harness/api fallback for old logs",
-   "frontend-chat/src/toolDisplay/label.ts":
+   "frontend-chat/src/features/toolDisplay/label.ts":
       "known leak: reads rawInput/rawOutput and the mcp__server__tool title convention for step labels; to be replaced by typed core tool fields",
-   "frontend-chat/src/toolDisplay/fence.ts":
+   "frontend-chat/src/features/toolDisplay/fence.ts":
       "known leak: reads rawInput.command to show an execute call's command line; to be replaced by a typed core tool field",
-   "frontend-chat/src/toolDisplay/TraceDisplay.tsx":
+   "frontend-chat/src/features/toolDisplay/TraceDisplay.tsx":
       "known leak: reads rawInput/rawOutput (memo deps, presence checks, the raw JSON view) and the mcp__ title prefix; the raw JSON view may stay, the rest moves to typed core tool fields",
-   "frontend-chat/src/ToolCard.tsx":
+   "frontend-chat/src/features/toolDisplay/ToolCard.tsx":
       "known leak: passes rawInput to commandOf and shows rawInput/rawOutput in the raw JSON view; the command moves to a typed core tool field, the raw JSON view may stay",
+};
+
+/** frontend-chat layering edges (`file -> target`, relative to its src/) that break the layer rule today. New ones must not. */
+const LAYER_ALLOWED: Record<string, string> = {
+   "features/sideChats/SidePanel.tsx -> shell/panelLayout":
+      "known: to be cut when the panel contract lands",
+   "panels/PanelHeader.tsx -> shell/panelLayout": "known: to be cut when the panel contract lands",
+   "state/reducer.ts -> features/plan/plans": "known: to be cut when the panel contract lands",
+   "state/reducer.ts -> features/prompt/configGroups":
+      "known: to be cut when the panel contract lands",
+   "state/reducer.ts -> features/renderUi/tools": "known: to be cut when the panel contract lands",
+   "state/reducer.ts -> features/review/reviewComments":
+      "known: to be cut when the panel contract lands",
 };
 
 /** App files that break the Frontend-package rule today, with the reason. New files must not. */
@@ -68,6 +82,19 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
          if (why) {
             console.error(`${file}: forbidden import "${spec}": ${why}`);
             bad++;
+         }
+      }
+      if (pkg === "frontend-chat") {
+         const src = resolve(root, "src");
+         for (const spec of importSpecs(readFileSync(file, "utf8"))) {
+            if (!spec.startsWith(".")) continue;
+            const from = relative(src, file);
+            const to = relative(src, resolve(dirname(file), spec));
+            const why = layerViolation(from, to);
+            if (why && !(`${from} -> ${to}` in LAYER_ALLOWED)) {
+               console.error(`${from} -> ${to}: ${why}`);
+               bad++;
+            }
          }
       }
       if (relative(resolve("packages"), file) in RAW_ALLOWED) continue;

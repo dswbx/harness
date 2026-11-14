@@ -11,9 +11,11 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
    const dir = resolve("packages", pkg);
    const manifestPath = join(dir, "manifest.json");
    if (!existsSync(manifestPath)) continue;
-   const toolsPath = join(dir, "src/tools.ts");
+   const toolsPath = ["src/tools.ts", "src/features/renderUi/tools.ts"]
+      .map((f) => join(dir, f))
+      .find((f) => existsSync(f));
    const tools: { name: string; description: string; schema: unknown; replies?: boolean }[] =
-      existsSync(toolsPath) ? (await import(toolsPath)).frontendTools : [];
+      toolsPath ? (await import(toolsPath)).frontendTools : [];
    const instructionsPath = join(dir, "instructions.md");
    const instructions = existsSync(instructionsPath)
       ? readFileSync(instructionsPath, "utf8").trim()

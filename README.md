@@ -40,7 +40,7 @@ First steps in the app: **Agents** → install Claude or Codex → **New Session
 
 ## Writing a Frontend
 
-A Frontend is a package with a `manifest.json` (`id`, `name`, `version`, `frontend_tools`) and a React View that gets a `SessionApi`. It is a pure reducer over Events, so replay and live use the same code. Frontend Tools are declared in TS with [jsonv-ts](https://www.npmjs.com/package/jsonv-ts) and written into the manifest by `bun run gen-manifests`. The core validates every call against that JSON Schema before storing it in the Session's `frontend/` directory and emitting `FrontendToolOutput`. See `packages/frontend-chat/src/tools.ts`.
+A Frontend is a package with a `manifest.json` (`id`, `name`, `version`, `frontend_tools`) and a React View that gets a `SessionApi`. It is a pure reducer over Events, so replay and live use the same code. Frontend Tools are declared in TS with [jsonv-ts](https://www.npmjs.com/package/jsonv-ts) and written into the manifest by `bun run gen-manifests`. The core validates every call against that JSON Schema before storing it in the Session's `frontend/` directory and emitting `FrontendToolOutput`. See `packages/frontend-chat/src/features/renderUi/tools.ts`.
 
 ## Test
 
