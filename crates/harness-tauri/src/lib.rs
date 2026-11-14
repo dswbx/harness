@@ -14,6 +14,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
 mod context;
+pub mod host_types;
 mod links;
 mod overlay;
 mod subscriptions;

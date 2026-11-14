@@ -12,7 +12,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 const EVERY: Duration = Duration::from_secs(60 * 60);
 
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UpdateState {
     #[default]
