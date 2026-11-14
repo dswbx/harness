@@ -1,4 +1,5 @@
-import { CommandError, toCommandError } from "./errors";
+import { applyStatePatch } from "../derive/state";
+import { CommandError, toCommandError } from "../errors";
 import type {
    AgentInfo,
    AppEvent,
@@ -27,11 +28,10 @@ import type {
    SharedArtifactMeta,
    SharedKind,
    WorkspaceInfo,
-} from "./generated";
+} from "../generated";
+import type { TerminalOutput, Transport, Unsubscribe } from "../transport/transport";
 import { MOCK_NEW, MOCK_OLD, MOCK_PATCH } from "./mockRepo";
 import { mockSubSessionLogs } from "./mockSubSessions";
-import { applyStatePatch } from "./state";
-import type { TerminalOutput, Transport, Unsubscribe } from "./transport";
 
 /**
  * Browser-only Transport for development without Tauri. Sessions start with `fixture`

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createSessionApi } from "./client";
-import type { PrInfo, PrRefKey } from "./generated";
-import { MockTransport } from "./mock";
+import { createSessionApi } from "../client/client";
+import type { PrInfo, PrRefKey } from "../generated";
+import { MockTransport } from "../mock/mock";
 import { createPrSearch, createPrStore, PR_BATCH } from "./prStore";
 
 const key = (full: string, number: number): PrRefKey => {

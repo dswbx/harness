@@ -14,7 +14,7 @@ vi.mock("@tauri-apps/api/core", () => ({
    },
 }));
 
-import type { AppEvent, Event } from "./generated";
+import type { AppEvent, Event } from "../generated";
 import { createAppSubscriber, type TerminalOutput, tauriTransport } from "./transport";
 
 const event = { type: "SharedArtifactsChanged" } as AppEvent;
