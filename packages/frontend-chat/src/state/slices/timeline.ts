@@ -341,7 +341,7 @@ export function timelineSlice(c: Ctx, e: Event) {
          const call = (k.tool_call ?? {}) as ToolCallRef;
          const facts = toolFactsOfCall(k.tool_call, k.harness_tool);
          const plan = k.plan ?? facts.plan;
-         if (plan) addPlan(c, k.request_id, plan, e.ts_ms);
+         if (plan) addPlan(c, k.request_id, plan, e.ts_ms, k.mode_before);
          push(c, {
             type: "permission",
             id,

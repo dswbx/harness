@@ -4,6 +4,7 @@ export * from "./contract/drafts";
 export * from "./contract/frontend";
 export * from "./derive/eventFamily";
 export * from "./derive/gitTool";
+export * from "./derive/mode";
 export * from "./derive/paths";
 export * from "./derive/state";
 export * from "./derive/subagents";

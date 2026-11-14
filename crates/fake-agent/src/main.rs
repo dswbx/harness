@@ -43,7 +43,10 @@
 //! `authenticate(login)` succeeds. `--images` advertises image and embedded-context prompt
 //! capabilities. `--fork` advertises `session/fork` (new id, copy of the source's history); with
 //! `--fork-fail` the request is refused. `--exit` prints a line to stderr and exits at startup
-//! (Agent conformance check tests).
+//! (Agent conformance check tests). `--legacy-modes` makes it an Agent with legacy session modes
+//! (`default`, `plan`) and no config options (`session/set_mode` answers; the mode starts `default`);
+//! `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
+//! `usage_update` (1200 of 200000).
 
 use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
@@ -143,6 +146,17 @@ fn cwd_of(id: &SessionId) -> Option<std::path::PathBuf> {
     CWDS.lock().unwrap().iter().rev().find(|(s, _)| *s == id.to_string()).map(|(_, p)| p.clone())
 }
 
+/// `--legacy-modes`: Agent Sessions have session modes instead of config options.
+static LEGACY_MODES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `--plan-mode`: the mode config option also offers `plan`.
+static PLAN_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The legacy session modes with `current` selected.
+fn legacy_modes(current: &str) -> SessionModeState {
+    SessionModeState::new(current.to_owned(), vec![SessionMode::new("default", "Manual"), SessionMode::new("plan", "Plan")])
+}
+
 /// Config per Agent Session: (model, mode).
 static CONFIG: std::sync::Mutex<Vec<(String, (String, String))>> = std::sync::Mutex::new(Vec::new());
 
@@ -161,12 +175,13 @@ fn set_config(id: &SessionId, config: (String, String)) -> Vec<SessionConfigOpti
 fn config_options((model, mode): &(String, String)) -> Vec<SessionConfigOption> {
     vec![
         SessionConfigOption::select("model", "Model", model.clone(), vec![SessionConfigSelectOption::new("a", "A"), SessionConfigSelectOption::new("b", "B")]),
-        SessionConfigOption::select(
-            "mode",
-            "Mode",
-            mode.clone(),
-            vec![SessionConfigSelectOption::new("default", "Manual"), SessionConfigSelectOption::new("auto", "Auto")],
-        )
+        SessionConfigOption::select("mode", "Mode", mode.clone(), {
+            let mut v = vec![SessionConfigSelectOption::new("default", "Manual"), SessionConfigSelectOption::new("auto", "Auto")];
+            if PLAN_MODE.load(std::sync::atomic::Ordering::SeqCst) {
+                v.push(SessionConfigSelectOption::new("plan", "Plan"));
+            }
+            v
+        })
         .category(SessionConfigOptionCategory::Mode),
     ]
 }
@@ -245,6 +260,8 @@ async fn main() -> agent_client_protocol::Result<()> {
     let images = args.iter().any(|a| a == "--images");
     let fork = args.iter().any(|a| a == "--fork");
     let fork_fail = args.iter().any(|a| a == "--fork-fail");
+    LEGACY_MODES.store(args.iter().any(|a| a == "--legacy-modes"), std::sync::atomic::Ordering::SeqCst);
+    PLAN_MODE.store(args.iter().any(|a| a == "--plan-mode"), std::sync::atomic::Ordering::SeqCst);
     let authed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!auth));
     let authed_new = authed.clone();
     // Ids stay unique across processes so a restarted agent never reuses one.
@@ -300,6 +317,9 @@ async fn main() -> agent_client_protocol::Result<()> {
                 let id = SessionId::new(format!("fake-{n}"));
                 remember_cwd(&id, &req.cwd);
                 remember_mcp(&id, &req.mcp_servers);
+                if LEGACY_MODES.load(std::sync::atomic::Ordering::SeqCst) {
+                    return responder.respond(NewSessionResponse::new(id).modes(legacy_modes("default")));
+                }
                 let options = set_config(&id, ("a".into(), "auto".into()));
                 responder.respond(NewSessionResponse::new(id).config_options(options))
             },
@@ -319,6 +339,13 @@ async fn main() -> agent_client_protocol::Result<()> {
                 // Like Claude: the fork keeps the source's config.
                 let options = set_config(&id, config_of(&req.session_id));
                 responder.respond(ForkSessionResponse::new(id).config_options(options))
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: SetSessionModeRequest, responder, cx| {
+                update(&cx, &req.session_id, SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(req.mode_id.clone())))?;
+                responder.respond(SetSessionModeResponse::new())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -484,6 +511,9 @@ async fn main() -> agent_client_protocol::Result<()> {
                         return fault(&cx, &sid, &command, responder).await;
                     }
                     update(&cx, &sid, text("Working on it."))?;
+                    if command.contains("usage") {
+                        update(&cx, &sid, SessionUpdate::UsageUpdate(UsageUpdate::new(1200, 200000)))?;
+                    }
                     if command.contains("title") {
                         update(&cx, &sid, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Fake title")))?;
                     }

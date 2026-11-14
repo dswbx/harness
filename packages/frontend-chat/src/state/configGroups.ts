@@ -1,3 +1,4 @@
+import { isModeOption } from "@harness/api";
 import type { ConfigOption } from "./types";
 
 export type ConfigGroups = {
@@ -49,7 +50,7 @@ export function groupConfigOptions(options: ConfigOption[]): ConfigGroups {
    const chipParts: ConfigOption[] = [];
    for (const o of options) {
       if (o.type !== "select") continue;
-      if (o.category === "mode" && !g.mode) g.mode = o;
+      if (isModeOption(o) && !g.mode) g.mode = o;
       else if (o.category === "model" && !g.model) g.model = o;
       else if (o.category === "thought_level" && !g.effort) g.effort = o;
       else if (
