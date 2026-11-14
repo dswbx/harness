@@ -1456,17 +1456,24 @@ fn idle(h: &Harness, sid: &str) -> bool {
     n(true) == n(false)
 }
 
+/// The latest permission request in `sid` that still waits for an answer (the Policy answers some itself).
 async fn until_request(h: &Harness, sid: &str) -> String {
     for _ in 0..400 {
-        if let Some(id) = events(h, sid).into_iter().rev().find_map(|e| match e.kind {
-            EventKind::PermissionRequested { request_id, .. } => Some(request_id),
+        let log = events(h, sid);
+        let pending = log.iter().rev().find_map(|e| match &e.kind {
+            EventKind::PermissionRequested { request_id, .. }
+                if !log.iter().any(|r| matches!(&r.kind, EventKind::PermissionResolved { request_id: id, .. } if id == request_id)) =>
+            {
+                Some(request_id.clone())
+            }
             _ => None,
-        }) {
+        });
+        if let Some(id) = pending {
             return id;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("no permission request");
+    panic!("timed out: no pending permission request in {sid}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
