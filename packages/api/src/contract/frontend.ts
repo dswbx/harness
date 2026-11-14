@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
+import type { HarnessClient } from "../client/app";
 import type { SessionApi } from "../client/client";
-import type { AppEvent, AttachmentInput, FrontendManifest } from "../generated";
+import type { AppEvent, AttachmentInput, FrontendManifest, SharedArtifactMeta } from "../generated";
 
 /** A call of a Frontend Tool with `replies`: the Frontend answers it, and the Agent gets the answer. */
 export type FrontendRequest = Extract<AppEvent, { type: "FrontendRequest" }>;
@@ -54,6 +55,43 @@ export type OverlayFrame = { card: number; room: PanelWidth };
 /** `full`: a main or pop-out window. `overlay`: the Quick overlay's small floating window (ADR 0022). */
 export type ViewVariant = "full" | "overlay";
 
+/**
+ * A Shared Artifact in the host's main pane, without a Session (ADR 0024). Everything the host owns
+ * (picking a Session, creating one, the window controls) comes in as a callback or a node.
+ */
+export type SharedViewProps = {
+   client: HarnessClient;
+   id: string;
+   /** For Session titles in "Attached in"; Sessions not listed show as "Session". */
+   sessions: readonly { id: string; title: string }[];
+   onOpenSession: (sessionId: string) => void;
+   /** "Attach to Session...": the host asks which Session. */
+   onAttach: () => void;
+   /** "New Session with it": the host creates a Session, then attaches the artifact. */
+   onNewSession: () => void;
+   onRenamed?: (meta: SharedArtifactMeta) => void;
+   onDeleted?: (id: string) => void;
+   /** Opens the artifact's folder in the user's editor; default: shows it in the file manager. */
+   onOpenInEditor?: (dir: string) => void;
+   /** Before the title in the header, e.g. the host's window controls when its sidebar is hidden. */
+   leading?: ReactNode;
+};
+
+/**
+ * A preference of a Frontend, drawn by the host's Settings > Appearance as a switch row in `group`:
+ * `chat` (how Sessions read) or `terminal`. The value lives in the Frontend (`useValue`, `set`).
+ */
+export type FrontendToggle = {
+   id: string;
+   group: "chat" | "terminal";
+   label: string;
+   /** Text of the switch itself. */
+   toggleLabel: string;
+   help?: string;
+   useValue: () => boolean;
+   set: (on: boolean) => void;
+};
+
 /** What a Frontend package exports: its Manifest and the View that renders a Session. */
 export interface Frontend {
    manifest: FrontendManifest;
@@ -102,4 +140,10 @@ export interface Frontend {
     * for as long as it takes. It can render off screen but shows nothing.
     */
    Request?: ComponentType<FrontendRequestProps>;
+   /** Renders a Shared Artifact in the host's main pane. Absent: the host opens none with this Frontend. */
+   SharedView?: ComponentType<SharedViewProps>;
+   /** Its preferences, as rows in Settings > Appearance. Absent: none. */
+   toggles?: FrontendToggle[];
+   /** A catalog page of what the Agent can render (Settings > UI components). Absent: no such page. */
+   Gallery?: ComponentType;
 }

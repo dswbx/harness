@@ -1,9 +1,9 @@
 import type { HarnessClient } from "@harness/api";
-import { RenderUiGallery } from "@harness/frontend-chat";
 import { cn, Dialog, DialogContent, DialogDescription, DialogTitle, ScrollArea } from "@harness/ui";
 import { Bot, Code, GitBranch, Info, LayoutGrid, Palette, Plug, Shield, Zap } from "lucide-react";
 import { useRef } from "react";
 import { AppearancePanel } from "../appearance/AppearancePanel";
+import { gallery } from "../platform/frontends";
 import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
 import { EditorPanel } from "./EditorPanel";
@@ -59,6 +59,7 @@ export function SettingsDialog({
    onMcpChanged: () => void;
 }) {
    const nav = useRef<HTMLElement>(null);
+   const Gallery = gallery();
 
    return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -84,21 +85,23 @@ export function SettingsDialog({
             <div className="flex min-h-0 flex-1">
                <nav ref={nav} className="flex w-52 shrink-0 flex-col border-r bg-muted/30 p-2">
                   <div className="grid gap-0.5">
-                     {NAV.map(({ id, label, icon: Icon }) => (
-                        <button
-                           key={id}
-                           aria-current={section === id ? "page" : undefined}
-                           onClick={() => onSectionChange(id)}
-                           className={cn(
-                              "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm",
-                              section === id
-                                 ? "bg-accent font-medium text-accent-foreground"
-                                 : "text-muted-foreground hover:bg-accent/50",
-                           )}
-                        >
-                           <Icon className="size-4" /> {label}
-                        </button>
-                     ))}
+                     {NAV.filter((n) => n.id !== "components" || Gallery).map(
+                        ({ id, label, icon: Icon }) => (
+                           <button
+                              key={id}
+                              aria-current={section === id ? "page" : undefined}
+                              onClick={() => onSectionChange(id)}
+                              className={cn(
+                                 "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm",
+                                 section === id
+                                    ? "bg-accent font-medium text-accent-foreground"
+                                    : "text-muted-foreground hover:bg-accent/50",
+                              )}
+                           >
+                              <Icon className="size-4" /> {label}
+                           </button>
+                        ),
+                     )}
                   </div>
                   <div className="flex-1" />
                   <p className="px-2.5 py-1 text-xs text-muted-foreground">
@@ -126,7 +129,7 @@ export function SettingsDialog({
                         />
                      )}
                      {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} />}
-                     {section === "components" && <RenderUiGallery />}
+                     {section === "components" && Gallery && <Gallery />}
                      {section === "about" && <AboutPanel />}
                   </div>
                </ScrollArea>
