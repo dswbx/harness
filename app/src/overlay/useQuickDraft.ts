@@ -1,27 +1,9 @@
 import type { AgentInfo, AgentSwitch, HarnessClient } from "@harness/api";
 import { type Dispatch, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QUICK_TITLE, quickAgent } from "../composer/composer";
+import { QUICK_TITLE } from "../composer/composer";
+import { saveAgent, startQuickSession } from "../quick/startSession";
 import { overlayHost } from "./overlayHost";
 import type { OverlayAction, OverlayMode } from "./overlayMode";
-
-/** The Agent of the last Session sent from the overlay; the next draft starts with it. */
-const AGENT_KEY = "harness.overlay.agent";
-
-function savedAgent(): string | null {
-   try {
-      return localStorage.getItem(AGENT_KEY);
-   } catch {
-      return null;
-   }
-}
-
-function saveAgent(id: string) {
-   try {
-      localStorage.setItem(AGENT_KEY, id);
-   } catch {
-      /* the next draft falls back to quickAgent */
-   }
-}
 
 type Draft = { id: string; frontendId: string; agentId: string };
 
@@ -59,25 +41,15 @@ export function useQuickDraft({
       creating.current = true;
       setError(null);
       try {
-         const [list, frontends, sessions] = await Promise.all([
-            client.listAgents(),
-            client.listFrontends(),
-            client.listSessions(),
-         ]);
-         setAgents(list);
-         const saved = savedAgent();
-         const agent = list.find((a) => a.id === saved) ?? quickAgent(sessions, list);
-         const frontend = frontends.find((f) => f.id === "chat") ?? frontends[0];
-         if (!agent || !frontend) {
+         const started = await startQuickSession(client, { useSavedAgent: true });
+         if (!started) {
             setError("No Agent installed. Add one in the main window's Settings.");
             return;
          }
-         const id = await client.createQuickSession({
-            agentId: agent.id,
-            frontendId: frontend.id,
-         });
+         setAgents(started.agents);
+         const { id } = started;
          setTitle(QUICK_TITLE);
-         setDraft({ id, frontendId: frontend.id, agentId: agent.id });
+         setDraft({ id, frontendId: started.frontendId, agentId: started.agent.id });
          client
             .sessionApi(id)
             .warmUp()
@@ -103,7 +75,7 @@ export function useQuickDraft({
             if (!d || stop) return;
             if (e.type === "SessionStatus" && e.session_id === d.id) {
                setTitle(e.title);
-               if (e.title !== QUICK_TITLE) {
+               if (!e.unused) {
                   saveAgent(d.agentId);
                   dispatch({ type: "sent" });
                }

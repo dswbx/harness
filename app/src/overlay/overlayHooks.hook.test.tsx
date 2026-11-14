@@ -112,6 +112,7 @@ describe("useQuickDraft", () => {
          session_id: "d1",
          title: "Hello",
          status: "working",
+         unused: false,
       });
       expect(hook.result.current.title).toBe("Hello");
       expect(dispatch).toHaveBeenCalledWith({ type: "sent" });
@@ -120,8 +121,30 @@ describe("useQuickDraft", () => {
       expect(dispatch).toHaveBeenCalledWith({ type: "turnFinished" });
       // another Session's events are ignored
       dispatch.mockClear();
-      emit(transport, { type: "SessionStatus", session_id: "other", title: "x", status: "idle" });
+      emit(transport, {
+         type: "SessionStatus",
+         session_id: "other",
+         title: "x",
+         status: "idle",
+         unused: false,
+      });
       expect(dispatch).not.toHaveBeenCalled();
+   });
+
+   it("a SessionStatus of the draft that is still unused does not open the chat", async () => {
+      const { transport, dispatch, hook } = draftSetup();
+      await waitFor(() => expect(hook.result.current.draft).not.toBeNull());
+      await new Promise((r) => setTimeout(r, 10));
+      // Even with a custom title: only the core's flag says a prompt was sent.
+      emit(transport, {
+         type: "SessionStatus",
+         session_id: "d1",
+         title: "Mine",
+         status: "idle",
+         unused: true,
+      });
+      expect(dispatch).not.toHaveBeenCalledWith({ type: "sent" });
+      expect(localStorage.getItem("harness.overlay.agent")).toBeNull();
    });
 
    it("close resets, forgets the rest, and discards the empty Session", async () => {

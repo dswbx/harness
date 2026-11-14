@@ -6,6 +6,20 @@ import {
    type McpServerDef,
 } from "@harness/api";
 import { useEffect, useState } from "react";
+import { pickStart } from "../quick/startSession";
+
+const start = (
+   agents: AgentInfo[],
+   frontends: FrontendManifest[],
+   agent: string,
+   frontend: string,
+) => ({
+   agents,
+   frontends,
+   preferredAgentId: agent,
+   preferredFrontendId: frontend,
+   fallback: "first" as const,
+});
 
 /** What a new Session can pick from: Agents, Frontends and MCP servers, reloaded while the Composer is open. */
 export function useComposerCatalog({
@@ -37,8 +51,9 @@ export function useComposerCatalog({
          .then(([a, f]) => {
             setAgents(a);
             setFrontends(f);
-            setAgentId((cur) => (a.some((x) => x.id === cur) ? cur : a[0]?.id || ""));
-            setFrontendId((cur) => cur || (f.find((x) => x.id === "chat") ?? f[0])?.id || "");
+            // The Composer keeps what is picked; else the first Agent, not the newest Session's.
+            setAgentId((cur) => pickStart(start(a, f, cur, "")).agent?.id ?? "");
+            setFrontendId((cur) => pickStart(start(a, f, "", cur)).frontendId ?? "");
          })
          .catch((e) => setError(errText(e)));
    }, [isOpen, client, agentsVersion]);

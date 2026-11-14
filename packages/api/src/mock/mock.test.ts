@@ -391,3 +391,39 @@ describe("MockTransport like the core", () => {
       expect(await failure(client.rollbackAgent("nope"))).toMatchObject({ code: "internal" });
    });
 });
+
+describe("MockTransport unused Quick Sessions", () => {
+   const mk = () => {
+      const main: Event = {
+         v: 1,
+         seq: 0,
+         session_id: "x",
+         thread_id: "main",
+         ts_ms: 0,
+         kind: { type: "ThreadStarted", agent_id: "codex", main: true },
+      };
+      const transport = new MockTransport([main], []);
+      const client = new HarnessClient(transport);
+      const sessions: AppEvent[] = [];
+      void client.subscribeApp((e) => sessions.push(e));
+      return { transport, client, events: sessions };
+   };
+   it("a Quick Session starts unused and any Thread's first prompt uses it", async () => {
+      const { client, events } = mk();
+      const id = await client.createQuickSession({ agentId: "codex", frontendId: "chat" });
+      const unused = async () => (await client.listSessions()).find((s) => s.id === id)!.unused;
+      expect(await unused()).toBe(true);
+      const side = await client.sessionApi(id).startSideThread({ source: "fresh" });
+      await client.sessionApi(id).prompt("hi", [], side.thread_id);
+      expect(await unused()).toBe(false);
+      // A Side Thread prompt does not replace the placeholder title.
+      expect(events.find((e) => e.type === "SessionStatus")).toMatchObject({ unused: false });
+      expect((await client.listSessions()).find((s) => s.id === id)!.title).toBe(
+         "New Quick Session",
+      );
+   });
+   it("discarding an unknown Session is a no-op", async () => {
+      const { client } = mk();
+      await expect(client.discardEmptySession("nope")).resolves.toBeUndefined();
+   });
+});

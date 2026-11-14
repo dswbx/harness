@@ -1185,6 +1185,63 @@ async fn quick_session_title_comes_from_the_first_prompt_then_the_agent() {
 }
 
 #[tokio::test]
+async fn quick_session_is_unused_until_the_first_prompt_whatever_its_title() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[], Duration::from_secs(900));
+    let plain = quick_session(&h).await;
+    let CommandResult::SessionCreated { session_id: named } = h
+        .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: Some("Mine".into()), mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(summary(&h, &plain).await.unwrap().unused);
+    assert!(summary(&h, &named).await.unwrap().unused);
+    // A custom title does not make it used; a prompt does, and the title stays.
+    turn(&h, &named, None, "hello").await;
+    let s = summary(&h, &named).await.unwrap();
+    assert!(!s.unused);
+    assert_eq!(s.title, "Mine");
+    assert!(summary(&h, &plain).await.unwrap().unused);
+    drop(h);
+
+    // After a restart the used one is still used (the unused leftover is removed).
+    let h = harness(&data, &[], Duration::from_secs(900));
+    assert!(!summary(&h, &named).await.unwrap().unused);
+    assert!(summary(&h, &plain).await.is_none());
+}
+
+#[tokio::test]
+async fn a_first_prompt_on_a_side_thread_uses_the_session_and_announces_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        if let harness_core::api::AppEvent::SessionStatus { unused, title, .. } = e {
+            s.lock().unwrap().push((*unused, title.clone()));
+        }
+        true
+    }));
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fresh).await;
+    turn(&h, &sid, Some(side), "hello").await;
+    // No title from a Side Thread prompt, but `unused` changed and is announced; never `true` after.
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|(unused, title)| !unused && title == "New Quick Session"));
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
+async fn other_sessions_are_not_unused() {
+    let (h, sid, _dir) = setup().await;
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
 async fn quick_session_with_a_given_title_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));

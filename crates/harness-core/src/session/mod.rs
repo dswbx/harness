@@ -117,7 +117,7 @@ impl Session {
         let changed = self.update_meta(|m| std::mem::replace(&mut m.title, title.to_owned()) != title).unwrap_or(false);
         if changed {
             let session_id = self.id();
-            self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title: title.to_owned(), status: self.agent.status() });
+            self.emit_status(session_id, title.to_owned(), self.agent.status());
         }
     }
 
@@ -191,6 +191,11 @@ impl Session {
         self.meta.lock().clone()
     }
 
+    fn emit_status(&self, session_id: SessionId, title: String, status: SessionStatus) {
+        let unused = self.meta.lock().unused();
+        self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status, unused });
+    }
+
     pub fn summary(&self) -> SessionSummary {
         self.adopt_repo();
         let m = self.meta.lock();
@@ -208,6 +213,7 @@ impl Session {
             status: self.agent.status(),
             archived: m.archived,
             quick: m.quick,
+            unused: m.unused(),
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 source_folder: m
@@ -272,9 +278,9 @@ impl Session {
                 m.title = t.clone();
             }
         })?;
-        if let Some(title) = title {
-            let session_id = self.id();
-            self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status: self.agent.status() });
+        // Only when something shown changed: the title, or `unused` (also without a new title).
+        if title.is_some() || m.unused() {
+            self.emit_status(self.id(), title.unwrap_or(m.title), self.agent.status());
         }
         Ok(())
     }
@@ -403,7 +409,7 @@ impl Session {
             let m = self.meta.lock();
             (m.id.clone(), m.title.clone())
         };
-        self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status });
+        self.emit_status(session_id, title, status);
         // The Agent may have opened a PR; look in the background (not without a runtime, e.g. sync tests).
         if status == SessionStatus::Idle
             && let Ok(rt) = tokio::runtime::Handle::try_current()

@@ -1,5 +1,4 @@
 import type { SessionStatus, SessionSummary, WorkspaceInfo } from "@harness/api";
-import { QUICK_TITLE } from "../composer/composer";
 
 /** Sidebar Session list: search, sort, group and the detail row's labels (pure, see `SessionList.tsx`). */
 
@@ -46,7 +45,7 @@ export function highlight(title: string, q: string): [string, string, string] | 
  * except `selected`: this window started it and shows it.
  */
 export const hideUnusedQuick = (list: SessionSummary[], selected: string | null) =>
-   list.filter((s) => !s.quick || s.title !== QUICK_TITLE || s.id === selected);
+   list.filter((s) => !s.unused || s.id === selected);
 
 /** Sub Sessions by their parent's id. */
 export type Children = Map<string, SessionSummary[]>;
