@@ -53,6 +53,24 @@ pub async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: &
     Ok(serde_json::to_string_pretty(&v)?)
 }
 
+/// What a tool takes, for the error when an argument is missing: an Agent that called it before it
+/// loaded the schema can retry from the error alone.
+fn usage(tool: &str) -> &'static str {
+    match tool {
+        "session_start" => {
+            r#"session_start needs "prompt" (the first message to its agent); optional: "folder", "title", "model", "effort", "worktree", "branch", "notify"."#
+        }
+        "session_send" => r#"session_send needs "id" (the session_id from session_start) and "text"."#,
+        "session_wait" => r#"session_wait needs "id" (the session_id from session_start); optional: "timeout_s" (0 only checks)."#,
+        _ => "",
+    }
+}
+
+/// A required text argument of `tool`.
+fn required(args: &Value, key: &str, tool: &str) -> anyhow::Result<String> {
+    text_arg(args, key).ok_or_else(|| anyhow::anyhow!("\"{key}\" is missing. {}", usage(tool)))
+}
+
 fn text_arg(args: &Value, key: &str) -> Option<String> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
 }
@@ -73,7 +91,7 @@ fn ensure_capacity(host: &Harness, parent: &Session) -> anyhow::Result<()> {
 }
 
 async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, args: &Value) -> anyhow::Result<Value> {
-    let prompt = text_arg(args, "prompt").ok_or_else(|| anyhow::anyhow!("prompt is required"))?;
+    let prompt = required(args, "prompt", "session_start")?;
     let folder = match text_arg(args, "folder") {
         Some(f) => f,
         None => session.summary().workspace.source_folder,
@@ -132,8 +150,8 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
 }
 
 /// A Sub Session of `parent` by id; any other Session is refused.
-fn owned_child(host: &Harness, parent: &Session, args: &Value) -> anyhow::Result<Arc<Session>> {
-    let id = text_arg(args, "id").ok_or_else(|| anyhow::anyhow!("id is required"))?;
+fn owned_child(host: &Harness, parent: &Session, args: &Value, tool: &str) -> anyhow::Result<Arc<Session>> {
+    let id = required(args, "id", tool)?;
     let child = host.session(&id).map_err(|_| anyhow::anyhow!("no Sub Session {id}"))?;
     let owned = child.meta().parent.is_some_and(|p| p.session_id == parent.id());
     anyhow::ensure!(owned, "Session {id} is not a Sub Session of this Session");
@@ -141,8 +159,8 @@ fn owned_child(host: &Harness, parent: &Session, args: &Value) -> anyhow::Result
 }
 
 async fn send(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, args: &Value) -> anyhow::Result<Value> {
-    let child = owned_child(host, session, args)?;
-    let text = text_arg(args, "text").ok_or_else(|| anyhow::anyhow!("text is required"))?;
+    let child = owned_child(host, session, args, "session_send")?;
+    let text = required(args, "text", "session_send")?;
     let m = child.meta();
     let busy = || -> anyhow::Result<()> {
         anyhow::ensure!(!child.thread_working(&m.main_thread_id)?, "Sub Session \"{}\" is still working. Call session_wait first.", m.title);
@@ -165,7 +183,7 @@ impl Drop for Subscription {
 }
 
 async fn wait(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, args: &Value) -> anyhow::Result<Value> {
-    let child = owned_child(host, session, args)?;
+    let child = owned_child(host, session, args, "session_wait")?;
     let timeout = args.get("timeout_s").and_then(Value::as_u64).unwrap_or(WAIT_DEFAULT_S).min(WAIT_MAX_S);
     let m = child.meta();
     crate::acp::authorize(session, thread, "session_wait", &format!("Wait for sub session: {}", m.title), "read", args).await?;

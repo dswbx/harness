@@ -1222,6 +1222,11 @@ async fn sub_session_rules_cap_and_cascade() {
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, &repo, vec![]).await;
 
+    // A call made before the schema was loaded learns the arguments from the error.
+    let refused = ask(&h, &sid, r#"mcp session_start {}"#, None).await;
+    assert!(refused.starts_with(r#"mcp error: "prompt" is missing. session_start needs "prompt""#), "{refused}");
+    let refused = ask(&h, &sid, r#"mcp session_send {"text":"hi"}"#, None).await;
+    assert!(refused.starts_with(r#"mcp error: "id" is missing. session_send needs "id""#), "{refused}");
     let refused = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false,"branch":"main"}"#, None).await;
     assert_eq!(refused, "mcp error: branch needs a worktree: omit worktree or pass worktree: true");
     let refused = ask(&h, &sid, r#"mcp session_start {"prompt":"x","model":"gpt"}"#, None).await;
