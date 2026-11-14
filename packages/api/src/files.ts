@@ -23,9 +23,11 @@ export type FileDrop =
 export async function onFileDrop(cb: (e: FileDrop) => void): Promise<Unsubscribe | null> {
    if (!inTauri()) return null;
    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-   // Tauri positions are physical pixels.
+   // Tauri types the position as physical pixels. On macOS it is not: wry passes AppKit's dragging
+   // location on, which is in points (CSS pixels) already. Elsewhere it is physical.
+   const mac = /Mac/.test(navigator.userAgent);
    const css = (p: { x: number; y: number }): DropPoint => {
-      const r = window.devicePixelRatio || 1;
+      const r = mac ? 1 : window.devicePixelRatio || 1;
       return { x: p.x / r, y: p.y / r };
    };
    return getCurrentWebview().onDragDropEvent(({ payload: p }) => {
