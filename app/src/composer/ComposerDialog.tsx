@@ -1,4 +1,10 @@
-import { errText, type HarnessClient, inTauri, type SessionSummary } from "@harness/api";
+import {
+   errText,
+   type HarnessClient,
+   inTauri,
+   pickFolderDialog,
+   type SessionSummary,
+} from "@harness/api";
 import {
    Button,
    Dialog,
@@ -8,7 +14,6 @@ import {
    DialogHeader,
    DialogTitle,
 } from "@harness/ui";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import { AgentField } from "./AgentField";
 import { rememberFolder } from "./composer";
@@ -127,8 +132,8 @@ export function ComposerDialog({
 
    const browse = async () => {
       setFolderOpen(false);
-      const picked = await open({ directory: true, multiple: false });
-      if (typeof picked === "string") pickFolder(picked);
+      const picked = await pickFolderDialog();
+      if (picked) pickFolder(picked);
    };
 
    const create = async () => {

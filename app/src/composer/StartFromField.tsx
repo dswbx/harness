@@ -1,6 +1,7 @@
 import {
    type Branches,
    type BranchInfo,
+   formatAge,
    type PrFilter,
    type PullRequest,
    parsePrRef,
@@ -8,7 +9,7 @@ import {
 import { cn } from "@harness/ui";
 import { GitBranch, Plus } from "lucide-react";
 import { useMemo } from "react";
-import { branchChoices, matches, relTime } from "./composer";
+import { branchChoices, matchesWords } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
 import { AheadBehind, Label, Pill, PrIcon, UpdateBranch } from "./parts";
 import { type Target, targetInfo, worktreeAfterPick, worktreeSwitch } from "./startPoint";
@@ -105,7 +106,7 @@ export function StartFromField({
          <span className="flex-1" />
          {!remote && <AheadBehind b={b} />}
          <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-            {b.time ? relTime(b.time * 1000) : ""}
+            {b.time ? formatAge(b.time * 1000) : ""}
          </span>
       </>
    );
@@ -199,7 +200,8 @@ export function StartFromField({
          : []),
       ...(prs ?? [])
          .filter(
-            (p) => typedPr === p.number || matches(pq, p.title, `#${p.number}`, p.head, p.author),
+            (p) =>
+               typedPr === p.number || matchesWords(pq, p.title, `#${p.number}`, p.head, p.author),
          )
          .map(
             (p): PickItem => ({
@@ -215,7 +217,7 @@ export function StartFromField({
                            #{p.number} · {p.draft ? "draft · " : ""}
                            {p.author} ·{" "}
                            <span className="font-mono">{p.fork ? `fork:${p.head}` : p.head}</span> ·{" "}
-                           {relTime(Date.parse(p.updated_at))}
+                           {formatAge(Date.parse(p.updated_at))}
                         </span>
                      </span>
                   </>

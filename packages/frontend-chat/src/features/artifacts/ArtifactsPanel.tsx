@@ -1,5 +1,5 @@
 import type { SharedArtifactEntry, SharedArtifactMeta } from "@harness/api";
-import { errText } from "@harness/api";
+import { errText, formatAge } from "@harness/api";
 import {
    Button,
    cn,
@@ -55,15 +55,6 @@ import {
 import { useCapture } from "./Capture";
 import { ExportSubmenu, useExport } from "./ExportMenu";
 import { fileName, sharedFormats } from "./exportFormats";
-
-/** Short age for a row: "now", "5m", "2h", "3d". */
-export function age(ts: number, now: number): string {
-   const m = Math.floor((now - ts) / 60_000);
-   if (m < 1) return "now";
-   if (m < 60) return `${m}m`;
-   if (m < 24 * 60) return `${Math.floor(m / 60)}h`;
-   return `${Math.floor(m / (24 * 60))}d`;
-}
 
 const KINDS: { kind: ArtifactKind | "all"; label: string }[] = [
    { kind: "all", label: "All" },
@@ -432,7 +423,7 @@ function Row({
             </div>
             <div className="truncate text-xs text-muted-foreground">{a.sub}</div>
          </div>
-         <span className="text-xs text-muted-foreground">{age(a.ts, now)}</span>
+         <span className="text-xs text-muted-foreground">{formatAge(a.ts, now)}</span>
          {onShare && (
             <RowMenu label={`${a.title} options`}>
                <DropdownMenuItem onSelect={onShare}>
@@ -545,7 +536,7 @@ function SharedRowView({
             </div>
          </div>
          <span className="text-xs text-muted-foreground">
-            {age(meta?.updated_ms ?? row.ts, now)}
+            {formatAge(meta?.updated_ms ?? row.ts, now)}
          </span>
          <RowMenu label={`${title} options`}>
             <DropdownMenuItem onSelect={onOpen}>
@@ -682,7 +673,7 @@ function AttachPicker({
                               <Check className="size-3.5 shrink-0 text-muted-foreground" />
                            ) : (
                               <span className="text-xs text-muted-foreground">
-                                 {age(e.meta.updated_ms, now)}
+                                 {formatAge(e.meta.updated_ms, now)}
                               </span>
                            )}
                         </div>

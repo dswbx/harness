@@ -1,7 +1,7 @@
-import { baseName, inTauri } from "@harness/api";
+import { baseName, formatAge, inTauri } from "@harness/api";
 import { cn } from "@harness/ui";
 import { Folder, FolderPlus, Zap } from "lucide-react";
-import { matches, type RecentFolder, relTime, tildify } from "./composer";
+import { matchesWords, type RecentFolder, tildify } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
 import { Label } from "./parts";
 
@@ -49,7 +49,7 @@ export function FolderField({
               },
            ]
          : []),
-      ...(matches(fq, "no folder", "quick session")
+      ...(matchesWords(fq, "no folder", "quick session")
          ? [
               {
                  key: "no-folder",
@@ -71,7 +71,7 @@ export function FolderField({
            ]
          : []),
       ...recent
-         .filter((r) => matches(fq, baseName(r.path), r.path))
+         .filter((r) => matchesWords(fq, baseName(r.path), r.path))
          .map((r): PickItem => {
             const b = recentBranch[r.path];
             return {
@@ -103,7 +103,7 @@ export function FolderField({
                         )
                      )}
                      <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-                        {relTime(r.at)}
+                        {formatAge(r.at)}
                      </span>
                   </>
                ),

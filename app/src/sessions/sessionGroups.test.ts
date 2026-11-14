@@ -2,14 +2,12 @@ import type { SessionSummary, WorkspaceInfo } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import {
    bubbledStatus,
-   folderName,
    groupSessions,
    hideUnusedQuick,
    highlight,
-   matches,
    nestSubSessions,
    refTitle,
-   relativeTime,
+   sessionMatches,
    viewChanges,
 } from "./sessionGroups";
 
@@ -89,9 +87,9 @@ describe("search", () => {
       workspace: ws({ branch: "rls-cases", pr: 16 }),
    });
    it("matches title, folder, branch and #pr", () => {
-      for (const q of ["rls", "supalite", "cases", "#16"]) expect(matches(pr, q)).toBe(true);
-      expect(matches(pr, "#17")).toBe(false);
-      expect(matches(pr, "")).toBe(true);
+      for (const q of ["rls", "supalite", "cases", "#16"]) expect(sessionMatches(pr, q)).toBe(true);
+      expect(sessionMatches(pr, "#17")).toBe(false);
+      expect(sessionMatches(pr, "")).toBe(true);
    });
    it("highlights the first match in the title", () => {
       expect(highlight("Fix RLS policy", "rls")).toEqual(["Fix ", "RLS", " policy"]);
@@ -100,21 +98,13 @@ describe("search", () => {
 });
 
 describe("labels", () => {
-   it("relativeTime", () => {
-      expect(relativeTime(NOW - 12 * 60_000, NOW)).toBe("12m");
-      expect(relativeTime(NOW - 5 * H, NOW)).toBe("5h");
-      expect(relativeTime(NOW - 50 * H, NOW)).toBe("2d");
-      expect(relativeTime(NOW - 22 * 24 * H, NOW)).toBe("3w");
-      expect(relativeTime(Date.UTC(2026, 8, 12, 12), NOW)).toBe("Sep 12");
-   });
    it("refTitle", () => {
       expect(
          refTitle(ws({ worktree_branch: "opt-in-update", branch: "opt-in-update", pr: 16 })),
       ).toBe("Worktree · opt-in-update · PR #16");
       expect(refTitle(ws())).toBe("Checked out in folder · main");
    });
-   it("folderName and viewChanges", () => {
-      expect(folderName("/Users/me/harness/")).toBe("harness");
+   it("viewChanges", () => {
       expect(viewChanges({ sort: "created", display: "condensed", group: "date" })).toBe(3);
    });
 });
@@ -152,8 +142,8 @@ describe("Quick Sessions", () => {
    });
 
    it("matches 'quick', not the folder's id", () => {
-      expect(matches(quick("q1", 1), "quick")).toBe(true);
-      expect(matches({ ...quick("q1", 1), title: "t" }, "q1")).toBe(false);
+      expect(sessionMatches(quick("q1", 1), "quick")).toBe(true);
+      expect(sessionMatches({ ...quick("q1", 1), title: "t" }, "q1")).toBe(false);
    });
 });
 

@@ -1,4 +1,4 @@
-import type { AttachmentInput } from "@harness/api";
+import { type AttachmentInput, baseName } from "@harness/api";
 import { BROWSER_BUNDLE_IDS, type WindowContext } from "../platform/generated";
 
 /**
@@ -15,8 +15,6 @@ const SELECTED_MAX = 2000;
 const LABEL_MAX = 60;
 
 const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
-
-const basename = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
 
 /** `https://www.github.com/a/b?x#y` -> `github.com/a/b`. */
 export function shortUrl(url: string): string {
@@ -42,12 +40,12 @@ export function windowTitle(title: string, app: string): string {
 /** The chip's text: the app, then the most telling detail. */
 export function contextLabel(c: WindowContext): string {
    const finder =
-      c.folder && `${basename(c.folder)}${c.files?.length ? ` · ${c.files.length} selected` : ""}`;
+      c.folder && `${baseName(c.folder)}${c.files?.length ? ` · ${c.files.length} selected` : ""}`;
    const title = c.windowTitle && windowTitle(c.windowTitle, c.app);
    const detail = c.url
       ? shortUrl(c.url)
       : c.documentPath
-        ? basename(c.documentPath)
+        ? baseName(c.documentPath)
         : finder || title;
    return detail ? `${c.app} · ${cut(detail, LABEL_MAX)}` : c.app;
 }
@@ -60,7 +58,7 @@ export function contextDetail(c: WindowContext): string {
    if (c.url) lines.push(c.url);
    if (c.documentPath) lines.push(`File: ${c.documentPath}`);
    if (c.folder) lines.push(`Folder: ${c.folder}`);
-   if (c.files?.length) lines.push(`Selected: ${c.files.map(basename).join(", ")}`);
+   if (c.files?.length) lines.push(`Selected: ${c.files.map(baseName).join(", ")}`);
    if (c.selectedText) lines.push(`Selected text: "${cut(c.selectedText, 200)}"`);
    if (c.missing.includes("accessibility"))
       lines.push("Allow Accessibility for the window title and selected text.");
@@ -103,7 +101,7 @@ export function contextName(c: WindowContext): string {
    }
    const title = c.windowTitle && windowTitle(c.windowTitle, c.app);
    const detail =
-      host ?? (c.documentPath ? basename(c.documentPath) : c.folder ? basename(c.folder) : title);
+      host ?? (c.documentPath ? baseName(c.documentPath) : c.folder ? baseName(c.folder) : title);
    const raw = `Context - ${c.app}${detail ? ` · ${detail}` : ""}`;
    // Path characters and control characters (all whitespace) become one space.
    const safe = raw

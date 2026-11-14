@@ -2,11 +2,10 @@ import type { AgentInfo, Branches, BranchInfo, SessionSummary } from "@harness/a
 import { describe, expect, it } from "vitest";
 import {
    branchChoices,
-   matches,
+   matchesWords,
    mergeRecent,
    pathsToRequest,
    quickAgent,
-   relTime,
    sessionFolders,
    sourceFolders,
    tildify,
@@ -56,13 +55,7 @@ describe("composer helpers", () => {
       ]);
    });
 
-   it("formats ages and paths", () => {
-      const now = Date.UTC(2026, 9, 30, 12);
-      expect(
-         [30e3, 5 * 60e3, 3 * 3600e3, 30 * 3600e3, 4 * 86400e3, 15 * 86400e3].map((d) =>
-            relTime(now - d, now),
-         ),
-      ).toEqual(["now", "5m", "3h", "Yesterday", "4d", "2w"]);
+   it("tildifies paths", () => {
       expect([tildify("/Users/me/x/y"), tildify("/Users/me"), tildify("/opt/x")]).toEqual([
          "~/x/y",
          "~",
@@ -71,9 +64,9 @@ describe("composer helpers", () => {
    });
 
    it("matches every word", () => {
-      expect(matches("feat comp", "feat/composer-v2")).toBe(true);
-      expect(matches("feat x", "feat/composer-v2")).toBe(false);
-      expect(matches("", "anything")).toBe(true);
+      expect(matchesWords("feat comp", "feat/composer-v2")).toBe(true);
+      expect(matchesWords("feat x", "feat/composer-v2")).toBe(false);
+      expect(matchesWords("", "anything")).toBe(true);
    });
 });
 

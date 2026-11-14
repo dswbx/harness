@@ -1,5 +1,5 @@
 import type { Editor, HarnessClient, SessionSummary } from "@harness/api";
-import { inTauri } from "@harness/api";
+import { inTauri, revealPath } from "@harness/api";
 import {
    Button,
    cn,
@@ -76,9 +76,7 @@ export function SessionHeader({
 }) {
    const report = useReportError();
    const reveal = () =>
-      import("@tauri-apps/plugin-opener")
-         .then(({ revealItemInDir }) => revealItemInDir(session.folder))
-         .catch((e) => report("Could not reveal folder", e));
+      revealPath(session.folder).catch((e) => report("Could not reveal folder", e));
    const copy = () =>
       navigator.clipboard.writeText(session.folder).catch((e) => report("Could not copy path", e));
    // Read when the menu opens, so a change in Settings shows at once.

@@ -80,26 +80,13 @@ export function sourceFolders(list: RecentFolder[], sessions: SessionSummary[]):
 /** `/Users/me/x` → `~/x` (display only). */
 export const tildify = (p: string) => p.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
 
-/** Short age: "now", "5m", "3h", "Yesterday", "4d", "2w", "Mar 3". */
-export function relTime(ms: number, now = Date.now()): string {
-   const s = Math.max(0, (now - ms) / 1000);
-   if (s < 60) return "now";
-   if (s < 3600) return `${Math.floor(s / 60)}m`;
-   if (s < 86400) return `${Math.floor(s / 3600)}h`;
-   const d = Math.floor(s / 86400);
-   if (d === 1) return "Yesterday";
-   if (d < 14) return `${d}d`;
-   if (d < 60) return `${Math.floor(d / 7)}w`;
-   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 /** The paths (once each) not yet in `requested`: what still needs a request. */
 export function pathsToRequest(paths: string[], requested: ReadonlySet<string>): string[] {
    return [...new Set(paths)].filter((p) => !requested.has(p));
 }
 
 /** Case-insensitive match of every word in `q` against any of `fields`. */
-export function matches(q: string, ...fields: (string | undefined)[]): boolean {
+export function matchesWords(q: string, ...fields: (string | undefined)[]): boolean {
    const hay = fields.join(" ").toLowerCase();
    return q
       .toLowerCase()
@@ -113,11 +100,11 @@ export function branchChoices(b: Branches | null, q: string) {
    const isDefault = (x: BranchInfo) => x.name === b?.default_branch;
    const shown = (x: BranchInfo) =>
       !isDefault(x) &&
-      matches(q, x.name) &&
+      matchesWords(q, x.name) &&
       (!(x.worktree || x.archived) || x.name === b?.current || q.trim() !== "");
    const local = b?.branches ?? [];
    const remote = b?.remote ?? [];
-   const pick = (x?: BranchInfo) => (x && matches(q, x.name) ? x : undefined);
+   const pick = (x?: BranchInfo) => (x && matchesWords(q, x.name) ? x : undefined);
    return {
       defaultLocal: pick(local.find(isDefault)),
       defaultRemote: pick(remote.find(isDefault)),

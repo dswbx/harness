@@ -1,4 +1,4 @@
-import { type PrEntry, type PrInfo, type PrRefKey, repoName } from "@harness/api";
+import { formatAge, type PrEntry, type PrInfo, type PrRefKey, repoName } from "@harness/api";
 import { cn, ScrollArea } from "@harness/ui";
 import { Book } from "lucide-react";
 import {
@@ -10,7 +10,7 @@ import {
    useState,
    useSyncExternalStore,
 } from "react";
-import { formatAge, useNow } from "../../lib/time";
+import { useNow } from "../../lib/time";
 import {
    exactNumber,
    type PrMenuRow,

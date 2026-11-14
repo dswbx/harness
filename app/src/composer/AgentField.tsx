@@ -2,7 +2,7 @@ import type { AgentInfo } from "@harness/api";
 import { Button, cn } from "@harness/ui";
 import { Check, Plus } from "lucide-react";
 import { AgentIcon } from "../settings/agents/AgentIcon";
-import { matches } from "./composer";
+import { matchesWords } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
 import { Label } from "./parts";
 
@@ -29,7 +29,7 @@ export function AgentField({
    const agent = agents.find((a) => a.id === agentId);
    const agentItems: PickItem[] = [
       ...agents
-         .filter((a) => matches(agentQuery, a.name, a.id))
+         .filter((a) => matchesWords(agentQuery, a.name, a.id))
          .map(
             (a): PickItem => ({
                key: a.id,

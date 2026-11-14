@@ -1,7 +1,7 @@
 import type { RegistryAgent } from "@harness/api";
+import { openExternalLink } from "@harness/api";
 import { Badge, Button, cn, Tooltip } from "@harness/ui";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
-import { openExternal } from "../../platform/openExternal";
 import { AgentIcon } from "./AgentIcon";
 import { heading } from "./heading";
 
@@ -63,7 +63,7 @@ export function RegistryList({
                                  href={r.website}
                                  target="_blank"
                                  rel="noreferrer"
-                                 onClick={(e) => openExternal(e, r.website!)}
+                                 onClick={(e) => openExternalLink(e, r.website!)}
                                  aria-label={`${r.name} website`}
                                  className="text-muted-foreground hover:text-foreground"
                               >

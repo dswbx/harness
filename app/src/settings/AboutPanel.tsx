@@ -1,6 +1,6 @@
+import { openExternalLink } from "@harness/api";
 import { Button } from "@harness/ui";
 import { ArrowUpRight } from "lucide-react";
-import { openExternal } from "../platform/openExternal";
 import { releaseUrl, useAppVersion, useUpdate, useUpdateCheck } from "../updates/updates";
 import { SectionHeader } from "./SectionHeader";
 
@@ -51,7 +51,7 @@ export function AboutPanel() {
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => openExternal(e, releaseUrl(state.version))}
+                        onClick={(e) => openExternalLink(e, releaseUrl(state.version))}
                      >
                         Changes <ArrowUpRight className="size-3.5" />
                      </a>

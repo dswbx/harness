@@ -1,9 +1,8 @@
-import { type SharedArtifactEntry, storedValue } from "@harness/api";
+import { formatAge, type SharedArtifactEntry, storedValue } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, Search, Share2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStored } from "../platform/useStored";
-import { relativeTime } from "../sessions/sessionGroups";
 import {
    hasChanged,
    isSharedSeen,
@@ -165,7 +164,7 @@ export function SharedArtifactsSection({
                                     />
                                  )}
                                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
-                                    {relativeTime(e.meta.updated_ms, now)}
+                                    {formatAge(e.meta.updated_ms, now)}
                                  </span>
                               </button>
                            </li>
