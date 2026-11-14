@@ -9,6 +9,7 @@ import {
    useRef,
    useState,
 } from "react";
+import { GROUPS, type GroupName, type UnionToIntersection } from "./catalog";
 import * as charts from "./charts";
 import * as code from "./code";
 import * as data from "./data";
@@ -54,16 +55,22 @@ export { isVisible, itemPath, resolveValue, runActions } from "./runtime";
  * its component's renderer. The components (spec, schema, example, renderer) live in `renderUi/`,
  * one file per group.
  */
-const renderers = {
-   ...layout.renderers,
-   ...text.renderers,
-   ...code.renderers,
-   ...media.renderers,
-   ...charts.renderers,
-   ...data.renderers,
-   ...forms.renderers,
-   ...disclosure.renderers,
-} satisfies { [K in keyof typeof components]: unknown };
+const groupRenderers = {
+   layout: layout.renderers,
+   text: text.renderers,
+   code: code.renderers,
+   media: media.renderers,
+   charts: charts.renderers,
+   data: data.renderers,
+   forms: forms.renderers,
+   disclosure: disclosure.renderers,
+} satisfies Record<GroupName, unknown>;
+const renderers = Object.assign(
+   {},
+   ...(Object.keys(GROUPS) as GroupName[]).map((g) => groupRenderers[g]),
+) as UnionToIntersection<(typeof groupRenderers)[GroupName]> satisfies {
+   [K in keyof typeof components]: unknown;
+};
 
 /** Actions from an Html frame are not checked by the core: check them with the render_ui schema. */
 export function checkActions(actions: unknown): string | null {

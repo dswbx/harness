@@ -330,9 +330,22 @@ async fn turn(h: &Harness, sid: &str, thread_id: Option<String>, text: &str) -> 
 
 async fn turn_with(h: &Harness, sid: &str, thread_id: Option<String>, text: &str, attachments: Vec<AttachmentInput>) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into(), attachments }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: thread_id.clone(), text: text.into(), attachments }).await.unwrap();
+    // The end of the Turn this prompt started: another Turn of the Thread may run beside it.
     let ended = |evs: &[Event]| {
-        evs[before..].iter().find_map(|e| if let EventKind::TurnEnded { stop_reason, .. } = &e.kind { Some(stop_reason.clone()) } else { None })
+        let evs = &evs[before..];
+        let id = evs.iter().find_map(|e| match &e.kind {
+            EventKind::TurnStarted { turn_id, text: t, origin: None, .. }
+                if t == text && thread_id.as_ref().is_none_or(|th| e.thread_id.as_ref() == Some(th)) =>
+            {
+                Some(turn_id)
+            }
+            _ => None,
+        })?;
+        evs.iter().find_map(|e| match &e.kind {
+            EventKind::TurnEnded { turn_id, stop_reason } if turn_id == id => Some(stop_reason.clone()),
+            _ => None,
+        })
     };
     wait_until("the Turn to end", Duration::from_secs(20), || ended(&events(h, sid)).is_some()).await;
     // Events trail the Turn's end (status back to Idle, ...): let the log go quiet, so a test that
