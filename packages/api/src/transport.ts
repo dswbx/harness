@@ -103,6 +103,44 @@ export function htmlFrameUrl(): string | null {
    return inTauri() ? convertFileSrc("", "harness-frame") : null;
 }
 
+/**
+ * One core `subscribe_app` channel per page, fanned out to all listeners: the core has no explicit
+ * unsubscribe (its sink lives until the webview closes), so opening one per call would leak sinks.
+ * A failed open is not cached: the next call retries.
+ */
+export function createAppSubscriber(): Transport["subscribeApp"] {
+   const listeners = new Set<(e: AppEvent) => void>();
+   let opened: Promise<void> | null = null;
+   const open = (): Promise<void> => {
+      const channel = new Channel<AppEvent>();
+      channel.onmessage = (e) => {
+         for (const l of [...listeners]) {
+            try {
+               l(e);
+            } catch (err) {
+               console.error("AppEvent listener failed", err);
+            }
+         }
+      };
+      return invoke<number>("subscribe_app", { channel }).then(() => {});
+   };
+   return async (onEvent) => {
+      // A fresh entry per call, so subscribing the same function twice stays two subscriptions.
+      const listener = (e: AppEvent) => onEvent(e);
+      const attempt = (opened ??= open());
+      try {
+         await attempt;
+      } catch (err) {
+         if (opened === attempt) opened = null;
+         throw err;
+      }
+      listeners.add(listener);
+      return () => {
+         listeners.delete(listener);
+      };
+   };
+}
+
 export const tauriTransport: Transport = {
    execute: (cmd) =>
       invoke<CommandResult>("execute", { cmd }).catch((e) => {
@@ -119,16 +157,7 @@ export const tauriTransport: Transport = {
          void invoke("unsubscribe", { sessionId, id }).catch(() => {});
       };
    },
-   async subscribeApp(onEvent) {
-      const channel = new Channel<AppEvent>();
-      let live = true;
-      channel.onmessage = (e) => live && onEvent(e);
-      await invoke<number>("subscribe_app", { channel });
-      // The core has no explicit unsubscribe (dropped with the webview): just stop delivering.
-      return () => {
-         live = false;
-      };
-   },
+   subscribeApp: createAppSubscriber(),
    async attachTerminal(sessionId, terminalId, cols, rows, onOutput) {
       // Raw bytes arrive as an ArrayBuffer, markers as JSON. Bytes before `replayed` are the replay.
       const channel = new Channel<ArrayBuffer | { replayed: true } | { exit: number | null }>();
