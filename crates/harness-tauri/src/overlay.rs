@@ -99,6 +99,8 @@ pub struct Overlay {
     /// The window frame (physical px) before it grew for an open menu.
     menu_base: Mutex<Option<Rect>>,
     settings: Mutex<OverlaySettings>,
+    /// Held for the whole of `overlay_set_settings`: two calls must not interleave across its `.await`.
+    set_settings: tokio::sync::Mutex<()>,
     /// Why the shortcut could not be registered (e.g. another app has it).
     shortcut_error: Mutex<Option<String>>,
     /// The page has painted (`overlay_ready`). Before that a show waits (`pending_show`), so no
@@ -793,7 +795,8 @@ pub fn overlay_settings(overlay: tauri::State<'_, Overlay>) -> OverlayStatus {
     OverlayStatus { settings: overlay.settings.lock().clone(), shortcut_error: overlay.shortcut_error.lock().clone() }
 }
 
-/// Registers a changed shortcut (the old one stays when that fails) and saves the settings.
+/// Registers a changed shortcut (the old one stays when that fails) and saves the settings. When
+/// the save fails the shortcut change is undone, so the registration always matches the stored settings.
 #[tauri::command]
 pub async fn overlay_set_settings(
     app: AppHandle,
@@ -801,10 +804,13 @@ pub async fn overlay_set_settings(
     overlay: tauri::State<'_, Overlay>,
     settings: OverlaySettings,
 ) -> Result<OverlayStatus, String> {
+    let _serial = overlay.set_settings.lock().await;
     let old = overlay.settings.lock().shortcut.clone();
-    let registered = overlay.shortcut_error.lock().is_none();
+    let prev_error = overlay.shortcut_error.lock().clone();
+    let registered = prev_error.is_none();
     let gs = app.global_shortcut();
-    if settings.shortcut != old {
+    let switched = settings.shortcut != old;
+    if switched {
         gs.register(settings.shortcut.as_str()).map_err(|e| format!("{}: {e}", settings.shortcut))?;
         if registered {
             let _ = gs.unregister(old.as_str());
@@ -814,8 +820,18 @@ pub async fn overlay_set_settings(
         // Same shortcut, failed before (another app had it): try again, but save the rest anyway.
         *overlay.shortcut_error.lock() = gs.register(old.as_str()).err().map(|e| e.to_string());
     }
-    let value = serde_json::to_value(&settings).map_err(|e| e.to_string())?;
-    harness.execute(Command::SetAppSetting { key: AppSettingKey::Overlay, value: Some(value) }).await.map_err(|e| e.message)?;
+    let saved = match serde_json::to_value(&settings) {
+        Ok(value) => harness.execute(Command::SetAppSetting { key: AppSettingKey::Overlay, value: Some(value) }).await.map_err(|e| e.message),
+        Err(e) => Err(e.to_string()),
+    };
+    if let Err(e) = saved {
+        if switched {
+            // Not saved: the old shortcut stays the setting, so put the registration back as it was.
+            let _ = gs.unregister(settings.shortcut.as_str());
+            *overlay.shortcut_error.lock() = if registered { gs.register(old.as_str()).err().map(|e| e.to_string()) } else { prev_error };
+        }
+        return Err(e);
+    }
     let context_on = settings.window_context;
     let context_was = std::mem::replace(&mut *overlay.settings.lock(), settings).window_context;
     if context_on != context_was {
@@ -833,7 +849,7 @@ pub async fn overlay_set_settings(
             }
         });
     }
-    Ok(overlay_settings(overlay))
+    Ok(OverlayStatus { settings: overlay.settings.lock().clone(), shortcut_error: overlay.shortcut_error.lock().clone() })
 }
 
 /// The NSPanel side (tauri-nspanel). Kept here alone, so it can be replaced with plain objc2.
