@@ -130,7 +130,7 @@ it("counts changes only when the status differs", async () => {
    expect(store.peek().changes).toBe(1);
 });
 
-it("Sessions are independent, and the shared store is dropped when idle", async () => {
+it("Sessions are independent", async () => {
    const a = fake("a");
    const b = fake("b");
    expect(gitStatusStore(a.api)).toBe(gitStatusStore(a.api));
@@ -143,4 +143,76 @@ it("Sessions are independent, and the shared store is dropped when idle", async 
    expect(a.o.statusCalls).toBe(1);
    expect(b.o.statusCalls).toBe(2);
    offB();
+});
+
+it("a refresh asked mid-load runs once more and resolves after it", async () => {
+   const { api, o } = fake();
+   const store = createGitStatusStore(api);
+   store.subscribe(() => {});
+   await vi.advanceTimersByTimeAsync(0);
+   let open!: () => void;
+   o.gate = new Promise((r) => (open = r));
+   const first = store.refresh();
+   await vi.advanceTimersByTimeAsync(0);
+   o.branch = "after-turn";
+   o.statusCalls = 0;
+   const a = store.refresh();
+   const b = store.refresh();
+   expect(a).toBe(b);
+   o.gate = null;
+   open();
+   await first;
+   await a;
+   expect(store.peek().status?.branch).toBe("after-turn");
+});
+
+it("a load from before a stop never overwrites a newer one", async () => {
+   const { api, o } = fake();
+   const store = createGitStatusStore(api);
+   let open!: () => void;
+   o.gate = new Promise((r) => (open = r));
+   const off = store.subscribe(() => {});
+   await vi.advanceTimersByTimeAsync(0);
+   off();
+   o.gate = null;
+   o.branch = "new";
+   store.subscribe(() => {});
+   await vi.advanceTimersByTimeAsync(0);
+   expect(store.peek().status?.branch).toBe("new");
+   open();
+   await vi.advanceTimersByTimeAsync(0);
+   expect(store.peek().status?.branch).toBe("new");
+   // the old load's end must not have cleared the new load's slot
+   o.branch = "newer";
+   await store.refresh();
+   expect(store.peek().status?.branch).toBe("newer");
+});
+
+it("an explicit refresh notices the folder stopped being a repository", async () => {
+   const { api, o } = fake();
+   const store = createGitStatusStore(api);
+   store.subscribe(() => {});
+   await vi.advanceTimersByTimeAsync(0);
+   expect(store.peek().isRepo).toBe(true);
+   o.repo = false;
+   await store.refresh();
+   expect(store.peek()).toMatchObject({ isRepo: false, status: null });
+});
+
+it("a failing status loads rechecks the repository", async () => {
+   const { api, o } = fake();
+   const store = createGitStatusStore(api);
+   store.subscribe(() => {});
+   await vi.advanceTimersByTimeAsync(0);
+   o.repo = false;
+   o.fail = true;
+   await vi.advanceTimersByTimeAsync(GIT_POLL_MS);
+   expect(store.peek().isRepo).toBe(false);
+});
+
+it("the registry keeps one store per Session, also across idle", async () => {
+   const { api } = fake("keep");
+   const store = gitStatusStore(api);
+   store.subscribe(() => {})();
+   expect(gitStatusStore(api)).toBe(store);
 });

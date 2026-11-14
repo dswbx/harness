@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionApi } from "../client/client";
 import { type GitStatusSnapshot, gitStatusStore } from "../client/gitStatusStore";
 import type { Event, PrRefKey, SharedArtifactEntry } from "../generated";
@@ -115,25 +115,31 @@ export function useGitStatus(
       refreshKey,
    }: { enabled?: boolean; status?: boolean; refreshKey?: unknown } = {},
 ): GitStatusSnapshot & { refresh: () => Promise<void> } {
-   const on = !!api && enabled;
-   const store = api && on ? gitStatusStore(api) : null;
    const sessionId = api?.sessionId;
-   // biome-ignore lint/correctness/useExhaustiveDependencies: the store is keyed by the Session id.
+   // One store per Session id for the app's life; `api` is only used to create it.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by the Session id.
+   const store = useMemo(() => (api && enabled ? gitStatusStore(api) : null), [sessionId, enabled]);
    const subscribe = useCallback(
       (l: () => void) => (store ? store.subscribe(l, { status }) : noop),
-      [sessionId, on, status],
+      [store, status],
    );
-   // biome-ignore lint/correctness/useExhaustiveDependencies: the store is keyed by the Session id.
-   const peek = useCallback(() => store?.peek() ?? NO_STATUS, [sessionId, on]);
+   const peek = useCallback(() => store?.peek() ?? NO_STATUS, [store]);
    const snap = useSyncExternalStore(subscribe, peek);
-   const base = useRef<number | null>(null);
-   if (!on) base.current = null;
-   else base.current ??= snap.changes;
+   // Changes seen before this view's own first load finished are not its changes.
+   const [base, setBase] = useState(snap.changes);
+   const last = useRef<{ store: unknown; key: unknown } | null>(null);
    // biome-ignore lint/correctness/useExhaustiveDependencies: `refreshKey` only triggers a reload.
    useEffect(() => {
-      void store?.refresh();
-   }, [sessionId, on, refreshKey]);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: the store is keyed by the Session id.
-   const refresh = useCallback(() => store?.refresh() ?? Promise.resolve(), [sessionId, on]);
-   return { ...snap, changes: snap.changes - (base.current ?? snap.changes), refresh };
+      if (!store) return;
+      if (last.current?.store !== store) {
+         // The subscription started the first load.
+         last.current = { store, key: refreshKey };
+         void store.settled().then(() => setBase(store.peek().changes));
+      } else if (last.current.key !== refreshKey) {
+         last.current.key = refreshKey;
+         void store.refresh();
+      }
+   }, [store, refreshKey]);
+   const refresh = useCallback(() => store?.refresh() ?? Promise.resolve(), [store]);
+   return { ...snap, changes: Math.max(0, snap.changes - base), refresh };
 }
