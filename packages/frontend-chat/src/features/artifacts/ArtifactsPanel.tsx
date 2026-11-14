@@ -35,7 +35,7 @@ import { Segmented } from "../../lib/Segmented";
 import { fullMessageTime, useNow } from "../../lib/time";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { CopyButton, Frame, useWrapCode, WRAP, WrapButton } from "../markdown/CodeBlock";
-import { Highlighted } from "../markdown/highlight";
+import { Highlighted } from "../markdown/Highlighted";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { parseTree, sharedSourceText, useSharedArtifact } from "../renderUi/sharedSource";
 import { sourceLang, usePanelSource } from "../renderUi/source";

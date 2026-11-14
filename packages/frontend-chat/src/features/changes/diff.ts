@@ -120,40 +120,6 @@ export function changeCount(text: string): number {
    return n;
 }
 
-const LANGS: Record<string, string> = {
-   ts: "typescript",
-   tsx: "typescript",
-   mts: "typescript",
-   cts: "typescript",
-   js: "javascript",
-   jsx: "javascript",
-   mjs: "javascript",
-   cjs: "javascript",
-   json: "json",
-   md: "markdown",
-   rs: "rust",
-   py: "python",
-   go: "go",
-   css: "css",
-   html: "xml",
-   xml: "xml",
-   svg: "xml",
-   yml: "yaml",
-   yaml: "yaml",
-   toml: "ini",
-   sh: "bash",
-   zsh: "bash",
-   sql: "sql",
-   java: "java",
-   kt: "kotlin",
-   swift: "swift",
-   rb: "ruby",
-};
-
-/** highlight.js language name for a path ("plaintext" when unknown). */
-export const langOf = (path: string): string =>
-   LANGS[path.split(".").pop()?.toLowerCase() ?? ""] ?? "plaintext";
-
 /** A `git diff`-style patch for one file from two texts (edit tool calls), with `context` lines around changes. */
 export function unifiedPatch(
    path: string,

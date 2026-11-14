@@ -1,7 +1,8 @@
 import { cn } from "@harness/ui";
 import { type ReactNode, useState } from "react";
+import { AnsiText } from "../markdown/AnsiText";
 import { CopyButton, Frame, useWrapCode, WrapButton } from "../markdown/CodeBlock";
-import { Markdown } from "../markdown/Markdown";
+import { Highlighted } from "../markdown/Highlighted";
 
 export { Frame };
 
@@ -40,17 +41,18 @@ export function CodeFrame({
          }
       >
          {command && (
-            <Markdown
-               plainCode
+            <CodeText
+               code={`$ ${command}`}
+               lang="console"
                className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE, code && "border-b")}
-            >
-               {"````console\n$ " + command + "\n````"}
-            </Markdown>
+            />
          )}
          {code && (
-            <Markdown plainCode className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE)}>
-               {"````" + (lang ?? "") + "\n" + shown + "\n````"}
-            </Markdown>
+            <CodeText
+               code={shown}
+               lang={lang}
+               className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE)}
+            />
          )}
          {folded && (
             <button
@@ -62,6 +64,29 @@ export function CodeFrame({
             </button>
          )}
       </Frame>
+   );
+}
+
+/**
+ * The code, highlighted, as the chat's code blocks show it. It does not go through Markdown (as a fence),
+ * so a line of backticks in the code cannot end it early. `ansi` is terminal output with color codes.
+ */
+function CodeText({ code, lang, className }: { code: string; lang?: string; className?: string }) {
+   return (
+      <div className={cn("typeset typeset-chat", className)}>
+         <pre className="chat-wide">
+            {lang === "ansi" ? (
+               <code>
+                  <AnsiText text={code} />
+               </code>
+            ) : (
+               <code className={lang ? `hljs language-${lang}` : undefined}>
+                  <Highlighted lang={lang} text={code} />
+                  {"\n"}
+               </code>
+            )}
+         </pre>
+      </div>
    );
 }
 

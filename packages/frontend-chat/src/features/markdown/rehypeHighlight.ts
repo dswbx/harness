@@ -1,4 +1,4 @@
-import { lowlight } from "./lowlight";
+import { highlight, isLanguage } from "./highlight";
 
 type Node = {
    type: string;
@@ -31,7 +31,7 @@ function languageOf(node: Node): string | false | undefined {
 
 /**
  * Rehype plugin: highlight.js tokens for code blocks (`pre > code`) that name a language, through the shared
- * `lowlight`. The same result as `rehype-highlight` with `detect: false`, without a new instance per render.
+ * highlighter (`highlight.ts`). The same result as `rehype-highlight` with `detect: false`, without a new instance per render.
  * `plainText`: languages left as they are (they have their own renderer).
  */
 export function rehypeHighlightBlocks({ plainText = [] }: { plainText?: string[] } = {}) {
@@ -45,9 +45,9 @@ export function rehypeHighlightBlocks({ plainText = [] }: { plainText?: string[]
                : [];
             node.properties = { ...node.properties, className };
             if (!className.includes("hljs")) className.unshift("hljs");
-            if (!lowlight.registered(lang)) return;
-            const result = lowlight.highlight(lang, textOf(node));
-            if (result.children.length > 0) node.children = result.children as Node[];
+            if (!isLanguage(lang)) return;
+            const result = highlight(textOf(node), lang);
+            if (result && result.children.length > 0) node.children = result.children as Node[];
             return;
          }
          for (const c of node.children ?? []) walk(c, node);

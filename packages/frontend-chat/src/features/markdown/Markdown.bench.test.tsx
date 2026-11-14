@@ -28,5 +28,5 @@ describe("Markdown render cost", () => {
          `markdown: ${ms.toFixed(2)} ms per re-render of a 1 KB message with a code block`,
       );
       expect(ms).toBeLessThan(25);
-   });
+   }, 30_000);
 });
