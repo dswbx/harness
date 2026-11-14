@@ -53,16 +53,17 @@ impl Harness {
         Ok(CommandResult::McpServers { servers: self.shared.library.list() })
     }
 
-    pub(in crate::host) fn cmd_save_mcp_server(
+    pub(in crate::host) async fn cmd_save_mcp_server(
         &self,
         server: McpServerDef,
         secrets: std::collections::BTreeMap<String, String>,
     ) -> anyhow::Result<CommandResult> {
-        Ok(CommandResult::McpServerSaved { server: self.shared.library.save(server, secrets)? })
+        let server = self.shared.library_blocking(move |lib| lib.save(server, secrets)).await??;
+        Ok(CommandResult::McpServerSaved { server })
     }
 
-    pub(in crate::host) fn cmd_remove_mcp_server(&self, server_id: String) -> anyhow::Result<CommandResult> {
-        self.shared.library.remove(&server_id)?;
+    pub(in crate::host) async fn cmd_remove_mcp_server(&self, server_id: String) -> anyhow::Result<CommandResult> {
+        self.shared.library_blocking(move |lib| lib.remove(&server_id)).await??;
         Ok(CommandResult::Ok)
     }
 

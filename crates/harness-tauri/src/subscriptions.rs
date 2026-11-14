@@ -24,6 +24,27 @@ pub struct Subscriptions {
     terminals_by_webview: Mutex<HashMap<String, Vec<TerminalAttach>>>,
 }
 
+/// What a webview held, still to be released in the core (which may block on a log lock).
+pub struct Dropped {
+    sessions: Vec<(String, u64)>,
+    app: Vec<u64>,
+    terminals: Vec<TerminalAttach>,
+}
+
+impl Dropped {
+    pub fn release(self, harness: &Harness) {
+        for (session_id, id) in self.sessions {
+            harness.unsubscribe_session(&session_id, id);
+        }
+        for id in self.app {
+            harness.unsubscribe_app(id);
+        }
+        for (session_id, terminal_id, id) in self.terminals {
+            harness.terminal_detach(&session_id, terminal_id, id);
+        }
+    }
+}
+
 impl Subscriptions {
     /// Subscribes the webview to a Session Log.
     pub fn subscribe(&self, harness: &Harness, label: &str, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<u64, String> {
@@ -70,18 +91,19 @@ impl Subscriptions {
         }
     }
 
-    /// Drops every subscription of the webview: it reloaded or its window is gone.
-    pub fn drop_webview(&self, harness: &Harness, label: &str) {
-        let subs = self.by_webview.lock().remove(label).unwrap_or_default();
-        for (session_id, id) in subs {
-            harness.unsubscribe_session(&session_id, id);
+    /// Forgets every subscription of the webview: it reloaded or its window is gone. Cheap (maps
+    /// only), so it runs on the main thread; `Dropped::release` does the core's part.
+    pub fn take_webview(&self, label: &str) -> Dropped {
+        Dropped {
+            sessions: self.by_webview.lock().remove(label).unwrap_or_default(),
+            app: self.app_by_webview.lock().remove(label).unwrap_or_default(),
+            terminals: self.terminals_by_webview.lock().remove(label).unwrap_or_default(),
         }
-        for id in self.app_by_webview.lock().remove(label).unwrap_or_default() {
-            harness.unsubscribe_app(id);
-        }
-        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().remove(label).unwrap_or_default() {
-            harness.terminal_detach(&session_id, terminal_id, id);
-        }
+    }
+
+    #[cfg(test)]
+    fn drop_webview(&self, harness: &Harness, label: &str) {
+        self.take_webview(label).release(harness);
     }
 
     /// How many subscriptions the webview holds: (Session Logs, app, Terminals).

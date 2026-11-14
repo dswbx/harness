@@ -259,7 +259,7 @@ impl AgentSlot {
         Ok(())
     }
 
-    pub fn resolve_permission(&self, session: &Session, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
+    pub async fn resolve_permission(&self, session: &Arc<Session>, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
         // First answer wins: later answers find nothing pending.
         let mut pending = None;
         self.update(session, |s| pending = s.pending.remove(request_id));
@@ -280,7 +280,7 @@ impl AgentSlot {
             let rule = session.policy().add(rule)?;
             session.log().append(None, EventKind::PermissionRuleAdded { rule })?;
         }
-        session.log().sync()?;
+        session.sync_log().await?;
         // Answer last so the Agent's follow-up lands after the resolution in the log.
         pending.responder.send(option_id)?;
         Ok(())
@@ -566,7 +566,7 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
     };
     if current || on_purpose {
         session.log().append_or_report(None, EventKind::AgentProcessState { state, message });
-        let _ = session.log().sync();
+        session.sync_log_detached();
     }
 }
 

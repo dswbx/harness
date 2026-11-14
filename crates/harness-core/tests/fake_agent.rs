@@ -1571,3 +1571,94 @@ async fn usage_update_carries_typed_numbers() {
     });
     assert_eq!(usage, Some((Some(1200), Some(200000))));
 }
+
+// ---------- blocking work stays off the async workers ----------
+
+/// Whether the Session Log file on disk holds a `type` Event.
+fn on_disk(dir: &std::path::Path, sid: &str, kind: &str) -> bool {
+    let text = std::fs::read_to_string(dir.join("data").join("sessions").join(sid).join("log.jsonl")).unwrap_or_default();
+    text.lines().any(|l| l.contains(&format!("\"type\":\"{kind}\"")))
+}
+
+/// A Policy `Allow` answers the Agent only after the request and its resolution are on disk: the
+/// Agent's next update (the tool call's end) is seen only after that.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_policy_answered_permission_is_durable_before_the_agent_hears_it() {
+    let (h, sid, dir) = setup().await;
+    h.execute(rule(RuleScope::Global, "echo", Decision::Allow)).await.unwrap();
+    let seen = Arc::new(Mutex::new(None));
+    let (s, base, id) = (seen.clone(), dir.path().to_owned(), sid.clone());
+    h.subscribe_session(
+        &sid,
+        0,
+        Box::new(move |e: &Event| {
+            if matches!(e.kind, EventKind::ToolCallUpdate { status: Some(_), .. }) {
+                *s.lock().unwrap() = Some(on_disk(&base, &id, "PermissionResolved"));
+            }
+            true
+        }),
+    )
+    .unwrap();
+    turn(&h, &sid, None, "needs permission").await;
+    wait_until("the tool call to end", Duration::from_secs(5), || seen.lock().unwrap().is_some()).await;
+    assert_eq!(*seen.lock().unwrap(), Some(true), "the resolution was not on disk when the Agent moved on");
+}
+
+/// A View's answer returns (and the Agent is answered) only once the resolution is on disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn resolving_a_permission_returns_after_it_is_durable() {
+    let (h, sid, dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("allow".into()), global: false }).await.unwrap();
+    assert!(on_disk(dir.path(), &sid, "PermissionRequested") && on_disk(dir.path(), &sid, "PermissionResolved"));
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+}
+
+/// Views subscribing from other threads while Turns stream each get every `seq` from their start
+/// exactly once, in order: no gap and no duplicate at the replay-to-live hand-over.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscribing_during_streaming_turns_sees_every_seq_once() {
+    let (h, sid, _dir) = setup().await;
+    type Seqs = Arc<Mutex<Vec<u64>>>;
+    let views: Arc<Mutex<Vec<Seqs>>> = Default::default();
+    let spawner = {
+        let (h, sid, views) = (h.clone(), sid.clone(), views.clone());
+        tokio::spawn(async move {
+            for i in 0..30u64 {
+                let seqs: Arc<Mutex<Vec<u64>>> = Default::default();
+                let (s, hh, id) = (seqs.clone(), h.clone(), sid.clone());
+                let from = if i % 3 == 0 { 0 } else { i / 2 };
+                tokio::task::spawn_blocking(move || {
+                    hh.subscribe_session(
+                        &id,
+                        from,
+                        Box::new(move |e: &Event| {
+                            s.lock().unwrap().push(e.seq);
+                            true
+                        }),
+                    )
+                    .unwrap()
+                })
+                .await
+                .unwrap();
+                views.lock().unwrap().push(seqs);
+                tokio::time::sleep(Duration::from_millis(7)).await;
+            }
+        })
+    };
+    for _ in 0..8 {
+        turn(&h, &sid, None, "use a tool").await;
+    }
+    spawner.await.unwrap();
+    let last = events(&h, &sid).last().unwrap().seq;
+    let views = views.lock().unwrap().clone();
+    for view in &views {
+        wait_until("a view to catch up", Duration::from_secs(10), || view.lock().unwrap().last() == Some(&last)).await;
+        let seqs = view.lock().unwrap().clone();
+        let start = seqs[0];
+        assert!(seqs.iter().copied().eq(start..=last), "view from {start} saw {seqs:?}");
+    }
+}

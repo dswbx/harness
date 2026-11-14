@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::Session;
-use super::meta::{BranchPrMeta, PrStatusMeta, SessionMeta, write_meta};
+use super::meta::{BranchPrMeta, PrStatusMeta, SessionMeta};
 use super::shared::Shared;
 use crate::api::{EventKind, GitActor};
 
@@ -16,21 +16,24 @@ pub(super) fn shown_pr(pr: Option<u32>, branch_pr: Option<&BranchPrMeta>, head: 
 /// Owned handle on what finding a Session's branch PR needs, so a spawned task can use it.
 #[derive(Clone)]
 pub struct PrWatch {
-    dir: PathBuf,
     meta: Arc<parking_lot::Mutex<SessionMeta>>,
+    disk: Arc<super::meta::MetaDisk>,
     shared: Arc<Shared>,
 }
 
 impl PrWatch {
     /// Stores the PR of a branch; tells the windows when it changed.
     fn set(&self, branch_pr: Option<BranchPrMeta>) {
-        {
+        let stored = {
             let mut m = self.meta.lock();
             if m.workspace.branch_pr == branch_pr {
                 return;
             }
             m.workspace.branch_pr = branch_pr;
-            let _ = write_meta(&self.dir, &m);
+            self.disk.snapshot(&m)
+        };
+        if let Ok((bytes, version)) = stored {
+            let _ = self.disk.write(&bytes, version);
         }
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
     }
@@ -38,13 +41,16 @@ impl PrWatch {
     /// Stores the state and checks of one of the Session's PRs; tells the windows when they changed.
     pub fn note(&self, pr: &crate::api::PrInfo) {
         let status = Some(PrStatusMeta { number: pr.number, state: pr.state, checks: pr.checks });
-        {
+        let stored = {
             let mut m = self.meta.lock();
             if m.workspace.pr_status == status {
                 return;
             }
             m.workspace.pr_status = status;
-            let _ = write_meta(&self.dir, &m);
+            self.disk.snapshot(&m)
+        };
+        if let Ok((bytes, version)) = stored {
+            let _ = self.disk.write(&bytes, version);
         }
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
     }
@@ -191,7 +197,7 @@ impl Session {
         Ok(branch)
     }
 
-    pub async fn archive(&self) -> anyhow::Result<()> {
+    pub async fn archive(self: &Arc<Self>) -> anyhow::Result<()> {
         if self.meta().archived {
             return Err(crate::error::conflict("already archived"));
         }
@@ -205,10 +211,10 @@ impl Session {
         self.update_meta(|m| m.archived = true)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
         self.log.append(None, EventKind::SessionArchived { archived: true })?;
-        self.log.sync()
+        self.sync_log().await
     }
 
-    pub async fn unarchive(&self) -> anyhow::Result<()> {
+    pub async fn unarchive(self: &Arc<Self>) -> anyhow::Result<()> {
         if !self.meta().archived {
             return Err(crate::error::conflict("not archived"));
         }
@@ -218,7 +224,7 @@ impl Session {
         self.update_meta(|m| m.archived = false)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
         self.log.append(None, EventKind::SessionArchived { archived: false })?;
-        self.log.sync()
+        self.sync_log().await
     }
 
     /// Removes the Worktree and its branch; the caller removes the Session Directory.
@@ -246,7 +252,7 @@ impl Session {
     }
 
     pub fn pr_watch(&self) -> PrWatch {
-        PrWatch { dir: self.dir.clone(), meta: self.meta.clone(), shared: self.shared.clone() }
+        PrWatch { meta: self.meta.clone(), disk: self.meta_disk.clone(), shared: self.shared.clone() }
     }
 }
 

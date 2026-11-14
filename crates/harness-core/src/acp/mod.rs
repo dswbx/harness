@@ -145,7 +145,7 @@ pub async fn prompt(
         session.log().append_or_report(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
         let meta = session.meta();
         session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
-        let _ = session.log().sync();
+        let _ = session.sync_log().await;
     });
     Ok(())
 }
@@ -154,7 +154,7 @@ fn is_auth_required(e: &anyhow::Error) -> bool {
     e.downcast_ref::<agent_client_protocol::Error>().is_some_and(|e| e.code == agent_client_protocol::ErrorCode::AuthRequired)
 }
 
-fn report_auth_required(session: &Session, thread: Option<&ThreadId>, message: &str) {
+fn report_auth_required(session: &Arc<Session>, thread: Option<&ThreadId>, message: &str) {
     let methods = session
         .agent_slot()
         .state
@@ -169,7 +169,7 @@ fn report_auth_required(session: &Session, thread: Option<&ThreadId>, message: &
         })
         .collect();
     session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
-    let _ = session.log().sync();
+    session.sync_log_detached();
 }
 
 fn thread_of(session: &Session, acp_session: &acp::SessionId) -> Option<ThreadId> {

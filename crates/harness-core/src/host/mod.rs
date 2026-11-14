@@ -287,8 +287,8 @@ impl Harness {
             }
             Command::StartSideThread { session_id, seed, source, mode } => self.cmd_start_side_thread(session_id, seed, source, mode).await,
             Command::ListMcpServers => self.cmd_list_mcp_servers(),
-            Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets),
-            Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id),
+            Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets).await,
+            Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id).await,
             Command::FrontendRead { session_id, path } => self.cmd_frontend_read(session_id, path),
             Command::PanelSourceRead { session_id, name } => self.cmd_panel_source_read(session_id, name).await,
             Command::GetAppSetting { key } => self.cmd_get_app_setting(key),
@@ -333,7 +333,9 @@ impl Harness {
             Command::GitShowFile { session_id, rev, path } => self.cmd_git_show_file(session_id, rev, path).await,
             Command::GitCommit { session_id, message } => self.cmd_git_commit(session_id, message).await,
             Command::GitPush { session_id } => self.cmd_git_push(session_id).await,
-            Command::ResolvePermission { session_id, request_id, option_id, global } => self.cmd_resolve_permission(session_id, request_id, option_id, global),
+            Command::ResolvePermission { session_id, request_id, option_id, global } => {
+                self.cmd_resolve_permission(session_id, request_id, option_id, global).await
+            }
             Command::ListPermissionRules => self.cmd_list_permission_rules(),
             Command::AddPermissionRule { rule } => self.cmd_add_permission_rule(rule),
             Command::RemovePermissionRule { rule_id } => self.cmd_remove_permission_rule(rule_id),

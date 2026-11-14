@@ -32,6 +32,8 @@ use workspace::shown_pr;
 pub struct Session {
     dir: PathBuf,
     meta: Arc<parking_lot::Mutex<SessionMeta>>,
+    /// Writes `session.json` for `meta`, outside its lock and in version order.
+    meta_disk: Arc<meta::MetaDisk>,
     log: SessionLog,
     agent: crate::acp::AgentSlot,
     shared: Arc<Shared>,
@@ -135,6 +137,7 @@ impl Session {
         Self {
             dir: dir.to_owned(),
             meta: Arc::new(parking_lot::Mutex::new(meta)),
+            meta_disk: Arc::new(meta::MetaDisk::new(dir)),
             log,
             agent: Default::default(),
             shared,
@@ -149,6 +152,10 @@ impl Session {
     }
 
     pub fn shared(&self) -> &Shared {
+        &self.shared
+    }
+
+    pub(crate) fn shared_arc(&self) -> &Arc<Shared> {
         &self.shared
     }
 
@@ -195,6 +202,31 @@ impl Session {
 
     pub fn log(&self) -> &SessionLog {
         &self.log
+    }
+
+    /// Makes the log durable (`SessionLog::sync`) without blocking the caller's runtime thread: the
+    /// writer thread fsyncs, the wait and the checkpoint write run on the blocking pool. Without a
+    /// runtime (plain threads, tests) it syncs inline.
+    pub async fn sync_log(self: &Arc<Self>) -> anyhow::Result<()> {
+        let session = self.clone();
+        tokio::task::spawn_blocking(move || session.log.sync()).await.map_err(|e| anyhow::anyhow!("log sync task: {e}"))?
+    }
+
+    /// `sync_log` for callers that do not wait for it (a failure is logged, like a degraded log).
+    pub fn sync_log_detached(self: &Arc<Self>) {
+        let session = self.clone();
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn_blocking(move || {
+                    if let Err(e) = session.log.sync() {
+                        tracing::debug!("log sync: {e:#}");
+                    }
+                });
+            }
+            Err(_) => {
+                let _ = session.log.sync();
+            }
+        }
     }
 
     pub fn meta(&self) -> SessionMeta {
@@ -382,8 +414,8 @@ impl Session {
         self.agent.cancel(self, &thread).await
     }
 
-    pub fn resolve_permission(&self, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
-        self.agent.resolve_permission(self, request_id, option_id, global)
+    pub async fn resolve_permission(self: &Arc<Self>, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
+        self.agent.resolve_permission(self, request_id, option_id, global).await
     }
 
     pub async fn set_config_option(self: &Arc<Self>, thread_id: Option<ThreadId>, config_id: String, value: String) -> anyhow::Result<()> {

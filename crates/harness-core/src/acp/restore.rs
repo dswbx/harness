@@ -15,6 +15,7 @@ use crate::session::Session;
 /// Session's MCP Library servers.
 pub(super) async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread: &ThreadId) -> anyhow::Result<Vec<acp::McpServer>> {
     let shared = session.shared();
+    let shared_arc = session.shared_arc().clone();
     let http_ok = conn.init.agent_capabilities.mcp_capabilities.http;
     let url = shared.mcp.url().await?;
     let token = shared.mcp.issue(session, thread);
@@ -28,8 +29,9 @@ pub(super) async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread
                 .env(vec![acp::EnvVariable::new("HARNESS_MCP_URL", url), acp::EnvVariable::new("HARNESS_MCP_TOKEN", token)]),
         ));
     }
-    for id in session.meta().mcp_servers {
-        let def = shared.library.resolve(&id)?;
+    let ids = session.meta().mcp_servers;
+    let defs = shared_arc.library_blocking(move |lib| ids.iter().map(|id| lib.resolve(id)).collect::<anyhow::Result<Vec<_>>>()).await??;
+    for def in defs {
         match def.transport {
             crate::api::McpTransport::Stdio { command, args, env } => {
                 let mut env: Vec<acp::EnvVariable> = env.into_iter().map(|(k, v)| acp::EnvVariable::new(k, v)).collect();
@@ -196,7 +198,7 @@ pub async fn continue_with_summary(session: Arc<Session>, thread: ThreadId) -> a
     session.update_meta(|m| {
         m.seeds.insert(thread.clone(), summary);
     })?;
-    session.log().sync()?;
+    session.sync_log().await?;
     Ok(())
 }
 
@@ -270,7 +272,7 @@ pub(super) async fn continue_previous(
     }
     let transcript = Some(crate::summary::transcript_size(&session.log().events()?, thread));
     session.log().append(Some(thread.clone()), EventKind::ThreadReadOnly { reason: NOT_RESTORED.to_owned(), retryable, errors, transcript })?;
-    session.log().sync()?;
+    session.sync_log().await?;
     Ok(None)
 }
 
