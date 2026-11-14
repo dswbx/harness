@@ -11,6 +11,8 @@ import {
    importViolation,
    layerViolation,
    leaks,
+   PORTABLE_FILES,
+   portableViolation,
    uiViolation,
 } from "./boundaries";
 
@@ -34,12 +36,6 @@ const LAYER_ALLOWED: Record<string, string> = {};
 const APP_ALLOWED: Record<string, string> = {
    "app/src/mock/events.ts":
       "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
-   "app/src/shell/Shell.tsx":
-      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/settings/SettingsDialog.tsx":
-      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/appearance/AppearancePanel.tsx":
-      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
 };
 
 let bad = 0;
@@ -88,6 +84,17 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
          console.error(
             `${file}:${line}: ${why}; use the typed Event fields or an @harness/api helper`,
          );
+         bad++;
+      }
+   }
+}
+
+// Pure chat modules meant to move to @harness/api later stay React-free and state-free.
+for (const f of PORTABLE_FILES) {
+   for (const spec of importSpecs(readFileSync(resolve("packages/frontend-chat/src", f), "utf8"))) {
+      const why = portableViolation(f, spec);
+      if (why) {
+         console.error(`${f}: forbidden import "${spec}": ${why}`);
          bad++;
       }
    }

@@ -21,6 +21,13 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
         let st = &mut *st;
         crate::tool_facts::fill_detail(&st.tool_calls, &mut st.tool_sent, &update, &mut kind);
     }
+    if let EventKind::ModeChanged { mode_id, .. } = &kind {
+        // No mode in the update: nothing to record.
+        if mode_id.is_empty() {
+            return;
+        }
+        kind = super::restore::named_mode_changed(session, mode_id.clone());
+    }
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
         session.set_agent_title(thread.as_ref(), t);
     }
@@ -134,7 +141,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 })
                 .unwrap_or_default(),
         },
-        Some("current_mode_update") => EventKind::ModeChanged { mode_id: s("currentModeId").unwrap_or_default() },
+        Some("current_mode_update") => EventKind::mode_changed(s("currentModeId").unwrap_or_default(), None),
         Some("config_option_update") => EventKind::config_options(u.get("configOptions").cloned().unwrap_or(Value::Null)),
         Some("available_commands_update") => EventKind::AvailableCommandsChanged {
             commands: u
@@ -151,7 +158,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 })
                 .unwrap_or_default(),
         },
-        Some("usage_update") => EventKind::UsageUpdated { usage: u.clone() },
+        Some("usage_update") => EventKind::usage_updated(u.clone()),
         Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title") },
         _ => EventKind::AgentUpdate { update: u.clone() },
     }
@@ -251,7 +258,7 @@ mod tests {
     #[test]
     fn mode_and_config_updates() {
         let u = json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" });
-        assert!(matches!(normalize(&u), EventKind::ModeChanged { mode_id } if mode_id == "plan"));
+        assert!(matches!(normalize(&u), EventKind::ModeChanged { mode_id, mode: Some(m) } if mode_id == "plan" && m.plan));
         let options = json!([{ "id": "model", "currentValue": "a", "options": [] }]);
         let u = json!({ "sessionUpdate": "config_option_update", "configOptions": options });
         assert!(matches!(normalize(&u), EventKind::ConfigOptionsChanged { options: o, .. } if o == options));

@@ -1,4 +1,4 @@
-import { type AgentInfo, type Branches, HarnessClient } from "@harness/api";
+import { type AgentInfo, type Branches, HarnessClient, type SessionSummary } from "@harness/api";
 import { MockTransport } from "@harness/api/mock";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -34,6 +34,7 @@ describe("useComposerCatalog", () => {
                isOpen: p.isOpen,
                agentsVersion: 0,
                mcpVersion: 0,
+               sessions: [],
                setError,
             }),
          { initialProps: { isOpen: false } },
@@ -47,6 +48,56 @@ describe("useComposerCatalog", () => {
       expect(setError).not.toHaveBeenCalled();
    });
 
+   it("keeps the picked Agent on reload, and falls to the first when it disappears", async () => {
+      const client = mk();
+      const list = vi.spyOn(client, "listAgents");
+      const hook = renderHook(
+         (p: { v: number }) =>
+            useComposerCatalog({
+               client,
+               isOpen: true,
+               agentsVersion: p.v,
+               mcpVersion: 0,
+               sessions: [],
+               setError: vi.fn(),
+            }),
+         { initialProps: { v: 0 } },
+      );
+      await waitFor(() => expect(hook.result.current.agentId).toBe("a1"));
+      act(() => hook.result.current.setAgentId("a2"));
+      hook.rerender({ v: 1 });
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+      expect(hook.result.current.agentId).toBe("a2");
+      list.mockResolvedValue([agent("a1")]);
+      hook.rerender({ v: 2 });
+      await waitFor(() => expect(hook.result.current.agentId).toBe("a1"));
+   });
+
+   it("preselects the newest Session's Agent, the picked one wins on reload", async () => {
+      const client = mk();
+      const sessions = [
+         { id: "s1", agent_id: "a1", created_ms: 1 },
+         { id: "s2", agent_id: "a2", created_ms: 2 },
+      ] as unknown as SessionSummary[];
+      const hook = renderHook(
+         (p: { v: number }) =>
+            useComposerCatalog({
+               client,
+               isOpen: true,
+               agentsVersion: p.v,
+               mcpVersion: 0,
+               sessions,
+               setError: vi.fn(),
+            }),
+         { initialProps: { v: 0 } },
+      );
+      await waitFor(() => expect(hook.result.current.agentId).toBe("a2"));
+      act(() => hook.result.current.setAgentId("a1"));
+      hook.rerender({ v: 1 });
+      await waitFor(() => expect(client.listAgents).toHaveBeenCalledTimes(2));
+      expect(hook.result.current.agentId).toBe("a1");
+   });
+
    it("drops picked MCP servers that no longer exist and reports a failed MCP load", async () => {
       const client = mk();
       const setError = vi.fn();
@@ -57,6 +108,7 @@ describe("useComposerCatalog", () => {
                isOpen: true,
                agentsVersion: 0,
                mcpVersion: p.v,
+               sessions: [],
                setError,
             }),
          { initialProps: { v: 0 } },
@@ -79,7 +131,14 @@ describe("useComposerCatalog", () => {
       vi.spyOn(client, "listAgents").mockRejectedValue(new Error("nope"));
       const setError = vi.fn();
       renderHook(() =>
-         useComposerCatalog({ client, isOpen: true, agentsVersion: 0, mcpVersion: 0, setError }),
+         useComposerCatalog({
+            client,
+            isOpen: true,
+            agentsVersion: 0,
+            mcpVersion: 0,
+            sessions: [],
+            setError,
+         }),
       );
       await waitFor(() => expect(setError).toHaveBeenCalledWith(expect.stringContaining("nope")));
    });

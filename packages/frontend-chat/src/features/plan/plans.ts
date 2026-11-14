@@ -1,4 +1,4 @@
-import type { PermissionOption } from "@harness/api";
+import { findModeOption, type PermissionOption } from "@harness/api";
 import type { ConfigOption } from "../../state/reducer";
 import { diffLines } from "../changes/diff";
 
@@ -13,14 +13,22 @@ export function planStats(prev: string, next: string): { add: number; del: numbe
    return { add, del };
 }
 
-/** The config option that holds the Agent's mode (Claude `mode`; Codex `mode`, its approval preset). */
-export const modeOption = (options: ConfigOption[]) =>
-   options.find((o) => o.category === "mode") ?? null;
+/** The config option that holds the Agent's mode (the core's rule, `findModeOption`). */
+export const modeOption = (options: ConfigOption[]) => findModeOption(options) ?? null;
 
-/** The name of a mode value ("acceptEdits" -> "Accept Edits"), or the value itself when it is unknown. */
-export function modeName(options: ConfigOption[], value: string | null | undefined): string | null {
+/**
+ * The name of a mode value ("acceptEdits" -> "Accept Edits"): the mode option's, else the name the
+ * core reported for it (`ChatState.modeNames`, for Agents with legacy modes), else the value itself.
+ */
+export function modeName(
+   options: ConfigOption[],
+   value: string | null | undefined,
+   names?: Record<string, string>,
+): string | null {
    if (!value) return null;
-   return modeOption(options)?.options.find((o) => o.value === value)?.name ?? value;
+   return (
+      modeOption(options)?.options.find((o) => o.value === value)?.name ?? names?.[value] ?? value
+   );
 }
 
 const isAllow = (o: PermissionOption) => o.kind.startsWith("allow");

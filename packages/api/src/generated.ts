@@ -20,7 +20,9 @@ export type AgentSource = { type: "registry"; registry_id: string } | { type: "c
 /**  Harness-wide notifications (session list, attention), separate from Session Logs. */
 export type AppEvent = 
 /**  Sessions were created, deleted, archived or unarchived: reload the list. */
-{ type: "SessionsChanged" } | { type: "SessionStatus"; session_id: string; title: string; status: SessionStatus } | 
+{ type: "SessionsChanged" } | { type: "SessionStatus"; session_id: string; title: string; status: SessionStatus; 
+/**  As `SessionSummary::unused`. */
+unused: boolean } | 
 /**  A Turn ended (`stop_reason` as in `TurnEnded`). */
 { type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string } | 
 /**  Agents were installed, updated or removed. */
@@ -562,14 +564,28 @@ detail?: ToolDetail | null } |
  *  Appended by the Harness when a background job's output file is no longer open by any
  *  process: the job ended (see `ToolCallUpdate.background_job`).
  */
-{ type: "BackgroundJobEnded"; job_id: string } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
+{ type: "BackgroundJobEnded"; job_id: string } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string; 
+/**
+ *  The mode as `ConfigOptionsChanged.mode` reports it (the name when core knows it).
+ *  Absent in older logs.
+ */
+mode?: ModeInfo | null } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown; 
 /**
  *  The mode option's value a new Side Thread starts in by default (the one that asks
  *  before writes), so Views can show it before the Side Thread exists.
  */
-side_mode?: string | null } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
+side_mode?: string | null; 
+/**
+ *  The Agent's current mode (the mode option's value, `log.rs` rule). Absent when the
+ *  options carry none, and in older logs.
+ */
+mode?: ModeInfo | null } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown; 
+/**  Tokens in the context window, when the update carries it. Absent in older logs. */
+used?: number | null; 
+/**  The context window size in tokens (see `used`). */
+size?: number | null } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
 /**  The Harness MCP tool the request is for, when it is one. */
 harness_tool?: string | null; 
 /**  The request approves a plan (Plan Mode): Markdown. */
@@ -577,7 +593,12 @@ plan?: string | null;
 /**  `git_commit`: the commit message. */
 commit_message?: string | null; 
 /**  The request is for a Frontend Tool: its name. */
-frontend_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
+frontend_tool?: string | null; 
+/**
+ *  A plan request: the newest mode of the Thread that is not the plan mode, the one to
+ *  switch back to when the plan is approved.
+ */
+mode_before?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */
 rule_id?: string | null } | 
 /**  The user's "always" answer was remembered as a Session-scoped rule. */
@@ -740,6 +761,15 @@ export type McpTool = {
 };
 
 export type McpTransport = { type: "stdio"; command: string; args?: string[]; env?: { [key in string]: string } } | { type: "http"; url: string; headers?: { [key in string]: string } };
+
+/**  An Agent mode (a value of its mode option, or a legacy session mode). */
+export type ModeInfo = {
+	id: string,
+	/**  The name the Agent shows for it, when known. */
+	name?: string | null,
+	/**  This is the Agent's plan mode (`agent_quirks::is_plan_mode`): Views never compare mode ids or names. */
+	plan?: boolean,
+};
 
 export type NewPermissionRule = {
 	scope: RuleScope,
@@ -930,6 +960,8 @@ export type SessionSummary = {
 	archived: boolean,
 	/**  A Quick Session: `folder` is a folder the Harness made for it. */
 	quick: boolean,
+	/**  A Quick Session nobody has prompted yet (the overlay's draft, a fresh one from the +). False once a prompt was sent on any Thread, whatever the title; false for other Sessions. */
+	unused: boolean,
 	workspace: WorkspaceInfo,
 	/**  A Sub Session: the Session whose Agent started it (`session_start`). */
 	parent?: SessionParent | null,

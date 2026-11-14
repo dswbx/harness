@@ -7,28 +7,18 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use harness_core::Harness;
-use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, Lagged, SessionMessage, SessionStatus};
+use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, HarnessError, Lagged, SessionMessage, SessionStatus};
 use harness_core::terminal::TerminalOutput;
 use subscriptions::Subscriptions;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
 mod context;
+pub mod host_types;
 mod links;
 mod overlay;
 mod subscriptions;
 mod updates;
-
-/// Frontend Manifests of the built-in Frontends, registered with core at boot.
-const MANIFESTS: &[&str] = &[include_str!("../../../packages/frontend-chat/manifest.json"), include_str!("../../../packages/frontend-inspector/manifest.json")];
-
-/// `$HARNESS_HOME`, else `~/.harness` (`~/.harness-dev` for dev builds, so they never touch real data).
-fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
-    match std::env::var_os("HARNESS_HOME") {
-        Some(dir) if !dir.is_empty() => dir.into(),
-        _ => home.join(if cfg!(debug_assertions) { ".harness-dev" } else { ".harness" }),
-    }
-}
 
 /// Sets the color behind the webview, which replaces its default white until the page paints.
 /// `show` puts the window, which starts hidden, on screen after the color is set, still fully
@@ -191,7 +181,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
             }
             return true;
         }
-        let AppEvent::SessionStatus { session_id, title, status } = e else { return true };
+        let AppEvent::SessionStatus { session_id, title, status, .. } = e else { return true };
         let count = {
             let mut w = waiting.lock();
             let newly = *status == SessionStatus::NeedsAttention && w.insert(session_id.clone());
@@ -266,12 +256,12 @@ pub fn run() {
         .manage(Subscriptions::default())
         .manage(updates::Updates::default())
         .setup(|app| {
-            let data_dir = data_dir(app.path().home_dir()?);
+            let data_dir = harness_core::host::default_data_dir(app.path().home_dir()?, std::env::var_os("HARNESS_HOME"), cfg!(debug_assertions));
             let exe = std::env::current_exe()?.display().to_string();
             let options = harness_core::host::Options { mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])), ..Default::default() };
             let harness = Harness::with_options(data_dir, Vec::new(), options)?;
-            for raw in MANIFESTS {
-                harness.register_frontend(serde_json::from_str::<FrontendManifest>(raw)?);
+            for manifest in harness_core::host::builtin_frontends() {
+                harness.register_frontend(manifest);
             }
             watch_attention(app.handle(), &harness);
             overlay::init(app.handle(), &harness);

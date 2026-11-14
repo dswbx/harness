@@ -1576,9 +1576,13 @@
                "type": "notice"
             }
          ],
-         "lastMode": "acceptEdits",
+         "lastMode": null,
          "lastTurnErrored": false,
          "mainThreadId": "golden-thread-main",
+         "modeNames": {
+            "acceptEdits": "Accept edits",
+            "plan": "Plan"
+         },
          "plans": [
             {
                "clearsContext": false,
@@ -1620,7 +1624,10 @@
          "turnId": null,
          "turnStartedAt": null,
          "uiState": {},
-         "usage": null
+         "usage": {
+            "size": 200000,
+            "used": 1200
+         }
       },
       "shared-artifacts.jsonl": {
          "archived": false,
@@ -1778,15 +1785,15 @@
       },
       "recent-fields.jsonl": {
          "1": {
-            "final": "8eb2cc013a30da8e1f30e655",
+            "final": "06e2f9ac25e473cf6ac9916d",
             "at": {}
          },
          "7": {
-            "final": "8eb2cc013a30da8e1f30e655",
+            "final": "06e2f9ac25e473cf6ac9916d",
             "at": {}
          },
          "all": {
-            "final": "8eb2cc013a30da8e1f30e655",
+            "final": "06e2f9ac25e473cf6ac9916d",
             "at": {}
          }
       },

@@ -91,7 +91,7 @@ const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    ArtifactStateChanged: NONE,
    AgentUpdate: NONE,
    FrontendError: NONE,
-   ModeChanged: NONE,
+   ModeChanged: [configSlice],
    SessionCreated: NONE,
    SessionStatusChanged: NONE,
    Unknown: NONE,

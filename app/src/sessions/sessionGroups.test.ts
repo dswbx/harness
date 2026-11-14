@@ -158,14 +158,27 @@ describe("Quick Sessions", () => {
 });
 
 describe("hideUnusedQuick", () => {
-   const draft = s("draft", "/q/draft", 0, 0, { quick: true, title: "New Quick Session" });
+   const draft = s("draft", "/q/draft", 0, 0, { quick: true, unused: true });
+   // A title given in the Composer does not make it used.
+   const titled = s("titled", "/q/titled", 0, 0, { quick: true, unused: true, title: "Mine" });
    const used = s("used", "/q/used", 1, 1, { quick: true, title: "Convert a CSV" });
+   // The default title alone says nothing: a used Session may still have it.
    const named = s("named", "/p/x", 1, 1, { title: "New Quick Session" });
-   const l = [draft, used, named, ...list];
-   it("hides Quick Sessions nobody wrote in yet (the overlay's draft)", () =>
-      expect(ids(hideUnusedQuick(l, null))).toEqual(["used", "named", "a", "b", "c", "d"]));
+   const usedDefault = s("ud", "/q/ud", 1, 1, { quick: true, title: "New Quick Session" });
+   const l = [draft, titled, used, named, usedDefault, ...list];
+   it("hides Quick Sessions nobody wrote in yet (the overlay's draft), by the core's flag", () =>
+      expect(ids(hideUnusedQuick(l, null))).toEqual(["used", "named", "ud", "a", "b", "c", "d"]));
    it("keeps the one this window has selected", () =>
-      expect(ids(hideUnusedQuick(l, "draft"))).toEqual(ids(l)));
+      expect(ids(hideUnusedQuick(l, "titled"))).toEqual([
+         "titled",
+         "used",
+         "named",
+         "ud",
+         "a",
+         "b",
+         "c",
+         "d",
+      ]));
 });
 
 describe("Sub Sessions", () => {

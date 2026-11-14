@@ -63,12 +63,13 @@ export const sessionsHandlers = {
    CreateQuickSession: (mock, cmd) => {
       const id = `mock-${++mock.n + 1}`;
       mock.addQuickSession(id, cmd.title ?? "New Quick Session", cmd.frontend_id);
-      mock.unusedQuick.add(id);
+      mock.session(id).unused = true;
       mock.emitApp({ type: "SessionsChanged" });
       return { type: "SessionCreated", session_id: id };
    },
    DiscardEmptySession: (mock, cmd) => {
-      if (mock.unusedQuick.delete(cmd.session_id)) {
+      // Unknown Session: nothing to do, like the core.
+      if (mock.sessions.find((x) => x.id === cmd.session_id)?.unused) {
          mock.sessions = mock.sessions.filter((x) => x.id !== cmd.session_id);
          mock.emitApp({ type: "SessionsChanged" });
       }

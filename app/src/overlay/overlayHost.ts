@@ -1,7 +1,7 @@
 import type { OverlaySettings } from "@harness/api";
 import { inTauri } from "@harness/api";
+import type { Anchor, OverlayStatus as HostStatus, WindowContext } from "../platform/generated";
 import type { OverlayMode } from "./overlayMode";
-import type { WindowContext } from "./windowContext";
 
 /** The Quick overlay's window commands and signals (`overlay.rs`). Outside Tauri they do nothing. */
 
@@ -14,7 +14,7 @@ const run = (cmd: string, args?: Record<string, unknown>) => {
 };
 
 /** Which card edge stays in place (`overlay-shown`): top below the mouse, bottom at the screen's bottom. */
-export type OverlayAnchor = "top" | "bottom";
+export type OverlayAnchor = Anchor;
 
 export const overlayHost = {
    setMode: (mode: OverlayMode) => run("overlay_set_mode", { mode }),
@@ -77,8 +77,8 @@ export function listenHost(
 /** All fields set (the generated type has them optional: the file may miss some). */
 export type OverlayConfig = Required<OverlaySettings>;
 
-/** The overlay's settings, and why its shortcut is not registered, if it is not. */
-export type OverlayStatus = { settings: OverlayConfig; shortcut_error: string | null };
+/** The overlay's settings, and why its shortcut is not registered, if it is not. The host always sends every setting (defaults filled in), the generated type has them optional. */
+export type OverlayStatus = Omit<HostStatus, "settings"> & { settings: OverlayConfig };
 
 export const getOverlaySettings = () => invoke<OverlayStatus>("overlay_settings");
 

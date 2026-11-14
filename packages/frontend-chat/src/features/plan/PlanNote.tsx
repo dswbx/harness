@@ -14,6 +14,7 @@ type Perm = Extract<Item, { type: "permission" }>;
 export type PlanCtx = {
    plans: PlanEntry[];
    configOptions: ConfigOption[];
+   modeNames?: Record<string, string>;
    open?: (requestId: string) => void;
 };
 export const PlanContext = createContext<PlanCtx>({ plans: [], configOptions: [] });
@@ -25,9 +26,10 @@ export function approvedMeta(
    entry: PlanEntry,
    item: Perm | undefined,
    configOptions: ConfigOption[],
+   modeNames?: Record<string, string>,
 ) {
    const option = item?.options.find((o) => o.option_id === entry.optionId);
-   const mode = continuesIn(option, entry, configOptions);
+   const mode = continuesIn(option, entry, configOptions, modeNames);
    return [
       "Approved",
       `v${entry.version}`,
@@ -44,7 +46,7 @@ export function approvedMeta(
  * the mode it continued in. A version replaced by a later one: one Trace line.
  */
 export function PlanNote({ item, api }: { item: Perm; api: SessionApi }) {
-   const { plans, configOptions, open } = useContext(PlanContext);
+   const { plans, configOptions, modeNames, open } = useContext(PlanContext);
    const entry = plans.find((p) => p.requestId === item.requestId);
    const prev = entry?.prev ? plans.find((p) => p.requestId === entry.prev) : undefined;
    const next = entry ? plans.find((p) => p.prev === entry.requestId) : undefined;
@@ -85,7 +87,7 @@ export function PlanNote({ item, api }: { item: Perm; api: SessionApi }) {
    const approved = entry.status === "approved";
    const pending = entry.status === "pending" && !item.resolved;
    const meta = approved ? (
-      approvedMeta(entry, item, configOptions)
+      approvedMeta(entry, item, configOptions, modeNames)
    ) : (
       <>
          {prev ? `Plan updated to v${entry.version}` : `Plan · v${entry.version}`}
@@ -145,7 +147,13 @@ export function PlanNote({ item, api }: { item: Perm; api: SessionApi }) {
          {!onOpen && pending && (
             <div className="flex flex-col gap-3 rounded-lg bg-card p-3">
                <Markdown className="max-h-96 overflow-auto">{entry.markdown}</Markdown>
-               <PlanActions api={api} item={item} entry={entry} configOptions={configOptions} />
+               <PlanActions
+                  api={api}
+                  item={item}
+                  entry={entry}
+                  configOptions={configOptions}
+                  modeNames={modeNames}
+               />
             </div>
          )}
       </div>

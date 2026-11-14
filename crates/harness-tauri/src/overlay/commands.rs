@@ -124,7 +124,7 @@ pub fn overlay_open_privacy_settings(app: AppHandle, pane: PrivacyPane) -> Resul
 }
 
 /// The settings and why the shortcut is not registered, if it is not.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct OverlayStatus {
     settings: OverlaySettings,
     shortcut_error: Option<String>,

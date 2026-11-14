@@ -2,7 +2,6 @@ import { type AgentInfo, HarnessClient, type SessionSummary } from "@harness/api
 import { MockTransport } from "@harness/api/mock";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { QUICK_TITLE } from "../composer/composer";
 import { useQuickLifecycle } from "./useQuickLifecycle";
 
 const session = (id: string, over: Partial<SessionSummary> = {}) =>
@@ -43,7 +42,7 @@ describe("useQuickLifecycle", () => {
 
    it("startQuick stays on a Quick Session that is still unused", async () => {
       const { hook, create, props } = setup(
-         [session("q0", { quick: true, title: QUICK_TITLE })],
+         [session("q0", { quick: true, unused: true })],
          undefined,
          "q0",
       );

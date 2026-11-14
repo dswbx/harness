@@ -1,5 +1,11 @@
-import type { GitStatus, HarnessClient, PrInfo, RepoId, SessionSummary } from "@harness/api";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+   type HarnessClient,
+   type PrInfo,
+   type RepoId,
+   type SessionSummary,
+   useGitStatus,
+} from "@harness/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { watchingChecks } from "./checks";
 import type { GitRef } from "./GitRefButton";
 
@@ -10,7 +16,6 @@ import type { GitRef } from "./GitRefButton";
  * without dimming. `refresh` bypasses it too, with `refreshing` until it loaded.
  */
 export function useGitRef(client: HarnessClient, s: SessionSummary | null): GitRef {
-   const [status, setStatus] = useState<GitStatus | null>(null);
    const none = { repo: null, pr: null, base: null };
    const [gh, setGh] = useState<{ repo: RepoId | null; pr: PrInfo | null; base: string | null }>(
       none,
@@ -21,9 +26,13 @@ export function useGitRef(client: HarnessClient, s: SessionSummary | null): GitR
    const watching = watchingChecks(gh.pr);
    const id = s?.workspace.repo_root ? s.id : null;
    const sessionStatus = s?.status;
+   // The status comes from the store shared with the Changes and Files panels, which polls and reloads on
+   // focus; this reloads it after a Turn (`sessionStatus`) and for `refresh`.
+   const api = useMemo(() => (id ? client.sessionApi(id) : null), [client, id]);
+   const git = useGitStatus(api, { refreshKey: `${sessionStatus}:${version}` });
+   const status = !git.error ? git.status : null;
    useEffect(() => {
       if (!id) {
-         setStatus(null);
          setGh(none);
          setRefreshing(false);
          return;
@@ -36,10 +45,7 @@ export function useGitRef(client: HarnessClient, s: SessionSummary | null): GitR
          if (wasFresh) setRefreshing(true);
          const api = client.sessionApi(id);
          Promise.allSettled([
-            api.gitStatus().then(
-               (g) => !off && setStatus(g),
-               () => !off && setStatus(null),
-            ),
+            wasFresh ? git.refresh() : null,
             api.branchPr(wasFresh || watching || bypass).then(
                (r) => !off && setGh(r),
                () => !off && setGh(none),
@@ -62,7 +68,7 @@ export function useGitRef(client: HarnessClient, s: SessionSummary | null): GitR
          window.removeEventListener("focus", onBack);
          document.removeEventListener("visibilitychange", onBack);
       };
-   }, [client, id, sessionStatus, version, watching]);
+   }, [client, id, sessionStatus, version, watching, git.refresh]);
    const refresh = useCallback(() => {
       fresh.current = true;
       setVersion((v) => v + 1);

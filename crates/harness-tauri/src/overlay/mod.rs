@@ -75,7 +75,7 @@ const CHAT_MIN: (f64, f64) = (380.0 + 2.0 * SHADOW, 300.0 + 2.0 * SHADOW);
 
 /// Which edge of the card stays at the anchor point: the top for "at the mouse" (the window opens
 /// below the mouse and the chat grows down), the bottom for "bottom center" (it grows up).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Anchor {
     #[default]

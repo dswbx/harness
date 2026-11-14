@@ -13,7 +13,7 @@ export function applyStatus(
    const i = list.findIndex((s) => s.id === e.session_id);
    if (i < 0) return null;
    return list.map((s, n) =>
-      n === i ? { ...s, status: e.status, title: e.title, updated_ms: now } : s,
+      n === i ? { ...s, status: e.status, title: e.title, unused: e.unused, updated_ms: now } : s,
    );
 }
 

@@ -208,7 +208,7 @@ export type PlanEntry = {
    status: "pending" | "approved" | "revised" | "dismissed";
    /** The option the request was answered with. */
    optionId: string | null;
-   /** The mode the Agent was in before Plan Mode (the last mode value that was not "plan"). */
+   /** The mode to go back to after the plan: the core's `mode_before` on the request (old logs: the last non-plan mode seen, `ChatState.lastMode`). */
    modeBefore: string | null;
    /** The chosen option also cleared the context. */
    clearsContext: boolean;
@@ -241,8 +241,16 @@ export type ChatState = {
    mainThreadId: string | null;
    taskList: TaskEntry[];
    configOptions: ConfigOption[];
-   /** The last value of the mode config option that was not "plan" (the mode to go back to after a plan). */
+   /**
+    * Old logs only: the last mode announced that was not the plan mode, for plan requests without
+    * the core's `mode_before` (see `rememberMode`).
+    */
    lastMode: string | null;
+   /**
+    * Names of modes by id, from the typed `mode` of mode Events (core): for Agents with legacy
+    * modes, which have no config option to name them. Absent until one is seen.
+    */
+   modeNames?: Record<string, string>;
    /** The plans the Agent asked to approve, oldest first. */
    plans: PlanEntry[];
    /** The Agent's asking mode (core's `side_mode`): where a new Side Thread starts. Null: unknown. */

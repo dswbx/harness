@@ -52,6 +52,8 @@ pub struct SessionSummary {
     pub archived: bool,
     /// A Quick Session: `folder` is a folder the Harness made for it.
     pub quick: bool,
+    /// A Quick Session nobody has prompted yet (the overlay's draft, a fresh one from the +). False once a prompt was sent on any Thread, whatever the title; false for other Sessions.
+    pub unused: bool,
     pub workspace: WorkspaceInfo,
     /// A Sub Session: the Session whose Agent started it (`session_start`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

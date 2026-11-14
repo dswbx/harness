@@ -1,10 +1,10 @@
 import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import { HarnessClient as Client, errText, useSharedArtifacts } from "@harness/api";
-import { SharedArtifactView } from "@harness/frontend-chat";
 import { cn, ResizeHandle } from "@harness/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerDialog } from "../composer/ComposerDialog";
 import { listenHost } from "../overlay/overlayHost";
+import { sharedView } from "../platform/frontends";
 import { openViewWindow } from "../platform/openWindow";
 import { useReportError } from "../platform/toast";
 import { ViewHost } from "../platform/ViewHost";
@@ -80,6 +80,7 @@ export function Shell({ transport }: { transport: Transport }) {
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
 
    const report = useReportError();
+   const SharedView = sharedView();
    const update = useUpdate();
 
    // Cmd+, opens Settings (macOS convention). Capture phase, so the terminal or an editor never eats it.
@@ -220,23 +221,26 @@ export function Shell({ transport }: { transport: Transport }) {
          )}
          <main className="flex min-w-0 flex-1 flex-col">
             {sharedId ? (
-               <SharedArtifactView
-                  key={sharedId}
-                  client={client}
-                  id={sharedId}
-                  sessions={sessions}
-                  leading={leading}
-                  onOpenSession={setSelected}
-                  onAttach={() => setAttachOpen(true)}
-                  onNewSession={() => setComposer(true, sharedId)}
-                  onDeleted={() => setSelection(null)}
-                  onOpenInEditor={() =>
-                     client.openSharedInEditor(sharedId).catch((e) => {
-                        if (errText(e).includes("choose an editor")) setSettingsSection("editor");
-                        else report("Could not open in editor", e);
-                     })
-                  }
-               />
+               SharedView && (
+                  <SharedView
+                     key={sharedId}
+                     client={client}
+                     id={sharedId}
+                     sessions={sessions}
+                     leading={leading}
+                     onOpenSession={setSelected}
+                     onAttach={() => setAttachOpen(true)}
+                     onNewSession={() => setComposer(true, sharedId)}
+                     onDeleted={() => setSelection(null)}
+                     onOpenInEditor={() =>
+                        client.openSharedInEditor(sharedId).catch((e) => {
+                           if (errText(e).includes("choose an editor"))
+                              setSettingsSection("editor");
+                           else report("Could not open in editor", e);
+                        })
+                     }
+                  />
+               )
             ) : current ? (
                <>
                   <SessionHeader
@@ -329,6 +333,7 @@ export function Shell({ transport }: { transport: Transport }) {
             folder={composerFolder}
             agentsVersion={agentsVersion}
             mcpVersion={mcpVersion}
+            sessions={sessions}
             onManageAgents={() => {
                setComposer(false);
                setSettingsSection("agents");

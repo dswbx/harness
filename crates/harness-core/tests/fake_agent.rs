@@ -1185,6 +1185,63 @@ async fn quick_session_title_comes_from_the_first_prompt_then_the_agent() {
 }
 
 #[tokio::test]
+async fn quick_session_is_unused_until_the_first_prompt_whatever_its_title() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[], Duration::from_secs(900));
+    let plain = quick_session(&h).await;
+    let CommandResult::SessionCreated { session_id: named } = h
+        .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: Some("Mine".into()), mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(summary(&h, &plain).await.unwrap().unused);
+    assert!(summary(&h, &named).await.unwrap().unused);
+    // A custom title does not make it used; a prompt does, and the title stays.
+    turn(&h, &named, None, "hello").await;
+    let s = summary(&h, &named).await.unwrap();
+    assert!(!s.unused);
+    assert_eq!(s.title, "Mine");
+    assert!(summary(&h, &plain).await.unwrap().unused);
+    drop(h);
+
+    // After a restart the used one is still used (the unused leftover is removed).
+    let h = harness(&data, &[], Duration::from_secs(900));
+    assert!(!summary(&h, &named).await.unwrap().unused);
+    assert!(summary(&h, &plain).await.is_none());
+}
+
+#[tokio::test]
+async fn a_first_prompt_on_a_side_thread_uses_the_session_and_announces_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        if let harness_core::api::AppEvent::SessionStatus { unused, title, .. } = e {
+            s.lock().unwrap().push((*unused, title.clone()));
+        }
+        true
+    }));
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fresh).await;
+    turn(&h, &sid, Some(side), "hello").await;
+    // No title from a Side Thread prompt, but `unused` changed and is announced; never `true` after.
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|(unused, title)| !unused && title == "New Quick Session"));
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
+async fn other_sessions_are_not_unused() {
+    let (h, sid, _dir) = setup().await;
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
 async fn quick_session_with_a_given_title_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
@@ -1433,4 +1490,84 @@ async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
     let CommandResult::Sessions { sessions } = h2.execute(Command::ListSessions).await.unwrap() else { panic!() };
     assert_eq!(sessions.iter().find(|s| s.id == sid).unwrap().status, SessionStatus::Idle, "no Agent was started");
     assert_eq!(std::fs::read(&log).unwrap(), before, "the log is untouched");
+}
+
+/// Asks a plan approval (`spoof switch_mode`) and rejects it; returns its `mode_before`.
+async fn plan_mode_before(h: &Harness, sid: &str) -> Option<String> {
+    let (_all, mut rx) = collect(h, sid);
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "spoof switch_mode Ready to code?".into(), attachments: vec![] }).await.unwrap();
+    // Earlier plan requests replay: take the one still pending.
+    let pending = |k: &EventKind| match k {
+        EventKind::PermissionRequested { plan: Some(_), request_id, .. } => {
+            !h_events(h, sid).iter().any(|r| matches!(r, EventKind::PermissionResolved { request_id: q, .. } if q == request_id))
+        }
+        _ => false,
+    };
+    let e = until(&mut rx, pending).await;
+    let EventKind::PermissionRequested { request_id, mode_before, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.into(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    mode_before
+}
+
+fn last_config_mode(h: &Harness, sid: &str) -> Option<harness_core::api::ModeInfo> {
+    h_events(h, sid).into_iter().rev().find_map(|k| match k {
+        EventKind::ConfigOptionsChanged { mode, .. } => mode,
+        _ => None,
+    })
+}
+
+fn last_mode_changed(h: &Harness, sid: &str) -> Option<harness_core::api::ModeInfo> {
+    h_events(h, sid).into_iter().rev().find_map(|k| match k {
+        EventKind::ModeChanged { mode, .. } => mode,
+        _ => None,
+    })
+}
+
+fn mode(id: &str, name: Option<&str>, plan: bool) -> Option<harness_core::api::ModeInfo> {
+    Some(harness_core::api::ModeInfo { id: id.into(), name: name.map(str::to_owned), plan })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn config_option_agent_reports_typed_mode_and_mode_before() {
+    let (h, sid, _dir) = setup_with(&["--plan-mode"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hello").await;
+    assert_eq!(last_config_mode(&h, &sid), mode("auto", Some("Auto"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("auto"));
+
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "plan".into() }).await.unwrap();
+    assert_eq!(last_config_mode(&h, &sid), mode("plan", Some("Plan"), true), "the plan mode is flagged by core");
+    // The plan mode is not what to switch back to.
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("auto"));
+
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "default".into() }).await.unwrap();
+    assert_eq!(last_config_mode(&h, &sid), mode("default", Some("Manual"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_mode_agent_reports_typed_mode_and_mode_before() {
+    let (h, sid, _dir) = setup_with(&["--legacy-modes"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hello").await;
+    assert!(h_events(&h, &sid).iter().all(|k| !matches!(k, EventKind::ConfigOptionsChanged { .. })), "no config options");
+    assert_eq!(last_mode_changed(&h, &sid), mode("default", Some("Manual"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
+
+    h.execute(Command::SetMode { session_id: sid.clone(), thread_id: None, mode_id: "plan".into() }).await.unwrap();
+    assert_eq!(last_mode_changed(&h, &sid), mode("plan", Some("Plan"), true), "named and flagged by core");
+    // Every ModeChanged carries the name (the Agent's own update and the one core logs after set_mode).
+    let all: Vec<_> = h_events(&h, &sid).into_iter().filter_map(|k| if let EventKind::ModeChanged { mode, .. } = k { Some(mode) } else { None }).collect();
+    assert!(all.len() >= 3 && all.iter().all(|m| m.as_ref().is_some_and(|m| m.name.is_some())), "{all:?}");
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"), "plan is never the mode to return to");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn usage_update_carries_typed_numbers() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "report usage").await;
+    let usage = h_events(&h, &sid).into_iter().find_map(|k| match k {
+        EventKind::UsageUpdated { used, size, .. } => Some((used, size)),
+        _ => None,
+    });
+    assert_eq!(usage, Some((Some(1200), Some(200000))));
 }

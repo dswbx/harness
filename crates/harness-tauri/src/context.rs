@@ -13,8 +13,8 @@
 
 use serde::Serialize;
 
-/// What the user was looking at. Field names match `WindowContext` in `app/src/windowContext.ts`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+/// What the user was looking at. TS type: `app/src/platform/generated.ts`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowContext {
     pub app: String,
@@ -41,7 +41,7 @@ pub struct WindowContext {
     pub missing: Vec<Missing>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Missing {
     Accessibility,
@@ -76,16 +76,17 @@ pub enum Adapter {
     ITerm,
 }
 
+/// Bundle ids of the browsers with an AppleScript adapter. Also exported to TS
+/// (`BROWSER_BUNDLE_IDS`, `host_types.rs`): the chip names "browser" for them.
+pub const SAFARI_IDS: &[&str] = &["com.apple.Safari", "com.apple.SafariTechnologyPreview"];
+pub const CHROMIUM_IDS: &[&str] =
+    &["com.google.Chrome", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "org.chromium.Chromium", "com.vivaldi.Vivaldi"];
+
 /// The adapter for an app. Firefox has no AppleScript for its tabs, Terminal no reliable folder.
 pub fn adapter(bundle_id: &str) -> Option<Adapter> {
     Some(match bundle_id {
-        "com.apple.Safari" | "com.apple.SafariTechnologyPreview" => Adapter::Safari,
-        "com.google.Chrome"
-        | "company.thebrowser.Browser"
-        | "com.brave.Browser"
-        | "com.microsoft.edgemac"
-        | "org.chromium.Chromium"
-        | "com.vivaldi.Vivaldi" => Adapter::Chromium,
+        id if SAFARI_IDS.contains(&id) => Adapter::Safari,
+        id if CHROMIUM_IDS.contains(&id) => Adapter::Chromium,
         "com.apple.finder" => Adapter::Finder,
         "com.googlecode.iterm2" => Adapter::ITerm,
         _ => return None,

@@ -10,7 +10,13 @@ export function plansSlice(c: Ctx, e: Event) {
 }
 
 /** A new plan version. Counts the plan comments sent since the version it revises. */
-export function addPlan(c: Ctx, requestId: string, markdown: string, ts: number) {
+export function addPlan(
+   c: Ctx,
+   requestId: string,
+   markdown: string,
+   ts: number,
+   modeBefore: string | null | undefined,
+) {
    const d = c.d;
    const last = d.plans.at(-1);
    const prev = last && last.status !== "approved" ? last : null;
@@ -36,7 +42,7 @@ export function addPlan(c: Ctx, requestId: string, markdown: string, ts: number)
          prev: prev?.requestId ?? null,
          status: "pending",
          optionId: null,
-         modeBefore: d.lastMode,
+         modeBefore: modeBefore || d.lastMode,
          clearsContext: false,
          requestedAt: ts,
          resolvedAt: null,

@@ -1,4 +1,4 @@
-import { openWindow, type SessionApi, type WorkspaceInfo } from "@harness/api";
+import { openWindow, type SessionApi, useGitStatus, type WorkspaceInfo } from "@harness/api";
 import { Button, cn, Input, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import { ExternalLink, File, ListTree, Maximize2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -9,7 +9,6 @@ import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTre
 import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
 import { useWrapCode, WrapButton } from "../markdown/CodeBlock";
 import { useFileComments } from "../review/reviewComments";
-import { useGitStatus } from "../workspace/useGitStatus";
 import { FileView, type LineRange } from "./FileView";
 
 /** A file to show, with the lines to mark (a code lens, a comment chip). A new object shows it again. */
@@ -119,7 +118,7 @@ export function FilesPanel({
    const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
    /** Bumped by Refresh and by a git status change: the list and the open file load again. */
    const [tick, setTick] = useState(0);
-   const git = useGitStatus(api, !!workspace?.repo_root, tick);
+   const git = useGitStatus(api, { enabled: !!workspace?.repo_root, refreshKey: tick });
    const comments = useFileComments(sessionId);
    const wrap = useWrapCode();
    const sidebar = useResizableWidth({
