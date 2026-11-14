@@ -1,4 +1,5 @@
 import { type Slot, slotChangeKey } from "../features/renderUi/slots";
+import type { PanelStatus } from "../panels/contract";
 import {
    isDraftThread,
    type Layout,
@@ -17,7 +18,9 @@ export function availablePanels(o: {
    slotPanels: Iterable<PanelId>;
    git: boolean;
    hasPlans: boolean;
-   hasSubagents: boolean;
+   hasSubagents?: boolean;
+   /** The status of each panel defined through the panel contract: it decides, instead of the hand-written rules. */
+   registered?: ReadonlyMap<string, PanelStatus>;
 }): Set<PanelId> {
    if (o.overlay) return new Set<PanelId>(o.slotPanels);
    const a = new Set<PanelId>([
@@ -32,6 +35,10 @@ export function availablePanels(o: {
    if (o.git) a.add("changes");
    if (o.hasPlans) a.add("plan");
    if (o.hasSubagents) a.add("subagents");
+   for (const [id, s] of o.registered ?? []) {
+      if (s.presence === "absent") a.delete(id as PanelId);
+      else a.add(id as PanelId);
+   }
    return a;
 }
 

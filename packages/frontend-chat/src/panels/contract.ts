@@ -49,7 +49,9 @@ export type PanelSelf<T = void> = {
    target: { value: T; seq: number } | null;
 };
 
-type Body<M, T> = ComponentType<{ model: M; ctx: PanelCtx; self: PanelSelf<T> }>;
+/** What a panel's `Body` gets. */
+export type PanelBodyProps<M, T = void> = { model: M; ctx: PanelCtx; self: PanelSelf<T> };
+type Body<M, T> = ComponentType<PanelBodyProps<M, T>>;
 
 /** A panel: one value, built by `definePanel` in its feature folder. It is also the panel's typed handle. */
 export type PanelDef<M = unknown, T = void> = PanelRef<T> & {
