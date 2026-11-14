@@ -130,14 +130,25 @@ impl Session {
         Ok(rel)
     }
 
-    /// A path inside `frontend/`; refuses absolute paths and `..`.
+    /// A path inside `frontend/`; refuses absolute paths and `..`, and a path whose resolved real
+    /// location (symbolic links followed; for a missing path its nearest existing ancestor) is not
+    /// below the real `frontend/` directory.
     pub(crate) fn frontend_path(&self, rel: &str) -> anyhow::Result<PathBuf> {
         let p = Path::new(rel);
         anyhow::ensure!(
             p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)),
             "{rel} is outside the Frontend's directory"
         );
-        Ok(self.dir.join("frontend").join(p))
+        let root = self.dir.join("frontend");
+        let path = root.join(p);
+        if p.components().all(|c| matches!(c, std::path::Component::CurDir)) {
+            return Ok(path);
+        }
+        // A `frontend/` that does not exist yet has no links to follow.
+        if root.exists() {
+            anyhow::ensure!(crate::fsutil::resolve_below_via_ancestor(&root, &path).is_some(), "{rel} is outside the Frontend's directory");
+        }
+        Ok(path)
     }
 
     pub fn frontend_read(&self, rel: &str) -> anyhow::Result<String> {

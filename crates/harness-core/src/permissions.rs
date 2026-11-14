@@ -115,7 +115,7 @@ fn rank(r: &PermissionRule, cx: &Context, facts: &ToolFacts) -> Option<(u8, u8, 
     if r.tool_kind.as_ref().is_some_and(|k| facts.kind.as_ref() != Some(k)) {
         return None;
     }
-    if r.pattern.as_ref().is_some_and(|p| !pattern_matches(p, cx.folder, facts)) {
+    if r.pattern.as_ref().is_some_and(|p| !pattern_matches(p, cx.folder, facts, r.decision)) {
         return None;
     }
     let specificity = r.tool_kind.is_some() as u8 + r.pattern.is_some() as u8;
@@ -127,26 +127,70 @@ fn rank(r: &PermissionRule, cx: &Context, facts: &ToolFacts) -> Option<(u8, u8, 
     Some((scope, specificity, strictness))
 }
 
+/// `path` with symbolic links resolved. A path that does not exist yet resolves through its
+/// deepest existing ancestor. `None` when it cannot be resolved (a dangling link, `..`).
+fn resolve(path: &Path) -> Option<PathBuf> {
+    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return None;
+    }
+    let mut existing = path;
+    let mut rest = Vec::new();
+    while std::fs::symlink_metadata(existing).is_err() {
+        rest.push(existing.file_name()?);
+        existing = existing.parent()?;
+    }
+    let mut real = existing.canonicalize().ok()?;
+    real.extend(rest.iter().rev());
+    Some(real)
+}
+
+/// `path` is the folder or under it, by its resolved real location. A folder that does not exist
+/// has no links to resolve, so the lexical answer stands.
+fn inside_folder(folder: &Path, path: &Path) -> bool {
+    if !crate::fsutil::inside_lexical(folder, path) {
+        return false;
+    }
+    let Ok(root) = folder.canonicalize() else { return true };
+    resolve(path).is_some_and(|real| real.starts_with(root))
+}
+
 /// Execute rules match a command prefix on word boundaries, and only when the command parses and
 /// every simple command in it matches (`shell.rs`, fail closed); all other kinds glob every touched
-/// path (relative globs resolve against the Workspace Folder).
-fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
+/// path (relative globs resolve against the Workspace Folder). An Allow rule matches a path inside
+/// the folder only when its resolved location is inside too; Ask and Deny rules match the written
+/// form and the resolved form.
+fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts, decision: Decision) -> bool {
     if facts.kind.as_deref() == Some("execute") {
         return facts.command.as_deref().is_some_and(|c| crate::shell::matches_prefix(pattern, c));
     }
     if facts.paths.is_empty() {
         return false;
     }
-    let full = if Path::new(pattern).is_absolute() { pattern.to_owned() } else { format!("{}/{pattern}", folder.display()) };
-    let Ok(glob) = globset::GlobBuilder::new(&full).literal_separator(true).build() else { return false };
-    let m = glob.compile_matcher();
-    facts.paths.iter().all(|p| m.is_match(p))
+    let matcher = |base: &Path| {
+        let full = if Path::new(pattern).is_absolute() { pattern.to_owned() } else { format!("{}/{pattern}", base.display()) };
+        globset::GlobBuilder::new(&full).literal_separator(true).build().ok().map(|g| g.compile_matcher())
+    };
+    let Some(written) = matcher(folder) else { return false };
+    let real_folder = folder.canonicalize().ok();
+    let resolved = real_folder.as_deref().and_then(matcher);
+    facts.paths.iter().all(|p| {
+        if decision == Decision::Allow {
+            written.is_match(p) && inside_folder_or_outside(folder, p)
+        } else {
+            written.is_match(p) || resolve(p).is_some_and(|r| written.is_match(&r) || resolved.as_ref().is_some_and(|m| m.is_match(&r)))
+        }
+    })
+}
+
+/// True unless `path` is lexically inside the folder while its real location is not.
+fn inside_folder_or_outside(folder: &Path, path: &Path) -> bool {
+    !crate::fsutil::inside_lexical(folder, path) || inside_folder(folder, path)
 }
 
 /// Built-in defaults: reading inside the Workspace, committing, Frontend Tools and Session State
 /// changes are allowed, and so are edits of files inside the Session's `panels/` folder (ADR 0023)
 /// or inside the folder of an attached Shared Artifact, but not its `meta.json` (ADR 0024); paths
-/// are resolved (symlinks followed, `..` refused). Everything else (edits, commands, fetches,
+/// are resolved (symlinks followed, `..` refused), and a read counts as inside the Workspace by its resolved location. Everything else (edits, commands, fetches,
 /// pushes) asks.
 fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
     let writable = |p: &Path| {
@@ -161,7 +205,7 @@ fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
         return Decision::Allow;
     }
     let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
-    if safe && facts.paths.iter().all(|p| crate::fsutil::inside_lexical(cx.folder, p)) { Decision::Allow } else { Decision::Ask }
+    if safe && facts.paths.iter().all(|p| inside_folder(cx.folder, p)) { Decision::Allow } else { Decision::Ask }
 }
 
 /// Extracts kind, command and paths from an ACP tool call (JSON, camelCase).
@@ -335,6 +379,85 @@ mod tests {
         assert_eq!(p.evaluate(&cx, &delete).decision, Decision::Ask, "only edits");
         p.add(rule(RuleScope::Global, Some("edit"), None, Decision::Deny)).unwrap();
         assert_eq!(p.evaluate(&cx, &at("content.md")).decision, Decision::Deny, "a user rule still wins");
+    }
+
+    /// A real folder with an outside folder next to it and links between them.
+    struct Linked {
+        _d: tempfile::TempDir,
+        folder: PathBuf,
+        outside: PathBuf,
+    }
+
+    fn linked() -> Linked {
+        let d = tempfile::tempdir().unwrap();
+        let base = d.path().canonicalize().unwrap();
+        let (folder, outside) = (base.join("work"), base.join("elsewhere"));
+        std::fs::create_dir_all(folder.join("pkg")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(folder.join("a.rs"), "x").unwrap();
+        std::fs::write(folder.join("pkg/real.rs"), "x").unwrap();
+        std::fs::write(outside.join("o.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(folder.join("pkg"), folder.join("inner")).unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join("out")).unwrap();
+        std::os::unix::fs::symlink(outside.join("o.txt"), folder.join("o.link")).unwrap();
+        std::os::unix::fs::symlink(outside.join("gone"), folder.join("dangling")).unwrap();
+        Linked { _d: d, folder, outside }
+    }
+
+    fn read_at(l: &Linked, rel: &str) -> ToolFacts {
+        facts_of(&json!({"kind": "read", "rawInput": {"file_path": l.folder.join(rel)}}), &l.folder)
+    }
+
+    #[test]
+    fn a_link_that_leaves_the_folder_is_outside() {
+        let (p, _d) = policy();
+        let l = linked();
+        let cx = Context { session_id: "s1", agent_id: "claude", folder: &l.folder, panels: None, shared: &[] };
+        for ok in ["a.rs", "pkg/real.rs", "inner/real.rs", "inner/new.rs", "new/deeper.rs", ""] {
+            assert_eq!(p.evaluate(&cx, &read_at(&l, ok)).decision, Decision::Allow, "{ok}");
+        }
+        for bad in ["o.link", "out/o.txt", "out/missing.txt", "out/a/b/missing.txt", "dangling"] {
+            assert_eq!(p.evaluate(&cx, &read_at(&l, bad)).decision, Decision::Ask, "{bad}");
+        }
+        let two = facts_of(&json!({"kind": "read", "locations": [{"path": l.folder.join("a.rs")}, {"path": l.folder.join("o.link")}]}), &l.folder);
+        assert_eq!(p.evaluate(&cx, &two).decision, Decision::Ask, "every path must be inside");
+    }
+
+    #[test]
+    fn an_allow_rule_matches_by_the_resolved_location() {
+        let (p, _d) = policy();
+        let l = linked();
+        let cx = Context { session_id: "s1", agent_id: "claude", folder: &l.folder, panels: None, shared: &[] };
+        p.add(rule(RuleScope::Global, Some("edit"), Some("**"), Decision::Allow)).unwrap();
+        let edit_at = |rel: &str| facts_of(&json!({"kind": "edit", "locations": [{"path": l.folder.join(rel)}]}), &l.folder);
+        for ok in ["a.rs", "inner/real.rs", "inner/new.rs", "new.rs"] {
+            assert_eq!(p.evaluate(&cx, &edit_at(ok)).decision, Decision::Allow, "{ok}");
+        }
+        for bad in ["o.link", "out/o.txt", "out/missing.txt"] {
+            assert_eq!(p.evaluate(&cx, &edit_at(bad)).decision, Decision::Ask, "{bad}");
+        }
+        // A rule for a place outside the folder keeps working for plain paths there.
+        let glob = format!("{}/**", l.outside.display());
+        p.add(rule(RuleScope::Global, Some("edit"), Some(&glob), Decision::Allow)).unwrap();
+        let direct = facts_of(&json!({"kind": "edit", "locations": [{"path": l.outside.join("o.txt")}]}), &l.folder);
+        assert_eq!(p.evaluate(&cx, &direct).decision, Decision::Allow);
+    }
+
+    #[test]
+    fn a_deny_rule_matches_the_written_and_the_resolved_form() {
+        let (p, _d) = policy();
+        let l = linked();
+        let cx = Context { session_id: "s1", agent_id: "claude", folder: &l.folder, panels: None, shared: &[] };
+        let edit_at = |rel: &str| facts_of(&json!({"kind": "edit", "locations": [{"path": l.folder.join(rel)}]}), &l.folder);
+        p.add(rule(RuleScope::Global, Some("edit"), Some("pkg/**"), Decision::Deny)).unwrap();
+        assert_eq!(p.evaluate(&cx, &edit_at("pkg/real.rs")).decision, Decision::Deny, "written form");
+        assert_eq!(p.evaluate(&cx, &edit_at("inner/real.rs")).decision, Decision::Deny, "resolved form");
+        assert_eq!(p.evaluate(&cx, &edit_at("inner/new.rs")).decision, Decision::Deny, "missing leaf, resolved form");
+        let glob = format!("{}/**", l.outside.display());
+        p.add(rule(RuleScope::Global, Some("edit"), Some(&glob), Decision::Deny)).unwrap();
+        assert_eq!(p.evaluate(&cx, &edit_at("out/o.txt")).decision, Decision::Deny, "link into a denied place");
+        assert_eq!(p.evaluate(&cx, &edit_at("out/missing.txt")).decision, Decision::Deny);
+        assert_eq!(p.evaluate(&cx, &edit_at("a.rs")).decision, Decision::Ask);
     }
 
     #[test]

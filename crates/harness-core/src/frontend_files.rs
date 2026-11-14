@@ -82,7 +82,8 @@ pub fn format_errors(validator: &Validator, input: &Value) -> String {
 }
 
 /// Local images to copy: `(src as given, file)`. Checks them all before anything is written.
-/// Relative paths are relative to the Workspace Folder.
+/// Relative paths are relative to the Workspace Folder; a source must lie inside it once symbolic
+/// links are resolved.
 pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<(String, PathBuf)>> {
     let mut out: Vec<(String, PathBuf)> = Vec::new();
     for src in srcs {
@@ -91,6 +92,10 @@ pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<(String, PathB
         }
         anyhow::ensure!(!src.contains("://"), "{src}: only https URLs or local image files");
         let p = std::fs::canonicalize(folder.join(src)).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
+        let inside = crate::fsutil::inside_existing(folder, &p).is_ok_and(|r| r.within());
+        if !inside {
+            return Err(crate::error::invalid(format!("{src}: image files must lie inside the Session folder")));
+        }
         anyhow::ensure!(p.is_file(), "{src} is not a file");
         anyhow::ensure!(is_image(guess_mime(&p)), "{src} is not an image (png, jpg, gif, webp)");
         anyhow::ensure!(std::fs::metadata(&p)?.len() <= MAX_IMAGE, "{src} is larger than 20 MB");
@@ -156,5 +161,26 @@ mod tests {
         assert!(plan(dir.path(), &["notes.txt".into()]).unwrap_err().to_string().contains("not an image"));
         assert!(plan(dir.path(), &["missing.png".into()]).is_err());
         assert!(plan(dir.path(), &["http://x.test/a.png".into()]).is_err());
+    }
+
+    #[test]
+    fn sources_must_lie_inside_the_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let (folder, other) = (d.path().join("work"), d.path().join("other"));
+        std::fs::create_dir_all(folder.join("pkg")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(folder.join("pkg/in.png"), b"png").unwrap();
+        std::fs::write(other.join("out.png"), b"png").unwrap();
+        std::os::unix::fs::symlink(folder.join("pkg"), folder.join("inner")).unwrap();
+        std::os::unix::fs::symlink(other.join("out.png"), folder.join("a_link_that_leaves.png")).unwrap();
+        std::os::unix::fs::symlink(&other, folder.join("out")).unwrap();
+
+        assert_eq!(plan(&folder, &["inner/in.png".into(), "pkg/in.png".into()]).unwrap().len(), 2);
+        let abs_in = folder.join("pkg/in.png").display().to_string();
+        assert_eq!(plan(&folder, &[abs_in]).unwrap().len(), 1);
+        for bad in ["a_link_that_leaves.png", "out/out.png", "../other/out.png", &other.join("out.png").display().to_string()] {
+            let e = plan(&folder, &[bad.to_owned()]).unwrap_err();
+            assert!(e.to_string().contains("inside the Session folder"), "{bad}: {e}");
+        }
     }
 }

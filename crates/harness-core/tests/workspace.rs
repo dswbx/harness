@@ -415,3 +415,31 @@ async fn worktree_dir_setting() {
     let CommandResult::WorktreeDir { dir: d } = h.execute(Command::GetWorktreeDir).await.unwrap() else { panic!() };
     assert_eq!(d, ".harness");
 }
+
+#[tokio::test]
+async fn frontend_paths_resolve_links_and_stay_below_the_frontend_dir() {
+    let (dir, repo, data) = repo();
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    let fe = data.join("sessions").join(&sid).join("frontend");
+    let outside = dir.path().join("elsewhere");
+    std::fs::create_dir_all(fe.join("sub")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(fe.join("sub/in.txt"), "in").unwrap();
+    std::fs::write(outside.join("o.txt"), "out").unwrap();
+    std::os::unix::fs::symlink(fe.join("sub"), fe.join("inner")).unwrap();
+    std::os::unix::fs::symlink(&outside, fe.join("out")).unwrap();
+    std::os::unix::fs::symlink(outside.join("o.txt"), fe.join("a_link_that_leaves.txt")).unwrap();
+
+    let read = |p: &str| h.execute(Command::FrontendRead { session_id: sid.clone(), path: p.into() });
+    let write = |p: &str| h.execute(Command::FrontendWrite { session_id: sid.clone(), path: p.into(), content: "w".into() });
+    assert!(read("sub/in.txt").await.is_ok());
+    assert!(read("inner/in.txt").await.is_ok(), "a link that stays inside");
+    assert!(write("inner/new.txt").await.is_ok());
+    assert!(write("fresh/dir/new.txt").await.is_ok());
+    assert!(read("a_link_that_leaves.txt").await.is_err());
+    assert!(read("out/o.txt").await.is_err());
+    assert!(write("out/missing.txt").await.is_err(), "missing leaf under a link that leaves");
+    assert!(!outside.join("missing.txt").exists());
+    assert!(read("../state.json").await.is_err());
+}
