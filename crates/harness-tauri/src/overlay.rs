@@ -16,7 +16,6 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::context::{self, Change, WindowContext};
@@ -109,8 +108,24 @@ pub struct Overlay {
     pending_show: Mutex<bool>,
     /// The window context: the last one sent, and what level 2 is doing.
     context: Mutex<Capture>,
-    /// Set to stop the running context poll (`poll_context`).
-    poll: Mutex<Option<Arc<AtomicBool>>>,
+    /// The running context poll (`poll_context`).
+    poll: Mutex<Poll>,
+}
+
+/// Which context poll thread may run. Every start takes a new `generation`; a thread still inside
+/// a slow poll when it was stopped (or replaced) sees that it is not the current one and ends
+/// without storing or sending anything.
+#[derive(Default)]
+struct Poll {
+    generation: u64,
+    running: bool,
+}
+
+impl Poll {
+    /// Whether the thread started as `generation` is the running poll.
+    fn is_current(&self, generation: u64) -> bool {
+        self.running && self.generation == generation
+    }
 }
 
 /// The window context state shared by the poll and the AppleScript threads.
@@ -310,18 +325,22 @@ fn start_context(app: &AppHandle, fresh: bool) {
     if fresh {
         state.context.lock().fresh = true;
     }
-    let mut poll = state.poll.lock();
-    if poll.is_some() {
-        return;
-    }
-    let stop = Arc::new(AtomicBool::new(false));
-    *poll = Some(stop.clone());
+    let generation = {
+        let mut poll = state.poll.lock();
+        if poll.running {
+            return;
+        }
+        poll.generation += 1;
+        poll.running = true;
+        poll.generation
+    };
     let handle = app.clone();
     std::thread::spawn(move || {
-        while !stop.load(Ordering::Relaxed) {
-            poll_context(&handle);
+        let current = || handle.state::<Overlay>().poll.lock().is_current(generation);
+        while current() {
+            poll_context(&handle, generation);
             for _ in 0..10 {
-                if stop.load(Ordering::Relaxed) {
+                if !current() {
                     return;
                 }
                 std::thread::sleep(POLL / 10);
@@ -332,21 +351,24 @@ fn start_context(app: &AppHandle, fresh: bool) {
 
 /// Stops the context poll (hidden, chat, mini, setting off). A running AppleScript still finishes.
 fn stop_context(app: &AppHandle) {
-    if let Some(stop) = app.state::<Overlay>().poll.lock().take() {
-        stop.store(true, Ordering::Relaxed);
-    }
+    app.state::<Overlay>().poll.lock().running = false;
 }
 
 /// One poll: reads levels 0 and 1; on a new app, window or document runs level 2 and sends the
 /// context (after the AppleScript, or without it after `SCRIPT_WAIT`). Harness itself frontmost
 /// (the user clicked a Harness window) keeps the last context.
-fn poll_context(app: &AppHandle) {
+fn poll_context(app: &AppHandle, generation: u64) {
     let state = app.state::<Overlay>();
     if !state.settings.lock().window_context {
         return;
     }
+    // Checked with the context lock held, before anything is stored or sent: a stopped or replaced poll stays silent.
+    let current = || state.poll.lock().is_current(generation);
     let Some(mut next) = context::capture() else {
         let mut c = state.context.lock();
+        if !current() {
+            return;
+        }
         if std::mem::take(&mut c.fresh) && c.ctx.is_some() {
             c.id += 1;
             c.ctx = None;
@@ -359,6 +381,9 @@ fn poll_context(app: &AppHandle) {
     let adapter = context::adapter(&next.bundle_id);
     let id = {
         let mut c = state.context.lock();
+        if !current() {
+            return;
+        }
         let fresh = std::mem::take(&mut c.fresh);
         match context::change(c.ctx.as_ref(), &next) {
             Change::Same if !fresh => return,
@@ -390,12 +415,12 @@ fn poll_context(app: &AppHandle) {
     while start.elapsed() < SCRIPT_WAIT {
         std::thread::sleep(Duration::from_millis(50));
         let c = state.context.lock();
-        if c.id != id || c.done {
+        if c.id != id || c.done || !current() {
             return;
         }
     }
     let c = state.context.lock();
-    if c.id == id && !c.done {
+    if c.id == id && !c.done && current() {
         let _ = app.emit_to(LABEL, "overlay-context", c.ctx.as_ref());
     }
 }
@@ -965,7 +990,22 @@ mod panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Anchor, Mode, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, widen};
+    use super::{Anchor, Mode, Poll, Rect, anchor_point, beside, card_of, cocoa_frame, grow, place, sized, widen};
+
+    #[test]
+    fn only_the_running_poll_of_the_current_generation_is_current() {
+        let mut poll = Poll::default();
+        assert!(!poll.is_current(0), "nothing runs yet");
+        poll.generation += 1;
+        poll.running = true;
+        assert!(poll.is_current(1));
+        poll.running = false;
+        assert!(!poll.is_current(1), "stopped");
+        poll.generation += 1;
+        poll.running = true;
+        assert!(!poll.is_current(1), "replaced by a newer start");
+        assert!(poll.is_current(2));
+    }
 
     #[test]
     fn only_the_prompt_follows_the_context() {
