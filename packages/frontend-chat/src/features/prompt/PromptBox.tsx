@@ -1,29 +1,10 @@
-import {
-   type AgentSwitch,
-   type AttachmentInput,
-   type PromptContext,
-   pickFiles,
-   type SessionApi,
-   type SlashCommand,
-   sameRepo,
-} from "@harness/api";
-import { Button, cn, Tooltip, WorkingLoader } from "@harness/ui";
-import { AppWindow, ArrowUp, FileText, Paperclip, Square, X } from "lucide-react";
-import {
-   type Ref,
-   useEffect,
-   useImperativeHandle,
-   useLayoutEffect,
-   useMemo,
-   useRef,
-   useState,
-} from "react";
+import type { AgentSwitch, AttachmentInput, PromptContext, SessionApi } from "@harness/api";
+import { cn, Tooltip } from "@harness/ui";
+import { Paperclip } from "lucide-react";
+import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../../lib/errors";
-import { formatDuration } from "../../lib/time";
-import type { BackgroundJobInfo, ChatState } from "../../state/reducer";
+import type { ChatState } from "../../state/reducer";
 import { RecoveryCard } from "../interaction/RecoveryCard";
-import { repoToken } from "../prRefs/prMenu";
-import { usePrRefs } from "../prRefs/prRefs";
 import { CommentChips } from "../review/CommentChip";
 import {
    composerKey,
@@ -33,190 +14,23 @@ import {
    useReviewComments,
    withReviewComments,
 } from "../review/reviewComments";
-import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { ConfigBar, type MenuSide } from "./ConfigBar";
-import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
-import { getDraft, setDraft, useDraftAttachments } from "./drafts";
-import { registerDropTarget } from "./fileDropTargets";
-import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
-import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
-import { type PendingMessage, setPendingActions, updatePendingMessages } from "./pendingMessages";
+import { AttachmentChips } from "./chips/AttachmentChips";
+import { ContextChip } from "./chips/ContextChip";
+import { btwQuestion } from "./commands";
+import { BackgroundJobs } from "./footer/BackgroundJobs";
+import { ContextRing } from "./footer/ContextRing";
+import { SendStopButton } from "./footer/SendStopButton";
+import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
+import { PrMenuPopup } from "./PromptMenu";
+import { type PendingMessage, updatePendingMessages } from "./pendingMessages";
 import { lineCount } from "./promptMarkdown";
+import { SlashMenu } from "./SlashMenu";
+import { useAttachments } from "./useAttachments";
+import { useDraft } from "./useDraft";
+import { usePendingActions } from "./usePendingActions";
 import { usePendingSend } from "./usePendingSend";
-
-/** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
-function AttachmentChips({
-   items,
-   onRemove,
-}: {
-   items: PendingAttachment[];
-   onRemove: (id: string) => void;
-}) {
-   return (
-      <div className="flex flex-wrap items-center gap-1.5 pb-2" aria-label="Attachments">
-         {items.map((a) => (
-            <Tooltip key={a.id} content={a.input.type === "path" ? a.input.path : a.name}>
-               <span className="group/att relative flex max-w-56 items-center gap-1.5 rounded-md border bg-muted text-xs">
-                  {a.preview ? (
-                     <img
-                        src={a.preview}
-                        alt={a.name}
-                        className="size-12 rounded-md object-cover"
-                     />
-                  ) : (
-                     <span className="flex min-w-0 items-center gap-1.5 py-1 pl-1.5 pr-6">
-                        <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{a.name}</span>
-                     </span>
-                  )}
-                  <button
-                     className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/att:opacity-100"
-                     aria-label={`Remove ${a.name}`}
-                     onClick={() => onRemove(a.id)}
-                  >
-                     <X className="size-3" />
-                  </button>
-               </span>
-            </Tooltip>
-         ))}
-      </div>
-   );
-}
-
-/** What the user was looking at (Quick overlay): sent with the first message unless removed. */
-function ContextChip({ context }: { context: PromptContext }) {
-   return (
-      <div className="flex items-center gap-1.5 pb-2" aria-label="Window context">
-         <Tooltip
-            content={<span className="whitespace-pre-line">{context.detail ?? context.label}</span>}
-            className="max-w-80"
-         >
-            <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border bg-muted py-1 pl-1.5 pr-1 text-xs">
-               <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
-               <span className="truncate">{context.label}</span>
-               {context.action && (
-                  <button
-                     type="button"
-                     className="shrink-0 text-primary hover:underline"
-                     onClick={context.action.onClick}
-                  >
-                     {context.action.label}
-                  </button>
-               )}
-               <button
-                  type="button"
-                  className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground"
-                  aria-label="Remove context"
-                  onClick={context.onRemove}
-               >
-                  <X className="size-3" />
-               </button>
-            </span>
-         </Tooltip>
-      </div>
-   );
-}
-
-/** "N background jobs running" and how long the oldest has run, above the box; the tooltip lists each job. */
-function BackgroundJobs({ jobs }: { jobs: readonly BackgroundJobInfo[] }) {
-   const [now, setNow] = useState(Date.now);
-   useEffect(() => {
-      const t = setInterval(() => setNow(Date.now()), 1000);
-      return () => clearInterval(t);
-   }, []);
-   const oldest = Math.min(...jobs.map((j) => j.since));
-   return (
-      <Tooltip
-         side="top"
-         align="start"
-         className="max-w-96"
-         content={
-            <ul className="space-y-0.5">
-               {jobs.map((j) => (
-                  <li key={j.id} className="flex gap-2">
-                     <span className="min-w-0 flex-1 truncate font-mono">{j.label}</span>
-                     <span className="shrink-0 tabular-nums">{formatDuration(now - j.since)}</span>
-                  </li>
-               ))}
-            </ul>
-         }
-      >
-         <div
-            role="status"
-            className="mb-2 flex w-fit items-center gap-1.5 px-5 text-xs text-muted-foreground"
-         >
-            <WorkingLoader />
-            {jobs.length === 1
-               ? "1 background job running"
-               : `${jobs.length} background jobs running`}
-            <span className="tabular-nums">{formatDuration(now - oldest)}</span>
-         </div>
-      </Tooltip>
-   );
-}
-
-/** Context window use as a ring; details on hover. */
-function ContextRing({ pct, used, size }: { pct: number; used: number; size: number }) {
-   const r = 8;
-   const c = 2 * Math.PI * r;
-   const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
-   return (
-      <Tooltip
-         side="top"
-         align="end"
-         className="w-56 max-w-56 p-3"
-         content={
-            <div className="flex flex-col gap-2">
-               <div className="flex justify-between font-medium">
-                  <span>Context window</span>
-                  <span>{pct}%</span>
-               </div>
-               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                     className={cn("h-full", pct > 85 ? "bg-destructive" : "bg-primary")}
-                     style={{ width: `${pct}%` }}
-                  />
-               </div>
-               <div className="grid grid-cols-[1fr_auto] gap-y-0.5 text-muted-foreground">
-                  <span>Used</span>
-                  <span className="tabular-nums">
-                     {fmt(used)} / {fmt(size)} tokens
-                  </span>
-                  <span>Remaining</span>
-                  <span className="tabular-nums">{fmt(Math.max(0, size - used))}</span>
-               </div>
-            </div>
-         }
-      >
-         <button
-            type="button"
-            className="grid place-items-center rounded-full mr-1.5"
-            aria-label={`Context window ${pct}% used`}
-         >
-            <svg viewBox="0 0 20 20" className="size-5 -rotate-90" aria-hidden>
-               <circle
-                  cx="10"
-                  cy="10"
-                  r={r}
-                  fill="none"
-                  strokeWidth="2.5"
-                  className="stroke-muted-foreground/20"
-               />
-               <circle
-                  cx="10"
-                  cy="10"
-                  r={r}
-                  fill="none"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeDasharray={`${(c * pct) / 100} ${c}`}
-                  className={pct > 85 ? "stroke-destructive" : "stroke-muted-foreground"}
-               />
-            </svg>
-         </button>
-      </Tooltip>
-   );
-}
+import { usePromptMenus } from "./usePromptMenus";
 
 /** Box content width (px) under which the footer's option pickers collapse into one menu. */
 const NARROW_BOX = 460;
@@ -262,41 +76,30 @@ export function PromptBox({
    const [text, setText] = useState("");
    const [lines, setLines] = useState(0);
    const [overflow, setOverflow] = useState(false);
-   const [sel, setSel] = useState(0);
    const ref = useRef<PromptEditorHandle>(null);
    useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
    const key = composerKey(api.sessionId, threadId);
-   // The half-written prompt of this composer: loaded when the key changes, saved on every change after.
-   const loaded = useRef<string | null>(null);
-   useLayoutEffect(() => {
-      ref.current?.load(getDraft(key));
-      loaded.current = key;
-   }, [key]);
+   const saveDraft = useDraft(key, ref);
    const running = state.turnId !== null;
-   // The `#` token at the caret (for the PR menu).
-   const [token, setToken] = useState<CaretToken | null>(null);
-   // The menu closed with Escape: its key (the text for "/", the token for "#"); a change opens it again.
-   const [closedAt, setClosedAt] = useState<string | null>(null);
-   const commands = useMemo(
-      () => (threadId || !onSideThread ? state.commands : withSideThreadCommand(state.commands)),
-      [state.commands, threadId, onSideThread],
-   );
-   const all = useMemo(() => matchCommands(commands, text), [commands, text]);
-   const used = useMemo(() => leadingCommand(commands, text), [commands, text]);
-   const refs = usePrRefs();
-   const prMenu = usePrMenu(all.length ? null : (token?.text ?? null), refs);
-   // One menu at a time: "/" commands, else PRs for a `#` token.
-   const menu:
-      | { kind: "slash"; key: string; items: SlashCommand[] }
-      | { kind: "pr"; key: string; menu: PrMenu }
-      | null = all.length
-      ? { kind: "slash", key: `/${text}`, items: all }
-      : prMenu && token
-        ? { kind: "pr", key: `#${token.nodeKey}:${token.start}:${token.text}`, menu: prMenu }
-        : null;
-   const open = menu && closedAt !== menu.key ? menu : null;
-   const count = !open ? 0 : open.kind === "slash" ? open.items.length : open.menu.rows.length;
-   const index = Math.min(sel, Math.max(0, count - 1));
+   const {
+      open,
+      count,
+      index,
+      used,
+      refs,
+      setSel,
+      pick,
+      pickPr,
+      onMenuKey,
+      onToken,
+      onTextChange,
+   } = usePromptMenus({
+      text,
+      commands: state.commands,
+      threadId,
+      onSideThread,
+      editor: ref,
+   });
    const pct = state.usage
       ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100))
       : null;
@@ -314,9 +117,6 @@ export function PromptBox({
       onError: setError,
    });
    const comments = useReviewComments(key);
-   const [attachments, setAttachments] = useDraftAttachments(key);
-   const [dragging, setDragging] = useState(false);
-   const fileInput = useRef<HTMLInputElement>(null);
    // Width of the box itself (not the window): a side panel or narrow column collapses the option pickers.
    const [narrow, setNarrow] = useState(false);
    const boxRef = useRef<HTMLDivElement>(null);
@@ -327,42 +127,8 @@ export function PromptBox({
       ro.observe(el);
       return () => ro.disconnect();
    }, []);
-   const caps = state.promptCaps;
-
-   const addAttachments = (items: PendingAttachment[]) => {
-      if (caps && !caps.image && items.some((a) => a.kind === "image")) {
-         setError("This Agent does not accept images.");
-         items = items.filter((a) => a.kind !== "image");
-      }
-      if (items.length) setAttachments((cur) => [...cur, ...items]);
-   };
-   const addFiles = (files: File[]) => {
-      Promise.all(files.map(fromFile)).then(addAttachments, (err) => setError(errorMessage(err)));
-   };
-   const addPaths = (paths: string[]) => {
-      Promise.all(paths.map((p) => fromPickedPath(p, api.readImageFile))).then(
-         addAttachments,
-         (err) => setError(errorMessage(err)),
-      );
-   };
-   const attach = async () => {
-      const paths = await pickFiles();
-      if (paths === null) fileInput.current?.click();
-      else addPaths(paths);
-   };
-   // Tauri delivers file drops as paths to the window (no HTML5 drop). With several prompt boxes
-   // (a Side Thread panel) one of them takes it: see `pickTarget`.
-   const addRef = useRef(addPaths);
-   addRef.current = addPaths;
-   useEffect(
-      () =>
-         registerDropTarget({
-            el: () => boxRef.current,
-            over: setDragging,
-            drop: (paths) => addRef.current(paths),
-         }),
-      [],
-   );
+   const { attachments, setAttachments, dragging, fileInput, attach, boxHandlers, inputProps } =
+      useAttachments({ key, api, caps: state.promptCaps, boxRef, setError });
 
    // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
    const send = () => {
@@ -421,7 +187,7 @@ export function PromptBox({
       setReviewComments(key, [...item.comments, ...getReviewComments(key)]);
       updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id));
    };
-   setPendingActions(key, { retry: () => void retry(), edit: editPending });
+   usePendingActions(key, { retry: () => void retry(), edit: editPending });
    const continueWithSummary = async () => {
       const [first, ...rest] = failed;
       if (first) {
@@ -445,58 +211,17 @@ export function PromptBox({
          if (t && snap) ref.current?.restore(snap);
       });
    };
-   const pick = (c: SlashCommand) => ref.current?.setText(`/${c.name} `);
-   // A PR becomes a chip (`#N` in the Session's repo, else `owner/repo#N`); a repo turns the token into `owner/repo#`.
-   const pickPr = (i: number) => {
-      const row = open?.kind === "pr" ? open.menu.rows[i] : undefined;
-      if (!row || !token) return;
-      if (row.kind === "repo")
-         return ref.current?.replaceToken(token, { text: repoToken(row.hit) });
-      const key = { repo: row.pr.repo, number: row.pr.number };
-      const own = refs?.ctx.sessionRepo && sameRepo(refs.ctx.sessionRepo, key.repo);
-      ref.current?.replaceToken(token, {
-         pr: key,
-         typed: own ? `#${key.number}` : `${key.repo.owner}/${key.repo.name}#${key.number}`,
-      });
-   };
 
    return (
       <div className="relative mx-auto w-full max-w-3xl px-6 pb-3.5">
          {open?.kind === "slash" && (
-            <PromptMenu label="Commands" className="w-72" side={menuSide}>
-               {open.items.map((c, i) => (
-                  <Tooltip
-                     key={c.name}
-                     content={c.description}
-                     side="right"
-                     open={i === index && !!c.description}
-                  >
-                     <button
-                        ref={
-                           i === index
-                              ? (el) => el?.scrollIntoView({ block: "nearest" })
-                              : undefined
-                        }
-                        role="option"
-                        aria-selected={i === index}
-                        aria-description={c.description || undefined}
-                        className={cn(
-                           "flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                           i === index && "bg-accent text-accent-foreground",
-                        )}
-                        onMouseMove={() => i !== index && setSel(i)}
-                        onClick={() => pick(c)}
-                     >
-                        <span className="shrink-0">/{c.name}</span>
-                        {c.hint && (
-                           <span className="min-w-0 truncate text-xs text-muted-foreground">
-                              {c.hint}
-                           </span>
-                        )}
-                     </button>
-                  </Tooltip>
-               ))}
-            </PromptMenu>
+            <SlashMenu
+               items={open.items}
+               index={index}
+               side={menuSide}
+               onHover={setSel}
+               onPick={pick}
+            />
          )}
          {open?.kind === "pr" && refs && (
             <PrMenuPopup
@@ -531,36 +256,9 @@ export function PromptBox({
                   ? "border-ring bg-accent/40 dark:border-ring"
                   : "focus-within:border-ring/50 dark:focus-within:border-border",
             )}
-            onPasteCapture={(e) => {
-               const files = [...e.clipboardData.files];
-               if (!files.length) return;
-               e.preventDefault();
-               e.stopPropagation();
-               addFiles(files);
-            }}
-            onDragOver={(e) => {
-               if (!e.dataTransfer.types.includes("Files")) return;
-               e.preventDefault();
-               setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-               if (!e.dataTransfer.files.length) return;
-               e.preventDefault();
-               setDragging(false);
-               addFiles([...e.dataTransfer.files]);
-            }}
+            {...boxHandlers}
          >
-            <input
-               ref={fileInput}
-               type="file"
-               multiple
-               hidden
-               onChange={(e) => {
-                  addFiles([...(e.target.files ?? [])]);
-                  e.target.value = "";
-               }}
-            />
+            <input ref={fileInput} type="file" multiple hidden {...inputProps} />
             {context && <ContextChip context={context} />}
             {attachments.length > 0 && (
                <AttachmentChips
@@ -588,30 +286,13 @@ export function PromptBox({
                }
                command={used}
                menuOpen={count > 0}
-               onMenuKey={(k) => {
-                  if (!open) return;
-                  if (k === "down") setSel((index + 1) % count);
-                  else if (k === "up") setSel((index + count - 1) % count);
-                  else if (k === "close") setClosedAt(open.key);
-                  else if (open.kind === "slash") pick(open.items[index]!);
-                  else pickPr(index);
-               }}
-               onToken={(t) =>
-                  setToken((cur) =>
-                     cur?.text === t?.text && cur?.start === t?.start && cur?.nodeKey === t?.nodeKey
-                        ? cur
-                        : t,
-                  )
-               }
+               onMenuKey={onMenuKey}
+               onToken={onToken}
                onChange={(t, md) => {
-                  if (t !== text) {
-                     setSel(0);
-                     setClosedAt(null);
-                  }
+                  onTextChange(t);
                   setText(t);
                   setLines(lineCount(md));
-                  if (loaded.current === key)
-                     setDraft(key, t.trim() ? (ref.current?.snapshot() ?? null) : null);
+                  saveDraft(t);
                }}
                onSubmit={send}
                onOverflowChange={setOverflow}
@@ -650,34 +331,17 @@ export function PromptBox({
                {pct != null && (
                   <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />
                )}
-               {running ? (
-                  <Tooltip content="Stop Agent">
-                     <Button
-                        size="icon"
-                        className="size-6.5 rounded-full [&_svg]:size-3.5"
-                        onClick={() => {
-                           setError(null);
-                           api.cancel(threadId).catch((err) => setError(errorMessage(err)));
-                        }}
-                        aria-label="Stop Agent"
-                     >
-                        <Square className="fill-current" />
-                     </Button>
-                  </Tooltip>
-               ) : (
-                  <Button
-                     size="icon"
-                     className="size-6.5 rounded-full"
-                     disabled={
-                        (!text.trim() && comments.length === 0 && attachments.length === 0) ||
-                        readOnly
-                     }
-                     onClick={send}
-                     aria-label="Send"
-                  >
-                     <ArrowUp />
-                  </Button>
-               )}
+               <SendStopButton
+                  running={running}
+                  disabled={
+                     (!text.trim() && comments.length === 0 && attachments.length === 0) || readOnly
+                  }
+                  onSend={send}
+                  onStop={() => {
+                     setError(null);
+                     api.cancel(threadId).catch((err) => setError(errorMessage(err)));
+                  }}
+               />
             </div>
          </div>
       </div>
