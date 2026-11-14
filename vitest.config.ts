@@ -1,8 +1,24 @@
 import { defineConfig } from "vitest/config";
 
+const roots = ["packages/**/src/**", "app/src/**", "scripts/**"];
+
 export default defineConfig({
    test: {
-      include: ["packages/**/src/**/*.test.ts", "app/src/**/*.test.ts", "scripts/**/*.test.ts"],
-      environment: "node",
+      projects: [
+         {
+            test: {
+               name: "node",
+               include: roots.map((r) => `${r}/*.test.ts`),
+               environment: "node",
+            },
+         },
+         {
+            test: {
+               name: "dom",
+               include: roots.map((r) => `${r}/*.test.tsx`),
+               environment: "happy-dom",
+            },
+         },
+      ],
    },
 });
