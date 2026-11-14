@@ -38,21 +38,6 @@ export function reduceBatch(state: ChatState, events: readonly Event[]): ChatSta
    return c.d;
 }
 
-function apply(c: Ctx, e: Event) {
-   const d = c.d;
-   if (sessionLevel(c, e)) return;
-   trackThreadList(c, e);
-   // The Agent process is gone, and its background jobs with it: in every Thread.
-   endSideJobs(c, e);
-   adoptMainThread(c, e);
-   // Side Threads fold into their own state; everything else (Main Thread, Session-level) into this one.
-   if (e.thread_id && d.mainThreadId && e.thread_id !== d.mainThreadId) {
-      applyThread(sideCtx(c, e.thread_id), e);
-      return;
-   }
-   applyThread(c, e);
-}
-
 type Slice = (c: Ctx, e: Event) => void;
 
 const T = [timelineSlice];
@@ -107,10 +92,27 @@ const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    Unknown: NONE,
 };
 
-/** Folds one Event into one Thread's state (`c.d`). */
-function applyThread(c: Ctx, e: Event) {
-   const slices = ROUTES[e.kind.type] ?? NONE;
-   for (let i = 0; i < slices.length; i++) slices[i]!(c, e);
+function apply(c: Ctx, e: Event) {
+   const d = c.d;
+   const type = e.kind.type;
+   if (
+      type === "StateChanged" ||
+      type === "ArtifactAttached" ||
+      type === "ArtifactDetached" ||
+      type === "ArtifactStateChanged"
+   ) {
+      sessionLevel(c, e);
+      return;
+   }
+   trackThreadList(c, e);
+   // The Agent process is gone, and its background jobs with it: in every Thread.
+   if (type === "AgentProcessState") endSideJobs(c, e);
+   if (type === "ThreadStarted") adoptMainThread(c, e);
+   // Side Threads fold into their own state; everything else (Main Thread, Session-level) into this one.
+   const target =
+      e.thread_id && d.mainThreadId && e.thread_id !== d.mainThreadId ? sideCtx(c, e.thread_id) : c;
+   const slices = ROUTES[type] ?? NONE;
+   for (let i = 0; i < slices.length; i++) slices[i]!(target, e);
 }
 
 /** Text of an ACP tool content block, if it carries any. */
