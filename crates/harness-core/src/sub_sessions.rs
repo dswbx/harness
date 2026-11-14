@@ -16,7 +16,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::api::{AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, ThreadId};
+use crate::api::{
+    AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, SubSessionReport, SubSessionReportKind, ThreadId,
+};
 use crate::host::{Harness, NewSession};
 use crate::session::Session;
 
@@ -57,7 +59,7 @@ fn text_arg(args: &Value, key: &str) -> Option<String> {
 
 fn origin(session: &Session) -> PromptOrigin {
     let m = session.meta();
-    PromptOrigin { session_id: m.id, title: m.title, kind: PromptOriginKind::Parent }
+    PromptOrigin { session_id: m.id, title: m.title, kind: PromptOriginKind::Parent, reports: Vec::new() }
 }
 
 /// Errors when the parent already has `MAX_RUNNING_SUB_SESSIONS` children working or waiting for the user.
@@ -273,8 +275,8 @@ pub struct Notices(parking_lot::Mutex<NoticeState>);
 
 #[derive(Default)]
 struct NoticeState {
-    /// By parent: (child, child title, text), oldest first.
-    pending: HashMap<SessionId, Vec<(SessionId, String, String)>>,
+    /// By parent: (child, text for the Agent, the same for Frontends), oldest first.
+    pending: HashMap<SessionId, Vec<(SessionId, String, SubSessionReport)>>,
     /// Children a `session_wait` waits for, and how many waits.
     waiting: HashMap<SessionId, usize>,
     /// Children already reported as waiting for the user (until they stop waiting).
@@ -311,8 +313,8 @@ impl Notices {
         }
     }
 
-    fn push(&self, parent: &SessionId, child: &SessionId, title: String, text: String) {
-        self.0.lock().pending.entry(parent.clone()).or_default().push((child.clone(), title, text));
+    fn push(&self, parent: &SessionId, text: String, report: SubSessionReport) {
+        self.0.lock().pending.entry(parent.clone()).or_default().push((report.session_id.clone(), text, report));
     }
 }
 
@@ -362,13 +364,26 @@ fn on_event(host: &Arc<Harness>, e: &AppEvent) {
     if !started_by(&session, &parent.session_id) {
         return;
     }
+    let mut report = SubSessionReport {
+        session_id: m.id.clone(),
+        title: m.title.clone(),
+        kind: SubSessionReportKind::NeedsUser,
+        stop_reason: None,
+        duration_ms: None,
+        asked: last_prompt(&session),
+        reply: None,
+    };
     let text = if ended.is_some() {
-        let Ok(r) = report(&session) else { return };
+        let Ok(r) = self::report(&session) else { return };
+        report.kind = SubSessionReportKind::Ended;
+        report.stop_reason = r["stop_reason"].as_str().map(str::to_owned);
+        report.duration_ms = r["duration_ms"].as_i64();
+        report.reply = r["reply"].as_str().filter(|r| !r.trim().is_empty()).map(str::to_owned);
         let mut text = format!("Sub Session \"{}\" (session_id {}) ended its Turn", m.title, m.id);
-        if let Some(stop) = r["stop_reason"].as_str() {
+        if let Some(stop) = &report.stop_reason {
             text += &format!(" ({stop})");
         }
-        match r["reply"].as_str().filter(|r| !r.trim().is_empty()) {
+        match &report.reply {
             Some(reply) => text + ". Its last reply:\n\n" + reply,
             None => text + " without a reply.",
         }
@@ -376,8 +391,18 @@ fn on_event(host: &Arc<Harness>, e: &AppEvent) {
         notices.0.lock().attention.insert(session_id.clone());
         format!("Sub Session \"{}\" (session_id {}) waits for the user to answer a permission request there. It goes on once the user answers.", m.title, m.id)
     };
-    notices.push(&parent.session_id, session_id, m.title, text);
+    notices.push(&parent.session_id, text, report);
     flush(host, &parent.session_id);
+}
+
+/// The prompt of the latest Main Thread Turn of `child`.
+fn last_prompt(child: &Session) -> Option<String> {
+    let main = child.meta().main_thread_id;
+    let events = child.log().events().ok()?;
+    events.iter().rev().find_map(|e| match &e.kind {
+        EventKind::TurnStarted { text, .. } if e.thread_id.as_ref() == Some(&main) => Some(text.clone()),
+        _ => None,
+    })
 }
 
 /// Whether the latest Main Thread Turn of `child` came from the parent's Agent (not from the user).
@@ -414,9 +439,14 @@ fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
     };
     let parent_id = parent_id.clone();
     rt.spawn(async move {
-        let titles: Vec<&str> = list.iter().map(|(_, t, _)| t.as_str()).collect();
-        let origin = PromptOrigin { session_id: list[0].0.clone(), title: titles.join(", "), kind: PromptOriginKind::SubSession };
-        let text = list.iter().map(|(.., text)| text.as_str()).collect::<Vec<_>>().join("\n\n---\n\n");
+        let titles: Vec<&str> = list.iter().map(|(.., r)| r.title.as_str()).collect();
+        let text = list.iter().map(|(_, text, _)| text.as_str()).collect::<Vec<_>>().join("\n\n---\n\n");
+        let origin = PromptOrigin {
+            session_id: list[0].0.clone(),
+            title: titles.join(", "),
+            kind: PromptOriginKind::SubSession,
+            reports: list.into_iter().map(|(.., r)| r).collect(),
+        };
         if let Err(e) = parent.prompt(None, text, Vec::new(), Some(origin)).await {
             tracing::warn!("telling Session {parent_id} about its Sub Sessions: {e:#}");
         }

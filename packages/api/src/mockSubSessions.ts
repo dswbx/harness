@@ -1,4 +1,4 @@
-import type { EventKind, PromptOrigin } from "./generated";
+import type { EventKind, PromptOrigin, SubSessionReport } from "./generated";
 
 /**
  * Scripted logs for the mock "Release prep across repos" Session and its two Sub Sessions, so every
@@ -11,19 +11,50 @@ const A = { id: "mock-p1-a", title: "Bump jsonv-ts schema exports" };
 const B = { id: "mock-p1-b", title: "Check supalite RLS cases" };
 
 const fromParent: PromptOrigin = { session_id: PARENT.id, title: PARENT.title, kind: "parent" };
-const fromSubs = (...s: { id: string; title: string }[]): PromptOrigin => ({
-   session_id: s[0]!.id,
-   title: s.map((x) => x.title).join(", "),
-   kind: "sub_session",
+type Sub = { id: string; title: string };
+
+/** A child's Turn ended. */
+const ended = (
+   s: Sub,
+   stop_reason: string,
+   asked: string,
+   duration_ms: number,
+   reply?: string,
+): SubSessionReport => ({
+   session_id: s.id,
+   title: s.title,
+   kind: "ended",
+   stop_reason,
+   duration_ms,
+   asked,
+   reply: reply ?? null,
+});
+/** A child waits for the user. */
+const waits = (s: Sub, asked: string): SubSessionReport => ({
+   session_id: s.id,
+   title: s.title,
+   kind: "needs_user",
+   asked,
 });
 
-/** The text `sub_sessions.rs` sends the parent when a child ends its Turn. */
-const ended = (s: { id: string; title: string }, stop: string, reply?: string) => {
-   const head = `Sub Session "${s.title}" (session_id ${s.id}) ended its Turn (${stop})`;
-   return reply ? `${head}. Its last reply:\n\n${reply}` : `${head} without a reply.`;
-};
-const waits = (s: { id: string; title: string }) =>
-   `Sub Session "${s.title}" (session_id ${s.id}) waits for the user to answer a permission request there. It goes on once the user answers.`;
+/** The prompt `sub_sessions.rs` sends the parent, and its origin: text for the Agent, reports for Frontends. */
+const news = (...reports: SubSessionReport[]): [string, PromptOrigin] => [
+   reports
+      .map((r) => {
+         const who = `Sub Session "${r.title}" (session_id ${r.session_id})`;
+         if (r.kind === "needs_user")
+            return `${who} waits for the user to answer a permission request there. It goes on once the user answers.`;
+         const head = `${who} ended its Turn (${r.stop_reason})`;
+         return r.reply ? `${head}. Its last reply:\n\n${r.reply}` : `${head} without a reply.`;
+      })
+      .join("\n\n---\n\n"),
+   {
+      session_id: reports[0]!.session_id,
+      title: reports.map((r) => r.title).join(", "),
+      kind: "sub_session",
+      reports,
+   },
+];
 
 let turnN = 0;
 const turn = (text: string, origin: PromptOrigin | null, body: EventKind[], stop = "end_turn") => {
@@ -71,6 +102,14 @@ const start: EventKind[] = [
    { type: "AgentProcessState", state: "ready", message: null },
 ];
 
+const A_TASK = "Export the schema helpers from `jsonv-ts` so Harness can import them. Open a PR.";
+const A_BUMP = "Also bump the version in package.json to 0.9.0.";
+const PING = 'Ping: are you still there? Reply with just "here". No other actions.';
+const B_TASK = "Check the RLS test cases in supalite still pass against the new policies.";
+const B_GO = "Go on with the storage policies.";
+const B_PARTIAL =
+   "Ran 14 of 22 RLS cases, all passing so far. Stopped before the storage policies.";
+
 const LONG_REPLY = [
    "Done. Exports and docs are in, nothing else touched.",
    "",
@@ -108,8 +147,7 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
             ...tool(
                "session_start",
                {
-                  prompt:
-                     "Export the schema helpers from `jsonv-ts` so Harness can import them. Open a PR.",
+                  prompt: A_TASK,
                   folder: "/Users/me/jsonv-ts",
                   title: A.title,
                },
@@ -118,8 +156,7 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
             ...tool(
                "session_start",
                {
-                  prompt:
-                     "Check the RLS test cases in supalite still pass against the new policies.",
+                  prompt: B_TASK,
                   folder: "/Users/me/supalite",
                   title: B.title,
                },
@@ -141,11 +178,11 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
          ],
       ),
       // A report with a long reply.
-      ...turn(ended(A, "end_turn", LONG_REPLY), fromSubs(A), [
+      ...turn(...news(ended(A, "end_turn", A_TASK, 154_000, LONG_REPLY)), [
          say("jsonv-ts is done: exports, docs and a changeset, PR #145 is open."),
       ]),
       // The child waits for the user.
-      ...turn(waits(B), fromSubs(B), [
+      ...turn(...news(waits(B, B_TASK)), [
          say("supalite wants to run `supabase db reset`. Approve it there and it goes on."),
       ]),
       ...turn(
@@ -154,7 +191,7 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
          [
             ...tool(
                "session_send",
-               { id: A.id, text: "Also bump the version in package.json to 0.9.0." },
+               { id: A.id, text: A_BUMP },
                { session_id: A.id, title: A.title },
             ),
             ...tool(
@@ -189,8 +226,10 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
       ),
       // Two reports batched into one prompt: no reply, and cancelled with a reply.
       ...turn(
-         `${ended(A, "end_turn")}\n\n---\n\n${ended(B, "cancelled", "Ran 14 of 22 RLS cases, all passing so far. Stopped before the storage policies.")}`,
-         fromSubs(A, B),
+         ...news(
+            ended(A, "end_turn", A_BUMP, 41_000),
+            ended(B, "cancelled", B_TASK, 512_000, B_PARTIAL),
+         ),
          [say("jsonv-ts ended quietly. supalite was stopped after 14 of 22 cases, all passing.")],
       ),
       ...turn("ask the subsession if it's still there, just a ping", null, [
@@ -198,22 +237,18 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
             "session_send",
             {
                id: A.id,
-               text: 'Ping: are you still there? Reply with just "here". No other actions.',
+               text: PING,
             },
             { session_id: A.id, title: A.title },
          ),
          say("Pinged the sub session. The harness should notify me when it replies."),
       ]),
       // A short reply.
-      ...turn(ended(A, "end_turn", "here"), fromSubs(A), [
+      ...turn(...news(ended(A, "end_turn", PING, 8_000, "here")), [
          say('The sub session answered the ping with "here", so it\'s still there.'),
       ]),
       ...turn("resume supalite and wait", null, [
-         ...tool(
-            "session_send",
-            { id: B.id, text: "Go on with the storage policies." },
-            { session_id: B.id, title: B.title },
-         ),
+         ...tool("session_send", { id: B.id, text: B_GO }, { session_id: B.id, title: B.title }),
          ...tool(
             "session_wait",
             { id: B.id, timeout_s: 1800 },
@@ -223,35 +258,22 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
          say("The wait timed out. I'll get a message when supalite ends its Turn."),
       ]),
       // A report with an error stop.
-      ...turn(ended(B, "error"), fromSubs(B), [
+      ...turn(...news(ended(B, "error", B_GO, 95_000)), [
          say("supalite stopped with an error and no reply. Open it to see what happened."),
       ]),
    ];
 
    const a: EventKind[] = [
       ...start,
-      ...turn(
-         "Export the schema helpers from `jsonv-ts` so Harness can import them. Open a PR.",
-         fromParent,
-         [say(LONG_REPLY)],
-      ),
-      ...turn("Also bump the version in package.json to 0.9.0.", fromParent, [
-         say("Bumped to 0.9.0 and pushed to #145."),
-      ]),
-      ...turn('Ping: are you still there? Reply with just "here". No other actions.', fromParent, [
-         say("here"),
-      ]),
+      ...turn(A_TASK, fromParent, [say(LONG_REPLY)]),
+      ...turn(A_BUMP, fromParent, [say("Bumped to 0.9.0 and pushed to #145.")]),
+      ...turn(PING, fromParent, [say("here")]),
    ];
 
    const b: EventKind[] = [
       ...start,
-      ...turn(
-         "Check the RLS test cases in supalite still pass against the new policies.",
-         fromParent,
-         [say("Ran 14 of 22 RLS cases, all passing so far. Stopped before the storage policies.")],
-         "cancelled",
-      ),
-      ...turn("Go on with the storage policies.", fromParent, [], "error"),
+      ...turn(B_TASK, fromParent, [say(B_PARTIAL)], "cancelled"),
+      ...turn(B_GO, fromParent, [], "error"),
    ];
 
    return { [PARENT.id]: parent, [A.id]: a, [B.id]: b };

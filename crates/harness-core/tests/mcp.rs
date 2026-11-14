@@ -1350,6 +1350,12 @@ async fn sub_session_news_reach_the_idle_parent() {
     assert!(text.starts_with(&format!("Sub Session \"Child\" (session_id {child}) ended its Turn (end_turn). Its last reply:")), "{text}");
     assert!(text.ends_with("Working on it. Done."), "{text}");
     assert!(context.contains("comes from the Harness, not from the user"), "{context}");
+    // The same, structured, for Frontends.
+    let [r] = origin.reports.as_slice() else { panic!("{:?}", origin.reports) };
+    assert_eq!((r.session_id.as_str(), r.title.as_str(), r.kind), (child.as_str(), "Child", harness_core::api::SubSessionReportKind::Ended));
+    assert_eq!((r.stop_reason.as_deref(), r.asked.as_deref()), (Some("end_turn"), Some("hello")));
+    assert!(r.reply.as_deref().is_some_and(|t| t.ends_with("Working on it. Done.")), "{r:?}");
+    assert!(r.duration_ms.is_some());
     until("the notice Turn ends", || idle(&h, &sid)).await;
 
     // A Turn the user starts in the child is none of the parent's business.
@@ -1358,8 +1364,10 @@ async fn sub_session_news_reach_the_idle_parent() {
     // Waiting for the user, then ending: two notices.
     mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"needs permission"}}"#)).await;
     until("the parent hears the child waits", || notices(&h, &sid).len() == 2).await;
-    let (text, ..) = notices(&h, &sid).remove(1);
+    let (text, origin, _) = notices(&h, &sid).remove(1);
     assert!(text.contains("waits for the user to answer a permission request"), "{text}");
+    assert_eq!(origin.reports[0].kind, harness_core::api::SubSessionReportKind::NeedsUser);
+    assert_eq!(origin.reports[0].asked.as_deref(), Some("needs permission"));
     let request = until_request(&h, &child).await;
     h.execute(Command::ResolvePermission { session_id: child.clone(), request_id: request, option_id: Some("allow".into()), global: false }).await.unwrap();
     // The fake agent asks for a permission on any prompt that names one, the notice too: answer it.

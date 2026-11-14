@@ -56,6 +56,7 @@ import {
    useToolDisplay,
 } from "./toolDisplay";
 import { NoticeStep } from "./toolDisplay/NoticeStep";
+import { SubSessionReportStep } from "./toolDisplay/SubSessionReport";
 import { WaitingForUser } from "./toolDisplay/waiting";
 import type { RawNode } from "./tools";
 
@@ -400,6 +401,14 @@ export const Row = memo(function Row({
             />
          );
       case "user":
+         if (item.from?.reports.length)
+            return (
+               <div className="flex flex-col gap-1.5">
+                  {item.from.reports.map((r, i) => (
+                     <SubSessionReportStep key={i} report={r} />
+                  ))}
+               </div>
+            );
          return (
             <div className="group flex flex-col items-end">
                {item.attachments.length > 0 && (
