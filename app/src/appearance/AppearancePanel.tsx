@@ -1,12 +1,4 @@
-import type { HarnessClient } from "@harness/api";
-import {
-   setGuessInlineCode,
-   setOptionIsMeta,
-   setWrapCode,
-   useGuessInlineCode,
-   useOptionIsMeta,
-   useWrapCode,
-} from "@harness/frontend-chat";
+import type { FrontendToggle, HarnessClient } from "@harness/api";
 import {
    Button,
    cn,
@@ -19,6 +11,7 @@ import {
 } from "@harness/ui";
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
+import { frontendToggles } from "../platform/frontends";
 import { useReportError } from "../platform/toast";
 import { SectionHeader } from "../settings/SectionHeader";
 import {
@@ -183,45 +176,20 @@ function Toggle({
    );
 }
 
-function GuessInlineCodeRow() {
-   const on = useGuessInlineCode();
+function ToggleRow({ toggle }: { toggle: FrontendToggle }) {
+   const on = toggle.useValue();
    return (
-      <Row
-         label="Inline code"
-         htmlFor="guess-inline-code"
-         help="From the message's code blocks and file names, else TypeScript"
-      >
-         <Toggle id="guess-inline-code" on={on} onChange={setGuessInlineCode}>
-            Guess the language
+      <Row label={toggle.label} htmlFor={toggle.id} help={toggle.help}>
+         <Toggle id={toggle.id} on={on} onChange={toggle.set}>
+            {toggle.toggleLabel}
          </Toggle>
       </Row>
    );
 }
 
-function WrapCodeRow() {
-   const on = useWrapCode();
-   return (
-      <Row label="Code blocks" htmlFor="wrap-code" help="Same as the wrap button on any code block">
-         <Toggle id="wrap-code" on={on} onChange={setWrapCode}>
-            Wrap long lines
-         </Toggle>
-      </Row>
-   );
-}
-
-function OptionIsMetaRow() {
-   const on = useOptionIsMeta();
-   return (
-      <Row
-         label="Option key"
-         htmlFor="option-is-meta"
-         help="On: Option sends Esc for shell shortcuts (Opt+B). Off: Option types characters like @ [ ] { }"
-      >
-         <Toggle id="option-is-meta" on={on} onChange={setOptionIsMeta}>
-            Use as Meta key
-         </Toggle>
-      </Row>
-   );
+/** The switch rows the Frontends offer for `group`. */
+function FrontendToggles({ group }: { group: FrontendToggle["group"] }) {
+   return frontendToggles(group).map((t) => <ToggleRow key={t.id} toggle={t} />);
 }
 
 /** px stepper: typing, arrows, +/- buttons, clamped to min..max (FONT_SIZE_MIN..MAX by default), with Reset. */
@@ -442,8 +410,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                   options={FLOWS}
                   onChange={(flow) => update({ flow })}
                />
-               <GuessInlineCodeRow />
-               <WrapCodeRow />
+               <FrontendToggles group="chat" />
             </Group>
             <Group title="Terminal">
                <FontRow
@@ -473,7 +440,7 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                      onChange={(terminalFontSize) => update({ terminalFontSize })}
                   />
                </Row>
-               <OptionIsMetaRow />
+               <FrontendToggles group="terminal" />
             </Group>
          </div>
       </div>

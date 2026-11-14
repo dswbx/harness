@@ -44,12 +44,6 @@ const LAYER_ALLOWED: Record<string, string> = {};
 const APP_ALLOWED: Record<string, string> = {
    "app/src/mock/events.ts":
       "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
-   "app/src/shell/Shell.tsx":
-      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/settings/SettingsDialog.tsx":
-      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
-   "app/src/appearance/AppearancePanel.tsx":
-      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
 };
 
 let bad = 0;
