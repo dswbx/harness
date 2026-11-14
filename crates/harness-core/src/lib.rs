@@ -12,6 +12,7 @@ mod env;
 pub mod error;
 mod frontend_files;
 mod fsutil;
+mod git;
 mod github;
 mod github_refs;
 mod harness_context;
