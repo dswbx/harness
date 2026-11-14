@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tool } from "./group";
-import { stepLabel, toolSearchNames } from "./label";
+import { stepLabel, toolSearchTools } from "./label";
 
 const tool = (title: string, kind: string | null, harnessTool: string | null = null): Tool => ({
    type: "tool",
@@ -22,6 +22,7 @@ const tool = (title: string, kind: string | null, harnessTool: string | null = n
    endedAt: null,
    commitMessage: null,
 });
+const toolSearchNames = (t: Tool) => toolSearchTools(t)?.map((r) => r.name) ?? null;
 const label = (t: Tool, state: "running" | "done" | "failed" = "done", sub = false) => {
    const l = stepLabel(t, state, sub);
    return `${l.verb} | ${l.detail}`;
@@ -144,6 +145,29 @@ describe("ToolSearch", () => {
          "WebFetch",
       ]);
       expect(toolSearchNames(tool("Grep", "search"))).toBeNull();
+   });
+
+   it("reads the typed detail, not the raw payload, when the core sent it", () => {
+      const typed = (over: Partial<Tool>): Tool => ({ ...tool("Terminal", "execute"), ...over });
+      expect(
+         toolSearchNames(
+            typed({
+               title: "x",
+               detail: {
+                  loaded_tools: [
+                     { name: "a" },
+                     { name: "mcp__s__t", mcp: { server: "s", tool: "t" } },
+                  ],
+               },
+            }),
+         ),
+      ).toEqual(["a", "mcp__s__t"]);
+      expect(
+         label(typed({ title: "x", kind: "edit", detail: { op: "write", target: "a.ts" } })),
+      ).toBe("Wrote | a.ts");
+      expect(label(typed({ title: "y", detail: { mcp: { server: "s", tool: "t" } } }))).toBe(
+         "Called s | t",
+      );
    });
 
    it("labels: count and short names, or the keywords", () => {

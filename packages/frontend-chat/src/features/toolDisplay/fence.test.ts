@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commandOf, jsonTail, parseFence } from "./fence";
+import { jsonTail, parseFence } from "./fence";
 
 describe("parseFence", () => {
    it("one fence: language and code; Read output loses its line numbers", () => {
@@ -43,15 +43,5 @@ describe("jsonTail", () => {
       expect(jsonTail("Done. Live items: []")).toBeNull();
       expect(jsonTail("see [a](b)")).toBeNull();
       expect(jsonTail("plain text")).toBeNull();
-   });
-});
-
-describe("commandOf", () => {
-   it("string, argv or title", () => {
-      expect(commandOf({ command: "ls -la" }, "ls")).toBe("ls -la");
-      expect(commandOf({ command: ["bash", "-lc", "git status"] }, "x")).toBe("git status");
-      expect(commandOf({ command: ["git", "status"] }, "x")).toBe("git status");
-      expect(commandOf({}, "git diff")).toBe("git diff");
-      expect(commandOf(null, "Terminal")).toBeNull();
    });
 });

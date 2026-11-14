@@ -1332,6 +1332,37 @@ describe("typed tool facts", () => {
       expect(s.items[1]).toMatchObject({ commitMessage: "Fix" });
    });
 
+   it("keeps the core's detail; the newest update replaces it, one without keeps it", () => {
+      const update = (over: object) =>
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: "a",
+            title: null,
+            kind: null,
+            status: null,
+            content: null,
+            locations: null,
+            raw_input: null,
+            raw_output: null,
+            ...over,
+         });
+      const s = fold([
+         ev({
+            type: "ToolCall",
+            tool_call_id: "a",
+            ...base,
+            raw_input: {},
+            detail: { target: "x" },
+         }),
+         update({ detail: { command: "ls" } }),
+         update({ status: "completed" }),
+      ]);
+      expect(s.items[0]).toMatchObject({ detail: { command: "ls" } });
+      // Old logs have none: the property is absent, not undefined.
+      const old = fold([ev({ type: "ToolCall", tool_call_id: "b", ...base, raw_input: {} })]);
+      expect("detail" in old.items[0]!).toBe(false);
+   });
+
    it("an update carrying the fields fills them in; later updates keep them", () => {
       const s = fold([
          ev({ type: "ToolCall", tool_call_id: "a", ...base, raw_input: {} }),

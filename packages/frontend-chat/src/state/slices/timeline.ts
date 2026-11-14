@@ -1,4 +1,10 @@
-import { type Event, type PermissionRule, toolFacts, toolFactsOfCall } from "@harness/api";
+import {
+   type Event,
+   type PermissionRule,
+   type ToolDetail,
+   toolFacts,
+   toolFactsOfCall,
+} from "@harness/api";
 import { groupConfigOptions, valueName } from "../configGroups";
 import { type Ctx, notice, own, permIndex, push, toolIndex } from "../draft";
 import type { ChatState, ContentBlock, Item, SubagentMeta, Tool, ToolCallRef } from "../types";
@@ -186,6 +192,7 @@ export function timelineSlice(c: Ctx, e: Event) {
             ts: prev?.ts ?? e.ts_ms,
             endedAt: prev?.endedAt ?? (ended(k.status) ? e.ts_ms : null),
             commitMessage: k.commit_message ?? facts.commitMessage,
+            ...(k.detail && { detail: k.detail }),
             ...(existing !== undefined &&
                (d.items[existing] as Tool).approval && {
                   approval: (d.items[existing] as Tool).approval,
@@ -229,6 +236,7 @@ export function timelineSlice(c: Ctx, e: Event) {
             rawInput: k.raw_input,
          });
          const subagentPrompt = k.subagent?.prompt ?? facts.subagentPrompt ?? base.subagentPrompt;
+         const detail: ToolDetail | undefined = k.detail ?? base.detail;
          const next: Tool = {
             ...base,
             title: k.title ?? base.title,
@@ -253,6 +261,8 @@ export function timelineSlice(c: Ctx, e: Event) {
                   : null),
             endedAt: base.endedAt ?? (ended(k.status) ? e.ts_ms : null),
             commitMessage: k.commit_message ?? facts.commitMessage ?? base.commitMessage,
+            // The core sends the facts as of each update, so the newest replaces.
+            ...(detail && { detail }),
          };
          if (at === undefined) {
             idx.set(next.id, own(c).length);

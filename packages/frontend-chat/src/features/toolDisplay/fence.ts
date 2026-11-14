@@ -1,5 +1,7 @@
-/** A text block that is one code fence: its language and code. With `numbered` (Read output), `N\t` line numbers
- * become the range `from`–`to`, but only when they count up by one: `wc -l` output has the same shape. */
+import { stripLineNumbers } from "@harness/api";
+
+/** A text block that is one code fence: its language and code. With `numbered` (the call's output carries line
+ * numbers, `toolDetail(tool).read?.lineNumbered`), they become the range `from`–`to`. */
 export function parseFence(
    text: string,
    numbered = false,
@@ -8,15 +10,8 @@ export function parseFence(
    // A closing fence inside means more than one block (with prose between): leave it to Markdown.
    if (!m || new RegExp(`^${m[1]}\\s*$`, "m").test(m[3]!)) return null;
    const code = m[3]!;
-   const lines = code.split("\n");
-   const nums = lines.map((l) => (/^\s*\d+\t/.test(l) ? parseInt(l, 10) : NaN));
-   if (!numbered || !nums.every((n, i) => n === nums[0]! + i)) return { lang: m[2]!, code };
-   return {
-      lang: m[2]!,
-      code: lines.map((l) => l.replace(/^\s*\d+\t/, "")).join("\n"),
-      from: nums[0],
-      to: nums.at(-1),
-   };
+   const stripped = numbered ? stripLineNumbers(code) : null;
+   return { lang: m[2]!, ...(stripped ?? { code }) };
 }
 
 /** Text that is, or ends in, a JSON object or array: the prose before it and the value, pretty-printed.
@@ -39,15 +34,4 @@ export function jsonTail(text: string): { prose: string; json: string } | null {
       }
    }
    return null;
-}
-
-/** The command line of an `execute` call: `rawInput.command` (a string, or argv like `["bash", "-lc", cmd]`), else its title. */
-export function commandOf(rawInput: unknown, title: string): string | null {
-   const cmd = (rawInput as { command?: unknown } | null)?.command;
-   if (typeof cmd === "string" && cmd.trim()) return cmd;
-   if (Array.isArray(cmd) && cmd.every((a) => typeof a === "string")) {
-      const shell = cmd.length === 3 && /^-l?c$/.test(cmd[1]!);
-      return shell ? cmd[2]! : cmd.join(" ");
-   }
-   return title && title !== "Terminal" ? title : null;
 }

@@ -140,6 +140,10 @@ pub enum EventKind {
         /// `git_commit`: the commit message.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         commit_message: Option<String>,
+        /// Typed facts for Views, read from the call by the core (`agent_quirks`). Absent on Events
+        /// recorded before it existed: `@harness/api` `toolDetail` derives them then.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<ToolDetail>,
     },
     ToolCallUpdate {
         tool_call_id: String,
@@ -177,6 +181,9 @@ pub enum EventKind {
         /// Set when the update carries the commit message (see `ToolCall`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         commit_message: Option<String>,
+        /// The call's facts as of this update (see `ToolCall`); replaces the earlier ones.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<ToolDetail>,
     },
     /// Appended by the Harness when a background job's output file is no longer open by any
     /// process: the job ended (see `ToolCallUpdate.background_job`).
@@ -359,6 +366,66 @@ pub struct SubagentInfo {
     /// The model the subagent runs on, when the call sets one; else it inherits the Thread's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+/// What a View needs to show a tool call, read from the call by the core so no Frontend parses
+/// an Agent's payloads (ADR 0012). Each field is set only when the call has that fact.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ToolDetail {
+    /// An `execute` call's command line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// A `read` call: the file and how its output is formatted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<ReadDetail>,
+    /// A tool search call: the tools it loaded (made callable). `Some` even when it loaded none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loaded_tools: Option<Vec<ToolRef>>,
+    /// A tool search call: its search words (not a `select:` lookup).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_query: Option<String>,
+    /// The call is to a tool of an MCP server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpTool>,
+    /// What the call does when its kind alone does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<ToolOp>,
+    /// What the call acts on (a path, a URL, a query) when that differs from its title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+/// A `read` call's file and output format.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ReadDetail {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The output's code carries `N<tab>` line numbers that count up by one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub line_numbered: bool,
+}
+
+/// A tool an Agent names: its own id, and the MCP server it belongs to when it is one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ToolRef {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpTool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct McpTool {
+    pub server: String,
+    pub tool: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolOp {
+    /// Creates or overwrites a file (ACP kind `edit`).
+    Write,
+    /// Searches the web (ACP kind `search` or `fetch`).
+    WebSearch,
 }
 
 /// How many of a Thread's Turns fit in a transcript.

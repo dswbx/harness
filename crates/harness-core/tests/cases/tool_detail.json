@@ -1,0 +1,396 @@
+[
+   {
+      "name": "execute: command string",
+      "call": {
+         "kind": "execute",
+         "title": "git status",
+         "rawInput": {
+            "command": "git status"
+         }
+      },
+      "detail": {
+         "command": "git status"
+      }
+   },
+   {
+      "name": "execute: title while the command streams",
+      "call": {
+         "kind": "execute",
+         "title": "Terminal",
+         "rawInput": {}
+      },
+      "detail": {
+         "target": ""
+      }
+   },
+   {
+      "name": "execute: argv in a shell wrapper",
+      "call": {
+         "kind": "execute",
+         "title": "ls -la",
+         "rawInput": {
+            "command": ["bash", "-lc", "ls -la"]
+         }
+      },
+      "detail": {
+         "command": "ls -la"
+      }
+   },
+   {
+      "name": "execute: plain argv",
+      "call": {
+         "kind": "execute",
+         "title": "Run",
+         "rawInput": {
+            "command": ["git", "status"]
+         }
+      },
+      "detail": {
+         "command": "git status"
+      }
+   },
+   {
+      "name": "execute: only the title names the command",
+      "call": {
+         "kind": "execute",
+         "title": "npm test"
+      },
+      "detail": {
+         "command": "npm test"
+      }
+   },
+   {
+      "name": "execute: empty input, the title names the command",
+      "call": {
+         "kind": "execute",
+         "title": "git diff",
+         "rawInput": {}
+      },
+      "detail": {
+         "command": "git diff"
+      }
+   },
+   {
+      "name": "not execute: command is not read",
+      "call": {
+         "kind": "other",
+         "title": "Tool call",
+         "rawInput": {
+            "command": "x"
+         }
+      },
+      "detail": {}
+   },
+   {
+      "name": "read: path from locations",
+      "call": {
+         "kind": "read",
+         "title": "Read src/a.ts",
+         "locations": [
+            {
+               "path": "/r/src/a.ts"
+            }
+         ]
+      },
+      "detail": {
+         "read": {
+            "path": "/r/src/a.ts"
+         },
+         "target": "src/a.ts"
+      }
+   },
+   {
+      "name": "read: path from the title",
+      "call": {
+         "kind": "read",
+         "title": "Read src/a.ts"
+      },
+      "detail": {
+         "read": {
+            "path": "src/a.ts"
+         },
+         "target": "src/a.ts"
+      }
+   },
+   {
+      "name": "read: bare title",
+      "call": {
+         "kind": "read",
+         "title": "Read File"
+      },
+      "detail": {
+         "read": {
+            "path": "File"
+         },
+         "target": ""
+      }
+   },
+   {
+      "name": "read: line numbers counting up",
+      "call": {
+         "kind": "read",
+         "title": "Read a.ts",
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "```\n12\tfoo\n13\tbar\n```"
+               }
+            }
+         ]
+      },
+      "detail": {
+         "read": {
+            "path": "a.ts",
+            "line_numbered": true
+         },
+         "target": "a.ts"
+      }
+   },
+   {
+      "name": "read: line numbers not counting up",
+      "call": {
+         "kind": "read",
+         "title": "Read a.ts",
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "```\n1\tfoo\n3\tbar\n```"
+               }
+            }
+         ]
+      },
+      "detail": {
+         "read": {
+            "path": "a.ts"
+         },
+         "target": "a.ts"
+      }
+   },
+   {
+      "name": "read: output without a fence",
+      "call": {
+         "kind": "read",
+         "title": "Read a.ts",
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "1\tfoo"
+               }
+            }
+         ]
+      },
+      "detail": {
+         "read": {
+            "path": "a.ts"
+         },
+         "target": "a.ts"
+      }
+   },
+   {
+      "name": "read: two fences are not one block",
+      "call": {
+         "kind": "read",
+         "title": "Read a.ts",
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "```\n1\tfoo\n```\nand\n```\n2\tbar\n```"
+               }
+            }
+         ]
+      },
+      "detail": {
+         "read": {
+            "path": "a.ts"
+         },
+         "target": "a.ts"
+      }
+   },
+   {
+      "name": "write",
+      "call": {
+         "kind": "edit",
+         "title": "Write src/x.ts"
+      },
+      "detail": {
+         "op": "write",
+         "target": "src/x.ts"
+      }
+   },
+   {
+      "name": "edit",
+      "call": {
+         "kind": "edit",
+         "title": "Edit src/x.ts"
+      },
+      "detail": {
+         "target": "src/x.ts"
+      }
+   },
+   {
+      "name": "web search",
+      "call": {
+         "kind": "fetch",
+         "title": "Search \"acp\""
+      },
+      "detail": {
+         "op": "web_search",
+         "target": "\"acp\""
+      }
+   },
+   {
+      "name": "fetch",
+      "call": {
+         "kind": "fetch",
+         "title": "Fetch https://x.dev"
+      },
+      "detail": {
+         "target": "https://x.dev"
+      }
+   },
+   {
+      "name": "bare titles say nothing",
+      "call": {
+         "kind": "fetch",
+         "title": "Fetch"
+      },
+      "detail": {
+         "target": ""
+      }
+   },
+   {
+      "name": "mcp tool",
+      "call": {
+         "kind": "other",
+         "title": "mcp__claude_ai_Linear__get_document"
+      },
+      "detail": {
+         "mcp": {
+            "server": "claude_ai_Linear",
+            "tool": "get_document"
+         }
+      }
+   },
+   {
+      "name": "mcp tool with __ in its name",
+      "call": {
+         "title": "mcp__a__b__c"
+      },
+      "detail": {
+         "mcp": {
+            "server": "a",
+            "tool": "b__c"
+         }
+      }
+   },
+   {
+      "name": "not an mcp tool",
+      "call": {
+         "title": "mcp__a__"
+      },
+      "detail": {}
+   },
+   {
+      "name": "tool search: tool_reference output",
+      "call": {
+         "title": "ToolSearch",
+         "rawInput": {
+            "query": "select:mcp__talat__get-summary,Read"
+         },
+         "rawOutput": [
+            {
+               "type": "tool_reference",
+               "tool_name": "mcp__talat__get-summary"
+            },
+            {
+               "type": "tool_reference",
+               "tool_name": "Read"
+            },
+            {
+               "type": "text",
+               "text": "x"
+            }
+         ]
+      },
+      "detail": {
+         "loaded_tools": [
+            {
+               "name": "mcp__talat__get-summary",
+               "mcp": {
+                  "server": "talat",
+                  "tool": "get-summary"
+               }
+            },
+            {
+               "name": "Read"
+            }
+         ]
+      }
+   },
+   {
+      "name": "tool search: text blocks and keywords",
+      "call": {
+         "title": "ToolSearch",
+         "rawInput": {
+            "query": "linear issues"
+         },
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "Tool: mcp__linear__list_issues"
+               }
+            },
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "found 1"
+               }
+            }
+         ]
+      },
+      "detail": {
+         "loaded_tools": [
+            {
+               "name": "mcp__linear__list_issues",
+               "mcp": {
+                  "server": "linear",
+                  "tool": "list_issues"
+               }
+            }
+         ],
+         "search_query": "linear issues"
+      }
+   },
+   {
+      "name": "tool search: nothing loaded yet",
+      "call": {
+         "title": "ToolSearch",
+         "rawInput": {
+            "query": "x"
+         }
+      },
+      "detail": {
+         "loaded_tools": [],
+         "search_query": "x"
+      }
+   },
+   {
+      "name": "other call",
+      "call": {
+         "kind": "other",
+         "title": "Tool call"
+      },
+      "detail": {}
+   }
+]

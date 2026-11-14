@@ -1,9 +1,15 @@
-import { type GitToolSummary, type SubSessionToolSummary, subagentState } from "@harness/api";
+import {
+   type GitToolSummary,
+   type SubSessionToolSummary,
+   subagentState,
+   type ToolRefFacts,
+   toolDetail,
+} from "@harness/api";
 import { formatDuration } from "../../lib/time";
 import { diffLines } from "../changes/diff";
 import type { ChatSubagent, Tool } from "./group";
-import { gitSummary, type StepState, stepLabel, subSessionSummary, toolSearchNames } from "./label";
-import { present } from "./raw";
+import { gitSummary, type StepState, stepLabel, subSessionSummary, toolSearchTools } from "./label";
+import { hasRaw } from "./raw";
 
 /** Which icon a step shows; the Trace display maps it to a component. */
 export type StepIcon =
@@ -64,7 +70,7 @@ export type StepBody =
    | { kind: "none" }
    | { kind: "subagent"; subagent: ChatSubagent }
    | { kind: "subSession"; summary: SubSessionToolSummary }
-   | { kind: "toolSearch"; names: string[] }
+   | { kind: "toolSearch"; tools: ToolRefFacts[] }
    | { kind: "commit"; message: string; hash: string | undefined }
    | { kind: "call" };
 
@@ -110,14 +116,14 @@ function iconOf(
    state: StepState,
    subagent: ChatSubagent | undefined,
    sub: SubSessionToolSummary | null,
-   loaded: string[] | null,
+   loaded: ToolRefFacts[] | null,
 ): StepIcon {
    if (subagent) return "bot";
    if (state === "failed") return "failed";
    if (tool.harnessTool && GIT_ICONS.has(tool.harnessTool)) return tool.harnessTool as StepIcon;
    if (sub) return "bot";
    if (loaded) return "blocks";
-   if (tool.harnessTool || tool.title.startsWith("mcp__")) return "plug";
+   if (tool.harnessTool || toolDetail(tool).mcp) return "plug";
    return KIND_ICONS.has(tool.kind ?? "") ? (tool.kind as StepIcon) : "wrench";
 }
 
@@ -170,15 +176,10 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
               : "pending";
    const git = subagent ? null : gitSummary(tool);
    const sub = subagent ? null : subSessionSummary(tool);
-   const loaded = subagent ? null : toolSearchNames(tool);
+   const loaded = subagent ? null : toolSearchTools(tool);
    const { verb, detail } = stepLabel(tool, state, !!subagent);
    const message = tool.commitMessage ?? "";
-   const hasBody =
-      !!subagent ||
-      !!message ||
-      tool.content.length > 0 ||
-      present(tool.rawInput) ||
-      present(tool.rawOutput);
+   const hasBody = !!subagent || !!message || tool.content.length > 0 || hasRaw(tool);
    const body: StepBody = !hasBody
       ? { kind: "none" }
       : subagent
@@ -186,7 +187,7 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
         : sub
           ? { kind: "subSession", summary: sub }
           : loaded?.length
-            ? { kind: "toolSearch", names: loaded }
+            ? { kind: "toolSearch", tools: loaded }
             : message
               ? { kind: "commit", message, hash: git?.hash }
               : { kind: "call" };

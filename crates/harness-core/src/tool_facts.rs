@@ -12,6 +12,15 @@ pub struct ToolFacts {
     pub frontend_tool: Option<String>,
 }
 
+/// Sets `detail` on a tool Event from the call as tracked so far (the update merged over its
+/// `tool_call`), so each Event carries the call's facts as of then.
+pub(crate) fn fill_detail(call: &Value, kind: &mut crate::api::EventKind) {
+    use crate::api::EventKind::{ToolCall, ToolCallUpdate};
+    if let ToolCall { detail, .. } | ToolCallUpdate { detail, .. } = kind {
+        *detail = Some(crate::agent_quirks::tool_detail(call));
+    }
+}
+
 pub(crate) fn tool_facts(call: &Value, harness_tool: Option<&str>) -> ToolFacts {
     let kind = call.get("kind").and_then(Value::as_str);
     let raw_input = call.get("rawInput");
@@ -122,9 +131,32 @@ mod tests {
         let old =
             json!({ "type": "ToolCall", "tool_call_id": "a", "title": "t", "kind": null, "status": null, "content": [], "locations": [], "raw_input": null });
         let k: EventKind = serde_json::from_value(old).unwrap();
-        assert!(matches!(k, EventKind::ToolCall { plan: None, subagent: None, commit_message: None, .. }));
+        assert!(matches!(k, EventKind::ToolCall { plan: None, subagent: None, commit_message: None, detail: None, .. }));
         let old = json!({ "type": "PermissionRequested", "request_id": "r", "tool_call": {}, "options": [] });
         let k: EventKind = serde_json::from_value(old).unwrap();
         assert!(matches!(k, EventKind::PermissionRequested { plan: None, frontend_tool: None, .. }));
+    }
+
+    /// The same table runs in `@harness/api` (`toolDetail`), so the fallback for old logs and the
+    /// core cannot drift.
+    #[test]
+    fn tool_detail_cases() {
+        let cases: Vec<Value> = serde_json::from_str(include_str!("../tests/cases/tool_detail.json")).unwrap();
+        assert!(cases.len() > 10);
+        for c in cases {
+            let got = serde_json::to_value(crate::agent_quirks::tool_detail(&c["call"])).unwrap();
+            assert_eq!(got, c["detail"], "{}", c["name"]);
+        }
+    }
+
+    #[test]
+    fn events_carry_the_detail_of_the_merged_call() {
+        let call = json!({ "kind": "execute", "title": "ls", "rawInput": { "command": "ls" } });
+        let mut k = normalize(&json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c" }));
+        fill_detail(&call, &mut k);
+        let EventKind::ToolCallUpdate { detail: Some(d), .. } = k else { panic!("no detail") };
+        assert_eq!(d.command.as_deref(), Some("ls"));
+        let mut other = EventKind::TurnEnded { turn_id: "1".into(), stop_reason: "end_turn".into() };
+        fill_detail(&call, &mut other);
     }
 }

@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-use crate::api::{BackgroundJob, EventKind};
+use crate::api::{BackgroundJob, EventKind, McpTool, ReadDetail, ToolDetail, ToolOp, ToolRef};
 
 /// Host env vars removed before spawning any Agent.
 pub fn stripped_env() -> Vec<String> {
@@ -93,6 +93,15 @@ pub fn subagent_info(raw_input: Option<&Value>) -> Option<crate::api::SubagentIn
     claude::subagent_info(raw_input)
 }
 
+/// The facts a View needs to show a tool call, out of the call as the Agent sent it (`kind`,
+/// `title`, `locations`, `rawInput`, `rawOutput`, `content`, merged over its updates). ACP carries
+/// some of them (kind, locations); the rest are Agents' own conventions. The same cases run in
+/// `@harness/api` (`toolDetail`, the fallback for logs recorded before this) from
+/// `tests/cases/tool_detail.json`, so the two cannot drift.
+pub fn tool_detail(call: &Value) -> ToolDetail {
+    claude::tool_detail(call)
+}
+
 /// Claude Agent (claude-agent-acp).
 mod claude {
     use super::*;
@@ -113,6 +122,142 @@ mod claude {
             agent_type: str_of("subagent_type"),
             model: str_of("model"),
         })
+    }
+
+    const BARE_TITLES: &[&str] = &["Terminal", "Read File", "Fetch", "Edit", "Web search"];
+
+    /// Facts read from Claude's tool conventions: titles (`Write <path>`, `Read <path>`,
+    /// `mcp__<server>__<tool>`, `Terminal` while the command streams), the `ToolSearch` output,
+    /// and `N<tab>` line numbers on Read output.
+    pub fn tool_detail(call: &Value) -> ToolDetail {
+        let kind = call.get("kind").and_then(Value::as_str);
+        let title = call.get("title").and_then(Value::as_str).unwrap_or("");
+        let raw_input = call.get("rawInput");
+        let mut d = ToolDetail::default();
+        if kind == Some("execute") {
+            d.command = command(raw_input, title);
+        }
+        if kind == Some("read") {
+            let path = call
+                .pointer("/locations/0/path")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| title.strip_prefix("Read ").filter(|p| !p.is_empty() && !p.contains('\n')).map(str::to_owned));
+            d.read = Some(ReadDetail { path, line_numbered: call.get("content").is_some_and(line_numbered) });
+        }
+        d.mcp = mcp_of(title);
+        if title == "ToolSearch" {
+            d.loaded_tools = Some(loaded_tools(call));
+            d.search_query =
+                raw_input.and_then(|i| i.get("query")).and_then(Value::as_str).filter(|q| !q.is_empty() && !q.starts_with("select:")).map(str::to_owned);
+        }
+        let blank = BARE_TITLES.contains(&title);
+        let (op, target) = if let Some(path) = title.strip_prefix("Write ") {
+            (Some(ToolOp::Write), path.to_owned())
+        } else if let Some(query) = title.strip_prefix("Search ").filter(|q| q.starts_with('"')) {
+            (Some(ToolOp::WebSearch), query.to_owned())
+        } else if blank {
+            (None, String::new())
+        } else {
+            (None, strip_verb(title).to_owned())
+        };
+        d.op = op;
+        d.target = (target != title).then_some(target);
+        d
+    }
+
+    /// `Read file `, `Read `, `Edit ` or `Fetch ` at the start of a title.
+    fn strip_verb(title: &str) -> &str {
+        ["Read file ", "Read ", "Edit ", "Fetch "].iter().find_map(|p| title.strip_prefix(p)).unwrap_or(title)
+    }
+
+    /// `rawInput.command` (a string, or argv), else the title unless it only says `Terminal`.
+    fn command(raw_input: Option<&Value>, title: &str) -> Option<String> {
+        match raw_input.and_then(|i| i.get("command")) {
+            Some(Value::String(s)) if !s.trim().is_empty() => return Some(s.clone()),
+            Some(Value::Array(parts)) => {
+                let parts: Option<Vec<&str>> = parts.iter().map(Value::as_str).collect();
+                if let Some(parts) = parts {
+                    return Some(command_from_parts(&parts)).filter(|c| !c.is_empty());
+                }
+            }
+            _ => {}
+        }
+        (!title.is_empty() && title != "Terminal").then(|| title.to_owned())
+    }
+
+    /// `mcp__<server>__<tool>`; the server is the shortest name followed by `__` and a tool.
+    fn mcp_of(name: &str) -> Option<McpTool> {
+        let rest = name.strip_prefix("mcp__")?;
+        if rest.contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
+            return None;
+        }
+        let at = (1..rest.len()).find(|&i| rest.is_char_boundary(i) && rest[i..].starts_with("__") && rest.len() > i + 2)?;
+        Some(McpTool { server: rest[..at].to_owned(), tool: rest[at + 2..].to_owned() })
+    }
+
+    /// A `ToolSearch` call's loaded tools: `tool_reference` items in its output, else `Tool: <name>` text blocks.
+    fn loaded_tools(call: &Value) -> Vec<ToolRef> {
+        let name_ref = |n: &str| ToolRef { name: n.to_owned(), mcp: mcp_of(n) };
+        let refs: Vec<ToolRef> = call
+            .get("rawOutput")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|r| r.get("type").and_then(Value::as_str) == Some("tool_reference"))
+            .filter_map(|r| r.get("tool_name").and_then(Value::as_str))
+            .map(name_ref)
+            .collect();
+        if !refs.is_empty() {
+            return refs;
+        }
+        content_texts(call.get("content"))
+            .filter_map(|t| t.trim().strip_prefix("Tool: ").filter(|n| !n.is_empty() && !n.contains(char::is_whitespace)).map(name_ref))
+            .collect()
+    }
+
+    /// The text of each `{ type: "content", content: { type: "text", text } }` block.
+    fn content_texts(content: Option<&Value>) -> impl Iterator<Item = &str> {
+        content
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|b| (b.get("type").and_then(Value::as_str) == Some("content")).then(|| b.pointer("/content/text").and_then(Value::as_str)).flatten())
+    }
+
+    /// Some text block is one code fence whose lines are all `N<tab>code`, counting up by one.
+    fn line_numbered(content: &Value) -> bool {
+        content_texts(Some(content)).any(|t| fence_code(t).is_some_and(|code| numbers(code).is_some()))
+    }
+
+    /// The code of a text that is one fenced block (a closing fence inside means several).
+    fn fence_code(text: &str) -> Option<&str> {
+        let t = text.trim();
+        let ticks = t.len() - t.trim_start_matches('`').len();
+        if ticks < 3 {
+            return None;
+        }
+        let (fence, rest) = t.split_at(ticks);
+        let (lang, body) = rest.split_once('\n')?;
+        if !lang.chars().all(|c| c.is_ascii_alphanumeric() || "_+#.-".contains(c)) {
+            return None;
+        }
+        let body = body.strip_suffix(fence)?;
+        let code = body.strip_suffix('\n').unwrap_or(body);
+        (!code.lines().any(|l| l.trim_end() == fence)).then_some(code)
+    }
+
+    /// The first line number of `N<tab>`-prefixed lines that count up by one.
+    fn numbers(code: &str) -> Option<u64> {
+        let mut first = None;
+        for (i, line) in code.split('\n').enumerate() {
+            let (n, _) = line.trim_start().split_once('\t')?;
+            let n: u64 = n.parse().ok().filter(|_| n.bytes().all(|b| b.is_ascii_digit()))?;
+            if n != *first.get_or_insert(n) + i as u64 {
+                return None;
+            }
+        }
+        first
     }
 
     /// When the Harness itself runs under another agent app (e.g. launched from a Claude desktop
@@ -198,6 +343,7 @@ mod tests {
             plan: None,
             subagent: None,
             commit_message: None,
+            detail: None,
         }
     }
 
@@ -284,6 +430,7 @@ mod tests {
             plan: None,
             subagent: None,
             commit_message: None,
+            detail: None,
         };
         adjust(&json!({}), &mut k);
         assert!(matches!(k, EventKind::ToolCallUpdate { background: true, .. }));
@@ -306,6 +453,7 @@ mod tests {
             plan: None,
             subagent: None,
             commit_message: None,
+            detail: None,
         }
     }
 
