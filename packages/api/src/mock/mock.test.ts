@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionApi, HarnessClient } from "./client";
-import type { AppEvent, Event } from "./generated";
+import { createSessionApi, HarnessClient } from "../client/client";
+import type { AppEvent, Event } from "../generated";
 import { MockTransport } from "./mock";
 
 describe("MockTransport app events", () => {

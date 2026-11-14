@@ -1,4 +1,4 @@
-import { inTauri, type Unsubscribe } from "./transport";
+import { inTauri, type Unsubscribe } from "../transport/transport";
 
 /** Native file picker (Tauri): absolute paths, `[]` when cancelled. `null` outside Tauri: use an `<input type="file">`. */
 export async function pickFiles(): Promise<string[] | null> {

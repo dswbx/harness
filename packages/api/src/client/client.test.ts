@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { CommandError } from "../errors";
+import type { Command, CommandResult } from "../generated";
+import type { Transport } from "../transport/transport";
 import { createSessionApi, HarnessClient, type SessionApi } from "./client";
-import { CommandError } from "./errors";
-import type { Command, CommandResult } from "./generated";
-import type { Transport } from "./transport";
 
 const meta = {
    v: 1,

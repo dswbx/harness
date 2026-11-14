@@ -1,4 +1,4 @@
-import type { EventKind } from "./generated";
+import type { EventKind } from "../generated";
 
 /** Event kinds by family, for log viewers' filters (ADR 0012, shared helper). Typed, so a new kind must be placed. */
 const FAMILY: Record<EventKind["type"], string> = {

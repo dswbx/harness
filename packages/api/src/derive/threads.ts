@@ -1,4 +1,4 @@
-import type { Event, ForkPoint } from "./generated";
+import type { Event, ForkPoint } from "../generated";
 
 /** A Thread of a Session as the Views list it: the Main Thread and its Side Threads. */
 export type ThreadInfo = {

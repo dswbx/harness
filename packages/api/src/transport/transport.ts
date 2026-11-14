@@ -1,6 +1,6 @@
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { toCommandError } from "./errors";
-import type { AppEvent, Command, CommandResult, Event, SessionMessage } from "./generated";
+import { toCommandError } from "../errors";
+import type { AppEvent, Command, CommandResult, Event, SessionMessage } from "../generated";
 
 export type Unsubscribe = () => void;
 

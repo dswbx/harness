@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import {
+   apiEntryViolation,
    appViolation,
    importedNames,
    importSpecs,
@@ -88,6 +89,15 @@ for (const file of walk(resolve("packages/ui/src"))) {
          console.error(`${file}: forbidden import "${spec}": ${why}`);
          bad++;
       }
+   }
+}
+
+// The API entry stays free of the mock.
+for (const spec of importSpecs(readFileSync("packages/api/src/index.ts", "utf8"))) {
+   const why = apiEntryViolation(spec);
+   if (why) {
+      console.error(`packages/api/src/index.ts: forbidden import "${spec}": ${why}`);
+      bad++;
    }
 }
 

@@ -1,10 +1,16 @@
 import { ArrowDownToLine, ChevronRight, ListFilter, Search } from "lucide-react";
 import * as React from "react";
 import { cn } from "../lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover";
-import { ScrollArea } from "./scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
-import { Tooltip } from "./tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "../primitives/popover";
+import { ScrollArea } from "../primitives/scroll-area";
+import {
+   Select,
+   SelectContent,
+   SelectItem,
+   SelectTrigger,
+   SelectValue,
+} from "../primitives/select";
+import { Tooltip } from "../primitives/tooltip";
 import { VirtualList } from "./virtual-list";
 
 /** The Event fields the log shows; structural, so `@harness/ui` needs no `@harness/api`. */

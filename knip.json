@@ -18,7 +18,7 @@
       "packages/ui": {
          "project": ["src/**/*.{ts,tsx}"],
          "ignore": ["**/*.test.{ts,tsx}"],
-         "ignoreIssues": { "src/components/**": ["exports", "types"] }
+         "ignoreIssues": { "src/primitives/**": ["exports", "types"] }
       }
    },
    "vitest": false,
