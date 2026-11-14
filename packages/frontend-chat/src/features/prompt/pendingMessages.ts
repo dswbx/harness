@@ -55,6 +55,10 @@ export const nextBase = (cur: PendingMessage[], itemId: string, userCount: numbe
 export const setPendingActions = (key: string, a: PendingActions) => {
    actions.set(key, a);
 };
+/** Unregisters `a` (when given: only if it is still the registered one, so a newer box keeps its own). */
+export const removePendingActions = (key: string, a?: PendingActions) => {
+   if (!a || actions.get(key) === a) actions.delete(key);
+};
 export const pendingActions = (key: string) => actions.get(key);
 
 function subscribe(cb: () => void) {
