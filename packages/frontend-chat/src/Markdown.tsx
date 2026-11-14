@@ -69,7 +69,9 @@ function Pre({ node, children, ...props }: PreProps) {
 }
 
 /** The Markdown being rendered: a table's downloads use its source. `title`: names what it shows, when given. */
-const MarkdownText = createContext<{ text: string; title?: string }>({ text: "" });
+const MarkdownText = createContext<{ text: string; title?: string; streaming?: boolean }>({
+   text: "",
+});
 
 /** The artifact title of a diagram or table here, which names its downloads. */
 function useArtifactTitle(kind: "diagram" | "table", source: string) {
@@ -78,7 +80,8 @@ function useArtifactTitle(kind: "diagram" | "table", source: string) {
 }
 
 function MermaidInMarkdown({ source }: { source: string }) {
-   return <Mermaid source={source} title={useArtifactTitle("diagram", source)} />;
+   const { streaming } = useContext(MarkdownText);
+   return <Mermaid source={source} title={useArtifactTitle("diagram", source)} wait={streaming} />;
 }
 
 // Tables look like render_ui's Table (utilities beat typeset's component layer; cell content keeps typeset).
@@ -210,12 +213,15 @@ export function Markdown({
    plainCode,
    title,
    html,
+   streaming,
 }: {
    children: string;
    /** Allow raw HTML, sanitized (`sanitizeSchema`); otherwise raw HTML is dropped. */
    html?: boolean;
    /** What this shows, if not to be found from the text before it: names downloads. */
    title?: string;
+   /** The text is still growing: a diagram waits (a partial fence would fail to draw). */
+   streaming?: boolean;
    className?: string;
    breaks?: boolean;
    plainCode?: boolean;
@@ -235,7 +241,10 @@ export function Markdown({
       ],
       [guess, prCtx, fileRefs, html],
    );
-   const context = useMemo(() => ({ text: children, title }), [children, title]);
+   const context = useMemo(
+      () => ({ text: children, title, streaming }),
+      [children, title, streaming],
+   );
    return (
       <div className={cn("typeset typeset-chat", className)}>
          <MarkdownText.Provider value={context}>

@@ -414,7 +414,7 @@ export default function TerminalPanel({ api, active }: { api: SessionApi; active
                         )}
                         <span className="truncate">
                            {tabs[index]
-                              ? `${tabs[index].title}${tabs[index].busy ? ` ${index + 1}` : ""}/${tabs.length}`
+                              ? `${tabs[index].title} ${index + 1}/${tabs.length}`
                               : "Terminal"}
                         </span>
                         <ChevronDown className="shrink-0" />

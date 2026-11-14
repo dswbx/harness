@@ -19,7 +19,7 @@ import {
    useRef,
    useState,
 } from "react";
-import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
+import { fromFile, fromPickedPath, inside, type PendingAttachment } from "./attachments";
 import { CommentChips } from "./CommentChip";
 import { ConfigBar, type MenuSide } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
@@ -29,6 +29,7 @@ import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./Prompt
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
 import {
    hasArrived,
+   nextBase,
    type PendingMessage,
    setPendingActions,
    updatePendingMessages,
@@ -313,6 +314,9 @@ export function PromptBox({
       () => state.items.filter((i) => i.type === "user").length,
       [state.items],
    );
+   // `deliver` runs in loops across renders: it needs the current count, not its closure's.
+   const userCountRef = useRef(userCount);
+   userCountRef.current = userCount;
    // A sent message is replaced by its row in the list once that row has arrived.
    useEffect(() => {
       if (pending.some((p) => p.status === "sent" && hasArrived(p, userCount)))
@@ -366,8 +370,13 @@ export function PromptBox({
       let off: (() => void) | null = null;
       let gone = false;
       void onFileDrop((e) => {
-         setDragging(e.type === "over");
-         if (e.type === "drop") addRef.current(e.paths);
+         // Only the box under the cursor takes the drop (a Side Thread panel adds a second box).
+         // Without a position every box takes it.
+         const pos = e.type === "leave" ? undefined : e.position;
+         const el = boxRef.current;
+         const here = !pos || (!!el && inside(el.getBoundingClientRect(), pos));
+         setDragging(e.type === "over" && here);
+         if (e.type === "drop" && here) addRef.current(e.paths);
       }).then((u) => (gone ? u?.() : (off = u)));
       return () => {
          gone = true;
@@ -421,13 +430,16 @@ export function PromptBox({
    };
    /** Shows `item` as sending until `run` settles. True when it was sent. */
    const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
-      const base = userCount + pending.filter((p) => p.status !== "failed").length;
-      const next: PendingMessage = { ...item, status: "sending", base };
-      updatePendingMessages(key, (cur) =>
-         cur.some((p) => p.id === item.id)
+      updatePendingMessages(key, (cur) => {
+         const next: PendingMessage = {
+            ...item,
+            status: "sending",
+            base: nextBase(cur, item.id, userCountRef.current),
+         };
+         return cur.some((p) => p.id === item.id)
             ? cur.map((p) => (p.id === item.id ? next : p))
-            : [...cur, next],
-      );
+            : [...cur, next];
+      });
       const mark = (status: PendingMessage["status"]) =>
          updatePendingMessages(key, (cur) =>
             cur.map((p) => (p.id === item.id ? { ...p, status } : p)),

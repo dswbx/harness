@@ -12,10 +12,20 @@ function svgSize(svg: string): { width: number; height: number } | null {
 }
 
 /** A ```mermaid fence: the diagram. */
-export function Mermaid({ source, title }: { source: string; title?: string }) {
+export function Mermaid({
+   source,
+   title,
+   wait,
+}: {
+   source: string;
+   title?: string;
+   /** The source may still grow (streaming): do not draw yet. */
+   wait?: boolean;
+}) {
    const dark = useIsDark();
    const [out, setOut] = useState<Drawn | null>(() => knownDiagram(dark, source) ?? null);
    useEffect(() => {
+      if (wait) return;
       let live = true;
       void drawMermaid(dark, source).then((o) => {
          if (live) setOut(o);
@@ -23,7 +33,7 @@ export function Mermaid({ source, title }: { source: string; title?: string }) {
       return () => {
          live = false;
       };
-   }, [source, dark]);
+   }, [source, dark, wait]);
    if (out && "error" in out) {
       return (
          <div className="grid grid-cols-1 gap-1">

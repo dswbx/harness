@@ -719,6 +719,10 @@ function Inspect({
    madeIn?: string;
 }) {
    const [tab, setTab] = useState<"preview" | "image" | "source">("preview");
+   // Focus once per inspected item, not on every render (that closes menus and steals input focus).
+   const page = useRef<HTMLDivElement>(null);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: refocus only when the item changes
+   useEffect(() => page.current?.focus({ preventScroll: true }), [a.key]);
    // A Shared Artifact's content, for its source, downloads and picture key (the preview reads it too).
    const sharedId = a.shared && a.key === `shared:${a.shared.id}` ? a.shared.id : null;
    const read = useSharedArtifact(
@@ -771,7 +775,7 @@ function Inspect({
          aria-label={`Artifact: ${a.title}`}
          tabIndex={-1}
          onKeyDown={onKey}
-         ref={(el) => el?.focus({ preventScroll: true })}
+         ref={page}
       >
          <PanelHeader
             className="gap-1 pl-1.5"
