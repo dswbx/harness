@@ -342,6 +342,14 @@ impl Notices {
         st.pending.remove(parent)
     }
 
+    /// Puts notices that could not be sent back in front of the newer ones, in their order.
+    fn put_back(&self, parent: &SessionId, mut list: Vec<(SessionId, String, SubSessionReport)>) {
+        let mut st = self.0.lock();
+        let slot = st.pending.entry(parent.clone()).or_default();
+        list.append(slot);
+        *slot = list;
+    }
+
     fn push(&self, parent: &SessionId, text: String, report: SubSessionReport) {
         self.0.lock().pending.entry(parent.clone()).or_default().push((report.session_id.clone(), text, report));
     }
@@ -447,7 +455,10 @@ fn started_by(child: &Session, parent: &SessionId) -> bool {
 }
 
 /// Sends a parent its pending notices as one prompt, when its Main Thread is idle. Otherwise its
-/// next Turn end comes back here.
+/// next Turn end comes back here. A notice that arrives while the send is under way (the parent's
+/// Turn may end before the sending task is done, and `take` then finds a send under way) is
+/// picked up by one more `flush` at the end of the task. When the prompt fails, the notices go
+/// back to the front of the list and wait for the parent's next Turn end: no retry loop.
 fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     let Ok(parent) = host.session(parent_id) else { return };
@@ -465,24 +476,34 @@ fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
         return;
     };
     let parent_id = parent_id.clone();
+    let host = Arc::downgrade(host);
     rt.spawn(async move {
         // Cleared however the task ends, or the parent would never hear from a Sub Session again.
-        let _sending = Sending(&parent.shared().notices, parent_id.clone());
+        let sending = Sending(&parent.shared().notices, parent_id.clone());
         let titles: Vec<&str> = list.iter().map(|(.., r)| r.title.as_str()).collect();
         let text = list.iter().map(|(_, text, _)| text.as_str()).collect::<Vec<_>>().join("\n\n---\n\n");
         let origin = PromptOrigin {
             session_id: first,
             title: titles.join(", "),
             kind: PromptOriginKind::SubSession,
-            reports: list.into_iter().map(|(.., r)| r).collect(),
+            reports: list.iter().map(|(.., r)| r.clone()).collect(),
         };
-        if let Err(e) = parent.prompt(None, text, Vec::new(), Some(origin)).await {
+        let sent = parent.prompt(None, text, Vec::new(), Some(origin)).await;
+        if let Err(e) = &sent {
             tracing::warn!("telling Session {parent_id} about its Sub Sessions: {e:#}");
+            parent.shared().notices.put_back(&parent_id, list);
+        }
+        drop(sending);
+        // Notices that came in while sending: their Turn end may have found a send under way.
+        if sent.is_ok()
+            && let Some(host) = host.upgrade()
+        {
+            flush(&host, &parent_id);
         }
     });
 }
 
-/// A parent's notices being sent; dropping it lets the next ones go.
+/// A parent's notices being sent; dropping it lets the next ones go (see `flush`).
 struct Sending<'a>(&'a Notices, SessionId);
 
 impl Drop for Sending<'_> {
@@ -678,5 +699,18 @@ mod tests {
             assert!(notices.take(&parent).is_none(), "one prompt at a time");
         }
         assert_eq!(notices.take(&parent).unwrap()[0].0, "c", "kept for the next send");
+    }
+
+    #[test]
+    fn notices_that_were_not_sent_go_back_in_front() {
+        let (notices, parent): (Notices, SessionId) = (Notices::default(), "p".into());
+        notices.push(&parent, "a".into(), ended("a"));
+        notices.push(&parent, "b".into(), ended("b"));
+        let list = notices.take(&parent).unwrap();
+        notices.push(&parent, "c".into(), ended("c"));
+        notices.put_back(&parent, list);
+        let _ = Sending(&notices, parent.clone());
+        let order: Vec<String> = notices.take(&parent).unwrap().into_iter().map(|(c, ..)| c).collect();
+        assert_eq!(order, ["a", "b", "c"]);
     }
 }

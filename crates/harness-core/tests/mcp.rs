@@ -1496,3 +1496,20 @@ async fn a_running_session_wait_replaces_the_notice() {
     mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"slow again"}}"#)).await;
     until("the parent hears the child ended", || notices(&h, &sid).len() == 1).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_notice_that_arrives_during_a_notice_turn_goes_out_without_a_user_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // "slow" in the title makes the parent notice Turn slow (the fake agent reads the prompt).
+    mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"slow first","worktree":false}"#).await;
+    until("the first notice Turn starts", || notices(&h, &sid).len() == 1 && !idle(&h, &sid)).await;
+    // The second child ends while the parent is busy with that Turn.
+    mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Second","worktree":false}"#).await;
+    until("the parent hears the second child too", || notices(&h, &sid).len() == 2).await;
+    assert!(notices(&h, &sid)[1].0.contains("\"Second\""), "{:?}", notices(&h, &sid)[1].0);
+    until("the parent is idle", || idle(&h, &sid)).await;
+}
