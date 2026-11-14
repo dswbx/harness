@@ -27,14 +27,7 @@ import { errorMessage } from "./errors";
 import { registerDropTarget } from "./fileDropTargets";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
-import {
-   hasArrived,
-   nextBase,
-   type PendingMessage,
-   setPendingActions,
-   updatePendingMessages,
-   usePendingMessages,
-} from "./pendingMessages";
+import { type PendingMessage, setPendingActions, updatePendingMessages } from "./pendingMessages";
 import { repoToken } from "./prMenu";
 import { lineCount } from "./promptMarkdown";
 import { usePrRefs } from "./prRefs";
@@ -49,6 +42,7 @@ import {
    withReviewComments,
 } from "./reviewComments";
 import { formatDuration } from "./time";
+import { usePendingSend } from "./usePendingSend";
 
 /** Files and images waiting to be sent: image thumbnails (pasted ones) or name chips. */
 function AttachmentChips({
@@ -309,23 +303,16 @@ export function PromptBox({
 
    const [error, setError] = useState<string | null>(null);
    const readOnly = state.readOnly;
-   const pending = usePendingMessages(key);
    const userCount = useMemo(
       () => state.items.filter((i) => i.type === "user").length,
       [state.items],
    );
-   // `deliver` runs in loops across renders: it needs the current count, not its closure's.
-   const userCountRef = useRef(userCount);
-   userCountRef.current = userCount;
-   // A sent message is replaced by its row in the list once that row has arrived.
-   useEffect(() => {
-      if (pending.some((p) => p.status === "sent" && hasArrived(p, userCount)))
-         updatePendingMessages(key, (cur) =>
-            cur.filter((p) => !(p.status === "sent" && hasArrived(p, userCount))),
-         );
-   }, [key, pending, userCount]);
-   const failed = pending.filter((p) => p.status === "failed");
-   const sending = pending.some((p) => p.status === "sending");
+   const { failed, sending, deliver, retry } = usePendingSend({
+      key,
+      userCount,
+      send: (p) => api.prompt(p.prompt, p.inputs, threadId),
+      onError: setError,
+   });
    const comments = useReviewComments(key);
    const [attachments, setAttachments] = useDraftAttachments(key);
    const [dragging, setDragging] = useState(false);
@@ -420,43 +407,6 @@ export function PromptBox({
          // Put them back ahead of any added since.
          setReviewComments(key, [...sent, ...getReviewComments(key)]);
       });
-   };
-   /** Shows `item` as sending until `run` settles. True when it was sent. */
-   const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
-      updatePendingMessages(key, (cur) => {
-         const next: PendingMessage = {
-            ...item,
-            status: "sending",
-            base: nextBase(cur, item.id, userCountRef.current),
-         };
-         return cur.some((p) => p.id === item.id)
-            ? cur.map((p) => (p.id === item.id ? next : p))
-            : [...cur, next];
-      });
-      const mark = (status: PendingMessage["status"]) =>
-         updatePendingMessages(key, (cur) =>
-            cur.map((p) => (p.id === item.id ? { ...p, status } : p)),
-         );
-      try {
-         await run();
-         mark("sent");
-         // Not every prompt makes a Turn (e.g. a mock command): don't keep it forever.
-         setTimeout(
-            () => updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id)),
-            5000,
-         );
-         return true;
-      } catch (err) {
-         setError(errorMessage(err));
-         mark("failed");
-         return false;
-      }
-   };
-   const retry = async () => {
-      setError(null);
-      for (const p of failed) {
-         if (!(await deliver(p, () => api.prompt(p.prompt, p.inputs, threadId)))) return;
-      }
    };
    const editPending = (item: PendingMessage) => {
       const ed = ref.current;
