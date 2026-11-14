@@ -1,6 +1,7 @@
 import type { Event, EventKind } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { type Item, initialState, reduce } from "../../state/reducer";
+import { type Item, initialState } from "../../state/reducer";
+import { reduce } from "../renderUi/chatReducer";
 import { splitRenderUi } from "../renderUi/slots";
 import { chatRows, chatRowsOf, renderUiOf } from "./chatRows";
 

@@ -1,4 +1,5 @@
 import type { Item } from "../../state/reducer";
+import { asRenderUi } from "../renderUi/decode";
 import { type Placement, type RawNode, sharedRef, sourceTreeName } from "../renderUi/tools";
 
 export type ArtifactKind = "ui" | "diagram" | "table";
@@ -228,7 +229,7 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          continue;
       }
       if (it.type !== "frontend_tool" || !it.render?.ok) continue;
-      const v = it.render.value;
+      const v = asRenderUi(it.render.value);
       const old = v.id ? byId.get(v.id) : undefined;
       if (v.remove || !v.root) {
          if (old) {
