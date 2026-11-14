@@ -107,19 +107,27 @@ export function usePrMenu(token: string | null, refs: PrRefs | null): PrMenu | n
 
    useEffect(() => {
       if (!refs || !repo || want === null || repoId === null) return;
-      const done = (prs: PrInfo[] | null) => setRes({ want, repoId, prs });
+      // A slower older search must not overwrite the result of a newer one.
+      let live = true;
+      const done = (prs: PrInfo[] | null) => {
+         if (live) setRes({ want, repoId, prs });
+      };
       const cached = refs.search.peek(repo, query);
       if (cached) done(cached);
       const key = number ? { repo, number } : null;
       const t = setTimeout(
          () => {
+            if (!live) return;
             setExactKey(key);
             if (key) refs.store.request(key);
             if (!cached) refs.search.get(repo, query).then(done, () => done(null));
          },
          cached && !key ? 0 : PR_SEARCH_DELAY,
       );
-      return () => clearTimeout(t);
+      return () => {
+         live = false;
+         clearTimeout(t);
+      };
       // `repo`/`query` are covered by `want`, `number` by itself.
       // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [refs, want, number]);
