@@ -1,6 +1,7 @@
 import { ClipboardList } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
+import { usePanelTarget } from "../../panels/usePanelTarget";
 import { PlanPanel } from "./PlanPanel";
 import { planToAutoOpen } from "./plans";
 
@@ -15,13 +16,15 @@ export type PlanModel = {
  * The Agent's plans. The icon appears with the first plan; a new pending plan opens the panel, once per request
  * (not in the Quick overlay).
  */
-export const planPanel = definePanel<PlanModel>({
+export const planPanel = definePanel<PlanModel, string>({
    id: "plan",
    label: "Plan",
    icon: ClipboardList,
    placement: { edge: "right" },
    useModel: ({ state, variant }, self) => {
       const [selected, select] = useState<string | null>(null);
+      // Opened at a plan (its requestId), it shows that version.
+      usePanelTarget(self, select);
       const lastPlan = state.plans.at(-1);
       const pendingPlan = lastPlan?.status === "pending" ? lastPlan.requestId : null;
       const opened = useRef(new Set<string>());
@@ -37,7 +40,7 @@ export const planPanel = definePanel<PlanModel>({
       return useMemo(() => ({ selected, select, hasPlans }), [selected, hasPlans]);
    },
    status: (m) => ({ presence: m.hasPlans ? "ready" : "absent" }),
-   Body: ({ model, ctx }: PanelBodyProps<PlanModel>) => (
+   Body: ({ model, ctx }: PanelBodyProps<PlanModel, string>) => (
       <PlanPanel
          api={ctx.api}
          state={ctx.state}

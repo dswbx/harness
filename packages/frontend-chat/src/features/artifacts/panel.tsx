@@ -2,6 +2,7 @@ import { Layers } from "lucide-react";
 import { useMemo } from "react";
 import { flash } from "../../lib/flash";
 import { definePanel, type PanelBodyProps, type PanelRef } from "../../panels/contract";
+import { usePanelTargetState } from "../../panels/usePanelTarget";
 import { useEnv } from "../renderUi/runtime";
 import { ArtifactsPanel, type SharedActions } from "./ArtifactsPanel";
 import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
@@ -9,9 +10,6 @@ import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 export type ArtifactsModel = {
    artifacts: Artifact[];
    shared: SharedActions;
-   /** The artifact to open next (its key), kept by the shell until panels take typed targets. */
-   target?: { key: string } | null;
-   onTargetShown?: () => void;
 };
 
 /** A render_ui panel the Agent placed (ids are `slot:<id>`). */
@@ -19,8 +17,8 @@ const slotRef = (id: string): PanelRef => ({ id: `slot:${id}` });
 
 const NO_METAS: NonNullable<SharedActions["metas"]> = new Map();
 
-/** The Session's diagrams, tables and render_ui items, and the Shared Artifacts attached to it. */
-export const artifactsPanel = definePanel<ArtifactsModel>({
+/** The Session's diagrams, tables and render_ui items, and the Shared Artifacts attached to it. Opened at an artifact key, it shows that artifact. */
+export const artifactsPanel = definePanel<ArtifactsModel, string>({
    id: "artifacts",
    label: "Artifacts",
    icon: Layers,
@@ -59,8 +57,10 @@ export const artifactsPanel = definePanel<ArtifactsModel>({
       return useMemo(() => ({ artifacts, shared }), [artifacts, shared]);
    },
    status: (m) => ({ presence: "ready", badge: m.artifacts.length }),
-   Body: ({ model, ctx }: PanelBodyProps<ArtifactsModel>) => {
+   Body: ({ model, ctx, self }: PanelBodyProps<ArtifactsModel, string>) => {
       const env = useEnv();
+      // The artifact to open (its key), as a new object each time.
+      const target = usePanelTargetState(self, (key) => ({ key }));
       // A click on an artifact: its panel (`slot:<id>`) when it has one, else the message block, flashed.
       const jump = (a: Artifact) => {
          if (a.placement === "right" || a.placement === "left") {
@@ -85,8 +85,7 @@ export const artifactsPanel = definePanel<ArtifactsModel>({
             env={env}
             onJump={jump}
             shared={model.shared}
-            target={model.target}
-            onTargetShown={model.onTargetShown}
+            target={target}
          />
       );
    },

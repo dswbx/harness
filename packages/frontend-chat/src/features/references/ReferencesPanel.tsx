@@ -62,7 +62,12 @@ const NO_CANDIDATES: ReturnType<typeof collectReferences> = [];
  * each candidate and returns what exists. No lookups before that, and no walk over `items`: until then the stripe's
  * icon has no count. Run it inside the PR and file ref providers.
  */
-export function useReferences(items: Item[], active: boolean): ResolvedReferences {
+export function useReferences(
+   items: Item[],
+   active: boolean,
+   /** False: the panel can never show (the Quick Overlay), so a PR store change is no reason to render. */
+   subscribe = true,
+): ResolvedReferences {
    const prRefs = usePrRefs();
    const reader = useFileRefs();
    const [tick, bump] = useReducer((n: number) => n + 1, 0);
@@ -77,7 +82,7 @@ export function useReferences(items: Item[], active: boolean): ResolvedReference
       return s;
    }, [active, items]);
    const store = prRefs?.store;
-   useEffect(() => store?.subscribe(bump), [store]);
+   useEffect(() => (subscribe ? store?.subscribe(bump) : undefined), [store, subscribe]);
    // Each lookup once per target; both caches keep the answers.
    const wanted = useMemo(() => candidates.map((c) => c.key).join("\n"), [candidates]);
    // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event.

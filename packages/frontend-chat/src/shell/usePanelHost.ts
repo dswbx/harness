@@ -29,15 +29,27 @@ export function usePanelHost(o: {
    update: (f: (l: Layout) => Layout) => void;
    chat: PanelCtx["chat"];
    host: PanelCtx["host"];
+   /** The panels to host; a constant list (default: the registry). */
+   // biome-ignore lint/suspicious/noExplicitAny: panels of different model and target types
+   panels?: readonly PanelDef<any, any>[];
 }) {
-   const { api, state, variant, lay, update, chat, host } = o;
+   const { api, state, variant, lay, update, chat, host, panels = PANELS } = o;
    const layRef = useRef(lay);
    layRef.current = lay;
+   const ctxRef = useRef<PanelCtx | null>(null);
    const [targets, setTargets] = useState<Record<string, Target>>({});
    const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
    const open = useCallback(
       (ref: PanelRef<unknown>, ...target: unknown[]) => {
+         const def = panels.find((p) => p.id === ref.id);
+         // A View that cannot show this panel hands the target to the panel's fallback instead.
+         if (def?.fallback && target.length > 0 && variant === "overlay" && !def.overlay) {
+            def.fallback(ctxRef.current!, target[0]);
+            return;
+         }
+         // A fresh object per call: the same value opened twice applies twice. Kept until the panel
+         // mounts (hidden, or still loading), then applied once.
          if (target.length > 0)
             setTargets((t) => ({
                ...t,
@@ -45,7 +57,7 @@ export function usePanelHost(o: {
             }));
          update((l) => showPanel(l, ref.id as PanelId));
       },
-      [update],
+      [update, variant, panels],
    );
    const hide = useCallback(
       (ref: PanelRef<never>) => update((l) => hidePanel(l, ref.id as PanelId)),
@@ -69,14 +81,16 @@ export function usePanelHost(o: {
       [api, state, variant, open, hide, isOpenNow, chat, host],
    );
 
+   ctxRef.current = ctx;
+
    useEffect(() => {
-      const fresh = PANELS.filter((p) => isOpen(lay, p.id as PanelId) && !opened.has(p.id));
+      const fresh = panels.filter((p) => isOpen(lay, p.id as PanelId) && !opened.has(p.id));
       if (fresh.length > 0) setOpened((s) => new Set([...s, ...fresh.map((p) => p.id)]));
    }, [lay, opened]);
 
    const selvesRef = useRef(new Map<string, PanelSelf<unknown>>());
    const selves: Record<string, PanelSelf<unknown>> = {};
-   for (const p of PANELS) {
+   for (const p of panels) {
       const next = {
          open: isOpen(lay, p.id as PanelId),
          opened: opened.has(p.id),
@@ -102,13 +116,13 @@ export function usePanelHost(o: {
 
    // The registry is a constant list, so the hooks run in the same order on every render.
    const models: Record<string, unknown> = {};
-   for (const p of PANELS) {
+   for (const p of panels) {
       // biome-ignore lint/correctness/useHookAtTopLevel: PANELS never changes
       models[p.id] = p.useModel(ctx, selves[p.id]!);
    }
 
    const statusesRef = useRef<ReadonlyMap<string, PanelStatus>>(new Map());
-   const next = new Map(PANELS.map((p) => [p.id, p.status(models[p.id])]));
+   const next = new Map(panels.map((p) => [p.id, p.status(models[p.id])]));
    const prevStatuses = statusesRef.current;
    const statuses =
       next.size === prevStatuses.size &&
@@ -120,9 +134,5 @@ export function usePanelHost(o: {
          : next;
    statusesRef.current = statuses;
 
-   /** A registered panel's model, typed by its definition. */
-   // biome-ignore lint/suspicious/noExplicitAny: any target type
-   const modelOf = <M>(def: PanelDef<M, any>) => models[def.id] as M;
-
-   return { ctx, selves, models, modelOf, statuses };
+   return { ctx, selves, models, statuses };
 }
