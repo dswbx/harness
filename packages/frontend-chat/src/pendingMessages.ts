@@ -43,6 +43,13 @@ export function updatePendingMessages(key: string, f: (cur: PendingMessage[]) =>
 export const hasArrived = (p: PendingMessage, userCount: number) =>
    p.status !== "failed" && userCount > p.base;
 
+/**
+ * `base` for `itemId` when it is (re)sent: the user messages in the Thread plus the other pending
+ * ones still on their way, taken from the store's current list so a retry loop counts each.
+ */
+export const nextBase = (cur: PendingMessage[], itemId: string, userCount: number) =>
+   userCount + cur.filter((p) => p.id !== itemId && p.status !== "failed").length;
+
 export const setPendingActions = (key: string, a: PendingActions) => {
    actions.set(key, a);
 };

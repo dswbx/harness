@@ -29,6 +29,7 @@ import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./Prompt
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
 import {
    hasArrived,
+   nextBase,
    type PendingMessage,
    setPendingActions,
    updatePendingMessages,
@@ -421,13 +422,16 @@ export function PromptBox({
    };
    /** Shows `item` as sending until `run` settles. True when it was sent. */
    const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
-      const base = userCount + pending.filter((p) => p.status !== "failed").length;
-      const next: PendingMessage = { ...item, status: "sending", base };
-      updatePendingMessages(key, (cur) =>
-         cur.some((p) => p.id === item.id)
+      updatePendingMessages(key, (cur) => {
+         const next: PendingMessage = {
+            ...item,
+            status: "sending",
+            base: nextBase(cur, item.id, userCount),
+         };
+         return cur.some((p) => p.id === item.id)
             ? cur.map((p) => (p.id === item.id ? next : p))
-            : [...cur, next],
-      );
+            : [...cur, next];
+      });
       const mark = (status: PendingMessage["status"]) =>
          updatePendingMessages(key, (cur) =>
             cur.map((p) => (p.id === item.id ? { ...p, status } : p)),
