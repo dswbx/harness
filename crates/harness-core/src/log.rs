@@ -8,8 +8,10 @@
 //! Old shapes are read through `upcast` (ADR 0021).
 //!
 //! **Memory.** Events load into memory on first need (`events`, `subscribe`, a projection), not
-//! on open. After that reads never touch the file. Small projections (current mode per Thread,
-//! the Agent's title) are kept up to date on append for hot paths.
+//! on open. After that reads never touch the file. `events` hands out shared `Arc<Event>` handles
+//! (cold paths: export, replay, transcripts). Hot paths read projections kept up to date on append and
+//! rebuilt on load: mode, title, attached Shared Artifacts, Frontend items and errors, open Turn,
+//! newest config options. `tests/projections.rs` pins each to a scan of all Events.
 //!
 //! **Startup.** `sync` writes a checkpoint (`log.checkpoint.json`: `next_seq`, `last_ts_ms`,
 //! `agent_was_running`, `byte_len`). Open trusts it when the file is at least `byte_len` long and
@@ -47,6 +49,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use crate::api::{EVENT_SCHEMA_VERSION, Event, EventKind, EventSink, ProcessState, SessionId, ThreadId};
+use crate::session::{FrontendErrorEntry, FrontendItem};
 
 pub type SubscriptionId = u64;
 
@@ -83,6 +86,87 @@ struct Projections {
     before_plan: HashMap<ThreadId, String>,
     /// Thread (None: Session level) -> (seq, newest non-blank title from `SessionInfoUpdated`).
     titles: HashMap<Option<ThreadId>, (u64, String)>,
+    /// Attached Shared Artifact ids, in order of attaching (`ArtifactAttached` / `ArtifactDetached`).
+    attached: Vec<String>,
+    /// Thread -> whether its newest `TurnStarted` / `TurnEnded` is a start.
+    open_turn: HashMap<ThreadId, bool>,
+    /// Thread -> `seq` of its newest `TurnStarted`.
+    turn_started: HashMap<ThreadId, u64>,
+    /// Thread -> the options array of its newest `ConfigOptionsChanged` that has one.
+    config: HashMap<ThreadId, Vec<Value>>,
+    frontend: FrontendProj,
+}
+
+/// Frontend Tool items and errors: what `Session::frontend_items` and `frontend_errors` return.
+#[derive(Default)]
+struct FrontendProj {
+    /// Calls that named an `id` and were not removed since, in the order first seen.
+    items: Vec<FrontendItem>,
+    /// Every live item (its `id`, or the call id of a call without one) -> Thread of its latest call.
+    keyed: HashMap<(String, String), ThreadId>,
+    /// `FrontendError`s not cleared since, oldest first. May name items that never existed: read through `errors`.
+    errors: Vec<FrontendErrorEntry>,
+}
+
+impl FrontendProj {
+    fn apply(&mut self, e: &Event) {
+        match &e.kind {
+            EventKind::FrontendToolOutput { tool, call_id, input, files, .. } => {
+                let id = input.get("id").and_then(Value::as_str);
+                let remove = input.get("remove") == Some(&Value::Bool(true));
+                if let Some(id) = id {
+                    let at = self.items.iter().position(|x| x.tool == *tool && x.id == id);
+                    match (remove, at) {
+                        (true, Some(i)) => {
+                            self.items.remove(i);
+                        }
+                        (true, None) => {}
+                        (false, at) => {
+                            let item = FrontendItem {
+                                tool: tool.clone(),
+                                id: id.to_owned(),
+                                input: input.clone(),
+                                ts_ms: e.ts_ms,
+                                thread: e.thread_id.clone(),
+                                files: files.clone(),
+                            };
+                            match at {
+                                Some(i) => self.items[i] = item,
+                                None => self.items.push(item),
+                            }
+                        }
+                    }
+                }
+                let Some(thread) = &e.thread_id else { return };
+                match id {
+                    Some(id) => {
+                        self.errors.retain(|x| !(x.tool == *tool && x.item == id));
+                        let key = (tool.clone(), id.to_owned());
+                        if remove {
+                            self.keyed.remove(&key);
+                        } else {
+                            self.keyed.insert(key, thread.clone());
+                        }
+                    }
+                    None => {
+                        self.keyed.insert((tool.clone(), call_id.clone()), thread.clone());
+                    }
+                }
+            }
+            EventKind::FrontendError { tool, item, message } => self.errors.push(FrontendErrorEntry {
+                seq: e.seq,
+                thread: e.thread_id.clone().unwrap_or_default(),
+                tool: tool.clone(),
+                item: item.clone(),
+                message: message.clone(),
+            }),
+            _ => {}
+        }
+    }
+
+    fn errors(&self) -> Vec<FrontendErrorEntry> {
+        self.errors.iter().filter(|x| self.keyed.contains_key(&(x.tool.clone(), x.item.clone()))).cloned().collect()
+    }
 }
 
 impl Projections {
@@ -101,7 +185,22 @@ impl Projections {
                 if let Some(mode) = config_mode(options) {
                     self.set_mode(e, mode);
                 }
+                if let (Some(t), Some(o)) = (&e.thread_id, options.as_array()) {
+                    self.config.insert(t.clone(), o.clone());
+                }
             }
+            EventKind::ArtifactAttached { id, .. } if !self.attached.contains(id) => self.attached.push(id.clone()),
+            EventKind::ArtifactDetached { id, .. } => self.attached.retain(|x| x != id),
+            EventKind::TurnStarted { .. } | EventKind::TurnEnded { .. } => {
+                if let Some(t) = &e.thread_id {
+                    let started = matches!(e.kind, EventKind::TurnStarted { .. });
+                    self.open_turn.insert(t.clone(), started);
+                    if started {
+                        self.turn_started.insert(t.clone(), e.seq);
+                    }
+                }
+            }
+            EventKind::FrontendToolOutput { .. } | EventKind::FrontendError { .. } => self.frontend.apply(e),
             EventKind::SessionInfoUpdated { title: Some(t) } if !t.trim().is_empty() => {
                 self.titles.insert(e.thread_id.clone(), (e.seq, t.clone()));
             }
@@ -905,12 +1004,50 @@ impl SessionLog {
         self.inner.lock().subscribers.iter().filter(|s| !s.state.dead.load(Ordering::Relaxed)).count()
     }
 
-    /// All Events, from memory (loaded from the file the first time). Prefer a projection on hot paths.
-    pub fn events(&self) -> anyhow::Result<Vec<Event>> {
+    /// All Events, from memory (loaded from the file the first time): shared handles, not copies.
+    /// For cold paths (export, replay, a transcript). Hot paths read a projection.
+    pub fn events(&self) -> anyhow::Result<Vec<Arc<Event>>> {
+        self.project(|inner| inner.events.clone().unwrap_or_default())
+    }
+
+    /// Runs `read` on the loaded log under its lock (a held chunk is flushed first).
+    fn project<T>(&self, read: impl FnOnce(&Inner) -> T) -> anyhow::Result<T> {
         let mut inner = self.inner.lock();
         inner.flush()?;
         inner.ensure_loaded()?;
-        Ok(inner.events.as_deref().unwrap_or_default().iter().map(|e| (**e).clone()).collect())
+        Ok(read(&inner))
+    }
+
+    /// Attached Shared Artifact ids, in order of attaching. Projection, no scan.
+    pub fn attached_shared(&self) -> anyhow::Result<Vec<String>> {
+        self.project(|i| i.proj.attached.clone())
+    }
+
+    /// Live Frontend Tool items (calls that named an `id`, not removed since), first seen first. Projection, no scan.
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
+        self.project(|i| i.proj.frontend.items.clone())
+    }
+
+    /// Live Frontend Tool items by `(tool, item id)` with the Thread of their latest call, and the
+    /// errors not cleared since, oldest first. Projection, no scan.
+    #[allow(clippy::type_complexity)]
+    pub fn frontend_state(&self) -> anyhow::Result<(HashMap<(String, String), ThreadId>, Vec<FrontendErrorEntry>)> {
+        self.project(|i| (i.proj.frontend.keyed.clone(), i.proj.frontend.errors()))
+    }
+
+    /// Whether the Thread's newest `TurnStarted` / `TurnEnded` is a start. Projection, no scan.
+    pub fn thread_turn_open(&self, thread: &ThreadId) -> anyhow::Result<bool> {
+        self.project(|i| i.proj.open_turn.get(thread).copied().unwrap_or(false))
+    }
+
+    /// `seq` of the Thread's newest `TurnStarted`. Projection, no scan.
+    pub fn thread_turn_started(&self, thread: &ThreadId) -> anyhow::Result<Option<u64>> {
+        self.project(|i| i.proj.turn_started.get(thread).copied())
+    }
+
+    /// The Thread's newest config options (`ConfigOptionsChanged` with an options array). Projection, no scan.
+    pub fn thread_config_options(&self, thread: &ThreadId) -> anyhow::Result<Option<Vec<Value>>> {
+        self.project(|i| i.proj.config.get(thread).cloned())
     }
 
     /// The Thread's current Agent mode: the newest `ModeChanged`, or the mode option of the

@@ -80,15 +80,7 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
     let mode = session.is_main(Some(&thread)) || {
-        let events = session.log().events()?;
-        events
-            .iter()
-            .rev()
-            .find_map(|e| match &e.kind {
-                EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(&thread) => options.as_array().cloned(),
-                _ => None,
-            })
-            .is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
+        session.log().thread_config_options(&thread)?.is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
     };
     anyhow::ensure!(mode, "Side Threads follow the Main Thread's config, except for the mode");
     let (conn, id) = live_agent_session(&session, &thread).await?;
@@ -155,14 +147,8 @@ pub(super) async fn start_asking(session: &Arc<Session>, conn: &Arc<AgentConn>, 
 /// Threads follow the Main Thread, except for the mode, which is their own. Skips values the Side
 /// Thread's Agent Session does not offer.
 pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
-    let Ok(events) = session.log().events() else { return };
     let main = session.meta().main_thread_id;
-    let latest = |t: &ThreadId| {
-        events.iter().rev().find_map(|e| match &e.kind {
-            EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(t) => options.as_array().cloned(),
-            _ => None,
-        })
-    };
+    let latest = |t: &ThreadId| session.log().thread_config_options(t).ok().flatten();
     let (Some(wanted), Some(mut current)) = (latest(&main), latest(thread)) else { return };
     let mut changed = None;
     for w in &wanted {

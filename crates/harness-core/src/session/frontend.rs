@@ -29,9 +29,6 @@ pub struct FrontendItem {
 pub const RENDER_UI: &str = "render_ui";
 
 /// A `FrontendError` not cleared yet.
-/// Frontend Tool items by `(tool, item id)`, with the Thread of their latest call.
-type FrontendItems = HashMap<(String, String), ThreadId>;
-
 #[derive(Debug, Clone)]
 pub struct FrontendErrorEntry {
     pub seq: u64,
@@ -166,63 +163,13 @@ impl Session {
     /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
     pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
-        let mut items: Vec<FrontendItem> = Vec::new();
-        for e in self.log.events()? {
-            let EventKind::FrontendToolOutput { tool, input, files, .. } = e.kind else { continue };
-            let Some(id) = input.get("id").and_then(|v| v.as_str()).map(str::to_owned) else { continue };
-            let at = items.iter().position(|x| x.tool == tool && x.id == id);
-            match (input.get("remove") == Some(&serde_json::Value::Bool(true)), at) {
-                (true, Some(i)) => {
-                    items.remove(i);
-                }
-                (true, None) => {}
-                (false, Some(i)) => {
-                    items[i] = FrontendItem { tool, id, input, ts_ms: e.ts_ms, thread: e.thread_id, files };
-                }
-                (false, None) => items.push(FrontendItem { tool, id, input, ts_ms: e.ts_ms, thread: e.thread_id, files }),
-            }
-        }
-        Ok(items)
+        self.log.frontend_items()
     }
 
-    /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since: a
-    /// new call with the item's id, or its removal, clears them. Also the items errors can be
-    /// reported for, with the Thread of their latest call.
-    fn frontend_error_scan(&self) -> anyhow::Result<(FrontendItems, Vec<FrontendErrorEntry>)> {
-        let mut items: FrontendItems = HashMap::new();
-        let mut errors: Vec<FrontendErrorEntry> = Vec::new();
-        for e in self.log.events()? {
-            match e.kind {
-                EventKind::FrontendToolOutput { tool, call_id, input, .. } => {
-                    let Some(thread) = e.thread_id else { continue };
-                    match input.get("id").and_then(|v| v.as_str()) {
-                        Some(id) => {
-                            errors.retain(|x| !(x.tool == tool && x.item == id));
-                            let key = (tool, id.to_owned());
-                            if input.get("remove") == Some(&serde_json::Value::Bool(true)) {
-                                items.remove(&key);
-                            } else {
-                                items.insert(key, thread);
-                            }
-                        }
-                        None => {
-                            items.insert((tool, call_id), thread);
-                        }
-                    }
-                }
-                EventKind::FrontendError { tool, item, message } => {
-                    errors.push(FrontendErrorEntry { seq: e.seq, thread: e.thread_id.unwrap_or_default(), tool, item, message })
-                }
-                _ => {}
-            }
-        }
-        errors.retain(|x| items.contains_key(&(x.tool.clone(), x.item.clone())));
-        Ok((items, errors))
-    }
-
-    /// Current errors of Frontend Tool items, oldest first (see `frontend_error_scan`).
+    /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since, oldest
+    /// first: a new call with the item's id, or its removal, clears them.
     pub fn frontend_errors(&self) -> anyhow::Result<Vec<FrontendErrorEntry>> {
-        Ok(self.frontend_error_scan()?.1)
+        Ok(self.log.frontend_state()?.1)
     }
 
     /// Logs `FrontendError` for a live item (its `id`, or the call id of a call without one), on
@@ -235,7 +182,7 @@ impl Session {
             message.truncate(message.floor_char_boundary(MAX_FRONTEND_ERROR_LEN));
             message.push('…');
         }
-        let (items, errors) = self.frontend_error_scan()?;
+        let (items, errors) = self.log.frontend_state()?;
         let Some(thread) = items.get(&(tool.to_owned(), item.to_owned())) else { return Ok(()) };
         let current: Vec<_> = errors.iter().filter(|x| x.tool == tool && x.item == item).collect();
         if current.len() >= MAX_FRONTEND_ERRORS || current.iter().any(|x| x.message == message) {

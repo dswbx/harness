@@ -10,15 +10,7 @@ use crate::api::{EventKind, ThreadId};
 impl Session {
     /// Shared Artifacts this Session has attached (from its log), in order of attaching.
     pub fn attached_shared(&self) -> anyhow::Result<Vec<String>> {
-        let mut ids: Vec<String> = Vec::new();
-        for e in self.log.events()? {
-            match e.kind {
-                EventKind::ArtifactAttached { id, .. } if !ids.contains(&id) => ids.push(id),
-                EventKind::ArtifactDetached { id, .. } => ids.retain(|x| *x != id),
-                _ => {}
-            }
-        }
-        Ok(ids)
+        self.log.attached_shared()
     }
 
     /// The folders of the attached Shared Artifacts that still exist.

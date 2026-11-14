@@ -359,7 +359,7 @@ impl Harness {
 
     /// A snapshot of a Session's Events (no subscription, so it never counts as an open View).
     pub fn session_events(&self, session_id: &str) -> Result<Vec<Event>, String> {
-        self.session(session_id).map_err(|e| e.to_string())?.log().events().map_err(|e| format!("{e:#}"))
+        self.session(session_id).map_err(|e| e.to_string())?.log().events().map(|v| v.iter().map(|e| (**e).clone()).collect()).map_err(|e| format!("{e:#}"))
     }
 
     pub fn unsubscribe_session(&self, session_id: &str, sub: SubscriptionId) {

@@ -2,6 +2,7 @@
 //! Threads that could not fork, and the text behind the transcript tools (ADR 0018).
 
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::api::{AttachmentKind, Event, EventKind, ForkPoint, ThreadId, TranscriptSize};
 
@@ -33,7 +34,7 @@ impl Turn {
 }
 
 /// The Thread's Turns, only events up to `upto_seq` when given.
-pub fn turns(events: &[Event], thread: &ThreadId, upto_seq: Option<u64>) -> Vec<Turn> {
+pub fn turns(events: &[Arc<Event>], thread: &ThreadId, upto_seq: Option<u64>) -> Vec<Turn> {
     let mut out: Vec<Turn> = Vec::new();
     let mut reply = String::new();
     let flush = |out: &mut Vec<Turn>, reply: &mut String| {
@@ -92,7 +93,7 @@ pub fn turns(events: &[Event], thread: &ThreadId, upto_seq: Option<u64>) -> Vec<
 
 /// The Thread's last finished Turn: its 1-based position and the log position of its end
 /// (`turn` 0 and `seq` 0 when none finished).
-pub fn last_finished_turn(events: &[Event], thread: &ThreadId) -> ForkPoint {
+pub fn last_finished_turn(events: &[Arc<Event>], thread: &ThreadId) -> ForkPoint {
     let mut ordinal = std::collections::HashMap::new();
     let mut point = ForkPoint { thread_id: thread.clone(), turn: 0, seq: 0 };
     for e in events.iter().filter(|e| e.thread_id.as_ref() == Some(thread)) {
@@ -181,12 +182,12 @@ fn seed_of(turns: &[Turn], intro: &str) -> String {
 }
 
 /// Renders the Thread's Turns as a plain transcript: user prompts, Agent replies and tool titles.
-pub fn summarize(events: &[Event], thread: &ThreadId) -> String {
+pub fn summarize(events: &[Arc<Event>], thread: &ThreadId) -> String {
     seed_of(&turns(events, thread, None), "This conversation continues an earlier one whose Agent Session could not be resumed. Transcript so far:")
 }
 
 /// How many of the Thread's Turns `summarize` would keep.
-pub fn transcript_size(events: &[Event], thread: &ThreadId) -> TranscriptSize {
+pub fn transcript_size(events: &[Arc<Event>], thread: &ThreadId) -> TranscriptSize {
     let turns = turns(events, thread, None);
     let (kept, _) = recent(&turns);
     TranscriptSize { kept_turns: kept.len() as u32, total_turns: turns.len() as u32 }
@@ -194,7 +195,7 @@ pub fn transcript_size(events: &[Event], thread: &ThreadId) -> TranscriptSize {
 
 /// Seed for a Side Thread that could not fork: the Main Thread up to `upto_seq`. `None` when the
 /// Main Thread has no Turns to show.
-pub fn side_thread_seed(events: &[Event], main: &ThreadId, upto_seq: u64) -> Option<String> {
+pub fn side_thread_seed(events: &[Arc<Event>], main: &ThreadId, upto_seq: u64) -> Option<String> {
     let turns = turns(events, main, Some(upto_seq));
     if turns.is_empty() {
         return None;
@@ -209,8 +210,8 @@ pub fn side_thread_seed(events: &[Event], main: &ThreadId, upto_seq: u64) -> Opt
 mod tests {
     use super::*;
 
-    fn ev(thread: &str, kind: EventKind) -> Event {
-        Event { v: 1, seq: 0, session_id: "s".into(), thread_id: Some(thread.into()), ts_ms: 0, kind }
+    fn ev(thread: &str, kind: EventKind) -> Arc<Event> {
+        Arc::new(Event { v: 1, seq: 0, session_id: "s".into(), thread_id: Some(thread.into()), ts_ms: 0, kind })
     }
 
     #[test]

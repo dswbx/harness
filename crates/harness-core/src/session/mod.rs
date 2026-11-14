@@ -8,6 +8,8 @@ mod workspace;
 
 #[cfg(test)]
 mod projection_tests;
+#[cfg(test)]
+mod scaling_tests;
 
 pub use crate::app_events::AppEvents;
 pub use frontend::{FrontendErrorEntry, FrontendItem, MAX_FRONTEND_ERROR_LEN, MAX_FRONTEND_ERRORS, RENDER_UI};
@@ -400,12 +402,7 @@ impl Session {
         if self.agent.thread_working(thread) {
             return Ok(true);
         }
-        let open = self.log.events()?.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match e.kind {
-            EventKind::TurnStarted { .. } => Some(true),
-            EventKind::TurnEnded { .. } => Some(false),
-            _ => None,
-        });
-        Ok(open.unwrap_or(false))
+        self.log.thread_turn_open(thread)
     }
 
     pub(crate) fn agent_slot(&self) -> &crate::acp::AgentSlot {
