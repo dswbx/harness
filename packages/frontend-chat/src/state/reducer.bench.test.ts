@@ -83,4 +83,60 @@ describe("reducer performance", () => {
       console.log(`chat reducer: 20k in 200-event frames ${ms.toFixed(1)} ms`);
       expect(ms).toBeLessThan(500);
    });
+
+   it("StateChanged on a large Session State (2k keys, 5k patches) with Side Threads and plans", () => {
+      const ev = (seq: number, thread_id: string, kind: Event["kind"]): Event => ({
+         v: 1,
+         seq,
+         session_id: "s",
+         thread_id,
+         ts_ms: 0,
+         kind,
+      });
+      const events: Event[] = [ev(0, "main", { type: "ThreadStarted", agent_id: "a", main: true })];
+      const big: Record<string, unknown> = {};
+      for (let i = 0; i < 2000; i++) big[`k${i}`] = { n: i, tags: ["a", "b"], nested: { v: i } };
+      events.push(
+         ev(events.length, "main", {
+            type: "StateChanged",
+            ops: [{ op: "replace", path: "", value: big }],
+            by: "agent",
+         }),
+      );
+      for (let t = 0; t < 5; t++)
+         events.push(
+            ev(events.length, `side${t}`, { type: "ThreadStarted", agent_id: "a", main: false }),
+         );
+      for (let i = 0; i < 5000; i++) {
+         events.push(
+            ev(events.length, i % 3 === 0 ? `side${i % 5}` : "main", {
+               type: "StateChanged",
+               ops: [
+                  { op: "replace", path: `/k${i % 2000}/nested/v`, value: i },
+                  { op: "add", path: `/k${(i * 7) % 2000}/tags/-`, value: `t${i}` },
+               ],
+               by: "agent",
+            }),
+         );
+         if (i % 50 === 0)
+            events.push(
+               ev(events.length, "main", {
+                  type: "TaskListUpdated",
+                  entries: [
+                     { content: `step ${i}`, status: "pending", priority: "medium" },
+                  ] as never,
+               }),
+            );
+      }
+      const t0 = performance.now();
+      const s = reduceBatch(initialState(), events);
+      const ms = performance.now() - t0;
+      console.log(`chat reducer: 5k StateChanged on a 2k-key state in ${ms.toFixed(1)} ms`);
+      const state = s.uiState as Record<string, { nested: { v: number } }>;
+      expect(Object.keys(state)).toHaveLength(2000);
+      expect(state.k4999 ?? state.k1999).toBeDefined();
+      // Was ~44 s with a whole-state structuredClone per patch; ~2 s with path copying (the top
+      // level of a 2k-key object is still copied). The bound leaves CI noise room.
+      expect(ms).toBeLessThan(10_000);
+   });
 });
