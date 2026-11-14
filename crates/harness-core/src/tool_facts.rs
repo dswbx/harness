@@ -19,6 +19,10 @@ pub(crate) fn fill_detail(call: &Value, kind: &mut crate::api::EventKind) {
     if let ToolCall { detail, .. } | ToolCallUpdate { detail, .. } = kind {
         *detail = Some(crate::agent_quirks::tool_detail(call));
     }
+    if let ToolCallUpdate { harness_result, .. } = kind {
+        let tool = call.get("title").and_then(Value::as_str).and_then(crate::mcp::harness_tool_name);
+        *harness_result = tool.and_then(|t| crate::mcp::result_of(t, call)).map(Box::new);
+    }
 }
 
 pub(crate) fn tool_facts(call: &Value, harness_tool: Option<&str>) -> ToolFacts {
@@ -156,6 +160,18 @@ mod tests {
         fill_detail(&call, &mut k);
         let EventKind::ToolCallUpdate { detail: Some(d), .. } = k else { panic!("no detail") };
         assert_eq!(d.command.as_deref(), Some("ls"));
+        // A Harness tool's output becomes its typed result, whatever the Agent's title format.
+        for title in ["mcp__harness__git_push", "mcp.harness.git_push"] {
+            let call = json!({ "title": title, "rawOutput": "Pushed main." });
+            let mut k = normalize(&json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c" }));
+            fill_detail(&call, &mut k);
+            assert!(
+                matches!(k, EventKind::ToolCallUpdate { harness_result: Some(r), .. } if *r == crate::api::HarnessResult::GitPush { branch: "main".into() })
+            );
+        }
+        let mut k = normalize(&json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c" }));
+        fill_detail(&json!({ "title": "git push", "rawOutput": "Pushed main." }), &mut k);
+        assert!(matches!(k, EventKind::ToolCallUpdate { harness_result: None, .. }));
         let mut other = EventKind::TurnEnded { turn_id: "1".into(), stop_reason: "end_turn".into() };
         fill_detail(&call, &mut other);
     }

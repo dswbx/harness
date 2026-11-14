@@ -110,6 +110,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 subagent: facts.subagent,
                 commit_message: facts.commit_message,
                 detail: None,
+                harness_result: None,
             }
         }
         Some("notice") => EventKind::AgentNotice {

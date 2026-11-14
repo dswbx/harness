@@ -1,6 +1,8 @@
+import type { HarnessResult } from "../generated";
+
 /**
- * What a Harness git tool call did, read from its raw input and output (ADR 0012, shared helper).
- * Parsing is defensive: anything unreadable just leaves a field out.
+ * What a Harness git tool call did, read from its raw input and the core's typed `harness_result`
+ * (ADR 0012, shared helper). Parsing is defensive: anything unreadable just leaves a field out.
  */
 
 export type GitToolSummary = {
@@ -62,10 +64,123 @@ export type GitToolCall = {
    rawInput: unknown;
    rawOutput: unknown;
    content?: unknown;
+   /** The core's typed result; absent on logs recorded before it (`harnessResult` reads the output text then). */
+   harnessResult?: HarnessResult | null;
 };
 
+const outputTexts = (tool: GitToolCall) =>
+   [textOf(tool.content), textOf(tool.rawOutput)].filter((t): t is string => t !== null);
+
+/**
+ * What a Harness tool call did: the core's typed `harness_result`, else read back from the
+ * tool's output text. Mirrors the core's `mcp::results::result_of`; both run
+ * `crates/harness-core/tests/cases/harness_result.json`.
+ */
+export function harnessResult(tool: GitToolCall): HarnessResult | null {
+   return tool.harnessResult ?? deriveResult(tool);
+}
+
+// Removal: `deriveResult` only serves Session Logs recorded before `harness_result` existed
+// (ADR 0021). Once no supported log lacks it, delete it and the text parsing below.
+function deriveResult(tool: GitToolCall): HarnessResult | null {
+   const name = tool.harnessTool;
+   if (!name) return null;
+   const text = outputTexts(tool).find((t) => !FENCED.test(t));
+   if (text === undefined) return null;
+   switch (name) {
+      case "git_commit": {
+         const hash = /Committed\s+([0-9a-f]{7,40})/i.exec(text)?.[1];
+         return hash ? { type: "git_commit", hash } : null;
+      }
+      case "git_push": {
+         const branch = /^Pushed\s+(.+?)\.?\s*$/m.exec(text)?.[1];
+         return branch ? { type: "git_push", branch } : null;
+      }
+      case "git_status": {
+         const s = parseJson(text) as { branch?: unknown; files?: unknown } | null | undefined;
+         if (!s || typeof s !== "object") return null;
+         return {
+            type: "git_status",
+            ...(typeof s.branch === "string" && s.branch && { branch: s.branch }),
+            ...(Array.isArray(s.files) && { changed: s.files.length }),
+         };
+      }
+      case "git_diff": {
+         if (!text) return null;
+         let additions = 0;
+         let deletions = 0;
+         for (const l of text.split("\n")) {
+            if (l.startsWith("+") && !l.startsWith("+++")) additions++;
+            else if (l.startsWith("-") && !l.startsWith("---")) deletions++;
+         }
+         return { type: "git_diff", additions, deletions };
+      }
+      case "list_branches": {
+         const b = parseJson(text);
+         return Array.isArray(b) ? { type: "list_branches", count: b.length } : null;
+      }
+      case "session_start":
+      case "session_send":
+      case "session_wait":
+      case "session_list":
+         return deriveSubSession(name, text);
+      default:
+         return null;
+   }
+}
+
+const str = (v: unknown): string | undefined =>
+   typeof v === "string" && v.trim() ? v.trim() : undefined;
+const stateOf = (v: unknown) =>
+   v === "idle" || v === "needs_attention" || v === "working" ? v : undefined;
+
+function deriveSubSession(name: string, text: string): HarnessResult | null {
+   const parsed = parseJson(text);
+   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+   const r = parsed as Record<string, unknown>;
+   if (name === "session_list") {
+      if (!Array.isArray(r.sub_sessions)) return null;
+      return {
+         type: "sub_session_list",
+         sessions: r.sub_sessions.flatMap((v) => {
+            const row = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+            const session_id = str(row.session_id);
+            if (!session_id) return [];
+            const title = str(row.title);
+            const repo = str(row.repo) ?? str(row.folder);
+            const status = stateOf(row.status);
+            return [
+               {
+                  session_id,
+                  ...(title && { title }),
+                  ...(repo && { repo }),
+                  ...(status && { status }),
+                  ...(row.archived === true && { archived: true }),
+               },
+            ];
+         }),
+      };
+   }
+   const get = (k: string) => str(r[k]);
+   const repo = get("repo") ?? get("folder");
+   const status = stateOf(r.status);
+   return {
+      type: "sub_session",
+      ...(get("session_id") && { session_id: get("session_id") }),
+      ...(get("title") && { title: get("title") }),
+      ...(repo && { repo }),
+      ...(get("branch") && { branch: get("branch") }),
+      ...(get("model") && { model: get("model") }),
+      ...(get("effort") && { effort: get("effort") }),
+      ...(typeof r.reply === "string" && r.reply.trim() && { reply: r.reply }),
+      ...(typeof r.duration_ms === "number" && { duration_ms: Math.trunc(r.duration_ms) }),
+      ...(get("stop_reason") && { stop_reason: get("stop_reason") }),
+      ...(status && { status }),
+   };
+}
+
 export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
-   const { harnessTool, rawInput, rawOutput, content } = tool;
+   const { harnessTool, rawInput } = tool;
    if (
       !harnessTool ||
       !["git_commit", "git_push", "git_status", "git_diff", "list_branches"].includes(harnessTool)
@@ -75,12 +190,12 @@ export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
       string,
       unknown
    >;
-   const texts = [textOf(content), textOf(rawOutput)].filter((t): t is string => t !== null);
    const out: GitToolSummary = {};
-   const error = texts.map(failure).find((e) => e !== undefined);
+   const error = outputTexts(tool)
+      .map(failure)
+      .find((e) => e !== undefined);
    if (error) out.error = error;
-   // Success output is never fenced; take the first text that is not a failure.
-   const text = texts.find((t) => !FENCED.test(t)) ?? "";
+   const result = harnessResult(tool);
    switch (harnessTool) {
       case "git_commit": {
          const message = typeof input.message === "string" ? input.message.trim() : "";
@@ -90,20 +205,17 @@ export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
             const body = rest.join("\n").trim();
             if (body) out.body = body;
          }
-         const hash = /Committed\s+([0-9a-f]{7,40})/i.exec(text)?.[1];
-         if (hash) out.hash = hash.slice(0, 7);
+         if (result?.type === "git_commit") out.hash = result.hash.slice(0, 7);
          break;
       }
       case "git_push": {
-         const branch = /^Pushed\s+(.+?)\.?\s*$/m.exec(text)?.[1];
-         if (branch) out.branch = branch;
+         if (result?.type === "git_push") out.branch = result.branch;
          break;
       }
       case "git_status": {
-         const s = parseJson(text) as { branch?: unknown; files?: unknown } | undefined;
-         if (s && typeof s === "object") {
-            if (typeof s.branch === "string" && s.branch) out.branch = s.branch;
-            if (Array.isArray(s.files)) out.changed = s.files.length;
+         if (result?.type === "git_status") {
+            if (result.branch) out.branch = result.branch;
+            if (result.changed != null) out.changed = result.changed;
          }
          break;
       }
@@ -111,21 +223,14 @@ export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
          const from = typeof input.from === "string" && input.from ? input.from : null;
          const to = typeof input.to === "string" && input.to ? input.to : null;
          out.range = from || to ? `${from ?? ""}..${to ?? ""}` : "working tree";
-         if (text) {
-            let add = 0;
-            let del = 0;
-            for (const l of text.split("\n")) {
-               if (l.startsWith("+") && !l.startsWith("+++")) add++;
-               else if (l.startsWith("-") && !l.startsWith("---")) del++;
-            }
-            out.additions = add;
-            out.deletions = del;
+         if (result?.type === "git_diff") {
+            out.additions = result.additions;
+            out.deletions = result.deletions;
          }
          break;
       }
       case "list_branches": {
-         const b = parseJson(text);
-         if (Array.isArray(b)) out.count = b.length;
+         if (result?.type === "list_branches") out.count = result.count;
          break;
       }
    }

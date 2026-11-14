@@ -277,12 +277,12 @@ async fn run_list_branches(session: &Arc<Session>, _: &ThreadId, _: &Value) -> a
 async fn run_git_commit(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
     let s = arg_str(args);
     let message = s("message").filter(|m| !m.trim().is_empty()).ok_or_else(|| anyhow::anyhow!("message is required"))?;
-    Ok(format!("Committed {}", session.git_commit(message, GitActor::Agent).await?))
+    Ok(super::results::committed_text(&session.git_commit(message, GitActor::Agent).await?))
 }
 
 async fn run_git_push(session: &Arc<Session>, _: &ThreadId, _: &Value) -> anyhow::Result<String> {
     let branch = session.git_push(GitActor::Agent).await?;
-    Ok(format!("Pushed {branch}."))
+    Ok(super::results::pushed_text(&branch))
 }
 
 async fn run_state_get(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
