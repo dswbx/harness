@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
-use common::fake_agent_bin;
+use common::{fake_agent_bin, wait_until, wait_until_blocking};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -84,12 +84,7 @@ fn collect(h: &Harness, sid: &str) -> (Arc<Mutex<Vec<Event>>>, tokio::sync::mpsc
     )
     .unwrap();
     // Replay is delivered from a thread of its own: wait until the history so far has arrived.
-    for _ in 0..400 {
-        if all.lock().unwrap().len() >= replayed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    wait_until_blocking("the replay to arrive", Duration::from_secs(5), || all.lock().unwrap().len() >= replayed);
     (all, rx)
 }
 
@@ -336,14 +331,23 @@ async fn turn(h: &Harness, sid: &str, thread_id: Option<String>, text: &str) -> 
 async fn turn_with(h: &Harness, sid: &str, thread_id: Option<String>, text: &str, attachments: Vec<AttachmentInput>) -> String {
     let before = events(h, sid).len();
     h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into(), attachments }).await.unwrap();
-    for _ in 0..400 {
-        let evs = events(h, sid);
-        if let Some(EventKind::TurnEnded { stop_reason, .. }) = evs[before..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::TurnEnded { .. })) {
-            return stop_reason.clone();
+    let ended = |evs: &[Event]| {
+        evs[before..].iter().find_map(|e| if let EventKind::TurnEnded { stop_reason, .. } = &e.kind { Some(stop_reason.clone()) } else { None })
+    };
+    wait_until("the Turn to end", Duration::from_secs(20), || ended(&events(h, sid)).is_some()).await;
+    // Events trail the Turn's end (status back to Idle, ...): let the log go quiet, so a test that
+    // drops the Harness next (or edits the log file) does not race the last append.
+    let (mut len, mut quiet) = (events(h, sid).len(), 0);
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let now = events(h, sid).len();
+        quiet = if now == len { quiet + 1 } else { 0 };
+        len = now;
+        if quiet == 3 {
+            break;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    panic!("turn did not end");
+    ended(&events(h, sid)).unwrap()
 }
 
 fn boundaries(h: &Harness, sid: &str) -> Vec<Boundary> {
@@ -479,12 +483,10 @@ async fn resume_that_keeps_failing_can_be_tried_again_later() {
 async fn crash_mid_turn_ends_the_turn_and_the_next_prompt_recovers() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
     assert_eq!(turn(&h, &sid, None, "crash now").await, "error");
-    for _ in 0..100 {
-        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Exited | ProcessState::Failed, .. })) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_until("the crashed Agent to be recorded as gone", Duration::from_secs(5), || {
+        h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Exited | ProcessState::Failed, .. }))
+    })
+    .await;
     assert_eq!(status_of(&h).await, SessionStatus::Idle);
     assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -508,7 +510,7 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
     assert_eq!(stopped(&h), 0, "an open View keeps the Agent running");
 
     h.unsubscribe_session(&sid, view);
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    wait_until("the Agent to stop without Views", Duration::from_secs(5), || stopped(&h) == 1).await;
     assert_eq!(stopped(&h), 1);
     assert_eq!(turn(&h, &sid, None, "back").await, "end_turn");
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -943,12 +945,7 @@ async fn app_events_announce_list_changes_and_attention() {
     until(&mut rx, |k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })).await;
     h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id, option_id: Some("allow".into()), global: false }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
-    for _ in 0..40 {
-        if seen.lock().unwrap().iter().any(|e| e["type"] == "TurnFinished") {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_until("TurnFinished", Duration::from_secs(5), || seen.lock().unwrap().iter().any(|e| e["type"] == "TurnFinished")).await;
     let seen = seen.lock().unwrap().clone();
     assert_eq!(seen[0]["type"], "SessionsChanged");
     assert!(seen.iter().any(|e| e["type"] == "SessionStatus" && e["status"] == "needs_attention" && e["session_id"] == session_id));
@@ -974,12 +971,10 @@ async fn warm_up_delivers_config_options_before_the_first_prompt() {
 async fn a_slow_resume_is_not_stopped_as_idle() {
     let (h, sid, _dir) = setup_with(&["--resume", "--resume-delay-ms=600"], Duration::from_millis(200)).await;
     turn(&h, &sid, None, "hi").await;
-    for _ in 0..100 {
-        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_until("the idle Agent to stop", Duration::from_secs(5), || {
+        h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. }))
+    })
+    .await;
     let back = turn(&h, &sid, None, "back").await;
     assert_eq!(back, "end_turn", "{:#?}", h_events(&h, &sid));
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -989,12 +984,10 @@ async fn a_slow_resume_is_not_stopped_as_idle() {
 async fn warm_up_does_not_resume_a_stopped_agent() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_millis(200)).await;
     turn(&h, &sid, None, "hi").await;
-    for _ in 0..100 {
-        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_until("the idle Agent to stop", Duration::from_secs(5), || {
+        h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. }))
+    })
+    .await;
     h.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
@@ -1290,13 +1283,7 @@ async fn startup_removes_unused_quick_sessions_only() {
 
 /// Waits (up to a few seconds) until `f` holds for the Session's log.
 async fn wait_for(h: &Harness, sid: &str, what: &str, f: impl Fn(&[EventKind]) -> bool) {
-    for _ in 0..200 {
-        if f(&h_events(h, sid)) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    panic!("timed out waiting for {what}");
+    wait_until(what, Duration::from_secs(5), || f(&h_events(h, sid))).await;
 }
 
 fn turn_ends(log: &[EventKind]) -> usize {
