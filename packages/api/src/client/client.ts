@@ -1,4 +1,4 @@
-import { CommandError } from "./errors";
+import { CommandError } from "../errors";
 import type {
    AgentInfo,
    AppEvent,
@@ -31,13 +31,13 @@ import type {
    TerminalInfo,
    ThreadStart,
    WorkspaceInfo,
-} from "./generated";
+} from "../generated";
 import {
    subscribeResilient,
    type TerminalOutput,
    type Transport,
    type Unsubscribe,
-} from "./transport";
+} from "../transport/transport";
 
 /** A Shared Artifact as read (ADR 0024): meta, content (`ui.json` text for kind `ui`), hash, state and folder. */
 export type SharedArtifactData = Omit<Extract<CommandResult, { type: "SharedArtifact" }>, "type">;

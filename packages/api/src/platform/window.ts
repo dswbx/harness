@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { inTauri } from "./transport";
+import { inTauri } from "../transport/transport";
 
 /** Lets the user save `data` under a suggested `name`: the native save dialog in Tauri, a browser download otherwise. Returns where it went (in a browser, `name`), or null on cancel. */
 export async function saveFile(name: string, data: Blob): Promise<string | null> {

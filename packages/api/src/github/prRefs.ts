@@ -1,6 +1,6 @@
 // PR references in text (`#17`, `PR #17`, `spark#17`, `supabase/spark#17`, PR URLs): finding, resolving the repo, display.
 // Pure, shared by every Frontend that shows PR chips (ADR 0012).
-import type { KnownRepo, PrRefKey, RepoId } from "./generated";
+import type { KnownRepo, PrRefKey, RepoId } from "../generated";
 
 /** What refs resolve against: the Session's repo (for `#17`) and the user's known repos (for `repo#17`). */
 export type PrRefContext = { sessionRepo: RepoId | null; knownRepos: KnownRepo[] };

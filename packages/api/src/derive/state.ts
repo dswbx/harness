@@ -1,4 +1,4 @@
-import type { StatePatchOp } from "./generated";
+import type { StatePatchOp } from "../generated";
 
 /**
  * Session State (ADR 0015): applies `ops` to `doc` and returns the new document (all or nothing;

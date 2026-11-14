@@ -1,4 +1,4 @@
-import type { EventKind, PromptOrigin, SubSessionReport } from "./generated";
+import type { EventKind, PromptOrigin, SubSessionReport } from "../generated";
 
 /**
  * Scripted logs for the mock "Release prep across repos" Session and its two Sub Sessions, so every

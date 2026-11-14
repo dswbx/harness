@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
-import type { SessionApi } from "./client";
-import type { AppEvent, AttachmentInput, FrontendManifest } from "./generated";
+import type { SessionApi } from "../client/client";
+import type { AppEvent, AttachmentInput, FrontendManifest } from "../generated";
 
 /** A call of a Frontend Tool with `replies`: the Frontend answers it, and the Agent gets the answer. */
 export type FrontendRequest = Extract<AppEvent, { type: "FrontendRequest" }>;
