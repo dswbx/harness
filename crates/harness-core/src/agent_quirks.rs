@@ -95,7 +95,14 @@ pub fn subagent_info(raw_input: Option<&Value>) -> Option<crate::api::SubagentIn
 
 /// The facts a View needs to show a tool call, out of the call as the Agent sent it (`kind`,
 /// `title`, `locations`, `rawInput`, `rawOutput`, `content`, merged over its updates). ACP carries
-/// some of them (kind, locations); the rest are Agents' own conventions. The same cases run in
+/// some of them (kind, locations); the rest are Agents' own conventions.
+///
+/// Why: ACP has no field for a command, a loaded tool or an MCP server, and Views must not parse
+/// titles. Whose: Claude's titles and tool output (`Write <path>`, `Read <path>`, `mcp__s__t`,
+/// `Terminal` while a command streams, `ToolSearch` output, `N<tab>` line numbers), and Codex's argv
+/// `command` (a shell wrapper). They are applied to every Agent: another Agent's tool that happens
+/// to look the same gets the same facts, and one that does not gets none, so a View falls back to
+/// the plain title. Remove a convention once ACP carries the fact. The same cases run in
 /// `@harness/api` (`toolDetail`, the fallback for logs recorded before this) from
 /// `tests/cases/tool_detail.json`, so the two cannot drift.
 pub fn tool_detail(call: &Value) -> ToolDetail {
@@ -142,7 +149,7 @@ mod claude {
                 .pointer("/locations/0/path")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
-                .or_else(|| title.strip_prefix("Read ").filter(|p| !p.is_empty() && !p.contains('\n')).map(str::to_owned));
+                .or_else(|| title.strip_prefix("Read ").filter(|p| !BARE_TITLES.contains(&title) && !p.is_empty() && !p.contains('\n')).map(str::to_owned));
             d.read = Some(ReadDetail { path, line_numbered: call.get("content").is_some_and(line_numbered) });
         }
         d.mcp = mcp_of(title);
@@ -178,12 +185,24 @@ mod claude {
             Some(Value::Array(parts)) => {
                 let parts: Option<Vec<&str>> = parts.iter().map(Value::as_str).collect();
                 if let Some(parts) = parts {
-                    return Some(command_from_parts(&parts)).filter(|c| !c.is_empty());
+                    return Some(shown_command(&parts)).filter(|c| !c.is_empty());
                 }
             }
             _ => {}
         }
         (!title.is_empty() && title != "Terminal").then(|| title.to_owned())
+    }
+
+    /// An argv as the command line to show: only a shell's `-c` wrapper (`bash -lc "<script>"`) shows
+    /// its script; any other argv is joined (`grep -ic foo` is not a wrapper).
+    fn shown_command(parts: &[&str]) -> String {
+        const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "fish", "ksh"];
+        match parts {
+            [shell, flag, script] if SHELLS.contains(&shell.rsplit('/').next().unwrap_or(shell)) && flag.starts_with('-') && flag.ends_with('c') => {
+                (*script).to_owned()
+            }
+            _ => parts.join(" "),
+        }
     }
 
     /// `mcp__<server>__<tool>`; the server is the shortest name followed by `__` and a tool.

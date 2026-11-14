@@ -107,7 +107,9 @@ const cached = new WeakMap<object, ToolDetailFacts>();
 export function toolDetail(call: ToolDetailInput): ToolDetailFacts {
    const hit = cached.get(call);
    if (hit) return hit;
-   const out = call.detail ? fromWire(call.detail) : deriveDetail(call);
+   // `{}` carries nothing: treat it as absent.
+   const typed = call.detail && Object.keys(call.detail).length > 0 ? call.detail : null;
+   const out = typed ? fromWire(typed) : deriveDetail(call);
    cached.set(call, out);
    return out;
 }
@@ -128,10 +130,11 @@ function fromWire(d: ToolDetail): ToolDetailFacts {
    };
 }
 
-// Removal: derivation below only serves Session Logs recorded before `detail` existed
-// (ADR 0021). Once no supported log lacks it (log::upcast can fill it), delete `deriveDetail`
-// and its helpers; `toolDetail` then reads `call.detail` alone.
+// Needed for Session Logs written before `detail` existed: an upcaster is stateless per line and
+// cannot rebuild it from a call's later updates. Permanent unless logs get a migration; until
+// then keep `deriveDetail` and its helpers.
 
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "fish", "ksh"]);
 const BARE_TITLES = new Set(["Terminal", "Read File", "Fetch", "Edit", "Web search"]);
 const VERB_PREFIX = /^(Read( file)?|Edit|Fetch) /;
 
@@ -172,7 +175,9 @@ function commandOf(rawInput: unknown, title: string): string | null {
    const cmd = (rawInput as { command?: unknown } | null)?.command;
    if (typeof cmd === "string" && cmd.trim()) return cmd;
    if (Array.isArray(cmd) && cmd.every((a) => typeof a === "string")) {
-      const shell = cmd.length === 3 && /^-.*c$/.test(cmd[1]!);
+      // Only a shell's `-c` wrapper shows its script; `grep -ic foo` is not one.
+      const shell =
+         cmd.length === 3 && SHELLS.has(cmd[0]!.split("/").pop()!) && /^-.*c$/.test(cmd[1]!);
       return (shell ? cmd[2]! : cmd.join(" ")) || null;
    }
    return title && title !== "Terminal" ? title : null;
@@ -201,7 +206,12 @@ function deriveDetail(call: ToolDetailInput): ToolDetailFacts {
    if (kind === "read") {
       const loc = (call.locations as { path?: unknown }[] | null)?.[0]?.path;
       read = {
-         path: typeof loc === "string" ? loc : (/^Read (.+)$/.exec(title)?.[1] ?? null),
+         path:
+            typeof loc === "string"
+               ? loc
+               : BARE_TITLES.has(title)
+                 ? null
+                 : (/^Read (.+)$/.exec(title)?.[1] ?? null),
          lineNumbered: contentTexts(call.content).some((t) => {
             const code = fenceCode(t);
             return code !== null && stripLineNumbers(code) !== null;

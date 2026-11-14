@@ -530,7 +530,12 @@ plan?: string | null;
 /**  This call starts a subagent: what it was asked to do. */
 subagent?: SubagentInfo | null; 
 /**  `git_commit`: the commit message. */
-commit_message?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+commit_message?: string | null; 
+/**
+ *  Typed facts for Views, read from the call by the core (`agent_quirks`). Absent on Events
+ *  recorded before it existed: `@harness/api` `toolDetail` derives them then.
+ */
+detail?: ToolDetail | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
 raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null; 
 /**
@@ -550,33 +555,21 @@ plan?: string | null;
 /**  Set when the update carries the subagent's task (see `ToolCall`). */
 subagent?: SubagentInfo | null; 
 /**  Set when the update carries the commit message (see `ToolCall`). */
-commit_message?: string | null } | 
+commit_message?: string | null; 
+/**  The call's facts as of this update (see `ToolCall`); replaces the earlier ones. */
+detail?: ToolDetail | null } | 
 /**
  *  Appended by the Harness when a background job's output file is no longer open by any
  *  process: the job ended (see `ToolCallUpdate.background_job`).
  */
-{ type: "BackgroundJobEnded"; job_id: string } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string; 
-/**
- *  The mode as `ConfigOptionsChanged.mode` reports it (the name when core knows it).
- *  Absent in older logs.
- */
-mode?: ModeInfo | null } | 
+{ type: "BackgroundJobEnded"; job_id: string } | { type: "TaskListUpdated"; entries: TaskEntry[] } | { type: "ModeChanged"; mode_id: string } | 
 /**  Config options (modes, models, thought level...) as offered by the Agent. */
 { type: "ConfigOptionsChanged"; options: unknown; 
 /**
  *  The mode option's value a new Side Thread starts in by default (the one that asks
  *  before writes), so Views can show it before the Side Thread exists.
  */
-side_mode?: string | null; 
-/**
- *  The Agent's current mode (the mode option's value, `log.rs` rule). Absent when the
- *  options carry none, and in older logs.
- */
-mode?: ModeInfo | null } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown; 
-/**  Tokens in the context window, when the update carries it. Absent in older logs. */
-used?: number | null; 
-/**  The context window size in tokens (see `used`). */
-size?: number | null } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
+side_mode?: string | null } | { type: "AvailableCommandsChanged"; commands: SlashCommand[] } | { type: "UsageUpdated"; usage: unknown } | { type: "SessionInfoUpdated"; title: string | null } | { type: "PermissionRequested"; request_id: string; tool_call: unknown; options: PermissionOption[]; 
 /**  The Harness MCP tool the request is for, when it is one. */
 harness_tool?: string | null; 
 /**  The request approves a plan (Plan Mode): Markdown. */
@@ -584,12 +577,7 @@ plan?: string | null;
 /**  `git_commit`: the commit message. */
 commit_message?: string | null; 
 /**  The request is for a Frontend Tool: its name. */
-frontend_tool?: string | null; 
-/**
- *  A plan request: the newest mode of the Thread that is not the plan mode, the one to
- *  switch back to when the plan is approved.
- */
-mode_before?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
+frontend_tool?: string | null } | { type: "PermissionResolved"; request_id: string; option_id: string | null; by: Resolver; 
 /**  The Permission Policy rule that decided, when `by` is `policy` (none for a default). */
 rule_id?: string | null } | 
 /**  The user's "always" answer was remembered as a Session-scoped rule. */
@@ -746,16 +734,12 @@ export type McpServerDef = {
 	secret_keys?: string[],
 };
 
-export type McpTransport = { type: "stdio"; command: string; args?: string[]; env?: { [key in string]: string } } | { type: "http"; url: string; headers?: { [key in string]: string } };
-
-/**  An Agent mode (a value of its mode option, or a legacy session mode). */
-export type ModeInfo = {
-	id: string,
-	/**  The name the Agent shows for it, when known. */
-	name?: string | null,
-	/**  This is the Agent's plan mode (`agent_quirks::is_plan_mode`): Views never compare mode ids or names. */
-	plan?: boolean,
+export type McpTool = {
+	server: string,
+	tool: string,
 };
+
+export type McpTransport = { type: "stdio"; command: string; args?: string[]; env?: { [key in string]: string } } | { type: "http"; url: string; headers?: { [key in string]: string } };
 
 export type NewPermissionRule = {
 	scope: RuleScope,
@@ -885,6 +869,13 @@ export type PullRequest = {
 	checks: PrChecks,
 	/**  RFC 3339. */
 	updated_at: string,
+};
+
+/**  A `read` call's file and output format. */
+export type ReadDetail = {
+	path?: string | null,
+	/**  The output's code carries `N<tab>` line numbers that count up by one. */
+	line_numbered?: boolean,
 };
 
 export type RegistryAgent = {
@@ -1047,6 +1038,39 @@ export type ThreadStart = "fork" | "seed" |
  *  tools are not offered.
  */
 "fresh";
+
+/**
+ *  What a View needs to show a tool call, read from the call by the core so no Frontend parses
+ *  an Agent's payloads (ADR 0012). Each field is set only when the call has that fact.
+ */
+export type ToolDetail = {
+	/**  An `execute` call's command line. */
+	command?: string | null,
+	/**  A `read` call: the file and how its output is formatted. */
+	read?: ReadDetail | null,
+	/**  A tool search call: the tools it loaded (made callable). `Some` even when it loaded none. */
+	loaded_tools?: ToolRef[] | null,
+	/**  A tool search call: its search words (not a `select:` lookup). */
+	search_query?: string | null,
+	/**  The call is to a tool of an MCP server. */
+	mcp?: McpTool | null,
+	/**  What the call does when its kind alone does not say. */
+	op?: ToolOp | null,
+	/**  What the call acts on (a path, a URL, a query) when that differs from its title. */
+	target?: string | null,
+};
+
+export type ToolOp = 
+/**  Creates or overwrites a file (ACP kind `edit`). */
+"write" | 
+/**  Searches the web (ACP kind `search` or `fetch`). */
+"web_search";
+
+/**  A tool an Agent names: its own id, and the MCP server it belongs to when it is one. */
+export type ToolRef = {
+	name: string,
+	mcp?: McpTool | null,
+};
 
 /**  How many of a Thread's Turns fit in a transcript. */
 export type TranscriptSize = {

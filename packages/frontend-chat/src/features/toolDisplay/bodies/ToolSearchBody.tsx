@@ -5,7 +5,7 @@ import { shortToolName } from "../label";
 import { inputOf, json, present } from "../raw";
 import { Fold } from "./Fold";
 
-/** A ToolSearch call: the tools it loaded (made callable), then its query. */
+/** A tool search call: the tools it loaded (made callable), then its query. */
 export function ToolSearchBody({ tool, tools }: { tool: Tool; tools: ToolRefFacts[] }) {
    return (
       <>
