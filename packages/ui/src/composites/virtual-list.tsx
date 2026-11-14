@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import * as React from "react";
 import { cn } from "../lib/utils";
-import { ScrollArea } from "./scroll-area";
+import { ScrollArea } from "../primitives/scroll-area";
 
 type Props = {
    count: number;
