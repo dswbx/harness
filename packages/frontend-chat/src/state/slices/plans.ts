@@ -1,7 +1,7 @@
 import type { Event, PermissionOption } from "@harness/api";
-import { parseReviewComments } from "../../features/review/reviewComments";
 import { type Ctx, permIndex } from "../draft";
 import { planSteps, planTitle } from "../planText";
+import { parseReviewComments } from "../reviewCommentText";
 
 /** Task list and plan entries: the Agent's own list, and the plans it asked to approve (Plan Mode). */
 export function plansSlice(c: Ctx, e: Event) {

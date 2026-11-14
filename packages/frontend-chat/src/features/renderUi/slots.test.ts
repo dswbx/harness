@@ -1,6 +1,7 @@
 import type { Event, EventKind } from "@harness/api";
 import { describe, expect, it, test } from "vitest";
-import { initialState, reduce } from "../../state/reducer";
+import { initialState } from "../../state/reducer";
+import { reduce } from "./chatReducer";
 import { lastSlot, nextSeen, type Slot, slotDot, slotToAutoOpen, splitRenderUi } from "./slots";
 
 let seq = 0;
