@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionApi } from "../client/client";
+import { type GitStatusSnapshot, gitStatusStore } from "../client/gitStatusStore";
 import type { Event, PrRefKey, SharedArtifactEntry } from "../generated";
 import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
@@ -95,4 +96,49 @@ export function useSharedArtifacts(source: SharedListSource): SharedArtifactEntr
       };
    }, [source]);
    return list;
+}
+
+const NO_STATUS: GitStatusSnapshot = { isRepo: null, status: null, error: null, changes: 0 };
+const noop = () => {};
+
+/**
+ * The Session folder's git status from the shared store (one poll per Session however many views use it).
+ * Nothing polls for a null `api` or `enabled: false` (e.g. a folder known not to be a repository).
+ * `status: false` only wants `isRepo`. A new `refreshKey` loads again. `changes` counts status changes seen
+ * since this view mounted.
+ */
+export function useGitStatus(
+   api: Pick<SessionApi, "sessionId" | "gitStatus" | "workspace"> | null,
+   {
+      enabled = true,
+      status = true,
+      refreshKey,
+   }: { enabled?: boolean; status?: boolean; refreshKey?: unknown } = {},
+): GitStatusSnapshot & { refresh: () => Promise<void> } {
+   const sessionId = api?.sessionId;
+   // One store per Session id for the app's life; `api` is only used to create it.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by the Session id.
+   const store = useMemo(() => (api && enabled ? gitStatusStore(api) : null), [sessionId, enabled]);
+   const subscribe = useCallback(
+      (l: () => void) => (store ? store.subscribe(l, { status }) : noop),
+      [store, status],
+   );
+   const peek = useCallback(() => store?.peek() ?? NO_STATUS, [store]);
+   const snap = useSyncExternalStore(subscribe, peek);
+   // Changes seen before this view's own first load finished are not its changes.
+   const [base, setBase] = useState(snap.changes);
+   const last = useRef<{ store: unknown; key: unknown } | null>(null);
+   useEffect(() => {
+      if (!store) return;
+      if (last.current?.store !== store) {
+         // The subscription started the first load.
+         last.current = { store, key: refreshKey };
+         void store.settled().then(() => setBase(store.peek().changes));
+      } else if (last.current.key !== refreshKey) {
+         last.current.key = refreshKey;
+         void store.refresh();
+      }
+   }, [store, refreshKey]);
+   const refresh = useCallback(() => store?.refresh() ?? Promise.resolve(), [store]);
+   return { ...snap, changes: Math.max(0, snap.changes - base), refresh };
 }
