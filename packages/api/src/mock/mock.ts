@@ -90,6 +90,8 @@ export class MockTransport implements Transport {
    readOnly = new Set<string>();
    /** @internal */
    restoreFailed = new Set<string>();
+   /** Turns in flight per Session, over all its Threads (the core's agent slot counts them). @internal */
+   turns = new Map<string, number>();
    /** @internal */
    sideN = 0;
    /** @internal */
@@ -220,7 +222,7 @@ export class MockTransport implements Transport {
    /** @internal */
    session(id: string) {
       const s = this.sessions.find((x) => x.id === id);
-      if (!s) throw new CommandError("not_found", "no such session");
+      if (!s) throw new CommandError("not_found", `unknown session ${id}`);
       return s;
    }
 
