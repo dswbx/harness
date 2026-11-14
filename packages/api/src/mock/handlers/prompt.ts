@@ -77,7 +77,13 @@ export function setStatus(mock: MockTransport, id: string, status: SessionSummar
    const s = mock.session(id);
    s.status = status;
    s.updated_ms = Date.now();
-   mock.emitApp({ type: "SessionStatus", session_id: id, title: s.title, status });
+   mock.emitApp({
+      type: "SessionStatus",
+      session_id: id,
+      title: s.title,
+      status,
+      unused: s.unused,
+   });
 }
 
 export const promptHandlers = {
@@ -91,18 +97,20 @@ export const promptHandlers = {
    },
    Prompt: async (mock, cmd) => {
       const sid = cmd.session_id;
-      if (mock.unusedQuick.delete(sid) && !cmd.thread_id) {
-         const s = mock.session(sid);
+      const used = mock.session(sid);
+      if (used.unused && !cmd.thread_id) {
+         used.unused = false;
          const line = cmd.text.trim().split("\n")[0] ?? "";
-         if (s.title === "New Quick Session" && line) {
-            s.title = line.length > 40 ? `${line.slice(0, 40).trimEnd()}…` : line;
-            mock.emitApp({
-               type: "SessionStatus",
-               session_id: sid,
-               title: s.title,
-               status: s.status,
-            });
-         }
+         // Like the core: only a placeholder title is replaced by the first prompt.
+         if (used.title === "New Quick Session" && line)
+            used.title = line.length > 40 ? `${line.slice(0, 40).trimEnd()}…` : line;
+         mock.emitApp({
+            type: "SessionStatus",
+            session_id: sid,
+            title: used.title,
+            status: used.status,
+            unused: false,
+         });
       }
       if (cmd.thread_id) return promptSide(mock, sid, cmd.thread_id, cmd.text);
       if (mock.readOnly.has(sid))

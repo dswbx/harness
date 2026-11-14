@@ -81,7 +81,6 @@ export class MockTransport implements Transport {
    /** Registry id -> installed version. @internal */
    installedVersions = new Map<string, string>();
    /** Quick Sessions with no prompt yet. @internal */
-   unusedQuick = new Set<string>();
    /** @internal */
    commitN = 0;
    /** @internal */
@@ -176,6 +175,7 @@ export class MockTransport implements Transport {
          status: "idle",
          archived: false,
          quick: false,
+         unused: false,
          workspace: workspace ?? {
             repo_root: folder,
             source_folder: folder,

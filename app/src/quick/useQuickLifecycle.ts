@@ -1,6 +1,6 @@
 import type { HarnessClient, SessionSummary } from "@harness/api";
 import { useEffect, useRef } from "react";
-import { QUICK_TITLE, quickAgent } from "../composer/composer";
+import { startQuickSession } from "./startSession";
 
 /**
  * The Quick Session lifecycle (ADR 0020): `startQuick` starts one without a dialog (or stays on one that
@@ -26,17 +26,12 @@ export function useQuickLifecycle({
    /** The Quick group's +: no dialog. Stays on a Quick Session that is still unused. */
    const startQuick = async () => {
       const current = sessions.find((s) => s.id === selected);
-      if (current?.quick && current.title === QUICK_TITLE) return;
+      if (current?.quick && current.unused) return;
       try {
-         const [agents, frontends] = await Promise.all([
-            client.listAgents(),
-            client.listFrontends(),
-         ]);
-         const agent = quickAgent(sessions, agents);
-         const frontend = frontends.find((f) => f.id === "chat") ?? frontends[0];
+         const started = await startQuickSession(client, { sessions });
          // No Agent yet: the Composer offers to open the Agents settings.
-         if (!agent || !frontend) return setComposer(true);
-         const id = await client.createQuickSession({ agentId: agent.id, frontendId: frontend.id });
+         if (!started) return setComposer(true);
+         const id = started.id;
          setSelected(id);
          await refresh();
       } catch (e) {

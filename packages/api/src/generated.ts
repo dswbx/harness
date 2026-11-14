@@ -20,7 +20,9 @@ export type AgentSource = { type: "registry"; registry_id: string } | { type: "c
 /**  Harness-wide notifications (session list, attention), separate from Session Logs. */
 export type AppEvent = 
 /**  Sessions were created, deleted, archived or unarchived: reload the list. */
-{ type: "SessionsChanged" } | { type: "SessionStatus"; session_id: string; title: string; status: SessionStatus } | 
+{ type: "SessionsChanged" } | { type: "SessionStatus"; session_id: string; title: string; status: SessionStatus; 
+/**  As `SessionSummary::unused`. */
+unused: boolean } | 
 /**  A Turn ended (`stop_reason` as in `TurnEnded`). */
 { type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string } | 
 /**  Agents were installed, updated or removed. */
@@ -911,6 +913,8 @@ export type SessionSummary = {
 	archived: boolean,
 	/**  A Quick Session: `folder` is a folder the Harness made for it. */
 	quick: boolean,
+	/**  A Quick Session nobody has prompted yet (the overlay's draft, a fresh one from the +). False once a prompt was sent on any Thread, whatever the title; false for other Sessions. */
+	unused: boolean,
 	workspace: WorkspaceInfo,
 	/**  A Sub Session: the Session whose Agent started it (`session_start`). */
 	parent?: SessionParent | null,

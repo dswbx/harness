@@ -37,6 +37,7 @@ describe("useSessions", () => {
          session_id: "mock-1",
          title: "Renamed",
          status: "needs_attention",
+         unused: false,
       });
       const after = hook.result.current.sessions[0]!;
       expect(after).toMatchObject({ id: "mock-1", title: "Renamed", status: "needs_attention" });
@@ -54,6 +55,7 @@ describe("useSessions", () => {
          session_id: "ghost",
          title: "x",
          status: "working",
+         unused: false,
       });
       expect(hook.result.current.sessions).toBe(same);
       await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
@@ -101,7 +103,13 @@ describe("useSessions", () => {
       await waitFor(() => expect(hook.result.current.settled).toBe(true));
       hook.unmount();
       emit(transport, { type: "SessionsChanged" });
-      emit(transport, { type: "SessionStatus", session_id: "ghost", title: "x", status: "idle" });
+      emit(transport, {
+         type: "SessionStatus",
+         session_id: "ghost",
+         title: "x",
+         status: "idle",
+         unused: false,
+      });
       await new Promise((r) => setTimeout(r, 10));
       expect(list).toHaveBeenCalledTimes(1);
    });

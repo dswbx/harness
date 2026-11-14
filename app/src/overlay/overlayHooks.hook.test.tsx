@@ -112,6 +112,7 @@ describe("useQuickDraft", () => {
          session_id: "d1",
          title: "Hello",
          status: "working",
+         unused: false,
       });
       expect(hook.result.current.title).toBe("Hello");
       expect(dispatch).toHaveBeenCalledWith({ type: "sent" });
@@ -120,7 +121,13 @@ describe("useQuickDraft", () => {
       expect(dispatch).toHaveBeenCalledWith({ type: "turnFinished" });
       // another Session's events are ignored
       dispatch.mockClear();
-      emit(transport, { type: "SessionStatus", session_id: "other", title: "x", status: "idle" });
+      emit(transport, {
+         type: "SessionStatus",
+         session_id: "other",
+         title: "x",
+         status: "idle",
+         unused: false,
+      });
       expect(dispatch).not.toHaveBeenCalled();
    });
 
