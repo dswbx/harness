@@ -117,11 +117,17 @@ pub(super) fn current_mode(options: Option<&Value>, modes: &acp::SessionModeStat
     }
 }
 
-/// `ModeChanged` for the legacy mode `current_mode` picks, with its name from the Agent's mode list.
-fn legacy_mode_changed(options: Option<&Value>, modes: &acp::SessionModeState) -> EventKind {
-    let id = current_mode(options, modes);
-    let name = modes.available_modes.iter().find(|m| m.id.to_string() == id).map(|m| m.name.clone());
-    EventKind::mode_changed(id, name)
+/// `ModeChanged` for the legacy mode `current_mode` picks, with its name from the Agent's mode list
+/// (which is remembered to name later changes).
+fn legacy_mode_changed(session: &Session, options: Option<&Value>, modes: &acp::SessionModeState) -> EventKind {
+    session.agent_slot().state.lock().mode_names = modes.available_modes.iter().map(|m| (m.id.to_string(), m.name.clone())).collect();
+    named_mode_changed(session, current_mode(options, modes))
+}
+
+/// `ModeChanged` for `mode_id`, named from the Agent's mode list when it is known.
+pub(super) fn named_mode_changed(session: &Session, mode_id: String) -> EventKind {
+    let name = session.agent_slot().state.lock().mode_names.get(&mode_id).cloned();
+    EventKind::mode_changed(mode_id, name)
 }
 
 /// Puts a new Side Thread Agent Session in the mode the user chose for it, if the Agent offers it,
@@ -189,7 +195,7 @@ pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentC
 pub async fn set_mode(session: Arc<Session>, thread: ThreadId, mode_id: String) -> anyhow::Result<()> {
     let (conn, id) = live_agent_session(&session, &thread).await?;
     conn.cx.send_request(acp::SetSessionModeRequest::new(id, mode_id.clone())).block_task().await?;
-    session.log().append(Some(thread), EventKind::mode_changed(mode_id, None))?;
+    session.log().append(Some(thread), named_mode_changed(&session, mode_id))?;
     Ok(())
 }
 
@@ -381,7 +387,7 @@ pub(super) async fn fork_agent_session(
         session.log().append(Some(thread.clone()), EventKind::config_options(options.clone()))?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), legacy_mode_changed(options.as_ref(), modes))?;
+        session.log().append(Some(thread.clone()), legacy_mode_changed(session, options.as_ref(), modes))?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().insert(thread.clone(), id.clone());
@@ -451,7 +457,7 @@ pub(super) async fn new_agent_session(
         session.log().append(Some(thread.clone()), EventKind::config_options(options.clone()))?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), legacy_mode_changed(options.as_ref(), modes))?;
+        session.log().append(Some(thread.clone()), legacy_mode_changed(session, options.as_ref(), modes))?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().insert(thread.clone(), id.clone());

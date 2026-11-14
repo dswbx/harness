@@ -23,18 +23,20 @@ export function PlanActions({
    item,
    entry,
    configOptions,
+   modeNames,
    shortcutRoot,
 }: {
    api: SessionApi;
    item: Perm;
    entry: PlanEntry;
    configOptions: ConfigOption[];
+   modeNames?: Record<string, string>;
    shortcutRoot?: RefObject<HTMLElement | null>;
 }) {
    const { answer, keepPlanning, error } = usePlanAnswer(api, item);
    const { chosen, fallback, pick } = useApproveChoice(item, entry);
    const comments = usePlanComments(api.sessionId).length;
-   const mode = continuesIn(chosen, entry, configOptions);
+   const mode = continuesIn(chosen, entry, configOptions, modeNames);
    const approve = useRef<() => void>(() => {});
    approve.current = () => chosen && void answer(chosen.option_id);
    useEffect(() => {
@@ -72,6 +74,7 @@ export function PlanActions({
                <ApproveButton
                   item={item}
                   configOptions={configOptions}
+                  modeNames={modeNames}
                   variant={comments > 0 ? "outline" : "default"}
                   chosen={chosen}
                   fallback={fallback}

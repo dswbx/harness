@@ -1497,7 +1497,10 @@ async fn legacy_mode_agent_reports_typed_mode_and_mode_before() {
     assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
 
     h.execute(Command::SetMode { session_id: sid.clone(), thread_id: None, mode_id: "plan".into() }).await.unwrap();
-    assert!(last_mode_changed(&h, &sid).is_some_and(|m| m.id == "plan" && m.plan), "the plan mode is flagged by core");
+    assert_eq!(last_mode_changed(&h, &sid), mode("plan", Some("Plan"), true), "named and flagged by core");
+    // Every ModeChanged carries the name (the Agent's own update and the one core logs after set_mode).
+    let all: Vec<_> = h_events(&h, &sid).into_iter().filter_map(|k| if let EventKind::ModeChanged { mode, .. } = k { Some(mode) } else { None }).collect();
+    assert!(all.len() >= 3 && all.iter().all(|m| m.as_ref().is_some_and(|m| m.name.is_some())), "{all:?}");
     assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"), "plan is never the mode to return to");
 }
 

@@ -174,7 +174,7 @@ export function PlanPanel({
                {entry.status === "approved" && (
                   <div className="flex shrink-0 items-center gap-2 border-b bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-600 dark:text-emerald-400">
                      <CheckCircle2 className="size-3.5" />
-                     {approvedMeta(entry, item, state.configOptions)}
+                     {approvedMeta(entry, item, state.configOptions, state.modeNames)}
                   </div>
                )}
                {(entry.status === "revised" || entry.status === "dismissed") && (
@@ -208,6 +208,7 @@ export function PlanPanel({
                         item={item}
                         entry={entry}
                         configOptions={state.configOptions}
+                        modeNames={state.modeNames}
                         shortcutRoot={root}
                      />
                   </div>

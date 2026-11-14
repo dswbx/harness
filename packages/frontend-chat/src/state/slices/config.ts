@@ -29,5 +29,10 @@ export function configSlice(c: Ctx, e: Event) {
  */
 function rememberMode(c: Ctx, e: Event) {
    const m = announcedMode(e.kind);
-   if (m?.legacy && !m.mode.plan) c.d.lastMode = m.mode.id;
+   if (!m) return;
+   if (m.legacy) {
+      if (!m.mode.plan) c.d.lastMode = m.mode.id;
+   } else if (m.mode.name && c.d.modeNames?.[m.mode.id] !== m.mode.name) {
+      c.d.modeNames = { ...c.d.modeNames, [m.mode.id]: m.mode.name };
+   }
 }

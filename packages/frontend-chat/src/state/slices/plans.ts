@@ -42,7 +42,7 @@ export function addPlan(
          prev: prev?.requestId ?? null,
          status: "pending",
          optionId: null,
-         modeBefore: modeBefore ?? d.lastMode,
+         modeBefore: modeBefore || d.lastMode,
          clearsContext: false,
          requestedAt: ts,
          resolvedAt: null,

@@ -63,7 +63,7 @@ pub(crate) fn is_mode_option(option: &Value) -> bool {
 
 /// The Agent mode a `ConfigOptionsChanged` reports, when it carries the mode option.
 fn config_mode(options: &Value) -> Option<String> {
-    options.as_array()?.iter().find(|o| is_mode_option(o)).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
+    options.as_array()?.iter().find(|o| is_mode_option(o)).and_then(|o| o["currentValue"].as_str()).filter(|v| !v.is_empty()).map(str::to_owned)
 }
 
 /// Facts derived from the Events, kept current on append.
@@ -89,7 +89,7 @@ impl Projections {
 
     fn apply(&mut self, e: &Event) {
         match &e.kind {
-            EventKind::ModeChanged { mode_id, .. } => self.set_mode(e, mode_id.clone()),
+            EventKind::ModeChanged { mode_id, .. } if !mode_id.is_empty() => self.set_mode(e, mode_id.clone()),
             EventKind::ConfigOptionsChanged { options, .. } => {
                 if let Some(mode) = config_mode(options) {
                     self.set_mode(e, mode);
@@ -1123,6 +1123,39 @@ mod tests {
         log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
         assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
         assert_eq!(log.events().unwrap().len(), 7);
+    }
+
+    #[test]
+    fn before_plan_projection_keeps_the_newest_non_plan_mode_per_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = |v: &str| EventKind::config_options(serde_json::json!([{"id":"mode","category":"mode","currentValue":v}]));
+        let log = open_in(dir.path());
+        let before = |l: &SessionLog, t: &str| l.thread_mode_before_plan(&t.into()).unwrap();
+        // A Thread that started in plan has nothing to go back to.
+        log.append(Some("t".into()), cfg("plan")).unwrap();
+        assert_eq!(before(&log, "t"), None);
+        log.append(Some("t".into()), EventKind::mode_changed("auto".into(), None)).unwrap();
+        log.append(Some("t".into()), cfg("plan")).unwrap();
+        // plan -> plan keeps the earlier mode.
+        log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        // An empty id is no mode.
+        log.append(Some("t".into()), EventKind::mode_changed(String::new(), None)).unwrap();
+        log.append(Some("t".into()), cfg("")).unwrap();
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
+        // Threads are isolated.
+        log.append(Some("u".into()), cfg("default")).unwrap();
+        assert_eq!(before(&log, "u").as_deref(), Some("default"));
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        assert_eq!(before(&log, "v"), None);
+        // The same after reopening the log from disk.
+        log.sync().unwrap();
+        drop(log);
+        let log = open_in(dir.path());
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        assert_eq!(before(&log, "u").as_deref(), Some("default"));
+        assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
     }
 
     #[test]

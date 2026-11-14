@@ -71,8 +71,13 @@ export function MessageList({
    // Filtered here, not after the fact, so a message never shows twice for a frame.
    const pending = usePendingMessages(composer).filter((p) => !hasArrived(p, userCount));
    const plans = useMemo<PlanCtx>(
-      () => ({ plans: state.plans, configOptions: state.configOptions, open: onOpenPlan }),
-      [state.plans, state.configOptions, onOpenPlan],
+      () => ({
+         plans: state.plans,
+         configOptions: state.configOptions,
+         modeNames: state.modeNames,
+         open: onOpenPlan,
+      }),
+      [state.plans, state.configOptions, state.modeNames, onOpenPlan],
    );
    return (
       <PlanContext value={plans}>

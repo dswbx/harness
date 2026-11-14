@@ -938,6 +938,47 @@ describe("plans", () => {
          expect(approveOption(s)).toBe("a");
       });
 
+      it("a mixed log: old untyped part, then typed part with mode_before", () => {
+         const s = fold([
+            started(),
+            legacy("auto"),
+            planReq(),
+            res("p1", "k"),
+            // From here the core wrote the typed fields.
+            typed("default"),
+            typed("plan", true),
+            ev({
+               type: "PermissionRequested",
+               request_id: "p2",
+               tool_call: { kind: "switch_mode" },
+               options: claudeOptions,
+               plan: "# B",
+               mode_before: "default",
+            }),
+         ]);
+         expect(s.plans.map((p) => p.modeBefore)).toEqual(["auto", "default"]);
+      });
+
+      it("an empty mode_before or mode id is absent", () => {
+         const s = fold([started(), legacy("auto"), legacy(""), planReq("")]);
+         expect(s.plans[0]!.modeBefore).toBe("auto");
+         expect(fold([started(), legacy(""), planReq()]).plans[0]!.modeBefore).toBeNull();
+      });
+
+      it("keeps the names the core reports for modes, by id", () => {
+         const s = fold([
+            started(),
+            ev({
+               type: "ModeChanged",
+               mode_id: "plan",
+               mode: { id: "plan", name: "Plan", plan: true },
+            }),
+            ev({ type: "ModeChanged", mode_id: "default", mode: { id: "default", plan: false } }),
+            legacy("old"),
+         ]);
+         expect(s.modeNames).toEqual({ plan: "Plan" });
+      });
+
       it("old logs: the mode option is found by id as well as by category", () => {
          const byId = ev({
             type: "ConfigOptionsChanged",

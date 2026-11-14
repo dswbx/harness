@@ -73,8 +73,12 @@ export function usePlanAnswer(api: SessionApi, item: Perm) {
 }
 
 /** What an option leads to: "Auto", "Clear context · Auto", or its own name when its mode is unknown. */
-export function optionLabel(o: PermissionOption, configOptions: ConfigOption[]) {
-   const mode = modeName(configOptions, o.plan_mode);
+export function optionLabel(
+   o: PermissionOption,
+   configOptions: ConfigOption[],
+   modeNames?: Record<string, string>,
+) {
+   const mode = modeName(configOptions, o.plan_mode, modeNames);
    if (!mode) return o.name;
    return o.clears_context ? `Clear context · ${mode}` : mode;
 }
@@ -84,7 +88,8 @@ export const continuesIn = (
    o: PermissionOption | null | undefined,
    entry: PlanEntry,
    configOptions: ConfigOption[],
-) => modeName(configOptions, o?.plan_mode ?? entry.modeBefore);
+   modeNames?: Record<string, string>,
+) => modeName(configOptions, o?.plan_mode ?? entry.modeBefore, modeNames);
 
 /** The option the button approves with: the one picked in the menu, else the default. */
 export function useApproveChoice(item: Perm, entry: PlanEntry) {
@@ -101,6 +106,7 @@ export function useApproveChoice(item: Perm, entry: PlanEntry) {
 export function ApproveButton({
    item,
    configOptions,
+   modeNames,
    chosen,
    fallback,
    onPick,
@@ -112,6 +118,7 @@ export function ApproveButton({
 }: {
    item: Perm;
    configOptions: ConfigOption[];
+   modeNames?: Record<string, string>;
    chosen: PermissionOption | null;
    fallback: PermissionOption | null;
    onPick: (optionId: string) => void;
@@ -125,7 +132,7 @@ export function ApproveButton({
    const allow = item.options.filter((o) => o.kind.startsWith("allow"));
    const keep = allow.filter((o) => !o.clears_context);
    const clear = allow.filter((o) => o.clears_context);
-   const label = (o: PermissionOption) => optionLabel(o, configOptions);
+   const label = (o: PermissionOption) => optionLabel(o, configOptions, modeNames);
    const text =
       chosen && fallback && chosen.option_id !== fallback.option_id
          ? `Approve · ${label(chosen)}`

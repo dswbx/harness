@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventKind } from "../generated";
-import { announcedMode, usageOf } from "./mode";
+import { announcedMode, findModeOption, isModeOption, usageOf } from "./mode";
 
 const cfg = (options: unknown, extra: object = {}) =>
    ({ type: "ConfigOptionsChanged", options, ...extra }) as EventKind;
@@ -44,5 +44,23 @@ describe("usageOf", () => {
       expect(u({ usage: { used: 3, size: 4 } })).toEqual({ used: 3, size: 4 });
       expect(u({ usage: { used: 3 } })).toBeNull();
       expect(u({})).toBeNull();
+   });
+});
+
+describe("findModeOption", () => {
+   it("matches category or id like the core", () => {
+      expect(isModeOption({ id: "x", category: "mode" })).toBe(true);
+      expect(isModeOption({ id: "mode" })).toBe(true);
+      expect(isModeOption({ id: "model", category: "model" })).toBe(false);
+      expect(isModeOption(null)).toBe(false);
+      const a = { id: "mode" };
+      expect(findModeOption([{ id: "model" }, a])).toBe(a);
+      expect(findModeOption([])).toBeUndefined();
+   });
+   it("an empty mode id is absent", () => {
+      expect(
+         announcedMode({ type: "ModeChanged", mode_id: "", mode: { id: "", plan: false } }),
+      ).toBeNull();
+      expect(announcedMode(cfg([{ id: "mode", currentValue: "" }]))).toBeNull();
    });
 });

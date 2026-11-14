@@ -12,15 +12,24 @@ import type { EventKind, ModeInfo } from "../generated";
 type Raw = Record<string, unknown>;
 const isObj = (v: unknown): v is Raw => !!v && typeof v === "object";
 
+/** The core's rule for "this config option is the Agent's mode": `category == "mode"` or `id == "mode"`. */
+export const isModeOption = (o: { id?: unknown; category?: unknown } | null | undefined): boolean =>
+   !!o && (o.category === "mode" || o.id === "mode");
+
+/** The Agent's mode option among its config options, if it has one. */
+export function findModeOption<T extends { id?: unknown; category?: unknown }>(
+   options: readonly T[],
+): T | undefined {
+   return options.find(isModeOption);
+}
+
 /** The mode an Event announces, or null when it announces none. `legacy`: derived here, not typed by the core. */
 export function announcedMode(kind: EventKind): { mode: ModeInfo; legacy: boolean } | null {
    if (kind.type === "ConfigOptionsChanged") {
-      if (kind.mode) return { mode: kind.mode, legacy: false };
+      if (kind.mode?.id) return { mode: kind.mode, legacy: false };
       if (!Array.isArray(kind.options)) return null;
-      const opt = (kind.options as unknown[]).find(
-         (o): o is Raw => isObj(o) && (o.category === "mode" || o.id === "mode"),
-      );
-      if (typeof opt?.currentValue !== "string") return null;
+      const opt = (kind.options as unknown[]).find((o): o is Raw => isObj(o) && isModeOption(o));
+      if (typeof opt?.currentValue !== "string" || !opt.currentValue) return null;
       const id = opt.currentValue;
       const named = Array.isArray(opt.options)
          ? (opt.options as unknown[]).find((o) => isObj(o) && o.value === id)
@@ -29,7 +38,7 @@ export function announcedMode(kind: EventKind): { mode: ModeInfo; legacy: boolea
       return { mode: { id, name, plan: legacyIsPlan(id) }, legacy: true };
    }
    if (kind.type === "ModeChanged") {
-      if (kind.mode) return { mode: kind.mode, legacy: false };
+      if (kind.mode?.id) return { mode: kind.mode, legacy: false };
       if (!kind.mode_id) return null;
       return { mode: { id: kind.mode_id, plan: legacyIsPlan(kind.mode_id) }, legacy: true };
    }

@@ -356,7 +356,8 @@ impl EventKind {
 
     /// `ModeChanged` (legacy session modes); `name` when the Agent's mode list is at hand.
     pub fn mode_changed(mode_id: String, name: Option<String>) -> EventKind {
-        let mode = Some(ModeInfo::new(mode_id.clone(), name));
+        // An empty id is no mode (the update carried none).
+        let mode = (!mode_id.is_empty()).then(|| ModeInfo::new(mode_id.clone(), name));
         EventKind::ModeChanged { mode_id, mode }
     }
 
@@ -387,7 +388,7 @@ impl ModeInfo {
 
     /// The current value of a mode option.
     fn of_option(option: &Json) -> Option<ModeInfo> {
-        let id = option["currentValue"].as_str()?;
+        let id = option["currentValue"].as_str().filter(|v| !v.is_empty())?;
         let name = option["options"].as_array().into_iter().flatten().find(|o| o["value"] == id).and_then(|o| o["name"].as_str());
         Some(ModeInfo::new(id.to_owned(), name.map(str::to_owned)))
     }
@@ -562,12 +563,21 @@ mod mode_tests {
         assert_eq!(opts(json!([{ "id": "collaboration_mode", "category": "collaboration_mode", "currentValue": "plan" }])), None);
     }
 
+    fn opts_mode(o: Json) -> Option<ModeInfo> {
+        match EventKind::config_options(o) {
+            EventKind::ConfigOptionsChanged { mode, .. } => mode,
+            _ => unreachable!(),
+        }
+    }
+
     #[test]
     fn usage_numbers_are_typed_and_older_events_still_parse() {
         let k = EventKind::usage_updated(json!({ "sessionUpdate": "usage_update", "used": 5, "size": 9 }));
         assert!(matches!(k, EventKind::UsageUpdated { used: Some(5), size: Some(9), .. }));
         let old: EventKind = serde_json::from_value(json!({ "type": "UsageUpdated", "usage": { "used": 1 } })).unwrap();
         assert!(matches!(old, EventKind::UsageUpdated { used: None, size: None, .. }));
+        assert!(matches!(EventKind::mode_changed(String::new(), None), EventKind::ModeChanged { mode: None, .. }));
+        assert_eq!(opts_mode(json!([{ "id": "mode", "currentValue": "" }])), None);
         let old: EventKind = serde_json::from_value(json!({ "type": "ModeChanged", "mode_id": "plan" })).unwrap();
         assert!(matches!(old, EventKind::ModeChanged { mode: None, .. }));
         let old: EventKind = serde_json::from_value(json!({ "type": "PermissionRequested", "request_id": "r", "tool_call": {}, "options": [] })).unwrap();

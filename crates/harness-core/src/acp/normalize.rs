@@ -16,6 +16,13 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     track_tool_call(session, &update);
     let mut kind = normalize(&update);
     crate::agent_quirks::adjust(&update, &mut kind);
+    if let EventKind::ModeChanged { mode_id, .. } = &kind {
+        // No mode in the update: nothing to record.
+        if mode_id.is_empty() {
+            return;
+        }
+        kind = super::restore::named_mode_changed(session, mode_id.clone());
+    }
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
         session.set_agent_title(thread.as_ref(), t);
     }
