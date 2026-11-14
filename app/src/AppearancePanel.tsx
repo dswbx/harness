@@ -62,6 +62,7 @@ import { fromCss, fromRegistryItem, registryUrl, themeId } from "./appearance/im
 import { openExternal } from "./openExternal";
 import { SectionHeader } from "./SectionHeader";
 import { ThemePicker } from "./ThemePicker";
+import { useReportError } from "./toast";
 
 /** Where themes come from: browse, make your own, then copy the link. */
 const TWEAKCN = "https://tweakcn.com/editor/theme";
@@ -487,11 +488,12 @@ function ImportTheme({
 
 /** Imported themes, each removable (the current one falls back to Default). */
 function ImportedThemes({ current, onRemoved }: { current: string; onRemoved: () => void }) {
+   const report = useReportError();
    const themes = useSyncExternalStore(onThemesChange, getThemes).filter((t) => t.imported);
    if (!themes.length) return null;
    const remove = (id: string) => {
       const { [id]: _, ...rest } = getImportedThemes();
-      void setImportedThemes(rest);
+      setImportedThemes(rest).catch((e) => report("Could not remove the theme", e));
       if (id === current) onRemoved();
    };
    return (
@@ -522,10 +524,14 @@ function ImportedThemes({ current, onRemoved }: { current: string; onRemoved: ()
 /** Theme, text, chat and terminal settings in groups. Changes apply and save right away. */
 export function AppearancePanel({ client }: { client: HarnessClient }) {
    const [a, setA] = useState<Appearance>(getAppearance);
+   const report = useReportError();
    const update = (patch: Partial<Appearance>) => {
       const next = { ...a, ...patch };
       setA(next);
-      setAppearance(next);
+      setAppearance(next).catch((e) => {
+         setA(getAppearance()); // rolled back
+         report("Could not save the appearance", e);
+      });
    };
    // Leaving the panel mid-preview restores the saved theme.
    useEffect(() => revertPreview, []);
