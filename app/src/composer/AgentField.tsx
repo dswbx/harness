@@ -1,7 +1,7 @@
 import type { AgentInfo } from "@harness/api";
 import { Button, cn } from "@harness/ui";
 import { Check, Plus } from "lucide-react";
-import { AgentIcon } from "../settings/AgentsPanel";
+import { AgentIcon } from "../settings/agents/AgentIcon";
 import { matches } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
 import { Label } from "./parts";
