@@ -1,6 +1,7 @@
 import type { Event } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, reduceBatch } from "./reducer";
+import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
+import { initialState } from "./reducer";
 import { syntheticLog } from "./syntheticLog";
 
 describe("reducer performance", () => {

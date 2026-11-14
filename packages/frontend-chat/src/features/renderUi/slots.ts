@@ -1,4 +1,5 @@
 import type { Item } from "../../state/reducer";
+import { asRenderUi } from "./decode";
 import { type Placement, type RawNode, sharedNode, sharedNodeId, sharedRef } from "./tools";
 
 type FT = Extract<Item, { type: "frontend_tool" }>;
@@ -56,7 +57,7 @@ export function splitRenderUi(
    for (const it of items) {
       if (it.type !== "frontend_tool" || !it.render?.ok) continue;
       const ft = it as FT & { render: { ok: true } };
-      const v = ft.render.value;
+      const v = asRenderUi(ft.render.value);
       const placement = v.placement ?? "inline";
       if (!v.id) {
          if (placement !== "inline") inline.set(it.id, null);

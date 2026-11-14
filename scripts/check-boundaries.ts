@@ -43,13 +43,6 @@ const RAW_ALLOWED: Record<string, string> = {
 const LAYER_ALLOWED: Record<string, string> = {
    "features/sideChats/SidePanel.tsx -> shell/panelLayout":
       "known: to be cut when the panel contract lands",
-   "state/slices/timeline.ts -> features/prompt/configGroups":
-      "known: to be cut when the panel contract lands",
-   "state/slices/timeline.ts -> features/renderUi/tools":
-      "known: to be cut when the panel contract lands",
-   "state/types.ts -> features/renderUi/tools": "known: to be cut when the panel contract lands",
-   "state/slices/plans.ts -> features/review/reviewComments":
-      "known: to be cut when the panel contract lands",
 };
 
 /** App files that break the Frontend-package rule today, with the reason. New files must not. */

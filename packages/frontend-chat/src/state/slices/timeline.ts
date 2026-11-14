@@ -1,12 +1,5 @@
 import { type Event, type PermissionRule, toolFacts, toolFactsOfCall } from "@harness/api";
-import { groupConfigOptions, valueName } from "../../features/prompt/configGroups";
-import {
-   formatErrors,
-   RENDER_UI,
-   type RenderUiInput,
-   renderUiSchema,
-   withSourceRoot,
-} from "../../features/renderUi/tools";
+import { groupConfigOptions, valueName } from "../configGroups";
 import { type Ctx, notice, own, permIndex, push, toolIndex } from "../draft";
 import type { ChatState, ContentBlock, Item, SubagentMeta, Tool, ToolCallRef } from "../types";
 import { addPlan, resolvePlan } from "./plans";
@@ -284,13 +277,7 @@ export function timelineSlice(c: Ctx, e: Event) {
          });
          return;
       case "FrontendToolOutput": {
-         let render: Extract<Item, { type: "frontend_tool" }>["render"] = null;
-         if (k.tool === RENDER_UI) {
-            const r = renderUiSchema.validate(k.input);
-            render = r.valid
-               ? { ok: true, value: withSourceRoot(k.input as RenderUiInput) }
-               : { ok: false, errors: formatErrors(r.errors, k.input) };
-         }
+         const render = c.decodeTool(k.tool, k.input);
          push(c, {
             type: "frontend_tool",
             id,
