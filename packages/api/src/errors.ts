@@ -13,15 +13,17 @@ export class CommandError extends Error implements HarnessError {
    }
 }
 
-const CODES: ReadonlySet<string> = new Set<ErrorCode>([
-   "auth_required",
-   "not_found",
-   "conflict",
-   "policy_denied",
-   "agent_unavailable",
-   "invalid",
-   "internal",
-]);
+/** Every `ErrorCode`: a new one in `generated.ts` fails the typecheck here until it is listed. */
+const CODE_TABLE = {
+   auth_required: true,
+   not_found: true,
+   conflict: true,
+   policy_denied: true,
+   agent_unavailable: true,
+   invalid: true,
+   internal: true,
+} satisfies Record<ErrorCode, true>;
+const CODES: ReadonlySet<string> = new Set(Object.keys(CODE_TABLE));
 
 /** The wire shape the core sends: `{ code, message }`. */
 function isWire(e: unknown): e is HarnessError {

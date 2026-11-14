@@ -22,7 +22,7 @@ export type PrStore = {
 };
 
 const MIN = 60_000;
-/** Same TTLs as the Host cache. */
+/** Same TTLs as the Host cache: mirrors `ttl` with `OPEN_TTL`, `DONE_TTL` and `NOT_FOUND_TTL` in `crates/harness-core/src/github_refs.rs`; change them together. */
 export function prTtl(pr: PrInfo | null): number {
    if (!pr) return 10 * MIN;
    return pr.state === "open" || pr.state === "draft" ? MIN : 24 * 60 * MIN;
