@@ -3,13 +3,10 @@ import type { Slot } from "../features/renderUi/slots";
 import { closeThread, defaultLayout, type Layout, type PanelId, slotPanel } from "./panelLayout";
 import {
    activeThreadId,
-   availablePanels,
    lastSlot,
    newThreadTabId,
    nextSeen,
    openThreadIds,
-   panelCount,
-   planToAutoOpen,
    renderablePanels,
    slotDot,
    slotToAutoOpen,
@@ -27,51 +24,11 @@ const slot = (id: string, over: Partial<Slot> = {}): Slot => ({
    source: null,
    ...over,
 });
-const none = { overlay: false, slotPanels: [], git: false, hasPlans: false, hasSubagents: false };
-
-describe("availablePanels", () => {
-   test("base panels without git, plans or subagents", () => {
-      expect([...availablePanels(none)].sort()).toEqual(
-         ["artifacts", "events", "files", "references", "side", "terminal"].sort(),
-      );
-   });
-   test("git, plans and subagents each add one", () => {
-      expect(availablePanels({ ...none, git: true }).has("changes")).toBe(true);
-      expect(availablePanels({ ...none, hasPlans: true }).has("plan")).toBe(true);
-      expect(availablePanels({ ...none, hasSubagents: true }).has("subagents")).toBe(true);
-      expect(availablePanels(none).has("changes")).toBe(false);
-   });
-   test("slot panels are always available", () => {
-      expect(availablePanels({ ...none, slotPanels: [slotPanel("a")] }).has("slot:a")).toBe(true);
-   });
-   test("the overlay shows only slot panels, whatever else is set", () => {
-      const a = availablePanels({
-         overlay: true,
-         slotPanels: [slotPanel("a")],
-         git: true,
-         hasPlans: true,
-         hasSubagents: true,
-      });
-      expect([...a]).toEqual(["slot:a"]);
-   });
-});
-
 test("renderablePanels drops side without open tabs", () => {
-   const a = availablePanels(none);
+   const a = new Set<PanelId>(["side", "files"]);
    expect(renderablePanels(a, 0).has("side")).toBe(false);
    expect(renderablePanels(a, 1).has("side")).toBe(true);
    expect(a.has("side")).toBe(true);
-});
-
-test("panelCount", () => {
-   const n = { sideThreads: 3, artifacts: 2, references: 5, runningSubagents: 0 };
-   expect(panelCount("side", n)).toBe(3);
-   expect(panelCount("artifacts", n)).toBe(2);
-   expect(panelCount("references", n)).toBe(5);
-   expect(panelCount("references", { ...n, references: undefined })).toBeUndefined();
-   expect(panelCount("subagents", n)).toBeUndefined();
-   expect(panelCount("subagents", { ...n, runningSubagents: 2 })).toBe(2);
-   expect(panelCount("files", n)).toBeUndefined();
 });
 
 describe("slotDot", () => {
@@ -215,15 +172,6 @@ describe("auto open", () => {
       expect(slotToAutoOpen(slot("a", { ts: 9 }), 10)).toBeNull();
       expect(slotToAutoOpen(slot("a", { ts: 10 }), 10)?.id).toBe("a");
       expect(slotToAutoOpen(slot("a", { ts: 11 }), 10)?.id).toBe("a");
-   });
-   test("a pending plan opens once per request, never in the overlay", () => {
-      const seen = new Set<string>();
-      expect(planToAutoOpen(false, "r1", seen)).toBe("r1");
-      seen.add("r1");
-      expect(planToAutoOpen(false, "r1", seen)).toBeNull();
-      expect(planToAutoOpen(false, "r2", seen)).toBe("r2");
-      expect(planToAutoOpen(false, null, seen)).toBeNull();
-      expect(planToAutoOpen(true, "r3", seen)).toBeNull();
    });
 });
 

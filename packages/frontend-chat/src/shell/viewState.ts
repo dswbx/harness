@@ -12,32 +12,23 @@ import type { StripeGroup } from "./Stripe";
 
 /** Pure decisions of the chat View: which panels exist, the stripes, what opens by itself, the Side Thread tabs. */
 
-/** Panels that can show now. The Quick overlay shows only render_ui panels (ADR 0022 Phase 2). */
+/**
+ * Panels that can show now: Side chats, the render_ui panels and the registered ones whose status is not `absent`.
+ * The Quick overlay shows only render_ui panels and the registered ones marked `overlay` (ADR 0022 Phase 2).
+ */
 export function availablePanels(o: {
    overlay: boolean;
    slotPanels: Iterable<PanelId>;
-   git: boolean;
-   hasPlans: boolean;
-   hasSubagents?: boolean;
-   /** The status of each panel defined through the panel contract: it decides, instead of the hand-written rules. */
-   registered?: ReadonlyMap<string, PanelStatus>;
+   /** The status of each registered panel (shell/panels.ts). */
+   registered: ReadonlyMap<string, PanelStatus>;
+   /** The registered panels the Quick overlay shows. */
+   overlayPanels?: ReadonlySet<string>;
 }): Set<PanelId> {
-   if (o.overlay) return new Set<PanelId>(o.slotPanels);
-   const a = new Set<PanelId>([
-      "side",
-      "files",
-      "terminal",
-      "events",
-      "artifacts",
-      "references",
-      ...o.slotPanels,
-   ]);
-   if (o.git) a.add("changes");
-   if (o.hasPlans) a.add("plan");
-   if (o.hasSubagents) a.add("subagents");
-   for (const [id, s] of o.registered ?? []) {
-      if (s.presence === "absent") a.delete(id as PanelId);
-      else a.add(id as PanelId);
+   const a = new Set<PanelId>(o.overlay ? [] : ["side"]);
+   for (const id of o.slotPanels) a.add(id);
+   for (const [id, s] of o.registered) {
+      if (o.overlay && !o.overlayPanels?.has(id)) continue;
+      if (s.presence !== "absent") a.add(id as PanelId);
    }
    return a;
 }
@@ -50,27 +41,6 @@ export function renderablePanels(
    const renderable = new Set(available);
    if (openThreadCount === 0) renderable.delete("side");
    return renderable;
-}
-
-/** The badge on a panel's stripe icon. */
-export function panelCount(
-   id: PanelId,
-   n: {
-      sideThreads: number;
-      artifacts: number;
-      references: number | undefined;
-      runningSubagents: number;
-   },
-): number | undefined {
-   return id === "side"
-      ? n.sideThreads
-      : id === "artifacts"
-        ? n.artifacts
-        : id === "references"
-          ? n.references
-          : id === "subagents"
-            ? n.runningSubagents || undefined
-            : undefined;
 }
 
 /** A dot on a slot's icon: changed since it was seen, while closed. */
@@ -156,15 +126,6 @@ export function lastSlot(slots: readonly Slot[]): Slot | null {
 /** A slot the Agent placed or changed after the Session was opened shows at once (replayed ones do not). */
 export function slotToAutoOpen(last: Slot | null, openedAt: number): Slot | null {
    return last && last.ts >= openedAt ? last : null;
-}
-
-/** A new pending plan opens the Plan panel, once per request (not in the Quick overlay). */
-export function planToAutoOpen(
-   overlay: boolean,
-   pendingPlan: string | null,
-   opened: ReadonlySet<string>,
-): string | null {
-   return overlay || !pendingPlan || opened.has(pendingPlan) ? null : pendingPlan;
 }
 
 /** Open Side Thread tabs that have something to show: drafts, and Threads whose replay arrived. */

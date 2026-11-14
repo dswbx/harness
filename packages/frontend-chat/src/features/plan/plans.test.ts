@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { planSteps, planTitle } from "../../state/planText";
 import type { ConfigOption } from "../../state/reducer";
-import { defaultApproveOption, keepPlanningOption, modeName, planStats } from "./plans";
+import {
+   defaultApproveOption,
+   keepPlanningOption,
+   modeName,
+   planStats,
+   planToAutoOpen,
+} from "./plans";
 
 describe("planTitle", () => {
    it("takes the first heading", () => {
@@ -73,5 +79,17 @@ describe("modeName", () => {
       expect(modeName(opts, "acceptEdits")).toBe("Accept Edits");
       expect(modeName(opts, "auto")).toBe("auto");
       expect(modeName(opts, null)).toBeNull();
+   });
+});
+
+describe("planToAutoOpen", () => {
+   it("opens a pending plan once per request, never in the overlay", () => {
+      const seen = new Set<string>();
+      expect(planToAutoOpen(false, "r1", seen)).toBe("r1");
+      seen.add("r1");
+      expect(planToAutoOpen(false, "r1", seen)).toBeNull();
+      expect(planToAutoOpen(false, "r2", seen)).toBe("r2");
+      expect(planToAutoOpen(false, null, seen)).toBeNull();
+      expect(planToAutoOpen(true, "r3", seen)).toBeNull();
    });
 });

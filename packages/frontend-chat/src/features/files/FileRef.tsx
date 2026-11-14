@@ -78,6 +78,17 @@ export function FileRefProvider({
    );
 }
 
+/** Only the viewer: for a host that creates the reader above where it knows how to show a file. */
+export function FileViewProvider({
+   onView,
+   children,
+}: {
+   onView: (ref: FileRef) => void;
+   children: ReactNode;
+}) {
+   return <FileViewContext.Provider value={onView}>{children}</FileViewContext.Provider>;
+}
+
 export const useFileRefs = () => useContext(FileRefsContext);
 /** Shows a file in the app (the Files panel), when the provider has a viewer. */
 export const useFileView = () => useContext(FileViewContext);
