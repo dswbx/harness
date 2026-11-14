@@ -188,6 +188,10 @@ pub enum EventKind {
     },
     ModeChanged {
         mode_id: String,
+        /// The mode as `ConfigOptionsChanged.mode` reports it (the name when core knows it).
+        /// Absent in older logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<ModeInfo>,
     },
     /// Config options (modes, models, thought level...) as offered by the Agent.
     ConfigOptionsChanged {
@@ -197,6 +201,10 @@ pub enum EventKind {
         /// before writes), so Views can show it before the Side Thread exists.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         side_mode: Option<String>,
+        /// The Agent's current mode (the mode option's value, `log.rs` rule). Absent when the
+        /// options carry none, and in older logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<ModeInfo>,
     },
     AvailableCommandsChanged {
         commands: Vec<SlashCommand>,
@@ -204,6 +212,14 @@ pub enum EventKind {
     UsageUpdated {
         #[specta(type = specta_typescript::Unknown)]
         usage: Json,
+        /// Tokens in the context window, when the update carries it. Absent in older logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(type = Option<specta_typescript::Number>)]
+        used: Option<u64>,
+        /// The context window size in tokens (see `used`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(type = Option<specta_typescript::Number>)]
+        size: Option<u64>,
     },
     SessionInfoUpdated {
         title: Option<String>,
@@ -225,6 +241,10 @@ pub enum EventKind {
         /// The request is for a Frontend Tool: its name.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         frontend_tool: Option<String>,
+        /// A plan request: the newest mode of the Thread that is not the plan mode, the one to
+        /// switch back to when the plan is approved.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode_before: Option<String>,
     },
     PermissionResolved {
         request_id: String,
@@ -325,13 +345,51 @@ pub enum EventKind {
 }
 
 impl EventKind {
-    /// `ConfigOptionsChanged` for the Agent's options, with the mode a new Side Thread starts in.
+    /// `ConfigOptionsChanged` for the Agent's options, with the mode a new Side Thread starts in
+    /// and the current mode.
     pub fn config_options(options: Json) -> EventKind {
-        let side_mode = options
-            .as_array()
-            .and_then(|a| a.iter().find(|o| crate::log::is_mode_option(o)))
-            .and_then(|mode| crate::agent_quirks::asking_mode(&option_values(mode)).map(str::to_owned));
-        EventKind::ConfigOptionsChanged { options, side_mode }
+        let mode_option = options.as_array().and_then(|a| a.iter().find(|o| crate::log::is_mode_option(o)));
+        let side_mode = mode_option.and_then(|mode| crate::agent_quirks::asking_mode(&option_values(mode)).map(str::to_owned));
+        let mode = mode_option.and_then(ModeInfo::of_option);
+        EventKind::ConfigOptionsChanged { options, side_mode, mode }
+    }
+
+    /// `ModeChanged` (legacy session modes); `name` when the Agent's mode list is at hand.
+    pub fn mode_changed(mode_id: String, name: Option<String>) -> EventKind {
+        let mode = Some(ModeInfo::new(mode_id.clone(), name));
+        EventKind::ModeChanged { mode_id, mode }
+    }
+
+    /// `UsageUpdated` for a raw `usage_update`, with its numbers typed.
+    pub fn usage_updated(usage: Json) -> EventKind {
+        let (used, size) = (usage["used"].as_u64(), usage["size"].as_u64());
+        EventKind::UsageUpdated { usage, used, size }
+    }
+}
+
+/// An Agent mode (a value of its mode option, or a legacy session mode).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ModeInfo {
+    pub id: String,
+    /// The name the Agent shows for it, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// This is the Agent's plan mode (`agent_quirks::is_plan_mode`): Views never compare mode ids or names.
+    #[serde(default)]
+    pub plan: bool,
+}
+
+impl ModeInfo {
+    pub fn new(id: String, name: Option<String>) -> ModeInfo {
+        let plan = crate::agent_quirks::is_plan_mode(&id);
+        ModeInfo { id, name, plan }
+    }
+
+    /// The current value of a mode option.
+    fn of_option(option: &Json) -> Option<ModeInfo> {
+        let id = option["currentValue"].as_str()?;
+        let name = option["options"].as_array().into_iter().flatten().find(|o| o["value"] == id).and_then(|o| o["name"].as_str());
+        Some(ModeInfo::new(id.to_owned(), name.map(str::to_owned)))
     }
 }
 
@@ -481,5 +539,38 @@ mod tests {
         // Skipped when unknown, so older logs and Agents without a mode option stay unchanged.
         let json = serde_json::to_value(EventKind::config_options(Json::Null)).unwrap();
         assert!(json.get("side_mode").is_none());
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn mode_by_category_or_id_with_plan_flag() {
+        let opts = |o: Json| match EventKind::config_options(o) {
+            EventKind::ConfigOptionsChanged { mode, .. } => mode,
+            _ => unreachable!(),
+        };
+        let by_cat = json!([{ "id": "x", "category": "mode", "currentValue": "plan", "options": [{ "value": "plan", "name": "Plan" }] }]);
+        assert_eq!(opts(by_cat), Some(ModeInfo { id: "plan".into(), name: Some("Plan".into()), plan: true }));
+        let by_id = json!([{ "id": "mode", "currentValue": "agent", "options": [] }]);
+        assert_eq!(opts(by_id), Some(ModeInfo { id: "agent".into(), name: None, plan: false }));
+        assert_eq!(opts(json!([{ "id": "model", "currentValue": "m" }])), None);
+        // A Codex-like collaboration mode named "plan" is not the Agent mode.
+        assert_eq!(opts(json!([{ "id": "collaboration_mode", "category": "collaboration_mode", "currentValue": "plan" }])), None);
+    }
+
+    #[test]
+    fn usage_numbers_are_typed_and_older_events_still_parse() {
+        let k = EventKind::usage_updated(json!({ "sessionUpdate": "usage_update", "used": 5, "size": 9 }));
+        assert!(matches!(k, EventKind::UsageUpdated { used: Some(5), size: Some(9), .. }));
+        let old: EventKind = serde_json::from_value(json!({ "type": "UsageUpdated", "usage": { "used": 1 } })).unwrap();
+        assert!(matches!(old, EventKind::UsageUpdated { used: None, size: None, .. }));
+        let old: EventKind = serde_json::from_value(json!({ "type": "ModeChanged", "mode_id": "plan" })).unwrap();
+        assert!(matches!(old, EventKind::ModeChanged { mode: None, .. }));
+        let old: EventKind = serde_json::from_value(json!({ "type": "PermissionRequested", "request_id": "r", "tool_call": {}, "options": [] })).unwrap();
+        assert!(matches!(old, EventKind::PermissionRequested { mode_before: None, .. }));
     }
 }

@@ -72,21 +72,27 @@ struct Projections {
     /// Thread -> its current Agent mode: the newest of its `ModeChanged` events and the mode
     /// option in its `ConfigOptionsChanged` events (Agents without legacy modes only report the latter).
     modes: HashMap<ThreadId, String>,
+    /// Thread -> the newest mode it was in that is not the plan mode (`PermissionRequested.mode_before`).
+    before_plan: HashMap<ThreadId, String>,
     /// Thread (None: Session level) -> (seq, newest non-blank title from `SessionInfoUpdated`).
     titles: HashMap<Option<ThreadId>, (u64, String)>,
 }
 
 impl Projections {
+    fn set_mode(&mut self, e: &Event, mode: String) {
+        let Some(t) = &e.thread_id else { return };
+        if !crate::agent_quirks::is_plan_mode(&mode) {
+            self.before_plan.insert(t.clone(), mode.clone());
+        }
+        self.modes.insert(t.clone(), mode);
+    }
+
     fn apply(&mut self, e: &Event) {
         match &e.kind {
-            EventKind::ModeChanged { mode_id } => {
-                if let Some(t) = &e.thread_id {
-                    self.modes.insert(t.clone(), mode_id.clone());
-                }
-            }
+            EventKind::ModeChanged { mode_id, .. } => self.set_mode(e, mode_id.clone()),
             EventKind::ConfigOptionsChanged { options, .. } => {
-                if let (Some(t), Some(mode)) = (&e.thread_id, config_mode(options)) {
-                    self.modes.insert(t.clone(), mode);
+                if let Some(mode) = config_mode(options) {
+                    self.set_mode(e, mode);
                 }
             }
             EventKind::SessionInfoUpdated { title: Some(t) } if !t.trim().is_empty() => {
@@ -758,6 +764,14 @@ impl SessionLog {
         Ok(inner.proj.modes.get(thread).cloned())
     }
 
+    /// The newest mode of the Thread that is not the plan mode. Projection, no scan.
+    pub fn thread_mode_before_plan(&self, thread: &ThreadId) -> anyhow::Result<Option<String>> {
+        let mut inner = self.inner.lock();
+        inner.flush()?;
+        inner.ensure_loaded()?;
+        Ok(inner.proj.before_plan.get(thread).cloned())
+    }
+
     /// The Agent's newest non-blank title (`SessionInfoUpdated`) for the Session's main Thread
     /// (`main`, or Events with no Thread). Projection, no scan.
     pub fn agent_title(&self, main: &ThreadId) -> anyhow::Result<Option<String>> {
@@ -1094,9 +1108,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
         let log = open_in(dir.path());
-        log.append(Some("t".into()), EventKind::ModeChanged { mode_id: "plan".into() }).unwrap();
+        log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
         log.append(Some("t".into()), EventKind::config_options(serde_json::json!([{"id":"mode","currentValue":"auto"}]))).unwrap();
-        log.append(Some("u".into()), EventKind::ModeChanged { mode_id: "x".into() }).unwrap();
+        log.append(Some("u".into()), EventKind::mode_changed("x".into(), None)).unwrap();
         log.append(Some("t".into()), EventKind::config_options(serde_json::json!([{"id":"model","currentValue":"m"}]))).unwrap();
         log.append(None, EventKind::SessionInfoUpdated { title: Some("  ".into()) }).unwrap();
         log.append(Some("t".into()), EventKind::SessionInfoUpdated { title: Some("Hello".into()) }).unwrap();
@@ -1106,7 +1120,7 @@ mod tests {
         assert_eq!(log.thread_mode(&"u".into()).unwrap().as_deref(), Some("x"));
         assert_eq!(log.thread_mode(&"v".into()).unwrap(), None);
         assert_eq!(log.agent_title(&"t".into()).unwrap().as_deref(), Some("Hello"));
-        log.append(Some("t".into()), EventKind::ModeChanged { mode_id: "plan".into() }).unwrap();
+        log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
         assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
         assert_eq!(log.events().unwrap().len(), 7);
     }

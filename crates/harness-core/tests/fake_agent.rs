@@ -1434,3 +1434,80 @@ async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
     assert_eq!(sessions.iter().find(|s| s.id == sid).unwrap().status, SessionStatus::Idle, "no Agent was started");
     assert_eq!(std::fs::read(&log).unwrap(), before, "the log is untouched");
 }
+
+/// Asks a plan approval (`spoof switch_mode`) and rejects it; returns its `mode_before`.
+async fn plan_mode_before(h: &Harness, sid: &str) -> Option<String> {
+    let (_all, mut rx) = collect(h, sid);
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "spoof switch_mode Ready to code?".into(), attachments: vec![] }).await.unwrap();
+    // Earlier plan requests replay: take the one still pending.
+    let pending = |k: &EventKind| match k {
+        EventKind::PermissionRequested { plan: Some(_), request_id, .. } => {
+            !h_events(h, sid).iter().any(|r| matches!(r, EventKind::PermissionResolved { request_id: q, .. } if q == request_id))
+        }
+        _ => false,
+    };
+    let e = until(&mut rx, pending).await;
+    let EventKind::PermissionRequested { request_id, mode_before, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.into(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    mode_before
+}
+
+fn last_config_mode(h: &Harness, sid: &str) -> Option<harness_core::api::ModeInfo> {
+    h_events(h, sid).into_iter().rev().find_map(|k| match k {
+        EventKind::ConfigOptionsChanged { mode, .. } => mode,
+        _ => None,
+    })
+}
+
+fn last_mode_changed(h: &Harness, sid: &str) -> Option<harness_core::api::ModeInfo> {
+    h_events(h, sid).into_iter().rev().find_map(|k| match k {
+        EventKind::ModeChanged { mode, .. } => mode,
+        _ => None,
+    })
+}
+
+fn mode(id: &str, name: Option<&str>, plan: bool) -> Option<harness_core::api::ModeInfo> {
+    Some(harness_core::api::ModeInfo { id: id.into(), name: name.map(str::to_owned), plan })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn config_option_agent_reports_typed_mode_and_mode_before() {
+    let (h, sid, _dir) = setup_with(&["--plan-mode"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hello").await;
+    assert_eq!(last_config_mode(&h, &sid), mode("auto", Some("Auto"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("auto"));
+
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "plan".into() }).await.unwrap();
+    assert_eq!(last_config_mode(&h, &sid), mode("plan", Some("Plan"), true), "the plan mode is flagged by core");
+    // The plan mode is not what to switch back to.
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("auto"));
+
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "default".into() }).await.unwrap();
+    assert_eq!(last_config_mode(&h, &sid), mode("default", Some("Manual"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_mode_agent_reports_typed_mode_and_mode_before() {
+    let (h, sid, _dir) = setup_with(&["--legacy-modes"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hello").await;
+    assert!(h_events(&h, &sid).iter().all(|k| !matches!(k, EventKind::ConfigOptionsChanged { .. })), "no config options");
+    assert_eq!(last_mode_changed(&h, &sid), mode("default", Some("Manual"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
+
+    h.execute(Command::SetMode { session_id: sid.clone(), thread_id: None, mode_id: "plan".into() }).await.unwrap();
+    assert!(last_mode_changed(&h, &sid).is_some_and(|m| m.id == "plan" && m.plan), "the plan mode is flagged by core");
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"), "plan is never the mode to return to");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn usage_update_carries_typed_numbers() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "report usage").await;
+    let usage = h_events(&h, &sid).into_iter().find_map(|k| match k {
+        EventKind::UsageUpdated { used, size, .. } => Some((used, size)),
+        _ => None,
+    });
+    assert_eq!(usage, Some((Some(1200), Some(200000))));
+}

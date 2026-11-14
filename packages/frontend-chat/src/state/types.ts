@@ -238,7 +238,10 @@ export type ChatState = {
    mainThreadId: string | null;
    taskList: TaskEntry[];
    configOptions: ConfigOption[];
-   /** The last value of the mode config option that was not "plan" (the mode to go back to after a plan). */
+   /**
+    * Old logs only: the last mode announced that was not the plan mode, for plan requests without
+    * the core's `mode_before` (see `rememberMode`).
+    */
    lastMode: string | null;
    /** The plans the Agent asked to approve, oldest first. */
    plans: PlanEntry[];
