@@ -93,7 +93,6 @@ import {
    overlayProfile,
    type PanelId,
    reconcile,
-   replaceThread,
    resetLayout,
    resize,
    STRIPE_W,
@@ -121,9 +120,9 @@ import { useSourceStamps } from "./renderUi/source";
 import { addReviewComment, composerKey, setReviewComments } from "./reviewComments";
 import { quotableAttrs, SelectionComment } from "./SelectionComment";
 import { SidePanel } from "./SidePanel";
-import { Stripe, type StripeGroup, type StripeItem } from "./Stripe";
+import { Stripe, type StripeGroup } from "./Stripe";
 import { SubagentsPanel } from "./SubagentsPanel";
-import { type Slot, slotChangeKey } from "./slots";
+import type { Slot } from "./slots";
 import type { SideStart } from "./ThreadView";
 import { formatAge, formatRelativeTime, useNow } from "./time";
 import { placeSteps } from "./toolDisplay/group";
@@ -131,6 +130,20 @@ import { OpenStep, type OpenStepRequest } from "./toolDisplay/openStep";
 import { RENDER_UI, sharedNodeId, sharedRef } from "./tools";
 import { FillFrame } from "./UiHtml";
 import { uiIcons } from "./uiIcons";
+import {
+   activeThreadId,
+   availablePanels,
+   lastSlot,
+   newThreadTabId,
+   nextSeen,
+   openThreadIds,
+   panelCount,
+   planToAutoOpen,
+   renderablePanels,
+   slotToAutoOpen,
+   stripeGroup,
+   threadStarted,
+} from "./viewState";
 
 function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
    if (entries.length === 0) return null;
@@ -594,11 +607,7 @@ function ChatView({
             setSideError(errorMessage(e));
             throw e;
          }
-         update((l) =>
-            draft && l.threads.includes(draft)
-               ? replaceThread(l, draft, thread_id)
-               : openThread(l, thread_id),
-         );
+         update((l) => threadStarted(l, draft, thread_id));
          setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
          await api.prompt(text, attachments, thread_id);
       },
@@ -606,7 +615,7 @@ function ChatView({
    );
    /** A new side chat tab (an open draft is reused). Its Side Thread starts with its first message. */
    const newSideThread = useCallback(() => {
-      const id = layRef.current.threads.find(isDraftThread) ?? `draft:${crypto.randomUUID()}`;
+      const id = newThreadTabId(layRef.current, () => crypto.randomUUID());
       update((l) => openThread(l, id));
       setFocus((f) => ({ id, n: f.n + 1 }));
       return id;
@@ -737,13 +746,11 @@ function ChatView({
    );
    // A left or right item the Agent adds or changes while the Session is open shows at once (not replayed ones).
    const [openedAt] = useState(() => Date.now());
-   const lastSlot = useMemo(
-      () => slots.reduce<Slot | null>((a, x) => (!a || x.slot.ts > a.ts ? x.slot : a), null),
-      [slots],
-   );
+   const newestSlot = useMemo(() => lastSlot(slots.map((s) => s.slot)), [slots]);
    useEffect(() => {
-      if (lastSlot && lastSlot.ts >= openedAt) update((l) => show(l, slotPanel(lastSlot.id)));
-   }, [lastSlot?.id, lastSlot?.ts, openedAt, update]);
+      const open = slotToAutoOpen(newestSlot, openedAt);
+      if (open) update((l) => show(l, slotPanel(open.id)));
+   }, [newestSlot?.id, newestSlot?.ts, openedAt, update]);
    // The Plan panel shows this version (null: the latest). A new pending plan opens the panel, once.
    const [planShown, setPlanShown] = useState<string | null>(null);
    const openPlan = useCallback(
@@ -757,9 +764,10 @@ function ChatView({
    const pendingPlan = lastPlan?.status === "pending" ? lastPlan.requestId : null;
    const planOpened = useRef(new Set<string>());
    useEffect(() => {
-      if (overlay || !pendingPlan || planOpened.current.has(pendingPlan)) return;
-      planOpened.current.add(pendingPlan);
-      openPlan(pendingPlan);
+      const id = planToAutoOpen(overlay, pendingPlan, planOpened.current);
+      if (!id) return;
+      planOpened.current.add(id);
+      openPlan(id);
    }, [overlay, pendingPlan, openPlan]);
    const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
    const list = useRef<VirtualListHandle>(null);
@@ -901,9 +909,8 @@ function ChatView({
 
    const sideThreads = useMemo(() => state.threadList.filter((t) => !t.main), [state.threadList]);
    // Open side chats that have something to show (they arrive with the replay).
-   const openThreads = lay.threads.filter((id) => isDraftThread(id) || !!state.threads[id]);
-   const activeThread =
-      lay.thread && openThreads.includes(lay.thread) ? lay.thread : (openThreads.at(-1) ?? null);
+   const openThreads = openThreadIds(lay.threads, state.threads);
+   const activeThread = activeThreadId(lay.thread, openThreads);
    const threadTitle = (id: string) =>
       isDraftThread(id) ? "New chat" : (sideThreads.find((x) => x.id === id)?.title ?? "Side chat");
 
@@ -915,26 +922,12 @@ function ChatView({
    const hasPlans = state.plans.length > 0;
    const hasSubagents = subagentRows.length > 0;
    // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
-   const available = useMemo(() => {
-      if (overlay) return new Set<PanelId>(slotById.keys());
-      const a = new Set<PanelId>([
-         "side",
-         "files",
-         "terminal",
-         "events",
-         "artifacts",
-         "references",
-         ...slotById.keys(),
-      ]);
-      if (git) a.add("changes");
-      if (hasPlans) a.add("plan");
-      if (hasSubagents) a.add("subagents");
-      return a;
-   }, [overlay, slotById, git, hasPlans, hasSubagents]);
+   const available = useMemo(
+      () => availablePanels({ overlay, slotPanels: slotById.keys(), git, hasPlans, hasSubagents }),
+      [overlay, slotById, git, hasPlans, hasSubagents],
+   );
    const shown = useMemo(() => {
-      const renderable = new Set(available);
-      if (openThreads.length === 0) renderable.delete("side");
-      return shownOpen(lay, renderable);
+      return shownOpen(lay, renderablePanels(available, openThreads.length));
       // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [available, lay, openThreads.length]);
    const open = (id: PanelId) => isOpen(shown, id);
@@ -966,26 +959,17 @@ function ChatView({
 
    // A dot on a slot's icon marks changes made while it was closed (its first sight counts as seen),
    // including writes of a source file.
-   const slotKey = (x: Slot) => slotChangeKey(x, stamps);
    const [seen, setSeen] = useState<Record<string, string>>({});
    useEffect(() => {
-      setSeen((prev) => {
-         let next = prev;
-         for (const { slot } of slots) {
-            // A source not read yet is not seen yet.
-            if (
-               slot.source &&
-               !sharedRef(slot.source) &&
-               !(slot.source in stamps) &&
-               !(slot.id in prev)
-            )
-               continue;
-            const k = slotKey(slot);
-            if ((open(slotPanel(slot.id)) || !(slot.id in prev)) && prev[slot.id] !== k)
-               next = { ...next, [slot.id]: k };
-         }
-         return next;
-      });
+      setSeen((prev) =>
+         nextSeen(
+            prev,
+            slots.map((s) => s.slot),
+            stamps,
+            (source) => !!sharedRef(source),
+            (slot) => open(slotPanel(slot.id)),
+         ),
+      );
    });
 
    const { drag, start: startDrag } = usePanelDrag((id, t) =>
@@ -1006,37 +990,27 @@ function ChatView({
    };
    const tip = (id: PanelId) => (id === "side" ? "Side chats (⇧⌘B new)" : label(id));
    const count = (id: PanelId) =>
-      id === "side"
-         ? sideThreads.length
-         : id === "artifacts"
-           ? artifacts.length
-           : id === "references"
-             ? resolved.count
-             : id === "subagents"
-               ? runningSubagents || undefined
-               : undefined;
+      panelCount(id, {
+         sideThreads: sideThreads.length,
+         artifacts: artifacts.length,
+         references: resolved.count,
+         runningSubagents,
+      });
    const shortcut = (id: PanelId) => (id === "terminal" ? ["⌘", "J"] : undefined);
-   const group = (zone: Zone): StripeGroup => ({
-      zone,
-      items: lay.zones[zone].flatMap((id, index): StripeItem[] => {
-         if (!available.has(id)) return [];
-         const slot = slotById.get(id);
-         const on = shown.open[zone] === id;
-         return [
-            {
-               id,
-               index,
-               label: label(id),
-               tip: tip(id),
-               count: count(id),
-               shortcut: shortcut(id),
-               icon: icon(id),
-               on,
-               dot: !!slot && !on && slot.id in seen && seen[slot.id] !== slotKey(slot),
-            },
-         ];
-      }),
-   });
+   const group = (zone: Zone): StripeGroup =>
+      stripeGroup(zone, {
+         zones: lay.zones,
+         openIn: shown.open[zone],
+         available,
+         slotById,
+         seen,
+         stamps,
+         label,
+         tip,
+         count,
+         shortcut,
+         icon,
+      });
    const left: [StripeGroup, StripeGroup, StripeGroup] = [
       group("leftTop"),
       group("leftBottom"),
