@@ -3,11 +3,10 @@ import { CardDisplay } from "./CardDisplay";
 import type { ChatSubagent, Step } from "./group";
 import { TraceDisplay } from "./TraceDisplay";
 
-export {
-   type ChatSubagent,
-   groupTools,
-   type Step,
-   type ToolGroup,
+export type {
+   ChatSubagent,
+   Step,
+   ToolGroup,
 } from "./group";
 
 export type ToolGroupProps = {
