@@ -16,7 +16,6 @@ export function PendingRow({
 }) {
    const slow = useSlow(true);
    const failed = item.status === "failed";
-   const actions = pendingActions(composer);
    return (
       <div className="flex flex-col items-end pb-6">
          <div
@@ -35,7 +34,7 @@ export function PendingRow({
                      <button
                         type="button"
                         className="underline hover:text-foreground"
-                        onClick={actions?.retry}
+                        onClick={() => pendingActions(composer)?.retry()}
                      >
                         Retry
                      </button>
@@ -43,7 +42,7 @@ export function PendingRow({
                   <button
                      type="button"
                      className="underline hover:text-foreground"
-                     onClick={() => actions?.edit(item)}
+                     onClick={() => pendingActions(composer)?.edit(item)}
                   >
                      Edit
                   </button>
