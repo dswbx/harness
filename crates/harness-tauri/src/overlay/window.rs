@@ -242,3 +242,15 @@ pub fn hide(app: &AppHandle) {
         let _ = w.hide();
     }
 }
+
+/// Runs `f` on the main thread and resolves to its result. Errors (the main thread call, the dropped
+/// channel, or `f` itself) come back as their text.
+pub(super) async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> tauri::Result<T> + Send + 'static) -> Result<T, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f(&handle).map_err(|e| e.to_string()));
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}

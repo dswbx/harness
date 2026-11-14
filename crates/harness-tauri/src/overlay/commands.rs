@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use super::panel;
 use super::poll::{start_context, stop_context};
-use super::window::{hide, menu_room, resize, set_panels, show, user_resize};
+use super::window::{hide, menu_room, on_main, resize, set_panels, show, user_resize};
 use super::{LABEL, Mode, Overlay, SHADOW};
 use crate::context::WindowContext;
 use harness_core::Harness;
@@ -45,13 +45,7 @@ pub fn overlay_set_mode(app: AppHandle, mode: Mode) {
 /// width (logical px), or `None` when it did not resize.
 #[tauri::command]
 pub async fn overlay_resize(app: AppHandle, width: f64, height: f64, left: bool, top: bool) -> Result<Option<f64>, String> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let _ = tx.send(user_resize(&handle, (width, height), left, top).map_err(|e| e.to_string()));
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|e| e.to_string())?
+    on_main(&app, move |h| user_resize(h, (width, height), left, top)).await
 }
 
 /// The chat card's width (logical px, without the margin): the user's size, else the default. The page
@@ -64,26 +58,14 @@ pub fn overlay_chat_width(overlay: tauri::State<'_, Overlay>) -> f64 {
 /// A menu opened (`open`) or all closed in the overlay page. Resolves once the window has its size.
 #[tauri::command]
 pub async fn overlay_set_menu_room(app: AppHandle, open: bool) -> Result<(), String> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let _ = tx.send(menu_room(&handle, open).map_err(|e| e.to_string()));
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|e| e.to_string())?
+    on_main(&app, move |h| menu_room(h, open)).await
 }
 
 /// The chat's side panels want `left` and `right` (logical px) beside the card. Resolves once the
 /// window has its size.
 #[tauri::command]
 pub async fn overlay_set_panels(app: AppHandle, left: f64, right: f64) -> Result<(), String> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let _ = tx.send(set_panels(&handle, left.max(0.0), right.max(0.0)).map_err(|e| e.to_string()));
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|e| e.to_string())?
+    on_main(&app, move |h| set_panels(h, left.max(0.0), right.max(0.0))).await
 }
 
 #[tauri::command]
