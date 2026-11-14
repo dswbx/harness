@@ -7,21 +7,21 @@ import { PlanContext, type PlanCtx } from "../plan/PlanNote";
 import { PendingRow } from "../prompt/pending/PendingRow";
 import { hasArrived, usePendingMessages } from "../prompt/pendingMessages";
 import type { UiEnv } from "../renderUi/RenderUi";
-import { splitRenderUi } from "../renderUi/slots";
+import type { splitRenderUi } from "../renderUi/slots";
 import { composerKey } from "../review/reviewComments";
 import type { ChatSubagent } from "../toolDisplay";
 import { WaitingForUser } from "../toolDisplay/waiting";
-import { chatRows } from "./chatRows";
+import { chatRowsOf, renderUiOf } from "./chatRows";
 import { Row } from "./Row";
 import { Working } from "./Working";
 
 /** A Thread's items split into rows: render_ui calls moved to slots, resolved permissions and subagent calls folded away. */
 export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttached"]) {
-   const ui = useMemo(() => splitRenderUi(items, sharedAttached), [items, sharedAttached]);
+   const ui = useMemo(() => renderUiOf(items, sharedAttached), [items, sharedAttached]);
    // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
    // calls that moved to a slot or were replaced by a later call with their id.
    // Subagent tool calls go inside their Task call's card.
-   const { rows, subagents } = useMemo(() => chatRows(items, ui), [items, ui]);
+   const { rows, subagents } = useMemo(() => chatRowsOf(items, ui), [items, ui]);
    return { ui, rows, subagents };
 }
 
