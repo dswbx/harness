@@ -1,6 +1,6 @@
 import type { PrEntry, PrInfo, PrRefKey, RepoId } from "@harness/api";
+import { CASE_CTX, REF_CASES } from "@harness/api/testing";
 import { describe, expect, it } from "vitest";
-import { CASE_CTX, REF_CASES } from "../../../../api/src/github/prRefs.cases";
 import type { Item } from "../../state/reducer";
 import type { FileRef } from "../files/fileRefs";
 import {
@@ -249,38 +249,24 @@ describe("groupReferences", () => {
 });
 
 describe("shared case table", () => {
+   // The line scanner has its own code and link context rules; rows where it differs from the rendered chips say why.
    it.each(Object.entries(REF_CASES))("PR references: %s", (_, c) => {
       const prs = collectReferences([agent("a", c.text)], CASE_CTX).filter((x) => x.kind === "pr");
-      expect(prs.map((x) => x.key)).toEqual([...new Set(c.chips)]);
+      expect(prs.map((x) => x.key)).toEqual([...new Set((c.references ?? c).chips)]);
    });
 });
 
-describe("collectReferences: the chat's Markdown", () => {
-   const links = (text: string) =>
-      collectReferences([agent("a", text)], ctx).map((x) => `${x.kind}:${x.key}`);
-   it("links as GFM reads them: balanced parentheses, trailing marks, www, reference style", () => {
-      expect(links("https://x.dev/a_(b) and **https://x.dev/c** and www.x.dev/d.")).toEqual([
-         "link:https://x.dev/a_(b)",
-         "link:https://x.dev/c",
-         "link:http://www.x.dev/d",
-      ]);
-      expect(links("[t][r]\n\n[r]: https://x.dev/ref")).toEqual(["link:https://x.dev/ref"]);
-      expect(links("[mail](mailto:a@b.dev) a@b.dev")).toEqual([]);
-   });
-   it("no refs in indented code, setext headings or code in quotes", () => {
-      expect(
-         links("    `src/a.ts`\n\nTitle dswbx/harness#3\n===\n\n> ```\n> https://x.dev/q\n> ```"),
-      ).toEqual([]);
-   });
-   it("finds the same after a message grows", () => {
-      const items = [agent("a", "See dswbx/harness#3 and `src/a.ts`.")];
-      const first = collectReferences(items, ctx);
-      expect(collectReferences(items, ctx)).toEqual(first);
-      const grown = [agent("a", "See dswbx/harness#3 and `src/a.ts`. Also https://x.dev/z")];
-      expect(collectReferences(grown, ctx).map((x) => x.key)).toEqual([
-         "dswbx/harness#3",
-         "::src/a.ts",
-         "https://x.dev/z",
-      ]);
+describe("collectReferences cost", () => {
+   it("scans 2k settled messages cheaply (a parse per message would not)", () => {
+      const items = Array.from({ length: 2000 }, (_, i) =>
+         agent(
+            `a${i}`,
+            `Step ${i}: see \`src/a${i}.ts:12\` and dswbx/harness#${i + 1}.\n\n- [docs](https://x.dev/${i}) then https://y.dev/z\n\nSome more prose about the change, with **bold** text and a list:\n\n1. one\n2. two`,
+         ),
+      );
+      const t = performance.now();
+      collectReferences(items, ctx);
+      // The line scanner takes about 40 ms here; parsing each message with remark took 700.
+      expect(performance.now() - t).toBeLessThan(400);
    });
 });

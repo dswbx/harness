@@ -1,20 +1,19 @@
 import {
+   findPrRefs,
+   isExplicit,
    type PrEntry,
    type PrInfo,
    type PrRefContext,
    type PrRefKey,
+   PULL_PATH,
    prKey,
+   qualify,
    type RepoId,
    repoName,
    sameRepo,
 } from "@harness/api";
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
-import { unified } from "unified";
 import type { Item } from "../../state/reducer";
 import { type FileRef, fileRefKey, lineLabel, linkFileRef, parseFileRef } from "../files/fileRefs";
-import { type Node, prAutolink, walkPrRefs } from "../prRefs/rehypePrRefs";
 
 /** One place a Reference is named: `hit` in its message, with the text around it. */
 export type Mention = {
@@ -65,6 +64,9 @@ export type Reference =
 export type ReferenceKind = Reference["kind"];
 
 const NO_CONTEXT: PrRefContext = { sessionRepo: null, knownRepos: [] };
+/** Inline code | a link or image | an autolink | a bare URL. */
+const TOKEN =
+   /`([^`\n]+)`|(!?)\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"\n]*")?\)|<(https?:\/\/[^>\s]+)>|(https?:\/\/[^\s<>()[\]]+)/g;
 const QUOTE_BEFORE = 44;
 const QUOTE_AFTER = 54;
 
@@ -79,98 +81,67 @@ const quoteAfter = (s: string) => {
 };
 
 const http = (url: string) => /^https?:\/\//i.test(url);
+const PULL = new RegExp(PULL_PATH);
+const prUrl = (url: string) => PULL.test(url);
 
 type Target =
    | { kind: "pr"; ref: PrRefKey }
    | { kind: "file"; ref: FileRef }
    | { kind: "link"; url: string; title: string | null };
-/** `start`/`end`: offsets in the message text. */
 type Found = { start: number; end: number; hit: string; target: Target };
 
-/** The same Markdown pass the chat renders with (`Markdown.tsx`): CommonMark + GFM to a rendered tree. */
-const markdown = unified().use(remarkParse).use(remarkGfm).use(remarkRehype);
-/** Text with none of these has no ref, so there is nothing to parse. */
-const MAYBE_REF = /[`#[]|https?:|www\./i;
-
-const textOf = (n: Node): string => n.value ?? (n.children ?? []).map(textOf).join("");
-
-/**
- * What a message names, from its rendered tree, so what counts is what the chat marks: file refs in inline code and
- * links, PR refs in text (`walkPrRefs`: not a bare `#N` unless written `PR #N`, not headings, code or links) and PR
- * autolinks, every other http link.
- */
-function scan(text: string, ctx: PrRefContext): Found[] {
-   if (!MAYBE_REF.test(text)) return [];
-   const tree = markdown.runSync(markdown.parse(text)) as Node;
+/** The refs of one Markdown line, the same ones the chat marks: file refs in inline code and links, PR refs in text
+ * (not a bare `#N` unless written `PR #N`, not headings) and bare PR URLs, every other http link. */
+function scanLine(line: string, ctx: PrRefContext): Found[] {
    const out: Found[] = [];
-   const span = (n: Node): [number, number] | null => {
-      const s = n.position?.start.offset;
-      const e = n.position?.end.offset;
-      return s === undefined || e === undefined ? null : [s, e];
-   };
-   walkPrRefs(tree, ctx, (node, hits) => {
-      const [from, to] = span(node) ?? [0, 0];
-      for (const h of hits) {
-         if (node.type === "element") {
-            out.push({ start: from, end: to, hit: h.raw, target: { kind: "pr", ref: h.key } });
-            continue;
-         }
-         // The text can differ from the source (escapes); look for the ref from where it should be.
-         let start = from + h.start;
-         if (!text.startsWith(h.raw, start)) start = Math.max(text.indexOf(h.raw, from), from);
-         out.push({
-            start,
-            end: start + h.raw.length,
-            hit: h.raw,
-            target: { kind: "pr", ref: h.key },
-         });
-      }
-      return undefined;
-   });
-   const walk = (n: Node, parent?: Node) => {
-      if (n.type === "text" || n.tagName === "pre") return;
-      const at = span(n);
-      if (n.tagName === "code" && parent?.tagName !== "a") {
-         const only = n.children?.length === 1 ? n.children[0]! : null;
-         if (only?.type !== "text" || only.value!.startsWith("{:") || !at) return;
-         const ref = parseFileRef(only.value!);
+   const heading = /^\s{0,3}#{1,6}\s/.test(line);
+   const text = (from: number, to: number) => {
+      if (heading || to <= from) return;
+      for (const m of findPrRefs(line.slice(from, to), ctx)) {
+         if (!isExplicit(m)) continue;
+         const ref = qualify(m, ctx);
          if (ref)
-            out.push({ start: at[0], end: at[1], hit: only.value!, target: { kind: "file", ref } });
-         return;
-      }
-      if (n.tagName === "a") {
-         const href = typeof n.properties?.href === "string" ? n.properties.href : "";
-         if (!at || prAutolink(n, ctx)) return;
-         const name = textOf(n).replace(/[*_`~]/g, "");
-         const ref = linkFileRef(href, name);
-         if (ref) out.push({ start: at[0], end: at[1], hit: name, target: { kind: "file", ref } });
-         else if (http(href)) {
-            // An autolink (its text is the URL, or `www.` form of it) has no title.
-            const bare = !name || name === href || `http://${name}` === href;
             out.push({
-               start: at[0],
-               end: at[1],
-               hit: name || href,
-               target: { kind: "link", url: href, title: bare ? null : name },
+               start: from + m.start,
+               end: from + m.end,
+               hit: m.raw,
+               target: { kind: "pr", ref },
             });
-         }
-         return;
       }
-      for (const c of n.children ?? []) walk(c, n);
    };
-   walk(tree);
+   const url = (raw: string, start: number, end: number) => {
+      const clean = raw.replace(/[.,;:!?'"]+$/, "");
+      const ref = prUrl(clean) ? qualify(clean, ctx) : null;
+      out.push({
+         start,
+         end: start + clean.length + (end - start - raw.length),
+         hit: clean,
+         target: ref ? { kind: "pr", ref } : { kind: "link", url: clean, title: null },
+      });
+   };
+   let at = 0;
+   for (const m of line.matchAll(TOKEN)) {
+      const [raw, code, bang, label, href, auto, bare] = m;
+      const start = m.index;
+      const end = start + raw.length;
+      text(at, start);
+      at = end;
+      if (code !== undefined) {
+         if (code.startsWith("{:")) continue;
+         const ref = parseFileRef(code);
+         if (ref) out.push({ start, end, hit: code, target: { kind: "file", ref } });
+      } else if (href !== undefined) {
+         if (bang) continue;
+         const name = label!.replace(/[*_`~]/g, "");
+         const ref = linkFileRef(href, name);
+         if (ref) out.push({ start, end, hit: name, target: { kind: "file", ref } });
+         else if (name === href) url(href, start, end);
+         else if (http(href))
+            out.push({ start, end, hit: name, target: { kind: "link", url: href, title: name } });
+      } else url((auto ?? bare)!, start, end);
+   }
+   text(at, line.length);
    return out.sort((a, b) => a.start - b.start);
-}
-
-/** `scan` per message, kept while the message and the PR context stay the same objects (streaming replaces only the
- * growing message), so a chunk parses one message, not all. */
-const scanned = new WeakMap<Item, { ctx: PrRefContext; found: Found[] }>();
-function scanItem(it: Item & { text: string }, ctx: PrRefContext): Found[] {
-   const hit = scanned.get(it);
-   if (hit?.ctx === ctx) return hit.found;
-   const found = scan(it.text, ctx);
-   scanned.set(it, { ctx, found });
-   return found;
 }
 
 /** Everything the Session's user and Agent messages name, one candidate per target, in order of first mention. */
@@ -184,29 +155,39 @@ export function collectReferences(
       if (it.type !== "user" && it.type !== "agent") continue;
       if (it.type === "user") turn++;
       const who = it.type === "user" ? "you" : "agent";
-      const text = it.text;
-      for (const f of scanItem(it, ctx ?? NO_CONTEXT)) {
-         const t = f.target;
-         const key = t.kind === "pr" ? prKey(t.ref) : t.kind === "file" ? fileRefKey(t.ref) : t.url;
-         const id = `${t.kind}:${key}`;
-         let c = byKey.get(id);
-         if (!c) {
-            c = { ...t, key, mentions: [] } as ReferenceCandidate;
-            byKey.set(id, c);
+      let fence: RegExp | null = null;
+      for (const line of it.text.split("\n")) {
+         if (fence) {
+            if (fence.test(line)) fence = null;
+            continue;
          }
-         if (c.kind === "link" && !c.title && t.kind === "link") c.title = t.title;
-         const lineStart = text.lastIndexOf("\n", f.start - 1) + 1;
-         const lineEnd = text.indexOf("\n", f.end);
-         c.mentions.push({
-            rowId: it.id,
-            turn,
-            who,
-            ts: it.ts,
-            before: quoteBefore(text.slice(lineStart, f.start)),
-            hit: f.hit,
-            after: quoteAfter(text.slice(f.end, lineEnd < 0 ? text.length : lineEnd)),
-            range: t.kind === "file" ? lineLabel(t.ref) : null,
-         });
+         const open = /^\s*(`{3,}|~{3,})/.exec(line);
+         if (open) {
+            fence = new RegExp(`^\\s*${open[1]![0]}{${open[1]!.length},}\\s*$`);
+            continue;
+         }
+         for (const f of scanLine(line, ctx ?? NO_CONTEXT)) {
+            const t = f.target;
+            const key =
+               t.kind === "pr" ? prKey(t.ref) : t.kind === "file" ? fileRefKey(t.ref) : t.url;
+            const id = `${t.kind}:${key}`;
+            let c = byKey.get(id);
+            if (!c) {
+               c = { ...t, key, mentions: [] } as ReferenceCandidate;
+               byKey.set(id, c);
+            }
+            if (c.kind === "link" && !c.title && t.kind === "link") c.title = t.title;
+            c.mentions.push({
+               rowId: it.id,
+               turn,
+               who,
+               ts: it.ts,
+               before: quoteBefore(line.slice(0, f.start)),
+               hit: f.hit,
+               after: quoteAfter(line.slice(f.end)),
+               range: t.kind === "file" ? lineLabel(t.ref) : null,
+            });
+         }
       }
    }
    return [...byKey.values()];

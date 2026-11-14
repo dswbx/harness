@@ -1,10 +1,10 @@
 import type { PrRefContext } from "@harness/api";
+import { CASE_CTX, REF_CASES } from "@harness/api/testing";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { describe, expect, it } from "vitest";
-import { CASE_CTX, REF_CASES } from "../../../../api/src/github/prRefs.cases";
 import { rehypePrRefs } from "./rehypePrRefs";
 
 type Node = {

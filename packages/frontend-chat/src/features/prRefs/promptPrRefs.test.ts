@@ -6,6 +6,7 @@ import {
    type PrStore,
    prKey,
 } from "@harness/api";
+import { REF_CASES } from "@harness/api/testing";
 import { $createCodeNode } from "@lexical/code";
 import { createHeadlessEditor } from "@lexical/headless";
 import { $convertFromMarkdownString } from "@lexical/markdown";
@@ -16,13 +17,13 @@ import {
    $getRoot,
    $getSelection,
    $isRangeSelection,
+   $nodesOfType,
    $setSelection,
    type ElementNode,
    type LexicalEditor,
    type ParagraphNode,
 } from "lexical";
 import { describe, expect, it } from "vitest";
-import { REF_CASES } from "../../../../api/src/github/prRefs.cases";
 import {
    $exportMarkdown,
    PROMPT_NODES,
@@ -30,7 +31,7 @@ import {
    restoreSnapshot,
    snapshot,
 } from "../prompt/promptMarkdown";
-import { $createPrRefNode, $isPrRefNode } from "./PrRefNode";
+import { $createPrRefNode, $isPrRefNode, PrRefNode } from "./PrRefNode";
 import {
    $caretToken,
    $importPrRefs,
@@ -38,7 +39,6 @@ import {
    $unchip,
    autoChips,
    type CaretToken,
-   PR_REF,
    registerAutoChip,
 } from "./promptPrRefs";
 
@@ -398,8 +398,13 @@ describe("# menu token and pick", () => {
 });
 
 describe("shared case table", () => {
-   it.each(Object.entries(REF_CASES))("import grammar: %s", (_, c) => {
-      const re = new RegExp(PR_REF.importRegExp!.source, "g");
-      expect([...c.text.matchAll(re)].map((m) => m[0])).toEqual(c.qualified);
+   // The real Markdown import: the grammar plus the code and link checks.
+   const imported = (text: string) => {
+      const ed = newEditor();
+      run(ed, () => void $convertFromMarkdownString(text, PROMPT_TRANSFORMERS, undefined, true));
+      return ed.getEditorState().read(() => $nodesOfType(PrRefNode).map((n) => n.getTyped()));
+   };
+   it.each(Object.entries(REF_CASES))("import: %s", (_, c) => {
+      expect(imported(c.text)).toEqual((c.prompt ?? { chips: c.qualified }).chips);
    });
 });

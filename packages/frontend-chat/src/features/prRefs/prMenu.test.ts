@@ -5,8 +5,8 @@ import {
    type RepoId,
    repoName,
 } from "@harness/api";
+import { CASE_CTX, MENU_CASES, REF_CASES } from "@harness/api/testing";
 import { describe, expect, it } from "vitest";
-import { CASE_CTX, REF_CASES } from "../../../../api/src/github/prRefs.cases";
 import {
    exactNumber,
    type PrMenuRow,
@@ -193,5 +193,8 @@ it("a repo pick becomes owner/repo#", () => {
 describe("shared case table", () => {
    it.each(Object.entries(REF_CASES))("menu token: %s", (_, c) => {
       for (const raw of c.qualified) expect(prMenuState(raw, CASE_CTX)?.mode).toBe("exact");
+   });
+   it.each(MENU_CASES.map((c) => [c.token, c] as const))("menu text token: %s", (_, c) => {
+      expect(prMenuState(c.token, CASE_CTX)?.mode ?? null).toBe(c.mode);
    });
 });

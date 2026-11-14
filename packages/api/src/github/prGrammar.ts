@@ -22,6 +22,6 @@ export const SHORT_REF = `(?:(?:(${OWNER})/)?(${NAME}))?#(${NUMBER})`;
 /** `owner/repo#17` only. Groups: owner, repo, number. */
 export const QUALIFIED_REF = `(${OWNER})/(${NAME})#(${NUMBER})`;
 /** What the `#` menu reads at the caret: `#`, `#fix`, `spark#1`, `owner/repo#17`. Groups: owner, name, short, query. */
-export const MENU_TOKEN = `^(?:(${OWNER})/(${NAME})|(${NAME}))?#([^#s]*)$`;
+export const MENU_TOKEN = String.raw`^(?:(${OWNER})/(${NAME})|(${NAME}))?#([^#\s]*)$`;
 /** The number in any PR URL (any host: for a number typed or pasted into a picker). */
 export const PULL_PATH = String.raw`/pull/(\d+)`;
