@@ -3,7 +3,14 @@
 // payloads or name Agents (ADR 0012).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { importSpecs, importViolation, leaks } from "./boundaries";
+import {
+   appViolation,
+   importedNames,
+   importSpecs,
+   importViolation,
+   leaks,
+   uiViolation,
+} from "./boundaries";
 
 /**
  * Frontend files allowed to touch raw payloads, with the reason. Everything else goes through
@@ -20,6 +27,18 @@ const RAW_ALLOWED: Record<string, string> = {
       "known leak: reads rawInput/rawOutput (memo deps, presence checks, the raw JSON view) and the mcp__ title prefix; the raw JSON view may stay, the rest moves to typed core tool fields",
    "frontend-chat/src/ToolCard.tsx":
       "known leak: passes rawInput to commandOf and shows rawInput/rawOutput in the raw JSON view; the command moves to a typed core tool field, the raw JSON view may stay",
+};
+
+/** App files that break the Frontend-package rule today, with the reason. New files must not. */
+const APP_ALLOWED: Record<string, string> = {
+   "app/src/mock/events.ts":
+      "known: to move behind the Frontend contract (imports a Frontend's fixture by relative path)",
+   "app/src/App.tsx":
+      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
+   "app/src/SettingsDialog.tsx":
+      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
+   "app/src/AppearancePanel.tsx":
+      "known: to move behind the Frontend contract (imports more than `frontend` from a Frontend package)",
 };
 
 let bad = 0;
@@ -59,5 +78,30 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
       }
    }
 }
+
+// The UI kit knows neither the host API nor a Frontend.
+for (const file of walk(resolve("packages/ui/src"))) {
+   if (/\.test\.tsx?$/.test(file)) continue;
+   for (const spec of importSpecs(readFileSync(file, "utf8"))) {
+      const why = uiViolation(spec);
+      if (why) {
+         console.error(`${file}: forbidden import "${spec}": ${why}`);
+         bad++;
+      }
+   }
+}
+
+// The app reaches a Frontend only through its root entry and its `frontend` object.
+for (const file of walk(resolve("app/src"))) {
+   if (/\.test\.tsx?$/.test(file)) continue;
+   if (relative(resolve("."), file) in APP_ALLOWED) continue;
+   for (const [spec, names] of importedNames(readFileSync(file, "utf8"))) {
+      const why = appViolation(spec, names, file, resolve("."));
+      if (why) {
+         console.error(`${file}: forbidden import "${spec}": ${why}`);
+         bad++;
+      }
+   }
+}
 if (bad) process.exit(1);
-console.log("frontend import boundaries ok");
+console.log("import boundaries ok");
