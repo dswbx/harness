@@ -15,8 +15,8 @@ import { useContext, useState } from "react";
 import { OpenSession } from "../../lib/OpenSession";
 import { formatDuration } from "../../lib/time";
 import { Markdown } from "../markdown/Markdown";
-import { STEP_TEXT } from "./ToolCard";
-import { Fold } from "./TraceDisplay";
+import { STEP_TEXT } from "./blocks";
+import { Fold } from "./bodies/Fold";
 
 /** A collapsed line's taste of the reply: its first line, cut short. */
 function preview(reply: string): string {

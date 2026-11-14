@@ -11,9 +11,40 @@ import type {
    ThreadInfo,
    TranscriptSize,
 } from "@harness/api";
-import type { RenderUiInput } from "../features/renderUi/tools";
 
 export type ContentBlock = Record<string, unknown>;
+
+/** A node of a decoded `render_ui` tree, as far as the reducer and the slot split read it. */
+export type DecodedNode = {
+   type: string;
+   props?: Record<string, unknown>;
+   children?: DecodedNode[];
+   on?: unknown;
+   visible?: unknown;
+};
+
+/**
+ * What the reducer and `features/renderUi/slots.ts` read from a validated `render_ui` input. The
+ * real type (`RenderUiInput`) lives in `features/renderUi`, which asserts it is assignable to this.
+ */
+export type DecodedRenderUi = {
+   root?: DecodedNode;
+   source?: string;
+   id?: string;
+   placement?: "inline" | "top" | "bottom" | "left" | "right";
+   title?: string;
+   icon?: string;
+   remove?: boolean;
+};
+
+/**
+ * Validates the input of a Frontend Tool call. `null`: not a tool it knows (the Item keeps no
+ * `render`). Injected into the reducer, so `state/` does not import a Frontend's catalog.
+ */
+export type ToolDecoder = (
+   tool: string,
+   input: unknown,
+) => { ok: true; value: DecodedRenderUi } | { ok: false; errors: string[] } | null;
 
 export type ConfigOption = {
    id: string;
@@ -137,7 +168,7 @@ export type Item =
         /** Local images the input names: src -> the core's copy (relative to `frontend/`). */
         files: Record<string, string>;
         /** Set for known tools: the validated input, or why it failed. Unknown tools: null. */
-        render: { ok: true; value: RenderUiInput } | { ok: false; errors: string[] } | null;
+        render: { ok: true; value: DecodedRenderUi } | { ok: false; errors: string[] } | null;
      }
    /** Files the Agent changed during a Turn; opens the diff scoped to that Turn. */
    | {
