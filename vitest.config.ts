@@ -22,14 +22,12 @@ export default defineConfig({
             },
          },
          {
-            // Timing tests: alone on the machine (`bun run test` runs this project after the others), one file at a time.
+            // Timing tests: alone on the machine (`bun run test` runs this project after the others), one file at a time (`--no-file-parallelism`).
             // A `.tsx` bench says `@vitest-environment happy-dom`.
             test: {
                name: "bench",
                include: roots.flatMap((r) => [`${r}/*.bench.test.ts`, `${r}/*.bench.test.tsx`]),
                environment: "node",
-               fileParallelism: false,
-               pool: "forks",
             },
          },
       ],
