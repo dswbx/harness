@@ -3,6 +3,7 @@ import {
    type Branches,
    type BranchInfo,
    baseName,
+   errText,
    type FrontendManifest,
    type HarnessClient,
    inTauri,
@@ -242,7 +243,7 @@ export function ComposerDialog({
             setAgentId((cur) => (a.some((x) => x.id === cur) ? cur : a[0]?.id || ""));
             setFrontendId((cur) => cur || (f.find((x) => x.id === "chat") ?? f[0])?.id || "");
          })
-         .catch((e) => setError(String(e)));
+         .catch((e) => setError(errText(e)));
    }, [isOpen, client, agentsVersion]);
 
    useEffect(() => {
@@ -255,7 +256,7 @@ export function ComposerDialog({
          })
          .catch((e) => {
             setMcpServers([]);
-            setError(`Could not load MCP servers: ${e instanceof Error ? e.message : String(e)}`);
+            setError(`Could not load MCP servers: ${errText(e)}`);
          });
    }, [isOpen, client, mcpVersion]);
 
@@ -303,6 +304,7 @@ export function ComposerDialog({
 
    // Branches (and whether PRs are available) once a folder is chosen; debounced, it can be typed.
    useEffect(() => {
+      setError(null); // a new folder, or a reopen: no error of the last one
       setBranches(null);
       setPrs(null);
       setPrAvailable(false);
@@ -323,7 +325,7 @@ export function ComposerDialog({
                setTarget(first ? { kind: "local", name: first } : null);
                setWorktree(false);
             })
-            .catch((e) => !off && setError(String(e)));
+            .catch((e) => !off && setError(errText(e)));
       }, 250);
       return () => {
          off = true;
@@ -350,7 +352,7 @@ export function ComposerDialog({
       client
          .updateBranch(folder.trim(), b.name)
          .then(() => setBranchesVersion((v) => v + 1))
-         .catch((e) => setError(`Could not update ${b.name}: ${String(e)}`))
+         .catch((e) => setError(`Could not update ${b.name}: ${errText(e)}`))
          .finally(() => setUpdating(null));
    };
 
@@ -456,7 +458,7 @@ export function ComposerDialog({
          onOpenChange(false);
          onCreated(id);
       } catch (e) {
-         setError(String(e));
+         setError(errText(e));
       } finally {
          setBusy(false);
       }
