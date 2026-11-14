@@ -356,6 +356,11 @@ pub async fn snapshot(dir: &Path) -> anyhow::Result<String> {
 
 pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
     let out = git(dir, &["status", "--porcelain=v2", "--branch", "--untracked-files=all"]).await?;
+    Ok(parse_status(&out))
+}
+
+/// `git status --porcelain=v2 --branch` output as a `GitStatus`.
+fn parse_status(out: &str) -> GitStatus {
     let mut st = GitStatus { branch: None, upstream: None, ahead: 0, behind: 0, files: vec![] };
     for line in out.lines() {
         if let Some(h) = line.strip_prefix("# branch.head ") {
@@ -368,6 +373,11 @@ pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
             st.behind = it.next().and_then(|b| b.trim_start_matches('-').parse().ok()).unwrap_or(0);
         } else if let Some(p) = line.strip_prefix("? ") {
             st.files.push(FileChange { path: p.to_owned(), status: "?".into(), additions: None, deletions: None });
+        } else if line.starts_with("u ") {
+            // "u XY sub m1 m2 m3 mW h1 h2 h3 path": the path is the rest of the line.
+            if let Some(path) = line.splitn(11, ' ').nth(10) {
+                st.files.push(FileChange { path: path.to_owned(), status: "U".into(), additions: None, deletions: None });
+            }
         } else if line.starts_with("1 ") || line.starts_with("2 ") {
             // "1 XY sub mH mI mW hH hI path" / "2 XY ... Xscore path\torig"
             let fields: Vec<&str> = line.splitn(if line.starts_with('1') { 9 } else { 10 }, ' ').collect();
@@ -377,7 +387,7 @@ pub async fn status(dir: &Path) -> anyhow::Result<GitStatus> {
             st.files.push(FileChange { path: path.to_owned(), status: code.into(), additions: None, deletions: None });
         }
     }
-    Ok(st)
+    st
 }
 
 /// Diff between two trees or commits, as file list plus unified patch.
@@ -552,6 +562,61 @@ pub fn slug(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parses_porcelain_v2_status() {
+        let head = "# branch.oid abc\n# branch.head main\n";
+        let one = |xy: &str, path: &str| format!("1 {xy} N... 100644 100644 100644 aaa bbb {path}\n");
+        // (name, text, branch, upstream, (ahead, behind), files)
+        #[allow(clippy::type_complexity)]
+        let table: Vec<(&str, String, Option<&str>, Option<&str>, (u32, u32), Vec<(&str, &str)>)> = vec![
+            (
+                "ordinary",
+                format!("{head}{}{}{}", one(".M", "src/a.rs"), one("M.", "b.rs"), one(".D", "d.rs")),
+                Some("main"),
+                None,
+                (0, 0),
+                vec![("src/a.rs", "M"), ("b.rs", "M"), ("d.rs", "D")],
+            ),
+            ("rename", format!("{head}2 R. N... 100644 100644 100644 aaa bbb R100 new.rs\told.rs\n"), Some("main"), None, (0, 0), vec![("new.rs", "R")]),
+            ("untracked", format!("{head}? notes/todo.txt\n"), Some("main"), None, (0, 0), vec![("notes/todo.txt", "?")]),
+            (
+                "unmerged",
+                format!(
+                    "{head}u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.rs\nu AA N... 000000 100644 100644 100644 000 bbb ccc dir/both added.rs\n"
+                ),
+                Some("main"),
+                None,
+                (0, 0),
+                vec![("conflict.rs", "U"), ("dir/both added.rs", "U")],
+            ),
+            ("detached", format!("# branch.oid abc\n# branch.head (detached)\n{}", one(".M", "a.rs")), None, None, (0, 0), vec![("a.rs", "M")]),
+            (
+                "spaces",
+                format!("{head}{}2 R. N... 100644 100644 100644 aaa bbb R90 new name.rs\told name.rs\n? un tracked.txt\n", one(".M", "my dir/a b.rs")),
+                Some("main"),
+                None,
+                (0, 0),
+                vec![("my dir/a b.rs", "M"), ("new name.rs", "R"), ("un tracked.txt", "?")],
+            ),
+            (
+                "ahead and behind",
+                "# branch.oid abc\n# branch.head feat/x\n# branch.upstream origin/feat/x\n# branch.ab +3 -2\n".into(),
+                Some("feat/x"),
+                Some("origin/feat/x"),
+                (3, 2),
+                vec![],
+            ),
+        ];
+        for (name, text, branch, upstream, (ahead, behind), want) in table {
+            let st = parse_status(&text);
+            assert_eq!(st.branch.as_deref(), branch, "{name}");
+            assert_eq!(st.upstream.as_deref(), upstream, "{name}");
+            assert_eq!((st.ahead, st.behind), (ahead, behind), "{name}");
+            let got: Vec<(&str, &str)> = st.files.iter().map(|f| (f.path.as_str(), f.status.as_str())).collect();
+            assert_eq!(got, want, "{name}");
+        }
+    }
+
     #[test]
     fn rev_rejects_empty_and_option_like() {
         assert_eq!(rev("main").unwrap(), "main");
