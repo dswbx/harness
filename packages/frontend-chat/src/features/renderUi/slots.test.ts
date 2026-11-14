@@ -1,7 +1,7 @@
 import type { Event, EventKind } from "@harness/api";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { initialState, reduce } from "../../state/reducer";
-import { splitRenderUi } from "./slots";
+import { lastSlot, nextSeen, type Slot, slotDot, slotToAutoOpen, splitRenderUi } from "./slots";
 
 let seq = 0;
 const ev = (kind: EventKind): Event => ({
@@ -138,5 +138,108 @@ describe("Shared Artifacts in slots (ADR 0024)", () => {
    it("lists an artifact attached twice once", () => {
       const s = fold([attach("map-a1b2c3"), attach("map-a1b2c3", 9)]);
       expect(shared(s).slots.right.map((x) => [x.id, x.ts])).toEqual([["shared:map-a1b2c3", 9]]);
+   });
+});
+
+const slot = (id: string, over: Partial<Slot> = {}): Slot => ({
+   id,
+   title: null,
+   icon: null,
+   root: { type: "text", text: id } as never,
+   files: {},
+   ts: 1,
+   source: null,
+   ...over,
+});
+describe("slotDot", () => {
+   const s = slot("a");
+   test("only for a slot that was seen, is closed and changed since", () => {
+      expect(slotDot(s, false, { a: "old" }, {})).toBe(true);
+      expect(slotDot(s, true, { a: "old" }, {})).toBe(false);
+      expect(slotDot(s, false, {}, {})).toBe(false);
+      expect(slotDot(undefined, false, { a: "old" }, {})).toBe(false);
+   });
+   test("no dot when the seen key is current", () => {
+      const seen = nextSeen(
+         {},
+         [s],
+         {},
+         () => false,
+         () => false,
+      );
+      expect(slotDot(s, false, seen, {})).toBe(false);
+   });
+   test("a file-backed slot changes with its file hash", () => {
+      const f = slot("f", { source: "f.json" });
+      const seen = nextSeen(
+         {},
+         [f],
+         { "f.json": { hash: "1" } },
+         () => false,
+         () => false,
+      );
+      expect(slotDot(f, false, seen, { "f.json": { hash: "1" } })).toBe(false);
+      expect(slotDot(f, false, seen, { "f.json": { hash: "2" } })).toBe(true);
+   });
+});
+
+describe("nextSeen", () => {
+   const closed = () => false;
+   test("first sight counts as seen", () => {
+      const out = nextSeen({}, [slot("a")], {}, () => false, closed);
+      expect(Object.keys(out)).toEqual(["a"]);
+   });
+   test("a change while closed is not marked seen", () => {
+      const prev = nextSeen({}, [slot("a")], {}, () => false, closed);
+      const changed = slot("a", { root: { type: "text", text: "new" } as never });
+      expect(nextSeen(prev, [changed], {}, () => false, closed)).toBe(prev);
+   });
+   test("a change while open is marked seen", () => {
+      const prev = nextSeen({}, [slot("a")], {}, () => false, closed);
+      const changed = slot("a", { root: { type: "text", text: "new" } as never });
+      const out = nextSeen(
+         prev,
+         [changed],
+         {},
+         () => false,
+         () => true,
+      );
+      expect(out).not.toBe(prev);
+      expect(out.a).not.toBe(prev.a);
+   });
+   test("same object when nothing changed", () => {
+      const prev = nextSeen({}, [slot("a")], {}, () => false, closed);
+      expect(
+         nextSeen(
+            prev,
+            [slot("a")],
+            {},
+            () => false,
+            () => true,
+         ),
+      ).toBe(prev);
+   });
+   test("a source not read yet is not seen yet; a shared one is", () => {
+      const f = slot("f", { source: "f.json" });
+      expect(nextSeen({}, [f], {}, () => false, closed)).toEqual({});
+      expect(Object.keys(nextSeen({}, [f], {}, () => true, closed))).toEqual(["f"]);
+      expect(
+         Object.keys(nextSeen({}, [f], { "f.json": { hash: "h" } }, () => false, closed)),
+      ).toEqual(["f"]);
+   });
+});
+
+describe("auto open", () => {
+   test("lastSlot is the newest, the first on a tie", () => {
+      expect(lastSlot([])).toBeNull();
+      expect(lastSlot([slot("a", { ts: 5 }), slot("b", { ts: 9 }), slot("c", { ts: 9 })])?.id).toBe(
+         "b",
+      );
+   });
+   test("a slot opens only when placed at or after the Session was opened", () => {
+      expect(slotToAutoOpen(null, 10)).toBeNull();
+      expect(slotToAutoOpen(slot("a", { ts: 9 }), 10)).toBeNull();
+      expect(slotToAutoOpen(slot("a", { ts: 10 }), 10)?.id).toBe("a");
+      expect(slotToAutoOpen(slot("a", { ts: 11 }), 10)?.id).toBe("a");
    });
 });

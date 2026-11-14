@@ -1,10 +1,10 @@
 import { Button, cn, Tooltip } from "@harness/ui";
 import { Fragment, type PointerEvent, type ReactNode } from "react";
+import { ZONE_LABEL, type Zone } from "./model";
 import type { DragState } from "./panelDrag";
-import { type PanelId, ZONE_LABEL, type Zone } from "./panelLayout";
 
 export type StripeItem = {
-   id: PanelId;
+   id: string;
    /** Position in its zone's full list (stripes show only the panels that exist), for drops. */
    index: number;
    label: string;
@@ -39,7 +39,7 @@ export function Stripe({
    groups: [StripeGroup, StripeGroup, StripeGroup?];
    drag: DragState | null;
    overlay?: boolean;
-   onToggle: (id: PanelId) => void;
+   onToggle: (id: string) => void;
    onPress: (item: StripeItem, e: PointerEvent) => void;
 }) {
    const group = (g: StripeGroup) => {

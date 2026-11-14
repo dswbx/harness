@@ -22,6 +22,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - Before adding logic that reads Events, ask: would a second Frontend have to copy this to show the same truth? Core Event field if it needs core/Agent knowledge, `@harness/api` helper if it is a pure derivation, else the Frontend (ADR 0012).
 - UI components: default to shadcn (Radix) for anything shadcn has (select, menu, popover, dialog, tooltip, ...): add it to `@harness/ui` (`packages/ui/src/primitives`) styled like the rest, never a native control or a hand-rolled one.
 - Scrolling: every scrolling panel, list, popover and menu uses `ScrollArea` (or `VirtualList`) from `@harness/ui`, the thin scrollbar of the sidebar and chat; with a max height, put it on the root and pass `viewportClassName="max-h-[inherit]"`. Native `overflow-auto` only for code/pre blocks. Popovers and menus cap their height to the space left in the window (`--radix-*-content-available-height`).
+- Adding a chat Panel: one `definePanel` in `packages/frontend-chat/src/features/<f>/panel.tsx`, listed in `shell/panels.ts` (ADR 0025). Its id is persisted in stored layouts: never rename it (a test pins them).
 - What the Agent should know about the Harness goes in the plain prompt files, not code: `crates/harness-core/prompts/harness.md` and each Frontend's `instructions.md` (ADR 0014). Keep them short.
 
 ## Preview

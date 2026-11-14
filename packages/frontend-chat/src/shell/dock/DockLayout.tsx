@@ -1,29 +1,30 @@
 import { cn, ResizeHandle, useDragDelta } from "@harness/ui";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PanelContext } from "../panels/PanelHeader";
-import type { DragState } from "./panelDrag";
+import { PanelContext } from "../../panels/PanelHeader";
 import {
    clampSize,
    computeRects,
-   DEFAULT_SIZES,
    dropRects,
    type Geometry,
+   type Rect,
+   type ResizeKind,
+} from "./geometry";
+import {
+   DEFAULT_SIZES,
    isBottomZone,
    isLeftZone,
    isRightZone,
    type Layout,
-   type PanelId,
-   type Rect,
-   type ResizeKind,
    type Sizes,
    ZONE_LABEL,
    ZONES,
    type Zone,
    zoneOf,
-} from "./panelLayout";
+} from "./model";
+import type { DragState } from "./panelDrag";
 
 /** A panel the dock keeps mounted. Hidden (not open) panels stay in the tree, so a Terminal shell or a draft survives. */
-export type DockPanel = { id: PanelId; label: string; expandable?: boolean; children: ReactNode };
+export type DockPanel = { id: string; label: string; expandable?: boolean; children: ReactNode };
 
 /** Space between a floating panel and the chat, and between two panels on one side (px). */
 const GAP = 8;
@@ -139,10 +140,10 @@ export function DockLayout({
     */
    width?: number;
    onResize: (patch: Partial<Sizes>) => void;
-   onMove: (id: PanelId, zone: Zone) => void;
-   onHide: (id: PanelId) => void;
-   onExpand: (id: PanelId | null) => void;
-   onDragStart: (id: PanelId, label: string, e: React.PointerEvent) => void;
+   onMove: (id: string, zone: Zone) => void;
+   onHide: (id: string) => void;
+   onExpand: (id: string | null) => void;
+   onDragStart: (id: string, label: string, e: React.PointerEvent) => void;
 }) {
    const box = useRef<HTMLDivElement>(null);
    const [size, setSize] = useState<{ w: number; h: number } | null>(null);

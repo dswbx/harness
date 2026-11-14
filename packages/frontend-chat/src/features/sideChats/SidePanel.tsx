@@ -2,11 +2,11 @@ import type { AttachmentInput, SessionApi } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
 import { Plus, X } from "lucide-react";
 import { PanelHeader } from "../../panels/PanelHeader";
-import { isDraftThread } from "../../shell/panelLayout";
 import type { ChatState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
+import { isDraftThread } from "./threadTabs";
 
 /**
  * The side chats: pill tabs in the panel header, one Side Thread per tab. Every open chat stays mounted

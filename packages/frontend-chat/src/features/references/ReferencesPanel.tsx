@@ -55,41 +55,34 @@ export type ResolvedReferences = {
    /** For the stripe; undefined until the lookups are done. */
    count: number | undefined;
 };
-export const NO_REFERENCES: ResolvedReferences = {
-   refs: [],
-   prsUnavailable: false,
-   checking: false,
-   count: undefined,
-};
+const NO_CANDIDATES: ReturnType<typeof collectReferences> = [];
 
 /**
  * Finds the Session's references and, once `active` (the panel was opened), asks the PR store and the file reader about
- * each candidate and reports what exists. No lookups before that: until then the stripe's icon has no count.
- * Renders nothing; it sits inside their providers.
+ * each candidate and returns what exists. No lookups before that, and no walk over `items`: until then the stripe's
+ * icon has no count. Run it inside the PR and file ref providers.
  */
-export function ReferencesProbe({
-   items,
-   active,
-   onResolved,
-}: {
-   items: Item[];
-   active: boolean;
-   onResolved: (r: ResolvedReferences) => void;
-}) {
+export function useReferences(
+   items: Item[],
+   active: boolean,
+   /** False: the panel can never show (the Quick Overlay), so a PR store change is no reason to render. */
+   subscribe = true,
+): ResolvedReferences {
    const prRefs = usePrRefs();
    const reader = useFileRefs();
    const [tick, bump] = useReducer((n: number) => n + 1, 0);
    const candidates = useMemo(
-      () => collectReferences(items, prRefs?.ctx ?? null),
-      [items, prRefs?.ctx],
+      () => (active ? collectReferences(items, prRefs?.ctx ?? null) : NO_CANDIDATES),
+      [active, items, prRefs?.ctx],
    );
    const changed = useMemo(() => {
       const s = new Set<string>();
-      for (const it of items) if (it.type === "changes") for (const f of it.files) s.add(f.path);
+      if (active)
+         for (const it of items) if (it.type === "changes") for (const f of it.files) s.add(f.path);
       return s;
-   }, [items]);
+   }, [active, items]);
    const store = prRefs?.store;
-   useEffect(() => store?.subscribe(bump), [store]);
+   useEffect(() => (subscribe ? store?.subscribe(bump) : undefined), [store, subscribe]);
    // Each lookup once per target; both caches keep the answers.
    const wanted = useMemo(() => candidates.map((c) => c.key).join("\n"), [candidates]);
    // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event.
@@ -131,8 +124,7 @@ export function ReferencesProbe({
          count: known ? r.refs.length : undefined,
       };
    }, [candidates, store, reader, changed, tick, active]);
-   useEffect(() => onResolved(resolved), [resolved, onResolved]);
-   return null;
+   return resolved;
 }
 
 const KINDS: { kind: ReferenceKind; label: string; filter: string; group: string }[] = [

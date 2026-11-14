@@ -1,9 +1,27 @@
 import type { SubagentRow } from "@harness/api";
 import { describe, expect, test } from "vitest";
 import type { PanelStatus } from "../panels/contract";
-import { defaultLayout, type PanelId, slotPanel } from "./panelLayout";
-import { PANELS, panelDef, zoneOfHint } from "./panels";
+import { defaultLayout } from "./dock/model";
+import { FAMILIES, PANELS, zoneOfHint } from "./panels";
 import { availablePanels } from "./viewState";
+
+describe("persisted ids", () => {
+   // These ids are stored in every Session's layout: renaming one loses the user's place for it.
+   test("the registered panel ids and the family prefixes never change", () => {
+      expect(PANELS.map((p) => p.id)).toEqual([
+         "changes",
+         "files",
+         "side",
+         "plan",
+         "artifacts",
+         "references",
+         "terminal",
+         "events",
+         "subagents",
+      ]);
+      expect(FAMILIES.map((f) => f.prefix)).toEqual(["slot"]);
+   });
+});
 
 const row = (state: SubagentRow["state"]): SubagentRow => ({
    id: state,
@@ -17,22 +35,51 @@ const row = (state: SubagentRow["state"]): SubagentRow => ({
    startedAt: null,
    endedAt: null,
 });
+const panelDef = (id: string) => PANELS.find((p) => p.id === id);
 const statusOf = (id: string, model: unknown): PanelStatus => panelDef(id)!.status(model);
-const registered = (m: { rows: SubagentRow[]; running: number }) =>
-   new Map<string, PanelStatus>([
-      ["events", statusOf("events", null)],
-      ["subagents", statusOf("subagents", m)],
-   ]);
-const none = { overlay: false, slotPanels: [], git: false, hasPlans: false };
+
+/** The status of every registered panel, from the models they would have. */
+type Facts = { git?: boolean; plans?: boolean; subagents?: SubagentRow[]; artifacts?: number };
+const registered = (f: Facts = {}) =>
+   new Map<string, PanelStatus>(
+      PANELS.map((p) => {
+         const models: Record<string, unknown> = {
+            changes: { git: !!f.git },
+            plan: { hasPlans: !!f.plans },
+            artifacts: { artifacts: Array.from({ length: f.artifacts ?? 0 }) },
+            references: { count: undefined },
+            side: { open: [], count: 0 },
+            subagents: {
+               rows: f.subagents ?? [],
+               running: (f.subagents ?? []).filter((r) => r.state === "running").length,
+            },
+         };
+         return [p.id, p.status(models[p.id] ?? null)];
+      }),
+   );
+const none = { overlay: false };
+/** The status a render_ui panel has: always ready. */
+const slotStatus = new Map<string, PanelStatus>([["slot:a", { presence: "ready" }]]);
+const withSlot = (m: Map<string, PanelStatus>) => new Map([...m, ...slotStatus]);
 
 describe("registry", () => {
-   test("lists Events, then Subagents", () => {
-      expect(PANELS.map((p) => p.id)).toEqual(["events", "subagents"]);
+   test("lists the panels in default order", () => {
+      expect(PANELS.map((p) => p.id)).toEqual([
+         "changes",
+         "files",
+         "side",
+         "plan",
+         "artifacts",
+         "references",
+         "terminal",
+         "events",
+         "subagents",
+      ]);
       expect(panelDef("subagents")?.label).toBe("Subagents");
-      expect(panelDef("files")).toBeUndefined();
+      expect(panelDef("side")?.label).toBe("Side chats");
    });
 
-   test("with the hand-written remainder it yields the default layout", () => {
+   test("yields the default layout (Side chats sits before Plan)", () => {
       expect(defaultLayout().zones).toEqual({
          leftTop: ["artifacts"],
          leftBottom: ["references", "subagents"],
@@ -43,10 +90,47 @@ describe("registry", () => {
       });
    });
 
-   test("Events and Subagents mount only while open; Events can expand", () => {
-      for (const p of PANELS) expect(p.mount ?? "whenOpen").toBe("whenOpen");
-      expect(panelDef("events")?.expandable).toBe(true);
-      expect(panelDef("subagents")?.expandable).toBeFalsy();
+   test("labels and placements are what the stripes always showed", () => {
+      expect(PANELS.map((p) => [p.id, p.label, zoneOfHint(p.placement)])).toEqual([
+         ["changes", "Changes", "rightTop"],
+         ["files", "Files", "rightTop"],
+         ["side", "Side chats", "rightTop"],
+         ["plan", "Plan", "rightTop"],
+         ["artifacts", "Artifacts", "leftTop"],
+         ["references", "References", "leftBottom"],
+         ["terminal", "Terminal", "bottomLeft"],
+         ["events", "Events", "bottomRight"],
+         ["subagents", "Subagents", "leftBottom"],
+      ]);
+   });
+
+   test("the Terminal stays mounted once opened, Side chats while it has tabs; Events can expand", () => {
+      const mounts: Record<string, string> = { terminal: "afterFirstOpen", side: "whileReady" };
+      for (const p of PANELS) expect(p.mount ?? "whenOpen").toBe(mounts[p.id] ?? "whenOpen");
+      expect(PANELS.filter((p) => p.expandable).map((p) => p.id)).toEqual(["events"]);
+   });
+
+   test("the Quick overlay shows no registered panel (Side chats included), only render_ui panels", () => {
+      expect(PANELS.filter((p) => p.overlay)).toEqual([]);
+   });
+
+   test("Cmd+J is the Terminal's shortcut, and only Cmd+J", () => {
+      const sc = panelDef("terminal")!.shortcut!;
+      const key = (o: Partial<KeyboardEvent>) =>
+         ({
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            code: "KeyJ",
+            ...o,
+         }) as KeyboardEvent;
+      expect(sc.keys).toEqual(["⌘", "J"]);
+      expect(sc.match(key({ metaKey: true }))).toBe(true);
+      expect(sc.match(key({ metaKey: true, shiftKey: true }))).toBe(false);
+      expect(sc.match(key({ ctrlKey: true }))).toBe(false);
+      expect(sc.match(key({ metaKey: true, code: "KeyK" }))).toBe(false);
+      expect(PANELS.filter((p) => p.shortcut).map((p) => p.id)).toEqual(["terminal"]);
    });
 });
 
@@ -89,30 +173,95 @@ describe("Subagents status", () => {
    });
 });
 
-describe("availablePanels with registered panels", () => {
-   test("Events is available, Subagents only with subagents", () => {
-      const a = availablePanels({ ...none, registered: registered({ rows: [], running: 0 }) });
-      expect(a.has("events")).toBe(true);
-      expect(a.has("subagents")).toBe(false);
-      const b = availablePanels({
-         ...none,
-         registered: registered({ rows: [row("done")], running: 0 }),
-      });
-      expect(b.has("subagents")).toBe(true);
+describe("Artifacts status", () => {
+   test("is always ready, badged by the artifact count (0 too)", () => {
+      expect(statusOf("artifacts", { artifacts: [] })).toEqual({ presence: "ready", badge: 0 });
+      expect(statusOf("artifacts", { artifacts: [1, 2] })).toEqual({ presence: "ready", badge: 2 });
    });
-   test("the other panels are unchanged", () => {
-      const a = availablePanels({ ...none, registered: registered({ rows: [], running: 0 }) });
-      expect([...a].sort()).toEqual(
+});
+
+describe("References status", () => {
+   test("is always ready; the badge is the count once the lookups are done", () => {
+      expect(statusOf("references", { count: undefined })).toEqual({
+         presence: "ready",
+         badge: undefined,
+      });
+      expect(statusOf("references", { count: 5 })).toEqual({ presence: "ready", badge: 5 });
+   });
+});
+
+describe("Files and Terminal status", () => {
+   test("are always ready, without a badge", () => {
+      expect(statusOf("files", {})).toEqual({ presence: "ready" });
+      expect(statusOf("terminal", null)).toEqual({ presence: "ready" });
+   });
+});
+
+describe("Changes status", () => {
+   test("is absent until the Workspace is a git repository", () => {
+      expect(statusOf("changes", { git: false }).presence).toBe("absent");
+      expect(statusOf("changes", { git: true }).presence).toBe("ready");
+   });
+});
+
+describe("Plan status", () => {
+   test("is absent until the Agent made a plan", () => {
+      expect(statusOf("plan", { hasPlans: false }).presence).toBe("absent");
+      expect(statusOf("plan", { hasPlans: true }).presence).toBe("ready");
+   });
+});
+
+describe("Side chats status", () => {
+   test("has an icon always, and shows once a tab has something to show", () => {
+      expect(statusOf("side", { open: [], count: 0 })).toEqual({
+         presence: "icon",
+         badge: 0,
+         tip: "Side chats (⇧⌘B new)",
+      });
+      expect(statusOf("side", { open: ["a"], count: 3 })).toEqual({
+         presence: "ready",
+         badge: 3,
+         tip: "Side chats (⇧⌘B new)",
+      });
+   });
+   test("has no shortcut of the generic kind: its key starts a new chat", () => {
+      expect(panelDef("side")!.shortcut).toBeUndefined();
+   });
+});
+
+describe("availablePanels", () => {
+   test("base panels without git, plans or subagents", () => {
+      expect([...availablePanels({ ...none, statuses: registered() })].sort()).toEqual(
          ["artifacts", "events", "files", "references", "side", "terminal"].sort(),
       );
    });
-   test("the overlay shows only slot panels, whatever is registered", () => {
+   test("git, plans and subagents each add one", () => {
+      const a = (f: Facts) => availablePanels({ ...none, statuses: registered(f) });
+      expect(a({ git: true }).has("changes")).toBe(true);
+      expect(a({ plans: true }).has("plan")).toBe(true);
+      expect(a({ subagents: [row("done")] }).has("subagents")).toBe(true);
+      expect(a({}).has("changes")).toBe(false);
+      expect(a({}).has("plan")).toBe(false);
+      expect(a({}).has("subagents")).toBe(false);
+   });
+   test("slot panels are always available", () => {
+      const a = availablePanels({ ...none, statuses: withSlot(registered()) });
+      expect(a.has("slot:a")).toBe(true);
+   });
+   test("the overlay shows only slot panels, whatever else is set", () => {
       const a = availablePanels({
-         ...none,
          overlay: true,
-         slotPanels: [slotPanel("a") as PanelId],
-         registered: registered({ rows: [row("running")], running: 1 }),
+         statuses: withSlot(registered({ git: true, plans: true, subagents: [row("running")] })),
+         overlayPanels: new Set([...PANELS.filter((p) => p.overlay).map((p) => p.id), "slot:a"]),
       });
       expect([...a]).toEqual(["slot:a"]);
+   });
+   test("the overlay also shows a registered panel marked for it", () => {
+      const a = availablePanels({
+         overlay: true,
+         statuses: registered({ git: true }),
+         overlayPanels: new Set(["changes", "plan"]),
+      });
+      expect([...a]).toEqual(["changes"]);
    });
 });
