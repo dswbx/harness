@@ -54,8 +54,8 @@ describe("reducer performance", () => {
    });
 
    it("scales linearly: 4x events costs far less than 16x time", () => {
-      const small = syntheticLog(10_000);
-      const big = syntheticLog(40_000);
+      const small = syntheticLog(50_000);
+      const big = syntheticLog(200_000);
       // best of 5: one GC pause on a noisy CI runner can skew a single sample
       const time = (ev: Event[]) => {
          let best = Infinity;
@@ -69,9 +69,9 @@ describe("reducer performance", () => {
       time(small); // warm up
       const a = Math.max(time(small), 1);
       const b = time(big);
-      console.log(`chat reducer: 10k=${a.toFixed(1)} ms, 40k=${b.toFixed(1)} ms`);
+      console.log(`chat reducer: 50k=${a.toFixed(1)} ms, 200k=${b.toFixed(1)} ms`);
       expect(b / a).toBeLessThan(10);
-      expect(b).toBeLessThan(1000);
+      expect(b).toBeLessThan(4000);
    });
 
    it("replaying per-frame slices of 20k events stays fast", () => {

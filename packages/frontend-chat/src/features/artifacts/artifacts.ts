@@ -200,12 +200,9 @@ function inputOf(v: { root?: unknown }): Record<string, unknown> {
  * Every artifact of the Session, oldest first. render_ui calls with an id are one artifact
  * (latest content; inline ones stay at the row where they first appeared), removed ones drop out.
  */
-/** What of an item's artifacts depends on the item alone. Items are immutable, so each is worked out once. */
 const markdownOf = new WeakMap<Item, ReturnType<typeof markdownArtifacts>>();
 const promptOf = new WeakMap<Item, string>();
-type UiPart = Pick<Artifact, "title" | "sub" | "source" | "shared" | "file"> & {
-   v: ReturnType<typeof asRenderUi>;
-};
+type UiPart = Pick<Artifact, "title" | "sub" | "source" | "shared" | "file">;
 const uiOf = new WeakMap<Item, UiPart>();
 
 function uiPart(it: Extract<Item, { type: "frontend_tool" }>, v: ReturnType<typeof asRenderUi>) {
@@ -213,7 +210,6 @@ function uiPart(it: Extract<Item, { type: "frontend_tool" }>, v: ReturnType<type
    if (!p) {
       const shared = sharedRef(v.source);
       p = {
-         v,
          title: uiTitle(v.root!, v.title),
          sub: uiSub(v.root!),
          // A file-backed item: the call as sent (the root is the reducer's node that names the file).
@@ -271,7 +267,7 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          continue;
       }
       const placement = v.placement ?? "inline";
-      const { v: _, ...part } = uiPart(it, v);
+      const part = uiPart(it, v);
       const a: Artifact = {
          key: v.id ? `ui:${v.id}` : it.id,
          kind: "ui",

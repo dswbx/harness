@@ -1,7 +1,10 @@
 import { type DiffFileHighlighter, processAST } from "@git-diff-view/react";
 import { highlight, isLanguage } from "../markdown/highlight";
 
-/** git-diff-view's own highlighter is a second highlight.js instance; this one hands it the chat's (`highlight.ts`). */
+/**
+ * Hands git-diff-view the chat's highlighter (`highlight.ts`), so the diff does not compile a second set of
+ * grammars at runtime. The library's own highlighter module is still bundled (it is its fallback).
+ */
 let maxLines = 2000;
 let ignore: (string | RegExp)[] = [];
 

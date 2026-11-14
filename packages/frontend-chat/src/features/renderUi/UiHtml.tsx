@@ -18,7 +18,7 @@ const MAX_HEIGHT = 2000;
 /** Set in Tauri: the frame loads this and asks for its document. Otherwise the document goes in `srcdoc`. */
 const FRAME_URL = htmlFrameUrl();
 /** Last height by the HTML's hash (not the document itself): the chat's virtual list remounts rows; keep their height. */
-const heights = lru<number>({ maxEntries: 200, maxBytes: Number.POSITIVE_INFINITY });
+const heights = lru<number>({ maxEntries: 2000, maxBytes: Number.POSITIVE_INFINITY });
 
 type Props = {
    html: string;

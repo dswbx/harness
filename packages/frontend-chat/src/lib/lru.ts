@@ -21,6 +21,10 @@ export function lru<V>({ maxEntries, maxBytes }: { maxEntries: number; maxBytes:
          map.set(key, e);
          return e.value;
       },
+      /** Without counting as a use. */
+      peek(key: string): V | undefined {
+         return map.get(key)?.value;
+      },
       /** `bytes`: what the value holds; unknown yet (a pending load): 0, then `resize`. */
       set(key: string, value: V, bytes = 0) {
          const old = map.get(key);

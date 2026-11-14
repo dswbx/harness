@@ -154,11 +154,13 @@ type RowProps = Parameters<typeof RowView>[0];
 /**
  * Props equal, except that `view` is compared by its content (each pass of `splitRenderUi` wraps it anew)
  * and `subagents` by the subagents this row shows: another subagent's progress does not re-render it.
+ * @internal exported for its test
  */
-function sameRow(a: RowProps, b: RowProps): boolean {
+export function sameRow(a: RowProps, b: RowProps): boolean {
    const { view: va, subagents: sa, ...ra } = a;
    const { view: vb, subagents: sb, ...rb } = b;
-   for (const k of Object.keys(ra) as (keyof typeof ra)[]) if (ra[k] !== rb[k]) return false;
+   const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]) as Set<keyof typeof ra>;
+   for (const k of keys) if (ra[k] !== rb[k]) return false;
    if ((va?.root ?? null) !== (vb?.root ?? null) || (va?.files ?? null) !== (vb?.files ?? null))
       return false;
    if (sa === sb) return true;

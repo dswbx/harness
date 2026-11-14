@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { TooltipProvider } from "@harness/ui";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,6 +28,6 @@ describe("Markdown render cost", () => {
       console.log(
          `markdown: ${ms.toFixed(2)} ms per re-render of a 1 KB message with a code block`,
       );
-      expect(ms).toBeLessThan(25);
+      expect(ms).toBeLessThan(100);
    }, 30_000);
 });

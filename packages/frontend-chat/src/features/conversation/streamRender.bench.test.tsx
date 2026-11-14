@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import type { Event, SessionApi } from "@harness/api";
 import { TooltipProvider } from "@harness/ui";
 import { act, cleanup, render } from "@testing-library/react";
@@ -10,10 +11,11 @@ import { useRows } from "./MessageList";
 import { Row } from "./Row";
 
 // Counts what a row costs: every `<Markdown>` render is a parse of its text.
-const renders = vi.hoisted(() => ({ n: 0 }));
+const renders = vi.hoisted(() => ({ n: 0, texts: [] as string[] }));
 vi.mock("../markdown/Markdown", () => ({
-   Markdown: () => {
+   Markdown: ({ children }: { children: string }) => {
       renders.n++;
+      renders.texts.push(children);
       return null;
    },
 }));
@@ -72,6 +74,7 @@ describe("rendering one streamed chunk in a long Session", () => {
       let worst = 0;
       for (let i = 0; i < 10; i++) {
          renders.n = 0;
+         renders.texts = [];
          state = reduceBatch(state, [chunk(30_001 + i)]);
          const t0 = performance.now();
          act(() =>
@@ -83,6 +86,10 @@ describe("rendering one streamed chunk in a long Session", () => {
          );
          spent += performance.now() - t0;
          worst = Math.max(worst, renders.n);
+         // The streaming (last) row renders exactly once, every other row not at all.
+         const last = state.items.at(-1) as { text: string };
+         expect(renders.n).toBe(1);
+         expect(renders.texts).toEqual([last.text]);
       }
       console.log(
          `stream chunk: ${first} message renders for the first paint of ${VISIBLE} rows, ` +

@@ -27,10 +27,10 @@ function mermaid() {
 const lowlight = createLowlight(common);
 lowlight.register({ mermaid });
 
-/** Whether highlight.js knows `lang` (a name or alias). */
 /** highlight.js output: a hast root. */
 export type Tree = ReturnType<typeof lowlight.highlight>;
 
+/** Whether highlight.js knows `lang` (a name or alias). */
 export const isLanguage = (lang: string) => lowlight.registered(lang);
 
 /** `code` as highlight.js tokens (hast, classes colored by the shared code theme); null for no or an unknown language. */
