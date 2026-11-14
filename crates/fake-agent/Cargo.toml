@@ -5,7 +5,7 @@ version.workspace = true
 publish = false
 
 [dependencies]
-agent-client-protocol = { version = "3.5", features = ["stdio", "unstable_session_fork"] }
+agent-client-protocol = { workspace = true, features = ["stdio", "unstable_session_fork"] }
 tokio.workspace = true
 serde_json.workspace = true
-rmcp = { version = "3.7", features = ["client", "transport-streamable-http-client-reqwest", "transport-child-process"] }
+rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "transport-child-process"] }

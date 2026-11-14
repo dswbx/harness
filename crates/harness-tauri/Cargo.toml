@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 harness-core = { path = "../harness-core" }
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
@@ -37,7 +37,7 @@ tauri-plugin-window-state = "2"
 tauri-plugin-global-shortcut = "2"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
