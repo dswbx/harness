@@ -4,18 +4,19 @@
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use harness_core::Harness;
 use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, Lagged, SessionMessage, SessionStatus};
 use harness_core::terminal::TerminalOutput;
+use subscriptions::Subscriptions;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
 mod context;
 mod links;
 mod overlay;
+mod subscriptions;
 mod updates;
 
 /// Frontend Manifests of the built-in Frontends, registered with core at boot.
@@ -26,34 +27,6 @@ fn data_dir(home: std::path::PathBuf) -> std::path::PathBuf {
     match std::env::var_os("HARNESS_HOME") {
         Some(dir) if !dir.is_empty() => dir.into(),
         _ => home.join(if cfg!(debug_assertions) { ".harness-dev" } else { ".harness" }),
-    }
-}
-
-/// (session id, terminal id, terminal attach id).
-type TerminalAttach = (String, u32, u64);
-
-#[derive(Default)]
-struct Subscriptions {
-    /// Webview label -> (session id, subscription id).
-    by_webview: Mutex<HashMap<String, Vec<(String, u64)>>>,
-    /// Webview label -> app subscription ids.
-    app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
-    /// Webview label -> (session id, terminal id, terminal attach id).
-    terminals_by_webview: Mutex<HashMap<String, Vec<TerminalAttach>>>,
-}
-
-impl Subscriptions {
-    fn drop_webview(&self, harness: &Harness, label: &str) {
-        let subs = self.by_webview.lock().remove(label).unwrap_or_default();
-        for (session_id, id) in subs {
-            harness.unsubscribe_session(&session_id, id);
-        }
-        for id in self.app_by_webview.lock().remove(label).unwrap_or_default() {
-            harness.unsubscribe_app(id);
-        }
-        for (session_id, terminal_id, id) in self.terminals_by_webview.lock().remove(label).unwrap_or_default() {
-            harness.terminal_detach(&session_id, terminal_id, id);
-        }
     }
 }
 
@@ -141,17 +114,13 @@ fn subscribe(
     from_seq: u64,
     channel: Channel<SessionMessage>,
 ) -> Result<u64, String> {
-    let id = harness.subscribe_session(&session_id, from_seq, Box::new(ViewSink(channel)))?;
-    subs.by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, id));
-    Ok(id)
+    subs.subscribe(&harness, webview.label(), &session_id, from_seq, Box::new(ViewSink(channel)))
 }
 
 /// Harness-wide events (session list, attention) for this webview.
 #[tauri::command]
 fn subscribe_app(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, channel: Channel<AppEvent>) -> u64 {
-    let id = harness.subscribe_app(Box::new(move |e: &AppEvent| channel.send(e.clone()).is_ok()));
-    subs.app_by_webview.lock().entry(webview.label().to_owned()).or_default().push(id);
-    id
+    subs.subscribe_app(&harness, webview.label(), Box::new(move |e: &AppEvent| channel.send(e.clone()).is_ok()))
 }
 
 /// A Terminal tab of the Session: the replay as raw bytes then `{"replayed": true}`, live output as raw
@@ -168,27 +137,25 @@ fn terminal_attach(
     rows: u16,
     channel: Channel<InvokeResponseBody>,
 ) -> Result<u64, String> {
-    let id = harness
-        .terminal_attach(
-            &session_id,
-            terminal_id,
-            cols,
-            rows,
-            Box::new(move |o: TerminalOutput| match o {
-                TerminalOutput::Replay(d) => {
-                    (d.is_empty() || channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok())
-                        && channel.send(InvokeResponseBody::Json(r#"{"replayed":true}"#.into())).is_ok()
-                }
-                TerminalOutput::Data(d) => channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok(),
-                TerminalOutput::Exit(code) => {
-                    let _ = channel.send(InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string()));
-                    false
-                }
-            }),
-        )
-        .map_err(|e| format!("{e:#}"))?;
-    subs.terminals_by_webview.lock().entry(webview.label().to_owned()).or_default().push((session_id, terminal_id, id));
-    Ok(id)
+    subs.terminal_attach(
+        &harness,
+        webview.label(),
+        &session_id,
+        terminal_id,
+        cols,
+        rows,
+        Box::new(move |o: TerminalOutput| match o {
+            TerminalOutput::Replay(d) => {
+                (d.is_empty() || channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok())
+                    && channel.send(InvokeResponseBody::Json(r#"{"replayed":true}"#.into())).is_ok()
+            }
+            TerminalOutput::Data(d) => channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok(),
+            TerminalOutput::Exit(code) => {
+                let _ = channel.send(InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string()));
+                false
+            }
+        }),
+    )
 }
 
 #[tauri::command]
@@ -200,10 +167,7 @@ fn terminal_detach(
     terminal_id: u32,
     id: u64,
 ) {
-    harness.terminal_detach(&session_id, terminal_id, id);
-    if let Some(list) = subs.terminals_by_webview.lock().get_mut(webview.label()) {
-        list.retain(|(s, t, i)| !(s == &session_id && *t == terminal_id && *i == id));
-    }
+    subs.terminal_detach(&harness, webview.label(), &session_id, terminal_id, id);
 }
 
 /// Dock badge with the number of Sessions waiting for the user, and notifications while no
@@ -248,10 +212,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
 
 #[tauri::command]
 fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, session_id: String, id: u64) {
-    harness.unsubscribe_session(&session_id, id);
-    if let Some(list) = subs.by_webview.lock().get_mut(webview.label()) {
-        list.retain(|(s, i)| !(s == &session_id && *i == id));
-    }
+    subs.unsubscribe(&harness, webview.label(), &session_id, id);
 }
 
 /// Same as `HTML_CSP` in the Chat Frontend's `htmlBridge.ts`.
