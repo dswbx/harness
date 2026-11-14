@@ -524,7 +524,9 @@ describe("MockTransport like the core", () => {
             () => null,
             (e: unknown) => (e instanceof CommandError ? e.code : "plain"),
          );
-      expect(await code({ type: "Prompt", session_id: "nope", text: "x" })).toBe("not_found");
+      expect(await code({ type: "Prompt", session_id: "nope", thread_id: null, text: "x" })).toBe(
+         "not_found",
+      );
       expect(
          await code({ type: "Prompt", session_id: sid, text: "x", thread_id: "no-such-thread" }),
       ).toBe("not_found");
