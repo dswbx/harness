@@ -50,9 +50,34 @@ describe("leaks", () => {
       expect(leaks('if (id === "Codex") {}')).toEqual([[1, "names an Agent"]]);
    });
 
-   it("ignores comments and passing a whole value on", () => {
+   it("flags reads of rawInput/rawOutput through casts, arguments and checks", () => {
+      expect(leaks("const q = (tool.rawInput as { query?: unknown })?.query;")).toEqual([
+         [1, "reads rawInput"],
+      ]);
+      expect(leaks("Array.isArray(tool.rawOutput)")).toEqual([[1, "reads rawOutput"]]);
+      expect(leaks("commandOf(tool.rawInput, tool.title)")).toEqual([[1, "reads rawInput"]]);
+      expect(leaks("const cmd = (rawInput as { command?: unknown } | null)?.command;")).toEqual([
+         [1, "reads rawInput"],
+      ]);
+      expect(leaks("present(tool.rawOutput)")).toEqual([[1, "reads rawOutput"]]);
+   });
+
+   it("flags the mcp__ tool-title convention", () => {
+      expect(leaks('title.startsWith("mcp__")')).toEqual([
+         [1, "parses an Agent's MCP tool-title convention"],
+      ]);
+   });
+
+   it("does not flag defining rawInput/rawOutput", () => {
+      expect(leaks("rawInput: unknown;\nrawOutput?: unknown;")).toEqual([]);
+      expect(leaks("function f(rawInput: unknown, title: string) {}")).toEqual([]);
+      expect(leaks("const { rawInput, rawOutput } = x;")).toEqual([]);
+      expect(leaks("const { rawInput,\n rawOutput } = x;")).toEqual([]);
+   });
+
+   it("ignores comments", () => {
       expect(leaks("// Claude Code has /btw\nconst a = 1; // codex too")).toEqual([]);
-      expect(leaks("/* rawInput.plan\n claude */ const a = present(tool.rawInput);")).toEqual([]);
+      expect(leaks("/* rawInput.plan\n claude */ const a = 1; // mcp__x")).toEqual([]);
       expect(stripComments("a /* x\ny */ b")).toBe("a \n b");
    });
 });
