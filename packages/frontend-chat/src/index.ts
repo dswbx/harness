@@ -1,7 +1,7 @@
 import type { Frontend } from "@harness/api";
 import manifest from "../manifest.json";
 import { ArtifactRequest } from "./features/artifacts/ArtifactRequest";
-import { View } from "./shell/View";
+import { View } from "./shell/Root";
 
 export const frontend: Frontend = { manifest, View, Request: ArtifactRequest };
 export { RenderUiGallery } from "./features/artifacts/Gallery";

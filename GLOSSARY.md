@@ -104,6 +104,10 @@ _Avoid_: window, tab, subscriber
 A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, References, or a `render_ui` item placed left or right; ADR 0019).
 _Avoid_: tab, pane, sidebar
 
+**Panel family**:
+Panels the Agent creates at runtime (the `render_ui` items placed left or right), defined once as a family instead of one by one: each instance is a Panel with the id `<prefix>:<key>` (ADR 0025).
+_Avoid_: dynamic panel, panel group
+
 **File-backed panel**:
 A `render_ui` item whose content is a Markdown (`.md`) or HTML (`.html`, shown like an Html node) file the Agent writes in the Session's `panels/` folder (in the Session Directory), named by `source` instead of a `root` tree; the Panel follows the file as the Agent edits it (ADR 0023).
 _Avoid_: file panel, live file, source panel

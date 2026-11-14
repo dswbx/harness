@@ -18,7 +18,7 @@ export function availablePanels(o: {
    const a = new Set<string>();
    for (const [id, s] of o.statuses) {
       if (o.overlay && !o.overlayPanels?.has(id)) continue;
-      if (s.presence !== "absent") a.add(id as string);
+      if (s.presence !== "absent") a.add(id);
    }
    return a;
 }
