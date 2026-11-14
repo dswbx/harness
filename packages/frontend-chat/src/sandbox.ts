@@ -13,7 +13,10 @@ const listeners = new Set<() => void>();
 export const JS_LIMIT_MS = 50;
 let limitMs = JS_LIMIT_MS;
 
-/** Tests only: a slow machine can take longer than the production limit for a trivial run. */
+/**
+ * Tests only: a slow machine can take longer than the production limit for a trivial run.
+ * @internal
+ */
 export function setJsLimit(ms: number = JS_LIMIT_MS) {
    limitMs = ms;
 }

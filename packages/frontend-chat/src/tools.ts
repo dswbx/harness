@@ -20,6 +20,7 @@ import * as text from "./renderUi/text.spec";
  * repeat scope: `{ "$item": "field" }`, `{ "$index": true }`, `{ "$bindItem": "field" }`, `${field}`.
  */
 
+/** @internal Exported for tests. */
 export { calculatorExample } from "./renderUi/layout.spec";
 export { ICONS } from "./renderUi/shared";
 

@@ -7,8 +7,6 @@ export {
    type ChatSubagent,
    groupTools,
    type Step,
-   type Thought,
-   type Tool,
    type ToolGroup,
 } from "./group";
 

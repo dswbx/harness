@@ -41,16 +41,13 @@ import {
    type UiNode,
 } from "./tools";
 
+/** @internal Exported for tests. */
 export { tableRows } from "./renderUi/data";
+/** @internal Exported for tests. */
 export { repeatScopes, stackClasses } from "./renderUi/layout";
-export {
-   isVisible,
-   itemPath,
-   resolveValue,
-   runActions,
-   type Scope,
-   type UiEnv,
-} from "./renderUi/runtime";
+export type { Scope, UiEnv } from "./renderUi/runtime";
+/** @internal Exported for tests. */
+export { isVisible, itemPath, resolveValue, runActions } from "./renderUi/runtime";
 
 /**
  * `render_ui` renderer: this file binds a tree to the Session State and dispatches each node to

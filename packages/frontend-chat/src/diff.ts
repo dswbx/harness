@@ -98,7 +98,10 @@ export function hunkLines(text: string): { old: Map<number, string>; new: Map<nu
    return { old, new: nu };
 }
 
-/** Number of change blocks (runs of added/deleted lines), the "N differences" count. */
+/**
+ * Number of change blocks (runs of added/deleted lines), the "N differences" count.
+ * @internal Exported for tests.
+ */
 export function changeCount(text: string): number {
    let n = 0;
    let inRun = false;
