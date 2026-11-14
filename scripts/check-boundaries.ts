@@ -9,6 +9,7 @@ import {
    importedNames,
    importSpecs,
    importViolation,
+   knownDuplicates,
    layerViolation,
    leaks,
    PORTABLE_FILES,
@@ -156,6 +157,28 @@ for (const root of ["app/src", ...readdirSync("packages").map((p) => `packages/$
       if (/\.test\.tsx?$/.test(file) || rel in STORAGE_ALLOWED) continue;
       if (usesWebStorage(readFileSync(file, "utf8"))) {
          console.error(`${rel}: uses localStorage/sessionStorage directly, use storedValue`);
+         bad++;
+      }
+   }
+}
+
+/** Files that may keep a duplicate of a helper that has a home, with the reason. Keep empty. */
+const DUPLICATES_ALLOWED: Record<string, string> = {};
+
+// One implementation per small helper (error text, basename, age, external links).
+for (const root of ["app/src", ...readdirSync("packages").map((p) => `packages/${p}/src`)]) {
+   let files: string[];
+   try {
+      files = walk(resolve(root));
+   } catch {
+      continue;
+   }
+   for (const file of files) {
+      const rel = relative(resolve("."), file);
+      if (/\.test\.tsx?$/.test(file) || rel in DUPLICATES_ALLOWED || rel.endsWith("/generated.ts"))
+         continue;
+      for (const [line, why] of knownDuplicates(readFileSync(file, "utf8"), rel)) {
+         console.error(`${rel}:${line}: ${why}`);
          bad++;
       }
    }

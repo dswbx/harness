@@ -1,6 +1,6 @@
-import { cn, Tooltip } from "@harness/ui";
+import { cn, Tooltip, useCopied } from "@harness/ui";
 import { Check, Copy, WrapText } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { localPref } from "../../lib/localPref";
 
 /** Per-viewer choice (Settings > Appearance, or any code block's wrap button), off by default. */
@@ -18,15 +18,8 @@ const BUTTON =
 /** Copies `text`; a check for a moment after, in the same place (nothing shifts). */
 /** `label`: what it copies, for screen readers (default "Copy"). */
 export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
-   const [copied, setCopied] = useState(false);
-   const copy = () =>
-      void navigator.clipboard.writeText(text).then(
-         () => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
-         },
-         () => {},
-      );
+   const [copied, copyText] = useCopied();
+   const copy = () => void copyText(text);
    return (
       <button
          type="button"

@@ -1,6 +1,6 @@
-import { cn, Tooltip } from "@harness/ui";
+import { cn, Tooltip, useCopied } from "@harness/ui";
 import { Check, Copy } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "../../lib/time";
 
 /**
@@ -23,20 +23,9 @@ export function MessageFooter({
    hidden?: boolean;
    children?: ReactNode;
 }) {
-   const [copied, setCopied] = useState(false);
+   const [copied, copyText] = useCopied();
    const now = useNow();
-
-   useEffect(() => {
-      if (!copied) return;
-      const t = setTimeout(() => setCopied(false), 1500);
-      return () => clearTimeout(t);
-   }, [copied]);
-
-   const copy = () =>
-      void navigator.clipboard.writeText(text).then(
-         () => setCopied(true),
-         () => {},
-      );
+   const copy = () => void copyText(text);
 
    return (
       <div

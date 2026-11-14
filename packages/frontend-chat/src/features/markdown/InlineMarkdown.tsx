@@ -1,9 +1,14 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-const INLINE = ["p", "code", "strong", "em", "del", "a", "br"];
+/**
+ * `rich`: links open in a new tab, `code` is a chip, for a UI's own text (render_ui, table cells).
+ * `quiet`: links read as underlined text (the host sits in a click target), newlines become spaces,
+ * for a one-line preview such as a review comment chip.
+ */
+export type InlineVariant = "rich" | "quiet";
 
-const components: Components = {
+const RICH: Components = {
    p: ({ children }) => <>{children}</>,
    code: ({ children }) => (
       <code className="rounded bg-muted px-[0.3em] py-[0.1em] font-mono text-[0.85em]">
@@ -23,22 +28,40 @@ const components: Components = {
    ),
 };
 
+const QUIET: Components = {
+   p: ({ children }) => <>{children}</>,
+   a: ({ children }) => <span className="underline">{children}</span>,
+   code: ({ children }) => <code className="font-mono">{children}</code>,
+};
+
+const ELEMENTS: Record<InlineVariant, string[]> = {
+   rich: ["p", "code", "strong", "em", "del", "a", "br"],
+   quiet: ["p", "strong", "em", "del", "code", "a"],
+};
+
 /**
- * One line of inline Markdown (`code`, **bold**, *italic*, ~~strike~~, links) for short text such
- * as table cells: block syntax renders as its text, so a cell keeps its shape.
+ * One line of inline Markdown (`code`, **bold**, *italic*, ~~strike~~, links): block syntax renders
+ * as its text, so a cell or chip keeps its shape.
  */
-export function InlineMarkdown({ children }: { children: unknown }) {
-   const text = children == null ? "" : String(children);
+export function InlineMarkdown({
+   children,
+   variant = "rich",
+}: {
+   children: unknown;
+   variant?: InlineVariant;
+}) {
+   const raw = children == null ? "" : String(children);
+   const quiet = variant === "quiet";
    // Skip the parser for plain text (most cells).
-   if (!/[`*_~[]/.test(text)) return <>{text}</>;
+   if (!quiet && !/[`*_~[]/.test(raw)) return <>{raw}</>;
    return (
       <ReactMarkdown
          remarkPlugins={[remarkGfm]}
-         allowedElements={INLINE}
+         allowedElements={ELEMENTS[variant]}
          unwrapDisallowed
-         components={components}
+         components={quiet ? QUIET : RICH}
       >
-         {text}
+         {quiet ? raw.replace(/\s*\n\s*/g, " ") : raw}
       </ReactMarkdown>
    );
 }

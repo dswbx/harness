@@ -7,6 +7,7 @@ import {
    importedNames,
    importSpecs,
    importViolation,
+   knownDuplicates,
    layerViolation,
    leaks,
    PORTABLE_FILES,
@@ -216,5 +217,33 @@ describe("usesWebStorage", () => {
       expect(usesWebStorage("// kept in localStorage\nconst a = 1;")).toBe(false);
       expect(usesWebStorage("/** localStorage key */ const a = 1;")).toBe(false);
       expect(usesWebStorage('grep "sqlite|localStorage|sessionStorage|indexedDB"')).toBe(false);
+   });
+});
+
+describe("knownDuplicates", () => {
+   const app = "app/src/x.ts";
+   it("flags the inline error-text ternary in its variants", () => {
+      for (const src of [
+         "setError(e instanceof Error ? e.message : String(e));",
+         'x(err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err))',
+      ])
+         expect(knownDuplicates(src, app)).toHaveLength(1);
+   });
+   it("allows other uses of instanceof Error", () => {
+      expect(knownDuplicates("if (r instanceof Error) fail(r);", app)).toEqual([]);
+      expect(knownDuplicates("e instanceof Error ? e : new Error(String(e))", app)).toEqual([]);
+   });
+   it("flags a local definition of a helper with a home, not in the home", () => {
+      expect(knownDuplicates("const basename = (p: string) => p;", app)).toHaveLength(1);
+      expect(knownDuplicates("function baseName(p: string) {}", app)).toHaveLength(1);
+      expect(knownDuplicates("export function relativeTime(ms: number) {}", app)).toHaveLength(1);
+      expect(knownDuplicates("const errText = (e: unknown) => '';", app)).toHaveLength(1);
+      const home = "packages/api/src/derive/paths.ts";
+      expect(knownDuplicates("export const baseName = (p: string) => p;", home)).toEqual([]);
+   });
+   it("ignores comments, calls and imports", () => {
+      expect(knownDuplicates("// function basename(p) {}", app)).toEqual([]);
+      expect(knownDuplicates("const n = baseName(p);", app)).toEqual([]);
+      expect(knownDuplicates('import { baseName } from "@harness/api";', app)).toEqual([]);
    });
 });

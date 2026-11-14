@@ -13,7 +13,7 @@ import {
    type SessionApi,
    usePr,
 } from "@harness/api";
-import { cn, Popover, PopoverAnchor, PopoverContent } from "@harness/ui";
+import { cn, Popover, PopoverAnchor, PopoverContent, useCopied } from "@harness/ui";
 import { Check, CircleDashed, Copy, ExternalLink } from "lucide-react";
 import {
    createContext,
@@ -329,23 +329,12 @@ function Action({
 
 /** Copies the PR's URL; shows "Copied" for a moment. */
 function CopyAction({ text }: { text: string }) {
-   const [copied, setCopied] = useState(false);
-   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-   useEffect(() => () => clearTimeout(timer.current), []);
-   const copy = () =>
-      navigator.clipboard.writeText(text).then(
-         () => {
-            setCopied(true);
-            clearTimeout(timer.current);
-            timer.current = setTimeout(() => setCopied(false), 1500);
-         },
-         () => {},
-      );
+   const [copied, copy] = useCopied();
    return (
       <Action
          icon={copied ? Check : Copy}
          label={copied ? "Copied" : "Copy link"}
-         onClick={() => void copy()}
+         onClick={() => void copy(text)}
       />
    );
 }

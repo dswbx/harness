@@ -187,3 +187,37 @@ export function portableViolation(file: string, spec: string): string | null {
       return "portable module must not import state/";
    return null;
 }
+
+/** Helpers that have one home; a second definition elsewhere is a diverging copy. `[name pattern, home file, use instead]`. */
+const HOMES: [RegExp, string, string][] = [
+   [/^base_?name$/i, "packages/api/src/derive/paths.ts", "baseName"],
+   [/^folderName$/, "packages/api/src/derive/paths.ts", "baseName"],
+   [/^(?:formatAge|relativeTime|relTime|timeAgo)$/, "packages/api/src/derive/time.ts", "formatAge"],
+   [/^(?:errText|errorMessage|errMsg)$/, "packages/api/src/errors.ts", "errText"],
+   [/^openExternal(?:Url|Link)?$/, "packages/api/src/platform/window.ts", "openExternalUrl"],
+];
+
+/** `catch (e) { x(e instanceof Error ? e.message : String(e)) }` and its variants. */
+const INLINE_ERROR_TEXT = /\binstanceof\s+Error\s*\?\s*[\w$]+\.message\s*:/;
+const DEFINITION = /\b(?:function\s+|(?:const|let|var)\s+)([\w$]+)\s*(?:[=(<:])/g;
+
+/**
+ * Known duplicates in `src` (comments ignored) of the file `rel` (repo-relative): the inline
+ * error-text ternary, or a definition of a helper that lives elsewhere. `[line, reason]`.
+ */
+export function knownDuplicates(src: string, rel: string): [number, string][] {
+   const out: [number, string][] = [];
+   stripComments(src)
+      .split("\n")
+      .forEach((line, i) => {
+         if (rel !== "packages/api/src/errors.ts" && INLINE_ERROR_TEXT.test(line))
+            out.push([i + 1, "inline error text, use errText from @harness/api"]);
+         for (const m of line.matchAll(DEFINITION)) {
+            for (const [re, home, use] of HOMES) {
+               if (re.test(m[1]!) && rel !== home)
+                  out.push([i + 1, `defines ${m[1]}, use ${use} (${home})`]);
+            }
+         }
+      });
+   return out;
+}
