@@ -6,6 +6,7 @@ import { chatRowsOf, renderUiOf } from "../conversation/chatRows";
 import { SubagentsPanel } from "./SubagentsPanel";
 
 type Model = { rows: SubagentRow[]; running: number };
+const NONE: Model = { rows: [], running: 0 };
 
 /** The Session's subagents. Without any, it has no icon. */
 export const subagentsPanel = definePanel<Model>({
@@ -26,6 +27,8 @@ export const subagentsPanel = definePanel<Model>({
             state.items,
             renderUiOf(state.items, state.sharedAttached),
          );
+         // Most Sessions have none: no walk over the items then.
+         if (subagents.size === 0) return NONE;
          const rows = listSubagents(
             state.items.flatMap((i) => (i.type === "tool" ? [i] : [])),
             subagents,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Item } from "../../state/reducer";
-import { type ChatSubagent, groupTools, placeSteps, type Tool } from "./group";
+import { type ChatSubagent, groupTools, placeSteps, subagentsOf, type Tool } from "./group";
 
 const tool = (id: string): Tool => ({
    type: "tool",
@@ -65,5 +65,22 @@ describe("placeSteps", () => {
       expect(m.get("b")).toEqual({ row: "b", path: ["b"] });
       expect(m.has("m")).toBe(false);
       expect(m.has("sm")).toBe(false);
+   });
+});
+
+describe("subagentsOf", () => {
+   const sub = (steps: Item[]): ChatSubagent => ({ calls: [], steps, report: null, endedAt: null });
+   it("lists the subagents a row shows, nested ones too, and none for other rows", () => {
+      const a = sub([tool("inner")]);
+      const inner = sub([]);
+      const map = new Map([
+         ["task", a],
+         ["inner", inner],
+         ["unrelated", sub([])],
+      ]);
+      const [group] = groupTools([tool("t0"), tool("task")]);
+      expect(subagentsOf(group!, map)).toEqual([a, inner]);
+      expect(subagentsOf(tool("t0"), map)).toEqual([]);
+      expect(subagentsOf(thought("th"), map)).toEqual([]);
    });
 });

@@ -2,7 +2,8 @@ import { toolDetail } from "@harness/api";
 import { useMemo } from "react";
 import { blockText, type ContentBlock } from "../../state/reducer";
 import { DiffViewer } from "../changes/DiffViewer";
-import { diffLines, langOf, splitPatch, unifiedPatch } from "../changes/diff";
+import { diffLines, splitPatch, unifiedPatch } from "../changes/diff";
+import { languageOf } from "../markdown/highlight";
 import { Markdown } from "../markdown/Markdown";
 import { CodeFrame, Frame } from "./CodeFrame";
 import { jsonTail, parseFence } from "./fence";
@@ -84,7 +85,7 @@ export function Block({ b, tool }: { b: ContentBlock; tool?: Tool }) {
             label={path?.split("/").pop() ?? (fence.lang || "output")}
             meta={lines}
             code={fence.code}
-            lang={fence.lang || (path ? langOf(path) : "")}
+            lang={fence.lang || (path ? (languageOf(path) ?? "plaintext") : "")}
          />
       );
    }

@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import "@git-diff-view/react/styles/diff-view-pure.css";
 import "./diffView.css";
 import { cn, ResizeHandle, Tooltip, useDragDelta } from "@harness/ui";
+import { languageOf } from "../markdown/highlight";
 import { CommentForm, CommentList } from "../review/ReviewCommentWidgets";
 import { addReviewComment, type DiffComment } from "../review/reviewComments";
-import { type FilePatch, hunkLines, langOf } from "./diff";
+import { type FilePatch, hunkLines } from "./diff";
+import { diffHighlighter } from "./diffHighlighter";
 
 /** Full old/new file text; lets git-diff-view expand collapsed unchanged regions. */
 export type FileContents = { old: string; new: string };
@@ -145,7 +147,7 @@ export function DiffViewer({
    const codeSize = useCodeFontSize();
    const split = useSplit();
    const showHandle = resizable && mode === "split" && split.left > 0;
-   const lang = langOf(file.path);
+   const lang = languageOf(file.path) ?? "plaintext";
    // New object only when the input changes: git-diff-view rebuilds its DiffFile on a new `data`.
    const data = useMemo(
       () => ({
@@ -198,6 +200,7 @@ export function DiffViewer({
             diffViewFontSize={fontSize ?? codeSize}
             diffViewWrap={wrap}
             diffViewHighlight
+            registerHighlighter={diffHighlighter}
             diffViewAddWidget={!!sessionId}
             renderExtendLine={({ data: cs }) =>
                sessionId && <CommentList sessionId={sessionId} comments={cs} />

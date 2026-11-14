@@ -2,7 +2,7 @@ import { groupSubagents } from "@harness/api";
 import type { Item } from "../../state/reducer";
 import { isStepApproval } from "../interaction/Permission";
 import { splitRenderUi } from "../renderUi/slots";
-import { groupTools } from "../toolDisplay/group";
+import { type ChatSubagent, groupTools } from "../toolDisplay/group";
 
 /**
  * A Thread's items split into chat rows. Hidden: resolved permission cards (a plan stays: its row
@@ -54,4 +54,46 @@ export function chatRowsOf(items: Item[], ui: Ui): ReturnType<typeof chatRows> {
    const result = chatRows(items, ui);
    rowsCache.set(items, { ui, result });
    return result;
+}
+
+type Rows = ReturnType<typeof chatRows>;
+
+const sameItems = (a: readonly unknown[], b: readonly unknown[]) =>
+   a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * `next` with the identity of what did not change since `prev` (a Thread's previous result): tool groups
+ * with the same steps, subagents with the same calls, steps, report and end, and the rows array and
+ * `subagents` map when nothing in them changed. Rows are memoized by identity, so a streamed chunk
+ * re-renders only the row it landed in.
+ */
+export function stabilizeRows(prev: Rows | null, next: Rows): Rows {
+   if (!prev) return next;
+   // Rows mostly stay where they were: look at the same place first, by id only when that missed.
+   let byId: Map<string, Rows["rows"][number]> | null = null;
+   let rows = next.rows.map((r, i) => {
+      let p: Rows["rows"][number] | undefined = prev.rows[i];
+      if (p?.id !== r.id) {
+         byId ??= new Map(prev.rows.map((x) => [x.id, x]));
+         p = byId.get(r.id);
+      }
+      if (p && p !== r && p.type === "tools" && r.type === "tools" && sameItems(p.steps, r.steps))
+         return p;
+      return r;
+   });
+   if (sameItems(rows, prev.rows)) rows = prev.rows;
+   let kept = prev.subagents.size === next.subagents.size;
+   const subagents = new Map<string, ChatSubagent>();
+   for (const [id, s] of next.subagents) {
+      const p = prev.subagents.get(id);
+      const same =
+         p &&
+         p.report === s.report &&
+         p.endedAt === s.endedAt &&
+         sameItems(p.calls, s.calls) &&
+         sameItems(p.steps, s.steps);
+      if (!same) kept = false;
+      subagents.set(id, same ? p : s);
+   }
+   return { rows, subagents: kept ? prev.subagents : subagents };
 }
