@@ -2,8 +2,7 @@ import { listSubagents, type SubagentRow } from "@harness/api";
 import { Bot } from "lucide-react";
 import { useMemo } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
-import { chatRows } from "../conversation/chatRows";
-import { splitRenderUi } from "../renderUi/slots";
+import { chatRowsOf, renderUiOf } from "../conversation/chatRows";
 import { SubagentsPanel } from "./SubagentsPanel";
 
 type Model = { rows: SubagentRow[]; running: number };
@@ -23,9 +22,9 @@ export const subagentsPanel = definePanel<Model>({
          [turnRunning, state.items],
       );
       return useMemo(() => {
-         const { subagents } = chatRows(
+         const { subagents } = chatRowsOf(
             state.items,
-            splitRenderUi(state.items, state.sharedAttached),
+            renderUiOf(state.items, state.sharedAttached),
          );
          const rows = listSubagents(
             state.items.flatMap((i) => (i.type === "tool" ? [i] : [])),

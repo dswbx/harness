@@ -1,7 +1,7 @@
 import { groupSubagents } from "@harness/api";
 import type { Item } from "../../state/reducer";
 import { isStepApproval } from "../interaction/Permission";
-import type { splitRenderUi } from "../renderUi/slots";
+import { splitRenderUi } from "../renderUi/slots";
 import { groupTools } from "../toolDisplay/group";
 
 /**
@@ -30,4 +30,28 @@ export function chatRows(items: Item[], ui: ReturnType<typeof splitRenderUi>) {
       (i) => (i.type === "thought" || i.type === "agent" ? i.parent : null),
    );
    return { rows: groupTools(g.rows), subagents: g.subagents };
+}
+
+type Ui = ReturnType<typeof splitRenderUi>;
+type Attached = Parameters<typeof splitRenderUi>[1];
+
+const uiCache = new WeakMap<readonly Item[], { attached: Attached; ui: Ui }>();
+const rowsCache = new WeakMap<readonly Item[], { ui: Ui; result: ReturnType<typeof chatRows> }>();
+
+/** `splitRenderUi`, shared: callers with the same `items` array and `attached` get the same object. */
+export function renderUiOf(items: Item[], attached?: Attached): Ui {
+   const hit = uiCache.get(items);
+   if (hit && hit.attached === attached) return hit.ui;
+   const ui = splitRenderUi(items, attached);
+   uiCache.set(items, { attached, ui });
+   return ui;
+}
+
+/** `chatRows`, shared: the last result per `items` array, recomputed when `ui` is another object. */
+export function chatRowsOf(items: Item[], ui: Ui): ReturnType<typeof chatRows> {
+   const hit = rowsCache.get(items);
+   if (hit && hit.ui === ui) return hit.result;
+   const result = chatRows(items, ui);
+   rowsCache.set(items, { ui, result });
+   return result;
 }
