@@ -7,13 +7,17 @@ import type { StatePatchOp } from "../generated";
  * missing path does nothing. UI writes use `replace` (an `add` at an array index inserts).
  */
 export function applyStatePatch(doc: unknown, ops: StatePatchOp[]): unknown {
-   let out: unknown = structuredClone(doc ?? {});
+   // Persistent updates: only the containers on an op's path are copied, the rest keeps identity,
+   // and `doc` is never written. A throw leaves `doc` as it was. A container copied by an earlier
+   // op of this call is ours (`fresh`) and later ops write into it instead of copying it again.
+   const fresh = new WeakSet<object>();
+   let out: unknown = doc ?? {};
    for (const op of ops) {
       if (op.op === "test") {
          const found = getAt(out, op.path);
          if (!deepEqual(found, op.value)) throw new Error(`test failed at ${op.path}`);
-      } else if (op.op === "remove") out = removeAt(out, op.path);
-      else out = setAt(out, op.path, structuredClone(op.value), op.op === "add");
+      } else if (op.op === "remove") out = removeAt(out, op.path, fresh);
+      else out = setAt(out, op.path, op.value, op.op === "add", fresh);
    }
    return out;
 }
@@ -55,58 +59,127 @@ export function getAt(doc: unknown, path: string): unknown {
    return cur;
 }
 
-function setAt(doc: unknown, path: string, value: unknown, insert: boolean): unknown {
-   const ts = tokens(path);
-   if (ts.length === 0) return value;
-   const root = { v: doc } as Obj;
-   let parent: Obj | unknown[] = root;
-   let key: string | number = "v";
-   for (const t of ts.slice(0, -1)) {
-      let cur: unknown = (parent as Obj)[key as string];
-      if (cur == null) cur = (parent as Obj)[key as string] = {};
-      if (Array.isArray(cur)) {
-         const i = Number(t);
-         if (!Number.isInteger(i) || i < 0 || i >= cur.length)
-            throw new Error(`${path}: ${t} is not an index`);
-         parent = cur;
-         key = i;
-      } else if (isObj(cur)) {
-         parent = cur;
-         key = t;
-      } else throw new Error(`${path}: ${t} is inside a value that is not an object or array`);
-   }
-   let target = (parent as Obj)[key as string];
-   if (target == null) target = (parent as Obj)[key as string] = {};
-   const last = ts.at(-1)!;
-   if (isObj(target)) target[last] = value;
-   else if (Array.isArray(target)) {
-      if (last === "-") target.push(value);
-      else {
-         const i = Number(last);
-         if (!Number.isInteger(i) || i < 0 || i > target.length)
-            throw new Error(`${path}: index ${last} is out of range`);
-         if (insert) target.splice(i, 0, value);
-         else target[i] = value;
+type Fresh = WeakSet<object>;
+
+/** A writable copy of `x` (or `x` itself when this call already copied it). */
+function own<T extends Obj | unknown[]>(x: T, fresh: Fresh): T {
+   if (fresh.has(x)) return x;
+   let copy: T;
+   if (Array.isArray(x)) copy = x.slice() as T;
+   else {
+      // A key loop is ~3x faster than `{ ...x }` on large objects.
+      const o: Obj = {};
+      for (const k of Object.keys(x)) {
+         if (k === "__proto__")
+            Object.defineProperty(o, k, {
+               value: x[k],
+               enumerable: true,
+               writable: true,
+               configurable: true,
+            });
+         else o[k] = (x as Obj)[k];
       }
-   } else throw new Error(`${path}: the parent is not an object or array`);
-   return root.v;
+      copy = o as T;
+   }
+   fresh.add(copy);
+   return copy;
 }
 
-function removeAt(doc: unknown, path: string): unknown {
+function setAt(doc: unknown, path: string, value: unknown, insert: boolean, fresh: Fresh): unknown {
+   const ts = tokens(path);
+   if (ts.length === 0) return value;
+   return setIn(doc, ts, 0, path, value, insert, fresh);
+}
+
+/** `node` is the value at depth `i`; returns it with `ts[i..]` applied (a copy of what changed). */
+function setIn(
+   node: unknown,
+   ts: string[],
+   i: number,
+   path: string,
+   value: unknown,
+   insert: boolean,
+   fresh: Fresh,
+): unknown {
+   const t = ts[i]!;
+   const last = i === ts.length - 1;
+   const cur = node ?? {};
+   if (Array.isArray(cur)) {
+      const n = Number(t);
+      if (last) {
+         if (!Number.isInteger(n) && t !== "-")
+            throw new Error(`${path}: index ${t} is out of range`);
+         if (t !== "-" && (n < 0 || n > cur.length))
+            throw new Error(`${path}: index ${t} is out of range`);
+         const copy = own(cur, fresh);
+         if (t === "-") copy.push(value);
+         else if (insert) copy.splice(n, 0, value);
+         else copy[n] = value;
+         return copy;
+      }
+      if (!Number.isInteger(n) || n < 0 || n >= cur.length)
+         throw new Error(`${path}: ${t} is not an index`);
+      const child = setIn(cur[n], ts, i + 1, path, value, insert, fresh);
+      const copy = own(cur, fresh);
+      copy[n] = child;
+      return copy;
+   }
+   if (isObj(cur)) {
+      const child = last ? value : setIn(cur[t], ts, i + 1, path, value, insert, fresh);
+      const copy = own(cur, fresh);
+      if (t === "__proto__")
+         Object.defineProperty(copy, t, {
+            value: child,
+            enumerable: true,
+            writable: true,
+            configurable: true,
+         });
+      else copy[t] = child;
+      return copy;
+   }
+   throw new Error(
+      last
+         ? `${path}: the parent is not an object or array`
+         : `${path}: ${t} is inside a value that is not an object or array`,
+   );
+}
+
+function removeAt(doc: unknown, path: string, fresh: Fresh): unknown {
    const ts = tokens(path);
    if (ts.length === 0) return {};
-   const parent = getAt(
-      doc,
-      "/" +
-         ts
-            .slice(0, -1)
-            .map((t) => t.replace(/~/g, "~0").replace(/\//g, "~1"))
-            .join("/"),
-   );
-   const last = ts.at(-1)!;
-   if (Array.isArray(parent)) {
-      const i = Number(last);
-      if (Number.isInteger(i) && i >= 0 && i < parent.length) parent.splice(i, 1);
-   } else if (isObj(parent)) delete parent[last];
-   return doc;
+   return removeIn(doc, ts, 0, fresh);
+}
+
+/** Returns `node` itself when nothing at the path exists to remove. */
+function removeIn(node: unknown, ts: string[], i: number, fresh: Fresh): unknown {
+   const t = ts[i]!;
+   const last = i === ts.length - 1;
+   if (Array.isArray(node)) {
+      const n = Number(t);
+      if (last) {
+         if (!Number.isInteger(n) || n < 0 || n >= node.length) return node;
+         const copy = own(node, fresh);
+         copy.splice(n, 1);
+         return copy;
+      }
+      const child = removeIn(node[n], ts, i + 1, fresh);
+      if (child === node[n]) return node;
+      const copy = own(node, fresh);
+      copy[n] = child;
+      return copy;
+   }
+   if (isObj(node)) {
+      if (last) {
+         if (!Object.hasOwn(node, t)) return node;
+         const copy = own(node, fresh);
+         delete copy[t];
+         return copy;
+      }
+      const child = removeIn(node[t], ts, i + 1, fresh);
+      if (child === node[t]) return node;
+      const copy = own(node, fresh);
+      copy[t] = child;
+      return copy;
+   }
+   return node;
 }
