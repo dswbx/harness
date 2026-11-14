@@ -1,6 +1,6 @@
 import { ImageOff } from "lucide-react";
 import { useState } from "react";
-import { uiTitle } from "./artifacts";
+import { isLoneDiagram, uiTitle } from "./artifacts";
 import { Expandable } from "./Expandable";
 import { fileName, uiFormats } from "./exportFormats";
 import { RenderUi, type UiEnv } from "./RenderUi";
@@ -36,6 +36,16 @@ export function FrontendToolRow({
          (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
       if (!shown) return null;
       const title = uiTitle(shown.root, item.render.value.title);
+      const content = (
+         <div {...quotableAttrs(threadId, side, { source: "artifact", label: title })}>
+            <RenderUi
+               root={shown.root}
+               env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
+            />
+         </div>
+      );
+      // A lone diagram brings its own Expand: a second one around it would do the same, worse.
+      if (isLoneDiagram(shown.root)) return <div className="chat-wide">{content}</div>;
       return (
          <Expandable
             label="view"
@@ -43,12 +53,7 @@ export function FrontendToolRow({
             className="chat-wide"
             formats={(png) => [png(), ...uiFormats(fileName(title), shown.root)]}
          >
-            <div {...quotableAttrs(threadId, side, { source: "artifact", label: title })}>
-               <RenderUi
-                  root={shown.root}
-                  env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
-               />
-            </div>
+            {content}
          </Expandable>
       );
    }

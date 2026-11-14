@@ -4,11 +4,12 @@ import {
    collectArtifacts,
    filterArtifacts,
    groupShared,
+   isLoneDiagram,
    markdownArtifacts,
    markdownTitle,
 } from "./artifacts";
 import type { Item } from "./reducer";
-import { type RenderUiInput, withSourceRoot } from "./tools";
+import { type RawNode, type RenderUiInput, withSourceRoot } from "./tools";
 
 const user = (id: string, text: string): Item => ({
    type: "user",
@@ -194,5 +195,21 @@ describe("groupShared (ADR 0024)", () => {
       ]);
       // The View passes copies of attached artifacts only: detached, the block is back.
       expect(groupShared(list, [], new Map()).local).toEqual([table]);
+   });
+});
+
+describe("isLoneDiagram", () => {
+   const md = (text: string): RawNode => ({ type: "Markdown", props: { text } });
+   it("is a Markdown view with exactly one mermaid fence and nothing else", () => {
+      expect(isLoneDiagram(md("```mermaid\ngraph TD\n  a --> b\n```"))).toBe(true);
+      expect(isLoneDiagram(md("\n```mermaid\ngraph TD\n  a --> b\n```\n"))).toBe(true);
+   });
+   it("is not a diagram with text, two diagrams, another fence, a file source or another node", () => {
+      expect(isLoneDiagram(md("Intro\n\n```mermaid\ngraph TD\n```"))).toBe(false);
+      expect(isLoneDiagram(md("```mermaid\ngraph TD\n```\n\nOutro"))).toBe(false);
+      expect(isLoneDiagram(md("```mermaid\na\n```\n```mermaid\nb\n```"))).toBe(false);
+      expect(isLoneDiagram(md("```ts\nconst a = 1;\n```"))).toBe(false);
+      expect(isLoneDiagram({ type: "Markdown", props: { source: "plan.md" } })).toBe(false);
+      expect(isLoneDiagram({ type: "Table", props: {} })).toBe(false);
    });
 });
