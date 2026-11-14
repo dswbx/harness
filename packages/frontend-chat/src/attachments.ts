@@ -37,6 +37,12 @@ export function fitWithin(w: number, h: number, max: number): [number, number] {
    return [Math.round(w * s), Math.round(h * s)];
 }
 
+/** Whether `point` lies in `rect` (edges included). Which prompt box a file drop is over. */
+export const inside = (
+   rect: { left: number; top: number; right: number; bottom: number },
+   point: { x: number; y: number },
+) => point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+
 const readDataUrl = (blob: Blob) =>
    new Promise<string>((ok, fail) => {
       const r = new FileReader();

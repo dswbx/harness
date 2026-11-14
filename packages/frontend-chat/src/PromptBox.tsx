@@ -1,7 +1,6 @@
 import {
    type AgentSwitch,
    type AttachmentInput,
-   onFileDrop,
    type PromptContext,
    pickFiles,
    type SessionApi,
@@ -25,10 +24,12 @@ import { ConfigBar, type MenuSide } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
 import { getDraft, setDraft, useDraftAttachments } from "./drafts";
 import { errorMessage } from "./errors";
+import { registerDropTarget } from "./fileDropTargets";
 import { type CaretToken, PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { type PrMenu, PrMenuPopup, PromptMenu, usePrMenu } from "./PromptMenu";
 import {
    hasArrived,
+   nextBase,
    type PendingMessage,
    setPendingActions,
    updatePendingMessages,
@@ -313,6 +314,9 @@ export function PromptBox({
       () => state.items.filter((i) => i.type === "user").length,
       [state.items],
    );
+   // `deliver` runs in loops across renders: it needs the current count, not its closure's.
+   const userCountRef = useRef(userCount);
+   userCountRef.current = userCount;
    // A sent message is replaced by its row in the list once that row has arrived.
    useEffect(() => {
       if (pending.some((p) => p.status === "sent" && hasArrived(p, userCount)))
@@ -359,21 +363,19 @@ export function PromptBox({
       if (paths === null) fileInput.current?.click();
       else addPaths(paths);
    };
-   // Tauri delivers file drops as paths to the window (no HTML5 drop); any drop on this window lands here.
+   // Tauri delivers file drops as paths to the window (no HTML5 drop). With several prompt boxes
+   // (a Side Thread panel) one of them takes it: see `pickTarget`.
    const addRef = useRef(addPaths);
    addRef.current = addPaths;
-   useEffect(() => {
-      let off: (() => void) | null = null;
-      let gone = false;
-      void onFileDrop((e) => {
-         setDragging(e.type === "over");
-         if (e.type === "drop") addRef.current(e.paths);
-      }).then((u) => (gone ? u?.() : (off = u)));
-      return () => {
-         gone = true;
-         off?.();
-      };
-   }, []);
+   useEffect(
+      () =>
+         registerDropTarget({
+            el: () => boxRef.current,
+            over: setDragging,
+            drop: (paths) => addRef.current(paths),
+         }),
+      [],
+   );
 
    // Restore uses the exact pre-send editor state, not the sent Markdown (re-parsing could turn literal `*x*` into formatting).
    const send = () => {
@@ -421,13 +423,16 @@ export function PromptBox({
    };
    /** Shows `item` as sending until `run` settles. True when it was sent. */
    const deliver = async (item: PendingMessage, run: () => Promise<void>) => {
-      const base = userCount + pending.filter((p) => p.status !== "failed").length;
-      const next: PendingMessage = { ...item, status: "sending", base };
-      updatePendingMessages(key, (cur) =>
-         cur.some((p) => p.id === item.id)
+      updatePendingMessages(key, (cur) => {
+         const next: PendingMessage = {
+            ...item,
+            status: "sending",
+            base: nextBase(cur, item.id, userCountRef.current),
+         };
+         return cur.some((p) => p.id === item.id)
             ? cur.map((p) => (p.id === item.id ? next : p))
-            : [...cur, next],
-      );
+            : [...cur, next];
+      });
       const mark = (status: PendingMessage["status"]) =>
          updatePendingMessages(key, (cur) =>
             cur.map((p) => (p.id === item.id ? { ...p, status } : p)),

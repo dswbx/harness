@@ -1,8 +1,16 @@
 import { baseName, CommandError } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { fitWithin, fromPath, fromPickedPath, isImageName } from "./attachments";
+import { fitWithin, fromPath, fromPickedPath, inside, isImageName } from "./attachments";
 
 describe("attachments", () => {
+   it("hit-tests a drop point against a box rect", () => {
+      const rect = { left: 10, top: 20, right: 110, bottom: 70 };
+      expect(inside(rect, { x: 50, y: 40 })).toBe(true);
+      expect(inside(rect, { x: 10, y: 70 })).toBe(true);
+      expect(inside(rect, { x: 9, y: 40 })).toBe(false);
+      expect(inside(rect, { x: 50, y: 71 })).toBe(false);
+   });
+
    it("fits the longer side within the max, never upscales", () => {
       expect(fitWithin(4000, 3000, 2000)).toEqual([2000, 1500]);
       expect(fitWithin(1000, 3000, 2000)).toEqual([667, 2000]);

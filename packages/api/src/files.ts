@@ -8,7 +8,13 @@ export async function pickFiles(): Promise<string[] | null> {
    return r === null ? [] : Array.isArray(r) ? r : [r];
 }
 
-export type FileDrop = { type: "over" } | { type: "leave" } | { type: "drop"; paths: string[] };
+/** Cursor position in CSS pixels, relative to the window's top-left corner. */
+export type DropPoint = { x: number; y: number };
+
+export type FileDrop =
+   | { type: "over"; position?: DropPoint }
+   | { type: "leave" }
+   | { type: "drop"; paths: string[]; position?: DropPoint };
 
 /**
  * Files dragged onto this window (Tauri). Tauri takes file drops before the page sees them, so
@@ -17,9 +23,16 @@ export type FileDrop = { type: "over" } | { type: "leave" } | { type: "drop"; pa
 export async function onFileDrop(cb: (e: FileDrop) => void): Promise<Unsubscribe | null> {
    if (!inTauri()) return null;
    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+   // Tauri types the position as physical pixels. On macOS it is not: wry passes AppKit's dragging
+   // location on, which is in points (CSS pixels) already. Elsewhere it is physical.
+   const mac = /Mac/.test(navigator.userAgent);
+   const css = (p: { x: number; y: number }): DropPoint => {
+      const r = mac ? 1 : window.devicePixelRatio || 1;
+      return { x: p.x / r, y: p.y / r };
+   };
    return getCurrentWebview().onDragDropEvent(({ payload: p }) => {
-      if (p.type === "drop") cb({ type: "drop", paths: p.paths });
+      if (p.type === "drop") cb({ type: "drop", paths: p.paths, position: css(p.position) });
       else if (p.type === "leave") cb({ type: "leave" });
-      else cb({ type: "over" });
+      else cb({ type: "over", position: css(p.position) });
    });
 }

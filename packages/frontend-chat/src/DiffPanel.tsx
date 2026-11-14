@@ -13,20 +13,18 @@ import {
    Tooltip,
 } from "@harness/ui";
 import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
 import { type FilePatch, splitPatch } from "./diff";
+import { errorMessage } from "./errors";
 import { PanelHeader } from "./PanelHeader";
 import { type DiffComment, useDiffComments } from "./reviewComments";
 import { type DiffScope, selectionScope } from "./scope";
 import { useGitStatus } from "./useGitStatus";
 
 export { ALL_CHANGES, type DiffScope } from "./scope";
-
-const errorMessage = (err: unknown): string =>
-   err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
 
 const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
 
@@ -164,18 +162,20 @@ export function DiffPanel({
       if (changes) setTick((t) => t + 1);
    }, [changes]);
 
-   const load = useCallback(async () => {
-      setError(null);
-      try {
-         setDiff(await api.gitDiff(scope.from, scope.to));
-      } catch (e) {
-         setError(errorMessage(e));
-      }
-   }, [api, scope.from, scope.to]);
-
+   // `off` drops a slower earlier response that lands after a later one.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey and tick only retrigger
    useEffect(() => {
-      if (workspace?.repo_root) void load();
-   }, [workspace, load, refreshKey, tick]);
+      if (!workspace?.repo_root) return;
+      let off = false;
+      setError(null);
+      api.gitDiff(scope.from, scope.to).then(
+         (d) => !off && setDiff(d),
+         (e) => !off && setError(errorMessage(e)),
+      );
+      return () => {
+         off = true;
+      };
+   }, [api, workspace, scope.from, scope.to, refreshKey, tick]);
 
    const files = useMemo(() => (diff ? splitPatch(diff.patch) : []), [diff]);
    const toggle = (path: string) =>

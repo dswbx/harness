@@ -66,11 +66,17 @@ export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) 
          target = targetAt(ev.clientX, ev.clientY);
          setDrag({ id, label, x: ev.clientX, y: ev.clientY, target });
       };
+      let done = false;
       const finish = (commit: boolean) => {
+         // lostpointercapture also fires after a normal release: a no-op once finished.
+         if (done) return;
+         done = true;
          window.removeEventListener("pointermove", onMove);
          window.removeEventListener("pointerup", onUp);
          window.removeEventListener("pointercancel", onCancel);
          window.removeEventListener("keydown", onKey, true);
+         window.removeEventListener("blur", onCancel);
+         el.removeEventListener("lostpointercapture", onCancel);
          cancel.current = null;
          if (!active) return;
          if (el.hasPointerCapture?.(pointer)) el.releasePointerCapture(pointer);
@@ -99,6 +105,9 @@ export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) 
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
       window.addEventListener("keydown", onKey, true);
+      // The window lost focus (Cmd+Tab) or the capture was taken away: no drop, like Esc.
+      window.addEventListener("blur", onCancel);
+      el.addEventListener("lostpointercapture", onCancel);
    }, []);
 
    return { drag, start };

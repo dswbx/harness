@@ -647,6 +647,10 @@ function Inspect({
    const reader = useFileRefs();
    const prRefs = usePrRefs();
    const [error, setError] = useState<string | null>(null);
+   // Focus once per inspected item, not on every render (that closes menus and steals input focus).
+   const page = useRef<HTMLDivElement>(null);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: refocus only when the item changes
+   useEffect(() => page.current?.focus({ preventScroll: true }), [r.key]);
    const title =
       r.kind === "pr" && prRefs
          ? displayRef({ repo: r.pr.repo, number: r.pr.number }, prRefs.ctx)
@@ -676,7 +680,7 @@ function Inspect({
          aria-label={`Reference: ${title}`}
          tabIndex={-1}
          onKeyDown={onKey}
-         ref={(el) => el?.focus({ preventScroll: true })}
+         ref={page}
       >
          <PanelHeader
             className="gap-1 pl-1.5"
