@@ -129,8 +129,8 @@ export function useThreadTabs(sessionId: string, persist: boolean) {
    const [tabs, setTabs] = useState<ThreadTabs>(() =>
       persist ? loadThreadTabs(sessionId) : NO_TABS,
    );
+   // `apply` is the only writer: assigning it per render could reset it to stale tabs.
    const latest = useRef(tabs);
-   latest.current = tabs;
    const apply = useCallback((f: (t: ThreadTabs) => ThreadTabs) => {
       const next = f(latest.current);
       latest.current = next;
