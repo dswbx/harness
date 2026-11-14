@@ -1838,7 +1838,6 @@ dependencies = [
  "specta-serde",
  "specta-typescript",
  "tempfile",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
  "uuid",

@@ -14,7 +14,6 @@ import {
    openThread,
    overlayGeometry,
    overlayProfile,
-   overlayZone,
    type PanelId,
    parseLayout,
    reconcile,
@@ -26,7 +25,6 @@ import {
    sideWidths,
    slotPanel,
    toggle,
-   withShownIn,
    zoneOf,
 } from "./panelLayout";
 
@@ -276,7 +274,7 @@ describe("reconcile", () => {
    });
 });
 
-describe("shownOpen / withShownIn", () => {
+describe("shownOpen", () => {
    it("shownOpen hides what cannot render, without touching the layout", () => {
       const l = open(empty, "changes", "events");
       const s = shownOpen(l, new Set<PanelId>(["events"]));
@@ -289,11 +287,6 @@ describe("shownOpen / withShownIn", () => {
       const l = expand(open(empty, "events"), "events");
       expect(shownOpen(l, new Set<PanelId>()).expanded).toBeNull();
       expect(shownOpen(l, new Set<PanelId>(["events"]))).toBe(l);
-   });
-   it("withShownIn moves the open mark only", () => {
-      const l = withShownIn(open(empty, "events"), "events", "rightTop");
-      expect(l.open.bottomRight).toBeNull();
-      expect(l.open.rightTop).toBe("events");
    });
 });
 
@@ -488,9 +481,6 @@ describe("clampSize", () => {
 describe("overlay profile", () => {
    it("has only the side zones; bottom zones go to the right", () => {
       expect(OVERLAY_ZONES).toEqual(["leftTop", "leftBottom", "rightBottom", "rightTop"]);
-      expect(overlayZone("bottomLeft")).toBe("rightBottom");
-      expect(overlayZone("bottomRight")).toBe("rightBottom");
-      expect(overlayZone("leftTop")).toBe("leftTop");
    });
    it("moves bottom panels to right bottom and keeps the open one open", () => {
       const l = overlayProfile(show(empty, "terminal"));

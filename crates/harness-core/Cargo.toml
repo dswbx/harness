@@ -14,7 +14,6 @@ specta-typescript.workspace = true
 specta-serde.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
 globset = "0.4"
 sha2 = "0.10"
@@ -33,7 +32,6 @@ notify = "8"
 
 [dev-dependencies]
 tempfile = "3"
-sha2 = "0.10"
 
 [lints]
 workspace = true

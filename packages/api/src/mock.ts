@@ -2175,8 +2175,42 @@ export class MockTransport implements Transport {
             }, end);
             return { type: "Ok" };
          }
-         default:
+         case "Cancel":
+            // The mock does not model cancel: its canned replies run on untracked timers, so a
+            // Turn always ends on its own with `end_turn`.
             return { type: "Ok" };
+         case "WarmUp":
+            // The core starts the Agent early; the mock has no Agent to start.
+            return { type: "Ok" };
+         case "ReportFrontendError": {
+            this.session(cmd.session_id);
+            // Like the core, a repeat of the same error is ignored.
+            const repeat = this.logs
+               .get(cmd.session_id)!
+               .some(
+                  (e) =>
+                     e.kind.type === "FrontendError" &&
+                     e.kind.tool === cmd.tool &&
+                     e.kind.item === cmd.item &&
+                     e.kind.message === cmd.message,
+               );
+            if (!repeat) {
+               this.emit(cmd.session_id, {
+                  type: "FrontendError",
+                  tool: cmd.tool,
+                  item: cmd.item,
+                  message: cmd.message,
+               });
+            }
+            return { type: "Ok" };
+         }
+         default: {
+            const unhandled: never = cmd;
+            throw new CommandError(
+               "internal",
+               `the mock does not handle ${(unhandled as Command).type}`,
+            );
+         }
       }
    }
 

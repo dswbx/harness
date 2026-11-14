@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::api::{
-    AgentInfo, AppEvent, Command, CommandResult, Event, EventKind, EventSink, FrontendManifest, GitActor, HarnessError, PrRefKey, SessionId, SessionSummary,
-    StateWriter,
+    AgentInfo, AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, GitActor, HarnessError, PrRefKey, SessionId, SessionSummary, StateWriter,
 };
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
@@ -700,12 +699,6 @@ impl Harness {
         if let Ok(s) = self.session(session_id) {
             s.log().unsubscribe(sub);
         }
-    }
-
-    /// Appends an event on behalf of a test or adapter (e.g. diagnostics).
-    pub fn append(&self, session_id: &str, kind: EventKind) -> anyhow::Result<()> {
-        self.session(session_id)?.log().append(None, kind)?;
-        Ok(())
     }
 
     /// Creates a Session (Command `CreateSession`, or a Sub Session). The caller tells the windows

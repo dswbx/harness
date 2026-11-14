@@ -284,3 +284,31 @@ describe("MockTransport Shared Artifacts (ADR 0024)", () => {
       await expect(client.readSharedArtifact(md.id)).rejects.toThrow();
    });
 });
+
+describe("MockTransport Commands without a canned reply", () => {
+   it("accepts Cancel, WarmUp and ReportFrontendError; the error is logged once", async () => {
+      const transport = new MockTransport([], []);
+      const sid = await new HarnessClient(transport).createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const got: Event[] = [];
+      await transport.subscribe(sid, 0, (e) => got.push(e));
+      const ok = { type: "Ok" };
+      await expect(
+         transport.execute({ type: "Cancel", session_id: sid, thread_id: null }),
+      ).resolves.toEqual(ok);
+      await expect(transport.execute({ type: "WarmUp", session_id: sid })).resolves.toEqual(ok);
+      const report = {
+         type: "ReportFrontendError",
+         session_id: sid,
+         tool: "render_ui",
+         item: "card",
+         message: "boom",
+      } as const;
+      await expect(transport.execute(report)).resolves.toEqual(ok);
+      await expect(transport.execute(report)).resolves.toEqual(ok);
+      expect(got.filter((e) => e.kind.type === "FrontendError")).toHaveLength(1);
+   });
+});

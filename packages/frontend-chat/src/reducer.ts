@@ -260,7 +260,7 @@ export type ChatState = {
    /**
     * Side Threads by id (ADR 0018). Each is a full ChatState of its own Thread (`threads` empty), so
     * the message list and prompt box render it like the Main Thread. The Main Thread's state is this
-    * object itself; `threadState` reaches either.
+    * object itself.
     */
    threads: Record<string, ChatState>;
    /** Main + Side Threads for menus and tab titles (`threadsOf`, folded). Main state only. */
@@ -304,12 +304,6 @@ export const initialState = (): ChatState => ({
    startBoundary: null,
    backgroundJobs: [],
 });
-
-/** The state of a Thread: the Main Thread is `state` itself. Null for an unknown id. */
-export function threadState(state: ChatState, threadId: string | null): ChatState | null {
-   if (threadId === null || threadId === state.mainThreadId) return state;
-   return state.threads[threadId] ?? null;
-}
 
 type Tool = Extract<Item, { type: "tool" }>;
 

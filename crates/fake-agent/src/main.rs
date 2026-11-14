@@ -33,7 +33,6 @@
 //! source's history); with `--fork-fail` the request is refused. `--exit` prints a line to stderr
 //! and exits at startup (Agent conformance check tests).
 
-use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
 
@@ -245,7 +244,6 @@ async fn main() -> agent_client_protocol::Result<()> {
         .name("fake-agent")
         .on_receive_request(
             async move |req: InitializeRequest, responder, _cx| {
-                let _ = ProtocolVersion::V1;
                 let mut caps = AgentCapabilities::new()
                     .load_session(load)
                     .mcp_capabilities(McpCapabilities::new().http(!no_http_mcp))
@@ -436,8 +434,7 @@ async fn main() -> agent_client_protocol::Result<()> {
                         update(&cx, &sid, text(&format!("servers: {}", desc.join(" "))))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
-                    if let Some(rest) = command.strip_prefix("mcp-list") {
-                        let _ = rest;
+                    if command.starts_with("mcp-list") {
                         let r = harness_mcp(&sid, None, serde_json::Value::Null).await;
                         update(&cx, &sid, text(&format!("tools: {}", r.unwrap_or_else(|e| e))))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
