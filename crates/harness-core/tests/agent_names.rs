@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 const NAMES: &[&str] = &["claude", "codex", "gemini", "opencode"];
 
-/// Files allowed to name Agents, by path relative to `src`.
+/// Files allowed to name Agents, by path relative to `src` (file names repeat across modules).
 const ALLOWED: &[&str] = &["agent_quirks.rs", "agents.rs"];
 
 /// `line` without its `//` comment (a `//` inside a string literal stays).
@@ -83,6 +83,9 @@ fn walk_covers_subdirectories() {
     assert!(files.iter().any(|f| f.starts_with("acp") && f.file_name().is_some_and(|n| n == "mod.rs")), "{files:?}");
     assert!(files.iter().any(|f| f.starts_with("bin")), "{files:?}");
     assert!(files.contains(&PathBuf::from("agent_quirks.rs")));
+    for allowed in ALLOWED {
+        assert!(files.contains(&PathBuf::from(allowed)), "allowlisted file {allowed} is gone");
+    }
 }
 
 #[test]

@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { planSteps, planTitle } from "../../state/planText";
 import type { ConfigOption } from "../../state/reducer";
-import {
-   defaultApproveOption,
-   keepPlanningOption,
-   modeName,
-   planStats,
-   planSteps,
-   planTitle,
-} from "./plans";
+import { defaultApproveOption, keepPlanningOption, modeName, planStats } from "./plans";
 
 describe("planTitle", () => {
    it("takes the first heading", () => {

@@ -1,10 +1,13 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { components, ORDER } from "./catalog";
 
-// The reducer and the manifest read the render_ui catalog (`tools.ts` and the `*.spec.ts` files).
+const CATALOG = ["catalog", "errors", "frontendTools", "schema", "sources", "tools", "types"];
+
+// The reducer and the manifest read the render_ui catalog (`CATALOG` below and the `*.spec.ts` files).
 // They must stay pure: importing a renderer from there pulls React components into the reducer and
-// makes an import cycle (reducer -> tools -> renderer -> ToolCard -> reducer) that breaks the app at load.
+// makes an import cycle (reducer -> tools -> catalog -> renderer -> ToolCard -> reducer) that breaks the app at load.
 const allowed = (spec: string) =>
    spec === "jsonv-ts" || spec === "./shared" || /^\.\/\w+\.spec$/.test(spec);
 
@@ -27,10 +30,18 @@ describe("render_ui specs", () => {
       }
    });
 
-   it("tools.ts reads only the specs, never a renderer", () => {
-      for (const spec of importsOf(join(dir, "tools.ts"))) {
-         if (spec.startsWith("./"))
-            expect(spec, "tools.ts must import ./<group>.spec").toMatch(/^\.\/(\w+\.spec|shared)$/);
+   it("the catalog files read only the specs and each other, never a renderer", () => {
+      for (const name of CATALOG) {
+         for (const spec of importsOf(join(dir, `${name}.ts`))) {
+            if (spec.startsWith("./"))
+               expect(spec, `${name}.ts must import ./<group>.spec or a catalog file`).toMatch(
+                  /^\.\/(\w+\.spec|shared|catalog|errors|frontendTools|schema|sources|tools|types)$/,
+               );
+         }
       }
+   });
+
+   it("ORDER names only components of the catalog", () => {
+      for (const n of ORDER) expect(Object.keys(components), `ORDER has ${n}`).toContain(n);
    });
 });

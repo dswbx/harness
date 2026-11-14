@@ -4,7 +4,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 
 ## Layout
 
-- `crates/harness-core`: UI-agnostic Rust core (no Tauri dependency, ADR 0001). Commands in, Events out (`src/api.rs`).
+- `crates/harness-core`: UI-agnostic Rust core (no Tauri dependency, ADR 0001). Commands in, Events out (`src/api/`).
 - `crates/harness-tauri`: thin Tauri adapter: `execute`, `subscribe`/`unsubscribe` (Session Logs), `subscribe_app` (AppEvents), `terminal_attach`/`terminal_detach` (Terminal bytes, ADR 0017), `save_file` (save dialog, then writes the file); `harness-frame` scheme (Html frames, ADR 0013); dock badge + notifications for Sessions needing attention; the Quick Overlay window and its global shortcut (`overlay.rs`, ADR 0022) and its Window Context (`context.rs`); `harness mcp-shim` subcommand.
 - `crates/fake-agent`: scripted ACP agent for deterministic tests.
 - `packages/api`: `@harness/api`; `src/generated.ts` is generated from Rust, never edit by hand.
@@ -15,7 +15,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 
 - Shared Primitives live in Rust; Frontend-specific logic lives in TS (ADR 0002).
 - Views render only from the Session Log (ADR 0003). Frontend state is a pure reducer over Events.
-- After changing `api.rs`, run `bun run gen-ts` (or `cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts`).
+- After changing `api/`, run `bun run gen-ts` (or `cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts`).
 - Agents come from the ACP Registry (`agents.rs`) on the pinned toolchain (`toolchain.rs`: Node, uv; bump pins with their sha256), or are Custom Agents. No built-in Agents, no system npx.
 - Agents inherit a stripped env (`agent_quirks.rs` `stripped_env`: host `CLAUDE*` vars and `ANTHROPIC_BASE_URL`) plus the login-shell PATH.
 - Agent-specific ACP handling lives only in `crates/harness-core/src/agent_quirks.rs`, only for vital fixes, mapped to generic Event fields (ADR 0008 addendum). Never in Frontends.

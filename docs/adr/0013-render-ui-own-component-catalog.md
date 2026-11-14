@@ -1,6 +1,6 @@
 # render_ui: our own component catalog, not json-render or HTML
 
-Agents show rich content (cards, tables, images, carousels) with one chat Frontend Tool, `render_ui`. Its input is a tree of nodes `{ type, props, children? }` from a fixed component catalog (`packages/frontend-chat/src/features/renderUi/tools.ts`). We add components when a real case needs them.
+Agents show rich content (cards, tables, images, carousels) with one chat Frontend Tool, `render_ui`. Its input is a tree of nodes `{ type, props, children? }` from a fixed component catalog (`packages/frontend-chat/src/features/renderUi/catalog.ts`). We add components when a real case needs them.
 
 **Why a catalog and not agent HTML (`render_html`):** the app renders each component, so theme, dark mode and sizes match the rest of the app. The core can validate the input and give the Agent exact errors. The log stores data, so better components also improve old Sessions, and a non-web Frontend could render the same tree. It costs fewer tokens, and no Agent script runs in the app. `render_html` (sandboxed iframe) stays a later option, only for content the catalog cannot show. Sandboxed JavaScript for values and actions: ADR 0016.
 
