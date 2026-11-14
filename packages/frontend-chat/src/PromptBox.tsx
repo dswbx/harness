@@ -19,7 +19,7 @@ import {
    useRef,
    useState,
 } from "react";
-import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
+import { fromFile, fromPickedPath, inside, type PendingAttachment } from "./attachments";
 import { CommentChips } from "./CommentChip";
 import { ConfigBar, type MenuSide } from "./ConfigBar";
 import { btwQuestion, leadingCommand, matchCommands, withSideThreadCommand } from "./commands";
@@ -367,8 +367,13 @@ export function PromptBox({
       let off: (() => void) | null = null;
       let gone = false;
       void onFileDrop((e) => {
-         setDragging(e.type === "over");
-         if (e.type === "drop") addRef.current(e.paths);
+         // Only the box under the cursor takes the drop (a Side Thread panel adds a second box).
+         // Without a position every box takes it.
+         const pos = e.type === "leave" ? undefined : e.position;
+         const el = boxRef.current;
+         const here = !pos || (!!el && inside(el.getBoundingClientRect(), pos));
+         setDragging(e.type === "over" && here);
+         if (e.type === "drop" && here) addRef.current(e.paths);
       }).then((u) => (gone ? u?.() : (off = u)));
       return () => {
          gone = true;
