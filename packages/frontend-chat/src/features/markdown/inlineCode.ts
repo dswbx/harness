@@ -1,7 +1,5 @@
-import { common, createLowlight } from "lowlight";
 import { localPref } from "../../lib/localPref";
-
-export const lowlight = createLowlight(common);
+import { isCommonLanguage, lowlight } from "./lowlight";
 
 type Node = {
    type: string;
@@ -94,7 +92,7 @@ export function inlineLanguage(
    const m = PREFIX.exec(text);
    if (m) {
       const lang = m[1]!.toLowerCase();
-      return { lang: lowlight.registered(lang) ? lang : null, code: text.slice(m[0].length) };
+      return { lang: isCommonLanguage(lang) ? lang : null, code: text.slice(m[0].length) };
    }
    return { lang: guess && CODE_LIKE.test(text) ? guess : null, code: text };
 }

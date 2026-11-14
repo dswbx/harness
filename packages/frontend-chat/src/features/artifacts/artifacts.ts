@@ -200,6 +200,31 @@ function inputOf(v: { root?: unknown }): Record<string, unknown> {
  * Every artifact of the Session, oldest first. render_ui calls with an id are one artifact
  * (latest content; inline ones stay at the row where they first appeared), removed ones drop out.
  */
+/** What of an item's artifacts depends on the item alone. Items are immutable, so each is worked out once. */
+const markdownOf = new WeakMap<Item, ReturnType<typeof markdownArtifacts>>();
+const promptOf = new WeakMap<Item, string>();
+type UiPart = Pick<Artifact, "title" | "sub" | "source" | "shared" | "file"> & {
+   v: ReturnType<typeof asRenderUi>;
+};
+const uiOf = new WeakMap<Item, UiPart>();
+
+function uiPart(it: Extract<Item, { type: "frontend_tool" }>, v: ReturnType<typeof asRenderUi>) {
+   let p = uiOf.get(it);
+   if (!p) {
+      const shared = sharedRef(v.source);
+      p = {
+         v,
+         title: uiTitle(v.root!, v.title),
+         sub: uiSub(v.root!),
+         // A file-backed item: the call as sent (the root is the reducer's node that names the file).
+         source: JSON.stringify(v.source ? inputOf(v) : v.root, null, 2),
+         ...(shared ? { shared: { id: shared } } : v.source ? { file: v.source } : {}),
+      };
+      uiOf.set(it, p);
+   }
+   return p;
+}
+
 export function collectArtifacts(items: Item[]): Artifact[] {
    const out: Artifact[] = [];
    /** render_ui id -> its artifact (in `out`). */
@@ -209,11 +234,18 @@ export function collectArtifacts(items: Item[]): Artifact[] {
    for (const it of items) {
       if (it.type === "user") {
          turn++;
-         prompt = it.text.split("\n").map(plain).find(Boolean) ?? "";
+         let p = promptOf.get(it);
+         if (p === undefined) {
+            p = it.text.split("\n").map(plain).find(Boolean) ?? "";
+            promptOf.set(it, p);
+         }
+         prompt = p;
          continue;
       }
       if (it.type === "agent") {
-         for (const m of markdownArtifacts(it.text)) {
+         let found = markdownOf.get(it);
+         if (!found) markdownOf.set(it, (found = markdownArtifacts(it.text)));
+         for (const m of found) {
             out.push({
                key: `${it.id}:${m.kind}:${m.index}`,
                ...m,
@@ -239,11 +271,10 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          continue;
       }
       const placement = v.placement ?? "inline";
+      const { v: _, ...part } = uiPart(it, v);
       const a: Artifact = {
          key: v.id ? `ui:${v.id}` : it.id,
          kind: "ui",
-         title: uiTitle(v.root, v.title),
-         sub: uiSub(v.root),
          rowId: placement === "inline" ? (old?.placement === "inline" ? old.rowId : it.id) : null,
          index: null,
          placement,
@@ -251,14 +282,10 @@ export function collectArtifacts(items: Item[]): Artifact[] {
          ts: it.ts,
          turn: old?.placement === "inline" && placement === "inline" ? old.turn : turn,
          prompt: old?.placement === "inline" && placement === "inline" ? old.prompt : prompt,
-         // A file-backed item: the call as sent (the root is the reducer's node that names the file).
-         source: JSON.stringify(v.source ? inputOf(v) : v.root, null, 2),
          ui: { root: v.root, files: it.files },
          icon: v.icon ?? null,
+         ...part,
       };
-      const shared = sharedRef(v.source);
-      if (shared) a.shared = { id: shared };
-      else if (v.source) a.file = v.source;
       if (old) {
          // Replaced in place while inline; moving to another placement makes it new again.
          if (old.placement === "inline" && placement === "inline") out[out.indexOf(old)] = a;

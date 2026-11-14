@@ -1,6 +1,6 @@
 import type { SessionApi } from "@harness/api";
 import { VirtualList, type VirtualListHandle } from "@harness/ui";
-import { type Ref, useMemo } from "react";
+import { type Ref, useMemo, useRef } from "react";
 import type { ChatState, Item } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
 import { PlanContext, type PlanCtx } from "../plan/PlanNote";
@@ -11,7 +11,7 @@ import type { splitRenderUi } from "../renderUi/slots";
 import { composerKey } from "../review/reviewComments";
 import type { ChatSubagent } from "../toolDisplay";
 import { WaitingForUser } from "../toolDisplay/waiting";
-import { chatRowsOf, renderUiOf } from "./chatRows";
+import { chatRowsOf, renderUiOf, stabilizeRows } from "./chatRows";
 import { Row } from "./Row";
 import { Working } from "./Working";
 
@@ -21,7 +21,12 @@ export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttache
    // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
    // calls that moved to a slot or were replaced by a later call with their id.
    // Subagent tool calls go inside their Task call's card.
-   const { rows, subagents } = useMemo(() => chatRowsOf(items, ui), [items, ui]);
+   // Kept apart from the shared result: what did not change keeps its identity, so rows can bail out.
+   const last = useRef<ReturnType<typeof chatRowsOf> | null>(null);
+   const { rows, subagents } = useMemo(
+      () => (last.current = stabilizeRows(last.current, chatRowsOf(items, ui))),
+      [items, ui],
+   );
    return { ui, rows, subagents };
 }
 

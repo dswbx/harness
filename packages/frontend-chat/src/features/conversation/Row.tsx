@@ -14,6 +14,7 @@ import type { RawNode } from "../renderUi/tools";
 import { quotableAttrs } from "../review/SelectionComment";
 import { SideReplyFooter } from "../sideChats/SideReplyFooter";
 import type { ChatSubagent, ToolGroup, ToolGroupProps } from "../toolDisplay";
+import { subagentsOf } from "../toolDisplay/group";
 import { TraceDisplay } from "../toolDisplay/TraceDisplay";
 import { ChangesRow } from "./items/ChangesRow";
 import { AgentNotice, Notice } from "./items/Notices";
@@ -26,7 +27,7 @@ import { MessageFooter } from "./MessageFooter";
  */
 const bleed = "[--chat-bleed:1rem] @min-[52rem]:[--expand-out:1]";
 
-export const Row = memo(function Row({
+function RowView({
    item,
    api,
    env,
@@ -146,7 +147,27 @@ export const Row = memo(function Row({
       case "agent_notice":
          return <AgentNotice item={item} />;
    }
-});
+}
+
+type RowProps = Parameters<typeof RowView>[0];
+
+/**
+ * Props equal, except that `view` is compared by its content (each pass of `splitRenderUi` wraps it anew)
+ * and `subagents` by the subagents this row shows: another subagent's progress does not re-render it.
+ */
+function sameRow(a: RowProps, b: RowProps): boolean {
+   const { view: va, subagents: sa, ...ra } = a;
+   const { view: vb, subagents: sb, ...rb } = b;
+   for (const k of Object.keys(ra) as (keyof typeof ra)[]) if (ra[k] !== rb[k]) return false;
+   if ((va?.root ?? null) !== (vb?.root ?? null) || (va?.files ?? null) !== (vb?.files ?? null))
+      return false;
+   if (sa === sb) return true;
+   const x = subagentsOf(a.item, sa);
+   const y = subagentsOf(b.item, sb);
+   return x.length === y.length && x.every((s, i) => s === y[i]);
+}
+
+export const Row = memo(RowView, sameRow);
 
 function ToolGroupRow(props: ToolGroupProps) {
    return <TraceDisplay {...props} />;

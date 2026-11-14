@@ -142,6 +142,51 @@ function scanLine(line: string, ctx: PrRefContext): Found[] {
    return out.sort((a, b) => a.start - b.start);
 }
 
+/** One mention of a message, without its Turn (that depends on the items before it). */
+type Found1 = { id: string; key: string; target: Target; mention: Omit<Mention, "turn"> };
+
+/** The refs of one message. Items are immutable, so this is computed once per item and context. */
+const scanned = new WeakMap<Item, { ctx: PrRefContext | null; found: Found1[] }>();
+
+function scanItem(it: Item & { type: "user" | "agent" }, ctx: PrRefContext | null): Found1[] {
+   const hit = scanned.get(it);
+   if (hit && hit.ctx === ctx) return hit.found;
+   const who = it.type === "user" ? "you" : "agent";
+   const found: Found1[] = [];
+   let fence: RegExp | null = null;
+   for (const line of it.text.split("\n")) {
+      if (fence) {
+         if (fence.test(line)) fence = null;
+         continue;
+      }
+      const open = /^\s*(`{3,}|~{3,})/.exec(line);
+      if (open) {
+         fence = new RegExp(`^\\s*${open[1]![0]}{${open[1]!.length},}\\s*$`);
+         continue;
+      }
+      for (const f of scanLine(line, ctx ?? NO_CONTEXT)) {
+         const t = f.target;
+         const key = t.kind === "pr" ? prKey(t.ref) : t.kind === "file" ? fileRefKey(t.ref) : t.url;
+         found.push({
+            id: `${t.kind}:${key}`,
+            key,
+            target: t,
+            mention: {
+               rowId: it.id,
+               who,
+               ts: it.ts,
+               before: quoteBefore(line.slice(0, f.start)),
+               hit: f.hit,
+               after: quoteAfter(line.slice(f.end)),
+               range: t.kind === "file" ? lineLabel(t.ref) : null,
+            },
+         });
+      }
+   }
+   scanned.set(it, { ctx, found });
+   return found;
+}
+
 /** Everything the Session's user and Agent messages name, one candidate per target, in order of first mention. */
 export function collectReferences(
    items: Item[],
@@ -152,40 +197,14 @@ export function collectReferences(
    for (const it of items) {
       if (it.type !== "user" && it.type !== "agent") continue;
       if (it.type === "user") turn++;
-      const who = it.type === "user" ? "you" : "agent";
-      let fence: RegExp | null = null;
-      for (const line of it.text.split("\n")) {
-         if (fence) {
-            if (fence.test(line)) fence = null;
-            continue;
+      for (const { id, key, target: t, mention } of scanItem(it, ctx)) {
+         let c = byKey.get(id);
+         if (!c) {
+            c = { ...t, key, mentions: [] } as ReferenceCandidate;
+            byKey.set(id, c);
          }
-         const open = /^\s*(`{3,}|~{3,})/.exec(line);
-         if (open) {
-            fence = new RegExp(`^\\s*${open[1]![0]}{${open[1]!.length},}\\s*$`);
-            continue;
-         }
-         for (const f of scanLine(line, ctx ?? NO_CONTEXT)) {
-            const t = f.target;
-            const key =
-               t.kind === "pr" ? prKey(t.ref) : t.kind === "file" ? fileRefKey(t.ref) : t.url;
-            const id = `${t.kind}:${key}`;
-            let c = byKey.get(id);
-            if (!c) {
-               c = { ...t, key, mentions: [] } as ReferenceCandidate;
-               byKey.set(id, c);
-            }
-            if (c.kind === "link" && !c.title && t.kind === "link") c.title = t.title;
-            c.mentions.push({
-               rowId: it.id,
-               turn,
-               who,
-               ts: it.ts,
-               before: quoteBefore(line.slice(0, f.start)),
-               hit: f.hit,
-               after: quoteAfter(line.slice(f.end)),
-               range: t.kind === "file" ? lineLabel(t.ref) : null,
-            });
-         }
+         if (c.kind === "link" && !c.title && t.kind === "link") c.title = t.title;
+         c.mentions.push({ ...mention, turn });
       }
    }
    return [...byKey.values()];

@@ -19,7 +19,7 @@ import {
    type PointType,
    TextNode,
 } from "lexical";
-import { lowlight } from "../markdown/inlineCode";
+import { isCommonLanguage, lowlight } from "../markdown/lowlight";
 import { $offsetIn } from "./promptMarkdown";
 
 /** Larger code blocks stay plain: they are highlighted again on each key press. */
@@ -49,7 +49,7 @@ export function codeLeaves(code: string, language: string | null | undefined): L
       const own = n.properties?.className?.join(" ") || type;
       for (const c of n.children ?? []) walk(c, own);
    };
-   if (language && code.length <= MAX_CHARS && lowlight.registered(language))
+   if (language && code.length <= MAX_CHARS && isCommonLanguage(language))
       walk(lowlight.highlight(language, code));
    else add(code);
    return runs.flatMap(({ text, type }) =>
