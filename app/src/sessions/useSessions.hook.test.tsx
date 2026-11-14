@@ -88,6 +88,23 @@ describe("useSessions", () => {
       expect(list).toHaveBeenCalledTimes(1);
    });
 
+   it("SessionLogHealth marks the row and tells the user once per episode", async () => {
+      const { transport, hook } = setup();
+      await waitFor(() => expect(hook.result.current.settled).toBe(true));
+      const told = vi.spyOn(console, "error").mockImplementation(() => {});
+      const health = (error: string | null) =>
+         emit(transport, { type: "SessionLogHealth", session_id: "mock-1", error, dropped: 0 });
+      health("disk full");
+      health("disk full again");
+      expect(hook.result.current.sessions[0]?.log_error).toBe("disk full again");
+      expect(told).toHaveBeenCalledTimes(1);
+      expect(told.mock.calls[0]?.[0]).toBe("This Session is not being saved");
+      health(null);
+      expect(hook.result.current.sessions[0]?.log_error).toBeNull();
+      health("gone");
+      expect(told).toHaveBeenCalledTimes(2);
+   });
+
    it("settles even when the first load fails", async () => {
       const transport = new MockTransport([], []);
       const client = new HarnessClient(transport);

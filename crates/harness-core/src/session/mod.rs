@@ -122,6 +122,14 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
+        let (session_id, events) = (meta.id.clone(), shared.clone());
+        log.set_health_hook(move |change| {
+            let (error, dropped) = match change {
+                crate::log::LogHealth::Degraded(m) => (Some(m.clone()), 0),
+                crate::log::LogHealth::Recovered { dropped } => (None, *dropped),
+            };
+            events.app_events.emit(crate::api::AppEvent::SessionLogHealth { session_id: session_id.clone(), error, dropped });
+        });
         Self {
             dir: dir.to_owned(),
             meta: Arc::new(parking_lot::Mutex::new(meta)),
@@ -233,6 +241,7 @@ impl Session {
                 branch,
             },
             parent: m.parent.clone(),
+            log_error: self.log.degraded(),
         }
     }
 
@@ -404,7 +413,7 @@ impl Session {
     }
 
     pub fn set_status(&self, status: SessionStatus) {
-        let _ = self.log.append(None, EventKind::SessionStatusChanged { status });
+        self.log.append_or_report(None, EventKind::SessionStatusChanged { status });
         let (session_id, title) = {
             let m = self.meta.lock();
             (m.id.clone(), m.title.clone())

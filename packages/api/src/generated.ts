@@ -49,7 +49,13 @@ unused: boolean } |
  */
 { type: "SharedArtifactChanged"; id: string } | 
 /**  Shared Artifacts were added, removed, renamed, attached or detached: reload the list. */
-{ type: "SharedArtifactsChanged" };
+{ type: "SharedArtifactsChanged" } | 
+/**
+ *  A Session's Log could not be written (`error`: why) or can be again (`error` null). While
+ *  it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
+ *  Live only, not logged. Also `SessionSummary::log_error`.
+ */
+{ type: "SessionLogHealth"; session_id: string; error: string | null; dropped: number };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes" | 
@@ -1001,6 +1007,8 @@ export type SessionSummary = {
 	workspace: WorkspaceInfo,
 	/**  A Sub Session: the Session whose Agent started it (`session_start`). */
 	parent?: SessionParent | null,
+	/**  Why new Events are not being saved to the Session Log right now (disk full, no permission, ...). */
+	log_error?: string | null,
 };
 
 /**  One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search. */

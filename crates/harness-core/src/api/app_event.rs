@@ -45,6 +45,10 @@ pub enum AppEvent {
     SharedArtifactChanged { id: String },
     /// Shared Artifacts were added, removed, renamed, attached or detached: reload the list.
     SharedArtifactsChanged,
+    /// A Session's Log could not be written (`error`: why) or can be again (`error` null). While
+    /// it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
+    /// Live only, not logged. Also `SessionSummary::log_error`.
+    SessionLogHealth { session_id: SessionId, error: Option<String>, dropped: u32 },
 }
 
 /// The View fell too far behind and its subscription was dropped. Events up to `last_seq` were

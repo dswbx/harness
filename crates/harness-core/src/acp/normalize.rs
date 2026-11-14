@@ -35,7 +35,7 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
         EventKind::ToolCallUpdate { background_job: Some(job), .. } => Some(job.clone()),
         _ => None,
     };
-    let _ = session.log().append(thread.clone(), kind);
+    session.log().append_or_report(thread.clone(), kind);
     // After the launch is logged, so the end always comes after it.
     if let Some(job) = job {
         super::jobs::watch(session, thread, job);

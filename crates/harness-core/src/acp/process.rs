@@ -253,7 +253,7 @@ impl AgentSlot {
             }
         });
         for (request_id, p) in cancelled {
-            let _ = session.log().append(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+            session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
             let _ = p.responder.send(None);
         }
         Ok(())
@@ -414,7 +414,7 @@ pub(crate) fn launch_args(spec: &crate::api::AgentInfo, path: &str, overrides: &
 pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let meta = session.meta();
     let log = |kind| {
-        let _ = session.log().append(None, kind);
+        session.log().append_or_report(None, kind);
     };
     log(EventKind::AgentProcessState { state: ProcessState::Starting, message: None });
 
@@ -553,7 +553,7 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
         }
     });
     for (request_id, p) in orphaned {
-        let _ = session.log().append(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+        session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
     }
     if current {
         session.shared().mcp.revoke(session);
@@ -565,7 +565,7 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
         (None, None) => (ProcessState::Exited, None),
     };
     if current || on_purpose {
-        let _ = session.log().append(None, EventKind::AgentProcessState { state, message });
+        session.log().append_or_report(None, EventKind::AgentProcessState { state, message });
         let _ = session.log().sync();
     }
 }

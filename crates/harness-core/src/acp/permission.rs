@@ -87,9 +87,10 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     };
 
     if let Some(option_id) = auto {
-        let _ =
-            session.log().append(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
-        let _ = session.log().append(
+        session
+            .log()
+            .append_or_report(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
+        session.log().append_or_report(
             thread.clone(),
             EventKind::PermissionResolved { request_id, option_id: Some(option_id.clone()), by: Resolver::Policy, rule_id: verdict.rule_id },
         );
@@ -100,7 +101,7 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     let pending = Pending { thread: thread.clone(), responder: Answer::Acp(responder), options: options.clone(), facts };
     slot.add_pending(session, request_id.clone(), pending, || {
         let requested = permission_requested(session, thread.as_ref(), request_id, tool_call, options, harness_tool);
-        let _ = session.log().append(thread, requested);
+        session.log().append_or_report(thread, requested);
     });
     let _ = session.log().sync();
 }

@@ -187,7 +187,7 @@ pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentC
         }
     }
     if let Some(options) = changed {
-        let _ = session.log().append(Some(thread.clone()), EventKind::config_options(options));
+        session.log().append_or_report(Some(thread.clone()), EventKind::config_options(options));
     }
 }
 

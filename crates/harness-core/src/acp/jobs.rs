@@ -41,7 +41,7 @@ pub(super) fn watch(session: &Arc<Session>, thread: Option<ThreadId>, job: Backg
         };
         WATCHED.lock().remove(&job.output_file);
         if ended && let Some(s) = session.upgrade() {
-            let _ = s.log().append(thread, EventKind::BackgroundJobEnded { job_id: job.id });
+            s.log().append_or_report(thread, EventKind::BackgroundJobEnded { job_id: job.id });
         }
     });
 }

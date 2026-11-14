@@ -115,7 +115,7 @@ pub async fn prompt(
                 } else {
                     e.to_string()
                 };
-                let _ = session.log().append(Some(thread.clone()), EventKind::Error { message });
+                session.log().append_or_report(Some(thread.clone()), EventKind::Error { message });
                 "error".to_owned()
             }
         };
@@ -124,7 +124,9 @@ pub async fn prompt(
             && to_tree != from_tree
             && let Ok(diff) = crate::workspace::diff(&folder, &from_tree, &to_tree).await
         {
-            let _ = session.log().append(Some(thread.clone()), EventKind::WorkspaceChanged { turn_id: turn_id.clone(), from_tree, to_tree, files: diff.files });
+            session
+                .log()
+                .append_or_report(Some(thread.clone()), EventKind::WorkspaceChanged { turn_id: turn_id.clone(), from_tree, to_tree, files: diff.files });
         }
         // The Turn stops counting before `TurnEnded` is logged, so a View that sees the end never
         // reads the Session as still working.
@@ -140,7 +142,7 @@ pub async fn prompt(
                 s.tool_sent.clear();
             }
         });
-        let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
+        session.log().append_or_report(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
         let meta = session.meta();
         session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
         let _ = session.log().sync();
@@ -166,7 +168,7 @@ fn report_auth_required(session: &Session, thread: Option<&ThreadId>, message: &
             kind: m.get("type").and_then(Value::as_str).unwrap_or("agent").to_owned(),
         })
         .collect();
-    let _ = session.log().append(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
+    session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
     let _ = session.log().sync();
 }
 
