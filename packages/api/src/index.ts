@@ -13,6 +13,7 @@ export * from "./derive/threads";
 export * from "./derive/toolFacts";
 export * from "./errors";
 export * from "./generated";
+export * from "./github/prGrammar";
 export * from "./github/prRefs";
 export * from "./github/prStore";
 export * from "./platform/files";

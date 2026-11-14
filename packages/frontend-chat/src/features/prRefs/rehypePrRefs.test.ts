@@ -3,7 +3,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { CASE_CTX, REF_CASES } from "../../../../api/src/github/prRefs.cases";
 import { rehypePrRefs } from "./rehypePrRefs";
 
 type Node = {
@@ -80,4 +81,10 @@ it("turns PR autolinks into chips; named PR links and other links stay links", (
 it("does nothing without a context", () => {
    expect(run("#23 supabase/spark#17", null).chips).toEqual([]);
    expect(run("#23 o/r#1", { sessionRepo: null, knownRepos: [] }).chips).toEqual(["o/r#1 o/r#1"]);
+});
+
+describe("shared case table", () => {
+   it.each(Object.entries(REF_CASES))("chips: %s", (_, c) => {
+      expect(run(c.text, CASE_CTX).chips.map((x) => x.split(" ")[0])).toEqual(c.chips);
+   });
 });

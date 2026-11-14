@@ -35,7 +35,10 @@
       "rehype-raw": "^7.0.0",
       "rehype-sanitize": "^6.0.0",
       "remark-breaks": "^4.0.0",
-      "remark-gfm": "^4.0.0"
+      "remark-gfm": "^4.0.0",
+      "remark-parse": "^11.0.0",
+      "remark-rehype": "^11.1.2",
+      "unified": "^11.0.5"
    },
    "peerDependencies": {
       "react": "^19",
@@ -48,9 +51,6 @@
       "@types/react-dom": "^19",
       "react": "^19",
       "react-dom": "^19",
-      "remark-parse": "^11.0.0",
-      "remark-rehype": "^11.1.2",
-      "unified": "^11.0.5",
       "vite": "^8"
    }
 }

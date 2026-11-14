@@ -10,6 +10,7 @@ import {
    qualify,
    resolveRepo,
 } from "./prRefs";
+import { CASE_CTX, REF_CASES } from "./prRefs.cases";
 
 const repo = (full: string): RepoId => {
    const [owner, name] = full.split("/") as [string, string];
@@ -209,4 +210,14 @@ it("parsePrRef reads a number, #number or PR URL", () => {
          parsePrRef,
       ),
    ).toEqual([142, 7, 8, 31, null, null, null]);
+});
+
+describe("shared case table", () => {
+   it.each(Object.entries(REF_CASES))("findPrRefs: %s", (_, c) => {
+      expect(
+         findPrRefs(c.text, CASE_CTX)
+            .filter(isExplicit)
+            .map((m) => m.raw),
+      ).toEqual(c.plain);
+   });
 });

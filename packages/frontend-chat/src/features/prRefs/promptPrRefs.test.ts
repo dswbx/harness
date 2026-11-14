@@ -22,6 +22,7 @@ import {
    type ParagraphNode,
 } from "lexical";
 import { describe, expect, it } from "vitest";
+import { REF_CASES } from "../../../../api/src/github/prRefs.cases";
 import {
    $exportMarkdown,
    PROMPT_NODES,
@@ -37,6 +38,7 @@ import {
    $unchip,
    autoChips,
    type CaretToken,
+   PR_REF,
    registerAutoChip,
 } from "./promptPrRefs";
 
@@ -392,5 +394,12 @@ describe("# menu token and pick", () => {
       );
       expect(done).toBe(false);
       expect(shape(ed)).toEqual(["#fix"]);
+   });
+});
+
+describe("shared case table", () => {
+   it.each(Object.entries(REF_CASES))("import grammar: %s", (_, c) => {
+      const re = new RegExp(PR_REF.importRegExp!.source, "g");
+      expect([...c.text.matchAll(re)].map((m) => m[0])).toEqual(c.qualified);
    });
 });

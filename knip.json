@@ -12,13 +12,13 @@
       },
       "packages/*": {
          "project": ["src/**/*.{ts,tsx}"],
-         "ignore": ["**/*.test.{ts,tsx}"]
+         "ignore": ["**/*.test.{ts,tsx}", "**/*.cases.ts"]
       },
       "packages/frontend-chat": {
          "entry": ["src/panels/usePanelTarget.ts"],
          "project": ["src/**/*.{ts,tsx}"],
          "ignore": ["**/*.test.{ts,tsx}", "src/state/syntheticLog.ts"],
-         "ignoreDependencies": ["@lexical/headless", "remark-parse", "remark-rehype", "unified"]
+         "ignoreDependencies": ["@lexical/headless"]
       },
       "packages/ui": {
          "project": ["src/**/*.{ts,tsx}"],
