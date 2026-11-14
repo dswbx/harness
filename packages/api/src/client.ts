@@ -1,3 +1,4 @@
+import { CommandError } from "./errors";
 import type {
    AgentInfo,
    AppEvent,
@@ -210,18 +211,24 @@ export interface SessionApi {
    sharedListChanged(onChange: () => void): Promise<Unsubscribe>;
 }
 
+/** Runs a Command and returns its result, which must be `type`; anything else is a bug and rejects with `internal`. */
+async function expectResult<T extends CommandResult["type"]>(
+   transport: Transport,
+   cmd: Command,
+   type: T,
+): Promise<Extract<CommandResult, { type: T }>> {
+   const r = await transport.execute(cmd);
+   if (r.type !== type)
+      throw new CommandError("internal", `unexpected result: ${r.type} for ${cmd.type}`);
+   return r as Extract<CommandResult, { type: T }>;
+}
+
 export function createSessionApi(transport: Transport, sessionId: string): SessionApi {
    const run = async (cmd: Command) => {
       await transport.execute(cmd);
    };
-   const expect = async <T extends Awaited<ReturnType<Transport["execute"]>>["type"]>(
-      cmd: Command,
-      type: T,
-   ) => {
-      const r = await transport.execute(cmd);
-      if (r.type !== type) throw new Error("unexpected result: " + r.type);
-      return r as Extract<typeof r, { type: T }>;
-   };
+   const expect = <T extends CommandResult["type"]>(cmd: Command, type: T) =>
+      expectResult(transport, cmd, type);
    return {
       sessionId,
       subscribe: (onEvent, fromSeq = 0) =>
@@ -270,10 +277,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       setMode: (mode_id, threadId = null) =>
          run({ type: "SetMode", session_id: sessionId, thread_id: threadId, mode_id }),
       workspace: async () => {
-         const r = await transport.execute({ type: "ListSessions" });
-         return r.type === "Sessions"
-            ? (r.sessions.find((s) => s.id === sessionId)?.workspace ?? null)
-            : null;
+         const r = await expect({ type: "ListSessions" }, "Sessions");
+         return r.sessions.find((s) => s.id === sessionId)?.workspace ?? null;
       },
       archive: () => run({ type: "ArchiveSession", session_id: sessionId }),
       unarchive: () => run({ type: "UnarchiveSession", session_id: sessionId }),
@@ -325,8 +330,7 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
             line: line ?? null,
          }),
       getEditor: async () => {
-         const r = await transport.execute({ type: "GetEditor" });
-         return r.type === "Editor" ? r.editor : null;
+         return (await expect({ type: "GetEditor" }, "Editor")).editor;
       },
       exportPlan: async (name, markdown, openInEditor) =>
          (
@@ -435,12 +439,15 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
 }
 
 const listShared = async (transport: Transport, query?: string | null) => {
-   const r = await transport.execute({ type: "ListSharedArtifacts", query: query || null });
-   return r.type === "SharedArtifactList" ? r.artifacts : [];
+   const r = await expectResult(
+      transport,
+      { type: "ListSharedArtifacts", query: query || null },
+      "SharedArtifactList",
+   );
+   return r.artifacts;
 };
 const readShared = async (transport: Transport, id: string): Promise<SharedArtifactData> => {
-   const r = await transport.execute({ type: "SharedArtifactRead", id });
-   if (r.type !== "SharedArtifact") throw new Error(`unexpected result: ${r.type}`);
+   const r = await expectResult(transport, { type: "SharedArtifactRead", id }, "SharedArtifact");
    const { type: _, ...data } = r;
    return data;
 };
@@ -454,17 +461,15 @@ export class HarnessClient {
    constructor(private transport: Transport) {}
 
    async listSessions(): Promise<SessionSummary[]> {
-      const r = await this.transport.execute({ type: "ListSessions" });
-      return r.type === "Sessions" ? r.sessions : [];
+      return (await expectResult(this.transport, { type: "ListSessions" }, "Sessions")).sessions;
    }
    async listAgents(): Promise<AgentInfo[]> {
-      const r = await this.transport.execute({ type: "ListAgents" });
-      return r.type === "Agents" ? r.agents : [];
+      return (await expectResult(this.transport, { type: "ListAgents" }, "Agents")).agents;
    }
    /** ACP Registry entries; `refresh` re-fetches instead of using the local cache. */
    async listRegistry(refresh = false): Promise<RegistryAgent[]> {
-      const r = await this.transport.execute({ type: "ListRegistry", refresh });
-      return r.type === "Registry" ? r.agents : [];
+      return (await expectResult(this.transport, { type: "ListRegistry", refresh }, "Registry"))
+         .agents;
    }
    /**
     * Slow on first use (downloads Node/uv + package). Also updates an installed Agent: the update
@@ -472,24 +477,33 @@ export class HarnessClient {
     * registry lists no sha256 for is refused unless `allowUnverified`.
     */
    async installAgent(registryId: string, allowUnverified = false): Promise<AgentInfo> {
-      const r = await this.transport.execute({
-         type: "InstallAgent",
-         registry_id: registryId,
-         allow_unverified: allowUnverified,
-      });
-      if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         {
+            type: "InstallAgent",
+            registry_id: registryId,
+            allow_unverified: allowUnverified,
+         },
+         "AgentInstalled",
+      );
       return r.agent;
    }
    /** Back to the previous version (and held there). */
    async rollbackAgent(agentId: string): Promise<AgentInfo> {
-      const r = await this.transport.execute({ type: "RollbackAgent", agent_id: agentId });
-      if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         { type: "RollbackAgent", agent_id: agentId },
+         "AgentInstalled",
+      );
       return r.agent;
    }
    /** Held Agents stay at their current version. */
    async holdAgentVersion(agentId: string, hold: boolean): Promise<AgentInfo> {
-      const r = await this.transport.execute({ type: "HoldAgentVersion", agent_id: agentId, hold });
-      if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         { type: "HoldAgentVersion", agent_id: agentId, hold },
+         "AgentInstalled",
+      );
       return r.agent;
    }
    async addCustomAgent(args: {
@@ -498,28 +512,28 @@ export class HarnessClient {
       args: string[];
       env: Record<string, string>;
    }): Promise<AgentInfo> {
-      const r = await this.transport.execute({ type: "AddCustomAgent", ...args });
-      if (r.type !== "AgentInstalled") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         { type: "AddCustomAgent", ...args },
+         "AgentInstalled",
+      );
       return r.agent;
    }
    /** An app setting (appearance, imported themes): JSON the app owns; null until saved. */
    async getAppSetting(key: AppSettingKey): Promise<unknown> {
-      const r = await this.transport.execute({ type: "GetAppSetting", key });
-      return r.type === "Json" ? r.value : null;
+      return (await expectResult(this.transport, { type: "GetAppSetting", key }, "Json")).value;
    }
    async setAppSetting(key: AppSettingKey, value: unknown): Promise<void> {
       await this.transport.execute({ type: "SetAppSetting", key, value: value ?? null });
    }
    /** The JSON at an https URL (read by the core), e.g. a theme's registry item. */
    async fetchJson(url: string): Promise<unknown> {
-      const r = await this.transport.execute({ type: "FetchJson", url });
-      if (r.type !== "Json") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(this.transport, { type: "FetchJson", url }, "Json");
       return r.value;
    }
    /** Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
    async getWorktreeDir(): Promise<string> {
-      const r = await this.transport.execute({ type: "GetWorktreeDir" });
-      if (r.type !== "WorktreeDir") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(this.transport, { type: "GetWorktreeDir" }, "WorktreeDir");
       return r.dir;
    }
    /** null resets to the default (`.harness` in the repository). */
@@ -528,8 +542,7 @@ export class HarnessClient {
    }
    /** The editor for "Open in editor"; null until chosen. */
    async getEditor(): Promise<Editor | null> {
-      const r = await this.transport.execute({ type: "GetEditor" });
-      return r.type === "Editor" ? r.editor : null;
+      return (await expectResult(this.transport, { type: "GetEditor" }, "Editor")).editor;
    }
    async setEditor(editor: Editor | null): Promise<void> {
       await this.transport.execute({ type: "SetEditor", editor });
@@ -546,8 +559,7 @@ export class HarnessClient {
       await this.transport.execute({ type: "RemoveAgent", agent_id: agentId });
    }
    async listFrontends(): Promise<FrontendManifest[]> {
-      const r = await this.transport.execute({ type: "ListFrontends" });
-      return r.type === "Frontends" ? r.frontends : [];
+      return (await expectResult(this.transport, { type: "ListFrontends" }, "Frontends")).frontends;
    }
    async createSession(args: {
       folder: string;
@@ -564,19 +576,22 @@ export class HarnessClient {
       /** MCP Library server ids to give the Agent. */
       mcpServers?: string[];
    }): Promise<string> {
-      const r = await this.transport.execute({
-         type: "CreateSession",
-         folder: args.folder,
-         agent_id: args.agentId,
-         frontend_id: args.frontendId,
-         title: args.title || null,
-         branch: args.branch ?? null,
-         worktree: args.worktree ?? false,
-         new_branch: args.newBranch ?? null,
-         pr: args.pr ?? null,
-         mcp_servers: args.mcpServers ?? [],
-      });
-      if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         {
+            type: "CreateSession",
+            folder: args.folder,
+            agent_id: args.agentId,
+            frontend_id: args.frontendId,
+            title: args.title || null,
+            branch: args.branch ?? null,
+            worktree: args.worktree ?? false,
+            new_branch: args.newBranch ?? null,
+            pr: args.pr ?? null,
+            mcp_servers: args.mcpServers ?? [],
+         },
+         "SessionCreated",
+      );
       return r.session_id;
    }
    /** A Session with no folder from the user: the core makes an empty one for it. */
@@ -586,25 +601,30 @@ export class HarnessClient {
       title?: string | null;
       mcpServers?: string[];
    }): Promise<string> {
-      const r = await this.transport.execute({
-         type: "CreateQuickSession",
-         agent_id: args.agentId,
-         frontend_id: args.frontendId,
-         title: args.title || null,
-         mcp_servers: args.mcpServers ?? [],
-      });
-      if (r.type !== "SessionCreated") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         {
+            type: "CreateQuickSession",
+            agent_id: args.agentId,
+            frontend_id: args.frontendId,
+            title: args.title || null,
+            mcp_servers: args.mcpServers ?? [],
+         },
+         "SessionCreated",
+      );
       return r.session_id;
    }
    async listBranches(folder: string): Promise<Branches> {
-      const r = await this.transport.execute({ type: "ListBranches", folder });
-      if (r.type !== "Branches") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(this.transport, { type: "ListBranches", folder }, "Branches");
       return r.branches;
    }
    /** Open PRs of the folder's GitHub repository (needs `gh`); throws when unavailable. */
    async listPullRequests(folder: string, filter: PrFilter = "open"): Promise<PullRequest[]> {
-      const r = await this.transport.execute({ type: "ListPullRequests", folder, filter });
-      if (r.type !== "PullRequests") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         { type: "ListPullRequests", folder, filter },
+         "PullRequests",
+      );
       return r.prs;
    }
 
@@ -627,28 +647,34 @@ export class HarnessClient {
       await this.transport.execute({ type: "DiscardEmptySession", session_id: sessionId });
    }
    async listMcpServers(): Promise<McpServerDef[]> {
-      const r = await this.transport.execute({ type: "ListMcpServers" });
-      return r.type === "McpServers" ? r.servers : [];
+      return (await expectResult(this.transport, { type: "ListMcpServers" }, "McpServers")).servers;
    }
    /** `secrets`: values for `server.secret_keys` (Keychain). Omitted ones keep the stored value. */
    async saveMcpServer(
       server: McpServerDef,
       secrets: Record<string, string> = {},
    ): Promise<McpServerDef> {
-      const r = await this.transport.execute({ type: "SaveMcpServer", server, secrets });
-      if (r.type !== "McpServerSaved") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         { type: "SaveMcpServer", server, secrets },
+         "McpServerSaved",
+      );
       return r.server;
    }
    async removeMcpServer(serverId: string): Promise<void> {
       await this.transport.execute({ type: "RemoveMcpServer", server_id: serverId });
    }
    async listPermissionRules(): Promise<PermissionRule[]> {
-      const r = await this.transport.execute({ type: "ListPermissionRules" });
-      return r.type === "PermissionRules" ? r.rules : [];
+      return (
+         await expectResult(this.transport, { type: "ListPermissionRules" }, "PermissionRules")
+      ).rules;
    }
    async addPermissionRule(rule: NewPermissionRule): Promise<PermissionRule> {
-      const r = await this.transport.execute({ type: "AddPermissionRule", rule });
-      if (r.type !== "PermissionRuleAdded") throw new Error("unexpected result: " + r.type);
+      const r = await expectResult(
+         this.transport,
+         { type: "AddPermissionRule", rule },
+         "PermissionRuleAdded",
+      );
       return r.rule;
    }
    async removePermissionRule(ruleId: string): Promise<void> {
@@ -666,8 +692,11 @@ export class HarnessClient {
       return readShared(this.transport, id);
    }
    async renameSharedArtifact(id: string, title: string): Promise<SharedArtifactMeta> {
-      const r = await this.transport.execute({ type: "RenameSharedArtifact", id, title });
-      if (r.type !== "SharedArtifactInfo") throw new Error(`unexpected result: ${r.type}`);
+      const r = await expectResult(
+         this.transport,
+         { type: "RenameSharedArtifact", id, title },
+         "SharedArtifactInfo",
+      );
       return r.meta;
    }
    /** Opens a Shared Artifact's content file in the user's editor (no Session needed). */
@@ -678,12 +707,15 @@ export class HarnessClient {
       await this.transport.execute({ type: "DeleteSharedArtifact", id });
    }
    async attachSharedArtifact(sessionId: string, id: string): Promise<SharedArtifactMeta> {
-      const r = await this.transport.execute({
-         type: "AttachSharedArtifact",
-         session_id: sessionId,
-         id,
-      });
-      if (r.type !== "SharedArtifactInfo") throw new Error(`unexpected result: ${r.type}`);
+      const r = await expectResult(
+         this.transport,
+         {
+            type: "AttachSharedArtifact",
+            session_id: sessionId,
+            id,
+         },
+         "SharedArtifactInfo",
+      );
       return r.meta;
    }
    /** Changes a Shared Artifact's state with no Session (nothing is logged). */

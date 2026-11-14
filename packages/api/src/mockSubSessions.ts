@@ -97,10 +97,7 @@ const tool = (name: string, input: unknown, out: unknown, failed = false): Event
    ] as EventKind[];
 };
 
-const start: EventKind[] = [
-   { type: "ThreadStarted", agent_id: "codex", main: true },
-   { type: "AgentProcessState", state: "ready", message: null },
-];
+const start: EventKind[] = [{ type: "AgentProcessState", state: "ready", message: null }];
 
 const A_TASK = "Export the schema helpers from `jsonv-ts` so Harness can import them. Open a PR.";
 const A_BUMP = "Also bump the version in package.json to 0.9.0.";

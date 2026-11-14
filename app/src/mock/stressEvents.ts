@@ -22,6 +22,7 @@ export function stressEvents(turns = 21): Event[] {
          agent_id: "claude",
          folder: "/mock/project",
       } as EventKind),
+      ev({ type: "ThreadStarted", agent_id: "claude", main: true }),
    ];
    const output = (n: number, lines: number) =>
       Array.from(

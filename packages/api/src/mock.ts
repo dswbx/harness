@@ -765,7 +765,8 @@ export class MockTransport implements Transport {
          s.created_ms = Date.now() - 3 * h;
          s.updated_ms = Date.now() - age * h;
          if (status) s.status = status;
-         if (id !== "mock-p1") s.parent = { session_id: "mock-p1", thread_id: "main" };
+         if (id !== "mock-p1")
+            s.parent = { session_id: "mock-p1", thread_id: this.mainThread("mock-p1") };
       }
       for (const [sid, kinds] of Object.entries(mockSubSessionLogs())) {
          for (const k of kinds) this.emit(sid, k);
@@ -848,6 +849,22 @@ export class MockTransport implements Transport {
               }))
             : [],
       );
+      // Like the core, every log starts with SessionCreated and the Main Thread (a fixture has its own).
+      if (!replay || !mainId) {
+         this.emit(
+            id,
+            { type: "SessionCreated", title, frontend_id, agent_id: "codex", folder },
+            null,
+         );
+         this.emit(id, { type: "ThreadStarted", agent_id: "codex", main: true }, `${id}-main`);
+      }
+   }
+
+   /** The Session's Main Thread id: the one its `ThreadStarted` with `main` set opened. */
+   private mainThread(sid: string): string {
+      const main = this.logs.get(sid)?.find((e) => e.kind.type === "ThreadStarted" && e.kind.main);
+      if (!main?.thread_id) throw new CommandError("internal", `Session ${sid} has no Main Thread`);
+      return main.thread_id;
    }
 
    private commitN = 0;
@@ -957,14 +974,9 @@ export class MockTransport implements Transport {
 
    private emit(sessionId: string, kind: EventKind, thread_id?: string | null) {
       const log = this.logs.get(sessionId)!;
-      if (thread_id === undefined) {
-         const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main);
-         thread_id = main?.thread_id ?? "main";
-      }
-      if (kind.type === "ConfigOptionsChanged") {
-         const main = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main);
-         if (thread_id === (main?.thread_id ?? "main")) kind = withSideMode(kind);
-      }
+      if (thread_id === undefined) thread_id = this.mainThread(sessionId);
+      if (kind.type === "ConfigOptionsChanged" && thread_id === this.mainThread(sessionId))
+         kind = withSideMode(kind);
       const e: Event = {
          v: 1,
          seq: log.length,
@@ -1004,7 +1016,7 @@ export class MockTransport implements Transport {
          case "InstallAgent": {
             const entry = MOCK_REGISTRY.find((a) => a.id === cmd.registry_id);
             if (!entry || !entry.install_method)
-               throw new Error("Agent is not installable on this machine");
+               throw new CommandError("internal", "Agent is not installable on this machine");
             await new Promise((r) => setTimeout(r, 1500));
             const agent: AgentInfo = {
                id: entry.id,
@@ -1039,7 +1051,7 @@ export class MockTransport implements Transport {
                .toLowerCase()
                .replace(/[^a-z0-9]+/g, "-")
                .replace(/^-|-$/g, "");
-            if (!slug) throw new Error("name required");
+            if (!slug) throw new CommandError("invalid", "name required");
             const agent: AgentInfo = {
                id: `custom-${slug}`,
                name: cmd.name,
@@ -1063,7 +1075,7 @@ export class MockTransport implements Transport {
          }
          case "HoldAgentVersion": {
             const cur = this.installed.find((a) => a.id === cmd.agent_id);
-            if (!cur) throw new Error(`unknown Agent ${cmd.agent_id}`);
+            if (!cur) throw new CommandError("internal", `unknown Agent ${cmd.agent_id}`);
             const agent = { ...cur, install: { ...cur.install, held: cmd.hold } as InstallInfo };
             this.installed = this.installed.map((a) => (a.id === agent.id ? agent : a));
             this.emitApp({ type: "AgentsChanged" });
@@ -1072,7 +1084,7 @@ export class MockTransport implements Transport {
          case "RollbackAgent": {
             const cur = this.installed.find((a) => a.id === cmd.agent_id);
             const prev = cur?.install?.previous;
-            if (!cur || !prev) throw new Error("no previous version");
+            if (!cur || !prev) throw new CommandError("internal", "no previous version");
             const agent: AgentInfo = {
                ...cur,
                version: prev.version,
@@ -1109,11 +1121,18 @@ export class MockTransport implements Transport {
             const id = `mock-${++this.n + 1}`;
             const isRepo = !cmd.folder.includes("norepo");
             if (!isRepo && (cmd.worktree || cmd.branch))
-               throw new Error("not a git repository: worktree and branch are not available");
+               throw new CommandError(
+                  "internal",
+                  "not a git repository: worktree and branch are not available",
+               );
             const pr = cmd.pr != null ? MOCK_PRS.find((p) => p.number === cmd.pr) : undefined;
-            if (cmd.pr != null && !pr) throw new Error(`no pull request #${cmd.pr}`);
+            if (cmd.pr != null && !pr)
+               throw new CommandError("internal", `no pull request #${cmd.pr}`);
             if (!pr && !cmd.worktree && !cmd.new_branch && cmd.branch && cmd.branch !== "main")
-               throw new Error("cannot check out branch: the folder has uncommitted changes");
+               throw new CommandError(
+                  "internal",
+                  "cannot check out branch: the folder has uncommitted changes",
+               );
             const worktree = cmd.worktree;
             const workspace: WorkspaceInfo = {
                repo_root: isRepo ? cmd.folder : null,
@@ -1179,7 +1198,7 @@ export class MockTransport implements Transport {
             };
          case "ListPullRequests": {
             if (cmd.folder.includes("norepo") || cmd.folder.includes("nogh"))
-               throw new Error("gh: no GitHub remote");
+               throw new CommandError("internal", "gh: no GitHub remote");
             const prs =
                cmd.filter === "mine"
                   ? MOCK_PRS.filter((p) => p.author === "you")
@@ -1199,7 +1218,8 @@ export class MockTransport implements Transport {
          case "DeleteSession": {
             const s = this.session(cmd.session_id);
             if (s.workspace.worktree_branch && !cmd.force)
-               throw new Error(
+               throw new CommandError(
+                  "conflict",
                   `Worktree branch ${s.workspace.worktree_branch} has unmerged commits; delete anyway to discard them`,
                );
             this.sessions = this.sessions.filter((x) => x.id !== cmd.session_id);
@@ -1249,7 +1269,10 @@ export class MockTransport implements Transport {
                const content =
                   this.panelFiles.get(sid)?.get(input.source) ?? MOCK_PANEL_SOURCES[input.source];
                if (content === undefined)
-                  throw new Error(`source "${input.source}" does not exist in panels_dir`);
+                  throw new CommandError(
+                     "internal",
+                     `source "${input.source}" does not exist in panels_dir`,
+                  );
                const html = input.source.endsWith(".html");
                const ui = input.source.endsWith(".json");
                a = this.createShared(
@@ -1400,7 +1423,7 @@ export class MockTransport implements Transport {
          }
          case "GitStatus": {
             if (!this.session(cmd.session_id).workspace.repo_root)
-               throw new Error("not a git repository");
+               throw new CommandError("internal", "not a git repository");
             return {
                type: "GitStatus",
                status: {
@@ -1419,7 +1442,7 @@ export class MockTransport implements Transport {
          }
          case "GitDiff": {
             if (!this.session(cmd.session_id).workspace.repo_root)
-               throw new Error("not a git repository");
+               throw new CommandError("internal", "not a git repository");
             if (cmd.from !== null || cmd.to !== null) {
                // Revs the UI sends: "HEAD".."" = uncommitted; "<sha>^"..("<sha>" | null) = commits in the span.
                let paths: Set<string>;
@@ -1455,7 +1478,7 @@ export class MockTransport implements Transport {
          }
          case "GitLog":
             if (!this.session(cmd.session_id).workspace.repo_root)
-               throw new Error("not a git repository");
+               throw new CommandError("internal", "not a git repository");
             return { type: "GitLog", commits: [...MOCK_COMMITS] };
          case "ListTerminals": {
             const tabs = this.tabs(cmd.session_id);
@@ -1500,7 +1523,7 @@ export class MockTransport implements Transport {
                   "",
             };
          case "GitCommit": {
-            if (!cmd.message.trim()) throw new Error("empty commit message");
+            if (!cmd.message.trim()) throw new CommandError("internal", "empty commit message");
             const commit = `c${++this.commitN}ab12cd`;
             this.committed.add(cmd.session_id);
             this.ahead.set(cmd.session_id, (this.ahead.get(cmd.session_id) ?? 0) + 1);
@@ -1513,10 +1536,12 @@ export class MockTransport implements Transport {
             return { type: "Committed", commit };
          }
          case "UpdateBranch": {
-            if (cmd.folder.includes("norepo")) throw new Error("not a git repository");
+            if (cmd.folder.includes("norepo"))
+               throw new CommandError("internal", "not a git repository");
             await new Promise((r) => setTimeout(r, 600));
             const b = MOCK_BRANCHES.find((b) => b.name === cmd.branch);
-            if (!b) throw new Error(`fatal: couldn't find remote ref ${cmd.branch}`);
+            if (!b)
+               throw new CommandError("internal", `fatal: couldn't find remote ref ${cmd.branch}`);
             b.behind = 0;
             return { type: "Ok" };
          }
@@ -1549,7 +1574,7 @@ export class MockTransport implements Transport {
                .replace(/[^a-z0-9]+/g, "-")
                .replace(/^-|-$/g, "");
             const id = cmd.server.id || slug;
-            if (!id) throw new Error("name required");
+            if (!id) throw new CommandError("internal", "name required");
             // Secret values never come back: keep only the key names.
             const server: McpServerDef = {
                ...cmd.server,
@@ -1564,14 +1589,17 @@ export class MockTransport implements Transport {
             return { type: "Ok" };
          case "FrontendRead": {
             const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);
-            if (c === undefined) throw new Error(`no such file: ${cmd.path}`);
+            if (c === undefined) throw new CommandError("internal", `no such file: ${cmd.path}`);
             return { type: "FileContent", content: c };
          }
          case "PanelSourceRead": {
             const content =
                this.panelFiles.get(cmd.session_id)?.get(cmd.name) ?? MOCK_PANEL_SOURCES[cmd.name];
             if (content === undefined)
-               throw new Error(`source "${cmd.name}" does not exist in panels_dir`);
+               throw new CommandError(
+                  "internal",
+                  `source "${cmd.name}" does not exist in panels_dir`,
+               );
             const mtime_ms =
                this.panelMtimes.get(`${cmd.session_id}/${cmd.name}`) ?? Date.now() - 3 * 3_600_000;
             const path = `/Users/mock/.harness-dev/sessions/${cmd.session_id}/panels/${cmd.name}`;
@@ -1585,7 +1613,10 @@ export class MockTransport implements Transport {
          case "FetchJson":
             // No network in the mock: any tweakcn theme URL gets a small sample registry item.
             if (!/tweakcn\.com\/r\/themes\//.test(cmd.url))
-               throw new Error(`fetch ${cmd.url}: The requested URL returned error: 404`);
+               throw new CommandError(
+                  "internal",
+                  `fetch ${cmd.url}: The requested URL returned error: 404`,
+               );
             return { type: "Json", value: MOCK_THEME };
          case "GetWorktreeDir":
             return { type: "WorktreeDir", dir: this.worktreeDir };
@@ -1622,7 +1653,8 @@ export class MockTransport implements Transport {
                want in MOCK_NEW
                   ? [want]
                   : Object.keys(MOCK_NEW).filter((p) => p.endsWith(`/${want}`));
-            if (hits.length !== 1) throw new Error(`${cmd.path}: No such file or directory`);
+            if (hits.length !== 1)
+               throw new CommandError("internal", `${cmd.path}: No such file or directory`);
             const path = hits[0]!;
             const text = MOCK_NEW[path]!;
             const all = text.replace(/\n$/, "").split("\n");
@@ -1646,7 +1678,7 @@ export class MockTransport implements Transport {
          }
          case "FrontendReadImage": {
             const c = this.frontendFiles.get(cmd.session_id)?.get(cmd.path);
-            if (c === undefined) throw new Error(`no such image: ${cmd.path}`);
+            if (c === undefined) throw new CommandError("internal", `no such image: ${cmd.path}`);
             return { type: "Attachment", mime: "image/svg+xml", data: btoa(c) };
          }
          case "FrontendWrite": {
@@ -1694,7 +1726,7 @@ export class MockTransport implements Transport {
                   main: false,
                   ...(!fresh && {
                      forked_from: {
-                        thread_id: main?.thread_id ?? "main",
+                        thread_id: this.mainThread(sid),
                         turn: mainTurns,
                         seq: log.length - 1,
                      },
@@ -1752,7 +1784,8 @@ export class MockTransport implements Transport {
                const mine = latest(cmd.thread_id);
                const target = mine?.find((o) => o.id === id);
                if (!mine || !target || !isModeOption(target))
-                  throw new Error(
+                  throw new CommandError(
+                     "internal",
                      "Side threads follow the Main Thread's config options; only the mode can be changed here",
                   );
                this.emit(
@@ -1830,10 +1863,10 @@ export class MockTransport implements Transport {
             return { type: "Ok" };
          }
          case "ReadImageFile":
-            throw new Error("no file access in the browser mock");
+            throw new CommandError("internal", "no file access in the browser mock");
          case "ReadAttachment": {
             const a = this.attachments.get(cmd.path);
-            if (!a) throw new Error("not an attachment of this Session");
+            if (!a) throw new CommandError("internal", "not an attachment of this Session");
             return { type: "Attachment", mime: a.mime, data: a.data };
          }
          case "Prompt": {
@@ -1889,7 +1922,10 @@ export class MockTransport implements Transport {
                   errors: ["resume: Internal error"],
                   transcript: { kept_turns: 18, total_turns: 42 },
                });
-               throw new Error("The Agent could not reopen its earlier session.");
+               throw new CommandError(
+                  "internal",
+                  "The Agent could not reopen its earlier session.",
+               );
             }
             if (cmd.text.trim() === "/restorefail")
                this.emit(sid, {
@@ -2170,6 +2206,13 @@ export class MockTransport implements Transport {
                   files: MOCK_FILES,
                });
                this.emit(sid, { type: "TurnEnded", turn_id: turn, stop_reason: "end_turn" });
+               this.emitApp({
+                  type: "TurnFinished",
+                  session_id: sid,
+                  thread_id: this.mainThread(sid),
+                  title: this.session(sid).title,
+                  stop_reason: "end_turn",
+               });
                // Typing "attention" in a prompt leaves the mock Session needing attention.
                this.setStatus(sid, cmd.text.includes("attention") ? "needs_attention" : "idle");
             }, end);

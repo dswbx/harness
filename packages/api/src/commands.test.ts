@@ -1,0 +1,159 @@
+import { describe, expect, it } from "vitest";
+import type { Command } from "./generated";
+import { MockTransport } from "./mock";
+
+const S = "mock-s1";
+const ART = "release-checklist-3f9a1c";
+const repo = { owner: "dswbx", name: "harness" };
+
+/** A minimal valid instance of every Command. A new Command fails the typecheck until it has a row. */
+const table: Record<Command["type"], () => Command> = {
+   ListAgents: () => ({ type: "ListAgents" }),
+   ListRegistry: () => ({ type: "ListRegistry" }),
+   InstallAgent: () => ({ type: "InstallAgent", registry_id: "claude-acp" }),
+   RollbackAgent: () => ({ type: "RollbackAgent", agent_id: "claude-acp" }),
+   HoldAgentVersion: () => ({ type: "HoldAgentVersion", agent_id: "claude-acp", hold: true }),
+   AddCustomAgent: () => ({ type: "AddCustomAgent", name: "Mine", command: "x" }),
+   RemoveAgent: () => ({ type: "RemoveAgent", agent_id: "claude-acp" }),
+   Authenticate: () => ({ type: "Authenticate", session_id: S, method_id: "m" }),
+   OpenAuthTerminal: () => ({ type: "OpenAuthTerminal", session_id: S, method_id: "m" }),
+   ListFrontends: () => ({ type: "ListFrontends" }),
+   ListSessions: () => ({ type: "ListSessions" }),
+   CreateSession: () => ({
+      type: "CreateSession",
+      folder: "/tmp/x",
+      agent_id: "codex",
+      frontend_id: "chat",
+      title: null,
+   }),
+   CreateQuickSession: () => ({
+      type: "CreateQuickSession",
+      agent_id: "codex",
+      frontend_id: "chat",
+      title: null,
+   }),
+   ListMcpServers: () => ({ type: "ListMcpServers" }),
+   SaveMcpServer: () => ({
+      type: "SaveMcpServer",
+      server: { name: "s", transport: { type: "stdio", command: "x" } },
+   }),
+   RemoveMcpServer: () => ({ type: "RemoveMcpServer", server_id: "s" }),
+   FrontendRead: () => ({ type: "FrontendRead", session_id: S, path: "a.txt" }),
+   PanelSourceRead: () => ({ type: "PanelSourceRead", session_id: S, name: "n" }),
+   GetAppSetting: () => ({ type: "GetAppSetting", key: "appearance" }),
+   SetAppSetting: () => ({ type: "SetAppSetting", key: "appearance", value: {} }),
+   AnswerFrontendRequest: () => ({
+      type: "AnswerFrontendRequest",
+      session_id: S,
+      request_id: "r",
+      answer: { text: "ok" },
+   }),
+   FetchJson: () => ({ type: "FetchJson", url: "https://example.com/a.json" }),
+   GetWorktreeDir: () => ({ type: "GetWorktreeDir" }),
+   SetWorktreeDir: () => ({ type: "SetWorktreeDir", dir: null }),
+   GetEditor: () => ({ type: "GetEditor" }),
+   SetEditor: () => ({ type: "SetEditor", editor: { type: "zed" } }),
+   OpenInEditor: () => ({ type: "OpenInEditor", session_id: S }),
+   ExportPlan: () => ({ type: "ExportPlan", session_id: S, name: "plan", markdown: "# p" }),
+   ListSessionFiles: () => ({ type: "ListSessionFiles", session_id: S }),
+   ReadSessionFile: () => ({ type: "ReadSessionFile", session_id: S, path: "a.ts" }),
+   GetState: () => ({ type: "GetState", session_id: S }),
+   PatchState: () => ({ type: "PatchState", session_id: S, ops: [] }),
+   ReportFrontendError: () => ({
+      type: "ReportFrontendError",
+      session_id: S,
+      tool: "t",
+      item: "i",
+      message: "m",
+   }),
+   FrontendReadImage: () => ({ type: "FrontendReadImage", session_id: S, path: "a.png" }),
+   FrontendWrite: () => ({ type: "FrontendWrite", session_id: S, path: "a.txt", content: "x" }),
+   FrontendList: () => ({ type: "FrontendList", session_id: S }),
+   ListBranches: () => ({ type: "ListBranches", folder: "/tmp/x" }),
+   ListPullRequests: () => ({ type: "ListPullRequests", folder: "/tmp/x" }),
+   UpdateBranch: () => ({ type: "UpdateBranch", folder: "/tmp/x", branch: "main" }),
+   ArchiveSession: () => ({ type: "ArchiveSession", session_id: S }),
+   UnarchiveSession: () => ({ type: "UnarchiveSession", session_id: S }),
+   DeleteSession: () => ({ type: "DeleteSession", session_id: S }),
+   DiscardEmptySession: () => ({ type: "DiscardEmptySession", session_id: S }),
+   GitStatus: () => ({ type: "GitStatus", session_id: S }),
+   GitDiff: () => ({ type: "GitDiff", session_id: S, from: null, to: null }),
+   GitLog: () => ({ type: "GitLog", session_id: S }),
+   GitShowFile: () => ({ type: "GitShowFile", session_id: S, rev: "HEAD", path: "a.ts" }),
+   GitCommit: () => ({ type: "GitCommit", session_id: S, message: "m" }),
+   GitPush: () => ({ type: "GitPush", session_id: S }),
+   PrContext: () => ({ type: "PrContext", session_id: S }),
+   LookupPrs: () => ({ type: "LookupPrs", session_id: S, refs: [{ repo, number: 1 }] }),
+   SearchPrs: () => ({ type: "SearchPrs", session_id: S, repo, query: null }),
+   BranchPr: () => ({ type: "BranchPr", session_id: S }),
+   ListTerminals: () => ({ type: "ListTerminals", session_id: S }),
+   TerminalOpen: () => ({ type: "TerminalOpen", session_id: S }),
+   TerminalClose: () => ({ type: "TerminalClose", session_id: S, terminal_id: 1 }),
+   TerminalInput: () => ({ type: "TerminalInput", session_id: S, terminal_id: 1, data: "ls" }),
+   TerminalResize: () => ({
+      type: "TerminalResize",
+      session_id: S,
+      terminal_id: 1,
+      cols: 80,
+      rows: 24,
+   }),
+   TerminalAck: () => ({ type: "TerminalAck", session_id: S, terminal_id: 1, bytes: 10 }),
+   TerminalKill: () => ({ type: "TerminalKill", session_id: S, terminal_id: 1 }),
+   Prompt: () => ({ type: "Prompt", session_id: S, thread_id: null, text: "hi" }),
+   Cancel: () => ({ type: "Cancel", session_id: S, thread_id: null }),
+   WarmUp: () => ({ type: "WarmUp", session_id: S }),
+   ContinueWithSummary: () => ({
+      type: "ContinueWithSummary",
+      session_id: S,
+      thread_id: null,
+      text: null,
+   }),
+   StartSideThread: () => ({ type: "StartSideThread", session_id: S }),
+   ResolvePermission: () => ({
+      type: "ResolvePermission",
+      session_id: S,
+      request_id: "r",
+      option_id: null,
+   }),
+   ListPermissionRules: () => ({ type: "ListPermissionRules" }),
+   AddPermissionRule: () => ({
+      type: "AddPermissionRule",
+      rule: { scope: { type: "global" }, tool_kind: null, pattern: null, decision: "allow" },
+   }),
+   RemovePermissionRule: () => ({ type: "RemovePermissionRule", rule_id: "r" }),
+   SetConfigOption: () => ({
+      type: "SetConfigOption",
+      session_id: S,
+      thread_id: null,
+      config_id: "model",
+      value: "x",
+   }),
+   SetMode: () => ({ type: "SetMode", session_id: S, thread_id: null, mode_id: "auto" }),
+   ReadAttachment: () => ({ type: "ReadAttachment", session_id: S, path: "/mock/a" }),
+   ReadImageFile: () => ({ type: "ReadImageFile", path: "/tmp/a.png" }),
+   ListSharedArtifacts: () => ({ type: "ListSharedArtifacts" }),
+   SharedArtifactRead: () => ({ type: "SharedArtifactRead", id: ART }),
+   ShareArtifact: () => ({ type: "ShareArtifact", session_id: S, item_id: "i" }),
+   ShareMarkdown: () => ({ type: "ShareMarkdown", session_id: S, markdown: "# m" }),
+   AttachSharedArtifact: () => ({ type: "AttachSharedArtifact", session_id: S, id: ART }),
+   DetachSharedArtifact: () => ({ type: "DetachSharedArtifact", session_id: S, id: ART }),
+   RenameSharedArtifact: () => ({ type: "RenameSharedArtifact", id: ART, title: "New" }),
+   DeleteSharedArtifact: () => ({ type: "DeleteSharedArtifact", id: ART }),
+   OpenSharedInEditor: () => ({ type: "OpenSharedInEditor", id: ART }),
+   PatchArtifactState: () => ({ type: "PatchArtifactState", id: ART, ops: [] }),
+};
+
+describe("MockTransport handles every Command", () => {
+   it.each(Object.keys(table) as Command["type"][])(
+      "%s",
+      async (type) => {
+         const mock = new MockTransport([], [{ id: "chat", name: "Chat", version: "1" }]);
+         const err = await mock.execute(table[type]()).then(
+            () => null,
+            (e: Error) => e,
+         );
+         expect(err?.message ?? "").not.toContain("does not handle");
+      },
+      10_000,
+   );
+});

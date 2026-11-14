@@ -272,12 +272,12 @@ describe("MockTransport Shared Artifacts (ADR 0024)", () => {
       expect((await api.readShared("architecture-map-a1b2c3")).state).toEqual({ reviewed: true });
       expect(changed).toEqual(["architecture-map-a1b2c3"]);
       await api.detachShared("architecture-map-a1b2c3");
-      expect(events.map((e) => e.kind.type)).toEqual([
+      expect(events.slice(2).map((e) => e.kind.type)).toEqual([
          "ArtifactAttached",
          "ArtifactStateChanged",
          "ArtifactDetached",
       ]);
-      expect(events.every((e) => e.thread_id === null)).toBe(true);
+      expect(events.slice(2).every((e) => e.thread_id === null)).toBe(true);
       const md = await api.shareMarkdown("| A |\n| --- |\n| 1 |\n", "Runs", "r1:table:0");
       expect([md.title, md.kind, md.created_by.origin]).toEqual(["Runs", "md", "r1:table:0"]);
       await client.deleteSharedArtifact(md.id);
@@ -310,5 +310,84 @@ describe("MockTransport Commands without a canned reply", () => {
       await expect(transport.execute(report)).resolves.toEqual(ok);
       await expect(transport.execute(report)).resolves.toEqual(ok);
       expect(got.filter((e) => e.kind.type === "FrontendError")).toHaveLength(1);
+   });
+});
+
+describe("MockTransport like the core", () => {
+   const first = async (transport: MockTransport, sid: string) => {
+      const log: Event[] = [];
+      await transport.subscribe(sid, 0, (e) => log.push(e));
+      return log;
+   };
+
+   it("starts every created and sample Session with SessionCreated and its Main Thread", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const created = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const quick = await client.createQuickSession({ agentId: "codex", frontendId: "chat" });
+      for (const sid of [created, quick, "mock-s2", "mock-q1", "mock-p1-a"]) {
+         const log = await first(transport, sid);
+         expect(log.slice(0, 2).map((e) => e.kind.type)).toEqual([
+            "SessionCreated",
+            "ThreadStarted",
+         ]);
+         expect(log[0]!.thread_id).toBeNull();
+         expect(log[1]!.kind).toMatchObject({ main: true });
+         expect(log[1]!.thread_id).toBeTruthy();
+         expect(log.filter((e) => e.kind.type === "ThreadStarted" && e.kind.main)).toHaveLength(1);
+      }
+   });
+
+   it("logs a Turn on the Main Thread and emits TurnFinished", async () => {
+      vi.useFakeTimers();
+      try {
+         const transport = new MockTransport([], []);
+         const client = new HarnessClient(transport);
+         const sid = await client.createSession({
+            folder: "/tmp/x",
+            agentId: "codex",
+            frontendId: "chat",
+            title: "T",
+         });
+         const log = await first(transport, sid);
+         const app: AppEvent[] = [];
+         await transport.subscribeApp((e) => app.push(e));
+         await client.sessionApi(sid).prompt("hello");
+         vi.runAllTimers();
+         const main = log[1]!.thread_id;
+         expect(log[1]!.kind).toMatchObject({ type: "ThreadStarted", main: true });
+         const turn = log.filter(
+            (e) => e.kind.type === "TurnStarted" || e.kind.type === "TurnEnded",
+         );
+         expect(turn.map((e) => e.thread_id)).toEqual([main, main]);
+         expect(app.filter((e) => e.type === "TurnFinished")).toEqual([
+            {
+               type: "TurnFinished",
+               session_id: sid,
+               thread_id: main,
+               title: "T",
+               stop_reason: "end_turn",
+            },
+         ]);
+      } finally {
+         vi.useRealTimers();
+      }
+   });
+
+   it("fails with the core's codes", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const failure = (p: Promise<unknown>) =>
+         p.then(
+            () => null,
+            (e: unknown) => e,
+         );
+      expect(await failure(client.archiveSession("nope"))).toMatchObject({ code: "not_found" });
+      expect(await failure(client.deleteSession("mock-s1"))).toMatchObject({ code: "conflict" });
+      expect(await failure(client.rollbackAgent("nope"))).toMatchObject({ code: "internal" });
    });
 });

@@ -2,7 +2,7 @@ import type { StatePatchOp } from "./generated";
 
 /**
  * Session State (ADR 0015): applies `ops` to `doc` and returns the new document (all or nothing;
- * throws on failure). Same lenient JSON Patch rules as the core's `state.rs`: `add`/`replace`
+ * throws on failure). Mirrors `apply` (and `set`, `remove`, `tokens`) in `crates/harness-core/src/state.rs`; change them together. Same lenient JSON Patch rules: `add`/`replace`
  * create missing parent objects, `replace` at an array's length appends, `-` appends, `remove` of a
  * missing path does nothing. UI writes use `replace` (an `add` at an array index inserts).
  */
