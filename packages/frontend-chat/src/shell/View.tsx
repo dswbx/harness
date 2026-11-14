@@ -8,7 +8,7 @@ import type {
    SharedArtifactMeta,
    ViewVariant,
 } from "@harness/api";
-import { listSubagents, openWindow, useSessionEvents, useSharedArtifacts } from "@harness/api";
+import { openWindow, useSessionEvents, useSharedArtifacts } from "@harness/api";
 import {
    Badge,
    Button,
@@ -23,7 +23,6 @@ import {
 } from "@harness/ui";
 import {
    Archive,
-   Bot,
    CheckCircle2,
    CircleDashed,
    ClipboardList,
@@ -38,7 +37,6 @@ import {
    PanelLeft,
    PanelRight,
    RotateCcw,
-   ScrollText,
    Share2,
    SquareTerminal,
    Unlink,
@@ -69,7 +67,6 @@ import {
 import { type Artifact, blockMarkdown, collectArtifacts } from "../features/artifacts/artifacts";
 import { DiffWindow, diffWindowScope } from "../features/changes/DiffWindow";
 import { MessageList, useRows } from "../features/conversation/Messages";
-import { EventsPanel } from "../features/events/EventsPanel";
 import { FileRefProvider } from "../features/files/FileRef";
 import {
    FilesPanel,
@@ -102,7 +99,6 @@ import {
 import { quotableAttrs, SelectionComment } from "../features/review/SelectionComment";
 import { SidePanel } from "../features/sideChats/SidePanel";
 import type { SideStart } from "../features/sideChats/ThreadView";
-import { SubagentsPanel } from "../features/subagents/SubagentsPanel";
 import { placeSteps } from "../features/toolDisplay/group";
 import { OpenStep, type OpenStepRequest } from "../features/toolDisplay/openStep";
 import { errorMessage } from "../lib/errors";
@@ -142,7 +138,9 @@ import {
    toggle,
    type Zone,
 } from "./panelLayout";
+import { panelDef } from "./panels";
 import { Stripe, type StripeGroup } from "./Stripe";
+import { usePanelHost } from "./usePanelHost";
 import {
    activeThreadId,
    availablePanels,
@@ -483,10 +481,8 @@ const BASE_LABEL: Record<string, string> = {
    changes: "Changes",
    files: "Files",
    terminal: "Terminal",
-   events: "Events",
    artifacts: "Artifacts",
    references: "References",
-   subagents: "Subagents",
    plan: "Plan",
 };
 const BASE_ICON: Record<string, React.ReactNode> = {
@@ -494,10 +490,8 @@ const BASE_ICON: Record<string, React.ReactNode> = {
    changes: <GitCompare />,
    files: <Folder />,
    terminal: <SquareTerminal />,
-   events: <ScrollText />,
    artifacts: <Layers />,
    references: <Link2 />,
-   subagents: <Bot />,
    plan: <ClipboardList />,
 };
 
@@ -866,22 +860,7 @@ function ChatView({
       },
       [api, artifacts],
    );
-   // Subagents panel: its rows, and a click opens the subagent's step in the chat (nested ones through their parents).
-   const waitingForUser = useMemo(
-      () =>
-         turnRunning && state.items.some((i) => i.type === "permission" && !i.resolved && !i.auto),
-      [turnRunning, state.items],
-   );
-   const subagentRows = useMemo(
-      () =>
-         listSubagents(
-            state.items.flatMap((i) => (i.type === "tool" ? [i] : [])),
-            subagents,
-            turnRunning && !waitingForUser,
-         ),
-      [state.items, subagents, turnRunning, waitingForUser],
-   );
-   const runningSubagents = subagentRows.filter((r) => r.state === "running").length;
+   // A click in the Subagents panel opens the subagent's step in the chat (nested ones through their parents).
    const stepPlaces = useMemo(() => placeSteps(rows, subagents), [rows, subagents]);
    const [openStep, setOpenStep] = useState<OpenStepRequest | null>(null);
    const jumpToStep = useCallback(
@@ -908,6 +887,24 @@ function ChatView({
       (rowId: string) => jumpToRow(rowId, (row) => row.firstElementChild),
       [jumpToRow],
    );
+   // The panels defined through the panel contract (shell/panels.ts): their context, selves, models and statuses.
+   const panelChat = useMemo(
+      () => ({ toRow: jumpToRow, toStep: jumpToStep }),
+      [jumpToRow, jumpToStep],
+   );
+   const panelHostApi = useMemo(
+      () => ({ openShared: onOpenShared, gitRefresh: onGitRefresh }),
+      [onOpenShared, onGitRefresh],
+   );
+   const panelHost = usePanelHost({
+      api,
+      state,
+      variant,
+      lay,
+      update,
+      chat: panelChat,
+      host: panelHostApi,
+   });
    const [resolved, setResolved] = useState<ResolvedReferences>(NO_REFERENCES);
    // References are looked up from the first time their panel opens.
    const [referencesOpened, setReferencesOpened] = useState(false);
@@ -933,11 +930,17 @@ function ChatView({
       [slots],
    );
    const hasPlans = state.plans.length > 0;
-   const hasSubagents = subagentRows.length > 0;
    // The Quick overlay shows only render_ui panels (ADR 0022 Phase 2).
    const available = useMemo(
-      () => availablePanels({ overlay, slotPanels: slotById.keys(), git, hasPlans, hasSubagents }),
-      [overlay, slotById, git, hasPlans, hasSubagents],
+      () =>
+         availablePanels({
+            overlay,
+            slotPanels: slotById.keys(),
+            git,
+            hasPlans,
+            registered: panelHost.statuses,
+         }),
+      [overlay, slotById, git, hasPlans, panelHost.statuses],
    );
    const shown = useMemo(() => {
       return shownOpen(lay, renderablePanels(available, openThreads.length));
@@ -990,8 +993,12 @@ function ChatView({
    );
 
    const label = (id: PanelId) =>
-      isSlotPanel(id) ? (slotById.get(id)?.title ?? slotIdOf(id)!) : BASE_LABEL[id]!;
+      isSlotPanel(id)
+         ? (slotById.get(id)?.title ?? slotIdOf(id)!)
+         : (panelDef(id)?.label ?? BASE_LABEL[id]!);
    const icon = (id: PanelId) => {
+      const Registered = panelDef(id)?.icon;
+      if (Registered) return <Registered />;
       if (!isSlotPanel(id)) return BASE_ICON[id];
       const Custom = uiIcons[slotById.get(id)?.icon as keyof typeof uiIcons];
       if (Custom) return <Custom />;
@@ -1001,15 +1008,19 @@ function ChatView({
          <PanelRight />
       );
    };
-   const tip = (id: PanelId) => (id === "side" ? "Side chats (⇧⌘B new)" : label(id));
+   const tip = (id: PanelId) =>
+      id === "side" ? "Side chats (⇧⌘B new)" : (panelHost.statuses.get(id)?.tip ?? label(id));
    const count = (id: PanelId) =>
-      panelCount(id, {
-         sideThreads: sideThreads.length,
-         artifacts: artifacts.length,
-         references: resolved.count,
-         runningSubagents,
-      });
-   const shortcut = (id: PanelId) => (id === "terminal" ? ["⌘", "J"] : undefined);
+      panelHost.statuses.has(id)
+         ? panelHost.statuses.get(id)!.badge
+         : panelCount(id, {
+              sideThreads: sideThreads.length,
+              artifacts: artifacts.length,
+              references: resolved.count,
+              runningSubagents: 0,
+           });
+   const shortcut = (id: PanelId) =>
+      id === "terminal" ? ["⌘", "J"] : panelDef(id)?.shortcut?.keys;
    const group = (zone: Zone): StripeGroup =>
       stripeGroup(zone, {
          zones: lay.zones,
@@ -1090,6 +1101,30 @@ function ChatView({
    );
 
    const panels: DockPanel[] = [];
+   /** A panel defined through the panel contract: its mount block, from its definition. */
+   const registeredPanel = (id: PanelId) => {
+      const def = panelDef(id);
+      if (!def) return;
+      const self = panelHost.selves[id]!;
+      const mounted =
+         def.mount === "afterFirstOpen"
+            ? self.opened
+            : def.mount === "whileReady"
+              ? available.has(id)
+              : open(id);
+      if (!mounted) return;
+      const Body = def.Body;
+      panels.push({
+         id,
+         label: def.label,
+         expandable: def.expandable,
+         children: (
+            <Suspense fallback={null}>
+               <Body model={panelHost.models[id]} ctx={panelHost.ctx} self={self} />
+            </Suspense>
+         ),
+      });
+   };
    if (openThreads.length > 0) {
       panels.push({
          id: "side",
@@ -1149,13 +1184,7 @@ function ChatView({
          ),
       });
    }
-   if (open("events"))
-      panels.push({
-         id: "events",
-         label: "Events",
-         expandable: true,
-         children: <EventsPanel api={api} />,
-      });
+   registeredPanel("events");
    if (open("artifacts"))
       panels.push({
          id: "artifacts",
@@ -1185,12 +1214,7 @@ function ChatView({
          label: "References",
          children: <ReferencesPanel resolved={resolved} onJump={jumpToMention} />,
       });
-   if (open("subagents"))
-      panels.push({
-         id: "subagents",
-         label: "Subagents",
-         children: <SubagentsPanel rows={subagentRows} onJump={jumpToStep} />,
-      });
+   registeredPanel("subagents");
    for (const [id, slot] of slotById) {
       const sharedId = sharedRef(slot.source);
       if (open(id))

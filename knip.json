@@ -12,6 +12,11 @@
       },
       "packages/*": {
          "project": ["src/**/*.{ts,tsx}"],
+         "ignore": ["**/*.test.{ts,tsx}"]
+      },
+      "packages/frontend-chat": {
+         "entry": ["src/panels/usePanelTarget.ts"],
+         "project": ["src/**/*.{ts,tsx}"],
          "ignore": ["**/*.test.{ts,tsx}", "src/state/syntheticLog.ts"],
          "ignoreDependencies": ["@lexical/headless", "remark-parse", "remark-rehype", "unified"]
       },

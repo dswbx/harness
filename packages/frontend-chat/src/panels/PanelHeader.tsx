@@ -13,26 +13,24 @@ import {
 } from "@harness/ui";
 import { Check, Maximize2, Minimize2, Minus, MoreVertical, MoveUpRight } from "lucide-react";
 import { createContext, type PointerEvent, type ReactNode, useContext } from "react";
-import { type PanelId, ZONE_LABEL, ZONES, type Zone } from "../shell/panelLayout";
 
-/** What the dock tells the panel it is in, for its header: where it sits and what the header can do. */
-export type PanelCtx = {
-   id: PanelId;
-   zone: Zone;
+/** What the host tells the panel it is in, for its header: where it can move and what the header can do. */
+export type PanelChrome = {
+   id: string;
    label: string;
-   /** The zones Move to offers (default all six). */
-   zones?: readonly Zone[];
+   /** The places Move to offers, in order; `current` is where the panel sits now. */
+   moves: { id: string; label: string; current: boolean }[];
    /** Offers Expand in the menu. */
    expandable: boolean;
    expanded: boolean;
    onExpand: () => void;
-   onMove: (zone: Zone) => void;
+   onMove: (id: string) => void;
    onHide: () => void;
    /** Pointer down on the header: drags the panel to another zone. */
    onDragStart: (e: PointerEvent) => void;
 };
 
-export const PanelContext = createContext<PanelCtx | null>(null);
+export const PanelContext = createContext<PanelChrome | null>(null);
 
 /**
  * The header every panel shares: `title`, the panel's own controls (`children`), a menu (the panel's own
@@ -101,13 +99,13 @@ export function PanelHeader({
                            <MoveUpRight /> Move to
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-44">
-                           {(p.zones ?? ZONES).map((z) => (
+                           {p.moves.map((m) => (
                               <DropdownMenuItem
-                                 key={z}
-                                 onSelect={() => z !== p.zone && p.onMove(z)}
+                                 key={m.id}
+                                 onSelect={() => !m.current && p.onMove(m.id)}
                               >
-                                 {ZONE_LABEL[z]}
-                                 {z === p.zone && <Check className="ml-auto" />}
+                                 {m.label}
+                                 {m.current && <Check className="ml-auto" />}
                               </DropdownMenuItem>
                            ))}
                         </DropdownMenuSubContent>

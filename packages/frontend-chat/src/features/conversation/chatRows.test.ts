@@ -2,7 +2,7 @@ import type { Event, EventKind } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import { type Item, initialState, reduce } from "../../state/reducer";
 import { splitRenderUi } from "../renderUi/slots";
-import { chatRows } from "./chatRows";
+import { chatRows, chatRowsOf, renderUiOf } from "./chatRows";
 
 type Tool = Extract<Item, { type: "tool" }>;
 type Perm = Extract<Item, { type: "permission" }>;
@@ -177,5 +177,24 @@ describe("chatRows", () => {
    it("a hidden step does not break a run of tool calls", () => {
       const items = [tool("t1"), perm("p1", { resolved: true }), tool("t2")];
       expect(rowIds(items)).toEqual(["tools:t1+t2"]);
+   });
+});
+
+describe("shared computation", () => {
+   it("two callers with the same items and attached get one result", () => {
+      const items: Item[] = [
+         tool("task", { subagentPrompt: "do it" }),
+         tool("c1", { parent: "task" }),
+      ];
+      const a = chatRowsOf(items, renderUiOf(items, undefined));
+      const b = chatRowsOf(items, renderUiOf(items, undefined));
+      expect(b).toBe(a);
+   });
+   it("recomputes for other items, or another attached list", () => {
+      const items: Item[] = [tool("t1")];
+      const a = chatRowsOf(items, renderUiOf(items, []));
+      expect(chatRowsOf(items, renderUiOf(items, [{ id: "x", ts: 1 }]))).not.toBe(a);
+      const other = [...items];
+      expect(chatRowsOf(other, renderUiOf(other, []))).not.toBe(a);
    });
 });

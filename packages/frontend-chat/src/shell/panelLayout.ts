@@ -1,4 +1,5 @@
 import { clamp } from "@harness/ui";
+import { PANELS, panelDef, zoneOfHint } from "./panels";
 
 /**
  * Where the chat's panels sit: six zones, one open panel per zone, sizes, and the open Side Threads.
@@ -81,17 +82,32 @@ export const DEFAULT_SIZES: Sizes = {
    bottomSplit: 0.5,
 };
 
+/** Panels defined through the panel contract start where their placement hint says. */
+const registryZone = (id: string): Zone => zoneOfHint(panelDef(id)!.placement);
+
 const DEFAULT_ZONE: Record<(typeof BASE_PANELS)[number], Zone> = {
    changes: "rightTop",
    files: "rightTop",
    artifacts: "leftTop",
    references: "leftBottom",
-   subagents: "leftBottom",
+   subagents: registryZone("subagents"),
    terminal: "bottomLeft",
-   events: "bottomRight",
+   events: registryZone("events"),
    side: "rightTop",
    plan: "rightTop",
 };
+
+/** The default order within a zone: the panels still wired by hand, then the registry's. */
+const DEFAULT_ORDER: readonly (typeof BASE_PANELS)[number][] = [
+   "changes",
+   "files",
+   "side",
+   "plan",
+   "artifacts",
+   "references",
+   "terminal",
+   ...PANELS.map((p) => p.id as (typeof BASE_PANELS)[number]),
+];
 
 const noOpen = (): Record<Zone, PanelId | null> => ({
    leftTop: null,
@@ -103,15 +119,17 @@ const noOpen = (): Record<Zone, PanelId | null> => ({
 });
 
 export function defaultLayout(): Layout {
+   const zones: Record<Zone, PanelId[]> = {
+      leftTop: [],
+      leftBottom: [],
+      bottomLeft: [],
+      bottomRight: [],
+      rightBottom: [],
+      rightTop: [],
+   };
+   for (const id of DEFAULT_ORDER) zones[DEFAULT_ZONE[id]].push(id);
    return {
-      zones: {
-         leftTop: ["artifacts"],
-         leftBottom: ["references", "subagents"],
-         bottomLeft: ["terminal"],
-         bottomRight: ["events"],
-         rightBottom: [],
-         rightTop: ["changes", "files", "side", "plan"],
-      },
+      zones,
       open: noOpen(),
       sizes: { ...DEFAULT_SIZES },
       expanded: null,
