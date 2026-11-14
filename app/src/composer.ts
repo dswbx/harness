@@ -86,6 +86,11 @@ export function relTime(ms: number, now = Date.now()): string {
    return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** The paths (once each) not yet in `requested`: what still needs a request. */
+export function pathsToRequest(paths: string[], requested: ReadonlySet<string>): string[] {
+   return [...new Set(paths)].filter((p) => !requested.has(p));
+}
+
 /** Case-insensitive match of every word in `q` against any of `fields`. */
 export function matches(q: string, ...fields: (string | undefined)[]): boolean {
    const hay = fields.join(" ").toLowerCase();

@@ -4,6 +4,7 @@ import {
    branchChoices,
    matches,
    mergeRecent,
+   pathsToRequest,
    quickAgent,
    relTime,
    sessionFolders,
@@ -102,6 +103,15 @@ describe("Quick Sessions", () => {
       expect(quickAgent([session({ agent_id: "gone" })], agents)?.id).toBe("a");
       expect(quickAgent([], agents)?.id).toBe("a");
       expect(quickAgent([], [])).toBeUndefined();
+   });
+});
+
+describe("pathsToRequest", () => {
+   it("skips paths already requested, and repeated ones", () => {
+      expect(pathsToRequest(["/a", "/b", "/a", "/c"], new Set(["/b"]))).toEqual(["/a", "/c"]);
+   });
+   it("is empty when all were requested", () => {
+      expect(pathsToRequest(["/a"], new Set(["/a"]))).toEqual([]);
    });
 });
 

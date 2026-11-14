@@ -39,13 +39,14 @@ import {
    RefreshCw,
    Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentIcon } from "./AgentsPanel";
 import {
    branchChoices,
    loadRecent,
    matches,
    mergeRecent,
+   pathsToRequest,
    type RecentFolder,
    relTime,
    rememberFolder,
@@ -276,21 +277,28 @@ export function ComposerDialog({
       };
    }, [isOpen, client, presetFolder]);
 
+   // Each folder is asked once per open of the list; closing drops the answers, so the next open refreshes.
+   const branchReq = useRef(new Set<string>());
    useEffect(() => {
-      if (!folderOpen) return;
-      for (const { path } of recent.slice(0, 12)) {
-         if (path in recentBranch) continue;
+      if (!folderOpen) {
+         branchReq.current = new Set();
+         setRecentBranch((m) => (Object.keys(m).length ? {} : m));
+         return;
+      }
+      const mine = branchReq.current;
+      const set = (path: string, v: string | null) =>
+         branchReq.current === mine && setRecentBranch((m) => ({ ...m, [path]: v }));
+      for (const path of pathsToRequest(
+         recent.slice(0, 12).map((r) => r.path),
+         mine,
+      )) {
+         mine.add(path);
          client
             .listBranches(path)
-            .then((b) =>
-               setRecentBranch((m) => ({
-                  ...m,
-                  [path]: b.repo_root ? (b.current ?? "detached") : null,
-               })),
-            )
-            .catch(() => setRecentBranch((m) => ({ ...m, [path]: null })));
+            .then((b) => set(path, b.repo_root ? (b.current ?? "detached") : null))
+            .catch(() => set(path, null));
       }
-   }, [folderOpen, recent, recentBranch, client]);
+   }, [folderOpen, recent, client]);
 
    // Branches (and whether PRs are available) once a folder is chosen; debounced, it can be typed.
    useEffect(() => {
