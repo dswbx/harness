@@ -5,7 +5,7 @@ import { DiffViewer } from "../changes/DiffViewer";
 import { splitPatch } from "../changes/diff";
 import { AnsiText } from "../markdown/AnsiText";
 import { Markdown } from "../markdown/Markdown";
-import { Diff as FileDiff } from "../toolDisplay/ToolCard";
+import { Diff as FileDiff } from "../toolDisplay/blocks";
 import { type Renderers, useEnv } from "./runtime";
 import type { UiNode } from "./tools";
 import { PullRequest } from "./UiPullRequest";
