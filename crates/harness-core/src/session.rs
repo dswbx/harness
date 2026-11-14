@@ -1328,6 +1328,10 @@ fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "session_projection_tests.rs"]
+mod projection_tests;
+
+#[cfg(test)]
 mod frontend_request_tests {
     use super::*;
 

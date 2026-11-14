@@ -528,6 +528,73 @@ mod tests {
         assert_eq!(terms.list("m").len(), 1, "a fresh first tab after kill_all");
     }
 
+    fn alive(pid: &str) -> bool {
+        std::process::Command::new("kill").args(["-0", pid]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
+    }
+
+    /// Types `line` (which must start a background job and print `bgpid=$!`) into an interactive
+    /// shell, closes the tab, and returns whether `Exit` reached the view within 5 s and whether
+    /// the job is still alive afterwards. The job is killed before returning.
+    fn close_with_background_job(line: &str) -> (bool, bool) {
+        let terms = Terminals::default();
+        // An interactive shell has job control, like the user's: its background job is a process
+        // group of its own.
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-i");
+        let rx = collect(&terms, "bg", cmd);
+        terms.input("bg", 1, format!("{line}\n").as_bytes()).unwrap();
+        let mut seen = String::new();
+        let pid = loop {
+            let d = rx.recv_timeout(Duration::from_secs(10)).expect("the shell's output").expect("the shell is still running");
+            seen.push_str(&String::from_utf8_lossy(&d));
+            // The typed line is echoed with `$!` unexpanded: take the first `bgpid=` followed by digits.
+            let found = seen.split("bgpid=").skip(1).map(|r| r.chars().take_while(char::is_ascii_digit).collect::<String>()).find(|p| !p.is_empty());
+            if let Some(pid) = found {
+                break pid;
+            }
+        };
+        assert!(alive(&pid), "the background job runs");
+
+        terms.close("bg", 1);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut exited = false;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) => {
+                    exited = true;
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+        let job_alive = alive(&pid);
+        // Do not leave the job behind, whatever the outcome.
+        let _ = std::process::Command::new("kill").args(["-9", &pid]).status();
+        (exited, job_alive)
+    }
+
+    /// macOS revokes the terminal when its session leader dies, which ends the PTY's output and
+    /// hangs up the job. Linux does not: the job keeps the PTY open, so `Exit` is never sent (the
+    /// same leak as below, with a plain job). A real product bug, pinned here as ignored off macOS.
+    #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "known: on Linux a background job keeps the PTY open after close")]
+    fn closing_a_tab_with_a_background_job_sends_exit_and_ends_the_job() {
+        let (exited, job_alive) = close_with_background_job("sleep 300 & echo bgpid=$!");
+        assert!(exited, "Exit was not sent within 5 s of closing the tab");
+        assert!(!job_alive, "the background job survived the close");
+    }
+
+    /// Closing only kills the shell: a job that ignores the hangup (`nohup`) outlives the tab
+    /// (`Exit` is sent, the process stays).
+    #[test]
+    #[ignore = "known: a background job keeps the PTY open after close"]
+    fn closing_a_tab_with_a_hangup_ignoring_job_sends_exit_and_ends_the_job() {
+        let (exited, job_alive) = close_with_background_job("nohup sleep 300 >/dev/null 2>&1 & echo bgpid=$!");
+        assert!(exited, "Exit was not sent within 5 s of closing the tab");
+        assert!(!job_alive, "the background job survived the close");
+    }
+
     #[test]
     fn large_output_arrives_whole_and_coalesced() {
         let terms = Terminals::default();

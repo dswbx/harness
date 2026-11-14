@@ -160,6 +160,38 @@ async fn primitives_over_http() {
     assert!(asked);
 }
 
+/// Guards the catalog/dispatch pairing in `mcp.rs`: every tool the server lists must be handled.
+/// Each is called with no arguments and must answer with a result or a normal tool error: not
+/// "unknown tool" (listed but not dispatched), not a dropped connection or a panic.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_listed_tool_is_dispatched_and_answers_without_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    let listed = ask(&h, &sid, "mcp-list", None).await;
+    let tools: Vec<&str> = listed.strip_prefix("tools: ").unwrap().split(',').collect();
+    assert!(tools.len() > 20 && tools.contains(&"git_status") && tools.contains(&"json_render"), "{listed}");
+
+    let mut answers = Vec::new();
+    for tool in &tools {
+        // A request for permission (git_push) is answered with a denial: still a normal error.
+        let reply = ask(&h, &sid, &format!("mcp {tool} {{}}"), Some("reject")).await;
+        assert!(reply.starts_with("mcp: ") || reply.starts_with("mcp error: "), "{tool}: {reply}");
+        assert!(!reply.contains("unknown tool"), "{tool} is listed but not dispatched: {reply}");
+        let lower = reply.to_lowercase();
+        assert!(!lower.contains("panicked") && !lower.contains("transport closed") && !lower.contains("connection closed"), "{tool}: {reply}");
+        answers.push((tool, reply));
+    }
+    // The tools that need arguments say so; the ones that do not, work.
+    let reply = |name: &str| answers.iter().find(|(t, _)| **t == name).unwrap().1.clone();
+    assert!(reply("git_status").starts_with("mcp: "), "{}", reply("git_status"));
+    assert!(reply("session_list").starts_with("mcp: "), "{}", reply("session_list"));
+    assert!(reply("git_commit").starts_with("mcp error: "), "{}", reply("git_commit"));
+    assert!(reply("json_render").starts_with("mcp error: "), "{}", reply("json_render"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn git_diff_refuses_option_like_revisions() {
     let dir = tempfile::tempdir().unwrap();

@@ -45,3 +45,81 @@ fn every_golden_log_parses_with_zero_unknowns() {
         assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 }
+
+/// The variant's name. Exhaustive on purpose: adding an `EventKind` variant fails to compile here
+/// until it is named, which is the reminder to record it in a golden log.
+fn variant_name(kind: &EventKind) -> &'static str {
+    match kind {
+        EventKind::SessionCreated { .. } => "SessionCreated",
+        EventKind::SessionStatusChanged { .. } => "SessionStatusChanged",
+        EventKind::ThreadStarted { .. } => "ThreadStarted",
+        EventKind::AuthRequired { .. } => "AuthRequired",
+        EventKind::ThreadReadOnly { .. } => "ThreadReadOnly",
+        EventKind::AgentSessionRestoring { .. } => "AgentSessionRestoring",
+        EventKind::AgentSessionStarted { .. } => "AgentSessionStarted",
+        EventKind::AgentProcessState { .. } => "AgentProcessState",
+        EventKind::AgentCapabilities { .. } => "AgentCapabilities",
+        EventKind::TurnStarted { .. } => "TurnStarted",
+        EventKind::TurnEnded { .. } => "TurnEnded",
+        EventKind::AgentMessageChunk { .. } => "AgentMessageChunk",
+        EventKind::AgentThoughtChunk { .. } => "AgentThoughtChunk",
+        EventKind::ToolCall { .. } => "ToolCall",
+        EventKind::ToolCallUpdate { .. } => "ToolCallUpdate",
+        EventKind::BackgroundJobEnded { .. } => "BackgroundJobEnded",
+        EventKind::TaskListUpdated { .. } => "TaskListUpdated",
+        EventKind::ModeChanged { .. } => "ModeChanged",
+        EventKind::ConfigOptionsChanged { .. } => "ConfigOptionsChanged",
+        EventKind::AvailableCommandsChanged { .. } => "AvailableCommandsChanged",
+        EventKind::UsageUpdated { .. } => "UsageUpdated",
+        EventKind::SessionInfoUpdated { .. } => "SessionInfoUpdated",
+        EventKind::PermissionRequested { .. } => "PermissionRequested",
+        EventKind::PermissionResolved { .. } => "PermissionResolved",
+        EventKind::PermissionRuleAdded { .. } => "PermissionRuleAdded",
+        EventKind::WorkspaceChanged { .. } => "WorkspaceChanged",
+        EventKind::FrontendToolOutput { .. } => "FrontendToolOutput",
+        EventKind::FrontendError { .. } => "FrontendError",
+        EventKind::StateChanged { .. } => "StateChanged",
+        EventKind::ArtifactAttached { .. } => "ArtifactAttached",
+        EventKind::ArtifactDetached { .. } => "ArtifactDetached",
+        EventKind::ArtifactStateChanged { .. } => "ArtifactStateChanged",
+        EventKind::GitCommitted { .. } => "GitCommitted",
+        EventKind::GitPushed { .. } => "GitPushed",
+        EventKind::SessionArchived { .. } => "SessionArchived",
+        EventKind::AgentNotice { .. } => "AgentNotice",
+        EventKind::AgentUpdate { .. } => "AgentUpdate",
+        EventKind::Error { .. } => "Error",
+        // Never written (a newer build's line reads as this), so no golden log can hold it.
+        EventKind::Unknown => "Unknown",
+    }
+}
+
+/// The variant names declared in `api.rs`, read from the source (a variant starts a line at four
+/// spaces of indent inside `enum EventKind`).
+fn declared_variants() -> Vec<String> {
+    let src = include_str!("../src/api.rs");
+    let start = src.find("pub enum EventKind").unwrap();
+    let body = &src[start..];
+    let body = &body[..body.find("\nimpl EventKind").unwrap()];
+    body.lines()
+        .filter_map(|l| l.strip_prefix("    "))
+        .filter(|l| l.starts_with(|c: char| c.is_ascii_uppercase()))
+        .map(|l| l.split(|c: char| !c.is_alphanumeric()).next().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn every_event_kind_appears_in_a_golden_log() {
+    let mut seen = std::collections::BTreeSet::new();
+    for path in golden_logs() {
+        for l in std::fs::read_to_string(&path).unwrap().lines().filter(|l| !l.trim().is_empty()) {
+            let e: Event = serde_json::from_str(l).unwrap();
+            let tag = serde_json::from_str::<serde_json::Value>(l).unwrap()["kind"]["type"].as_str().unwrap().to_owned();
+            assert_eq!(variant_name(&e.kind), tag, "{}: the name table is out of date", path.display());
+            seen.insert(tag);
+        }
+    }
+    let declared = declared_variants();
+    assert!(declared.len() > 30 && declared.iter().any(|v| v == "Unknown"), "reading the enum from api.rs failed: {declared:?}");
+    let missing: Vec<_> = declared.iter().filter(|v| *v != "Unknown" && !seen.contains(*v)).collect();
+    assert!(missing.is_empty(), "no golden log holds these Event kinds (add lines to one, ADR 0021): {missing:?}");
+}

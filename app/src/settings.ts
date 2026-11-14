@@ -73,3 +73,25 @@ export function fromForm(f: Form): { server: McpServerDef; secrets: Record<strin
       secrets,
    };
 }
+
+/** Server -> form. Secret keys come back as stored rows with no value (the Keychain keeps it). */
+export function toForm(s: McpServerDef): Form {
+   const t = s.transport;
+   const plain = t.type === "stdio" ? (t.env ?? {}) : (t.headers ?? {});
+   const secretKeys = s.secret_keys ?? [];
+   const rows: Row[] = [
+      ...Object.entries(plain)
+         .filter(([k]) => !secretKeys.includes(k))
+         .map(([key, value]) => ({ key, value, secret: false, stored: false })),
+      ...secretKeys.map((key) => ({ key, value: "", secret: true, stored: true })),
+   ];
+   return {
+      id: s.id ?? "",
+      name: s.name,
+      kind: t.type,
+      command: t.type === "stdio" ? t.command : "",
+      args: t.type === "stdio" ? (t.args ?? []).join(" ") : "",
+      url: t.type === "http" ? t.url : "",
+      rows,
+   };
+}

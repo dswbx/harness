@@ -1,0 +1,540 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`HarnessClient wire shape > sends these Commands 1`] = `
+[
+  {
+    "type": "ListSessions",
+  },
+  {
+    "type": "ListAgents",
+  },
+  {
+    "refresh": false,
+    "type": "ListRegistry",
+  },
+  {
+    "type": "ListFrontends",
+  },
+  {
+    "type": "ListMcpServers",
+  },
+  {
+    "type": "ListPermissionRules",
+  },
+  {
+    "key": "appearance",
+    "type": "GetAppSetting",
+  },
+  {
+    "type": "GetEditor",
+  },
+  {
+    "query": "q",
+    "type": "ListSharedArtifacts",
+  },
+  {
+    "agent_id": "a",
+    "branch": null,
+    "folder": "/f",
+    "frontend_id": "f",
+    "mcp_servers": [],
+    "new_branch": null,
+    "pr": null,
+    "title": null,
+    "type": "CreateSession",
+    "worktree": false,
+  },
+  {
+    "agent_id": "a",
+    "frontend_id": "f",
+    "mcp_servers": [],
+    "title": null,
+    "type": "CreateQuickSession",
+  },
+  {
+    "id": "a",
+    "title": "T",
+    "type": "RenameSharedArtifact",
+  },
+  {
+    "key": "appearance",
+    "type": "SetAppSetting",
+    "value": null,
+  },
+  {
+    "dir": null,
+    "type": "SetWorktreeDir",
+  },
+  {
+    "editor": null,
+    "type": "SetEditor",
+  },
+  {
+    "line": null,
+    "path": null,
+    "session_id": "s1",
+    "type": "OpenInEditor",
+  },
+  {
+    "agent_id": "a",
+    "type": "RemoveAgent",
+  },
+  {
+    "session_id": "s1",
+    "type": "ArchiveSession",
+  },
+  {
+    "session_id": "s1",
+    "type": "UnarchiveSession",
+  },
+  {
+    "force": false,
+    "session_id": "s1",
+    "type": "DeleteSession",
+  },
+  {
+    "session_id": "s1",
+    "type": "DiscardEmptySession",
+  },
+  {
+    "branch": "main",
+    "folder": "/f",
+    "type": "UpdateBranch",
+  },
+  {
+    "id": "a",
+    "ops": [],
+    "session_id": null,
+    "type": "PatchArtifactState",
+  },
+  {
+    "id": "a",
+    "type": "OpenSharedInEditor",
+  },
+  {
+    "id": "a",
+    "type": "DeleteSharedArtifact",
+  },
+  {
+    "server_id": "m",
+    "type": "RemoveMcpServer",
+  },
+  {
+    "rule_id": "r",
+    "type": "RemovePermissionRule",
+  },
+]
+`;
+
+exports[`createSessionApi wire shape > sends these Commands 1`] = `
+{
+  "answerFrontendRequest": [
+    {
+      "answer": {
+        "text": "t",
+      },
+      "request_id": "r",
+      "session_id": "s1",
+      "type": "AnswerFrontendRequest",
+    },
+  ],
+  "archive": [
+    {
+      "session_id": "s1",
+      "type": "ArchiveSession",
+    },
+  ],
+  "attachShared": [
+    {
+      "id": "a",
+      "session_id": "s1",
+      "type": "AttachSharedArtifact",
+    },
+  ],
+  "authenticate": [
+    {
+      "method_id": "m",
+      "session_id": "s1",
+      "type": "Authenticate",
+    },
+  ],
+  "branchPr": [
+    {
+      "refresh": false,
+      "session_id": "s1",
+      "type": "BranchPr",
+    },
+  ],
+  "cancel": [
+    {
+      "session_id": "s1",
+      "thread_id": null,
+      "type": "Cancel",
+    },
+  ],
+  "continueWithSummary": [
+    {
+      "attachments": [],
+      "session_id": "s1",
+      "text": "t",
+      "thread_id": null,
+      "type": "ContinueWithSummary",
+    },
+  ],
+  "delete": [
+    {
+      "force": false,
+      "session_id": "s1",
+      "type": "DeleteSession",
+    },
+  ],
+  "detachShared": [
+    {
+      "id": "a",
+      "session_id": "s1",
+      "type": "DetachSharedArtifact",
+    },
+  ],
+  "exportPlan": [
+    {
+      "markdown": "# m",
+      "name": "n",
+      "open_in_editor": true,
+      "session_id": "s1",
+      "type": "ExportPlan",
+    },
+  ],
+  "frontendList": [
+    {
+      "dir": undefined,
+      "session_id": "s1",
+      "type": "FrontendList",
+    },
+  ],
+  "frontendRead": [
+    {
+      "path": "p",
+      "session_id": "s1",
+      "type": "FrontendRead",
+    },
+  ],
+  "frontendReadImage": [
+    {
+      "path": "p",
+      "session_id": "s1",
+      "type": "FrontendReadImage",
+    },
+  ],
+  "frontendWrite": [
+    {
+      "content": "c",
+      "path": "p",
+      "session_id": "s1",
+      "type": "FrontendWrite",
+    },
+  ],
+  "getEditor": [
+    {
+      "type": "GetEditor",
+    },
+  ],
+  "getState": [
+    {
+      "session_id": "s1",
+      "type": "GetState",
+    },
+  ],
+  "gitCommit": [
+    {
+      "message": "msg",
+      "session_id": "s1",
+      "type": "GitCommit",
+    },
+  ],
+  "gitDiff": [
+    {
+      "from": null,
+      "session_id": "s1",
+      "to": null,
+      "type": "GitDiff",
+    },
+  ],
+  "gitLog": [
+    {
+      "session_id": "s1",
+      "type": "GitLog",
+    },
+  ],
+  "gitPush": [
+    {
+      "session_id": "s1",
+      "type": "GitPush",
+    },
+  ],
+  "gitShowFile": [
+    {
+      "path": "f",
+      "rev": "HEAD",
+      "session_id": "s1",
+      "type": "GitShowFile",
+    },
+  ],
+  "gitStatus": [
+    {
+      "session_id": "s1",
+      "type": "GitStatus",
+    },
+  ],
+  "listSessionFiles": [
+    {
+      "session_id": "s1",
+      "type": "ListSessionFiles",
+    },
+  ],
+  "listShared": [
+    {
+      "query": null,
+      "type": "ListSharedArtifacts",
+    },
+  ],
+  "lookupPrs": [
+    {
+      "refs": [
+        {
+          "number": 1,
+          "repo": {
+            "name": "n",
+            "owner": "o",
+          },
+        },
+      ],
+      "session_id": "s1",
+      "type": "LookupPrs",
+    },
+  ],
+  "openAuthTerminal": [
+    {
+      "method_id": "m",
+      "session_id": "s1",
+      "type": "OpenAuthTerminal",
+    },
+  ],
+  "openInEditor": [
+    {
+      "line": null,
+      "path": null,
+      "session_id": "s1",
+      "type": "OpenInEditor",
+    },
+  ],
+  "panelSourceRead": [
+    {
+      "name": "n",
+      "session_id": "s1",
+      "type": "PanelSourceRead",
+    },
+  ],
+  "patchArtifactState": [
+    {
+      "id": "a",
+      "ops": [],
+      "session_id": "s1",
+      "type": "PatchArtifactState",
+    },
+  ],
+  "patchState": [
+    {
+      "ops": [
+        {
+          "op": "remove",
+          "path": "/x",
+        },
+      ],
+      "session_id": "s1",
+      "type": "PatchState",
+    },
+  ],
+  "prContext": [
+    {
+      "session_id": "s1",
+      "type": "PrContext",
+    },
+  ],
+  "prompt": [
+    {
+      "attachments": [],
+      "session_id": "s1",
+      "text": "hi",
+      "thread_id": null,
+      "type": "Prompt",
+    },
+  ],
+  "readAttachment": [
+    {
+      "path": "p",
+      "session_id": "s1",
+      "type": "ReadAttachment",
+    },
+  ],
+  "readImageFile": [
+    {
+      "path": "p",
+      "type": "ReadImageFile",
+    },
+  ],
+  "readSessionFile": [
+    {
+      "end": null,
+      "path": "p",
+      "session_id": "s1",
+      "start": null,
+      "type": "ReadSessionFile",
+    },
+  ],
+  "readShared": [
+    {
+      "id": "a",
+      "type": "SharedArtifactRead",
+    },
+  ],
+  "reportFrontendError": [
+    {
+      "item": "i",
+      "message": "m",
+      "session_id": "s1",
+      "tool": "t",
+      "type": "ReportFrontendError",
+    },
+  ],
+  "resolvePermission": [
+    {
+      "global": false,
+      "option_id": "o",
+      "request_id": "r",
+      "session_id": "s1",
+      "type": "ResolvePermission",
+    },
+  ],
+  "searchPrs": [
+    {
+      "query": null,
+      "repo": {
+        "name": "n",
+        "owner": "o",
+      },
+      "session_id": "s1",
+      "type": "SearchPrs",
+    },
+  ],
+  "setConfigOption": [
+    {
+      "config_id": "c",
+      "session_id": "s1",
+      "thread_id": null,
+      "type": "SetConfigOption",
+      "value": "v",
+    },
+  ],
+  "setMode": [
+    {
+      "mode_id": "m",
+      "session_id": "s1",
+      "thread_id": null,
+      "type": "SetMode",
+    },
+  ],
+  "shareArtifact": [
+    {
+      "item_id": "i",
+      "session_id": "s1",
+      "type": "ShareArtifact",
+    },
+  ],
+  "shareMarkdown": [
+    {
+      "markdown": "# m",
+      "origin": null,
+      "session_id": "s1",
+      "title": null,
+      "type": "ShareMarkdown",
+    },
+  ],
+  "startSideThread": [
+    {
+      "mode": null,
+      "seed": null,
+      "session_id": "s1",
+      "source": undefined,
+      "type": "StartSideThread",
+    },
+  ],
+  "terminalAck": [
+    {
+      "bytes": 10,
+      "session_id": "s1",
+      "terminal_id": 2,
+      "type": "TerminalAck",
+    },
+  ],
+  "terminalClose": [
+    {
+      "session_id": "s1",
+      "terminal_id": 2,
+      "type": "TerminalClose",
+    },
+  ],
+  "terminalInput": [
+    {
+      "data": "ls",
+      "session_id": "s1",
+      "terminal_id": 2,
+      "type": "TerminalInput",
+    },
+  ],
+  "terminalKill": [
+    {
+      "session_id": "s1",
+      "terminal_id": 2,
+      "type": "TerminalKill",
+    },
+  ],
+  "terminalList": [
+    {
+      "session_id": "s1",
+      "type": "ListTerminals",
+    },
+  ],
+  "terminalOpen": [
+    {
+      "session_id": "s1",
+      "type": "TerminalOpen",
+    },
+  ],
+  "terminalResize": [
+    {
+      "cols": 80,
+      "rows": 24,
+      "session_id": "s1",
+      "terminal_id": 2,
+      "type": "TerminalResize",
+    },
+  ],
+  "unarchive": [
+    {
+      "session_id": "s1",
+      "type": "UnarchiveSession",
+    },
+  ],
+  "warmUp": [
+    {
+      "session_id": "s1",
+      "type": "WarmUp",
+    },
+  ],
+  "workspace": [
+    {
+      "type": "ListSessions",
+    },
+  ],
+}
+`;

@@ -13,7 +13,7 @@ import {
 import { Lock, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { SectionHeader } from "./SectionHeader";
-import { type Form, fromForm, type Row, summary } from "./settings";
+import { type Form, fromForm, type Row, summary, toForm } from "./settings";
 
 const emptyForm = (): Form => ({
    id: "",
@@ -24,27 +24,6 @@ const emptyForm = (): Form => ({
    url: "",
    rows: [],
 });
-
-function toForm(s: McpServerDef): Form {
-   const t = s.transport;
-   const plain = t.type === "stdio" ? (t.env ?? {}) : (t.headers ?? {});
-   const secretKeys = s.secret_keys ?? [];
-   const rows: Row[] = [
-      ...Object.entries(plain)
-         .filter(([k]) => !secretKeys.includes(k))
-         .map(([key, value]) => ({ key, value, secret: false, stored: false })),
-      ...secretKeys.map((key) => ({ key, value: "", secret: true, stored: true })),
-   ];
-   return {
-      id: s.id ?? "",
-      name: s.name,
-      kind: t.type,
-      command: t.type === "stdio" ? t.command : "",
-      args: t.type === "stdio" ? (t.args ?? []).join(" ") : "",
-      url: t.type === "http" ? t.url : "",
-      rows,
-   };
-}
 
 /** The MCP Library: MCP servers the user can give to Agents when creating a Session. */
 export function McpPanel({ client, onChanged }: { client: HarnessClient; onChanged?: () => void }) {
