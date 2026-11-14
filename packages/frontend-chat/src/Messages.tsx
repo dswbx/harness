@@ -1,5 +1,4 @@
 import type { Attachment, SessionApi } from "@harness/api";
-import { groupSubagents } from "@harness/api";
 import {
    cn,
    Dialog,
@@ -26,13 +25,14 @@ import {
 import { memo, type Ref, useContext, useEffect, useMemo, useState } from "react";
 import { AuthCard } from "./Auth";
 import { CommentChips } from "./CommentChip";
+import { chatRows } from "./chatRows";
 import type { DiffScope } from "./DiffPanel";
 import { splitDetails } from "./errors";
 import { FrontendToolRow } from "./FrontendToolCard";
 import { Markdown } from "./Markdown";
 import { MessageFooter } from "./MessageFooter";
 import { OpenSession } from "./OpenSession";
-import { isStepApproval, PermissionCard } from "./Permission";
+import { PermissionCard } from "./Permission";
 import { PlanContext, type PlanCtx, PlanNote } from "./PlanNote";
 import {
    hasArrived,
@@ -50,7 +50,6 @@ import { splitRenderUi } from "./slots";
 import { formatDuration } from "./time";
 import {
    type ChatSubagent,
-   groupTools,
    type ToolGroup,
    type ToolGroupProps,
    useToolDisplay,
@@ -512,27 +511,7 @@ export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttache
    // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
    // calls that moved to a slot or were replaced by a later call with their id.
    // Subagent tool calls go inside their Task call's card.
-   const { rows, subagents } = useMemo(() => {
-      const hidden = new Set(
-         items.flatMap((i) =>
-            i.type === "permission" && !i.resolved && i.stepId && isStepApproval(i) ? i.stepId : [],
-         ),
-      );
-      const g = groupSubagents(
-         items.filter((i) => {
-            // A plan stays: its row records how it was answered.
-            if (i.type === "permission" && !i.auto && i.resolved && !i.plan) return false;
-            // A Harness tool's approval shows on its step: the policy's answer is the step's own
-            // note, and a pending git approval stands in for the step until it is answered.
-            if (i.type === "permission" && i.auto && i.stepId) return false;
-            if (i.type === "tool" && hidden.has(i.id)) return false;
-            return ui.inline.get(i.id) !== null;
-         }),
-         (i) => (i.type === "tool" ? i : null),
-         (i) => (i.type === "thought" || i.type === "agent" ? i.parent : null),
-      );
-      return { rows: groupTools(g.rows), subagents: g.subagents };
-   }, [items, ui]);
+   const { rows, subagents } = useMemo(() => chatRows(items, ui), [items, ui]);
    return { ui, rows, subagents };
 }
 
