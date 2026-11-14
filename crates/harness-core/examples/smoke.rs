@@ -5,7 +5,7 @@
 //! `SMOKE_SIDE="<question>"` then opens a Side Thread (fork if the Agent can) and asks it.
 #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
-use harness_core::api::{Command, CommandResult, Event, EventKind, FrontendManifest};
+use harness_core::api::{Command, CommandResult, Event, EventKind};
 use std::time::Duration;
 
 #[tokio::main]
@@ -16,9 +16,10 @@ async fn main() -> anyhow::Result<()> {
     let prompt = args.next().unwrap_or_else(|| "Say hi in five words.".into());
     let data = std::env::var("SMOKE_DATA").map(Into::into).unwrap_or_else(|_| tempfile_dir());
     let h = harness_core::Harness::new(data.clone())?;
-    h.register_frontend(FrontendManifest { id: "inspector".into(), name: "Inspector".into(), version: "0".into(), instructions: None, frontend_tools: vec![] });
-    // The chat Frontend (with its Frontend Tools), used when `SMOKE_FRONTEND=chat`.
-    h.register_frontend(serde_json::from_str(include_str!("../../../packages/frontend-chat/manifest.json"))?);
+    // Inspector and chat (with its Frontend Tools, used when `SMOKE_FRONTEND=chat`).
+    for manifest in harness_core::host::builtin_frontends() {
+        h.register_frontend(manifest);
+    }
     let frontend_id = std::env::var("SMOKE_FRONTEND").unwrap_or_else(|_| "inspector".into());
     if std::env::var("SMOKE_INSTALL").is_ok() {
         let t = std::time::Instant::now();
