@@ -5,8 +5,8 @@
 //! - contains "write": appends a line to `fake.txt` in the session's cwd
 //! - starts with "mcp <tool> <json>": calls `<tool>` on the `harness` MCP server it was given and
 //!   answers "mcp: <result text>" (or "mcp error: ..."); "mcp-list" answers the tool names
-//! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`)
-//!   with that title, asking for permission under that title; answers "spoof: allowed" or
+//! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`,
+//!   `read-outside` a read of `/etc/hosts`, `switch_mode` a plan approval) with that title, asking for permission under that title; answers "spoof: allowed" or
 //!   "spoof: rejected"
 //! - contains "slow": waits 1.5 s before answering
 //! - contains "crash": the process exits mid-Turn
@@ -457,6 +457,8 @@ async fn main() -> agent_client_protocol::Result<()> {
                         let (kind, raw) = match kind {
                             "execute" => (ToolKind::Execute, serde_json::json!({ "command": "echo hi" })),
                             "read" => (ToolKind::Read, serde_json::json!({})),
+                            "read-outside" => (ToolKind::Read, serde_json::json!({ "file_path": "/etc/hosts" })),
+                            "switch_mode" => (ToolKind::SwitchMode, serde_json::json!({ "plan": "x" })),
                             _ => (ToolKind::Other, serde_json::json!({})),
                         };
                         update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("call-1", title).kind(kind).status(ToolCallStatus::Pending).raw_input(raw)))?;

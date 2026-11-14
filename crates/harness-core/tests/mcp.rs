@@ -160,6 +160,29 @@ async fn primitives_over_http() {
     assert!(asked);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn git_diff_refuses_option_like_revisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+    let out = dir.path().join("out.txt");
+    let call = format!(r#"mcp git_diff {{"from":"--output={}","to":"HEAD"}}"#, out.display());
+    let reply = ask(&h, &sid, &call, None).await;
+    assert!(reply.starts_with("mcp error:"), "{reply}");
+    assert!(!out.exists(), "git wrote the file");
+    let call = format!(r#"mcp git_diff {{"from":"HEAD","to":"--output={}"}}"#, out.display());
+    let reply = ask(&h, &sid, &call, None).await;
+    assert!(reply.starts_with("mcp error:"), "{reply}");
+    assert!(!out.exists(), "git wrote the file");
+    // Normal revisions still work.
+    std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "b"]);
+    let reply = ask(&h, &sid, r#"mcp git_diff {"from":"HEAD~1","to":"HEAD"}"#, None).await;
+    assert!(reply.contains("+b"), "{reply}");
+}
+
 fn pushed_asks(h: &Harness, sid: &str) -> bool {
     events(h, sid).into_iter().any(|e| matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push"))
 }
