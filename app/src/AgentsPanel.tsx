@@ -151,7 +151,7 @@ export function AgentsPanel({
       }
    };
 
-   const act = async (id: string, regId: string, run: () => Promise<unknown>) => {
+   const act = async (regId: string, run: () => Promise<unknown>) => {
       setErrors((e) => ({ ...e, [regId]: "" }));
       try {
          await run();
@@ -160,7 +160,6 @@ export function AgentsPanel({
       } catch (e) {
          setErrors((x) => ({ ...x, [regId]: errText(e) }));
       }
-      void id;
    };
 
    const remove = async () => {
@@ -287,7 +286,7 @@ export function AgentsPanel({
                                  size="sm"
                                  variant="outline"
                                  onClick={() =>
-                                    void act(a.id, id || a.id, () => client.rollbackAgent(a.id))
+                                    void act(id || a.id, () => client.rollbackAgent(a.id))
                                  }
                               >
                                  Roll back to v{previous.version}
@@ -299,9 +298,7 @@ export function AgentsPanel({
                                  variant={held ? "secondary" : "ghost"}
                                  aria-pressed={held}
                                  onClick={() =>
-                                    void act(a.id, id || a.id, () =>
-                                       client.holdAgentVersion(a.id, !held),
-                                    )
+                                    void act(id || a.id, () => client.holdAgentVersion(a.id, !held))
                                  }
                               >
                                  {held ? "Release hold" : "Hold"}

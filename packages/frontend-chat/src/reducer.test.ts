@@ -2,14 +2,11 @@ import { readFileSync } from "node:fs";
 import type { Event, EventKind } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import { diffLines } from "./diff";
-import {
-   type ChatState,
-   initialState,
-   permissionTitle,
-   reduce,
-   reduceBatch,
-   threadState,
-} from "./reducer";
+import { type ChatState, initialState, permissionTitle, reduce, reduceBatch } from "./reducer";
+
+/** The state of a Thread: the Main Thread is `state` itself. Null for an unknown id. */
+const threadState = (state: ChatState, threadId: string | null): ChatState | null =>
+   threadId === null || threadId === state.mainThreadId ? state : (state.threads[threadId] ?? null);
 
 const fold = (events: Event[]): ChatState => events.reduce(reduce, initialState());
 const load = (name: string): Event[] =>

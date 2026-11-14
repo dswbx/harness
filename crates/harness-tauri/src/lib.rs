@@ -374,7 +374,6 @@ pub fn run() {
             updates::update_check,
             updates::update_install,
             updates::update_restart,
-            overlay::overlay_toggle,
             overlay::overlay_ready,
             overlay::overlay_set_mode,
             overlay::overlay_set_menu_room,

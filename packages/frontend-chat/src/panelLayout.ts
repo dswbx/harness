@@ -278,9 +278,6 @@ export function reconcile(l: Layout, slots: { id: PanelId; zone: Zone }[]): Layo
  */
 export const OVERLAY_ZONES: readonly Zone[] = ["leftTop", "leftBottom", "rightBottom", "rightTop"];
 
-/** Where a zone goes in the overlay: the bottom zones go to the right side. */
-export const overlayZone = (z: Zone): Zone => (isBottomZone(z) ? "rightBottom" : z);
-
 /**
  * The layout in the overlay's zones: panels of the bottom zones go to the end of right bottom, and
  * one that was open there opens in right bottom (unless that shows one already). Returns `l` itself when nothing changes.
@@ -497,14 +494,6 @@ export function dropRects(
       bottomLeft: { x: 0, y: top, w: bw, h: bottom },
       bottomRight: { x: bw, y: top, w: w - bw, h: bottom },
    };
-}
-
-/** The layout with `id` shown in `zone` (and not where it was shown): what a drop would give, for the preview. */
-export function withShownIn(l: Layout, id: PanelId, zone: Zone): Layout {
-   const open = { ...l.open };
-   for (const z of ZONES) if (open[z] === id) open[z] = null;
-   open[zone] = id;
-   return { ...l, open };
 }
 
 /** The layout with what cannot render (no icon, no content) taken out of `open`, for geometry and drawing. The stored layout keeps it, so it comes back. */

@@ -69,8 +69,8 @@ pub struct PlanOptionFacts {
     pub clears_context: bool,
 }
 
-/// Read from the option name (Claude) or id (Codex `implement_plan` / `revise_plan`: no mode, no clear).
-pub fn plan_option_facts(name: &str, _id: &str) -> PlanOptionFacts {
+/// Read from the option name (Claude). Codex options (`implement_plan` / `revise_plan`) match nothing: no mode, no clear.
+pub fn plan_option_facts(name: &str) -> PlanOptionFacts {
     let n = name.to_lowercase();
     let mode = if n.starts_with("no,") {
         None
@@ -336,7 +336,7 @@ mod tests {
 
     #[test]
     fn plan_option_facts_by_name() {
-        let f = |n: &str, id: &str| plan_option_facts(n, id);
+        let f = |n: &str, _id: &str| plan_option_facts(n);
         let want = |m: Option<&str>, c: bool| PlanOptionFacts { mode: m.map(str::to_owned), clears_context: c };
         assert_eq!(f("Yes, clear context and use auto mode", "a"), want(Some("auto"), true));
         assert_eq!(f("Yes, clear context and bypass permissions", "a"), want(Some("bypassPermissions"), true));
