@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { definePanel, type PanelBodyProps, type PanelCtx } from "../panels/contract";
 import { usePanelTarget } from "../panels/usePanelTarget";
 import { initialState } from "../state/reducer";
-import { defaultLayout, isOpen, type Layout } from "./panelLayout";
+import { defaultLayout, isOpen, type Layout } from "./dock/model";
 import { usePanelHost } from "./usePanelHost";
 
 const applied: string[] = [];

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type { PanelStatus } from "../panels/contract";
-import { defaultLayout, type PanelId } from "./panelLayout";
+import { defaultLayout } from "./dock/model";
 import { availablePanels, renderablePanels, stripeGroup } from "./viewState";
 
 const st = (o: Record<string, PanelStatus["presence"]>) =>
    new Map<string, PanelStatus>(Object.entries(o).map(([id, presence]) => [id, { presence }]));
 
 test("renderablePanels keeps the ready panels: an icon-only one has nothing to show", () => {
-   const a = new Set<PanelId>(["side", "files", "slot:a"]);
+   const a = new Set<string>(["side", "files", "slot:a"]);
    expect([
       ...renderablePanels(a, st({ side: "icon", files: "ready", "slot:a": "ready" })),
    ]).toEqual(["files", "slot:a"]);
@@ -26,15 +26,15 @@ test("availablePanels: every panel with an icon; the overlay only those marked f
 describe("stripeGroup", () => {
    const lay = defaultLayout();
    const base = (over: Record<string, unknown> = {}) => ({
-      zones: { ...lay.zones, rightTop: ["files", "changes", "plan"] as PanelId[] },
-      openIn: "files" as PanelId | null,
-      available: new Set<PanelId>(["files", "plan"]),
-      dot: (_id: PanelId): boolean | undefined => undefined,
-      label: (id: PanelId) => `L:${id}`,
-      tip: (id: PanelId) => `T:${id}`,
-      count: (id: PanelId) => (id === "plan" ? 4 : undefined),
-      shortcut: (id: PanelId) => (id === "files" ? ["x"] : undefined),
-      icon: (id: PanelId) => `I:${id}`,
+      zones: { ...lay.zones, rightTop: ["files", "changes", "plan"] as string[] },
+      openIn: "files" as string | null,
+      available: new Set<string>(["files", "plan"]),
+      dot: (_id: string): boolean | undefined => undefined,
+      label: (id: string) => `L:${id}`,
+      tip: (id: string) => `T:${id}`,
+      count: (id: string) => (id === "plan" ? 4 : undefined),
+      shortcut: (id: string) => (id === "files" ? ["x"] : undefined),
+      icon: (id: string) => `I:${id}`,
       ...over,
    });
    test("lists available panels with their index in the full zone list", () => {

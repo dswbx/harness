@@ -1,6 +1,6 @@
 import type { PanelStatus } from "../panels/contract";
-import type { PanelId, Zone } from "./panelLayout";
-import type { StripeGroup } from "./Stripe";
+import type { Zone } from "./dock/model";
+import type { StripeGroup } from "./dock/Stripe";
 
 /** Pure decisions of the chat View: which panels exist and the stripes. */
 
@@ -14,20 +14,20 @@ export function availablePanels(o: {
    statuses: ReadonlyMap<string, PanelStatus>;
    /** The panels the Quick overlay shows. */
    overlayPanels?: ReadonlySet<string>;
-}): Set<PanelId> {
-   const a = new Set<PanelId>();
+}): Set<string> {
+   const a = new Set<string>();
    for (const [id, s] of o.statuses) {
       if (o.overlay && !o.overlayPanels?.has(id)) continue;
-      if (s.presence !== "absent") a.add(id as PanelId);
+      if (s.presence !== "absent") a.add(id as string);
    }
    return a;
 }
 
 /** The available panels that can render: those whose status is `ready` (an `icon` one has nothing to show). */
 export function renderablePanels(
-   available: ReadonlySet<PanelId>,
+   available: ReadonlySet<string>,
    statuses: ReadonlyMap<string, PanelStatus>,
-): Set<PanelId> {
+): Set<string> {
    return new Set([...available].filter((id) => statuses.get(id)?.presence === "ready"));
 }
 
@@ -38,16 +38,16 @@ export function renderablePanels(
 export function stripeGroup<I>(
    zone: Zone,
    o: {
-      zones: Record<Zone, PanelId[]>;
-      openIn: PanelId | null;
-      available: ReadonlySet<PanelId>;
+      zones: Record<Zone, string[]>;
+      openIn: string | null;
+      available: ReadonlySet<string>;
       /** Changed while closed. */
-      dot: (id: PanelId) => boolean | undefined;
-      label: (id: PanelId) => string;
-      tip: (id: PanelId) => string;
-      count: (id: PanelId) => number | undefined;
-      shortcut: (id: PanelId) => string[] | undefined;
-      icon: (id: PanelId) => I;
+      dot: (id: string) => boolean | undefined;
+      label: (id: string) => string;
+      tip: (id: string) => string;
+      count: (id: string) => number | undefined;
+      shortcut: (id: string) => string[] | undefined;
+      icon: (id: string) => I;
    },
 ): { zone: Zone; items: (Omit<StripeGroup["items"][number], "icon"> & { icon: I })[] } {
    return {

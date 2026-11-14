@@ -54,6 +54,7 @@ import { usePendingMessages, useSlow } from "../features/prompt/pendingMessages"
 import { PrRefProvider } from "../features/prRefs/prRefs";
 import { RenderUi, type UiEnv } from "../features/renderUi/RenderUi";
 import { Env } from "../features/renderUi/runtime";
+import { slotPanels } from "../features/renderUi/slotPanels";
 import type { Slot } from "../features/renderUi/slots";
 import { RENDER_UI, sharedRef } from "../features/renderUi/tools";
 import { quotableAttrs, SelectionComment } from "../features/review/SelectionComment";
@@ -63,34 +64,27 @@ import { OpenStep, type OpenStepRequest } from "../features/toolDisplay/openStep
 import { flash } from "../lib/flash";
 import { OpenSession } from "../lib/OpenSession";
 import { type ChatState, initialState, reduce, reduceBatch } from "../state/reducer";
-import { DockLayout, type DockPanel } from "./DockLayout";
-import { usePanelDrag } from "./panelDrag";
+import { DockLayout, type DockPanel } from "./dock/DockLayout";
+import { shownOpen, sideWidths } from "./dock/geometry";
 import {
    defaultLayout,
    expand,
    hide,
    isOpen,
    type Layout,
-   loadLayout,
    move,
-   OVERLAY_ZONES,
-   overlayGeometry,
-   overlayProfile,
-   type PanelId,
    reconcile,
    resetLayout,
    resize,
-   STRIPE_W,
-   saveLayout,
    show,
-   shownOpen,
-   sideWidths,
-   slotPanel,
    toggle,
    type Zone,
-} from "./panelLayout";
+} from "./dock/model";
+import { OVERLAY_ZONES, overlayGeometry, overlayProfile, STRIPE_W } from "./dock/overlay";
+import { usePanelDrag } from "./dock/panelDrag";
+import { loadLayout, saveLayout } from "./dock/persist";
+import { Stripe, type StripeGroup } from "./dock/Stripe";
 import { PANELS } from "./panels";
-import { Stripe, type StripeGroup } from "./Stripe";
 import { type PanelPlace, usePanelHost } from "./usePanelHost";
 import { availablePanels, renderablePanels, stripeGroup } from "./viewState";
 
@@ -354,7 +348,7 @@ function ChatBody({
          if (def) {
             e.preventDefault();
             e.stopPropagation();
-            update((l) => toggle(l, def.id as PanelId));
+            update((l) => toggle(l, def.id as string));
          }
       };
       window.addEventListener("keydown", onKey, true);
@@ -403,7 +397,7 @@ function ChatBody({
    const showShared = useCallback(
       (id: string) => {
          const slot = [...ui.slots.left, ...ui.slots.right].find((s) => sharedRef(s.source) === id);
-         if (slot) update((l) => show(l, slotPanel(slot.id)));
+         if (slot) update((l) => show(l, `${slotPanels.prefix}:${slot.id}`));
       },
       [ui.slots.left, ui.slots.right, update],
    );
@@ -494,7 +488,7 @@ function ChatBody({
       [available, panelHost.statuses],
    );
    const shown = useMemo(() => shownOpen(lay, renderable), [lay, renderable]);
-   const open = (id: PanelId) => isOpen(shown, id);
+   const open = (id: string) => isOpen(shown, id);
 
    // The render_ui panels the host lists get a place in the layout (a frame later, through `places`).
    placesRef.current = panelHost.places;
@@ -508,9 +502,9 @@ function ChatBody({
       () => new Map(panelHost.entries.map((e) => [e.id as string, e])),
       [panelHost.entries],
    );
-   const label = (id: PanelId) => entryOf.get(id)?.label ?? id;
+   const label = (id: string) => entryOf.get(id)?.label ?? id;
    // A panel without an icon of its own (a render_ui one without `icon`) gets the one of the side it is on.
-   const icon = (id: PanelId) => {
+   const icon = (id: string) => {
       const Own = entryOf.get(id)?.icon;
       if (Own) return <Own />;
       return lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? (
@@ -519,10 +513,10 @@ function ChatBody({
          <PanelRight />
       );
    };
-   const tip = (id: PanelId) => panelHost.statuses.get(id)?.tip ?? label(id);
-   const count = (id: PanelId) => panelHost.statuses.get(id)?.badge;
-   const shortcut = (id: PanelId) => entryOf.get(id)?.shortcut;
-   const dotOf = (id: PanelId) => panelHost.statuses.get(id)?.dot;
+   const tip = (id: string) => panelHost.statuses.get(id)?.tip ?? label(id);
+   const count = (id: string) => panelHost.statuses.get(id)?.badge;
+   const shortcut = (id: string) => entryOf.get(id)?.shortcut;
+   const dotOf = (id: string) => panelHost.statuses.get(id)?.dot;
    const group = (zone: Zone): StripeGroup =>
       stripeGroup(zone, {
          zones: lay.zones,
@@ -548,7 +542,7 @@ function ChatBody({
    const leftEmpty = left.every((g) => g.items.length === 0);
 
    /** A stripe icon: hides the panel when it is shown, else the panel's own way to show (Side chats: its last chat), else shows it. */
-   const onToggle = (id: PanelId) => {
+   const onToggle = (id: string) => {
       const entry = entryOf.get(id);
       if (!open(id) && entry?.activate) entry.activate();
       else update((l) => toggle(l, id));

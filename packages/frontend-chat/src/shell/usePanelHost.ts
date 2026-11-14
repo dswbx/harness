@@ -10,14 +10,7 @@ import type {
    PlacementHint,
 } from "../panels/contract";
 import type { ChatState } from "../state/reducer";
-import {
-   hide as hidePanel,
-   isOpen,
-   type Layout,
-   type PanelId,
-   show as showPanel,
-   type Zone,
-} from "./panelLayout";
+import { hide as hidePanel, isOpen, type Layout, show as showPanel, type Zone } from "./dock/model";
 import { FAMILIES, PANELS, zoneOfHint } from "./panels";
 
 type Target = { value: unknown; seq: number };
@@ -25,11 +18,11 @@ type Target = { value: unknown; seq: number };
 const sameStatus = (a: PanelStatus, b: PanelStatus) =>
    a.presence === b.presence && a.badge === b.badge && a.dot === b.dot && a.tip === b.tip;
 
-export type PanelPlace = { id: PanelId; zone: Zone };
+export type PanelPlace = { id: string; zone: Zone };
 
 /** One panel the host runs, whether registered or an instance of a family. */
 export type HostedPanel = {
-   id: PanelId;
+   id: string;
    label: string;
    /** None (a family's instance): the shell picks one for the place the panel is in. */
    icon?: ComponentType<{ className?: string }>;
@@ -88,18 +81,15 @@ export function usePanelHost(o: {
                ...t,
                [ref.id]: { value: target[0], seq: (t[ref.id]?.seq ?? 0) + 1 },
             }));
-         update((l) => showPanel(l, ref.id as PanelId));
+         update((l) => showPanel(l, ref.id));
       },
       [update, variant, panels],
    );
    const hide = useCallback(
-      (ref: PanelRef<never>) => update((l) => hidePanel(l, ref.id as PanelId)),
+      (ref: PanelRef<never>) => update((l) => hidePanel(l, ref.id)),
       [update],
    );
-   const isOpenNow = useCallback(
-      (ref: PanelRef<never>) => isOpen(layRef.current, ref.id as PanelId),
-      [],
-   );
+   const isOpenNow = useCallback((ref: PanelRef<never>) => isOpen(layRef.current, ref.id), []);
    const ctx = useMemo<PanelCtx>(
       () => ({
          api,
@@ -117,7 +107,7 @@ export function usePanelHost(o: {
    ctxRef.current = ctx;
 
    useEffect(() => {
-      const fresh = panels.filter((p) => isOpen(lay, p.id as PanelId) && !opened.has(p.id));
+      const fresh = panels.filter((p) => isOpen(lay, p.id) && !opened.has(p.id));
       if (fresh.length > 0) setOpened((s) => new Set([...s, ...fresh.map((p) => p.id)]));
    }, [lay, opened, panels]);
 
@@ -125,7 +115,7 @@ export function usePanelHost(o: {
    /** A panel's `self`: the same object until its open state, first opening or target changes. */
    const selfOf = (id: string, withTarget: boolean) => {
       const next = {
-         open: isOpen(lay, id as PanelId),
+         open: isOpen(lay, id),
          opened: opened.has(id),
          target: (withTarget && targets[id]) || null,
       };
@@ -140,8 +130,8 @@ export function usePanelHost(o: {
          : {
               id,
               ...next,
-              show: () => update((l) => showPanel(l, id as PanelId)),
-              hide: () => update((l) => hidePanel(l, id as PanelId)),
+              show: () => update((l) => showPanel(l, id)),
+              hide: () => update((l) => hidePanel(l, id)),
            };
       selvesRef.current.set(id, self);
       return self;
@@ -169,13 +159,12 @@ export function usePanelHost(o: {
       instanceCache.current.set(f, { model, list });
       familyInstances.push(list as ReturnType<PanelFamily["instances"]>);
    }
-   const instanceIds: string[] = [];
    const entries: HostedPanel[] = [];
    panels.forEach((p) => {
       const self = selves[p.id]!;
       const model = models[p.id];
       entries.push({
-         id: p.id as PanelId,
+         id: p.id,
          label: p.label,
          icon: p.icon,
          placement: p.placement,
@@ -192,11 +181,10 @@ export function usePanelHost(o: {
    families.forEach((f, i) => {
       for (const inst of familyInstances[i]!) {
          const id = `${f.prefix}:${inst.key}`;
-         instanceIds.push(id);
          const self = selfOf(id, false);
          selves[id] = self;
          entries.push({
-            id: id as PanelId,
+            id: id,
             label: inst.label,
             icon: inst.icon,
             placement: inst.placement,
@@ -212,11 +200,13 @@ export function usePanelHost(o: {
    // Instances that went away leave no `self` behind.
    for (const id of selvesRef.current.keys()) if (!(id in selves)) selvesRef.current.delete(id);
 
-   // The places of the instances (for the layout to give new ones a zone), the same array while they are the same.
+   // The places of every hosted panel, registered or an instance (for the layout to give new ones a zone),
+   // the same array while they are the same.
    const placesRef = useRef<PanelPlace[]>([]);
-   const places: PanelPlace[] = entries
-      .filter((e) => instanceIds.includes(e.id))
-      .map((e) => ({ id: e.id, zone: zoneOfHint(e.placement) }));
+   const places: PanelPlace[] = entries.map((e) => ({
+      id: e.id,
+      zone: zoneOfHint(e.placement),
+   }));
    if (
       places.length !== placesRef.current.length ||
       places.some(

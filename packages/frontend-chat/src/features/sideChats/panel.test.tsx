@@ -2,7 +2,7 @@ import type { SessionApi, ViewVariant } from "@harness/api";
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultLayout, isOpen, type Layout, resetLayout } from "../../shell/panelLayout";
+import { defaultLayout, isOpen, type Layout, resetLayout } from "../../shell/dock/model";
 import { usePanelHost } from "../../shell/usePanelHost";
 import { type ChatState, initialState } from "../../state/reducer";
 import { type SideChatsModel, sideChatsPanel } from "./panel";

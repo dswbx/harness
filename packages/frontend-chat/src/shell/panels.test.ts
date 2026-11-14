@@ -1,9 +1,27 @@
 import type { SubagentRow } from "@harness/api";
 import { describe, expect, test } from "vitest";
 import type { PanelStatus } from "../panels/contract";
-import { defaultLayout } from "./panelLayout";
-import { PANELS, panelDef, zoneOfHint } from "./panels";
+import { defaultLayout } from "./dock/model";
+import { FAMILIES, PANELS, zoneOfHint } from "./panels";
 import { availablePanels } from "./viewState";
+
+describe("persisted ids", () => {
+   // These ids are stored in every Session's layout: renaming one loses the user's place for it.
+   test("the registered panel ids and the family prefixes never change", () => {
+      expect(PANELS.map((p) => p.id)).toEqual([
+         "changes",
+         "files",
+         "side",
+         "plan",
+         "artifacts",
+         "references",
+         "terminal",
+         "events",
+         "subagents",
+      ]);
+      expect(FAMILIES.map((f) => f.prefix)).toEqual(["slot"]);
+   });
+});
 
 const row = (state: SubagentRow["state"]): SubagentRow => ({
    id: state,
@@ -17,6 +35,7 @@ const row = (state: SubagentRow["state"]): SubagentRow => ({
    startedAt: null,
    endedAt: null,
 });
+const panelDef = (id: string) => PANELS.find((p) => p.id === id);
 const statusOf = (id: string, model: unknown): PanelStatus => panelDef(id)!.status(model);
 
 /** The status of every registered panel, from the models they would have. */
