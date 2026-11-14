@@ -106,7 +106,7 @@ pub fn store(frontend_dir: &Path, planned: Vec<(String, PathBuf)>) -> anyhow::Re
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let rel = format!("{DIR}/{}", stored_name(&name));
         let dest = frontend_dir.join(&rel);
-        std::fs::create_dir_all(crate::env::parent_of(&dest)?)?;
+        std::fs::create_dir_all(crate::fsutil::parent_of(&dest)?)?;
         std::fs::copy(&file, &dest)?;
         files.insert(src, rel);
     }

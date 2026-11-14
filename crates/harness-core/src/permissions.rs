@@ -150,10 +150,10 @@ fn pattern_matches(pattern: &str, folder: &Path, facts: &ToolFacts) -> bool {
 /// pushes) asks.
 fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
     let writable = |p: &Path| {
-        cx.panels.is_some_and(|panels| crate::panels::resolve_inside(panels, p).is_some())
+        cx.panels.is_some_and(|panels| crate::fsutil::resolve_below_via_ancestor(panels, p).is_some())
             || cx.shared.iter().any(|dir| {
-                let Some(real) = crate::panels::resolve_inside(dir, p) else { return false };
-                // `resolve_inside` resolved `dir` the same way: compare against its real path.
+                let Some(real) = crate::fsutil::resolve_below_via_ancestor(dir, p) else { return false };
+                // `resolve_below_via_ancestor` resolved `dir` the same way: compare against its real path.
                 dir.canonicalize().is_ok_and(|d| real != d.join("meta.json"))
             })
     };
@@ -161,7 +161,7 @@ fn default_decision(cx: &Context, facts: &ToolFacts) -> Decision {
         return Decision::Allow;
     }
     let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
-    if safe && facts.paths.iter().all(|p| p.starts_with(cx.folder)) { Decision::Allow } else { Decision::Ask }
+    if safe && facts.paths.iter().all(|p| crate::fsutil::inside_lexical(cx.folder, p)) { Decision::Allow } else { Decision::Ask }
 }
 
 /// Extracts kind, command and paths from an ACP tool call (JSON, camelCase).
@@ -185,23 +185,8 @@ pub fn facts_of(tool_call: &Value, folder: &Path) -> ToolFacts {
             paths.push(PathBuf::from(p));
         }
     }
-    let paths = paths.into_iter().map(|p| normalize(&if p.is_absolute() { p } else { folder.join(p) })).collect();
+    let paths = paths.into_iter().map(|p| crate::fsutil::normalize_lexical(&if p.is_absolute() { p } else { folder.join(p) })).collect();
     ToolFacts { kind: tool_call.get("kind").and_then(Value::as_str).map(str::to_owned), command, paths }
-}
-
-/// Lexically resolves `.` and `..` so `folder/../x` cannot pass as inside the folder.
-fn normalize(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in p.components() {
-        match c {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

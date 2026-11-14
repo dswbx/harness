@@ -25,11 +25,11 @@ pub fn save(data_dir: &Path, editor: Option<&Editor>) -> anyhow::Result<()> {
 pub fn resolve(folder: &Path, path: Option<&str>) -> anyhow::Result<PathBuf> {
     let root = std::fs::canonicalize(folder)?;
     let Some(p) = path.filter(|p| !p.trim().is_empty()) else { return Ok(root) };
-    let p = std::fs::canonicalize(root.join(p)).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
-    if !p.starts_with(&root) {
-        return Err(crate::error::policy_denied(format!("{} is outside the Session's folder", p.display())));
+    let real = crate::fsutil::inside_existing(&root, &root.join(p)).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
+    if !real.within() {
+        return Err(crate::error::policy_denied(format!("{} is outside the Session's folder", real.path.display())));
     }
-    Ok(p)
+    Ok(real.path)
 }
 
 /// Writes `markdown` to `<session_dir>/plans/<name>.md`, `name` cut to `[a-z0-9-]` (so no path tricks). Returns the absolute path.

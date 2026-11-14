@@ -124,7 +124,7 @@ impl Session {
         let call_id = uuid::Uuid::now_v7().to_string();
         let rel = format!("tools/{tool}/{call_id}.json");
         let path = self.dir.join("frontend").join(&rel);
-        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        std::fs::create_dir_all(crate::fsutil::parent_of(&path)?)?;
         std::fs::write(&path, serde_json::to_vec_pretty(&input)?)?;
         self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput { tool: tool.to_owned(), call_id, path: rel.clone(), input, files })?;
         Ok(rel)
@@ -260,7 +260,7 @@ impl Session {
     pub fn frontend_write(&self, rel: &str, content: &str) -> anyhow::Result<()> {
         let path = self.frontend_path(rel)?;
         anyhow::ensure!(!rel.trim().is_empty(), "path is required");
-        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        std::fs::create_dir_all(crate::fsutil::parent_of(&path)?)?;
         crate::fsutil::write_atomic(&path, content.as_bytes())?;
         Ok(())
     }

@@ -137,7 +137,7 @@ impl SharedArtifacts {
     /// The content file's text and hash.
     fn content(&self, meta: &SharedArtifactMeta) -> anyhow::Result<(String, String)> {
         let folder = self.folder(&meta.id)?;
-        let path = crate::panels::resolve_inside(&folder, &folder.join(content_name(meta.kind)))
+        let path = crate::fsutil::resolve_below_via_ancestor(&folder, &folder.join(content_name(meta.kind)))
             .ok_or_else(|| anyhow::anyhow!("{} of {} is outside its folder", content_name(meta.kind), meta.id))?;
         crate::panels::read_file(&path).map_err(|e| anyhow::anyhow!("{} of shared artifact {} {e:#}", content_name(meta.kind), meta.id))
     }
