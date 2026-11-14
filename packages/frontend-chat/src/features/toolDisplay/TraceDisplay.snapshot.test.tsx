@@ -243,7 +243,7 @@ HTMLCanvasElement.prototype.getContext = (() => ({
    measureText: (t: string) => ({ width: t.length * 7 }),
 })) as never;
 
-// React ids depend on render order and the shimmer delay on the clock: dropped. Icons keep their lucide class, not their path data; one tag per line so a diff reads.
+// Structure and text only: no class, style or data-slot (a restyle must not touch the snapshot; running, error and pending show as data-status, open/closed as data-state). React ids depend on render order: dropped. Icons keep their lucide name, not their path data; one tag per line so a diff reads.
 const html = (ui: React.ReactNode) =>
    render(<TooltipProvider>{ui}</TooltipProvider>)
       .container.innerHTML.replace(
@@ -252,7 +252,7 @@ const html = (ui: React.ReactNode) =>
       )
       .replace(/_r_\w+_/g, "_r_")
       .replace(/diff-root-diff-[-\d]+/g, "diff-root")
-      .replace(/--shimmer-delay: [^;]+;/g, "--shimmer-delay: 0ms;")
+      .replace(/ (class|style|data-slot)="[^"]*"/g, "")
       .replace(/></g, ">\n<");
 const trace = (over: { active?: boolean; waiting?: boolean }) => (
    <WaitingForUser.Provider value={over.waiting ?? false}>
