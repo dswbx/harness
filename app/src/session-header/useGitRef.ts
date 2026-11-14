@@ -1,7 +1,7 @@
 import type { GitStatus, HarnessClient, PrInfo, RepoId, SessionSummary } from "@harness/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { watchingChecks } from "./checks";
-import type { GitRef } from "./SessionHeader";
+import type { GitRef } from "./GitRefButton";
 
 /**
  * The Session's git ref for the header: branch with ahead/behind, its GitHub repo and PR. Reloaded as the
