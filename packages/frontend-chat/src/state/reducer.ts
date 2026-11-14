@@ -1,4 +1,4 @@
-import type { Event } from "@harness/api";
+import type { Event, EventKind } from "@harness/api";
 import { type Ctx, initialState, newCtx, sideCtx } from "./draft";
 import { agentSlice, endSideJobs } from "./slices/agent";
 import { configSlice } from "./slices/config";
@@ -53,18 +53,64 @@ function apply(c: Ctx, e: Event) {
    applyThread(c, e);
 }
 
+type Slice = (c: Ctx, e: Event) => void;
+
+const T = [timelineSlice];
+const A = [agentSlice];
+const NONE: readonly Slice[] = [];
+
 /**
- * Folds one Event into one Thread's state (`c.d`). Each Event kind belongs to one slice, except
- * `TurnStarted` and `TurnEnded`, which the timeline and the turn both fold, the timeline first
- * (stamping a Turn's duration reads the start time that `turnSlice` clears).
+ * Which slices fold each Event kind into a Thread's state. Typed over every kind, so a new Event
+ * kind fails the typecheck until it is routed. `TurnStarted` and `TurnEnded` go to the timeline and
+ * the turn, the timeline first (stamping a Turn's duration reads the start time that `turnSlice`
+ * clears). Session-level kinds (`StateChanged`, artifacts) are handled before this, in `apply`.
  */
+const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
+   TurnStarted: [timelineSlice, turnSlice],
+   TurnEnded: [timelineSlice, turnSlice],
+   AgentMessageChunk: T,
+   AgentThoughtChunk: T,
+   ToolCall: T,
+   ToolCallUpdate: T,
+   WorkspaceChanged: T,
+   FrontendToolOutput: T,
+   AgentNotice: T,
+   GitCommitted: T,
+   GitPushed: T,
+   Error: T,
+   PermissionRequested: T,
+   PermissionResolved: T,
+   PermissionRuleAdded: T,
+   UsageUpdated: [turnSlice],
+   SessionInfoUpdated: [sessionSlice],
+   ThreadStarted: [sessionSlice],
+   SessionArchived: [sessionSlice],
+   AgentCapabilities: A,
+   BackgroundJobEnded: A,
+   AgentProcessState: A,
+   ThreadReadOnly: A,
+   AgentSessionRestoring: A,
+   AgentSessionStarted: A,
+   AuthRequired: A,
+   ConfigOptionsChanged: [configSlice],
+   AvailableCommandsChanged: [configSlice],
+   TaskListUpdated: [plansSlice],
+   StateChanged: NONE,
+   ArtifactAttached: NONE,
+   ArtifactDetached: NONE,
+   ArtifactStateChanged: NONE,
+   AgentUpdate: NONE,
+   FrontendError: NONE,
+   ModeChanged: NONE,
+   SessionCreated: NONE,
+   SessionStatusChanged: NONE,
+   Unknown: NONE,
+};
+
+/** Folds one Event into one Thread's state (`c.d`). */
 function applyThread(c: Ctx, e: Event) {
-   timelineSlice(c, e);
-   turnSlice(c, e);
-   sessionSlice(c, e);
-   agentSlice(c, e);
-   configSlice(c, e);
-   plansSlice(c, e);
+   const slices = ROUTES[e.kind.type] ?? NONE;
+   for (let i = 0; i < slices.length; i++) slices[i]!(c, e);
 }
 
 /** Text of an ACP tool content block, if it carries any. */
