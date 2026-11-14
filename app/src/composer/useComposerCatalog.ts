@@ -4,21 +4,24 @@ import {
    type FrontendManifest,
    type HarnessClient,
    type McpServerDef,
+   type SessionSummary,
 } from "@harness/api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { pickStart } from "../quick/startSession";
 
 const start = (
    agents: AgentInfo[],
    frontends: FrontendManifest[],
+   sessions: SessionSummary[],
    agent: string,
    frontend: string,
 ) => ({
    agents,
    frontends,
+   sessions,
    preferredAgentId: agent,
    preferredFrontendId: frontend,
-   fallback: "first" as const,
+   fallback: "newest" as const,
 });
 
 /** What a new Session can pick from: Agents, Frontends and MCP servers, reloaded while the Composer is open. */
@@ -27,6 +30,7 @@ export function useComposerCatalog({
    isOpen,
    agentsVersion,
    mcpVersion,
+   sessions,
    setError,
 }: {
    client: HarnessClient;
@@ -35,8 +39,12 @@ export function useComposerCatalog({
    agentsVersion: number;
    /** Bump to reload the MCP Library. */
    mcpVersion: number;
+   /** For the newest Session's Agent; read when the lists load, not a reload trigger. */
+   sessions: SessionSummary[];
    setError: (e: string | null) => void;
 }) {
+   const sessionsRef = useRef(sessions);
+   sessionsRef.current = sessions;
    const [agents, setAgents] = useState<AgentInfo[]>([]);
    const [frontends, setFrontends] = useState<FrontendManifest[]>([]);
    const [agentId, setAgentId] = useState("");
@@ -51,9 +59,13 @@ export function useComposerCatalog({
          .then(([a, f]) => {
             setAgents(a);
             setFrontends(f);
-            // The Composer keeps what is picked; else the first Agent, not the newest Session's.
-            setAgentId((cur) => pickStart(start(a, f, cur, "")).agent?.id ?? "");
-            setFrontendId((cur) => pickStart(start(a, f, "", cur)).frontendId ?? "");
+            // Keeps what is picked; else the newest Session's Agent, else the first.
+            setAgentId(
+               (cur) => pickStart(start(a, f, sessionsRef.current, cur, "")).agent?.id ?? "",
+            );
+            setFrontendId(
+               (cur) => pickStart(start(a, f, sessionsRef.current, "", cur)).frontendId ?? "",
+            );
          })
          .catch((e) => setError(errText(e)));
    }, [isOpen, client, agentsVersion]);

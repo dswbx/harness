@@ -329,6 +329,7 @@ export function Shell({ transport }: { transport: Transport }) {
             folder={composerFolder}
             agentsVersion={agentsVersion}
             mcpVersion={mcpVersion}
+            sessions={sessions}
             onManageAgents={() => {
                setComposer(false);
                setSettingsSection("agents");

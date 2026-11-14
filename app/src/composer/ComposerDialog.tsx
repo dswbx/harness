@@ -1,4 +1,4 @@
-import { errText, type HarnessClient, inTauri } from "@harness/api";
+import { errText, type HarnessClient, inTauri, type SessionSummary } from "@harness/api";
 import {
    Button,
    Dialog,
@@ -29,12 +29,15 @@ export function ComposerDialog({
    onOpenChange,
    onCreated,
    agentsVersion = 0,
+   sessions = [],
    mcpVersion = 0,
    onManageAgents,
    folder: presetFolder = null,
 }: {
    /** Bump to reload the Agent list (after installs/removals). */
    agentsVersion?: number;
+   /** The Session list, for preselecting the newest Session's Agent. */
+   sessions?: SessionSummary[];
    /** Bump to reload the MCP Library. */
    mcpVersion?: number;
    onManageAgents?: () => void;
@@ -76,7 +79,14 @@ export function ComposerDialog({
       mcpServers,
       mcpIds,
       setMcpIds,
-   } = useComposerCatalog({ client, isOpen, agentsVersion, mcpVersion, setError });
+   } = useComposerCatalog({
+      client,
+      isOpen,
+      agentsVersion,
+      mcpVersion,
+      sessions,
+      setError,
+   });
    const { recent, folder, setFolder, noFolder, setNoFolder, recentBranch } = useRecentFolders({
       client,
       isOpen,

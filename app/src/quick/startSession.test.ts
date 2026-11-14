@@ -30,11 +30,16 @@ describe("pickStart", () => {
       expect(pickStart({ ...p, preferredAgentId: "b" }).agent?.id).toBe("b");
       expect(pickStart({ ...p, preferredAgentId: "gone" }).agent?.id).toBe("c");
    });
-   it("Composer (first): ignores the newest Session", () => {
-      const p = { agents, frontends, sessions, fallback: "first" as const };
-      expect(pickStart(p).agent?.id).toBe("a");
+   it("Composer: the picked Agent wins, else the newest Session's, else the first", () => {
+      const p = { agents, frontends, sessions, fallback: "newest" as const };
+      expect(pickStart(p).agent?.id).toBe("c");
       expect(pickStart({ ...p, preferredAgentId: "b" }).agent?.id).toBe("b");
-      expect(pickStart({ ...p, preferredAgentId: "" }).agent?.id).toBe("a");
+      expect(pickStart({ ...p, preferredAgentId: "" }).agent?.id).toBe("c");
+      expect(pickStart({ ...p, agents: [agent("a"), agent("b")] }).agent?.id).toBe("a");
+      expect(pickStart({ ...p, sessions: [] }).agent?.id).toBe("a");
+   });
+   it("fallback first ignores the newest Session", () => {
+      expect(pickStart({ agents, frontends, sessions, fallback: "first" }).agent?.id).toBe("a");
    });
    it("Frontend: the preferred as is, else chat, else the first", () => {
       const p = { agents, sessions, fallback: "first" as const };
