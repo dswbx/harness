@@ -1,7 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 import { cn } from "../lib/utils";
-import { Separator } from "./separator";
+import { Separator } from "../primitives/separator";
 
 /** Ported from diceui `stat` (https://diceui.com/docs/components/base/stat). */
 function Stat({ className, ...props }: React.ComponentProps<"div">) {
