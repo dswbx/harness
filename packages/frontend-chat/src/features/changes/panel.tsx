@@ -1,5 +1,6 @@
+import { useGitStatus } from "@harness/api";
 import { GitCompare } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { usePanelTarget } from "../../panels/usePanelTarget";
 import { ALL_CHANGES, DiffPanel, type DiffScope } from "./DiffPanel";
@@ -23,34 +24,10 @@ export const changesPanel = definePanel<ChangesModel, DiffScope>({
       const [scope, setScope] = useState<DiffScope>(ALL_CHANGES);
       // Opened at a scope, it shows that one (also while hidden: the scope outlives the panel's body).
       usePanelTarget(self, setScope);
-      const [git, setGit] = useState(false);
       const turnRunning = state.turnId !== null;
-      // The folder can become a repository later (`git init`): look again after each Turn, and for a
-      // terminal command every 20s and on focus, until it is one.
-      // biome-ignore lint/correctness/useExhaustiveDependencies: turnRunning triggers the check.
-      useEffect(() => {
-         let off = false;
-         const check = () => {
-            if (document.hidden) return;
-            api.workspace().then(
-               (w) => !off && setGit(!!w?.repo_root),
-               () => {},
-            );
-         };
-         check();
-         if (git) {
-            return () => {
-               off = true;
-            };
-         }
-         const timer = setInterval(check, 20_000);
-         window.addEventListener("focus", check);
-         return () => {
-            off = true;
-            clearInterval(timer);
-            window.removeEventListener("focus", check);
-         };
-      }, [api, turnRunning, git]);
+      // The folder can become a repository later (`git init`): the store looks again after each Turn, and for
+      // a terminal command every 20s and on focus, until it is one.
+      const git = useGitStatus(api, { status: false, refreshKey: turnRunning }).isRepo === true;
       // One pass over the items per batch (as the View did before).
       const changeCount = useMemo(
          () => state.items.reduce((n, i) => n + (i.type === "changes" ? 1 : 0), 0),

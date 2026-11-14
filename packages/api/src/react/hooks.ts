@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionApi } from "../client/client";
+import { type GitStatusSnapshot, gitStatusStore } from "../client/gitStatusStore";
 import type { Event, PrRefKey, SharedArtifactEntry } from "../generated";
 import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
@@ -95,4 +96,44 @@ export function useSharedArtifacts(source: SharedListSource): SharedArtifactEntr
       };
    }, [source]);
    return list;
+}
+
+const NO_STATUS: GitStatusSnapshot = { isRepo: null, status: null, error: null, changes: 0 };
+const noop = () => {};
+
+/**
+ * The Session folder's git status from the shared store (one poll per Session however many views use it).
+ * Nothing polls for a null `api` or `enabled: false` (e.g. a folder known not to be a repository).
+ * `status: false` only wants `isRepo`. A new `refreshKey` loads again. `changes` counts status changes seen
+ * since this view mounted.
+ */
+export function useGitStatus(
+   api: Pick<SessionApi, "sessionId" | "gitStatus" | "workspace"> | null,
+   {
+      enabled = true,
+      status = true,
+      refreshKey,
+   }: { enabled?: boolean; status?: boolean; refreshKey?: unknown } = {},
+): GitStatusSnapshot & { refresh: () => Promise<void> } {
+   const on = !!api && enabled;
+   const store = api && on ? gitStatusStore(api) : null;
+   const sessionId = api?.sessionId;
+   // biome-ignore lint/correctness/useExhaustiveDependencies: the store is keyed by the Session id.
+   const subscribe = useCallback(
+      (l: () => void) => (store ? store.subscribe(l, { status }) : noop),
+      [sessionId, on, status],
+   );
+   // biome-ignore lint/correctness/useExhaustiveDependencies: the store is keyed by the Session id.
+   const peek = useCallback(() => store?.peek() ?? NO_STATUS, [sessionId, on]);
+   const snap = useSyncExternalStore(subscribe, peek);
+   const base = useRef<number | null>(null);
+   if (!on) base.current = null;
+   else base.current ??= snap.changes;
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `refreshKey` only triggers a reload.
+   useEffect(() => {
+      void store?.refresh();
+   }, [sessionId, on, refreshKey]);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: the store is keyed by the Session id.
+   const refresh = useCallback(() => store?.refresh() ?? Promise.resolve(), [sessionId, on]);
+   return { ...snap, changes: snap.changes - (base.current ?? snap.changes), refresh };
 }

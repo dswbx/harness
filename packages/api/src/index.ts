@@ -1,4 +1,5 @@
 export * from "./client/client";
+export * from "./client/gitStatusStore";
 export * from "./contract/drafts";
 export * from "./contract/frontend";
 export * from "./derive/eventFamily";

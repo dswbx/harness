@@ -1,4 +1,10 @@
-import { type Diff, openWindow, type SessionApi, type WorkspaceInfo } from "@harness/api";
+import {
+   type Diff,
+   openWindow,
+   type SessionApi,
+   useGitStatus,
+   type WorkspaceInfo,
+} from "@harness/api";
 import {
    Button,
    cn,
@@ -17,7 +23,6 @@ import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../../lib/errors";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { type DiffComment, useDiffComments } from "../review/reviewComments";
-import { useGitStatus } from "../workspace/useGitStatus";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
@@ -157,7 +162,10 @@ export function DiffPanel({
    const noRepo = workspace !== undefined && !workspace?.repo_root;
 
    // A change seen by polling reloads the diff and the commits.
-   const { status, changes } = useGitStatus(api, !!workspace?.repo_root, `${refreshKey}:${tick}`);
+   const { status, changes } = useGitStatus(api, {
+      enabled: !!workspace?.repo_root,
+      refreshKey: `${refreshKey}:${tick}`,
+   });
    useEffect(() => {
       if (changes) setTick((t) => t + 1);
    }, [changes]);
