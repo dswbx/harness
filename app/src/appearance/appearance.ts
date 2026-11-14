@@ -370,20 +370,52 @@ function cache(key: string, value: unknown) {
 
 export const getAppearance = () => current;
 
-/** Saves and applies in this window; other windows follow via the `storage` event. */
-export function setAppearance(a: Appearance) {
-   current = normalize(a);
+/** What a failed write leaves: `previous`, unless a later change already replaced `attempted`. */
+export const rolledBack = <T>(cur: T, attempted: T, previous: T): T =>
+   cur === attempted ? previous : cur;
+
+/**
+ * Saves and applies in this window; other windows follow via the `storage` event. Rejects when the
+ * core could not store it, after restoring the previous value (the caller reports).
+ */
+export async function setAppearance(a: Appearance) {
+   const previous = current;
+   const attempted = normalize(a);
+   current = attempted;
    saveAppearance(localStorage, current);
    applyToWindow(current);
-   void client?.setAppSetting("appearance", current);
+   try {
+      await client?.setAppSetting("appearance", attempted);
+   } catch (e) {
+      current = rolledBack(current, attempted, previous);
+      if (current === previous) {
+         saveAppearance(localStorage, current);
+         applyToWindow(current);
+      }
+      throw e;
+   }
 }
 
-/** Saves the imported themes (all windows follow), then applies: the current theme may have changed. */
+/**
+ * Saves the imported themes (all windows follow), then applies: the current theme may have changed.
+ * Rejects when the core could not store them, after restoring the previous ones.
+ */
 export async function setImportedThemes(next: Record<string, ImportedTheme>) {
+   const previous = imported;
    loadThemes(normalizeThemes(next));
+   const attempted = imported;
    cache(THEMES_KEY, imported);
    applyToWindow(current);
-   await client?.setAppSetting("themes", imported);
+   try {
+      await client?.setAppSetting("themes", attempted);
+   } catch (e) {
+      if (rolledBack(imported, attempted, previous) === previous) {
+         loadThemes(previous);
+         cache(THEMES_KEY, imported);
+         applyToWindow(current);
+      }
+      throw e;
+   }
 }
 
 /**

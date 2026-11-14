@@ -28,8 +28,13 @@ export function EditorPanel({ client }: { client: HarnessClient }) {
       );
    }, [client, report]);
    const save = (e: Editor | null) => {
+      const prev = editor;
       setEditor(e);
-      client.setEditor(e).catch((err) => report("Could not save the editor", err));
+      client.setEditor(e).catch((err) => {
+         // The core never stored it: show what it still has.
+         setEditor(prev);
+         report("Could not save the editor", err);
+      });
    };
    const pick = (type: Editor["type"]) =>
       save(

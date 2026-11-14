@@ -3,6 +3,7 @@ import {
    type Branches,
    type BranchInfo,
    baseName,
+   errText,
    type FrontendManifest,
    type HarnessClient,
    inTauri,
@@ -39,13 +40,14 @@ import {
    RefreshCw,
    Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentIcon } from "./AgentsPanel";
 import {
    branchChoices,
    loadRecent,
    matches,
    mergeRecent,
+   pathsToRequest,
    type RecentFolder,
    relTime,
    rememberFolder,
@@ -230,6 +232,7 @@ export function ComposerDialog({
    const [pr, setPr] = useState<PickedPr | null>(null);
 
    const [agentOpen, setAgentOpen] = useState(false);
+   const [agentQuery, setAgentQuery] = useState("");
 
    useEffect(() => {
       if (!isOpen) return;
@@ -240,7 +243,7 @@ export function ComposerDialog({
             setAgentId((cur) => (a.some((x) => x.id === cur) ? cur : a[0]?.id || ""));
             setFrontendId((cur) => cur || (f.find((x) => x.id === "chat") ?? f[0])?.id || "");
          })
-         .catch((e) => setError(String(e)));
+         .catch((e) => setError(errText(e)));
    }, [isOpen, client, agentsVersion]);
 
    useEffect(() => {
@@ -253,7 +256,7 @@ export function ComposerDialog({
          })
          .catch((e) => {
             setMcpServers([]);
-            setError(`Could not load MCP servers: ${e instanceof Error ? e.message : String(e)}`);
+            setError(`Could not load MCP servers: ${errText(e)}`);
          });
    }, [isOpen, client, mcpVersion]);
 
@@ -276,24 +279,32 @@ export function ComposerDialog({
       };
    }, [isOpen, client, presetFolder]);
 
+   // Each folder is asked once per open of the list; closing drops the answers, so the next open refreshes.
+   const branchReq = useRef(new Set<string>());
    useEffect(() => {
-      if (!folderOpen) return;
-      for (const { path } of recent.slice(0, 12)) {
-         if (path in recentBranch) continue;
+      if (!folderOpen) {
+         branchReq.current = new Set();
+         setRecentBranch((m) => (Object.keys(m).length ? {} : m));
+         return;
+      }
+      const mine = branchReq.current;
+      const set = (path: string, v: string | null) =>
+         branchReq.current === mine && setRecentBranch((m) => ({ ...m, [path]: v }));
+      for (const path of pathsToRequest(
+         recent.slice(0, 12).map((r) => r.path),
+         mine,
+      )) {
+         mine.add(path);
          client
             .listBranches(path)
-            .then((b) =>
-               setRecentBranch((m) => ({
-                  ...m,
-                  [path]: b.repo_root ? (b.current ?? "detached") : null,
-               })),
-            )
-            .catch(() => setRecentBranch((m) => ({ ...m, [path]: null })));
+            .then((b) => set(path, b.repo_root ? (b.current ?? "detached") : null))
+            .catch(() => set(path, null));
       }
-   }, [folderOpen, recent, recentBranch, client]);
+   }, [folderOpen, recent, client]);
 
    // Branches (and whether PRs are available) once a folder is chosen; debounced, it can be typed.
    useEffect(() => {
+      setError(null); // a new folder, or a reopen: no error of the last one
       setBranches(null);
       setPrs(null);
       setPrAvailable(false);
@@ -314,7 +325,7 @@ export function ComposerDialog({
                setTarget(first ? { kind: "local", name: first } : null);
                setWorktree(false);
             })
-            .catch((e) => !off && setError(String(e)));
+            .catch((e) => !off && setError(errText(e)));
       }, 250);
       return () => {
          off = true;
@@ -341,7 +352,7 @@ export function ComposerDialog({
       client
          .updateBranch(folder.trim(), b.name)
          .then(() => setBranchesVersion((v) => v + 1))
-         .catch((e) => setError(`Could not update ${b.name}: ${String(e)}`))
+         .catch((e) => setError(`Could not update ${b.name}: ${errText(e)}`))
          .finally(() => setUpdating(null));
    };
 
@@ -447,7 +458,7 @@ export function ComposerDialog({
          onOpenChange(false);
          onCreated(id);
       } catch (e) {
-         setError(String(e));
+         setError(errText(e));
       } finally {
          setBusy(false);
       }
@@ -706,28 +717,34 @@ export function ComposerDialog({
    // ---- Agent list
    const agent = agents.find((a) => a.id === agentId);
    const agentItems: PickItem[] = [
-      ...agents.map(
-         (a): PickItem => ({
-            key: a.id,
-            selected: a.id === agentId,
-            onSelect: () => {
-               setAgentId(a.id);
-               setAgentOpen(false);
-            },
-            content: (
-               <>
-                  <AgentIcon icon={a.icon} name={a.name} className="size-5 text-xs" />
-                  <span className="min-w-0 flex-1 truncate">{a.name}</span>
-                  {a.version && (
-                     <span className="shrink-0 text-xs text-muted-foreground">v{a.version}</span>
-                  )}
-                  <Check
-                     className={cn("size-4 shrink-0 text-primary", a.id !== agentId && "invisible")}
-                  />
-               </>
-            ),
-         }),
-      ),
+      ...agents
+         .filter((a) => matches(agentQuery, a.name, a.id))
+         .map(
+            (a): PickItem => ({
+               key: a.id,
+               selected: a.id === agentId,
+               onSelect: () => {
+                  setAgentId(a.id);
+                  setAgentOpen(false);
+                  setAgentQuery("");
+               },
+               content: (
+                  <>
+                     <AgentIcon icon={a.icon} name={a.name} className="size-5 text-xs" />
+                     <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                     {a.version && (
+                        <span className="shrink-0 text-xs text-muted-foreground">v{a.version}</span>
+                     )}
+                     <Check
+                        className={cn(
+                           "size-4 shrink-0 text-primary",
+                           a.id !== agentId && "invisible",
+                        )}
+                     />
+                  </>
+               ),
+            }),
+         ),
       ...(onManageAgents
          ? [
               {
@@ -735,6 +752,7 @@ export function ComposerDialog({
                  separated: true,
                  onSelect: () => {
                     setAgentOpen(false);
+                    setAgentQuery("");
                     onManageAgents();
                  },
                  content: (
@@ -984,10 +1002,17 @@ export function ComposerDialog({
                      <Picker
                         label="Agents"
                         open={agentOpen}
-                        onOpenChange={setAgentOpen}
+                        onOpenChange={(o) => {
+                           setAgentOpen(o);
+                           if (!o) setAgentQuery("");
+                        }}
                         search={
                            agents.length > 6
-                              ? { value: "", onChange: () => {}, placeholder: "Filter Agents" }
+                              ? {
+                                   value: agentQuery,
+                                   onChange: setAgentQuery,
+                                   placeholder: "Filter Agents",
+                                }
                               : undefined
                         }
                         items={agentItems}

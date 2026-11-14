@@ -24,10 +24,14 @@ export function GitPanel({ client }: { client: HarnessClient }) {
       const v = d.trim() || DEFAULT;
       setDir(v);
       if (v === saved) return;
+      const prev = saved;
       setSaved(v);
-      client
-         .setWorktreeDir(v === DEFAULT ? null : v)
-         .catch((e) => report("Could not save the Worktree folder", e));
+      client.setWorktreeDir(v === DEFAULT ? null : v).catch((e) => {
+         // The core never stored it: show what it still has.
+         setSaved(prev);
+         setDir(prev ?? DEFAULT);
+         report("Could not save the Worktree folder", e);
+      });
    };
    if (saved === undefined) return null;
    return (

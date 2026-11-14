@@ -10,6 +10,7 @@ import {
    modeVars,
    normalize,
    resolveVars,
+   rolledBack,
    STORAGE_KEY,
    saveAppearance,
    stepIndex,
@@ -171,6 +172,18 @@ describe("custom font vars", () => {
       );
       const mm = resolveVars(a({ theme: "modern-minimal", font: "custom" }), false);
       expect(mm["--font-sans"]).toBe('"Inter Variable", Inter, sans-serif');
+   });
+});
+
+describe("rolledBack", () => {
+   it("restores the previous value when the failed write is still the current one", () => {
+      const prev = {};
+      const tried = {};
+      expect(rolledBack(tried, tried, prev)).toBe(prev);
+   });
+   it("keeps a newer value a later change already set", () => {
+      const newer = {};
+      expect(rolledBack(newer, {}, {})).toBe(newer);
    });
 });
 
