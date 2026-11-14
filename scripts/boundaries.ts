@@ -39,10 +39,13 @@ export function stripComments(src: string): string {
  * or the `@harness/api` helpers for logs recorded before them.
  */
 const LEAKS: [RegExp, string][] = [
-   [/\brawInput\./, "reads rawInput"],
+   // Any read: a property (`x.rawInput`, also through a cast or as an argument) or a bare
+   // identifier. Not a definition (`rawInput: unknown`, `{ rawInput, .. }`, `rawInput?:`).
+   [/\.rawInput\b|(?<![\w$.])rawInput\b(?!\s*[:,}?])/, "reads rawInput"],
    [/\braw_input\b/, "reads raw_input"],
-   [/\brawOutput\./, "reads rawOutput"],
+   [/\.rawOutput\b|(?<![\w$.])rawOutput\b(?!\s*[:,}?])/, "reads rawOutput"],
    [/\braw_output\b/, "reads raw_output"],
+   [/mcp__/, "parses an Agent's MCP tool-title convention"],
    [/claude|codex/i, "names an Agent"],
 ];
 

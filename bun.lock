@@ -114,7 +114,6 @@
       "dependencies": {
         "@harness/api": "workspace:*",
         "@harness/ui": "workspace:*",
-        "lucide-react": "^1.0.0",
       },
       "devDependencies": {
         "@types/react": "^19",

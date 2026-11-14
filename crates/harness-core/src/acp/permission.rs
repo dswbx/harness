@@ -39,7 +39,7 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
         .iter()
         .map(|o| {
             let id = o.option_id.to_string();
-            let facts = if is_plan { crate::agent_quirks::plan_option_facts(&o.name, &id) } else { Default::default() };
+            let facts = if is_plan { crate::agent_quirks::plan_option_facts(&o.name) } else { Default::default() };
             PermissionOption { option_id: id, name: o.name.clone(), kind: enum_str(&o.kind), plan_mode: facts.mode, clears_context: facts.clears_context }
         })
         .collect();

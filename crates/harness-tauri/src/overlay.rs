@@ -691,12 +691,6 @@ pub fn overlay_ready(app: AppHandle) {
     }
 }
 
-/// Same as the shortcut: show when hidden, else let the webview decide.
-#[tauri::command]
-pub fn overlay_toggle(app: AppHandle) {
-    on_shortcut(&app);
-}
-
 #[tauri::command]
 pub fn overlay_set_mode(app: AppHandle, mode: Mode) {
     let handle = app.clone();

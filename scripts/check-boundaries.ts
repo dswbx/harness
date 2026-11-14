@@ -12,6 +12,14 @@ import { importSpecs, importViolation, leaks } from "./boundaries";
 const RAW_ALLOWED: Record<string, string> = {
    "frontend-chat/src/reducer.ts":
       "folds Events: stores raw_input/raw_output for the raw JSON view, and hands raw_input to the @harness/api fallback for old logs",
+   "frontend-chat/src/toolDisplay/label.ts":
+      "known leak: reads rawInput/rawOutput and the mcp__server__tool title convention for step labels; to be replaced by typed core tool fields",
+   "frontend-chat/src/toolDisplay/fence.ts":
+      "known leak: reads rawInput.command to show an execute call's command line; to be replaced by a typed core tool field",
+   "frontend-chat/src/toolDisplay/TraceDisplay.tsx":
+      "known leak: reads rawInput/rawOutput (memo deps, presence checks, the raw JSON view) and the mcp__ title prefix; the raw JSON view may stay, the rest moves to typed core tool fields",
+   "frontend-chat/src/ToolCard.tsx":
+      "known leak: passes rawInput to commandOf and shows rawInput/rawOutput in the raw JSON view; the command moves to a typed core tool field, the raw JSON view may stay",
 };
 
 let bad = 0;
