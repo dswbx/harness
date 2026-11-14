@@ -146,7 +146,9 @@ impl Session {
     fn folder(&self) -> anyhow::Result<PathBuf> {
         self.adopt_repo();
         let m = self.meta.lock();
-        anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
+        if m.workspace.repo_root.is_none() {
+            return Err(crate::error::invalid("the Workspace is not a git repository"));
+        }
         Ok(PathBuf::from(&m.folder))
     }
 

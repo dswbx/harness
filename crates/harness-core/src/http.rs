@@ -104,6 +104,15 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl Error {
+    /// What a caller can act on: a timeout, or a network failure worth trying again later.
+    pub fn code(&self) -> Option<crate::api::ErrorCode> {
+        match self {
+            Error::Stalled(_) | Error::TimedOut(_) => Some(crate::api::ErrorCode::Timeout),
+            e if e.transient() => Some(crate::api::ErrorCode::Unavailable),
+            _ => None,
+        }
+    }
+
     fn transient(&self) -> bool {
         match self {
             Error::Stalled(_) | Error::TimedOut(_) => true,
@@ -242,7 +251,7 @@ pub async fn get_bytes(url: &str, o: &Opts) -> Result<Vec<u8>, Error> {
 
 pub async fn get_json(url: &str, o: &Opts) -> anyhow::Result<serde_json::Value> {
     let o = o.clone().accept("application/json");
-    let bytes = get_bytes(url, &o).await?;
+    let bytes = get_bytes(url, &o).await.map_err(|e| crate::error::from_http(&e, e.to_string()))?;
     serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("{url} is not JSON: {e}"))
 }
 

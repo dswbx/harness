@@ -24,7 +24,7 @@ export const agentsHandlers = {
    InstallAgent: async (mock, cmd) => {
       const entry = MOCK_REGISTRY.find((a) => a.id === cmd.registry_id);
       if (!entry || !entry.install_method)
-         throw new CommandError("internal", "Agent is not installable on this machine");
+         throw new CommandError("agent_unavailable", "Agent is not installable on this machine");
       await new Promise((r) => setTimeout(r, 1500));
       const agent: AgentInfo = {
          id: entry.id,
@@ -83,7 +83,7 @@ export const agentsHandlers = {
    },
    HoldAgentVersion: (mock, cmd) => {
       const cur = mock.installed.find((a) => a.id === cmd.agent_id);
-      if (!cur) throw new CommandError("internal", `unknown Agent ${cmd.agent_id}`);
+      if (!cur) throw new CommandError("not_found", `unknown Agent ${cmd.agent_id}`);
       const agent = { ...cur, install: { ...cur.install, held: cmd.hold } as InstallInfo };
       mock.installed = mock.installed.map((a) => (a.id === agent.id ? agent : a));
       mock.emitApp({ type: "AgentsChanged" });
@@ -92,7 +92,8 @@ export const agentsHandlers = {
    RollbackAgent: (mock, cmd) => {
       const cur = mock.installed.find((a) => a.id === cmd.agent_id);
       const prev = cur?.install?.previous;
-      if (!cur || !prev) throw new CommandError("internal", "no previous version");
+      if (!cur) throw new CommandError("not_found", `unknown Agent ${cmd.agent_id}`);
+      if (!prev) throw new CommandError("conflict", `${cur.name} has no previous version`);
       const agent: AgentInfo = {
          ...cur,
          version: prev.version,

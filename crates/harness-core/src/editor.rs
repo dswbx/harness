@@ -118,9 +118,11 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
             found.push(rel.to_owned());
         }
     });
-    anyhow::ensure!(complete, "{suffix}: No such file (folder too large to search)");
+    if !complete {
+        return Err(crate::error::not_found(format!("{suffix}: No such file (folder too large to search)")));
+    }
     match found.len() {
-        0 => anyhow::bail!("{suffix}: No such file"),
+        0 => Err(crate::error::not_found(format!("{suffix}: No such file"))),
         1 => Ok(found.swap_remove(0)),
         n => anyhow::bail!("{suffix}: {n} files match"),
     }

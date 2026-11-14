@@ -82,14 +82,14 @@ impl Toolchain {
             let archive = staging.join("archive.tar.gz");
             crate::http::download(&pin.url, &archive, &crate::http::Opts::download().sha256(Some(pin.sha256)))
                 .await
-                .map_err(|e| anyhow::anyhow!("download {}: {e}", pin.url))?;
+                .map_err(|e| crate::error::from_http(&e, format!("download {}: {e}", pin.url)))?;
             unpack(&archive, &staging).await?;
             std::fs::rename(staging.join(&pin.top), &dir)?;
             anyhow::Ok(())
         }
         .await;
         let _ = std::fs::remove_dir_all(&staging);
-        result.map_err(|e| anyhow::anyhow!("installing {}: {e:#}", pin.name))?;
+        result.map_err(|e| crate::error::reword(&e, format!("installing {}: {e:#}", pin.name)))?;
         Ok(bin)
     }
 

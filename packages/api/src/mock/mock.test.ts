@@ -388,7 +388,13 @@ describe("MockTransport like the core", () => {
          );
       expect(await failure(client.archiveSession("nope"))).toMatchObject({ code: "not_found" });
       expect(await failure(client.deleteSession("mock-s1"))).toMatchObject({ code: "conflict" });
-      expect(await failure(client.rollbackAgent("nope"))).toMatchObject({ code: "internal" });
+      expect(await failure(client.rollbackAgent("nope"))).toMatchObject({ code: "not_found" });
+      expect(await failure(client.holdAgentVersion("nope", true))).toMatchObject({
+         code: "not_found",
+      });
+      expect(await failure(client.installAgent("windows-only"))).toMatchObject({
+         code: "agent_unavailable",
+      });
    });
 });
 

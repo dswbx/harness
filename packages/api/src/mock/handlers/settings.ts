@@ -13,7 +13,7 @@ export const settingsHandlers = {
          .replace(/[^a-z0-9]+/g, "-")
          .replace(/^-|-$/g, "");
       const id = cmd.server.id || slug;
-      if (!id) throw new CommandError("internal", "name required");
+      if (!id) throw new CommandError("invalid", "name required");
       // Secret values never come back: keep only the key names.
       const server: McpServerDef = {
          ...cmd.server,

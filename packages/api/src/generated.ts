@@ -471,7 +471,9 @@ export type ErrorCode =
 "agent_unavailable" | 
 /**  The Command's input is wrong (empty, malformed, not supported here). */
 "invalid" | 
-/**  The Harness cannot serve the Command now (it is shutting down). */
+/**  A process or request the Command waits on did not finish in time (`git`, `gh`, a download). */
+"timeout" | 
+/**  The Harness cannot serve the Command now (it is shutting down) or a service it needs cannot be reached (the network is down, `gh` is missing). */
 "unavailable" | 
 /**  Anything else. */
 "internal";

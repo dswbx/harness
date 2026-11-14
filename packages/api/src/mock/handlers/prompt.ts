@@ -92,7 +92,7 @@ export const promptHandlers = {
    },
    ReadAttachment: (mock, cmd) => {
       const a = mock.attachments.get(cmd.path);
-      if (!a) throw new CommandError("internal", "not an attachment of this Session");
+      if (!a) throw new CommandError("not_found", "not an attachment of this Session");
       return { type: "Attachment", mime: a.mime, data: a.data };
    },
    Prompt: async (mock, cmd) => {
@@ -151,7 +151,10 @@ export const promptHandlers = {
             errors: ["resume: Internal error"],
             transcript: { kept_turns: 18, total_turns: 42 },
          });
-         throw new CommandError("internal", "The Agent could not reopen its earlier session.");
+         throw new CommandError(
+            "agent_unavailable",
+            "The Agent could not reopen its earlier session.",
+         );
       }
       if (cmd.text.trim() === "/restorefail")
          mock.emit(sid, {

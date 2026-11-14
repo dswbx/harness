@@ -178,7 +178,9 @@ impl Agents {
         if refresh || !cache.exists() {
             let tmp = cache.with_extension("json.tmp");
             let url = &self.registry_url;
-            crate::http::download(url, &tmp, &self.http_opts().max_bytes(32 << 20)).await.map_err(|e| anyhow::anyhow!("download {url}: {e}"))?;
+            crate::http::download(url, &tmp, &self.http_opts().max_bytes(32 << 20))
+                .await
+                .map_err(|e| crate::error::from_http(&e, format!("download {url}: {e}")))?;
             std::fs::rename(&tmp, &cache)?;
         }
         let index: Index = serde_json::from_slice(&std::fs::read(&cache)?)?;
@@ -192,7 +194,7 @@ impl Agents {
     }
 
     async fn fetch(&self, url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
-        crate::http::download(url, dest, &self.http_opts().sha256(sha256)).await.map_err(|e| anyhow::anyhow!("download {url}: {e}"))
+        crate::http::download(url, dest, &self.http_opts().sha256(sha256)).await.map_err(|e| crate::error::from_http(&e, format!("download {url}: {e}")))
     }
 
     /// The installed (not fixed) record of `id`.
@@ -205,15 +207,25 @@ impl Agents {
     /// current version stays as the rollback target. A binary without a sha256 in the registry
     /// is refused unless `allow_unverified`.
     pub async fn install(&self, registry_id: &str, allow_unverified: bool) -> anyhow::Result<AgentInfo> {
-        let entry =
-            self.entries(false).await?.into_iter().find(|e| e.id == registry_id).ok_or_else(|| anyhow::anyhow!("{registry_id} is not in the ACP Registry"))?;
+        let entry = self
+            .entries(false)
+            .await?
+            .into_iter()
+            .find(|e| e.id == registry_id)
+            .ok_or_else(|| crate::error::not_found(format!("{registry_id} is not in the ACP Registry")))?;
         let _guard = self.install_lock.lock().await;
         let existing = self.installed_agent(&entry.id);
         if let Some(cur) = &existing {
             if cur.version.as_deref() == Some(entry.version.as_str()) {
                 return Ok(cur.clone());
             }
-            anyhow::ensure!(!cur.install.held, "{} is held at v{}; release the hold to update", entry.name, cur.version.as_deref().unwrap_or("?"));
+            if cur.install.held {
+                return Err(crate::error::conflict(format!(
+                    "{} is held at v{}; release the hold to update",
+                    entry.name,
+                    cur.version.as_deref().unwrap_or("?")
+                )));
+            }
         }
         let dir = self.data_dir.join("agents").join(&entry.id).join(&entry.version);
         if dir.exists() {
@@ -256,7 +268,10 @@ impl Agents {
                 cur.install.check = Some(check);
                 self.upsert(cur)?;
             }
-            anyhow::bail!("{} v{} failed the conformance check and was not installed: {why}", entry.name, entry.version);
+            return Err(crate::error::agent_unavailable(format!(
+                "{} v{} failed the conformance check and was not installed: {why}",
+                entry.name, entry.version
+            )));
         }
         agent.install.check = Some(check);
         agent.install.previous = existing.and_then(|c| previous_of(&c));
@@ -289,9 +304,11 @@ impl Agents {
     /// from becomes the new previous.
     pub async fn rollback(&self, id: &str) -> anyhow::Result<AgentInfo> {
         let _guard = self.install_lock.lock().await;
-        let cur = self.installed_agent(id).ok_or_else(|| anyhow::anyhow!("unknown Agent {id}"))?;
-        let prev = cur.install.previous.clone().ok_or_else(|| anyhow::anyhow!("{} has no previous version", cur.name))?;
-        anyhow::ensure!(Path::new(&prev.command).exists(), "the files of {} v{} are gone", cur.name, prev.version);
+        let cur = self.installed_agent(id).ok_or_else(|| crate::error::not_found(format!("unknown Agent {id}")))?;
+        let prev = cur.install.previous.clone().ok_or_else(|| crate::error::conflict(format!("{} has no previous version", cur.name)))?;
+        if !Path::new(&prev.command).exists() {
+            return Err(crate::error::agent_unavailable(format!("the files of {} v{} are gone", cur.name, prev.version)));
+        }
         let agent = AgentInfo {
             command: prev.command,
             args: prev.args,
@@ -307,7 +324,7 @@ impl Agents {
     /// Holds an installed Agent at its current version, or releases it.
     pub fn hold(&self, id: &str, hold: bool) -> anyhow::Result<AgentInfo> {
         let mut all = self.installed.write();
-        let a = all.iter_mut().find(|a| a.id == id).ok_or_else(|| anyhow::anyhow!("unknown Agent {id}"))?;
+        let a = all.iter_mut().find(|a| a.id == id).ok_or_else(|| crate::error::not_found(format!("unknown Agent {id}")))?;
         a.install.held = hold;
         let agent = a.clone();
         self.save(&all)?;
@@ -334,12 +351,14 @@ impl Agents {
                     sha256 = self.fetch(&b.archive, &target, b.sha256.as_deref()).await?;
                 }
                 let cmd = dir.join(b.cmd.trim_start_matches("./"));
-                anyhow::ensure!(cmd.exists(), "{} not found in the downloaded archive", b.cmd);
+                if !cmd.exists() {
+                    return Err(crate::error::agent_unavailable(format!("{} not found in the downloaded archive", b.cmd)));
+                }
                 make_executable(&cmd)?;
                 Ok(Installed { command: cmd, args: b.args.clone(), env: b.env.clone(), sha256: Some(sha256), unverified: b.sha256.is_none() })
             }
             Some("npx") => {
-                let p = d.npx.as_ref().ok_or_else(|| anyhow::anyhow!("registry entry has no npx distribution"))?;
+                let p = d.npx.as_ref().ok_or_else(|| crate::error::agent_unavailable("registry entry has no npx distribution"))?;
                 let node_bin = self.toolchain.node().await?;
                 run(
                     node_bin.join("npm"),
@@ -354,7 +373,7 @@ impl Agents {
                 Ok(Installed { command: bin, args: p.args.clone(), env: p.env.clone(), sha256: None, unverified: false })
             }
             Some("uvx") => {
-                let p = d.uvx.as_ref().ok_or_else(|| anyhow::anyhow!("registry entry has no uvx distribution"))?;
+                let p = d.uvx.as_ref().ok_or_else(|| crate::error::agent_unavailable("registry entry has no uvx distribution"))?;
                 let uv_bin = self.toolchain.uv().await?;
                 let tc = self.toolchain.root();
                 run(
@@ -379,7 +398,7 @@ impl Agents {
                 };
                 Ok(Installed { command: bin, args: p.args.clone(), env: p.env.clone(), sha256: None, unverified: false })
             }
-            _ => anyhow::bail!("{} has no distribution for {}", entry.name, crate::toolchain::platform()),
+            _ => Err(crate::error::agent_unavailable(format!("{} has no distribution for {}", entry.name, crate::toolchain::platform()))),
         }
     }
 
@@ -395,7 +414,9 @@ impl Agents {
             icon: None,
             install: Default::default(),
         };
-        anyhow::ensure!(self.get(&agent.id).is_none(), "an Agent with id {} already exists", agent.id);
+        if self.get(&agent.id).is_some() {
+            return Err(crate::error::conflict(format!("an Agent with id {} already exists", agent.id)));
+        }
         self.upsert(agent.clone())?;
         Ok(agent)
     }
@@ -404,7 +425,9 @@ impl Agents {
         let mut all = self.installed.write();
         let before = all.len();
         all.retain(|a| a.id != id);
-        anyhow::ensure!(all.len() != before, "unknown Agent {id}");
+        if all.len() == before {
+            return Err(crate::error::not_found(format!("unknown Agent {id}")));
+        }
         self.save(&all)?;
         let _ = std::fs::remove_dir_all(self.data_dir.join("agents").join(id));
         Ok(())

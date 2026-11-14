@@ -14,7 +14,9 @@ impl Harness {
     pub(crate) async fn create_session(&self, spec: NewSession) -> anyhow::Result<Arc<Session>> {
         let NewSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, parent, initial_config } = spec;
         let agent = self.agent(&agent_id)?;
-        anyhow::ensure!(self.shared.frontends.read().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
+        if !self.shared.frontends.read().iter().any(|f| f.id == frontend_id) {
+            return Err(crate::error::not_found(format!("unknown frontend {frontend_id}")));
+        }
         let id = uuid::Uuid::now_v7().to_string();
         let dir = self.data_dir.join("sessions").join(&id);
         let start = match pr {
@@ -47,14 +49,15 @@ impl Harness {
 
     /// Resolves the Workspace Folder: a new Worktree, a checkout, or the folder as is.
     async fn prepare_workspace(&self, id: &str, title: &str, folder: String, start: Start) -> anyhow::Result<(String, WorkspaceMeta)> {
-        let folder = std::fs::canonicalize(&folder).map_err(|e| anyhow::anyhow!("{folder}: {e}"))?;
+        let folder = std::fs::canonicalize(&folder).map_err(|e| {
+            let message = format!("{folder}: {e}");
+            if e.kind() == std::io::ErrorKind::NotFound { crate::error::not_found(message) } else { anyhow::anyhow!(message) }
+        })?;
         let repo_root = crate::workspace::repo_root(&folder).await;
         let Some(root) = repo_root.clone() else {
-            anyhow::ensure!(
-                matches!(start, Start::Branch { base: None, new_branch: None, worktree: false }),
-                "{} is not in a git repository",
-                folder.display()
-            );
+            if !matches!(start, Start::Branch { base: None, new_branch: None, worktree: false }) {
+                return Err(crate::error::invalid(format!("{} is not in a git repository", folder.display())));
+            }
             return Ok((folder.display().to_string(), WorkspaceMeta::default()));
         };
         let repo_name = root.file_name().map(|n| n.to_owned()).unwrap_or_else(|| "repo".into());
@@ -90,7 +93,9 @@ impl Harness {
                 Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }, Some(pr.number)))
             }
             Start::Pr { pr, worktree: false } => {
-                anyhow::ensure!(!crate::workspace::is_dirty(&root).await?, "the folder has uncommitted changes; commit or stash them, or use a Worktree");
+                if crate::workspace::is_dirty(&root).await? {
+                    return Err(crate::error::conflict("the folder has uncommitted changes; commit or stash them, or use a Worktree"));
+                }
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
                 Ok((
                     folder.display().to_string(),
@@ -151,7 +156,9 @@ impl Harness {
         mcp_servers: Vec<String>,
     ) -> anyhow::Result<CommandResult> {
         let agent = self.agent(&agent_id)?;
-        anyhow::ensure!(self.shared.frontends.read().iter().any(|f| f.id == frontend_id), "unknown frontend {frontend_id}");
+        if !self.shared.frontends.read().iter().any(|f| f.id == frontend_id) {
+            return Err(crate::error::not_found(format!("unknown frontend {frontend_id}")));
+        }
         for m in &mcp_servers {
             self.shared.library.resolve(m)?;
         }

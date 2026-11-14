@@ -26,13 +26,36 @@ pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi:
     if matches!(args.first(), Some(&("diff" | "show"))) {
         opts = opts.max_output(512 * 1024 * 1024).truncate();
     }
-    let out = proc::run("git", opts).await.map_err(|e| anyhow::anyhow!("git {}: {e}", args.join(" ")))?;
+    let out = proc::run("git", opts).await.map_err(|e| crate::error::from_proc(&e, format!("git {}: {e}", args.join(" "))))?;
     if !out.success() {
         let err = out.stderr_lossy();
         let msg = if err.trim().is_empty() { out.stdout_lossy() } else { err };
-        anyhow::bail!("git {}: {}", args.join(" "), msg.trim());
+        let message = format!("git {}: {}", args.join(" "), msg.trim());
+        return Err(match failure_code(&msg) {
+            Some(code) => crate::error::coded(code, message),
+            None => anyhow::anyhow!(message),
+        });
     }
     Ok(out.stdout_lossy())
+}
+
+/// What a failed `git` tells the caller to do differently, read from its message: not a repository, or
+/// an empty commit message, or state in the way (a branch or Worktree that exists or is in use, nothing to commit,
+/// changes a checkout would overwrite).
+fn failure_code(msg: &str) -> Option<crate::api::ErrorCode> {
+    use crate::api::ErrorCode;
+    if msg.contains("not a git repository") || msg.contains("empty commit message") {
+        Some(ErrorCode::Invalid)
+    } else if msg.contains("already exists")
+        || msg.contains("nothing to commit")
+        || msg.contains("is already checked out at")
+        || msg.contains("is already used by worktree")
+        || msg.contains("would be overwritten by")
+    {
+        Some(ErrorCode::Conflict)
+    } else {
+        None
+    }
 }
 
 /// Subcommands that only read local state: they keep the short limit. Everything else (hooks, the
@@ -117,6 +140,23 @@ pub fn head_branch(folder: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_failures_the_caller_can_act_on_have_a_code() {
+        use crate::api::ErrorCode::{Conflict, Invalid};
+        for (msg, want) in [
+            ("fatal: not a git repository (or any of the parent directories): .git", Some(Invalid)),
+            ("Aborting commit due to empty commit message.", Some(Invalid)),
+            ("fatal: a branch named 'x' already exists", Some(Conflict)),
+            ("fatal: 'main' is already checked out at '/tmp/wt'", Some(Conflict)),
+            ("fatal: '/tmp/wt' already exists", Some(Conflict)),
+            ("error: Your local changes to the following files would be overwritten by checkout", Some(Conflict)),
+            ("nothing to commit, working tree clean", Some(Conflict)),
+            ("fatal: couldn't find remote ref x", None),
+        ] {
+            assert_eq!(failure_code(msg), want, "{msg}");
+        }
+    }
 
     #[test]
     fn timeouts_by_subcommand() {

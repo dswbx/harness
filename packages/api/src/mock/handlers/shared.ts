@@ -102,7 +102,7 @@ export const sharedHandlers = {
             mock.panelFiles.get(sid)?.get(input.source) ?? MOCK_PANEL_SOURCES[input.source];
          if (content === undefined)
             throw new CommandError(
-               "internal",
+               "not_found",
                `source "${input.source}" does not exist in panels_dir`,
             );
          const html = input.source.endsWith(".html");

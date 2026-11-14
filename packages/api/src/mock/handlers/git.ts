@@ -27,7 +27,7 @@ export const gitHandlers = {
    },
    GitStatus: (mock, cmd) => {
       if (!mock.session(cmd.session_id).workspace.repo_root)
-         throw new CommandError("internal", "not a git repository");
+         throw new CommandError("invalid", "not a git repository");
       return {
          type: "GitStatus",
          status: {
@@ -45,7 +45,7 @@ export const gitHandlers = {
    },
    GitDiff: (mock, cmd) => {
       if (!mock.session(cmd.session_id).workspace.repo_root)
-         throw new CommandError("internal", "not a git repository");
+         throw new CommandError("invalid", "not a git repository");
       if (cmd.from !== null || cmd.to !== null) {
          // Revs the UI sends: "HEAD".."" = uncommitted; "<sha>^"..("<sha>" | null) = commits in the span.
          let paths: Set<string>;
@@ -81,7 +81,7 @@ export const gitHandlers = {
    },
    GitLog: (mock, cmd) => {
       if (!mock.session(cmd.session_id).workspace.repo_root)
-         throw new CommandError("internal", "not a git repository");
+         throw new CommandError("invalid", "not a git repository");
       return { type: "GitLog", commits: [...MOCK_COMMITS] };
    },
    GitShowFile: (_mock, cmd) => {
@@ -93,7 +93,7 @@ export const gitHandlers = {
       };
    },
    GitCommit: (mock, cmd) => {
-      if (!cmd.message.trim()) throw new CommandError("internal", "empty commit message");
+      if (!cmd.message.trim()) throw new CommandError("invalid", "empty commit message");
       const commit = `c${++mock.commitN}ab12cd`;
       mock.committed.add(cmd.session_id);
       mock.ahead.set(cmd.session_id, (mock.ahead.get(cmd.session_id) ?? 0) + 1);
@@ -106,7 +106,7 @@ export const gitHandlers = {
       return { type: "Committed", commit };
    },
    UpdateBranch: async (_mock, cmd) => {
-      if (cmd.folder.includes("norepo")) throw new CommandError("internal", "not a git repository");
+      if (cmd.folder.includes("norepo")) throw new CommandError("invalid", "not a git repository");
       await new Promise((r) => setTimeout(r, 600));
       const b = MOCK_BRANCHES.find((b) => b.name === cmd.branch);
       if (!b) throw new CommandError("internal", `fatal: couldn't find remote ref ${cmd.branch}`);

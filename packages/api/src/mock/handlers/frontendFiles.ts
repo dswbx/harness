@@ -19,7 +19,7 @@ export const frontendFilesHandlers = {
       const content =
          mock.panelFiles.get(cmd.session_id)?.get(cmd.name) ?? MOCK_PANEL_SOURCES[cmd.name];
       if (content === undefined)
-         throw new CommandError("internal", `source "${cmd.name}" does not exist in panels_dir`);
+         throw new CommandError("not_found", `source "${cmd.name}" does not exist in panels_dir`);
       const mtime_ms =
          mock.panelMtimes.get(`${cmd.session_id}/${cmd.name}`) ?? Date.now() - 3 * 3_600_000;
       const path = `/Users/mock/.harness-dev/sessions/${cmd.session_id}/panels/${cmd.name}`;

@@ -24,7 +24,7 @@ pub(crate) fn author(pr: &Value) -> String {
 }
 
 async fn folder_repo(folder: &Path) -> anyhow::Result<RepoId> {
-    crate::workspace::origin_repo(folder).await.ok_or_else(|| anyhow::anyhow!("{} has no GitHub remote", folder.display()))
+    crate::workspace::origin_repo(folder).await.ok_or_else(|| crate::error::invalid(format!("{} has no GitHub remote", folder.display())))
 }
 
 pub async fn list_prs(folder: &Path, filter: PrFilter) -> anyhow::Result<Vec<PullRequest>> {
@@ -138,7 +138,7 @@ pub async fn view_pr(folder: &Path, number: u32) -> anyhow::Result<PullRequest> 
          pullRequest(number: $number) {{ ...pr }} }} }} {PR_FRAGMENT}"
     );
     let data = graphql(&q, json!({ "owner": repo.owner, "name": repo.name, "number": number })).await?;
-    pull_request(&data["repository"]["pullRequest"]).ok_or_else(|| anyhow::anyhow!("PR #{number} not found in {}/{}", repo.owner, repo.name))
+    pull_request(&data["repository"]["pullRequest"]).ok_or_else(|| crate::error::not_found(format!("PR #{number} not found in {}/{}", repo.owner, repo.name)))
 }
 
 /// Checks the PR out in `dir` (a fresh detached Worktree, or a clean folder): on its head branch

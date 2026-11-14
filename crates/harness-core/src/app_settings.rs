@@ -34,7 +34,7 @@ pub fn save(data_dir: &Path, key: AppSettingKey, value: Option<&Json>) -> anyhow
 
 /// The JSON at an https `url` (512 KB at most, 15 s).
 pub async fn fetch_json(url: &str) -> anyhow::Result<Json> {
-    crate::http::get_json(url, &crate::http::Opts::small()).await.map_err(|e| anyhow::anyhow!("fetch {url}: {e}"))
+    crate::http::get_json(url, &crate::http::Opts::small()).await.map_err(|e| crate::error::reword(&e, format!("fetch {url}: {e}")))
 }
 
 #[cfg(test)]

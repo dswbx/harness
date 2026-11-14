@@ -162,7 +162,7 @@ pub async fn commit(dir: &Path, message: &str) -> anyhow::Result<String> {
 }
 
 pub async fn push(dir: &Path) -> anyhow::Result<String> {
-    let branch = current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("HEAD is detached"))?;
+    let branch = current_branch(dir).await?.ok_or_else(|| crate::error::invalid("HEAD is detached"))?;
     git(dir, &["push", "-u", "origin", &branch]).await?;
     Ok(branch)
 }

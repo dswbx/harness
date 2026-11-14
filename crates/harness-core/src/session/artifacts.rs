@@ -103,7 +103,9 @@ impl Session {
                 return Err(crate::error::conflict(format!("{item_id} is already shared ({source})")));
             }
             let file = crate::panels::source_path(&self.panels_dir(), source)?;
-            anyhow::ensure!(file.is_file(), "source {source:?} does not exist in panels_dir");
+            if !file.is_file() {
+                return Err(crate::error::not_found(format!("source {source:?} does not exist in panels_dir")));
+            }
             let kind = if source.ends_with(".html") {
                 SharedKind::Html
             } else if source.ends_with(".json") {
@@ -116,7 +118,7 @@ impl Session {
                 // A tree file is a `ui.json` already: it takes the state it binds, like a `root`.
                 SharedKind::Ui => {
                     let ui: serde_json::Value =
-                        serde_json::from_slice(&std::fs::read(&file)?).map_err(|e| anyhow::anyhow!("source {source:?} is not JSON: {e}"))?;
+                        serde_json::from_slice(&std::fs::read(&file)?).map_err(|e| crate::error::invalid(format!("source {source:?} is not JSON: {e}")))?;
                     let root = &ui["root"];
                     let doc = self.state()?;
                     if has_html(root) { doc } else { crate::state::subset(&doc, &crate::state::bound_paths(root))? }
