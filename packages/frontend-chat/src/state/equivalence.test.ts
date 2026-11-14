@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Event } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import { type ChatState, initialState, reduceBatch } from "./reducer";
-import { syntheticLog } from "./reducer.bench.test";
+import { syntheticLog } from "./syntheticLog";
 
 // Proof that restructuring the reducer changed nothing it computes. `equivalence.json` was recorded
 // once against the reducer before it was split; every log is folded in batches of 1, 7 and the whole

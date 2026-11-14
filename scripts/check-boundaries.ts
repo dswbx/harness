@@ -21,6 +21,8 @@ import {
 const RAW_ALLOWED: Record<string, string> = {
    "frontend-chat/src/state/slices/timeline.ts":
       "folds Events: stores raw_input/raw_output for the raw JSON view, and hands raw_input to the @harness/api fallback for old logs",
+   "frontend-chat/src/state/syntheticLog.ts":
+      "test helper (builds a synthetic log for the reducer benchmark and equivalence tests), not shipped",
    "frontend-chat/src/features/toolDisplay/label.ts":
       "known leak: reads rawInput/rawOutput and the mcp__server__tool title convention for step labels; to be replaced by typed core tool fields",
    "frontend-chat/src/features/toolDisplay/fence.ts":
