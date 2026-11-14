@@ -25,7 +25,6 @@ import {
    FileText,
    GitBranch,
    GitCommitHorizontal,
-   GitFork,
    Globe,
    Plug,
    Search,
@@ -177,7 +176,7 @@ const Step = memo(function Step({
         : tool.harnessTool && GIT_ICONS[tool.harnessTool]
           ? GIT_ICONS[tool.harnessTool]!
           : sub
-            ? GitFork
+            ? Bot
             : loaded
               ? Blocks
               : tool.harnessTool || tool.title.startsWith("mcp__")
