@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 const NAMES: &[&str] = &["claude", "codex", "gemini", "opencode"];
 
-/// Files allowed to name Agents, by file name (unique under `src`).
+/// Files allowed to name Agents, by path relative to `src`.
 const ALLOWED: &[&str] = &["agent_quirks.rs", "agents.rs"];
 
 /// `line` without its `//` comment (a `//` inside a string literal stays).
@@ -83,11 +83,6 @@ fn walk_covers_subdirectories() {
     assert!(files.iter().any(|f| f.starts_with("acp") && f.file_name().is_some_and(|n| n == "mod.rs")), "{files:?}");
     assert!(files.iter().any(|f| f.starts_with("bin")), "{files:?}");
     assert!(files.contains(&PathBuf::from("agent_quirks.rs")));
-    let mut names: Vec<_> = files.iter().filter_map(|f| f.file_name()).collect();
-    names.sort();
-    let total = names.len();
-    names.dedup();
-    assert_eq!(names.len(), total, "file names under src are no longer unique: key ALLOWED by path");
 }
 
 #[test]
@@ -103,8 +98,7 @@ fn agent_names_stay_in_agent_quirks() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut leaks = Vec::new();
     for rel in rust_files(&src, &src) {
-        let name = rel.file_name().unwrap().to_str().unwrap().to_owned();
-        if ALLOWED.contains(&name.as_str()) {
+        if ALLOWED.contains(&rel.to_str().unwrap()) {
             continue;
         }
         let code = code_only(&std::fs::read_to_string(src.join(&rel)).unwrap()).to_lowercase();

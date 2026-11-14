@@ -4,6 +4,7 @@ mod acp;
 mod agent_quirks;
 pub mod agents;
 pub mod api;
+mod app_events;
 mod app_settings;
 mod attachments;
 mod conformance;
