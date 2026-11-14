@@ -146,6 +146,18 @@ function plain(line: string): string {
       .trim();
 }
 
+/**
+ * Whether a `render_ui` view is nothing but one Mermaid diagram. The diagram has its own Expand
+ * (zoom, SVG download, Make shared), so the view needs none around it.
+ */
+export function isLoneDiagram(root: RawNode): boolean {
+   const p = root.props ?? {};
+   if (root.type !== "Markdown" || typeof p.source === "string" || typeof p.text !== "string")
+      return false;
+   const text = p.text.trim();
+   return /^```mermaid\b/.test(text) && text.endsWith("```") && text.split("```").length === 3;
+}
+
 /** A render_ui node's name: the call's title, else the first title/label-ish prop in the tree. */
 export function uiTitle(root: RawNode, title: string | undefined): string {
    if (title) return title;
