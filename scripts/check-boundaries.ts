@@ -35,7 +35,6 @@ const RAW_ALLOWED: Record<string, string> = {
 const LAYER_ALLOWED: Record<string, string> = {
    "features/sideChats/SidePanel.tsx -> shell/panelLayout":
       "known: to be cut when the panel contract lands",
-   "panels/PanelHeader.tsx -> shell/panelLayout": "known: to be cut when the panel contract lands",
    "state/reducer.ts -> features/plan/plans": "known: to be cut when the panel contract lands",
    "state/reducer.ts -> features/prompt/configGroups":
       "known: to be cut when the panel contract lands",

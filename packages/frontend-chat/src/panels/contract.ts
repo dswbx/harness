@@ -76,7 +76,10 @@ export type PanelDef<M = unknown, T = void> = PanelRef<T> & {
 
 export const definePanel = <M, T = void>(d: PanelDef<M, T>) => d;
 
-/** Panels the Agent creates at runtime. Ids are `${prefix}:${key}`. */
+/**
+ * Panels the Agent creates at runtime. Ids are `${prefix}:${key}`.
+ * @internal Not used by a panel yet.
+ */
 export type PanelFamily<M = unknown> = {
    prefix: string;
    useModel: (ctx: PanelCtx) => M;

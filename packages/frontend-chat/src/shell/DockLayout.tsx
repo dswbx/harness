@@ -279,13 +279,16 @@ export function DockLayout({
                         key={p.id}
                         value={{
                            id: p.id,
-                           zone: home,
                            label: p.label,
-                           zones,
+                           moves: zones.map((z) => ({
+                              id: z,
+                              label: ZONE_LABEL[z],
+                              current: z === home,
+                           })),
                            expandable: !!p.expandable,
                            expanded: isExpanded,
                            onExpand: () => onExpand(isExpanded ? null : p.id),
-                           onMove: (z) => onMove(p.id, z),
+                           onMove: (z) => onMove(p.id, z as Zone),
                            onHide: () => onHide(p.id),
                            onDragStart: (e) => onDragStart(p.id, p.label, e),
                         }}
