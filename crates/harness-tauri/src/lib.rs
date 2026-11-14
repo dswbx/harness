@@ -14,6 +14,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
 mod context;
+pub mod host_types;
 mod links;
 mod overlay;
 mod subscriptions;
@@ -191,7 +192,7 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
             }
             return true;
         }
-        let AppEvent::SessionStatus { session_id, title, status } = e else { return true };
+        let AppEvent::SessionStatus { session_id, title, status, .. } = e else { return true };
         let count = {
             let mut w = waiting.lock();
             let newly = *status == SessionStatus::NeedsAttention && w.insert(session_id.clone());
