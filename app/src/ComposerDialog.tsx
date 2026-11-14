@@ -231,6 +231,7 @@ export function ComposerDialog({
    const [pr, setPr] = useState<PickedPr | null>(null);
 
    const [agentOpen, setAgentOpen] = useState(false);
+   const [agentQuery, setAgentQuery] = useState("");
 
    useEffect(() => {
       if (!isOpen) return;
@@ -714,28 +715,34 @@ export function ComposerDialog({
    // ---- Agent list
    const agent = agents.find((a) => a.id === agentId);
    const agentItems: PickItem[] = [
-      ...agents.map(
-         (a): PickItem => ({
-            key: a.id,
-            selected: a.id === agentId,
-            onSelect: () => {
-               setAgentId(a.id);
-               setAgentOpen(false);
-            },
-            content: (
-               <>
-                  <AgentIcon icon={a.icon} name={a.name} className="size-5 text-xs" />
-                  <span className="min-w-0 flex-1 truncate">{a.name}</span>
-                  {a.version && (
-                     <span className="shrink-0 text-xs text-muted-foreground">v{a.version}</span>
-                  )}
-                  <Check
-                     className={cn("size-4 shrink-0 text-primary", a.id !== agentId && "invisible")}
-                  />
-               </>
-            ),
-         }),
-      ),
+      ...agents
+         .filter((a) => matches(agentQuery, a.name, a.id))
+         .map(
+            (a): PickItem => ({
+               key: a.id,
+               selected: a.id === agentId,
+               onSelect: () => {
+                  setAgentId(a.id);
+                  setAgentOpen(false);
+                  setAgentQuery("");
+               },
+               content: (
+                  <>
+                     <AgentIcon icon={a.icon} name={a.name} className="size-5 text-xs" />
+                     <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                     {a.version && (
+                        <span className="shrink-0 text-xs text-muted-foreground">v{a.version}</span>
+                     )}
+                     <Check
+                        className={cn(
+                           "size-4 shrink-0 text-primary",
+                           a.id !== agentId && "invisible",
+                        )}
+                     />
+                  </>
+               ),
+            }),
+         ),
       ...(onManageAgents
          ? [
               {
@@ -743,6 +750,7 @@ export function ComposerDialog({
                  separated: true,
                  onSelect: () => {
                     setAgentOpen(false);
+                    setAgentQuery("");
                     onManageAgents();
                  },
                  content: (
@@ -992,10 +1000,17 @@ export function ComposerDialog({
                      <Picker
                         label="Agents"
                         open={agentOpen}
-                        onOpenChange={setAgentOpen}
+                        onOpenChange={(o) => {
+                           setAgentOpen(o);
+                           if (!o) setAgentQuery("");
+                        }}
                         search={
                            agents.length > 6
-                              ? { value: "", onChange: () => {}, placeholder: "Filter Agents" }
+                              ? {
+                                   value: agentQuery,
+                                   onChange: setAgentQuery,
+                                   placeholder: "Filter Agents",
+                                }
                               : undefined
                         }
                         items={agentItems}
