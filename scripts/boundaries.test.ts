@@ -4,10 +4,35 @@ import {
    importedNames,
    importSpecs,
    importViolation,
+   layerViolation,
    leaks,
    stripComments,
    uiViolation,
 } from "./boundaries";
+
+describe("layerViolation", () => {
+   it("keeps shell/ out of features, state, panels and lib", () => {
+      for (const f of ["features/a/B.tsx", "state/reducer.ts", "panels/P.tsx", "lib/time.ts"])
+         expect(layerViolation(f, "shell/View"), f).not.toBeNull();
+   });
+
+   it("keeps features/ out of state, panels and lib", () => {
+      for (const f of ["state/reducer.ts", "panels/P.tsx", "lib/time.ts"])
+         expect(layerViolation(f, "features/a/b"), f).not.toBeNull();
+   });
+
+   it("allows the downward and sideways imports", () => {
+      expect(layerViolation("shell/View.tsx", "features/a/b")).toBeNull();
+      expect(layerViolation("shell/View.tsx", "state/reducer")).toBeNull();
+      expect(layerViolation("features/a/B.tsx", "features/c/d")).toBeNull();
+      expect(layerViolation("features/a/B.tsx", "state/reducer")).toBeNull();
+      expect(layerViolation("features/a/B.tsx", "panels/PanelHeader")).toBeNull();
+      expect(layerViolation("features/a/B.tsx", "lib/time")).toBeNull();
+      expect(layerViolation("panels/P.tsx", "lib/time")).toBeNull();
+      expect(layerViolation("state/reducer.ts", "lib/time")).toBeNull();
+      expect(layerViolation("index.ts", "shell/View")).toBeNull();
+   });
+});
 
 describe("uiViolation", () => {
    it("rejects @harness/api and Frontends", () => {
