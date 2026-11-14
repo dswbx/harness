@@ -1,4 +1,5 @@
 import {
+   errText,
    type HarnessClient,
    revealPath,
    type SharedArtifactMeta,
@@ -101,7 +102,7 @@ export function SharedArtifactView({
    const [error, setError] = useState<string | null>(null);
    const act = (f: () => Promise<unknown>) => {
       setError(null);
-      f().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      f().catch((e) => setError(errText(e)));
    };
    const titleOf = (sid: string) => sessions.find((s) => s.id === sid)?.title ?? "Session";
    const root = useMemo(() => sharedNode(id), [id]);
@@ -388,7 +389,7 @@ function RenameDialog({
    const save = () => {
       const t = value.trim();
       if (!t) return;
-      onRename(t).then(onClose, (e) => setError(e instanceof Error ? e.message : String(e)));
+      onRename(t).then(onClose, (e) => setError(errText(e)));
    };
    return (
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

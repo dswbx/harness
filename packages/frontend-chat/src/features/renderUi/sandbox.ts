@@ -1,3 +1,4 @@
+import { errText } from "@harness/api";
 import type { QuickJSRuntime } from "quickjs-emscripten-core";
 
 /**
@@ -36,7 +37,7 @@ export function loadJs(): Promise<void> {
          runtime.setMaxStackSize(1 << 20);
       })
       .catch((e) => {
-         loadError = `The script engine did not load: ${e instanceof Error ? e.message : String(e)}`;
+         loadError = `The script engine did not load: ${errText(e)}`;
          console.error(loadError);
       })
       .finally(() => {
@@ -84,7 +85,7 @@ export function runJs(code: string, state: unknown): JsResult | undefined {
       r.value.dispose();
       return { value: typeof out === "string" ? JSON.parse(out) : null };
    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: errText(e) };
    } finally {
       ctx.dispose();
    }

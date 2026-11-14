@@ -1,4 +1,5 @@
 import type { SharedArtifactEntry, SharedArtifactMeta } from "@harness/api";
+import { errText } from "@harness/api";
 import {
    Button,
    cn,
@@ -178,7 +179,7 @@ export function ArtifactsPanel({
    }, [groupsOf.shared, kind, query, metas]);
    const act = (f: () => Promise<unknown>) => {
       setError(null);
-      f().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      f().catch((e) => setError(errText(e)));
    };
    const sharedOpen = inspecting
       ? groupsOf.shared.find((r) => `shared:${r.id}` === inspecting)

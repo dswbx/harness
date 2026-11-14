@@ -1,4 +1,4 @@
-import { applyStatePatch, getAt, type StatePatchOp } from "@harness/api";
+import { applyStatePatch, errText, getAt, type StatePatchOp } from "@harness/api";
 import {
    Component,
    type ReactNode,
@@ -158,7 +158,7 @@ class TreeBoundary extends Component<
 > {
    state = { error: null as string | null, reset: this.props.reset };
    static getDerivedStateFromError(e: unknown) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: errText(e) };
    }
    static getDerivedStateFromProps(
       p: { reset: unknown },
@@ -249,7 +249,7 @@ export function RenderUi({ root, env }: { root: RawNode; env: UiEnv }) {
                );
             } catch (e) {
                setPending((p) => p.filter((b) => b !== batch));
-               setError(e instanceof Error ? e.message : String(e));
+               setError(errText(e));
             }
          },
          onError: (m) => setError(m),

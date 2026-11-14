@@ -1,8 +1,8 @@
 import type { AgentSwitch, AttachmentInput, PromptContext, SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import { cn, Tooltip } from "@harness/ui";
 import { Paperclip } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import type { ChatState } from "../../state/reducer";
 import { RecoveryCard } from "../interaction/RecoveryCard";
 import { CommentChips } from "../review/CommentChip";
@@ -174,7 +174,7 @@ export function PromptBox({
          ? onSideThread(withReviewComments(btw, sent), inputs)
          : (onSend as NonNullable<typeof onSend>)(prompt, inputs)
       ).catch((err) => {
-         setError(errorMessage(err));
+         setError(errText(err));
          ref.current?.restore(snap);
          setAttachments((cur) => [...files, ...cur]);
          // Put them back ahead of any added since.
@@ -214,7 +214,7 @@ export function PromptBox({
       ed?.clear();
       setError(null);
       api.continueWithSummary(t || null, threadId).catch((err) => {
-         setError(errorMessage(err));
+         setError(errText(err));
          if (t && snap) ref.current?.restore(snap);
       });
    };
@@ -311,7 +311,7 @@ export function PromptBox({
                      className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
                      aria-label="Attach files or images"
                      disabled={readOnly}
-                     onClick={() => void attach().catch((err) => setError(errorMessage(err)))}
+                     onClick={() => void attach().catch((err) => setError(errText(err)))}
                   >
                      <Paperclip className="size-4" />
                   </button>
@@ -327,7 +327,7 @@ export function PromptBox({
                      setError(null);
                      if (onConfigChange) return onConfigChange(id, value);
                      api.setConfigOption(id, value, threadId).catch((err) =>
-                        setError(errorMessage(err)),
+                        setError(errText(err)),
                      );
                   }}
                />
@@ -346,7 +346,7 @@ export function PromptBox({
                   onSend={send}
                   onStop={() => {
                      setError(null);
-                     api.cancel(threadId).catch((err) => setError(errorMessage(err)));
+                     api.cancel(threadId).catch((err) => setError(errText(err)));
                   }}
                />
             </div>

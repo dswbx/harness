@@ -1,4 +1,5 @@
 import type { SessionApi, TerminalInfo } from "@harness/api";
+import { errText } from "@harness/api";
 import {
    Button,
    cn,
@@ -181,7 +182,7 @@ function TerminalView({
             }
          }).then(
             (off) => (disposed || gen !== generation ? off() : (unsubscribe = off)),
-            (e) => t.write(`\x1b[31m${e instanceof Error ? e.message : String(e)}\x1b[0m\r\n`),
+            (e) => t.write(`\x1b[31m${errText(e)}\x1b[0m\r\n`),
          );
       };
       const restart = () => {

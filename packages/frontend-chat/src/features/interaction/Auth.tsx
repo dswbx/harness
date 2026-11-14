@@ -1,4 +1,5 @@
 import type { SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import { Button, Card, CardContent, CardHeader, CardTitle, Tooltip } from "@harness/ui";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
@@ -25,7 +26,7 @@ export function AuthCard({ item, api }: { item: Auth; api: SessionApi }) {
       } catch (e) {
          setResult({
             ok: false,
-            text: e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e),
+            text: errText(e),
          });
       } finally {
          setBusy(null);

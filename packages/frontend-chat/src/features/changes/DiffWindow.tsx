@@ -1,5 +1,6 @@
 import {
    type Diff,
+   errText,
    inTauri,
    rememberWindowFrame,
    type SessionApi,
@@ -21,7 +22,6 @@ import {
    WrapText,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import { FileTreeList, fileRowKey, type NavRow, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree } from "../fileTree/fileTree";
 import { useDiffComments } from "../review/reviewComments";
@@ -121,7 +121,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       change.current = -1;
       api.gitDiff(scope.from, scope.to).then(
          (d) => !off && setDiff(d),
-         (e) => !off && setError(errorMessage(e)),
+         (e) => !off && setError(errText(e)),
       );
       return () => {
          off = true;

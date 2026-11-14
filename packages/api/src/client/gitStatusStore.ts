@@ -1,6 +1,7 @@
 // One git status store per Session, shared by everything that shows it (header, Changes, Files). Built like
 // `prStore`: polls only while somebody is subscribed, with one timer and one focus handler per Session.
 
+import { errText } from "../errors";
 import type { GitStatus } from "../generated";
 import type { SessionApi } from "./session";
 
@@ -101,7 +102,7 @@ export function createGitStatusStore(
          set({ status: s, error: null, changes: snap.changes + (changed ? 1 : 0) });
       } catch (e) {
          if (mine !== gen) return;
-         set({ error: e instanceof Error ? e.message : String(e) });
+         set({ error: errText(e) });
          // Maybe the repository is gone.
          await checkRepo(mine);
       }

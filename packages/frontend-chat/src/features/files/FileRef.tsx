@@ -1,4 +1,5 @@
 import type { SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import { cn, Popover, PopoverAnchor, PopoverContent, ScrollArea } from "@harness/ui";
 import { ChevronDown, ChevronUp, Eye } from "lucide-react";
 import {
@@ -169,7 +170,7 @@ function FileRefView({
       reader.open(slice?.path ?? ref.path, line).then(
          () => setError(null),
          (e) => {
-            setError(e instanceof Error ? e.message : String(e));
+            setError(errText(e));
             dispatch({ type: "toggle" });
          },
       );

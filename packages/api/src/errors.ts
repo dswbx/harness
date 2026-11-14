@@ -50,5 +50,15 @@ export function isCommandError(e: unknown, code?: ErrorCode): e is CommandError 
    return e instanceof CommandError && (code === undefined || e.code === code);
 }
 
-/** A failure as text for the user (a Command's `message`; anything else as it reads). */
-export const errText = (e: unknown): string => toCommandError(e).message;
+/**
+ * A failure as text for the user, the one way to show an error: a Command's `message`, an Error's
+ * message, a string as is, an object with a string `message`, else its JSON (`String` when that
+ * has none).
+ */
+export function errText(e: unknown): string {
+   if (e instanceof Error) return e.message;
+   if (typeof e === "string") return e;
+   const m = (e as { message?: unknown } | null)?.message;
+   if (typeof m === "string") return m;
+   return JSON.stringify(e) ?? String(e);
+}

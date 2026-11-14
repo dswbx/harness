@@ -31,6 +31,16 @@ describe("CommandError", () => {
       expect(errText({ a: 1 })).toBe('{"a":1}');
    });
 
+   it("errText edge inputs", () => {
+      expect(errText({ message: "no code" })).toBe("no code");
+      expect(errText({ message: 5 })).toBe('{"message":5}');
+      expect(errText(undefined)).toBe("undefined");
+      expect(errText(null)).toBe("null");
+      expect(errText(42)).toBe("42");
+      expect(errText("")).toBe("");
+      expect(errText(new TypeError("t"))).toBe("t");
+   });
+
    it("the mock transport rejects with codes", async () => {
       const t = new MockTransport([], []) as Transport;
       await expect(t.execute({ type: "GitStatus", session_id: "nope" })).rejects.toMatchObject({

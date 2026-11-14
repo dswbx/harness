@@ -8,6 +8,14 @@ export async function pickFiles(): Promise<string[] | null> {
    return r === null ? [] : Array.isArray(r) ? r : [r];
 }
 
+/** Native folder picker (Tauri): the absolute path, `null` when cancelled or outside Tauri. */
+export async function pickFolderDialog(): Promise<string | null> {
+   if (!inTauri()) return null;
+   const { open } = await import("@tauri-apps/plugin-dialog");
+   const r = await open({ directory: true, multiple: false });
+   return typeof r === "string" ? r : null;
+}
+
 /** Cursor position in CSS pixels, relative to the window's top-left corner. */
 export type DropPoint = { x: number; y: number };
 

@@ -1,4 +1,4 @@
-import { htmlFrameUrl, openExternalUrl, type StatePatchOp } from "@harness/api";
+import { errText, htmlFrameUrl, openExternalUrl, type StatePatchOp } from "@harness/api";
 import {
    createContext,
    useCallback,
@@ -97,7 +97,7 @@ export function UiHtml(p: Props) {
          if (!frame.current || e.source !== frame.current.contentWindow) return;
          const m = e.data as FrameMessage;
          const cur = latest.current;
-         const fail = (x: unknown) => setError(x instanceof Error ? x.message : String(x));
+         const fail = (x: unknown) => setError(errText(x));
          if (m?.type === "ready") {
             sent.current = doc.current;
             post({ type: "doc", html: doc.current });

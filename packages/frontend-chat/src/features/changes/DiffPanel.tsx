@@ -1,5 +1,6 @@
 import {
    type Diff,
+   errText,
    openWindow,
    type SessionApi,
    useGitStatus,
@@ -20,7 +21,6 @@ import {
 } from "@harness/ui";
 import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { type DiffComment, useDiffComments } from "../review/reviewComments";
 import { CommitsPane, useCommits } from "./CommitsPane";
@@ -178,7 +178,7 @@ export function DiffPanel({
       setError(null);
       api.gitDiff(scope.from, scope.to).then(
          (d) => !off && setDiff(d),
-         (e) => !off && setError(errorMessage(e)),
+         (e) => !off && setError(errText(e)),
       );
       return () => {
          off = true;

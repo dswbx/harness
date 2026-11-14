@@ -1,5 +1,5 @@
 import type { Event, SessionApi } from "@harness/api";
-import { eventFamily, useSessionEvents } from "@harness/api";
+import { errText, eventFamily, useSessionEvents } from "@harness/api";
 import { Badge, Button, EventLog, Input } from "@harness/ui";
 import { useMemo, useState } from "react";
 
@@ -21,9 +21,7 @@ export function View({ api }: { api: SessionApi }) {
    const [error, setError] = useState<string | null>(null);
    const run = (p: Promise<unknown>) => {
       setError(null);
-      p.catch((e) =>
-         setError(e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e)),
-      );
+      p.catch((e) => setError(errText(e)));
    };
    const send = () => {
       const t = text.trim();

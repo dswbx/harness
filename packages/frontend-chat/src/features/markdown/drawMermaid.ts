@@ -1,3 +1,4 @@
+import { errText } from "@harness/api";
 export type Drawn = { svg: string } | { error: string };
 
 /**
@@ -32,6 +33,6 @@ export async function drawMermaid(dark: boolean, source: string): Promise<Drawn>
       return remember(key, { svg });
    } catch (e) {
       // Not remembered: a failure may be a partial source, and must not push good diagrams out.
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: errText(e) };
    }
 }

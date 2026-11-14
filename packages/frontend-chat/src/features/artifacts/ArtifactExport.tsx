@@ -1,3 +1,4 @@
+import { errText } from "@harness/api";
 import { useEffect, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
 import { RenderUi, type UiEnv } from "../renderUi/RenderUi";
@@ -101,7 +102,7 @@ export function ArtifactImage({ a, env, shoot }: { a: Artifact; env: UiEnv; shoo
       setError(null);
       drawImage(a, env, shoot, key).then(
          ({ url }) => live && setShown({ key, url }),
-         (e) => live && setError(e instanceof Error ? e.message : String(e)),
+         (e) => live && setError(errText(e)),
       );
       return () => {
          live = false;

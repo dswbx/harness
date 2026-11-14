@@ -1,3 +1,4 @@
+import { errText } from "@harness/api";
 import { cn, Tooltip } from "@harness/ui";
 import { FileCode } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -36,7 +37,7 @@ function OpenFile({
             onClick={() =>
                env.open!(path, line).then(
                   () => setError(null),
-                  (e) => setError(e instanceof Error ? e.message : String(e)),
+                  (e) => setError(errText(e)),
                )
             }
             className={cn(

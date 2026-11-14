@@ -1,4 +1,5 @@
 import {
+   errText,
    onSessionForgotten,
    openWindow,
    type SessionApi,
@@ -11,7 +12,6 @@ import {
 import { Button, cn, Input, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import { ExternalLink, File, ListTree, Maximize2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { CommentCount } from "../changes/DiffViewer";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTreeList";
@@ -90,7 +90,7 @@ function GitLetter({ status }: { status: string | undefined }) {
 
 /** The read error in plain words. */
 function readError(path: string, e: unknown) {
-   const m = errorMessage(e);
+   const m = errText(e);
    return /not found|no such file|os error 2/i.test(m) ? `${path} does not exist.` : m;
 }
 
@@ -167,7 +167,7 @@ export function FilesPanel({
             setPrefix(l.prefix);
             setListError(null);
          },
-         (e) => !off && setListError(errorMessage(e)),
+         (e) => !off && setListError(errText(e)),
       );
       return () => {
          off = true;

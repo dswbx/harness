@@ -1,4 +1,5 @@
 import type { HarnessClient } from "@harness/api";
+import { errText } from "@harness/api";
 import {
    Button,
    Dialog,
@@ -53,7 +54,7 @@ export function ImportThemeDialog({
          setText("");
          setName("");
       } catch (e) {
-         setError(e instanceof Error ? e.message : String(e));
+         setError(errText(e));
       } finally {
          setBusy(false);
       }

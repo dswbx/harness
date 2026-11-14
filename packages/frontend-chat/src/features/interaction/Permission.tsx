@@ -1,4 +1,5 @@
 import type { SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import {
    Button,
    Card,
@@ -19,7 +20,6 @@ import {
 } from "@harness/ui";
 import { ChevronDown, ShieldQuestion } from "lucide-react";
 import { useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import { type Item, permissionTitle } from "../../state/reducer";
 
 type Perm = Extract<Item, { type: "permission" }>;
@@ -34,9 +34,7 @@ export function PermissionActions({ item, api }: { item: Perm; api: SessionApi }
    const [error, setError] = useState<string | null>(null);
    const answer = (optionId: string | null, global = false) => {
       setError(null);
-      api.resolvePermission(item.requestId, optionId, global).catch((e) =>
-         setError(errorMessage(e)),
-      );
+      api.resolvePermission(item.requestId, optionId, global).catch((e) => setError(errText(e)));
    };
    return (
       <>

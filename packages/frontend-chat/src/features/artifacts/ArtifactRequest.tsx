@@ -1,4 +1,5 @@
 import type { FrontendRequestProps, SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import { useEffect } from "react";
 import { type ChatState, initialState } from "../../state/reducer";
 import { reduceBatch } from "../renderUi/chatReducer";
@@ -142,7 +143,7 @@ export function ArtifactRequest({ api, request, onDone }: FrontendRequestProps) 
          .catch((e) => ({
             text: null,
             image: null,
-            error: e instanceof Error ? e.message : String(e),
+            error: errText(e),
          }))
          .then((answer) => api.answerFrontendRequest(request.request_id, answer))
          .catch((e) => console.error("view_artifact", e))

@@ -118,13 +118,25 @@ export function rememberWindowFrame(key: string): () => void {
    };
 }
 
-/** Opens a web URL in the user's browser (inside Tauri via the opener plugin; in a plain browser a new tab). Frontends can't import Tauri, so this lives here. */
-export function openExternalUrl(url: string) {
+/**
+ * Opens a web URL in the user's browser (inside Tauri via the opener plugin; in a plain browser a
+ * new tab). Frontends can't import Tauri, so this lives here. A failure goes to `onError`
+ * (default: the console).
+ */
+export function openExternalUrl(
+   url: string,
+   onError: (e: unknown) => void = (e) => console.error("open url failed", e),
+) {
    if (!inTauri()) {
       window.open(url, "_blank", "noopener,noreferrer");
       return;
    }
-   void import("@tauri-apps/plugin-opener")
-      .then(({ openUrl }) => openUrl(url))
-      .catch((e) => console.error("open url failed", e));
+   void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)).catch(onError);
+}
+
+/** Click handler for a link: in Tauri open it in the browser, in a plain browser let the anchor work as is. */
+export function openExternalLink(e: { preventDefault(): void }, url: string) {
+   if (!inTauri()) return;
+   e.preventDefault();
+   openExternalUrl(url);
 }
