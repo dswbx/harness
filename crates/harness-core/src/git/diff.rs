@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::cmd::{current_branch, git, git_env, repo_root, rev};
+use super::cmd::{current_branch, git, git_env, git_with, repo_root, rev};
 use super::parse::{parse_branch, parse_diff_files, parse_log, parse_status};
 use crate::api::{BranchInfo, Branches, Commit, Diff, GitStatus};
 
@@ -94,7 +94,8 @@ pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String>
         if refs.is_empty() {
             for remote in git(dir, &["remote"]).await.unwrap_or_default().lines() {
                 // A failed or slow fetch is skipped; each is bounded and killed on timeout.
-                let _ = git(dir, &["fetch", "--quiet", "--no-tags", remote, &format!("refs/heads/{base}:refs/remotes/{remote}/{base}")]).await;
+                let spec = format!("refs/heads/{base}:refs/remotes/{remote}/{base}");
+                let _ = git_with(dir, &["fetch", "--quiet", "--no-tags", remote, &spec], &[], crate::proc::NETWORK).await;
             }
             refs = base_refs(dir, base).await;
         }

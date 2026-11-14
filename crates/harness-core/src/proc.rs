@@ -10,12 +10,14 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
-/// A local query (`git status`, `lsof`, `open`).
+/// A read-only local query (`git status`, `lsof`, `open`).
 pub const LOCAL: Duration = Duration::from_secs(30);
-/// Local work that scales with the repository (`git add -A` into a scratch index).
-pub const HEAVY: Duration = Duration::from_secs(120);
-/// A call that talks to the network (`git fetch`, `gh`, `curl` of a small document).
+/// Background or opportunistic network work (a fetch that refreshes a base ref, a small `curl`, a `gh` query).
 pub const NETWORK: Duration = Duration::from_secs(60);
+/// User-initiated git that may run hooks or scale with the repository (`commit`, `push`, `checkout`, `add -A`, ...).
+pub const GIT_LONG: Duration = Duration::from_secs(600);
+/// `gh` calls that push, check out or wait (`pr create`, `pr merge`, `pr checkout`).
+pub const GH_LONG: Duration = Duration::from_secs(300);
 /// Unpacking a downloaded archive.
 pub const UNPACK: Duration = Duration::from_secs(300);
 /// A download, in total (curl also gives up on a stalled connection).

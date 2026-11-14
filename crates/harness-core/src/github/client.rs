@@ -13,7 +13,7 @@ pub(super) async fn gh(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
 
 /// `gh` in `dir`, or anywhere. Bounded: a hang (a prompt, the network) fails with a timeout error.
 pub(crate) async fn gh_in(dir: Option<&Path>, args: &[&str]) -> anyhow::Result<String> {
-    let mut opts = crate::proc::Opts::new(crate::proc::NETWORK)
+    let mut opts = crate::proc::Opts::new(timeout_for(args))
         .args(args)
         .env("PATH", crate::env::login_path())
         .env("GH_PROMPT_DISABLED", "1")
@@ -29,6 +29,25 @@ pub(crate) async fn gh_in(dir: Option<&Path>, args: &[&str]) -> anyhow::Result<S
         anyhow::bail!("gh {}: {}", args.join(" "), out.stderr_lossy().trim());
     }
     Ok(out.stdout_lossy())
+}
+
+/// Queries keep the short limit; `pr create`/`merge`/`checkout` and anything not listed push or wait.
+const GH_READ_ONLY: &[(&str, &str)] = &[
+    ("auth", "token"),
+    ("api", ""),
+    ("pr", "view"),
+    ("pr", "list"),
+    ("pr", "status"),
+    ("pr", "diff"),
+    ("pr", "checks"),
+    ("repo", "view"),
+    ("issue", "view"),
+    ("issue", "list"),
+];
+
+fn timeout_for(args: &[&str]) -> Duration {
+    let (a, b) = (args.first().copied().unwrap_or(""), args.get(1).copied().unwrap_or(""));
+    if GH_READ_ONLY.iter().any(|(x, y)| *x == a && (y.is_empty() || *y == b)) { crate::proc::NETWORK } else { crate::proc::GH_LONG }
 }
 
 const API: &str = "https://api.github.com";
@@ -105,4 +124,19 @@ pub(crate) fn graphql_data(mut v: Value) -> anyhow::Result<Value> {
         anyhow::bail!("GitHub: {}", v["errors"][0]["message"].as_str().unwrap_or("no data"));
     }
     Ok(v["data"].take())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gh_timeouts_by_subcommand() {
+        for a in [&["pr", "view", "1"][..], &["auth", "token"], &["api", "graphql"], &["pr", "list"]] {
+            assert_eq!(timeout_for(a), crate::proc::NETWORK, "{a:?}");
+        }
+        for a in [&["pr", "create"][..], &["pr", "merge", "1"], &["pr", "checkout", "1"], &["repo", "clone", "x"], &["unknown"]] {
+            assert_eq!(timeout_for(a), crate::proc::GH_LONG, "{a:?}");
+        }
+    }
 }

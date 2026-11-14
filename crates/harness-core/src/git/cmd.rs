@@ -11,9 +11,9 @@ pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     git_with(dir, args, &[], timeout_for(args)).await
 }
 
-/// `git` with extra env (a scratch index for the diff snapshot); those calls scale with the repository.
+/// `git` with extra env (a scratch index for the diff snapshot): `add -A` scales with the repository.
 pub(super) async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> anyhow::Result<String> {
-    git_with(dir, args, env, proc::HEAVY).await
+    git_with(dir, args, env, proc::GIT_LONG).await
 }
 
 /// `git` bounded by `timeout`; a hang fails with a timeout error and kills git and what it spawned.
@@ -21,6 +21,10 @@ pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi:
     let mut opts = proc::Opts::new(timeout).args(args).cwd(dir).env("PATH", crate::env::login_path()).env("GIT_TERMINAL_PROMPT", "0");
     for (k, v) in env {
         opts = opts.env(k, v);
+    }
+    // A huge diff or file never failed before: keep what fits instead of erroring.
+    if matches!(args.first(), Some(&("diff" | "show"))) {
+        opts = opts.max_output(512 * 1024 * 1024).truncate();
     }
     let out = proc::run("git", opts).await.map_err(|e| anyhow::anyhow!("git {}: {e}", args.join(" ")))?;
     if !out.success() {
@@ -31,11 +35,39 @@ pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi:
     Ok(out.stdout_lossy())
 }
 
-/// Network subcommands get the network timeout, everything else the local one.
+/// Subcommands that only read local state: they keep the short limit. Everything else (hooks, the
+/// network, working-tree writes, anything not listed) gets the long one.
+const READ_ONLY: &[&str] = &[
+    "status",
+    "rev-parse",
+    "diff",
+    "log",
+    "branch",
+    "config",
+    "ls-files",
+    "for-each-ref",
+    "show",
+    "remote",
+    "symbolic-ref",
+    "merge-base",
+    "rev-list",
+    "hash-object",
+    "check-ref-format",
+    "cat-file",
+    "ls-tree",
+    "show-ref",
+    "describe",
+    "name-rev",
+    "diff-tree",
+    "blame",
+    "var",
+    "version",
+];
+
 fn timeout_for(args: &[&str]) -> Duration {
     match args.first() {
-        Some(&("fetch" | "pull" | "push" | "clone" | "ls-remote")) => proc::NETWORK,
-        _ => proc::LOCAL,
+        Some(sub) if READ_ONLY.contains(sub) => proc::LOCAL,
+        _ => proc::GIT_LONG,
     }
 }
 
@@ -85,6 +117,17 @@ pub fn head_branch(folder: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timeouts_by_subcommand() {
+        for sub in ["status", "rev-parse", "diff", "log", "branch", "config", "ls-files", "for-each-ref", "show"] {
+            assert_eq!(timeout_for(&[sub, "x"]), proc::LOCAL, "{sub}");
+        }
+        for sub in ["commit", "merge", "rebase", "checkout", "switch", "worktree", "stash", "add", "gc", "push", "pull", "clone", "fetch", "unknown-cmd"] {
+            assert_eq!(timeout_for(&[sub]), proc::GIT_LONG, "{sub}");
+        }
+        assert_eq!(timeout_for(&[]), proc::GIT_LONG);
+    }
 
     #[test]
     fn rev_rejects_empty_and_option_like() {
