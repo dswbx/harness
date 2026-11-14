@@ -425,7 +425,7 @@ export const Row = memo(function Row({
          return (
             <div className={cn("group", bleed)}>
                <div {...quotableAttrs(threadId, side)}>
-                  <Markdown>{item.text}</Markdown>
+                  <Markdown streaming={streaming}>{item.text}</Markdown>
                </div>
                {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}
                {(item.durationMs !== undefined || streaming) && !side && (

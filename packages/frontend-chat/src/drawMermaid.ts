@@ -31,6 +31,7 @@ export async function drawMermaid(dark: boolean, source: string): Promise<Drawn>
       const { svg } = await mermaid.render(`mermaid-${next++}`, source);
       return remember(key, { svg });
    } catch (e) {
-      return remember(key, { error: e instanceof Error ? e.message : String(e) });
+      // Not remembered: a failure may be a partial source, and must not push good diagrams out.
+      return { error: e instanceof Error ? e.message : String(e) };
    }
 }
