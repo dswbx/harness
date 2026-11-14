@@ -2,12 +2,9 @@ import type { HarnessClient } from "@harness/api";
 import {
    setGuessInlineCode,
    setOptionIsMeta,
-   setToolDisplay,
    setWrapCode,
-   toolDisplays,
    useGuessInlineCode,
    useOptionIsMeta,
-   useToolDisplay,
    useWrapCode,
 } from "@harness/frontend-chat";
 import {
@@ -140,27 +137,6 @@ function RhythmRow({
                {options.map((o) => (
                   <SelectItem key={o.id} value={o.id}>
                      {o.label} ({o.value})
-                  </SelectItem>
-               ))}
-            </SelectContent>
-         </Select>
-      </Row>
-   );
-}
-
-/** Chat Frontend: how tool calls look (stored by the Frontend itself). */
-function ToolDisplayRow() {
-   const current = useToolDisplay();
-   return (
-      <Row label="Tool calls" htmlFor="tool-display">
-         <Select value={current.id} onValueChange={setToolDisplay}>
-            <SelectTrigger id="tool-display" className="h-8 w-44 shrink-0 text-xs">
-               <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-               {toolDisplays.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                     {d.label}
                   </SelectItem>
                ))}
             </SelectContent>
@@ -466,7 +442,6 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                   options={FLOWS}
                   onChange={(flow) => update({ flow })}
                />
-               <ToolDisplayRow />
                <GuessInlineCodeRow />
                <WrapCodeRow />
             </Group>

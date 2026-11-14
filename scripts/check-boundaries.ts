@@ -35,8 +35,6 @@ const RAW_ALLOWED: Record<string, string> = {
       "known leak: presence check and the raw JSON view of rawInput; the raw JSON view may stay",
    "frontend-chat/src/features/toolDisplay/blocks.tsx":
       "known leak: passes rawInput to commandOf (an execute call's command line); the command moves to a typed core tool field",
-   "frontend-chat/src/features/toolDisplay/ToolCard.tsx":
-      "known leak: passes rawInput to commandOf and shows rawInput/rawOutput in the raw JSON view; the command moves to a typed core tool field, the raw JSON view may stay",
 };
 
 /** frontend-chat layering edges (`file -> target`, relative to its src/) that break the layer rule today. New ones must not. */
