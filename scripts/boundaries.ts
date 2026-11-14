@@ -147,3 +147,18 @@ export function appViolation(
       return `takes more than \`${FRONTEND_EXPORT}\` from a Frontend package`;
    return null;
 }
+
+/**
+ * Layering inside `frontend-chat/src`: `features/`, `state/`, `panels/` and `lib/` are what another
+ * Frontend could reuse, `shell/` is the chat arrangement. `file` and `target` are paths relative to
+ * `src` (target without extension). Why the import is not allowed; null when it is.
+ */
+export function layerViolation(file: string, target: string): string | null {
+   const from = file.split("/")[0] ?? "";
+   const to = target.split("/")[0];
+   if (to === "shell" && ["features", "state", "panels", "lib"].includes(from))
+      return `${from}/ must not import shell/`;
+   if (to === "features" && ["state", "panels", "lib"].includes(from))
+      return `${from}/ must not import features/`;
+   return null;
+}

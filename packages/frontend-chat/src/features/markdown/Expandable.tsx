@@ -1,0 +1,103 @@
+import {
+   Button,
+   cn,
+   Dialog,
+   DialogContent,
+   DialogDescription,
+   DialogTitle,
+   Tooltip,
+} from "@harness/ui";
+import { Maximize2, Share2 } from "lucide-react";
+import { createContext, type ReactNode, useContext, useState } from "react";
+import { useCapture } from "../artifacts/Capture";
+import { ExportMenu } from "../artifacts/ExportMenu";
+import { type ExportFormat, fileName } from "../artifacts/exportFormats";
+
+/** True inside the expanded view: content there may take all the height it needs. */
+export const InExpanded = createContext(false);
+
+/**
+ * "Make shared" for diagrams and tables in the chat (ADR 0024): shares `markdown` as a new Shared
+ * Artifact named `title`. Null (the default) outside a Session's chat: no button.
+ */
+export const ShareBlock = createContext<((markdown: string, title?: string) => void) | null>(null);
+
+/**
+ * Content with an Expand button (on hover, in its top right corner, or in the chat column's right gutter
+ * where `--expand-out: 1`) that opens it in a near full-screen view. `expanded`: what that view shows; else
+ * `children` again, scrolling. That view has a Download menu: `formats` (given a way to take a PNG of a node) lists
+ * the files, by default a PNG of `children`.
+ */
+export function Expandable({
+   label,
+   title,
+   children,
+   expanded,
+   formats,
+   share,
+   className,
+   ...data
+}: {
+   label: string;
+   /** Names the downloads; else `label`. */
+   title?: string;
+   children: ReactNode;
+   expanded?: ReactNode;
+   formats?: (png: (node?: ReactNode) => ExportFormat) => ExportFormat[];
+   /** Markdown of the block: offers "Make shared" (inside a `ShareBlock`). */
+   share?: string;
+   className?: string;
+   [data: `data-${string}`]: string;
+}) {
+   const [open, setOpen] = useState(false);
+   const shareBlock = useContext(ShareBlock);
+   const inExpanded = useContext(InExpanded);
+   const { stage, shoot } = useCapture();
+   const png = (node: ReactNode = children): ExportFormat => ({
+      label: "PNG",
+      file: `${fileName(title ?? label)}.png`,
+      blob: async () => (await shoot(node)).png,
+   });
+   return (
+      <div className={cn("group/expand relative", className)} {...data}>
+         {/* Nested ones (a diagram in a render_ui card) have no gutter of their own: their buttons go inside. */}
+         <div className="contents [--expand-out:0]">{children}</div>
+         <Button
+            size="icon"
+            variant="ghost"
+            className="absolute top-[calc(0.375rem*(1-var(--expand-out,0)))] right-[calc(0.375rem-2.625rem*var(--expand-out,0))] size-7 bg-background/80 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/expand:opacity-100"
+            aria-label={`Expand ${label}`}
+            onClick={() => setOpen(true)}
+         >
+            <Maximize2 />
+         </Button>
+         {share && shareBlock && !inExpanded && (
+            <Tooltip content="Make shared" side="left">
+               <Button
+                  size="icon"
+                  variant="ghost"
+                  className="absolute top-[calc(0.375rem*(1-var(--expand-out,0))+2rem*var(--expand-out,0))] right-[calc(2.375rem-4.625rem*var(--expand-out,0))] size-7 bg-background/80 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/expand:opacity-100"
+                  aria-label={`Make ${label} shared`}
+                  onClick={() => shareBlock(share, title)}
+               >
+                  <Share2 />
+               </Button>
+            </Tooltip>
+         )}
+         <Dialog open={open} onOpenChange={setOpen}>
+            <DialogContent className="h-[90vh] max-w-[94vw] grid-rows-1 overflow-hidden p-0">
+               <DialogTitle className="sr-only">{label}</DialogTitle>
+               <DialogDescription className="sr-only">Expanded view</DialogDescription>
+               <InExpanded.Provider value={true}>
+                  {expanded ?? <div className="min-h-0 overflow-auto p-8 pt-12">{children}</div>}
+               </InExpanded.Provider>
+               <ExportMenu
+                  className="absolute top-2.5 right-[2.625rem] flex items-center"
+                  formats={formats ? formats(png) : [png()]}
+               />
+               {stage}
+            </DialogContent>
+         </Dialog>
+      </div>
+   );
+}
