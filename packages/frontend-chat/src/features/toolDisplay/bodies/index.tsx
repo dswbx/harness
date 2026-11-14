@@ -34,7 +34,7 @@ export function StepBodyView({
       case "subSession":
          return <SubSessionBody tool={tool} summary={body.summary} />;
       case "toolSearch":
-         return <ToolSearchBody tool={tool} names={body.names} />;
+         return <ToolSearchBody tool={tool} tools={body.tools} />;
       case "commit":
          return <CodeFrame label="commit message" meta={body.hash} code={body.message} />;
       case "call":

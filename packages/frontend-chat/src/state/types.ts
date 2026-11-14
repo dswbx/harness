@@ -9,6 +9,7 @@ import type {
    SubSessionReport,
    TaskEntry,
    ThreadInfo,
+   ToolDetail,
    TranscriptSize,
 } from "@harness/api";
 
@@ -114,6 +115,8 @@ export type Item =
         endedAt: number | null;
         /** git_commit: the commit message. */
         commitMessage: string | null;
+        /** The core's typed facts of this call (`toolDetail` derives them from the raw fields when absent: old logs). */
+        detail?: ToolDetail;
         /** How a Harness tool call got through its approval: you answered, a rule, the Agent's auto mode, or it was denied. */
         approval?: "you" | "denied" | "rule" | "auto";
      }

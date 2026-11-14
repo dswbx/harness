@@ -3,6 +3,8 @@ import {
    gitToolSummary,
    type SubSessionToolSummary,
    subSessionToolSummary,
+   type ToolRefFacts,
+   toolDetail,
 } from "@harness/api";
 import type { Tool } from "./group";
 
@@ -11,7 +13,7 @@ export type StepState = "running" | "pending" | "done" | "failed";
 /** A step's line: what it does, by state ("Running command" / "Ran command"), and on what (the title minus what the verb says). */
 export type StepLabel = { verb: string; detail: string };
 
-// [running, done], by ACP tool kind. Title prefixes the Agent already put in are cut from the detail.
+// [running, done], by ACP tool kind. The detail is the call's `target` (its title minus the verb the Agent put in).
 const VERBS: Record<string, [string, string]> = {
    execute: ["Running command", "Ran command"],
    read: ["Reading", "Read"],
@@ -22,13 +24,10 @@ const VERBS: Record<string, [string, string]> = {
    fetch: ["Fetching", "Fetched"],
    switch_mode: ["Switching mode", "Switched mode"],
 };
-const PREFIXED: [RegExp, [string, string]][] = [
-   [/^Write /, ["Writing", "Wrote"]],
-   [/^Search (?=")/, ["Searching web", "Searched web"]],
-];
-const PREFIX = /^(Read( file)?|Edit|Fetch) /;
-// Titles that only name the tool, not what it runs on.
-const BARE = new Set(["Terminal", "Read File", "Fetch", "Edit", "Web search"]);
+const OP_VERBS: Record<string, [string, string]> = {
+   write: ["Writing", "Wrote"],
+   web_search: ["Searching web", "Searched web"],
+};
 
 // [running, done, failed] for the Harness git tools.
 const GIT_VERBS: Record<string, [string, string, string]> = {
@@ -77,25 +76,14 @@ function gitDetail(name: string, g: GitToolSummary): string {
    }
 }
 
-/** Tools a Claude `ToolSearch` call loaded (it loads deferred tool schemas so the Agent can call them), by name;
- * null for any other call. From its `tool_reference` output, else its `Tool: <name>` text blocks. */
-export function toolSearchNames(tool: Tool): string[] | null {
-   if (tool.title !== "ToolSearch") return null;
-   const refs = Array.isArray(tool.rawOutput)
-      ? (tool.rawOutput as { type?: unknown; tool_name?: unknown }[])
-           .filter((r) => r?.type === "tool_reference" && typeof r.tool_name === "string")
-           .map((r) => r.tool_name as string)
-      : [];
-   if (refs.length) return refs;
-   return tool.content.flatMap((b) => {
-      const text = b.type === "content" ? (b.content as { text?: unknown })?.text : undefined;
-      const m = typeof text === "string" ? /^Tool: (\S+)$/.exec(text.trim()) : null;
-      return m ? [m[1]!] : [];
-   });
+/** Tools a tool search call loaded (it loads deferred tool schemas so the Agent can call them); null for any other call. */
+export function toolSearchTools(tool: Tool): ToolRefFacts[] | null {
+   return toolDetail(tool).loadedTools;
 }
 
 /** `mcp__talat__get-summary` → `talat get-summary`. */
-export const shortToolName = (name: string) => name.replace(/^mcp__(.+?)__/, "$1 ");
+export const shortToolName = (t: ToolRefFacts) =>
+   t.mcp ? `${t.mcp.server} ${t.mcp.tool}` : t.name;
 
 export function stepLabel(tool: Tool, state: StepState, subagent = false): StepLabel {
    const live = state === "running" || state === "pending";
@@ -115,10 +103,10 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
    }
    if (tool.harnessTool)
       return { verb: pick(["Calling Harness", "Called Harness"]), detail: tool.harnessTool };
-   const loaded = toolSearchNames(tool);
+   const d = toolDetail(tool);
+   const loaded = d.loadedTools;
    if (loaded) {
-      const query = (tool.rawInput as { query?: unknown } | null)?.query;
-      const keywords = typeof query === "string" && !query.startsWith("select:") ? query : "";
+      const keywords = d.searchQuery ?? "";
       const n = loaded.length;
       const verb = live
          ? "Loading tools"
@@ -129,12 +117,12 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
              : "Loaded tools";
       return { verb, detail: keywords ? `"${keywords}"` : loaded.map(shortToolName).join(", ") };
    }
-   const mcp = /^mcp__(.+?)__(.+)$/.exec(tool.title);
-   if (mcp) return { verb: pick([`Calling ${mcp[1]}`, `Called ${mcp[1]}`]), detail: mcp[2]! };
-   const title = BARE.has(tool.title) ? "" : tool.title;
-   for (const [re, verbs] of PREFIXED)
-      if (re.test(title)) return { verb: pick(verbs), detail: title.replace(re, "") };
+   const mcp = d.mcp;
+   if (mcp)
+      return { verb: pick([`Calling ${mcp.server}`, `Called ${mcp.server}`]), detail: mcp.tool };
+   const prefixed = d.op && OP_VERBS[d.op];
+   if (prefixed) return { verb: pick(prefixed), detail: d.target ?? tool.title };
    const verbs = VERBS[tool.kind ?? ""];
-   if (verbs) return { verb: pick(verbs), detail: title.replace(PREFIX, "") };
+   if (verbs) return { verb: pick(verbs), detail: d.target ?? tool.title };
    return { verb: pick(["Calling", "Called"]), detail: tool.title };
 }

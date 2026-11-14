@@ -532,7 +532,12 @@ plan?: string | null;
 /**  This call starts a subagent: what it was asked to do. */
 subagent?: SubagentInfo | null; 
 /**  `git_commit`: the commit message. */
-commit_message?: string | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
+commit_message?: string | null; 
+/**
+ *  Typed facts for Views, read from the call by the core (`agent_quirks`). Absent on Events
+ *  recorded before it existed: `@harness/api` `toolDetail` derives them then.
+ */
+detail?: ToolDetail | null } | { type: "ToolCallUpdate"; tool_call_id: string; title: string | null; kind: string | null; status: string | null; content: unknown | null; locations: unknown | null; 
 /**  Agents often send the full input only here (the `ToolCall` carries `{}` while streaming). */
 raw_input: unknown | null; raw_output: unknown | null; parent_tool_call_id?: string | null; 
 /**
@@ -552,7 +557,9 @@ plan?: string | null;
 /**  Set when the update carries the subagent's task (see `ToolCall`). */
 subagent?: SubagentInfo | null; 
 /**  Set when the update carries the commit message (see `ToolCall`). */
-commit_message?: string | null } | 
+commit_message?: string | null; 
+/**  The call's facts as of this update (see `ToolCall`); replaces the earlier ones. */
+detail?: ToolDetail | null } | 
 /**
  *  Appended by the Harness when a background job's output file is no longer open by any
  *  process: the job ended (see `ToolCallUpdate.background_job`).
@@ -748,6 +755,11 @@ export type McpServerDef = {
 	secret_keys?: string[],
 };
 
+export type McpTool = {
+	server: string,
+	tool: string,
+};
+
 export type McpTransport = { type: "stdio"; command: string; args?: string[]; env?: { [key in string]: string } } | { type: "http"; url: string; headers?: { [key in string]: string } };
 
 /**  An Agent mode (a value of its mode option, or a legacy session mode). */
@@ -887,6 +899,13 @@ export type PullRequest = {
 	checks: PrChecks,
 	/**  RFC 3339. */
 	updated_at: string,
+};
+
+/**  A `read` call's file and output format. */
+export type ReadDetail = {
+	path?: string | null,
+	/**  The output's code carries `N<tab>` line numbers that count up by one. */
+	line_numbered?: boolean,
 };
 
 export type RegistryAgent = {
@@ -1051,6 +1070,39 @@ export type ThreadStart = "fork" | "seed" |
  *  tools are not offered.
  */
 "fresh";
+
+/**
+ *  What a View needs to show a tool call, read from the call by the core so no Frontend parses
+ *  an Agent's payloads (ADR 0012). Each field is set only when the call has that fact.
+ */
+export type ToolDetail = {
+	/**  An `execute` call's command line. */
+	command?: string | null,
+	/**  A `read` call: the file and how its output is formatted. */
+	read?: ReadDetail | null,
+	/**  A tool search call: the tools it loaded (made callable). `Some` even when it loaded none. */
+	loaded_tools?: ToolRef[] | null,
+	/**  A tool search call: its search words (not a `select:` lookup). */
+	search_query?: string | null,
+	/**  The call is to a tool of an MCP server. */
+	mcp?: McpTool | null,
+	/**  What the call does when its kind alone does not say. */
+	op?: ToolOp | null,
+	/**  What the call acts on (a path, a URL, a query) when that differs from its title. */
+	target?: string | null,
+};
+
+export type ToolOp = 
+/**  Creates or overwrites a file (ACP kind `edit`). */
+"write" | 
+/**  Searches the web (ACP kind `search` or `fetch`). */
+"web_search";
+
+/**  A tool an Agent names: its own id, and the MCP server it belongs to when it is one. */
+export type ToolRef = {
+	name: string,
+	mcp?: McpTool | null,
+};
 
 /**  How many of a Thread's Turns fit in a transcript. */
 export type TranscriptSize = {

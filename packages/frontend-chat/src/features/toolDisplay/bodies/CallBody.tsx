@@ -1,7 +1,7 @@
 import { Block } from "../blocks";
 import { CodeFrame } from "../CodeFrame";
 import type { Tool } from "../group";
-import { json, present } from "../raw";
+import { hasRaw, inputOf, json, outputOf, present } from "../raw";
 import { Fold } from "./Fold";
 
 export function CallBody({ tool }: { tool: Tool }) {
@@ -10,23 +10,23 @@ export function CallBody({ tool }: { tool: Tool }) {
          {tool.content.map((b, i) => (
             <Block key={i} b={b} tool={tool} />
          ))}
-         {(present(tool.rawInput) || present(tool.rawOutput)) && (
+         {hasRaw(tool) && (
             <div className="flex flex-col gap-1">
-               {present(tool.rawInput) && (
+               {present(inputOf(tool)) && (
                   <Fold label="Input">
                      <CodeFrame
                         label="input"
-                        code={json(tool.rawInput)}
-                        lang={typeof tool.rawInput === "string" ? "" : "json"}
+                        code={json(inputOf(tool))}
+                        lang={typeof inputOf(tool) === "string" ? "" : "json"}
                      />
                   </Fold>
                )}
-               {present(tool.rawOutput) && (
+               {present(outputOf(tool)) && (
                   <Fold label="Output">
                      <CodeFrame
                         label="output"
-                        code={json(tool.rawOutput)}
-                        lang={typeof tool.rawOutput === "string" ? "" : "json"}
+                        code={json(outputOf(tool))}
+                        lang={typeof outputOf(tool) === "string" ? "" : "json"}
                      />
                   </Fold>
                )}
