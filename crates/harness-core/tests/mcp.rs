@@ -116,7 +116,7 @@ async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String
                     .await;
             }
         }
-        if evs[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
+        if own_turn_ended(&evs[before..], text, None) {
             return evs[before..]
                 .iter()
                 .filter_map(|e| match &e.kind {
@@ -128,6 +128,19 @@ async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     panic!("turn did not end");
+}
+
+/// The Turn started by the user prompt `text` (in `thread`, when given) has ended. Another Turn of the
+/// Thread may run beside it (a notice Turn, say), so its `TurnEnded` does not count. Chunks carry no
+/// turn id: callers find their text in the joined reply, not at its start.
+fn own_turn_ended(evs: &[Event], text: &str, thread: Option<&str>) -> bool {
+    let id = evs.iter().find_map(|e| match &e.kind {
+        EventKind::TurnStarted { turn_id, text: t, origin: None, .. } if t == text && thread.is_none_or(|th| e.thread_id.as_deref() == Some(th)) => {
+            Some(turn_id)
+        }
+        _ => None,
+    });
+    id.is_some_and(|id| evs.iter().any(|e| matches!(&e.kind, EventKind::TurnEnded { turn_id, .. } if turn_id == id)))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -923,7 +936,8 @@ fn shared_harness(data: &Path) -> Arc<Harness> {
 /// Calls a Harness MCP tool and parses the JSON it returns.
 async fn mcp_json(h: &Harness, sid: &str, call: &str) -> serde_json::Value {
     let reply = ask(h, sid, &format!("mcp {call}"), None).await;
-    let body = reply.strip_prefix("mcp: ").unwrap_or_else(|| panic!("{call}: {reply}"));
+    // Text of a Turn running beside this one may come first.
+    let body = reply.rsplit_once("mcp: ").map(|(_, b)| b).unwrap_or_else(|| panic!("{call}: {reply}"));
     serde_json::Deserializer::from_str(body).into_iter().next().unwrap().unwrap_or_else(|e| panic!("{call}: {e}: {reply}"))
 }
 
@@ -1200,7 +1214,7 @@ async fn ask_on(h: &Harness, sid: &str, thread: &str, text: &str) -> String {
     for _ in 0..800 {
         let evs = events(h, sid);
         let mine = || evs[before..].iter().filter(|e| e.thread_id.as_deref() == Some(thread));
-        if mine().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
+        if own_turn_ended(&evs[before..], text, Some(thread)) {
             return mine()
                 .filter_map(|e| match &e.kind {
                     EventKind::AgentMessageChunk { text, .. } => Some(text.as_str()),
@@ -1507,9 +1521,30 @@ async fn a_notice_that_arrives_during_a_notice_turn_goes_out_without_a_user_prom
     // "slow" in the title makes the parent notice Turn slow (the fake agent reads the prompt).
     mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"slow first","worktree":false}"#).await;
     until("the first notice Turn starts", || notices(&h, &sid).len() == 1 && !idle(&h, &sid)).await;
+    // ... and it is mid-Turn: its first chunk is out and the fake agent now sleeps.
+    until("the notice Turn says its first words", || {
+        let evs = events(&h, &sid);
+        let start = evs.iter().position(|e| matches!(&e.kind, EventKind::TurnStarted { origin: Some(_), .. }));
+        start.is_some_and(|i| evs[i..].iter().any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text, .. } if text.contains("Working on it."))))
+    })
+    .await;
     // The second child ends while the parent is busy with that Turn.
     mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Second","worktree":false}"#).await;
     until("the parent hears the second child too", || notices(&h, &sid).len() == 2).await;
     assert!(notices(&h, &sid)[1].0.contains("\"Second\""), "{:?}", notices(&h, &sid)[1].0);
     until("the parent is idle", || idle(&h, &sid)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_is_found_when_another_turn_of_the_thread_still_streams() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // "slow" says "Working on it." at once and then waits: the next prompt runs beside it, and the
+    // chunks of both Turns land in the log (chunks carry no turn id).
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "slow".into(), attachments: vec![] }).await.unwrap();
+    let info = mcp_json(&h, &sid, "harness_info {}").await;
+    assert!(info.is_object(), "{info}");
 }

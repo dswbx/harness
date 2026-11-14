@@ -6,6 +6,7 @@ import { fileName, uiFormats } from "../artifacts/exportFormats";
 import { Expandable } from "../markdown/Expandable";
 import { quotableAttrs } from "../review/SelectionComment";
 import { CodeFrame } from "../toolDisplay/CodeFrame";
+import { asRenderUi } from "./decode";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { type RawNode, shortError } from "./tools";
 
@@ -31,16 +32,15 @@ export function FrontendToolRow({
    side: boolean;
 }) {
    if (item.render?.ok) {
-      const shown =
-         view ??
-         (item.render.value.root ? { root: item.render.value.root, files: item.files } : null);
+      const v = asRenderUi(item.render.value);
+      const shown = view ?? (v.root ? { root: v.root, files: item.files } : null);
       if (!shown) return null;
-      const title = uiTitle(shown.root, item.render.value.title);
+      const title = uiTitle(shown.root, v.title);
       const content = (
          <div {...quotableAttrs(threadId, side, { source: "artifact", label: title })}>
             <RenderUi
                root={shown.root}
-               env={{ ...env, files: shown.files, item: item.render.value.id ?? item.callId }}
+               env={{ ...env, files: shown.files, item: v.id ?? item.callId }}
             />
          </div>
       );

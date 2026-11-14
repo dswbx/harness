@@ -11,7 +11,7 @@ import {
 import { Brain } from "lucide-react";
 import { useState } from "react";
 import { Markdown } from "../markdown/Markdown";
-import { STEP_TEXT } from "./ToolCard";
+import { STEP_TEXT } from "./blocks";
 
 /** A thought, shown like a tool call step: "Thinking" shimmers while it streams, then "Thought"; the text opens on a click. */
 export function ThoughtStep({ text, streaming }: { text: string; streaming: boolean }) {

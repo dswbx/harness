@@ -1,6 +1,7 @@
 import { type Event, type EventKind, groupSubagents, subagentState } from "@harness/api";
 import { describe, expect, it } from "vitest";
-import { initialState, reduce } from "./reducer";
+import { reduce } from "../features/renderUi/chatReducer";
+import { initialState } from "./reducer";
 
 let seq = 0;
 const ev = (kind: EventKind): Event => ({

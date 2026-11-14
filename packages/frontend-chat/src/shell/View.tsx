@@ -52,6 +52,7 @@ import { planPanel } from "../features/plan/panel";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
 import { usePendingMessages, useSlow } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
+import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { RenderUi, type UiEnv } from "../features/renderUi/RenderUi";
 import { Env } from "../features/renderUi/runtime";
 import type { Slot } from "../features/renderUi/slots";
@@ -62,7 +63,7 @@ import { placeSteps } from "../features/toolDisplay/group";
 import { OpenStep, type OpenStepRequest } from "../features/toolDisplay/openStep";
 import { flash } from "../lib/flash";
 import { OpenSession } from "../lib/OpenSession";
-import { type ChatState, initialState, reduce, reduceBatch } from "../state/reducer";
+import { type ChatState, initialState } from "../state/reducer";
 import { DockLayout, type DockPanel } from "./DockLayout";
 import { usePanelDrag } from "./panelDrag";
 import {
