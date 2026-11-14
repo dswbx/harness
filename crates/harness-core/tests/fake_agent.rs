@@ -1214,6 +1214,28 @@ async fn quick_session_is_unused_until_the_first_prompt_whatever_its_title() {
 }
 
 #[tokio::test]
+async fn a_first_prompt_on_a_side_thread_uses_the_session_and_announces_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        if let harness_core::api::AppEvent::SessionStatus { unused, title, .. } = e {
+            s.lock().unwrap().push((*unused, title.clone()));
+        }
+        true
+    }));
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fresh).await;
+    turn(&h, &sid, Some(side), "hello").await;
+    // No title from a Side Thread prompt, but `unused` changed and is announced; never `true` after.
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|(unused, title)| !unused && title == "New Quick Session"));
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
 async fn other_sessions_are_not_unused() {
     let (h, sid, _dir) = setup().await;
     assert!(!summary(&h, &sid).await.unwrap().unused);

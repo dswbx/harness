@@ -80,7 +80,6 @@ export class MockTransport implements Transport {
    attachments = new Map<string, { mime: string; data: string }>();
    /** Registry id -> installed version. @internal */
    installedVersions = new Map<string, string>();
-   /** Quick Sessions with no prompt yet. @internal */
    /** @internal */
    commitN = 0;
    /** @internal */

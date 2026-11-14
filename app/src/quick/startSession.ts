@@ -4,19 +4,20 @@ import { quickAgent } from "../composer/composer";
 /**
  * Which Agent and Frontend a new Session starts with. One policy, three entry points:
  *
- * | entry point                    | Agent                                               | Frontend           |
- * | ------------------------------ | --------------------------------------------------- | ------------------ |
- * | Quick group's + (`startQuick`) | newest Session's Agent, else the first installed    | "chat", else first |
- * | Quick Overlay draft            | last Agent sent from the overlay (localStorage), else as the + | "chat", else first |
- * | Composer dialog                | the one already picked in the dialog, else the first installed | the one already picked, else "chat", else first |
+ * | entry point                    | Agent                                                  | Frontend                                      |
+ * | ------------------------------ | ------------------------------------------------------ | --------------------------------------------- |
+ * | Quick group's + (`startQuick`) | newest Session's Agent, else the first installed       | "chat", else the first                        |
+ * | Quick Overlay draft            | last Agent sent from the overlay (localStorage), else as the + | "chat", else the first                |
+ * | Composer dialog                | the one picked in the dialog, else the first installed | the one picked in the dialog, else "chat", else the first |
  *
- * A remembered Agent that is no longer installed is ignored. The differences are the `fallback`
- * and `preferredAgentId`/`preferredFrontendId` parameters, not accidents; unify them here later.
+ * A preferred Agent that is no longer installed is ignored. The entry points differ by the
+ * `fallback` and `preferred*` parameters.
  */
 export type StartPolicy = {
    agents: AgentInfo[];
    frontends: FrontendManifest[];
-   sessions: SessionSummary[];
+   /** For the "newest" fallback. */
+   sessions?: SessionSummary[];
    /** Used when still installed. */
    preferredAgentId?: string | null;
    /** Used as is (the Composer's pick is not checked against the list). */
@@ -28,7 +29,7 @@ export type StartPolicy = {
 export function pickStart(p: StartPolicy): { agent?: AgentInfo; frontendId?: string } {
    const agent =
       p.agents.find((a) => a.id === p.preferredAgentId) ??
-      (p.fallback === "newest" ? quickAgent(p.sessions, p.agents) : p.agents[0]);
+      (p.fallback === "newest" ? quickAgent(p.sessions ?? [], p.agents) : p.agents[0]);
    const frontendId =
       p.preferredFrontendId || (p.frontends.find((f) => f.id === "chat") ?? p.frontends[0])?.id;
    return { agent, frontendId };

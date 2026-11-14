@@ -31,8 +31,7 @@ export function useQuickLifecycle({
          const started = await startQuickSession(client, { sessions });
          // No Agent yet: the Composer offers to open the Agents settings.
          if (!started) return setComposer(true);
-         const id = started.id;
-         setSelected(id);
+         setSelected(started.id);
          await refresh();
       } catch (e) {
          report("Could not start a Quick Session", e);

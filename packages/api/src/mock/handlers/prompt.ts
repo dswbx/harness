@@ -98,11 +98,12 @@ export const promptHandlers = {
    Prompt: async (mock, cmd) => {
       const sid = cmd.session_id;
       const used = mock.session(sid);
-      if (used.unused && !cmd.thread_id) {
+      if (used.unused) {
+         // Like the core: a prompt on any Thread uses the Session; only a Main Thread prompt
+         // replaces a placeholder title.
          used.unused = false;
          const line = cmd.text.trim().split("\n")[0] ?? "";
-         // Like the core: only a placeholder title is replaced by the first prompt.
-         if (used.title === "New Quick Session" && line)
+         if (!cmd.thread_id && used.title === "New Quick Session" && line)
             used.title = line.length > 40 ? `${line.slice(0, 40).trimEnd()}…` : line;
          mock.emitApp({
             type: "SessionStatus",

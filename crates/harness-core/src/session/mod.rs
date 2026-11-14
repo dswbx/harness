@@ -192,9 +192,7 @@ impl Session {
     }
 
     fn emit_status(&self, session_id: SessionId, title: String, status: SessionStatus) {
-        let m = self.meta.lock();
-        let unused = m.quick && m.awaiting_first_prompt;
-        drop(m);
+        let unused = self.meta.lock().unused();
         self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status, unused });
     }
 
@@ -215,7 +213,7 @@ impl Session {
             status: self.agent.status(),
             archived: m.archived,
             quick: m.quick,
-            unused: m.quick && m.awaiting_first_prompt,
+            unused: m.unused(),
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 source_folder: m
@@ -280,9 +278,10 @@ impl Session {
                 m.title = t.clone();
             }
         })?;
-        // Also without a new title: `unused` changed.
-        let title = title.unwrap_or(m.title);
-        self.emit_status(self.id(), title, self.agent.status());
+        // Only when something shown changed: the title, or `unused` (also without a new title).
+        if title.is_some() || m.unused() {
+            self.emit_status(self.id(), title.unwrap_or(m.title), self.agent.status());
+        }
         Ok(())
     }
 

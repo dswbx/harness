@@ -16,7 +16,6 @@ const start = (
 ) => ({
    agents,
    frontends,
-   sessions: [],
    preferredAgentId: agent,
    preferredFrontendId: frontend,
    fallback: "first" as const,
