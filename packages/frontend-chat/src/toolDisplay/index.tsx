@@ -6,8 +6,6 @@ import { TraceDisplay } from "./TraceDisplay";
 export type {
    ChatSubagent,
    Step,
-   Thought,
-   Tool,
    ToolGroup,
 } from "./group";
 

@@ -1,5 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { importSpecs, importViolation, leaks, stripComments } from "./boundaries";
+import {
+   appViolation,
+   importedNames,
+   importSpecs,
+   importViolation,
+   leaks,
+   stripComments,
+   uiViolation,
+} from "./boundaries";
+
+describe("uiViolation", () => {
+   it("rejects @harness/api and Frontends", () => {
+      for (const s of ["@harness/api", "@harness/api/x", "@harness/frontend-chat"])
+         expect(uiViolation(s), s).not.toBeNull();
+   });
+
+   it("allows everything else", () => {
+      for (const s of ["react", "./a", "@radix-ui/react-slot", "@harness/ui"])
+         expect(uiViolation(s), s).toBeNull();
+   });
+});
+
+describe("importedNames", () => {
+   it("reads the names each import takes", () => {
+      const src = `import { frontend } from "a";\nimport type { T, type U as V } from "b";\nimport def, { x as y } from "c";\nimport * as ns from "d";\nexport * from "e";\nexport { z } from "f";\nimport "g";\nconst m = await import("h");\nimport {\n  p,\n  q,\n} from "i";\n`;
+      expect(importedNames(src)).toEqual([
+         ["a", ["frontend"]],
+         ["b", ["T", "U"]],
+         ["c", ["x", "default"]],
+         ["d", ["*"]],
+         ["e", ["*"]],
+         ["f", ["z"]],
+         ["g", []],
+         ["h", null],
+         ["i", ["p", "q"]],
+      ]);
+   });
+});
+
+describe("appViolation", () => {
+   const repo = "/repo";
+   const f = "/repo/app/src/a/b.tsx";
+   const check = (spec: string, names: string[] | null) => appViolation(spec, names, f, repo);
+
+   it("allows the frontend object from a root entry, and anything not a Frontend", () => {
+      expect(check("@harness/frontend-chat", ["frontend"])).toBeNull();
+      expect(check("@harness/frontend-chat", [])).toBeNull();
+      expect(check("@harness/api", ["Event"])).toBeNull();
+      expect(check("../c", ["x"])).toBeNull();
+      expect(check("../../../vite.config", ["x"])).toBeNull();
+   });
+
+   it("rejects other names, deep paths and relative paths into packages/", () => {
+      expect(check("@harness/frontend-chat", ["frontend", "RenderUiGallery"])).not.toBeNull();
+      expect(check("@harness/frontend-chat", ["default"])).not.toBeNull();
+      expect(check("@harness/frontend-chat", ["*"])).not.toBeNull();
+      expect(check("@harness/frontend-chat", null)).not.toBeNull();
+      expect(check("@harness/frontend-chat/src/x", ["frontend"])).not.toBeNull();
+      expect(check("../../../packages/frontend-chat/src/f.jsonl?raw", ["default"])).not.toBeNull();
+      expect(check("../../../packages/ui/src/index", ["x"])).not.toBeNull();
+   });
+});
 
 const root = "/repo/packages/frontend-x";
 const file = `${root}/src/a/b.tsx`;
