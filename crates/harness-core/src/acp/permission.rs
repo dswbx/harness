@@ -14,8 +14,16 @@ use crate::api::{Decision, EventKind, NewPermissionRule, PermissionOption, Resol
 use crate::session::Session;
 
 /// A `PermissionRequested` Event with its typed facts read from the (merged) tool call.
-pub(super) fn permission_requested(request_id: String, tool_call: Value, options: Vec<PermissionOption>, harness_tool: Option<String>) -> EventKind {
+pub(super) fn permission_requested(
+    session: &Session,
+    thread: Option<&ThreadId>,
+    request_id: String,
+    tool_call: Value,
+    options: Vec<PermissionOption>,
+    harness_tool: Option<String>,
+) -> EventKind {
     let f = crate::tool_facts::tool_facts(&tool_call, harness_tool.as_deref());
+    let mode_before = f.plan.as_ref().and(thread).and_then(|t| session.log().thread_mode_before_plan(t).ok().flatten());
     EventKind::PermissionRequested {
         request_id,
         tool_call,
@@ -24,6 +32,7 @@ pub(super) fn permission_requested(request_id: String, tool_call: Value, options
         plan: f.plan,
         commit_message: f.commit_message,
         frontend_tool: f.frontend_tool,
+        mode_before,
     }
 }
 
@@ -78,7 +87,8 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     };
 
     if let Some(option_id) = auto {
-        let _ = session.log().append(thread.clone(), permission_requested(request_id.clone(), tool_call, options.clone(), harness_tool));
+        let _ =
+            session.log().append(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
         let _ = session.log().append(
             thread.clone(),
             EventKind::PermissionResolved { request_id, option_id: Some(option_id.clone()), by: Resolver::Policy, rule_id: verdict.rule_id },
@@ -89,7 +99,8 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     }
     let pending = Pending { thread: thread.clone(), responder: Answer::Acp(responder), options: options.clone(), facts };
     slot.add_pending(session, request_id.clone(), pending, || {
-        let _ = session.log().append(thread, permission_requested(request_id, tool_call, options, harness_tool));
+        let requested = permission_requested(session, thread.as_ref(), request_id, tool_call, options, harness_tool);
+        let _ = session.log().append(thread, requested);
     });
     let _ = session.log().sync();
 }
@@ -121,7 +132,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
         PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into(), plan_mode: None, clears_context: false },
         PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into(), plan_mode: None, clears_context: false },
     ];
-    let requested = permission_requested(request_id.clone(), tool_call, options.clone(), Some(tool.to_owned()));
+    let requested = permission_requested(session, Some(thread), request_id.clone(), tool_call, options.clone(), Some(tool.to_owned()));
     let passes = match verdict.decision {
         Decision::Allow => verdict.rule_id.is_some(),
         Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {

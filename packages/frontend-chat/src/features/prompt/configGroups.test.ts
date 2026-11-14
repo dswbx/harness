@@ -145,3 +145,13 @@ describe("groupConfigOptions", () => {
       expect(ids(g.more)).toEqual(["x"]);
    });
 });
+
+describe("the mode option", () => {
+   it("is found by category or, like the core, by id", () => {
+      const byId = opt("mode", "Mode", undefined, "a", ["a", "b"]);
+      expect(groupConfigOptions([byId]).mode).toBe(byId);
+      const byCategory = opt("x", "X", "mode", "a", ["a"]);
+      expect(groupConfigOptions([byCategory]).mode).toBe(byCategory);
+      expect(groupConfigOptions([opt("model", "Model", "model", "a", ["a"])]).mode).toBeUndefined();
+   });
+});

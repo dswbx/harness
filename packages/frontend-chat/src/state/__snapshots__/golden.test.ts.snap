@@ -1593,9 +1593,13 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
       "type": "notice",
     },
   ],
-  "lastMode": "acceptEdits",
+  "lastMode": null,
   "lastTurnErrored": false,
   "mainThreadId": "golden-thread-main",
+  "modeNames": {
+    "acceptEdits": "Accept edits",
+    "plan": "Plan",
+  },
   "plans": [
     {
       "clearsContext": false,
@@ -1638,7 +1642,10 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
   "turnId": null,
   "turnStartedAt": null,
   "uiState": {},
-  "usage": null,
+  "usage": {
+    "size": 200000,
+    "used": 1200,
+  },
 }
 `;
 

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Event, EventKind } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import { diffLines } from "../features/changes/diff";
+import { defaultApproveOption } from "../features/plan/plans";
 import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { type ChatState, initialState, permissionTitle } from "./reducer";
 
@@ -683,6 +684,21 @@ describe("tool calls (synthetic)", () => {
 });
 
 describe("task list, config, usage (synthetic)", () => {
+   it("usage: typed numbers win, raw usage is the old-log fallback", () => {
+      const u = (e: object) => ev({ type: "UsageUpdated", usage: null, ...e } as EventKind);
+      expect(fold([started(), u({ used: 1, size: 2, usage: { used: 9, size: 9 } })]).usage).toEqual(
+         {
+            used: 1,
+            size: 2,
+         },
+      );
+      expect(fold([started(), u({ usage: { used: 3, size: 4 } })]).usage).toEqual({
+         used: 3,
+         size: 4,
+      });
+      expect(fold([started(), u({})]).usage).toBeNull();
+   });
+
    it("keeps the latest Task List", () => {
       const s = fold([
          ev({
@@ -887,6 +903,95 @@ describe("plans", () => {
       const s = fold([started(), modes("auto"), modes("plan"), req("p1", "# A")]);
       expect(s.plans[0]!.modeBefore).toBe("auto");
       expect(fold([started(), req("p1", "# A")]).plans[0]!.modeBefore).toBeNull();
+   });
+
+   describe("modeBefore", () => {
+      const planReq = (mode_before?: string) =>
+         ev({
+            type: "PermissionRequested",
+            request_id: "p1",
+            tool_call: { kind: "switch_mode" },
+            options: claudeOptions,
+            plan: "# A",
+            ...(mode_before ? { mode_before } : {}),
+         });
+      const legacy = (mode_id: string) => ev({ type: "ModeChanged", mode_id });
+      const typed = (id: string, plan = false) =>
+         ev({ type: "ModeChanged", mode_id: id, mode: { id, plan } });
+      const approveOption = (s: ChatState) =>
+         defaultApproveOption(claudeOptions, s.plans[0]!.modeBefore)?.option_id;
+
+      it("new logs: reads the core's mode_before, no memory of past modes", () => {
+         const s = fold([started(), planReq("auto")]);
+         expect(s.plans[0]!.modeBefore).toBe("auto");
+         expect(approveOption(s)).toBe("a");
+         // Typed mode announcements do not feed the old-log fallback.
+         const t = fold([started(), typed("auto"), typed("plan", true), planReq("default")]);
+         expect(t.plans[0]!.modeBefore).toBe("default");
+         expect(fold([started(), typed("auto"), planReq()]).plans[0]!.modeBefore).toBeNull();
+      });
+
+      it("old logs: legacy ModeChanged is folded (an Agent without a mode option)", () => {
+         const s = fold([started(), legacy("auto"), legacy("plan"), planReq()]);
+         expect(s.plans[0]!.modeBefore).toBe("auto");
+         // Before: modeBefore was null and the default fell through to the first allow_once.
+         expect(approveOption(s)).toBe("a");
+      });
+
+      it("a mixed log: old untyped part, then typed part with mode_before", () => {
+         const s = fold([
+            started(),
+            legacy("auto"),
+            planReq(),
+            res("p1", "k"),
+            // From here the core wrote the typed fields.
+            typed("default"),
+            typed("plan", true),
+            ev({
+               type: "PermissionRequested",
+               request_id: "p2",
+               tool_call: { kind: "switch_mode" },
+               options: claudeOptions,
+               plan: "# B",
+               mode_before: "default",
+            }),
+         ]);
+         expect(s.plans.map((p) => p.modeBefore)).toEqual(["auto", "default"]);
+      });
+
+      it("an empty mode_before or mode id is absent", () => {
+         const s = fold([started(), legacy("auto"), legacy(""), planReq("")]);
+         expect(s.plans[0]!.modeBefore).toBe("auto");
+         expect(fold([started(), legacy(""), planReq()]).plans[0]!.modeBefore).toBeNull();
+      });
+
+      it("keeps the names the core reports for modes, by id", () => {
+         const s = fold([
+            started(),
+            ev({
+               type: "ModeChanged",
+               mode_id: "plan",
+               mode: { id: "plan", name: "Plan", plan: true },
+            }),
+            ev({ type: "ModeChanged", mode_id: "default", mode: { id: "default", plan: false } }),
+            legacy("old"),
+         ]);
+         expect(s.modeNames).toEqual({ plan: "Plan" });
+      });
+
+      it("old logs: the mode option is found by id as well as by category", () => {
+         const byId = ev({
+            type: "ConfigOptionsChanged",
+            options: [
+               {
+                  id: "mode",
+                  currentValue: "auto",
+                  options: [{ value: "auto" }, { value: "plan" }],
+               },
+            ],
+         });
+         expect(fold([started(), byId, planReq()]).plans[0]!.modeBefore).toBe("auto");
+      });
    });
 
    it("ordinary permissions add no plan", () => {

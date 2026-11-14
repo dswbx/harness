@@ -1,4 +1,4 @@
-import type { Event } from "@harness/api";
+import { type Event, usageOf } from "@harness/api";
 import type { Ctx } from "../draft";
 
 /**
@@ -21,9 +21,8 @@ export function turnSlice(c: Ctx, e: Event) {
          d.lastTurnErrored = k.stop_reason === "error";
          return;
       case "UsageUpdated": {
-         const u = k.usage as { used?: number; size?: number } | null;
-         if (typeof u?.used === "number" && typeof u?.size === "number")
-            d.usage = { used: u.used, size: u.size };
+         const u = usageOf(k);
+         if (u) d.usage = u;
          return;
       }
    }

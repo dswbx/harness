@@ -52,6 +52,9 @@ pub(super) struct SlotState {
     /// Latest known state of each tool call (merged updates), since permission requests may
     /// carry only an id and a title.
     pub(super) tool_calls: HashMap<String, Value>,
+    /// The Agent's legacy session modes (id -> name) from its last `session/new` or `load`, to
+    /// name the `ModeChanged` events that carry only an id.
+    pub(super) mode_names: HashMap<String, String>,
     pub(super) last_active: Option<Instant>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,

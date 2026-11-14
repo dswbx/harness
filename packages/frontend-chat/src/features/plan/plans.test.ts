@@ -80,6 +80,15 @@ describe("modeName", () => {
       expect(modeName(opts, "auto")).toBe("auto");
       expect(modeName(opts, null)).toBeNull();
    });
+   it("finds the mode option by id too, like the core", () => {
+      const byId = [{ ...opts[0]!, category: undefined }];
+      expect(modeName(byId, "acceptEdits")).toBe("Accept Edits");
+   });
+   it("Agents with legacy modes: the option's name, else the core's mode name, else the id", () => {
+      expect(modeName([], "plan", { plan: "Plan", auto: "Auto" })).toBe("Plan");
+      expect(modeName(opts, "acceptEdits", { acceptEdits: "Other" })).toBe("Accept Edits");
+      expect(modeName([], "x", { plan: "Plan" })).toBe("x");
+   });
 });
 
 describe("planToAutoOpen", () => {

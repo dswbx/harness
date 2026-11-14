@@ -32,6 +32,12 @@ pub fn asking_mode<'a>(values: &[&'a str]) -> Option<&'a str> {
     ["read-only", "default"].into_iter().find_map(|m| values.iter().find(|v| **v == m).copied())
 }
 
+/// Whether a mode is the Agent's plan mode (Claude `plan`; Codex plans through its
+/// `collaboration_mode` option, not the mode). Views read `ModeInfo.plan`, never the id. ACP has no standard for this.
+pub fn is_plan_mode(mode_id: &str) -> bool {
+    mode_id == "plan"
+}
+
 /// Whether an Agent's mode is one where the Agent itself decides what runs without asking the user
 /// (Claude "auto" and "bypassPermissions", Codex "agent" and "agent-full-access"). In it the Agent
 /// could run `git push` in a shell unasked, so a Harness MCP tool the Permission Policy would only
