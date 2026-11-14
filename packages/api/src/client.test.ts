@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSessionApi, HarnessClient, type SessionApi } from "./client";
+import { CommandError } from "./errors";
 import type { Command, CommandResult } from "./generated";
 import type { Transport } from "./transport";
 
@@ -217,33 +218,37 @@ describe("HarnessClient wire shape", () => {
    });
 });
 
-/** The methods that fall back to an empty value when the core answers with another result type. */
+/** A result of another type than the Command's is a bug: every method rejects with `internal`, none returns an empty value. */
 describe("unexpected results", () => {
-   const wrong = () => recorder(() => ({ type: "Committed", commit: "x" }));
-
-   it("returns empty values today", async () => {
-      const { transport } = wrong();
-      const c = new HarnessClient(transport);
-      expect(await c.listSessions()).toEqual([]);
-      expect(await c.listAgents()).toEqual([]);
-      expect(await c.listRegistry()).toEqual([]);
-      expect(await c.listFrontends()).toEqual([]);
-      expect(await c.listMcpServers()).toEqual([]);
-      expect(await c.listPermissionRules()).toEqual([]);
-      expect(await c.listSharedArtifacts()).toEqual([]);
-      expect(await c.getAppSetting("appearance")).toBeNull();
-      expect(await c.getEditor()).toBeNull();
-      const api = createSessionApi(transport, "s1");
-      expect(await api.workspace()).toBeNull();
-      expect(await api.getEditor()).toBeNull();
-      expect(await api.listShared()).toEqual([]);
-   });
-
-   it("throws in the methods that always checked", async () => {
-      const { transport } = wrong();
-      const c = new HarnessClient(transport);
-      await expect(c.listBranches("/f")).rejects.toThrow("unexpected result");
-      await expect(c.getWorktreeDir()).rejects.toThrow("unexpected result");
-      await expect(createSessionApi(transport, "s1").gitLog()).rejects.toThrow("unexpected result");
+   const { transport } = recorder(() => ({ type: "Committed", commit: "x" }));
+   const c = new HarnessClient(transport);
+   const api = createSessionApi(transport, "s1");
+   const calls: [string, () => Promise<unknown>][] = [
+      ["listSessions", () => c.listSessions()],
+      ["listAgents", () => c.listAgents()],
+      ["listRegistry", () => c.listRegistry()],
+      ["listFrontends", () => c.listFrontends()],
+      ["listMcpServers", () => c.listMcpServers()],
+      ["listPermissionRules", () => c.listPermissionRules()],
+      ["listSharedArtifacts", () => c.listSharedArtifacts()],
+      ["getAppSetting", () => c.getAppSetting("appearance")],
+      ["getEditor", () => c.getEditor()],
+      ["listBranches", () => c.listBranches("/f")],
+      ["getWorktreeDir", () => c.getWorktreeDir()],
+      ["workspace", () => api.workspace()],
+      ["session getEditor", () => api.getEditor()],
+      ["listShared", () => api.listShared()],
+      ["gitLog", () => api.gitLog()],
+   ];
+   it.each(calls)("%s", async (_name, call) => {
+      const err = await call().then(
+         () => null,
+         (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(CommandError);
+      expect(err).toMatchObject({
+         code: "internal",
+         message: expect.stringContaining("unexpected result"),
+      });
    });
 });
