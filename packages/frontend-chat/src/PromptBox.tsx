@@ -314,6 +314,9 @@ export function PromptBox({
       () => state.items.filter((i) => i.type === "user").length,
       [state.items],
    );
+   // `deliver` runs in loops across renders: it needs the current count, not its closure's.
+   const userCountRef = useRef(userCount);
+   userCountRef.current = userCount;
    // A sent message is replaced by its row in the list once that row has arrived.
    useEffect(() => {
       if (pending.some((p) => p.status === "sent" && hasArrived(p, userCount)))
@@ -431,7 +434,7 @@ export function PromptBox({
          const next: PendingMessage = {
             ...item,
             status: "sending",
-            base: nextBase(cur, item.id, userCount),
+            base: nextBase(cur, item.id, userCountRef.current),
          };
          return cur.some((p) => p.id === item.id)
             ? cur.map((p) => (p.id === item.id ? next : p))

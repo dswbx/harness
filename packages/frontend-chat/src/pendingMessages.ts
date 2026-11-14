@@ -45,10 +45,12 @@ export const hasArrived = (p: PendingMessage, userCount: number) =>
 
 /**
  * `base` for `itemId` when it is (re)sent: the user messages in the Thread plus the other pending
- * ones still on their way, taken from the store's current list so a retry loop counts each.
+ * ones still on their way (not failed, row not arrived), taken from the store's current list so a
+ * retry loop counts each. `userCount` must be the current count, not one from an older render.
  */
 export const nextBase = (cur: PendingMessage[], itemId: string, userCount: number) =>
-   userCount + cur.filter((p) => p.id !== itemId && p.status !== "failed").length;
+   userCount +
+   cur.filter((p) => p.id !== itemId && p.status !== "failed" && !hasArrived(p, userCount)).length;
 
 export const setPendingActions = (key: string, a: PendingActions) => {
    actions.set(key, a);
