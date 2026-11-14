@@ -8,10 +8,10 @@ import { quickAgent } from "../composer/composer";
  * | ------------------------------ | ------------------------------------------------------ | --------------------------------------------- |
  * | Quick group's + (`startQuick`) | newest Session's Agent, else the first installed       | "chat", else the first                        |
  * | Quick Overlay draft            | last Agent sent from the overlay (localStorage), else as the + | "chat", else the first                |
- * | Composer dialog                | the one picked in the dialog, else the first installed | the one picked in the dialog, else "chat", else the first |
+ * | Composer dialog                | the one picked in the dialog, else as the +            | the one picked in the dialog, else "chat", else the first |
  *
- * A preferred Agent that is no longer installed is ignored. The entry points differ by the
- * `fallback` and `preferred*` parameters.
+ * A preferred Agent that is no longer installed is ignored. "Newest" counts every Session (Sub
+ * Sessions too). The entry points differ by the `preferred*` parameters.
  */
 export type StartPolicy = {
    agents: AgentInfo[];
