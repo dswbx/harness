@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PanelId, Zone } from "./panelLayout";
+import type { Zone } from "./model";
 
 /** Where a drop would land: a zone, and (over a stripe group) the insert index in its list; null: the end. */
 export type DropTarget = { zone: Zone; index: number | null };
 export type DragState = {
-   id: PanelId;
+   id: string;
    label: string;
    x: number;
    y: number;
@@ -34,7 +34,7 @@ export function targetAt(x: number, y: number): DropTarget | null {
  * click still clicks; Esc cancels; the click that ends a drag is swallowed. Not HTML5 DnD: that gives
  * no custom ghost and the Tauri webview handles file drops itself.
  */
-export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) {
+export function usePanelDrag(onDrop: (id: string, target: DropTarget) => void) {
    const [drag, setDrag] = useState<DragState | null>(null);
    const drop = useRef(onDrop);
    useEffect(() => {
@@ -43,7 +43,7 @@ export function usePanelDrag(onDrop: (id: PanelId, target: DropTarget) => void) 
    const cancel = useRef<(() => void) | null>(null);
    useEffect(() => () => cancel.current?.(), []);
 
-   const start = useCallback((id: PanelId, label: string, e: React.PointerEvent) => {
+   const start = useCallback((id: string, label: string, e: React.PointerEvent) => {
       if (e.button !== 0) return;
       // No text selection (or native drag) from the press; a plain click still clicks.
       e.preventDefault();

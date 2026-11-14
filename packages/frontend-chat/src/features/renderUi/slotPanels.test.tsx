@@ -2,7 +2,7 @@ import type { SessionApi } from "@harness/api";
 import { act, cleanup, render } from "@testing-library/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultLayout, isOpen, type Layout, move, reconcile } from "../../shell/panelLayout";
+import { defaultLayout, isOpen, type Layout, move, reconcile } from "../../shell/dock/model";
 import { type PanelPlace, usePanelHost } from "../../shell/usePanelHost";
 import { initialState } from "../../state/reducer";
 import { slotPanels } from "./slotPanels";
