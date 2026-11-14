@@ -18,6 +18,7 @@ pub struct ToolFacts {
 #[derive(Default)]
 pub(crate) struct Sent {
     detail: Option<crate::api::ToolDetail>,
+    result: Option<crate::api::HarnessResult>,
 }
 
 /// Sets `detail` on a tool Event from the call as tracked (`calls`: the update merged over its
@@ -43,6 +44,15 @@ pub(crate) fn fill_detail(calls: &HashMap<String, Value>, sent: &mut HashMap<Str
     {
         sent.detail = Some(d.clone());
         *detail = Some(d);
+    }
+    if let ToolCallUpdate { harness_result, .. } = kind {
+        let tool = call.get("title").and_then(Value::as_str).and_then(crate::mcp::harness_tool_name);
+        if let Some(r) = tool.and_then(|t| crate::mcp::result_of(t, call))
+            && sent.result.as_ref() != Some(&r)
+        {
+            sent.result = Some(r.clone());
+            *harness_result = Some(Box::new(r));
+        }
     }
 }
 

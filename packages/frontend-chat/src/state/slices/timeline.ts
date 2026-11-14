@@ -1,5 +1,6 @@
 import {
    type Event,
+   type HarnessResult,
    type PermissionRule,
    type ToolDetail,
    toolFacts,
@@ -241,6 +242,7 @@ export function timelineSlice(c: Ctx, e: Event) {
          });
          const subagentPrompt = k.subagent?.prompt ?? facts.subagentPrompt ?? base.subagentPrompt;
          const detail: ToolDetail | undefined = usable(k.detail) ?? base.detail;
+         const harnessResult: HarnessResult | undefined = k.harness_result ?? base.harnessResult;
          const next: Tool = {
             ...base,
             title: k.title ?? base.title,
@@ -267,6 +269,7 @@ export function timelineSlice(c: Ctx, e: Event) {
             commitMessage: k.commit_message ?? facts.commitMessage ?? base.commitMessage,
             // The core sends the facts as of each update, so the newest replaces.
             ...(detail && { detail }),
+            ...(harnessResult && { harnessResult }),
          };
          if (at === undefined) {
             idx.set(next.id, own(c).length);

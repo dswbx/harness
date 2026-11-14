@@ -456,6 +456,7 @@ mod tests {
             subagent: None,
             commit_message: None,
             detail: None,
+            harness_result: None,
         };
         adjust(&json!({}), &mut k);
         assert!(matches!(k, EventKind::ToolCallUpdate { background: true, .. }));
@@ -479,6 +480,7 @@ mod tests {
             subagent: None,
             commit_message: None,
             detail: None,
+            harness_result: None,
         }
     }
 

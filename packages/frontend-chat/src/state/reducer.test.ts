@@ -1437,6 +1437,28 @@ describe("typed tool facts", () => {
       expect(s.items[1]).toMatchObject({ commitMessage: "Fix" });
    });
 
+   it("keeps a Harness tool's typed result across later updates", () => {
+      const update = (over: object) =>
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: "a",
+            title: null,
+            kind: null,
+            status: null,
+            content: null,
+            locations: null,
+            raw_input: null,
+            raw_output: null,
+            ...over,
+         });
+      const s = fold([
+         ev({ type: "ToolCall", tool_call_id: "a", ...base, raw_input: {} }),
+         update({ harness_result: { type: "git_push", branch: "main" } }),
+         update({ status: "completed" }),
+      ]);
+      expect(s.items[0]).toMatchObject({ harnessResult: { type: "git_push", branch: "main" } });
+   });
+
    it("keeps the core's detail; the newest update replaces it, one without keeps it", () => {
       const update = (over: object) =>
          ev({

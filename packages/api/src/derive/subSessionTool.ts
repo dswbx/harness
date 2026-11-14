@@ -4,7 +4,7 @@
  * from its raw input and JSON output (ADR 0012, shared helper). Parsing is defensive: anything
  * unreadable just leaves a field out.
  */
-import { FENCED, failure, type GitToolCall, parseJson, textOf } from "./gitTool";
+import { failure, type GitToolCall, harnessResult, textOf } from "./gitTool";
 
 export const SUB_SESSION_TOOLS = [
    "session_start",
@@ -52,9 +52,6 @@ export type SubSessionToolSummary = {
 const str = (v: unknown): string | undefined =>
    typeof v === "string" && v.trim() ? v.trim() : undefined;
 
-const statusOf = (v: unknown): SubSessionStatus | undefined =>
-   v === "idle" || v === "needs_attention" || v === "working" ? v : undefined;
-
 /** Last part of a path: `/a/b/harness` → `harness`. */
 const baseName = (p: string) =>
    p
@@ -63,33 +60,33 @@ const baseName = (p: string) =>
       .pop() || p;
 
 export function subSessionToolSummary(tool: GitToolCall): SubSessionToolSummary | null {
-   const { harnessTool, rawInput, rawOutput, content } = tool;
+   const { harnessTool, rawInput } = tool;
    if (!harnessTool || !(SUB_SESSION_TOOLS as readonly string[]).includes(harnessTool)) return null;
    const input = (rawInput && typeof rawInput === "object" ? rawInput : {}) as Record<
       string,
       unknown
    >;
-   const texts = [textOf(content), textOf(rawOutput)].filter((t): t is string => t !== null);
    const out: SubSessionToolSummary = {};
-   const error = texts.map(failure).find((e) => e !== undefined);
+   const error = [textOf(tool.content), textOf(tool.rawOutput)]
+      .map((t) => (t === null ? undefined : failure(t)))
+      .find((e) => e !== undefined);
    if (error) out.error = error;
-   const text = texts.find((t) => !FENCED.test(t));
-   const parsed = text === undefined ? undefined : parseJson(text);
-   const r = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+   const result = harnessResult(tool);
+   const r = result?.type === "sub_session" ? result : undefined;
 
-   const id = str(r.session_id) ?? str(input.id);
+   const id = str(r?.session_id) ?? str(input.id);
    if (id) out.sessionId = id;
-   const title = str(r.title) ?? (harnessTool === "session_start" ? str(input.title) : undefined);
+   const title = str(r?.title) ?? (harnessTool === "session_start" ? str(input.title) : undefined);
    if (title) out.title = title;
    switch (harnessTool) {
       case "session_start": {
-         const repo = str(r.repo) ?? str(r.folder) ?? str(input.folder);
+         const repo = str(r?.repo) ?? str(input.folder);
          if (repo) out.repo = baseName(repo);
-         const branch = str(r.branch) ?? str(input.branch);
+         const branch = str(r?.branch) ?? str(input.branch);
          if (branch) out.branch = branch;
-         const model = str(r.model) ?? str(input.model);
+         const model = str(r?.model) ?? str(input.model);
          if (model) out.model = model;
-         const effort = str(r.effort) ?? str(input.effort);
+         const effort = str(r?.effort) ?? str(input.effort);
          if (effort) out.effort = effort;
          const prompt = str(input.prompt);
          if (prompt) out.prompt = prompt;
@@ -101,32 +98,25 @@ export function subSessionToolSummary(tool: GitToolCall): SubSessionToolSummary 
          break;
       }
       case "session_wait": {
-         if (typeof r.reply === "string" && r.reply.trim()) out.reply = r.reply;
-         if (typeof r.duration_ms === "number") out.durationMs = r.duration_ms;
-         const status = statusOf(r.status);
-         if (status) out.status = status;
-         const stop = str(r.stop_reason);
+         if (r?.reply) out.reply = r.reply;
+         if (typeof r?.duration_ms === "number") out.durationMs = r.duration_ms;
+         if (r?.status) out.status = r.status;
+         const stop = str(r?.stop_reason);
          if (stop) out.stopReason = stop;
          if (input.timeout_s === 0) out.check = true;
          break;
       }
       case "session_list": {
-         if (!Array.isArray(r.sub_sessions)) break;
-         out.sessions = r.sub_sessions.flatMap((v): SubSessionRow[] => {
-            const row = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
-            const sessionId = str(row.session_id);
-            if (!sessionId) return [];
-            const repo = str(row.repo) ?? str(row.folder);
-            const status = statusOf(row.status);
-            return [
-               {
-                  sessionId,
-                  title: str(row.title) ?? sessionId,
-                  ...(repo && { repo: baseName(repo) }),
-                  ...(status && { status }),
-                  ...(row.archived === true && { archived: true }),
-               },
-            ];
+         if (result?.type !== "sub_session_list") break;
+         out.sessions = result.sessions.map((row) => {
+            const repo = str(row.repo);
+            return {
+               sessionId: row.session_id,
+               title: str(row.title) ?? row.session_id,
+               ...(repo && { repo: baseName(repo) }),
+               ...(row.status && { status: row.status }),
+               ...(row.archived && { archived: true }),
+            };
          });
          break;
       }

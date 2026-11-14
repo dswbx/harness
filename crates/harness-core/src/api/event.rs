@@ -184,6 +184,9 @@ pub enum EventKind {
         /// The call's facts as of this update (see `ToolCall`); replaces the earlier ones.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<ToolDetail>,
+        /// A Harness MCP tool call's result, read from its output: what its text says, typed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_result: Option<Box<HarnessResult>>,
     },
     /// Appended by the Harness when a background job's output file is no longer open by any
     /// process: the job ended (see `ToolCallUpdate.background_job`).
@@ -485,6 +488,79 @@ pub enum ToolOp {
     Write,
     /// Searches the web (ACP kind `search` or `fetch`).
     WebSearch,
+}
+
+/// What a Harness MCP tool call did, typed from its output text so no Frontend parses it. Set on
+/// `ToolCallUpdate` once the output is there; `mcp::results` writes the text and reads it back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HarnessResult {
+    /// `git_commit`: the new commit's full hash.
+    GitCommit { hash: String },
+    /// `git_push`: the branch pushed.
+    GitPush { branch: String },
+    /// `git_status`: the current branch and how many files changed.
+    GitStatus {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changed: Option<u32>,
+    },
+    /// `git_diff`: added and removed lines of the patch.
+    GitDiff { additions: u32, deletions: u32 },
+    /// `list_branches`: how many branches.
+    ListBranches { count: u32 },
+    /// `session_start`, `session_send`, `session_wait`: the Sub Session and what the answer says of it.
+    SubSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// The repository's folder (else the Sub Session's own folder), as a path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repo: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        /// `session_wait`: its last reply, how long its last Turn took, how it ended, its state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(type = Option<specta_typescript::Number>)]
+        duration_ms: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop_reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<SubSessionState>,
+    },
+    /// `session_list`: every Sub Session.
+    SubSessionList { sessions: Vec<ListedSubSession> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SubSessionState {
+    Idle,
+    NeedsAttention,
+    Working,
+}
+
+/// One Sub Session of a `session_list` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ListedSubSession {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The repository's folder (else its own folder), as a path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<SubSessionState>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 /// How many of a Thread's Turns fit in a transcript.

@@ -559,7 +559,9 @@ subagent?: SubagentInfo | null;
 /**  Set when the update carries the commit message (see `ToolCall`). */
 commit_message?: string | null; 
 /**  The call's facts as of this update (see `ToolCall`); replaces the earlier ones. */
-detail?: ToolDetail | null } | 
+detail?: ToolDetail | null; 
+/**  A Harness MCP tool call's result, read from its output: what its text says, typed. */
+harness_result?: HarnessResult | null } | 
 /**
  *  Appended by the Harness when a background job's output file is no longer open by any
  *  process: the job ended (see `ToolCallUpdate.background_job`).
@@ -713,6 +715,30 @@ export type HarnessError = {
 	message: string,
 };
 
+/**
+ *  What a Harness MCP tool call did, typed from its output text so no Frontend parses it. Set on
+ *  `ToolCallUpdate` once the output is there; `mcp::results` writes the text and reads it back.
+ */
+export type HarnessResult = 
+/**  `git_commit`: the new commit's full hash. */
+{ type: "git_commit"; hash: string } | 
+/**  `git_push`: the branch pushed. */
+{ type: "git_push"; branch: string } | 
+/**  `git_status`: the current branch and how many files changed. */
+{ type: "git_status"; branch?: string | null; changed?: number | null } | 
+/**  `git_diff`: added and removed lines of the patch. */
+{ type: "git_diff"; additions: number; deletions: number } | 
+/**  `list_branches`: how many branches. */
+{ type: "list_branches"; count: number } | 
+/**  `session_start`, `session_send`, `session_wait`: the Sub Session and what the answer says of it. */
+{ type: "sub_session"; session_id?: string | null; title?: string | null; 
+/**  The repository's folder (else the Sub Session's own folder), as a path. */
+repo?: string | null; branch?: string | null; model?: string | null; effort?: string | null; 
+/**  `session_wait`: its last reply, how long its last Turn took, how it ended, its state. */
+reply?: string | null; duration_ms?: number | null; stop_reason?: string | null; status?: SubSessionState | null } | 
+/**  `session_list`: every Sub Session. */
+{ type: "sub_session_list"; sessions: ListedSubSession[] };
+
 /**  What the Harness knows about an installed Agent's files. */
 export type InstallInfo = {
 	/**  sha256 of the downloaded artifact (binary installs); `None` for npx/uvx. */
@@ -743,6 +769,16 @@ export type KnownRepo = {
  */
 export type Lagged = {
 	last_seq: number | null,
+};
+
+/**  One Sub Session of a `session_list` result. */
+export type ListedSubSession = {
+	session_id: string,
+	title?: string | null,
+	/**  The repository's folder (else its own folder), as a path. */
+	repo?: string | null,
+	status?: SubSessionState | null,
+	archived?: boolean,
 };
 
 /**  An MCP server in the MCP Library. */
@@ -1033,6 +1069,8 @@ export type SubSessionReportKind =
 "ended" | 
 /**  It waits for the user to answer a permission request. */
 "needs_user";
+
+export type SubSessionState = "idle" | "needs_attention" | "working";
 
 /**  What a tool call that starts a subagent asked it to do. */
 export type SubagentInfo = {

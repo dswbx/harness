@@ -1,0 +1,482 @@
+[
+   {
+      "name": "commit: hash from content",
+      "tool": "git_commit",
+      "call": {
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "Committed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+               }
+            }
+         ]
+      },
+      "result": {
+         "type": "git_commit",
+         "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+   },
+   {
+      "name": "commit: hash from rawOutput blocks",
+      "tool": "git_commit",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "Committed 0123abc"
+            }
+         ]
+      },
+      "result": {
+         "type": "git_commit",
+         "hash": "0123abc"
+      }
+   },
+   {
+      "name": "commit: uppercase hex, longer text",
+      "tool": "git_commit",
+      "call": {
+         "rawOutput": "ok\nCommitted ABCDEF0123 done"
+      },
+      "result": {
+         "type": "git_commit",
+         "hash": "ABCDEF0123"
+      }
+   },
+   {
+      "name": "commit: too short a hash",
+      "tool": "git_commit",
+      "call": {
+         "rawOutput": "Committed abc"
+      },
+      "result": null
+   },
+   {
+      "name": "commit: failure is not a result",
+      "tool": "git_commit",
+      "call": {
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "```\nthe user denied this\n```"
+               }
+            }
+         ]
+      },
+      "result": null
+   },
+   {
+      "name": "commit: no output yet",
+      "tool": "git_commit",
+      "call": {},
+      "result": null
+   },
+   {
+      "name": "push: branch",
+      "tool": "git_push",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "Pushed harness/x-1."
+            }
+         ]
+      },
+      "result": {
+         "type": "git_push",
+         "branch": "harness/x-1"
+      }
+   },
+   {
+      "name": "push: string output",
+      "tool": "git_push",
+      "call": {
+         "rawOutput": "Pushed main."
+      },
+      "result": {
+         "type": "git_push",
+         "branch": "main"
+      }
+   },
+   {
+      "name": "push: branch with a dot",
+      "tool": "git_push",
+      "call": {
+         "rawOutput": "Pushed release/1.2.x."
+      },
+      "result": {
+         "type": "git_push",
+         "branch": "release/1.2.x"
+      }
+   },
+   {
+      "name": "push: no branch",
+      "tool": "git_push",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "Pushed."
+            }
+         ]
+      },
+      "result": null
+   },
+   {
+      "name": "status: branch and changed files",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\n  \"branch\": \"main\",\n  \"upstream\": null,\n  \"ahead\": 0,\n  \"behind\": 0,\n  \"files\": [\n    {\n      \"path\": \"a\",\n      \"status\": \"M\",\n      \"additions\": 1,\n      \"deletions\": 0\n    },\n    {\n      \"path\": \"a\",\n      \"status\": \"M\",\n      \"additions\": 1,\n      \"deletions\": 0\n    }\n  ]\n}"
+            }
+         ]
+      },
+      "result": {
+         "type": "git_status",
+         "branch": "main",
+         "changed": 2
+      }
+   },
+   {
+      "name": "status: not JSON",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "nope"
+            }
+         ]
+      },
+      "result": null
+   },
+   {
+      "name": "diff: line counts",
+      "tool": "git_diff",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1,2 @@\n-x\n+y\n+z\n"
+            }
+         ]
+      },
+      "result": {
+         "type": "git_diff",
+         "additions": 2,
+         "deletions": 1
+      }
+   },
+   {
+      "name": "diff: nothing changed",
+      "tool": "git_diff",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "No changes."
+            }
+         ]
+      },
+      "result": {
+         "type": "git_diff",
+         "additions": 0,
+         "deletions": 0
+      }
+   },
+   {
+      "name": "branches: count",
+      "tool": "list_branches",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "[{\"name\":\"a\"},{\"name\":\"b\"}]"
+            }
+         ]
+      },
+      "result": {
+         "type": "list_branches",
+         "count": 2
+      }
+   },
+   {
+      "name": "branches: not a list",
+      "tool": "list_branches",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "x"
+            }
+         ]
+      },
+      "result": null
+   },
+   {
+      "name": "session_start: the answer",
+      "tool": "session_start",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\n  \"session_id\": \"s2\",\n  \"title\": \"Docs fix\",\n  \"folder\": \"/w/.worktrees/docs-1\",\n  \"repo\": \"/w/docs\",\n  \"branch\": \"harness/docs-1\",\n  \"model\": \"opus\",\n  \"effort\": \"high\"\n}"
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session",
+         "session_id": "s2",
+         "title": "Docs fix",
+         "repo": "/w/docs",
+         "branch": "harness/docs-1",
+         "model": "opus",
+         "effort": "high"
+      }
+   },
+   {
+      "name": "session_start: folder when no repo",
+      "tool": "session_start",
+      "call": {
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "{\"session_id\": \"s2\", \"title\": \"T\", \"folder\": \"/w/api\"}"
+               }
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session",
+         "session_id": "s2",
+         "title": "T",
+         "repo": "/w/api"
+      }
+   },
+   {
+      "name": "session_send: id and title",
+      "tool": "session_send",
+      "call": {
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "{\"session_id\": \"s2\", \"title\": \"T\"}"
+               }
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session",
+         "session_id": "s2",
+         "title": "T"
+      }
+   },
+   {
+      "name": "session_wait: reply, duration, status, stop reason",
+      "tool": "session_wait",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\n  \"session_id\": \"s2\",\n  \"title\": \"T\",\n  \"status\": \"idle\",\n  \"stop_reason\": \"end_turn\",\n  \"duration_ms\": 4200,\n  \"reply\": \"Done.\"\n}"
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session",
+         "session_id": "s2",
+         "title": "T",
+         "reply": "Done.",
+         "duration_ms": 4200,
+         "stop_reason": "end_turn",
+         "status": "idle"
+      }
+   },
+   {
+      "name": "session_wait: still working",
+      "tool": "session_wait",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\"session_id\": \"s2\", \"status\": \"working\", \"reply\": \"\"}"
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session",
+         "session_id": "s2",
+         "status": "working"
+      }
+   },
+   {
+      "name": "session_wait: unknown status dropped",
+      "tool": "session_wait",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\"session_id\": \"s2\", \"status\": \"weird\"}"
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session",
+         "session_id": "s2"
+      }
+   },
+   {
+      "name": "session_start: failure is not a result",
+      "tool": "session_start",
+      "call": {
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "```\nnot a git repository\n```"
+               }
+            }
+         ]
+      },
+      "result": null
+   },
+   {
+      "name": "session_list: rows",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\n  \"sub_sessions\": [\n    {\n      \"session_id\": \"s2\",\n      \"title\": \"Docs fix\",\n      \"repo\": \"/w/docs\",\n      \"status\": \"working\",\n      \"archived\": false\n    },\n    {\n      \"session_id\": \"s3\",\n      \"title\": \"Old\",\n      \"folder\": \"/w/api\",\n      \"status\": \"idle\",\n      \"archived\": true\n    },\n    {\n      \"title\": \"no id\"\n    }\n  ]\n}"
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session_list",
+         "sessions": [
+            {
+               "session_id": "s2",
+               "title": "Docs fix",
+               "repo": "/w/docs",
+               "status": "working"
+            },
+            {
+               "session_id": "s3",
+               "title": "Old",
+               "repo": "/w/api",
+               "status": "idle",
+               "archived": true
+            }
+         ]
+      }
+   },
+   {
+      "name": "session_list: none",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "{\"sub_sessions\": []}"
+            }
+         ]
+      },
+      "result": {
+         "type": "sub_session_list",
+         "sessions": []
+      }
+   },
+   {
+      "name": "other tool",
+      "tool": "render_ui",
+      "call": {
+         "rawOutput": [
+            {
+               "type": "text",
+               "text": "Committed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+         ]
+      },
+      "result": null
+   },
+   {
+      "name": "status: an array is not a status",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": "[]"
+      },
+      "result": null
+   },
+   {
+      "name": "status: no files, no count",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": "{\"branch\": \"main\"}"
+      },
+      "result": {
+         "type": "git_status",
+         "branch": "main"
+      }
+   },
+   {
+      "name": "status: detached has no branch",
+      "tool": "git_status",
+      "call": {
+         "rawOutput": "{\n  \"branch\": null,\n  \"upstream\": null,\n  \"ahead\": 0,\n  \"behind\": 0,\n  \"files\": []\n}"
+      },
+      "result": {
+         "type": "git_status",
+         "changed": 0
+      }
+   },
+   {
+      "name": "session_list: a row without an id is dropped",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": "{\"sub_sessions\": [{\"title\": \"x\"}, {\"session_id\": \"s9\"}]}"
+      },
+      "result": {
+         "type": "sub_session_list",
+         "sessions": [
+            {
+               "session_id": "s9"
+            }
+         ]
+      }
+   },
+   {
+      "name": "session_list: archived",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": "{\"sub_sessions\": [{\"session_id\": \"s9\", \"archived\": true}]}"
+      },
+      "result": {
+         "type": "sub_session_list",
+         "sessions": [
+            {
+               "session_id": "s9",
+               "archived": true
+            }
+         ]
+      }
+   },
+   {
+      "name": "session_list: not a list",
+      "tool": "session_list",
+      "call": {
+         "rawOutput": "{\"sub_sessions\": \"x\"}"
+      },
+      "result": null
+   }
+]
