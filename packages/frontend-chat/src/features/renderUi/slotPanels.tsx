@@ -1,5 +1,5 @@
 import type { SharedArtifactMeta } from "@harness/api";
-import { formatAgeAgo } from "@harness/api";
+import { formatAgeAgo, formatDateTime } from "@harness/api";
 import { DropdownMenuItem, DropdownMenuSeparator, ScrollArea, Tooltip } from "@harness/ui";
 import { Copy, ExternalLink, Layers, Share2, Unlink } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -26,12 +26,14 @@ function UpdatedAgo({ ts }: { ts: number }) {
    const now = useNow();
    return (
       <div className="@container min-w-0 flex-1 basis-0">
-         <time
-            dateTime={new Date(ts).toISOString()}
-            className="hidden text-right text-[11px] whitespace-nowrap text-muted-foreground @min-[3.5rem]:block"
-         >
-            {formatAgeAgo(ts, now)}
-         </time>
+         <Tooltip content={formatDateTime(ts)}>
+            <time
+               dateTime={new Date(ts).toISOString()}
+               className="hidden text-right text-[11px] whitespace-nowrap text-muted-foreground @min-[3.5rem]:block"
+            >
+               {formatAgeAgo(ts, now)}
+            </time>
+         </Tooltip>
       </div>
    );
 }

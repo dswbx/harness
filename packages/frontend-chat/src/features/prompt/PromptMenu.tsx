@@ -1,5 +1,12 @@
-import { formatAge, type PrEntry, type PrInfo, type PrRefKey, repoName } from "@harness/api";
-import { cn, ScrollArea } from "@harness/ui";
+import {
+   formatAge,
+   formatDateTime,
+   type PrEntry,
+   type PrInfo,
+   type PrRefKey,
+   repoName,
+} from "@harness/api";
+import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { Book } from "lucide-react";
 import {
    type ReactNode,
@@ -265,9 +272,11 @@ function PrRow({
          <span className="min-w-0 truncate">
             {hit ? <Marked text={pr.title} positions={range(hit[0], hit[1])} /> : pr.title}
          </span>
-         <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
-            {formatAge(Date.parse(pr.updated_at), now)}
-         </span>
+         <Tooltip content={formatDateTime(Date.parse(pr.updated_at))}>
+            <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+               {formatAge(Date.parse(pr.updated_at), now)}
+            </span>
+         </Tooltip>
       </>
    );
 }

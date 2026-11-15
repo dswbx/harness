@@ -1,5 +1,5 @@
-import { baseName, formatAge, inTauri } from "@harness/api";
-import { cn } from "@harness/ui";
+import { baseName, formatAge, formatDateTime, inTauri } from "@harness/api";
+import { cn, Tooltip } from "@harness/ui";
 import { Folder, FolderPlus, Zap } from "lucide-react";
 import { matchesWords, type RecentFolder, tildify } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
@@ -102,9 +102,11 @@ export function FolderField({
                            </span>
                         )
                      )}
-                     <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-                        {formatAge(r.at)}
-                     </span>
+                     <Tooltip content={formatDateTime(r.at)}>
+                        <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
+                           {formatAge(r.at)}
+                        </span>
+                     </Tooltip>
                   </>
                ),
             };

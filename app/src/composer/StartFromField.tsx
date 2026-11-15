@@ -2,11 +2,12 @@ import {
    type Branches,
    type BranchInfo,
    formatAge,
+   formatDateTime,
    type PrFilter,
    type PullRequest,
    parsePrRef,
 } from "@harness/api";
-import { cn } from "@harness/ui";
+import { cn, Tooltip } from "@harness/ui";
 import { GitBranch, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { branchChoices, matchesWords } from "./composer";
@@ -105,9 +106,15 @@ export function StartFromField({
          {b.worktree && <Pill>checked out elsewhere</Pill>}
          <span className="flex-1" />
          {!remote && <AheadBehind b={b} />}
-         <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-            {b.time ? formatAge(b.time * 1000) : ""}
-         </span>
+         {b.time ? (
+            <Tooltip content={formatDateTime(b.time * 1000)}>
+               <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
+                  {formatAge(b.time * 1000)}
+               </span>
+            </Tooltip>
+         ) : (
+            <span className="w-14 shrink-0" />
+         )}
       </>
    );
    const choices = branchChoices(branches, bq);

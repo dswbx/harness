@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@harness/api";
+import { formatDateTime, type SessionSummary } from "@harness/api";
 import { cn } from "@harness/ui";
 import type { ReactNode } from "react";
 import { StatusDot, statusLabel } from "./StatusDot";
@@ -38,13 +38,8 @@ export function SessionDetails({ s, parent }: { s: SessionSummary; parent?: Sess
             {!ws.repo_root && row("Git", "Not a git repository")}
             {row("Agent", s.agent_id)}
             {row("Frontend", s.frontend_id)}
-            {row(
-               "Started",
-               new Date(s.created_ms).toLocaleString(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-               }),
-            )}
+            {row("Started", formatDateTime(s.created_ms))}
+            {row("Updated", formatDateTime(s.updated_ms))}
          </dl>
       </div>
    );
