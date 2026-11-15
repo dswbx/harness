@@ -324,6 +324,11 @@ impl Drop for Waiting<'_> {
 }
 
 impl Notices {
+    /// How many `session_wait`s wait for `child` now. For tests.
+    pub(crate) fn waits_for(&self, child: &SessionId) -> usize {
+        self.0.lock().waiting.get(child).copied().unwrap_or(0)
+    }
+
     fn waiting(&self, child: &SessionId) -> Waiting<'_> {
         *self.0.lock().waiting.entry(child.clone()).or_default() += 1;
         Waiting(self, child.clone())

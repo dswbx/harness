@@ -279,6 +279,12 @@ impl Harness {
         Ok(move || watchers.len())
     }
 
+    /// How many `session_wait`s wait for the Sub Session now. For tests.
+    #[doc(hidden)]
+    pub fn sub_session_waits(&self, child_id: &str) -> usize {
+        self.shared.notices.waits_for(&child_id.to_owned())
+    }
+
     pub async fn execute(&self, cmd: Command) -> Result<CommandResult, HarnessError> {
         self.ensure_open()?;
         let changes = match &cmd {

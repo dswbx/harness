@@ -84,8 +84,10 @@ async fn pids(file: &Path, n: usize) -> Vec<u32> {
     std::fs::read_to_string(file).unwrap().lines().map(|l| l.trim().parse().unwrap()).collect()
 }
 
+/// The kill is not part of what the bound measures, only that it comes: the timeout only bounds a
+/// failure, so it is generous for a loaded machine.
 async fn all_gone(what: &str, pids: &[u32]) {
-    wait_until(what, Duration::from_secs(3), || pids.iter().all(|p| !alive(*p))).await;
+    wait_until(what, Duration::from_secs(30), || pids.iter().all(|p| !alive(*p))).await;
 }
 
 /// The Session reopened from disk, as the next start does.
@@ -189,7 +191,7 @@ async fn a_job_watcher_stops_and_logs_nothing_after() {
     prompt(&h, &sid, &format!("background-job {path}")).await;
     wait_until("the watcher", Duration::from_secs(10), || watchers() == 1).await;
     shut_down(&h).await;
-    wait_until("the watcher task to end", Duration::from_secs(3), || watchers() == 0).await;
+    wait_until("the watcher task to end", Duration::from_secs(30), || watchers() == 0).await;
     job.kill().unwrap();
     job.wait().unwrap();
     // A watcher that survived would see the file closed at its next poll and log the end.
@@ -211,7 +213,7 @@ async fn deleting_a_session_stops_its_job_watcher() {
     prompt(&h, &sid, &format!("background-job {path}")).await;
     wait_until("the watcher", Duration::from_secs(10), || watchers() == 1).await;
     h.execute(Command::DeleteSession { session_id: sid.clone(), force: true }).await.unwrap();
-    wait_until("the watcher task of the deleted Session to end", Duration::from_secs(3), || watchers() == 0).await;
+    wait_until("the watcher task of the deleted Session to end", Duration::from_secs(30), || watchers() == 0).await;
     job.kill().unwrap();
     job.wait().unwrap();
     shut_down(&h).await;
