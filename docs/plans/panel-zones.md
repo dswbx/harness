@@ -1,5 +1,7 @@
 # Panel zones plan
 
+Status: implemented (ADR 0019, amended by ADR 0025). The model and geometry are in `packages/frontend-chat/src/shell/dock/` and the plan names `panelLayout.ts`, which no longer exists. Defaults now also place Files, Plan and Subagents.
+
 **Directories:** `packages/frontend-chat` (main work), `packages/ui` (resize handle), `app/src` (SessionHeader gear, sidebar Settings), `docs/` (ADR, plan, glossary). No Rust changes.
 
 Design: canvas https://claude.ai/artifact/JAxejAJL5WUvggd1R5B3eh (Main = prototype, Zones = rules, BottomModes = under vs between).

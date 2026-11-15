@@ -1,5 +1,7 @@
 # Panel feedback plan
 
+Status: implemented (steps 1 to 6; ADR 0023, 0024). `ui_patch` and the "Later" items were not built.
+
 **Directories:** `crates/harness-core` (new MCP tool, session panels folder, permission rule, file watch), `packages/frontend-chat` (render_ui schema, renderers, view_artifact, file-backed items), `packages/api` (new host calls), `docs/` (ADR 0023, glossary, this plan).
 
 ## Context
