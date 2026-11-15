@@ -15,7 +15,7 @@ export function StartupNotices({ transport }: { transport: Transport }) {
          client
             .takeNotices()
             .then((list) => {
-               if (stop) return;
+               // Shown even if this effect was torn down meanwhile: the core will not hand them out again.
                for (const n of list) {
                   const shown = n.copy ?? n.path;
                   notify(n.message, {
