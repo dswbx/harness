@@ -97,7 +97,7 @@ pub struct Planned {
 /// Local images to copy. Checks them all before anything is written. Relative paths are relative
 /// to the Workspace Folder; a source outside it is allowed but flagged `outside`.
 pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<Planned>> {
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let mut out: Vec<Planned> = Vec::new();
     for src in srcs {
         if src.starts_with("https://") || src.starts_with("data:image/") || out.iter().any(|p| &p.src == src) {
@@ -105,18 +105,31 @@ pub fn plan(folder: &Path, srcs: &[String]) -> anyhow::Result<Vec<Planned>> {
         }
         anyhow::ensure!(!src.contains("://"), "{src}: only https URLs or local image files");
         let path = std::fs::canonicalize(folder.join(src)).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
-        let file = std::fs::File::open(&path).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
+        // Before opening: a FIFO or a device would block the open.
+        anyhow::ensure!(std::fs::metadata(&path)?.is_file(), "{src} is not a file");
+        let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&path).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
         let meta = file.metadata()?;
         anyhow::ensure!(meta.is_file(), "{src} is not a file");
         anyhow::ensure!(is_image(guess_mime(&path)), "{src} is not an image (png, jpg, gif, webp)");
         anyhow::ensure!(meta.len() <= MAX_IMAGE, "{src} is larger than 20 MB");
-        // The path must still name the file that was opened.
+        // The path must still name the file that was opened, and be the path that is shown.
         let now = std::fs::metadata(&path)?;
         anyhow::ensure!((now.dev(), now.ino()) == (meta.dev(), meta.ino()), "{src} changed while it was read");
+        anyhow::ensure!(std::fs::canonicalize(&path)? == path, "{src} changed while it was read");
         let outside = !crate::fsutil::inside_existing(folder, &path).is_ok_and(|r| r.within());
         out.push(Planned { src: src.clone(), path, outside, file });
     }
     Ok(out)
+}
+
+/// `plan` on a blocking thread: it reads the disk.
+pub async fn plan_blocking(folder: PathBuf, srcs: Vec<String>) -> anyhow::Result<Vec<Planned>> {
+    tokio::task::spawn_blocking(move || plan(&folder, &srcs)).await?
+}
+
+/// `store` on a blocking thread: it copies files.
+pub async fn store_blocking(frontend_dir: PathBuf, planned: Vec<Planned>) -> anyhow::Result<BTreeMap<String, String>> {
+    tokio::task::spawn_blocking(move || store(&frontend_dir, planned)).await?
 }
 
 /// Copies the planned images into `frontend_dir/files/`: `src -> path relative to frontend_dir`.
@@ -238,5 +251,14 @@ mod tests {
         std::os::unix::fs::symlink(&out, fe.join("files")).unwrap();
         assert!(store(&fe, plan(&folder, &["shot.png".into()]).unwrap()).is_err());
         assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_pipe_is_refused_without_blocking() {
+        let d = tempfile::tempdir().unwrap();
+        let fifo = d.path().join("pipe.png");
+        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        let e = plan(d.path(), &["pipe.png".into()]).unwrap_err();
+        assert!(e.to_string().contains("not a file"), "{e}");
     }
 }

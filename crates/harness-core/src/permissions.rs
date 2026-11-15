@@ -95,11 +95,13 @@ impl Policy {
             return Verdict { decision: Decision::Ask, rule_id: None };
         }
         let folder = Folder { lexical: cx.folder, real: cx.folder.canonicalize().ok() };
+        // Resolved once per request, for every rule.
+        let forms: Vec<Forms> = facts.paths.iter().map(|p| Forms::of(p)).collect();
         let rules = self.rules.read();
-        let best = rules.iter().filter_map(|r| rank(r, cx, &folder, facts).map(|k| (k, r))).max_by_key(|(k, _)| *k);
+        let best = rules.iter().filter_map(|r| rank(r, cx, &folder, facts, &forms).map(|k| (k, r))).max_by_key(|(k, _)| *k);
         match best {
             Some((_, r)) => Verdict { decision: r.decision, rule_id: Some(r.id.clone()) },
-            None => Verdict { decision: default_decision(cx, &folder, facts), rule_id: None },
+            None => Verdict { decision: default_decision(cx, &folder, facts, &forms), rule_id: None },
         }
     }
 }
@@ -112,16 +114,32 @@ struct Folder<'a> {
 }
 
 impl Folder<'_> {
-    /// `path`'s resolved real location is the folder or under it.
-    fn contains(&self, path: &Path) -> bool {
+    /// The resolved real location is the folder or under it.
+    fn contains(&self, forms: &Forms) -> bool {
         let Some(root) = &self.real else { return false };
-        crate::fsutil::resolve_physical(path).is_some_and(|real| real.starts_with(root))
+        forms.real.as_ref().is_some_and(|real| real.starts_with(root))
+    }
+}
+
+/// The forms of one requested path a rule is matched against.
+struct Forms {
+    /// As written (`..` included).
+    raw: PathBuf,
+    /// Without `.` and `..`.
+    plain: PathBuf,
+    /// With symbolic links resolved.
+    real: Option<PathBuf>,
+}
+
+impl Forms {
+    fn of(raw: &Path) -> Self {
+        Self { raw: raw.to_path_buf(), plain: crate::fsutil::normalize_lexical(raw), real: crate::fsutil::resolve_physical(raw) }
     }
 }
 
 /// Precedence of a matching rule: narrower scope first, then the more specific rule, then the
 /// stricter decision. `None` when the rule does not apply.
-fn rank(r: &PermissionRule, cx: &Context, folder: &Folder, facts: &ToolFacts) -> Option<(u8, u8, u8)> {
+fn rank(r: &PermissionRule, cx: &Context, folder: &Folder, facts: &ToolFacts, forms: &[Forms]) -> Option<(u8, u8, u8)> {
     let scope = match &r.scope {
         RuleScope::Global => 0,
         RuleScope::Agent { agent_id } if agent_id == cx.agent_id => 1,
@@ -131,7 +149,11 @@ fn rank(r: &PermissionRule, cx: &Context, folder: &Folder, facts: &ToolFacts) ->
     if r.tool_kind.as_ref().is_some_and(|k| facts.kind.as_ref() != Some(k)) {
         return None;
     }
-    if r.pattern.as_ref().is_some_and(|p| !pattern_matches(p, folder, facts, r.decision)) {
+    // A file from outside the Workspace Folder is approved by the user every time: no Allow rule.
+    if r.decision == Decision::Allow && facts.kind.as_deref() == Some(crate::acp::OUTSIDE_FILE_KIND) {
+        return None;
+    }
+    if r.pattern.as_ref().is_some_and(|p| !pattern_matches(p, folder, facts, forms, r.decision)) {
         return None;
     }
     let specificity = r.tool_kind.is_some() as u8 + r.pattern.is_some() as u8;
@@ -152,58 +174,71 @@ fn expand_home(path: &str) -> PathBuf {
     }
 }
 
+const GLOB_META: [char; 4] = ['*', '?', '[', '{'];
+
 /// `pattern` with the directory part before its first wildcard resolved (`/tmp/x/**` is
 /// `/private/tmp/x/**` on macOS), so it can be compared with a resolved path.
 fn resolved_glob(pattern: &str) -> String {
-    let cut = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
+    let cut = pattern.find(GLOB_META).unwrap_or(pattern.len());
     let Some(slash) = pattern[..cut].rfind('/') else { return pattern.to_owned() };
     match crate::fsutil::resolve_physical(Path::new(&pattern[..slash.max(1)])) {
-        Some(dir) => format!("{}/{}", dir.display().to_string().trim_end_matches('/'), pattern[slash..].trim_start_matches('/')),
+        Some(dir) => format!("{}/{}", globset::escape(dir.display().to_string().trim_end_matches('/')), pattern[slash..].trim_start_matches('/')),
         None => pattern.to_owned(),
     }
 }
 
 /// Execute rules match a command prefix on word boundaries, and only when the command parses and
-/// every simple command in it matches (`shell.rs`, fail closed); all other kinds glob every touched
-/// path (relative globs resolve against the Workspace Folder, `~` is the home directory). An Allow
-/// rule matches by the path's resolved location only (a relative rule against the resolved folder,
-/// an absolute one with its fixed directory part resolved); Ask and
-/// Deny rules match the written form, the form without `..`, or the resolved form.
-fn pattern_matches(pattern: &str, folder: &Folder, facts: &ToolFacts, decision: Decision) -> bool {
+/// every simple command in it matches (`shell.rs`, fail closed). All other kinds glob the touched
+/// paths (relative globs resolve against the Workspace Folder, `~` is the home directory). An
+/// Allow rule matches only when EVERY path matches by its resolved location (a relative rule
+/// against the resolved folder, an absolute one with its fixed directory part resolved). A Deny or
+/// Ask rule matches when ANY path matches, in its written form, without `..`, or resolved (and, for
+/// a pattern with no wildcard, resolved to its target); on macOS and Windows these ignore letter
+/// case, as the volumes do.
+fn pattern_matches(pattern: &str, folder: &Folder, facts: &ToolFacts, forms: &[Forms], decision: Decision) -> bool {
     if facts.kind.as_deref() == Some("execute") {
         return facts.command.as_deref().is_some_and(|c| crate::shell::matches_prefix(pattern, c));
     }
-    if facts.paths.is_empty() {
+    if forms.is_empty() {
         return false;
     }
+    let strict = decision == Decision::Allow;
+    let ignore_case = !strict && cfg!(any(target_os = "macos", target_os = "windows"));
+    let matcher = |g: &str| globset::GlobBuilder::new(g).literal_separator(true).case_insensitive(ignore_case).build().ok().map(|g| g.compile_matcher());
     let expanded = expand_home(pattern);
-    let matcher = |g: &str| globset::GlobBuilder::new(g).literal_separator(true).build().ok().map(|g| g.compile_matcher());
-    let (written, resolved) = if expanded.is_absolute() {
+    let absolute = expanded.is_absolute();
+    let (written, resolved) = if absolute {
         let g = expanded.display().to_string();
         (matcher(&g), matcher(&resolved_glob(&g)))
     } else {
-        let lexical = matcher(&format!("{}/{pattern}", folder.lexical.display()));
-        (lexical, folder.real.as_ref().and_then(|r| matcher(&format!("{}/{pattern}", r.display()))))
+        let lexical = matcher(&format!("{}/{pattern}", globset::escape(&folder.lexical.display().to_string())));
+        (lexical, folder.real.as_ref().and_then(|r| matcher(&format!("{}/{pattern}", globset::escape(&r.display().to_string())))))
     };
+    // A pattern naming one file also covers what that file is a link to.
+    let target = (!strict && !pattern.contains(GLOB_META))
+        .then(|| crate::fsutil::resolve_physical(&if absolute { expanded.clone() } else { folder.lexical.join(pattern) }))
+        .flatten()
+        .and_then(|t| matcher(&globset::escape(&t.display().to_string())));
     let hit = |m: &Option<globset::GlobMatcher>, p: &Path| m.as_ref().is_some_and(|m| m.is_match(p));
-    facts.paths.iter().all(|raw| {
-        let real = crate::fsutil::resolve_physical(raw);
-        if decision == Decision::Allow {
-            real.is_some_and(|r| hit(&resolved, &r))
-        } else {
-            let plain = crate::fsutil::normalize_lexical(raw);
-            [raw.as_path(), plain.as_path()].into_iter().chain(real.as_deref()).any(|p| hit(&written, p) || hit(&resolved, p))
-        }
-    })
+    if strict {
+        forms.iter().all(|f| f.real.as_ref().is_some_and(|r| hit(&resolved, r)))
+    } else {
+        forms.iter().any(|f| {
+            [Some(f.raw.as_path()), Some(f.plain.as_path()), f.real.as_deref()]
+                .into_iter()
+                .flatten()
+                .any(|p| hit(&written, p) || hit(&resolved, p) || hit(&target, p))
+        })
+    }
 }
 
 /// Built-in defaults: reading inside the Workspace, committing, Frontend Tools and Session State
 /// changes are allowed, and so are edits of files inside the Session's `panels/` folder (ADR 0023)
 /// or inside the folder of an attached Shared Artifact, but not its `meta.json` (ADR 0024); paths
 /// are resolved (symlinks followed, `..` refused), and a read counts as inside the Workspace by
-/// its resolved location. A read or search that names no path asks. Everything else (edits,
+/// its resolved location (a recursive tool is judged by the root it names, not by what it finds below). A read or search that names no path asks. Everything else (edits,
 /// commands, fetches, pushes) asks.
-fn default_decision(cx: &Context, folder: &Folder, facts: &ToolFacts) -> Decision {
+fn default_decision(cx: &Context, folder: &Folder, facts: &ToolFacts, forms: &[Forms]) -> Decision {
     let writable = |p: &Path| {
         cx.panels.is_some_and(|panels| crate::fsutil::resolve_below_via_ancestor(panels, p).is_some())
             || cx.shared.iter().any(|dir| {
@@ -217,7 +252,15 @@ fn default_decision(cx: &Context, folder: &Folder, facts: &ToolFacts) -> Decisio
     }
     let safe = matches!(facts.kind.as_deref(), Some("read" | "search" | "think" | "git_commit" | "frontend_tool" | "state"));
     let names_a_path = !matches!(facts.kind.as_deref(), Some("read" | "search")) || !facts.paths.is_empty();
-    if safe && names_a_path && facts.paths.iter().all(|p| folder.contains(p)) { Decision::Allow } else { Decision::Ask }
+    if safe && names_a_path && forms.iter().all(|f| folder.contains(f)) { Decision::Allow } else { Decision::Ask }
+}
+
+/// The place a search pattern starts from: its fixed part up to the last `/` before a wildcard.
+fn search_root(pattern: &str, folder: &Path) -> PathBuf {
+    let cut = pattern.find(GLOB_META).unwrap_or(pattern.len());
+    let fixed = pattern[..cut].rfind('/').map_or(pattern, |i| &pattern[..i.max(1)]);
+    let expanded = expand_home(fixed);
+    if expanded.is_absolute() || fixed.starts_with('~') { expanded } else { folder.join(expanded) }
 }
 
 /// Extracts kind, command and paths from an ACP tool call (JSON, camelCase). Paths keep their
@@ -245,7 +288,9 @@ pub fn facts_of(tool_call: &Value, folder: &Path) -> ToolFacts {
         .collect();
     let kind = tool_call.get("kind").and_then(Value::as_str).map(str::to_owned);
     if kind.as_deref() == Some("search") && paths.is_empty() {
-        paths.push(folder.to_owned());
+        // No path: the search covers the folder, unless its pattern names a place of its own.
+        let reach = raw.and_then(|r| r.get("pattern")).and_then(Value::as_str).filter(|p| p.starts_with(['/', '~']) || p.starts_with("../") || *p == "..");
+        paths.push(reach.map_or_else(|| folder.to_owned(), |p| search_root(p, folder)));
     }
     ToolFacts { kind, command, paths }
 }
@@ -711,5 +756,128 @@ mod tests {
         assert_eq!(p.evaluate(&cx, &read_at(base.join("shortcut/x"))).decision, Decision::Deny);
         assert_eq!(p.evaluate(&cx, &read_at(base.join("secret/x"))).decision, Decision::Deny, "the resolved form of the same place");
         assert_eq!(p.evaluate(&cx, &read_at(l.folder.join("a.rs"))).decision, Decision::Allow);
+    }
+
+    #[test]
+    fn a_deny_or_ask_rule_matches_when_any_path_matches_and_an_allow_needs_all() {
+        let (p, _d) = policy();
+        let l = linked();
+        std::fs::create_dir_all(l.folder.join("secrets")).unwrap();
+        std::fs::create_dir_all(l.folder.join("src")).unwrap();
+        let cx = ctx(&l.folder);
+        let two =
+            |a: &str, b: &str| facts_of(&json!({"kind": "edit", "locations": [{"path": l.folder.join(a)}], "rawInput": {"path": l.folder.join(b)}}), &l.folder);
+        p.add(rule(RuleScope::Global, Some("edit"), None, Decision::Allow)).unwrap();
+        assert_eq!(p.evaluate(&cx, &two("src/a.rs", "secrets/k")).decision, Decision::Allow, "no narrower rule yet");
+        let deny = p.add(rule(RuleScope::Global, Some("edit"), Some("secrets/**"), Decision::Deny)).unwrap();
+        for (a, b) in [("src/a.rs", "secrets/k"), ("secrets/k", "src/a.rs"), ("secrets/k", "secrets/j")] {
+            let v = p.evaluate(&cx, &two(a, b));
+            assert_eq!((v.decision, v.rule_id), (Decision::Deny, Some(deny.id.clone())), "{a} {b}");
+        }
+        assert_eq!(p.evaluate(&cx, &two("src/a.rs", "src/b.rs")).decision, Decision::Allow);
+        // An Ask rule behaves the same; an Allow rule with a pattern needs every path.
+        let (p, _d) = policy();
+        p.add(rule(RuleScope::Global, Some("edit"), Some("src/**"), Decision::Allow)).unwrap();
+        assert_eq!(p.evaluate(&cx, &two("src/a.rs", "src/b.rs")).decision, Decision::Allow);
+        assert_eq!(p.evaluate(&cx, &two("src/a.rs", "secrets/k")).decision, Decision::Ask);
+        p.add(rule(RuleScope::Global, Some("edit"), Some("src/b.rs"), Decision::Ask)).unwrap();
+        assert_eq!(p.evaluate(&cx, &two("src/a.rs", "src/b.rs")).decision, Decision::Ask);
+        // Equal specificity: the stricter decision wins, as before.
+        p.add(rule(RuleScope::Global, Some("edit"), Some("**"), Decision::Allow)).unwrap();
+        p.add(rule(RuleScope::Global, Some("edit"), Some("secrets/**"), Decision::Deny)).unwrap();
+        assert_eq!(p.evaluate(&cx, &two("src/a.rs", "secrets/k")).decision, Decision::Deny);
+    }
+
+    #[test]
+    fn deny_and_ask_rules_ignore_letter_case_where_the_volume_does() {
+        let (p, _d) = policy();
+        let l = linked();
+        let cx = ctx(&l.folder);
+        p.add(rule(RuleScope::Global, Some("edit"), Some("secrets/**"), Decision::Deny)).unwrap();
+        p.add(rule(RuleScope::Global, Some("read"), Some("**/.env"), Decision::Deny)).unwrap();
+        let denied = cfg!(any(target_os = "macos", target_os = "windows"));
+        let edit_at = |rel: &str| call("edit", &l.folder, Some(&l.folder.join(rel)));
+        let read_at = |rel: &str| call("read", &l.folder, Some(&l.folder.join(rel)));
+        assert_eq!(p.evaluate(&cx, &edit_at("secrets/k")).decision, Decision::Deny);
+        assert_eq!(p.evaluate(&cx, &edit_at("Secrets/k")).decision == Decision::Deny, denied);
+        assert_eq!(p.evaluate(&cx, &read_at("pkg/.ENV")).decision == Decision::Deny, denied);
+        // An Allow rule stays exact.
+        p.add(rule(RuleScope::Global, Some("edit"), Some("src/**"), Decision::Allow)).unwrap();
+        assert_eq!(p.evaluate(&cx, &edit_at("src/a.rs")).decision, Decision::Allow);
+        assert_eq!(p.evaluate(&cx, &edit_at("SRC/a.rs")).decision, Decision::Ask);
+    }
+
+    #[test]
+    fn wildcard_characters_in_the_folder_name_are_literal() {
+        let (p, _d) = policy();
+        let d = tempfile::tempdir().unwrap();
+        let base = d.path().canonicalize().unwrap();
+        for name in ["W[1]", "W{a}", "W*"] {
+            let folder = base.join(name);
+            std::fs::create_dir_all(folder.join("secrets")).unwrap();
+            std::fs::create_dir_all(base.join("W1")).unwrap();
+            std::fs::create_dir_all(base.join("Wa")).unwrap();
+            let cx = ctx(&folder);
+            let (sp, _s) = policy();
+            sp.add(rule(RuleScope::Global, Some("edit"), Some("secrets/**"), Decision::Deny)).unwrap();
+            assert_eq!(sp.evaluate(&cx, &call("edit", &folder, Some(&folder.join("secrets/k")))).decision, Decision::Deny, "{name}");
+            let (ap, _a) = policy();
+            ap.add(rule(RuleScope::Global, Some("edit"), Some("**"), Decision::Allow)).unwrap();
+            assert_eq!(ap.evaluate(&cx, &call("edit", &folder, Some(&folder.join("a.rs")))).decision, Decision::Allow, "{name}");
+            for sibling in ["W1", "Wa", "Wb"] {
+                assert_eq!(ap.evaluate(&cx, &call("edit", &folder, Some(&base.join(sibling).join("a.rs")))).decision, Decision::Ask, "{name} vs {sibling}");
+            }
+        }
+        drop(p);
+    }
+
+    #[test]
+    fn a_deny_rule_naming_a_file_also_covers_the_target_of_a_link() {
+        let (p, _d) = policy();
+        let l = linked();
+        std::fs::create_dir_all(l.folder.join("docs")).unwrap();
+        std::fs::write(l.folder.join("pkg/real.md"), "x").unwrap();
+        std::os::unix::fs::symlink(l.folder.join("pkg/real.md"), l.folder.join("docs/link.md")).unwrap();
+        p.add(rule(RuleScope::Global, Some("read"), Some("docs/link.md"), Decision::Deny)).unwrap();
+        let cx = ctx(&l.folder);
+        let read_at = |rel: &str| call("read", &l.folder, Some(&l.folder.join(rel)));
+        assert_eq!(p.evaluate(&cx, &read_at("docs/link.md")).decision, Decision::Deny);
+        assert_eq!(p.evaluate(&cx, &read_at("pkg/real.md")).decision, Decision::Deny, "the target");
+        assert_eq!(p.evaluate(&cx, &read_at("pkg/real.rs")).decision, Decision::Allow);
+    }
+
+    #[test]
+    fn an_outside_file_always_asks() {
+        let (p, _d) = policy();
+        let l = linked();
+        let cx = ctx(&l.folder);
+        let file = || call(crate::acp::OUTSIDE_FILE_KIND, &l.folder, Some(&l.outside.join("o.txt")));
+        assert_eq!(p.evaluate(&cx, &file()).decision, Decision::Ask);
+        p.add(rule(RuleScope::Global, None, None, Decision::Allow)).unwrap();
+        p.add(rule(RuleScope::Global, Some(crate::acp::OUTSIDE_FILE_KIND), None, Decision::Allow)).unwrap();
+        p.add(rule(RuleScope::Global, None, Some("**"), Decision::Allow)).unwrap();
+        assert_eq!(p.evaluate(&cx, &file()).decision, Decision::Ask, "no Allow rule applies");
+        p.add(rule(RuleScope::Global, Some(crate::acp::OUTSIDE_FILE_KIND), None, Decision::Deny)).unwrap();
+        assert_eq!(p.evaluate(&cx, &file()).decision, Decision::Deny, "a Deny still does");
+    }
+
+    #[test]
+    fn a_search_whose_pattern_leaves_the_folder_is_judged_by_where_it_starts() {
+        let (p, _d) = policy();
+        let l = linked();
+        let cx = ctx(&l.folder);
+        let search = |pattern: &str| facts_of(&json!({"kind": "search", "rawInput": {"pattern": pattern}}), &l.folder);
+        for (pattern, want) in [
+            ("/etc/**", Decision::Ask),
+            ("/etc/passwd", Decision::Ask),
+            ("../elsewhere/*.txt", Decision::Ask),
+            ("..", Decision::Ask),
+            ("~/x/**", Decision::Ask),
+            ("TODO", Decision::Allow),
+            ("src/**/*.rs", Decision::Allow),
+            (&format!("{}/pkg/**", l.folder.display()), Decision::Allow),
+        ] {
+            assert_eq!(p.evaluate(&cx, &search(pattern)).decision, want, "{pattern}");
+        }
     }
 }

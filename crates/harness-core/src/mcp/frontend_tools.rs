@@ -50,10 +50,11 @@ pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, 
         let root = root.ok_or_else(|| anyhow::anyhow!("an id shared:<id> takes only a new root (to detach it, use artifact_detach)"))?;
         session.ensure_attached(id)?;
         let images = images.lock().clone();
-        let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
+        let planned = crate::frontend_files::plan_blocking(std::path::PathBuf::from(&session.meta().folder), images).await?;
         authorize_outside(session, thread, name, &planned).await?;
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
-        session.shared().artifacts.write_ui(id, root, planned)?;
+        let (s, id_owned, root) = (session.clone(), id.to_owned(), root.clone());
+        tokio::task::spawn_blocking(move || s.shared().artifacts.write_ui(&id_owned, &root, planned)).await??;
         session.shared().app_events.emit(crate::api::AppEvent::SharedArtifactChanged { id: id.to_owned() });
         return Ok(vec![ContentBlock::text(format!("Done. Shared artifact {id} now shows the new tree in every Session that has it attached."))]);
     }
@@ -68,10 +69,10 @@ pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, 
         return Ok(text.into_iter().chain(image).collect());
     }
     let images = images.lock().clone();
-    let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
+    let planned = crate::frontend_files::plan_blocking(std::path::PathBuf::from(&session.meta().folder), images).await?;
     authorize_outside(session, thread, name, &planned).await?;
     crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
-    let files = crate::frontend_files::store(&session.frontend_root()?, planned)?;
+    let files = crate::frontend_files::store_blocking(session.frontend_root()?, planned).await?;
     let path = session.write_frontend_tool_output(thread, name, args, files)?;
     let items = info(session)?["items"].clone();
     Ok(vec![ContentBlock::text(format!("Done. The Frontend received it ({path}). Live items: {items}"))])
