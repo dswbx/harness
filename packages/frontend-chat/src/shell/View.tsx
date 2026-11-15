@@ -19,7 +19,6 @@ import { changesPanel } from "../features/changes/panel";
 import { ArchivedNotice } from "../features/conversation/ArchivedNotice";
 import { MessageList, useRows } from "../features/conversation/MessageList";
 import { ScrollUnder } from "../features/conversation/ScrollUnder";
-import { TaskListPanel } from "../features/conversation/TaskListPanel";
 import { FileRefProvider, FileViewProvider } from "../features/files/FileRef";
 import type { FileTarget } from "../features/files/FilesPanel";
 import { filesPanel } from "../features/files/panel";
@@ -255,7 +254,6 @@ function ChatBody({
             sessionId={api.sessionId}
             onAskSideThread={(quote) => void askSideThread(quote)}
          />
-         <TaskListPanel entries={state.taskList} />
          <SlotStrip slots={ui.slots.top} env={env} className="border-b pt-3" />
          <ScrollUnder
             bottom={
