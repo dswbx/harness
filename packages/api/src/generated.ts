@@ -531,7 +531,7 @@ transcript?: TranscriptSize | null } |
 transcript?: TranscriptSize | null } | { type: "AgentProcessState"; state: ProcessState; message: string | null } | 
 /**  What the Agent accepts in prompts, from its `initialize` answer. */
 { type: "AgentCapabilities"; image: boolean; embedded_context: boolean } | { type: "TurnStarted"; turn_id: string; text: string; attachments?: Attachment[]; 
-/**  The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session. */
+/**  The `<harness_context>` block sent after `text`, on the first prompt of an Agent Session. */
 context?: string | null; 
 /**  Set when another Session's Agent sent the prompt, not the user. */
 origin?: PromptOrigin | null } | { type: "TurnEnded"; turn_id: string; 

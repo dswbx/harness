@@ -42,6 +42,12 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     }
 }
 
+/// An Agent title cut where the Harness's own `<harness_context>` starts: an Agent may name a
+/// Session after the first prompt's text, and that block follows the user's text.
+fn without_context(title: &str) -> String {
+    title.split("<harness_context>").next().unwrap_or_default().trim_end().to_owned()
+}
+
 pub(super) fn track_tool_call(session: &Session, u: &Value) {
     track(&mut session.agent_slot().state.lock().tool_calls, u);
 }
@@ -160,7 +166,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 .unwrap_or_default(),
         },
         Some("usage_update") => EventKind::usage_updated(u.clone()),
-        Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title") },
+        Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title").map(|t| without_context(&t)) },
         _ => EventKind::AgentUpdate { update: u.clone() },
     }
 }
@@ -271,6 +277,8 @@ mod tests {
         assert!(matches!(normalize(&u), EventKind::AgentNotice { severity, title, description: None } if severity == "info" && title == "Hook ran"));
         let u = json!({ "sessionUpdate": "session_info_update", "title": "T" });
         assert!(matches!(normalize(&u), EventKind::SessionInfoUpdated { title: Some(t) } if t == "T"));
+        let u = json!({ "sessionUpdate": "session_info_update", "title": "Count lines <harness_context> You run…" });
+        assert!(matches!(normalize(&u), EventKind::SessionInfoUpdated { title: Some(t) } if t == "Count lines"));
         let u =
             json!({ "sessionUpdate": "available_commands_update", "availableCommands": [{ "name": "init", "description": "d", "input": { "hint": "h" } }] });
         match normalize(&u) {

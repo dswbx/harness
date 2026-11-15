@@ -100,10 +100,9 @@ pub async fn prompt(
     });
     drop(preparing);
     tokio::spawn(async move {
+        // `<harness_context>` goes last: Agents title a Session from the start of its first prompt
+        // (codex-acp cuts it at 4000 chars), and the context would hide the user's request.
         let mut blocks = Vec::new();
-        if let Some(context) = context {
-            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(context)));
-        }
         if let Some(seed) = seed {
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(format!("<context>\n{seed}\n</context>"))));
         }
@@ -111,6 +110,9 @@ pub async fn prompt(
             blocks.push(acp::ContentBlock::Text(acp::TextContent::new(text)));
         }
         blocks.extend(attachments.into_iter().map(|a| a.block));
+        if let Some(context) = context {
+            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(context)));
+        }
         let request = acp::PromptRequest::new(acp_session, blocks);
         let stop_reason = match conn.cx.send_request(request).block_task().await {
             Ok(r) => enum_str(&r.stop_reason),
