@@ -1,6 +1,6 @@
 # Architecture hardening
 
-Status: mostly landed; audited against the code on 2026-11-15, per-item status below. Open: items 6, 9 (async blocking I/O) and 12, and the property tests. Works in `crates/harness-core`, `crates/harness-tauri`, `packages/api`, `packages/frontend-chat`, `scripts/`, `.github/workflows/`.
+Status: mostly landed; audited against the code on 2026-11-15, per-item status below. Open: the last blocking settings writes of item 9, the non-`execute` Tauri string errors of item 12, and the property tests. Works in `crates/harness-core`, `crates/harness-tauri`, `packages/api`, `packages/frontend-chat`, `scripts/`, `.github/workflows/`.
 
 ## Goal
 
@@ -66,7 +66,7 @@ The append-only Session Log is the core of the design (ADR 0003): it gives repla
 
 ### 6. Read from memory, not from disk
 
-- Status: partly: the log loads once into memory and hot paths use projections (mode, status, ...). `events()` still deep-clones every Event on each call. A fix is in progress.
+- Status: landed. The log loads once into memory, hot paths use projections (mode, status, `frontend_item`, ...), and `events()` returns shared `Arc<Event>` handles instead of clones.
 
 - Problem: `SessionLog::events()` reads and parses the whole file, and it is called from 13 places, including every permission Ask (`acp.rs:1300`), turn summaries (`session.rs:800`), transcripts (`transcript.rs:57,124`), context (`harness_context.rs:40`) and config sync (`acp.rs:457,512,558,623,671`). `subscribe` re-reads the whole file too (`log.rs:192`). Cost grows with every Turn.
 - Fix: load once on open into an in-memory `Vec<Arc<Event>>` (or a byte-offset index plus an LRU for very long logs). Add small typed projections updated on append (current mode per Thread, title, last finished Turn, transcript size, open tool calls) so hot paths are O(1). `events()` becomes a slice clone, and most callers switch to a projection.
@@ -90,7 +90,7 @@ The append-only Session Log is the core of the design (ADR 0003): it gives repla
 
 ### 9. Durability and single-writer
 
-- Status: partly: `fsync` of files and directories and the `<data dir>/.lock` single-writer lock landed. Blocking file I/O on async workers, including JSON persistence writes, is in progress.
+- Status: partly: `fsync` of files and directories and the `<data dir>/.lock` single-writer lock landed. Blocking work is off the async workers for the log (`Session::sync_log` on the blocking pool, the writer thread), `session.json` (`MetaDisk` writes outside the meta lock), Keychain calls (`Shared::library_blocking`), PTY writes (a writer thread), the first log parse, and the file-reading Commands. JSON settings files load and save through `persist::JsonFile` (atomic, a bad file is reset with a startup notice), but the small writes (permission rules, app settings, the Agent list) still run on the calling worker.
 
 - `write_meta` renames without `fsync` on the file or the directory (`session.rs:965-970`), so a power loss can leave an empty `session.json`. Add `sync_all` on the temp file and the parent dir. Same for the policy and settings files.
 - Two Harness processes on one data dir are only defended by append mode (`log.rs:108-110`, and a test for it). Take an exclusive `flock` on `~/.harness/.lock` at startup and refuse to start a second writer (dev and release already use different dirs).
@@ -117,7 +117,7 @@ The append-only Session Log is the core of the design (ADR 0003): it gives repla
 
 ### 12. Typed errors across the boundary
 
-- Status: partly: `execute` returns `HarnessError { code, message }` with a specta-exported `ErrorCode`. There is no `details` field, and the other Tauri commands still return string errors. Typed errors are in progress.
+- Status: mostly landed: `execute` returns `HarnessError { code, message }` with a specta-exported `ErrorCode` (including `timeout` and `unavailable`), and the process runner (`proc::run`), `http::download`, git, GitHub and the path checks raise typed codes. There is no `details` field, and the other Tauri commands still return string errors.
 
 - Problem: `execute` returns `Result<CommandResult, String>` (`harness-tauri/src/lib.rs:95-98`). Frontends can't tell auth-required from not-found from conflict except by matching text.
 - Fix: `HarnessError { code: ErrorCode, message, details }` with `ErrorCode` a specta-exported enum (`AuthRequired`, `NotFound`, `Conflict`, `PolicyDenied`, `AgentUnavailable`, `Invalid`, `Internal`). `anyhow` stays inside the core and is mapped at the edge.
@@ -203,4 +203,4 @@ Left for later:
 - `normalize` tests use hand-written ACP JSON, not recordings of real Agent runs.
 - No property tests for the Session Log yet (crash and torn-line cases are covered by example tests).
 - Tauri commands other than `execute` still return string errors.
-- `events()` clones, and blocking I/O on async workers: in progress.
+- Small JSON settings writes (permission rules, app settings, the Agent list) still run on the calling async worker.
