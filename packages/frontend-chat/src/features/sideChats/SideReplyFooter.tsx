@@ -47,22 +47,20 @@ export function SideReplyFooter({ sessionId, text }: { sessionId: string; text: 
    };
    return (
       <div className="mt-1 flex items-center gap-0.5">
-         <Tooltip content={copied ? "Copied" : "Copy"} delay={100}>
-            <Button
-               size="icon"
-               variant="ghost"
-               className={iconButton}
-               aria-label={copied ? "Copied" : "Copy reply"}
-               onClick={() => void copy(text)}
-            >
-               {copied ? <Check /> : <Copy />}
-            </Button>
-         </Tooltip>
+         <Button
+            size="icon"
+            variant="ghost"
+            className={iconButton}
+            aria-label={copied ? "Copied" : "Copy reply"}
+            onClick={() => void copy(text)}
+         >
+            {copied ? <Check /> : <Copy />}
+         </Button>
          <Popover open={commenting} onOpenChange={setCommenting}>
             <PopoverAnchor asChild>
                <span className="inline-flex">
                   <DropdownMenu>
-                     <Tooltip content={sent ? "Added to Main" : "Send to main"} delay={100}>
+                     <Tooltip content={sent ? "Added to Main" : "Send to main"}>
                         <DropdownMenuTrigger asChild>
                            <Button
                               size="icon"

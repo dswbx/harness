@@ -819,6 +819,8 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   "sideMode": null,
   "startBoundary": "initial",
   "taskList": [],
+  "taskListAt": 0,
+  "taskListTurn": null,
   "threadList": [
     {
       "forkedFrom": null,
@@ -1145,6 +1147,8 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "status": "in_progress",
     },
   ],
+  "taskListAt": 5,
+  "taskListTurn": null,
   "threadList": [
     {
       "forkedFrom": null,
@@ -1215,6 +1219,8 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "sideMode": null,
       "startBoundary": "forked",
       "taskList": [],
+      "taskListAt": 0,
+      "taskListTurn": null,
       "threadList": [],
       "threads": {},
       "title": null,
@@ -1628,6 +1634,8 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
   "sideMode": "default",
   "startBoundary": "initial",
   "taskList": [],
+  "taskListAt": 0,
+  "taskListTurn": null,
   "threadList": [
     {
       "forkedFrom": null,
@@ -1754,6 +1762,8 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
   "sideMode": null,
   "startBoundary": null,
   "taskList": [],
+  "taskListAt": 0,
+  "taskListTurn": null,
   "threadList": [
     {
       "forkedFrom": null,

@@ -6,6 +6,7 @@ import {
    StatLabel,
    StatTrend,
    StatValue,
+   Tooltip,
 } from "@harness/ui";
 import { ArrowDown, ArrowRight, ArrowUp } from "lucide-react";
 import { lazy, Suspense, useMemo } from "react";
@@ -70,13 +71,14 @@ function Trace({ node }: { node: Extract<UiNode, { type: "Trace" }> }) {
             );
             return (
                <div key={x.id} className="flex items-center gap-2">
-                  <span
-                     className="w-40 shrink-0 truncate font-mono"
-                     style={{ paddingLeft: depth * 12 }}
-                     title={x.name}
-                  >
-                     {x.name}
-                  </span>
+                  <Tooltip content={x.name}>
+                     <span
+                        className="w-40 shrink-0 truncate font-mono"
+                        style={{ paddingLeft: depth * 12 }}
+                     >
+                        {x.name}
+                     </span>
+                  </Tooltip>
                   {tip(x.meta, bar)}
                   <span
                      className={cn(

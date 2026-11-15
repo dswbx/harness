@@ -1,15 +1,18 @@
 import { Slot } from "@radix-ui/react-slot";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import type * as React from "react";
+import * as React from "react";
 import { cn } from "../lib/utils";
+
+/** Every tooltip waits this long before showing. */
+const TOOLTIP_DELAY = 1000;
 
 /**
  * One per React root. Shares open state across tooltips: after one has shown, moving to another
  * shows it at once (within `skipDelayDuration`), e.g. scanning sidebar rows.
  */
-function TooltipProvider({ children, delay = 300 }: { children: React.ReactNode; delay?: number }) {
+function TooltipProvider({ children }: { children: React.ReactNode; delay?: number }) {
    return (
-      <TooltipPrimitive.Provider delayDuration={delay} skipDelayDuration={400}>
+      <TooltipPrimitive.Provider delayDuration={TOOLTIP_DELAY} skipDelayDuration={400}>
          {children}
       </TooltipPrimitive.Provider>
    );
@@ -20,7 +23,8 @@ function TooltipProvider({ children, delay = 300 }: { children: React.ReactNode;
  * trigger); a disabled button gets no pointer events, so its tooltip won't show. Other props (and
  * the ref) go to the trigger, so it can sit inside another `asChild` trigger, e.g.
  * `<DropdownMenuTrigger asChild><Tooltip …><Button /></Tooltip></DropdownMenuTrigger>`.
- * Use instead of `title` on controls: native titles are slow, unstyled and unreliable in WebKit.
+ * Hidden while its trigger is expanded (`aria-expanded`), i.e. while the menu or popover it opens
+ * is showing. Use instead of `title`: native titles are slow, unstyled and unreliable in WebKit.
  */
 function Tooltip({
    content,
@@ -28,8 +32,8 @@ function Tooltip({
    side = "top",
    align = "center",
    sideOffset = 6,
-   delay,
    shortcut,
+   ref,
    open,
    className,
    ...trigger
@@ -39,8 +43,6 @@ function Tooltip({
    side?: "top" | "right" | "bottom" | "left";
    align?: "start" | "center" | "end";
    sideOffset?: number;
-   /** ms before showing; defaults to the provider's. */
-   delay?: number;
    /** Keys shown after the content, e.g. `["⌥", "↓"]`. */
    shortcut?: string[];
    /** Controlled: shown while true (e.g. the keyboard-highlighted item of a list), no hover handling. */
@@ -50,10 +52,37 @@ function Tooltip({
    React.ComponentProps<typeof TooltipPrimitive.Trigger>,
    "content" | "children" | "className"
 >) {
-   if (!content) return <Slot {...trigger}>{children}</Slot>;
+   const el = React.useRef<HTMLButtonElement | null>(null);
+   const [shown, setShown] = React.useState(false);
+   const setRef = React.useCallback(
+      (node: HTMLButtonElement | null) => {
+         el.current = node;
+         if (typeof ref === "function") ref(node);
+         else if (ref) ref.current = node;
+      },
+      [ref],
+   );
+   if (!content)
+      return (
+         <Slot ref={ref} {...trigger}>
+            {children}
+         </Slot>
+      );
    return (
-      <TooltipPrimitive.Root delayDuration={delay} {...(open !== undefined && { open })}>
-         <TooltipPrimitive.Trigger asChild {...trigger}>
+      <TooltipPrimitive.Root
+         open={open ?? shown}
+         onOpenChange={(o) => setShown(o && el.current?.getAttribute("aria-expanded") !== "true")}
+      >
+         <TooltipPrimitive.Trigger
+            asChild
+            ref={setRef}
+            {...trigger}
+            // Capture: a menu trigger's own pointerdown calls preventDefault, which skips Radix's close.
+            onPointerDownCapture={(e) => {
+               trigger.onPointerDownCapture?.(e);
+               setShown(false);
+            }}
+         >
             {children}
          </TooltipPrimitive.Trigger>
          <TooltipPrimitive.Portal>

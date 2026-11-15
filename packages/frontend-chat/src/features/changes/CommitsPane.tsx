@@ -210,7 +210,6 @@ export function CommitsPane({
                         key={it.id}
                         side={tipSide}
                         align="start"
-                        delay={400}
                         className="max-w-[28rem]"
                         content={<CommitInfo commit={it.commit} />}
                      >

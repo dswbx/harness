@@ -52,12 +52,12 @@ const NONE: readonly Slice[] = [];
 /**
  * Which slices fold each Event kind into a Thread's state. Typed over every kind, so a new Event
  * kind fails the typecheck until it is routed. `TurnStarted` and `TurnEnded` go to the timeline and
- * the turn, the timeline first (stamping a Turn's duration reads the start time that `turnSlice`
+ * the turn (`TurnEnded` also places the Task List), the timeline first (stamping a Turn's duration reads the start time that `turnSlice`
  * clears). Session-level kinds (`StateChanged`, artifacts) are handled before this, in `apply`.
  */
 const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    TurnStarted: [timelineSlice, turnSlice],
-   TurnEnded: [timelineSlice, turnSlice],
+   TurnEnded: [timelineSlice, plansSlice, turnSlice],
    AgentMessageChunk: T,
    AgentThoughtChunk: T,
    ToolCall: T,

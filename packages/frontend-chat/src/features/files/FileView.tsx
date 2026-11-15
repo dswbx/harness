@@ -111,10 +111,8 @@ export function FileView({
                         )}
                      >
                         {mode === "comment" && (
-                           // A plain title: a tooltip component on every line would cost too much on long files.
                            <button
                               type="button"
-                              title="Comment on this line"
                               aria-label={`Comment on line ${n}`}
                               className="absolute top-0.5 left-1 hidden size-4 items-center justify-center rounded bg-primary text-primary-foreground group-hover:flex focus-visible:flex"
                               onClick={() => setForm(n)}

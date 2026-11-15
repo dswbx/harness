@@ -15,6 +15,7 @@ import {
    SelectItem,
    SelectTrigger,
    SelectValue,
+   Tooltip,
 } from "@harness/ui";
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -239,9 +240,11 @@ export function PermissionsPanel({
                         <td className="px-3 py-1.5">{r.tool_kind ?? "any"}</td>
                         <td className="max-w-0 px-3 py-1.5">
                            {r.pattern ? (
-                              <code className="block truncate font-mono text-xs" title={r.pattern}>
-                                 {r.pattern}
-                              </code>
+                              <Tooltip content={r.pattern}>
+                                 <code className="block truncate font-mono text-xs">
+                                    {r.pattern}
+                                 </code>
+                              </Tooltip>
                            ) : (
                               <span className="text-xs text-muted-foreground">any</span>
                            )}

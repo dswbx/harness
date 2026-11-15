@@ -1,5 +1,5 @@
 import type { PrChecks, PrState } from "@harness/api";
-import { cn } from "@harness/ui";
+import { cn, Tooltip } from "@harness/ui";
 import {
    ExternalLink,
    GitBranch,
@@ -142,20 +142,21 @@ function Stats({ p, commits }: { p: Pr; commits?: boolean }) {
 
 function Link({ url, label }: { url: string; label?: string }) {
    return (
-      <a
-         href={url}
-         target="_blank"
-         rel="noreferrer"
-         aria-label="Open on GitHub"
-         title="Open on GitHub"
-         className={cn(
-            "inline-flex shrink-0 items-center gap-1.5 text-muted-foreground hover:text-foreground",
-            label && "h-8 rounded-md border px-3 text-ui-sm hover:bg-accent",
-         )}
-      >
-         <ExternalLink className="size-3.5" />
-         {label}
-      </a>
+      <Tooltip content="Open on GitHub">
+         <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open on GitHub"
+            className={cn(
+               "inline-flex shrink-0 items-center gap-1.5 text-muted-foreground hover:text-foreground",
+               label && "h-8 rounded-md border px-3 text-ui-sm hover:bg-accent",
+            )}
+         >
+            <ExternalLink className="size-3.5" />
+            {label}
+         </a>
+      </Tooltip>
    );
 }
 

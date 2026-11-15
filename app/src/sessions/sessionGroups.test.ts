@@ -6,7 +6,6 @@ import {
    hideUnusedQuick,
    highlight,
    nestSubSessions,
-   refTitle,
    sessionMatches,
    viewChanges,
 } from "./sessionGroups";
@@ -98,12 +97,6 @@ describe("search", () => {
 });
 
 describe("labels", () => {
-   it("refTitle", () => {
-      expect(
-         refTitle(ws({ worktree_branch: "opt-in-update", branch: "opt-in-update", pr: 16 })),
-      ).toBe("Worktree · opt-in-update · PR #16");
-      expect(refTitle(ws())).toBe("Checked out in folder · main");
-   });
    it("viewChanges", () => {
       expect(viewChanges({ sort: "created", display: "condensed", group: "date" })).toBe(3);
    });

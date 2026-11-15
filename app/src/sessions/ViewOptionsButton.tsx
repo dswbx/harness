@@ -41,7 +41,7 @@ export function ViewOptionsButton({
    const changed = viewChanges(view);
    return (
       <Popover>
-         <Tooltip content="View options" side="bottom">
+         <Tooltip content="View options" side="right">
             <PopoverTrigger
                aria-label={changed ? `View options, ${changed} changed` : "View options"}
                className={cn(
