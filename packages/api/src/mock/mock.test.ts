@@ -554,7 +554,13 @@ describe("MockTransport like the core", () => {
          }),
       ).toBe("not_found");
       // An uncoded core error stays `internal`.
-      expect(await code({ type: "RollbackAgent", agent_id: "nope" })).toBe("internal");
+      expect(
+         await code({
+            type: "ReadSessionFile",
+            session_id: sid,
+            path: "no/such/file.txt",
+         } as Command),
+      ).toBe("internal");
    });
 
    it("fails with the core's codes", async () => {
