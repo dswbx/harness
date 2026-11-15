@@ -29,6 +29,9 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
         kind = super::restore::named_mode_changed(session, mode_id.clone());
     }
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
+        if session.ignores_agent_title(thread.as_ref()) {
+            return;
+        }
         session.set_agent_title(thread.as_ref(), t);
     }
     let job = match &kind {
@@ -40,6 +43,13 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     if let Some(job) = job {
         super::jobs::watch(session, thread, job);
     }
+}
+
+/// An Agent title cut where the Harness's own `<harness_context>` starts. An Agent may name a
+/// Session after the first prompt's text, which starts with that block (codex-acp's preview
+/// title): the cut leaves it empty: no title.
+fn without_context(title: &str) -> String {
+    title.split("<harness_context>").next().unwrap_or_default().trim_end().to_owned()
 }
 
 pub(super) fn track_tool_call(session: &Session, u: &Value) {
@@ -160,7 +170,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 .unwrap_or_default(),
         },
         Some("usage_update") => EventKind::usage_updated(u.clone()),
-        Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title") },
+        Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title").map(|t| without_context(&t)).filter(|t| !t.is_empty()) },
         _ => EventKind::AgentUpdate { update: u.clone() },
     }
 }
@@ -271,6 +281,8 @@ mod tests {
         assert!(matches!(normalize(&u), EventKind::AgentNotice { severity, title, description: None } if severity == "info" && title == "Hook ran"));
         let u = json!({ "sessionUpdate": "session_info_update", "title": "T" });
         assert!(matches!(normalize(&u), EventKind::SessionInfoUpdated { title: Some(t) } if t == "T"));
+        let u = json!({ "sessionUpdate": "session_info_update", "title": "Count lines <harness_context> You run…" });
+        assert!(matches!(normalize(&u), EventKind::SessionInfoUpdated { title: Some(t) } if t == "Count lines"));
         let u =
             json!({ "sessionUpdate": "available_commands_update", "availableCommands": [{ "name": "init", "description": "d", "input": { "hint": "h" } }] });
         match normalize(&u) {

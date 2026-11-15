@@ -402,6 +402,7 @@ impl Harness {
             Command::ListPullRequests { folder, filter } => self.cmd_list_pull_requests(folder, filter).await,
             Command::UpdateBranch { folder, branch } => self.cmd_update_branch(folder, branch).await,
             Command::BranchPr { session_id, refresh } => self.cmd_branch_pr(session_id, refresh).await,
+            Command::SetSessionTitle { session_id, title } => self.cmd_set_session_title(session_id, title),
             Command::ArchiveSession { session_id } => self.cmd_archive_session(session_id).await,
             Command::UnarchiveSession { session_id } => self.cmd_unarchive_session(session_id).await,
             Command::DeleteSession { session_id, force } => self.cmd_delete_session(session_id, force).await,

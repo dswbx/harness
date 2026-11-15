@@ -56,6 +56,10 @@ pub struct SessionMeta {
     /// The title is a placeholder: the first Main Thread prompt replaces it.
     #[serde(default)]
     pub title_from_prompt: bool,
+    /// The title was set on purpose (`SetSessionTitle`, the `set_title` tool): titles the Agent
+    /// sends no longer replace it.
+    #[serde(default)]
+    pub title_explicit: bool,
     /// A Sub Session: the Session whose Agent started it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<crate::api::SessionParent>,
