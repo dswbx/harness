@@ -264,6 +264,7 @@ async fn main() -> agent_client_protocol::Result<()> {
         tokio::spawn(async move { while term.recv().await.is_some() {} });
     }
     if let Some(path) = args.iter().find_map(|a| a.strip_prefix("--pid-file=")) {
+        #[allow(clippy::zombie_processes, reason = "it is killed with the process group")]
         let grandchild = std::process::Command::new("sleep").arg("3600").stdin(std::process::Stdio::null()).spawn().unwrap();
         let _ = std::fs::write(path, format!("{}\n{}\n", std::process::id(), grandchild.id()));
     }
