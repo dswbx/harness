@@ -1,22 +1,31 @@
 # Stable release, run by hand from main: Actions > Release > Run workflow.
 # Tags v{year}.{month}.{n} on the dispatched commit (no version bump commit), builds a universal
 # macOS app (ad-hoc signed, not notarized), and publishes it with the updater's latest.json.
+#
+# Jobs, so "Re-run failed jobs" only repeats what failed:
+#   version -> number computed once, reused by build and publish
+#   check-ts, check-rust -> the checks (parallel to build; publish waits for all)
+#   build -> universal app + updater bundle, uploaded as a workflow artifact (the only job with the signing key)
+#   publish -> draft release, assets, latest.json, then flips the draft to published (creates the tag)
 name: Release
 
 on:
    workflow_dispatch:
 
 permissions:
-   contents: write
+   contents: read
 
 concurrency:
    group: release
    cancel-in-progress: false
 
 jobs:
-   release:
+   version:
       if: github.ref == 'refs/heads/main'
-      runs-on: macos-latest
+      runs-on: ubuntu-latest
+      outputs:
+         version: ${{ steps.version.outputs.version }}
+         tag: ${{ steps.version.outputs.tag }}
       steps:
          - uses: actions/checkout@v4
            with:
@@ -26,13 +35,19 @@ jobs:
            with:
               bun-version: 1.3.13
 
-         - uses: dtolnay/rust-toolchain@master
-           with:
-              toolchain: 1.99.1 # same as rust-toolchain.toml
-              targets: aarch64-apple-darwin,x86_64-apple-darwin
-              components: clippy, rustfmt
+         - name: Compute version
+           id: version
+           run: bun scripts/release-version.ts
 
-         - uses: Swatinem/rust-cache@v2
+   check-ts:
+      if: github.ref == 'refs/heads/main'
+      runs-on: macos-latest
+      steps:
+         - uses: actions/checkout@v4
+
+         - uses: oven-sh/setup-bun@v2
+           with:
+              bun-version: 1.3.13
 
          - run: bun install --frozen-lockfile
 
@@ -41,45 +56,125 @@ jobs:
               bun run lint
               bun run typecheck
               bun run test
+
+   check-rust:
+      if: github.ref == 'refs/heads/main'
+      runs-on: macos-latest
+      steps:
+         - uses: actions/checkout@v4
+
+         - uses: oven-sh/setup-bun@v2
+           with:
+              bun-version: 1.3.13
+
+         - uses: dtolnay/rust-toolchain@master
+           with:
+              toolchain: 1.99.1 # same as rust-toolchain.toml
+              components: clippy, rustfmt
+
+         - uses: Swatinem/rust-cache@v2
+           with:
+              shared-key: release-check
+              save-if: ${{ github.ref == 'refs/heads/main' }}
+
+         - run: bun install --frozen-lockfile
+
+         - name: Check
+           run: |
               bun run check:rust
               bun run check:generated
 
-         - name: Compute version
-           id: version
-           run: bun scripts/release-version.ts
+   build:
+      if: github.ref == 'refs/heads/main'
+      needs: version
+      runs-on: macos-latest
+      env:
+         VERSION: ${{ needs.version.outputs.version }}
+      steps:
+         - uses: actions/checkout@v4
+
+         - uses: oven-sh/setup-bun@v2
+           with:
+              bun-version: 1.3.13
+
+         - uses: dtolnay/rust-toolchain@master
+           with:
+              toolchain: 1.99.1 # same as rust-toolchain.toml
+              targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+         - uses: Swatinem/rust-cache@v2
+           with:
+              shared-key: release-build
+              save-if: ${{ github.ref == 'refs/heads/main' }}
+
+         - run: bun install --frozen-lockfile
 
          - name: Release config
-           env:
-              VERSION: ${{ steps.version.outputs.version }}
            run: echo "{\"version\":\"$VERSION\",\"bundle\":{\"createUpdaterArtifacts\":true}}" > "$RUNNER_TEMP/release.conf.json"
 
-         # Draft first, so releases/latest (what the updater reads) only moves once every asset is up.
-         - name: Create draft release
-           id: draft
+         - name: Build
            env:
-              GH_TOKEN: ${{ github.token }}
-              TAG: ${{ steps.version.outputs.tag }}
-           run: |
-              # A failed run leaves its draft behind; reuse it.
-              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Harness $TAG" --generate-notes
-              id="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
-              test -n "$id"
-              echo "id=$id" >> "$GITHUB_OUTPUT"
-
-         - name: Build and upload
-           uses: tauri-apps/tauri-action@v0
-           env:
-              GITHUB_TOKEN: ${{ github.token }}
               TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
               TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+           run: bunx tauri build --target universal-apple-darwin --config "$RUNNER_TEMP/release.conf.json"
+
+         # Same asset names the release has always had.
+         - name: Stage assets
+           run: |
+              bundle=target/universal-apple-darwin/release/bundle
+              mkdir -p dist-release
+              cp "$bundle/dmg/Harness_${VERSION}_universal.dmg" dist-release/
+              cp "$bundle/macos/Harness.app.tar.gz" dist-release/Harness_universal.app.tar.gz
+              cp "$bundle/macos/Harness.app.tar.gz.sig" dist-release/Harness_universal.app.tar.gz.sig
+              ls -l dist-release
+
+         - uses: actions/upload-artifact@v4
            with:
-              releaseId: ${{ steps.draft.outputs.id }}
-              tagName: ${{ steps.version.outputs.tag }}
-              tauriScript: bunx tauri
-              args: --target universal-apple-darwin --config ${{ runner.temp }}/release.conf.json
+              name: release-assets
+              path: dist-release/
+              if-no-files-found: error
+              retention-days: 3
+
+   publish:
+      if: github.ref == 'refs/heads/main'
+      needs: [version, check-ts, check-rust, build]
+      runs-on: ubuntu-latest
+      permissions:
+         contents: write
+      env:
+         GH_TOKEN: ${{ github.token }}
+         GH_REPO: ${{ github.repository }}
+         TAG: ${{ needs.version.outputs.tag }}
+         VERSION: ${{ needs.version.outputs.version }}
+      steps:
+         - uses: actions/download-artifact@v4
+           with:
+              name: release-assets
+              path: dist-release
+
+         # The updater's manifest, same shape tauri-action wrote: one universal bundle for every key.
+         - name: Updater manifest
+           run: |
+              cd dist-release
+              url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Harness_universal.app.tar.gz"
+              jq -n --arg version "$VERSION" --arg url "$url" --arg pub "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+                 --rawfile sig Harness_universal.app.tar.gz.sig \
+                 '($sig | rtrimstr("\n")) as $s | {version: $version, notes: "", pub_date: $pub,
+                   platforms: (["darwin-aarch64", "darwin-x86_64", "darwin-aarch64-app", "darwin-x86_64-app"]
+                     | map({key: ., value: {signature: $s, url: $url}}) | from_entries)}' > latest.json
+              cat latest.json
+
+         # Draft first, so releases/latest (what the updater reads) only moves once every asset is up.
+         # Every step is safe to repeat: reuse a draft a failed run left, overwrite its assets.
+         - name: Draft release and assets
+           run: |
+              if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+                 test "$state" = true || { echo "$TAG is already published"; exit 1; }
+                 gh release edit "$TAG" --target "$GITHUB_SHA"
+              else
+                 gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Harness $TAG" --generate-notes
+              fi
+              gh release upload "$TAG" dist-release/* --clobber
 
          - name: Publish release
-           env:
-              GH_TOKEN: ${{ github.token }}
-              TAG: ${{ steps.version.outputs.tag }}
            run: gh release edit "$TAG" --draft=false --latest
