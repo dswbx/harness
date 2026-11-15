@@ -286,7 +286,7 @@ impl Harness {
                 self.cmd_continue_with_summary(session_id, thread_id, text, attachments).await
             }
             Command::StartSideThread { session_id, seed, source, mode } => self.cmd_start_side_thread(session_id, seed, source, mode).await,
-            Command::ListMcpServers => self.cmd_list_mcp_servers(),
+            Command::ListMcpServers => self.cmd_list_mcp_servers().await,
             Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets).await,
             Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id).await,
             Command::FrontendRead { session_id, path } => self.cmd_frontend_read(session_id, path),

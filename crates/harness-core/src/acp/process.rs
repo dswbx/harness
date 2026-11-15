@@ -259,9 +259,17 @@ impl AgentSlot {
                 }
             }
         });
-        for (request_id, p) in cancelled {
-            session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
-            let _ = p.responder.send(None);
+        let answers: Vec<_> = cancelled
+            .into_iter()
+            .map(|(request_id, p)| {
+                session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+                p.responder
+            })
+            .collect();
+        // The Agent hears "cancelled" only once the resolutions are durable.
+        session.sync_log().await;
+        for responder in answers {
+            let _ = responder.send(None);
         }
         Ok(())
     }

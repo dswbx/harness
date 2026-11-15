@@ -1110,6 +1110,12 @@ impl SessionLog {
         }
     }
 
+    /// Tests: `f` runs inside every `sync`, after the file is synced and before the checkpoint is written.
+    #[cfg(test)]
+    pub(crate) fn set_sync_hook(&self, f: impl Fn() + Send + 'static) {
+        *self.before_checkpoint.lock() = Some(Box::new(f));
+    }
+
     /// Tests: every write and probe fails until switched off.
     #[cfg(test)]
     pub(crate) fn inject_write_failure(&self, on: bool) {

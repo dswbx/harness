@@ -49,8 +49,9 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
-    pub(in crate::host) fn cmd_list_mcp_servers(&self) -> anyhow::Result<CommandResult> {
-        Ok(CommandResult::McpServers { servers: self.shared.library.list() })
+    pub(in crate::host) async fn cmd_list_mcp_servers(&self) -> anyhow::Result<CommandResult> {
+        // The lock can be held by a save writing `mcp.json`.
+        Ok(CommandResult::McpServers { servers: self.shared.library_blocking(|lib| lib.list()).await? })
     }
 
     pub(in crate::host) async fn cmd_save_mcp_server(

@@ -101,11 +101,24 @@ async fn blocking<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> 
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
 
+/// The webview's generation at the moment its IPC message arrived. Tauri reads command arguments
+/// synchronously when it dispatches the command, before an async command's body is spawned, so a
+/// reload that lands later makes the registration fail (`Subscriptions::subscribe_at`).
+struct Generation(u64);
+
+impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for Generation {
+    fn from_command(command: tauri::ipc::CommandItem<'de, R>) -> Result<Self, tauri::ipc::InvokeError> {
+        let webview = command.message.webview();
+        Ok(Self(webview.state::<Subscriptions>().generation(webview.label())))
+    }
+}
+
 /// The replay-then-live hand-over is one step inside the log (`SessionLog::subscribe`), so moving
 /// the first parse of the log off the main thread leaves no gap and no duplicate.
 #[tauri::command]
 async fn subscribe(
     webview: Webview,
+    generation: Generation,
     harness: tauri::State<'_, Arc<Harness>>,
     session_id: String,
     from_seq: u64,
@@ -114,8 +127,7 @@ async fn subscribe(
     let harness = harness.inner().clone();
     let app = webview.app_handle().clone();
     let label = webview.label().to_owned();
-    // Read before the blocking part: a reload meanwhile makes the registration fail.
-    let generation = app.state::<Subscriptions>().generation(&label);
+    let generation = generation.0;
     blocking(move || app.state::<Subscriptions>().subscribe_at(&harness, &label, generation, &session_id, from_seq, Box::new(ViewSink(channel)))).await?
 }
 
@@ -131,6 +143,7 @@ fn subscribe_app(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs
 #[allow(clippy::too_many_arguments, reason = "Tauri maps each IPC argument to a parameter")]
 async fn terminal_attach(
     webview: Webview,
+    generation: Generation,
     harness: tauri::State<'_, Arc<Harness>>,
     session_id: String,
     terminal_id: u32,
@@ -142,7 +155,7 @@ async fn terminal_attach(
     let app = webview.app_handle().clone();
     let label = webview.label().to_owned();
     // Starting the shell forks; the replay then live hand-over is atomic inside the Terminal.
-    let generation = app.state::<Subscriptions>().generation(&label);
+    let generation = generation.0;
     blocking(move || {
         app.state::<Subscriptions>().terminal_attach_at(
             &harness,
@@ -332,6 +345,7 @@ pub fn run() {
             }
             if let tauri::WindowEvent::Destroyed = event {
                 drop_webview(window.app_handle(), window.label());
+                window.app_handle().state::<Subscriptions>().forget_label(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![

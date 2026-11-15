@@ -15,7 +15,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import type { AppEvent, Event } from "../generated";
-import { createAppSubscriber, type TerminalOutput, tauriTransport } from "./transport";
+import {
+   createAppSubscriber,
+   subscribeResilient,
+   type TerminalOutput,
+   type Transport,
+   tauriTransport,
+} from "./transport";
 
 const event = { type: "SharedArtifactsChanged" } as AppEvent;
 
@@ -167,5 +173,30 @@ describe("tauriTransport.attachTerminal", () => {
       send(bytes(1));
       send({ exit: 1 });
       expect(out).toEqual([{ replay: new Uint8Array() }]);
+   });
+});
+
+describe("subscribeResilient", () => {
+   it("closes a handle that resolves for an older open than the current one", async () => {
+      const opens: { lagged?: () => void; resolve: (off: () => void) => void }[] = [];
+      const transport = {
+         subscribe: (_s: string, _from: number, _on: unknown, lagged?: () => void) =>
+            new Promise<() => void>((resolve) => opens.push({ lagged, resolve })),
+      } as unknown as Transport;
+      const started = subscribeResilient(transport, "s1", 0, () => {}, 1);
+      // Lagged before the first subscribe has resolved: a second open starts.
+      opens[0].lagged?.();
+      await vi.waitFor(() => expect(opens).toHaveLength(2));
+      const off1 = vi.fn();
+      const off2 = vi.fn();
+      // The second resolves first, then the older one.
+      opens[1].resolve(off2);
+      opens[0].resolve(off1);
+      const unsubscribe = await started;
+      await Promise.resolve();
+      expect(off1).toHaveBeenCalledTimes(1);
+      expect(off2).not.toHaveBeenCalled();
+      unsubscribe();
+      expect(off2).toHaveBeenCalledTimes(1);
    });
 });

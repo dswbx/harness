@@ -147,7 +147,7 @@ pub async fn prompt(
         session.log().append_or_report(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
         let meta = session.meta();
         session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
-        let _ = session.sync_log().await;
+        session.sync_log().await;
     });
     Ok(())
 }

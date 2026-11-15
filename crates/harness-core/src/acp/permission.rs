@@ -97,7 +97,7 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
         // The Agent is answered only once the pair is durable.
         let session = session.clone();
         tokio::spawn(async move {
-            let _ = session.sync_log().await;
+            session.sync_log().await;
             let _ =
                 responder.respond(acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id))));
         });
@@ -156,6 +156,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
             Some(thread.clone()),
             EventKind::PermissionResolved { request_id, option_id: Some("allow".into()), by: Resolver::Policy, rule_id: verdict.rule_id },
         )?;
+        session.sync_log().await;
         return Ok(());
     }
     if verdict.decision == Decision::Deny {
@@ -164,6 +165,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
             Some(thread.clone()),
             EventKind::PermissionResolved { request_id, option_id: Some("reject".into()), by: Resolver::Policy, rule_id: verdict.rule_id },
         )?;
+        session.sync_log().await;
         anyhow::bail!("denied by the Harness Permission Policy");
     }
     let (tx, rx) = oneshot::channel();

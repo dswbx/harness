@@ -15,7 +15,6 @@ use crate::session::Session;
 /// Session's MCP Library servers.
 pub(super) async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread: &ThreadId) -> anyhow::Result<Vec<acp::McpServer>> {
     let shared = session.shared();
-    let shared_arc = session.shared_arc().clone();
     let http_ok = conn.init.agent_capabilities.mcp_capabilities.http;
     let url = shared.mcp.url().await?;
     let token = shared.mcp.issue(session, thread);
@@ -30,7 +29,7 @@ pub(super) async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread
         ));
     }
     let ids = session.meta().mcp_servers;
-    let defs = shared_arc.library_blocking(move |lib| ids.iter().map(|id| lib.resolve(id)).collect::<anyhow::Result<Vec<_>>>()).await??;
+    let defs = shared.library_blocking(move |lib| ids.iter().map(|id| lib.resolve(id)).collect::<anyhow::Result<Vec<_>>>()).await??;
     for def in defs {
         match def.transport {
             crate::api::McpTransport::Stdio { command, args, env } => {

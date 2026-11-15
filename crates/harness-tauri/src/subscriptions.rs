@@ -3,6 +3,7 @@
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 
 use harness_core::Harness;
 use harness_core::api::{AppEvent, EventSink};
@@ -25,6 +26,8 @@ pub struct Subscriptions {
     /// Webview label -> how many times it was dropped (reload, closed). A subscription started
     /// before a drop must not register after it.
     generations: Mutex<HashMap<String, u64>>,
+    /// Source of generations: never reused, so a pruned label cannot match an old one.
+    next_generation: std::sync::atomic::AtomicU64,
 }
 
 /// What a webview held, still to be released in the core (which may block on a log lock).
@@ -51,7 +54,8 @@ impl Dropped {
 impl Subscriptions {
     /// The webview's current generation: read when a command starts, before its blocking part.
     pub fn generation(&self, label: &str) -> u64 {
-        self.generations.lock().get(label).copied().unwrap_or(0)
+        let mut gens = self.generations.lock();
+        *gens.entry(label.to_owned()).or_insert_with(|| self.next_generation.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Subscribes the webview to a Session Log, as of now.
@@ -143,11 +147,16 @@ impl Subscriptions {
         }
     }
 
+    /// The window is gone for good: its generation is no longer needed.
+    pub fn forget_label(&self, label: &str) {
+        self.generations.lock().remove(label);
+    }
+
     /// Forgets every subscription of the webview: it reloaded or its window is gone. Cheap (maps
     /// only), so it runs on the main thread; `Dropped::release` does the core's part.
     pub fn take_webview(&self, label: &str) -> Dropped {
         // Bumped first: a registration that checks after this fails, one before is removed below.
-        *self.generations.lock().entry(label.to_owned()).or_default() += 1;
+        self.generations.lock().insert(label.to_owned(), self.next_generation.fetch_add(1, Ordering::Relaxed));
         Dropped {
             sessions: self.by_webview.lock().remove(label).unwrap_or_default(),
             app: self.app_by_webview.lock().remove(label).unwrap_or_default(),

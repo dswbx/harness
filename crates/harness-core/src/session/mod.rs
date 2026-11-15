@@ -157,11 +157,7 @@ impl Session {
         &self.shared.policy
     }
 
-    pub fn shared(&self) -> &Shared {
-        &self.shared
-    }
-
-    pub(crate) fn shared_arc(&self) -> &Arc<Shared> {
+    pub fn shared(&self) -> &Arc<Shared> {
         &self.shared
     }
 
@@ -215,7 +211,7 @@ impl Session {
     /// pool. A failed sync is reported through the log's health, never an error here.
     pub async fn sync_log(self: &Arc<Self>) {
         let session = self.clone();
-        let _ = tokio::task::spawn_blocking(move || session.log.sync_or_report()).await;
+        tokio::task::spawn_blocking(move || session.log.sync_or_report()).await.ok();
     }
 
     /// `sync_log` for callers that do not wait for it.
