@@ -21,7 +21,7 @@ import { FolderField } from "./FolderField";
 import { FrontendField } from "./FrontendField";
 import { MoreOptions } from "./MoreOptions";
 import { StartFromField } from "./StartFromField";
-import { createArgs, defaultTarget, startPointReady, type Target } from "./startPoint";
+import { createArgs, defaultTarget, startPointReady, type Target, targetInfo } from "./startPoint";
 import { useBranches } from "./useBranches";
 import { useComposerCatalog } from "./useComposerCatalog";
 import { usePullRequests } from "./usePullRequests";
@@ -145,6 +145,7 @@ export function ComposerDialog({
             mode,
             pr,
             target,
+            info: targetInfo(target, branches),
             current: branches?.current ?? null,
             worktree,
             prWorktree,
