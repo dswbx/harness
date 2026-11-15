@@ -112,13 +112,19 @@ struct Projections {
 /// Frontend Tool items and errors: what `Session::frontend_items` and `frontend_errors` return.
 #[derive(Default)]
 struct FrontendProj {
-    /// Calls that named an `id` and were not removed since, in the order first seen.
-    items: Vec<FrontendItem>,
+    /// Calls that named an `id` and were not removed since, keyed by the order first seen.
+    items: std::collections::BTreeMap<u64, Arc<FrontendItem>>,
+    /// `(tool, id)` -> key in `items`: a call finds its item without a scan.
+    pos: HashMap<(String, String), u64>,
+    next_order: u64,
     /// Every live item (its `id`, or the call id of a call without one) -> Thread of its latest call.
     keyed: HashMap<(String, String), ThreadId>,
     /// `FrontendError`s not cleared since, oldest first. May name items that never existed: read through `errors`.
     errors: Vec<FrontendErrorEntry>,
 }
+
+/// Most uncleared `FrontendError`s the projection keeps; the oldest go first.
+const MAX_PROJECTED_ERRORS: usize = 500;
 
 impl FrontendProj {
     fn apply(&mut self, e: &Event) {
@@ -127,24 +133,32 @@ impl FrontendProj {
                 let id = input.get("id").and_then(Value::as_str);
                 let remove = input.get("remove") == Some(&Value::Bool(true));
                 if let Some(id) = id {
-                    let at = self.items.iter().position(|x| x.tool == *tool && x.id == id);
+                    let key = (tool.clone(), id.to_owned());
+                    let at = self.pos.get(&key).copied();
                     match (remove, at) {
                         (true, Some(i)) => {
-                            self.items.remove(i);
+                            self.items.remove(&i);
+                            self.pos.remove(&key);
                         }
                         (true, None) => {}
                         (false, at) => {
-                            let item = FrontendItem {
+                            let item = Arc::new(FrontendItem {
                                 tool: tool.clone(),
                                 id: id.to_owned(),
                                 input: input.clone(),
                                 ts_ms: e.ts_ms,
                                 thread: e.thread_id.clone(),
                                 files: files.clone(),
-                            };
+                            });
                             match at {
-                                Some(i) => self.items[i] = item,
-                                None => self.items.push(item),
+                                Some(i) => {
+                                    self.items.insert(i, item);
+                                }
+                                None => {
+                                    self.items.insert(self.next_order, item);
+                                    self.pos.insert(key, self.next_order);
+                                    self.next_order += 1;
+                                }
                             }
                         }
                     }
@@ -165,13 +179,18 @@ impl FrontendProj {
                     }
                 }
             }
-            EventKind::FrontendError { tool, item, message } => self.errors.push(FrontendErrorEntry {
-                seq: e.seq,
-                thread: e.thread_id.clone().unwrap_or_default(),
-                tool: tool.clone(),
-                item: item.clone(),
-                message: message.clone(),
-            }),
+            EventKind::FrontendError { tool, item, message } => {
+                self.errors.push(FrontendErrorEntry {
+                    seq: e.seq,
+                    thread: e.thread_id.clone().unwrap_or_default(),
+                    tool: tool.clone(),
+                    item: item.clone(),
+                    message: message.clone(),
+                });
+                if self.errors.len() > MAX_PROJECTED_ERRORS {
+                    self.errors.drain(..self.errors.len() - MAX_PROJECTED_ERRORS);
+                }
+            }
             _ => {}
         }
     }
@@ -1213,8 +1232,31 @@ impl SessionLog {
     }
 
     /// Live Frontend Tool items (calls that named an `id`, not removed since), first seen first. Projection, no scan.
-    pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
-        self.project(|i| i.proj.frontend.items.clone())
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<Arc<FrontendItem>>> {
+        self.project(|i| i.proj.frontend.items.values().cloned().collect())
+    }
+
+    /// One live Frontend Tool item by tool and id. Projection, one lookup.
+    pub fn frontend_item(&self, tool: &str, id: &str) -> anyhow::Result<Option<Arc<FrontendItem>>> {
+        self.project(|i| {
+            let f = &i.proj.frontend;
+            f.pos.get(&(tool.to_owned(), id.to_owned())).and_then(|k| f.items.get(k)).map(Arc::clone)
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn frontend_errors_len(&self) -> usize {
+        self.project(|i| i.proj.frontend.errors.len()).unwrap()
+    }
+
+    /// The Thread of a live item's latest call (an `id`, or the call id of a call without one) and
+    /// the messages of its uncleared errors; `None` when the item is gone. Projection, no scan of the log.
+    pub fn frontend_item_errors(&self, tool: &str, item: &str) -> anyhow::Result<Option<(ThreadId, Vec<String>)>> {
+        self.project(|i| {
+            let f = &i.proj.frontend;
+            let thread = f.keyed.get(&(tool.to_owned(), item.to_owned()))?;
+            Some((thread.clone(), f.errors.iter().filter(|x| x.tool == tool && x.item == item).map(|x| x.message.clone()).collect()))
+        })
     }
 
     /// Live Frontend Tool items by `(tool, item id)` with the Thread of their latest call, and the

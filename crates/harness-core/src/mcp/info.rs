@@ -14,11 +14,12 @@ pub(super) fn ui_get(session: &Session, id: Option<&str>) -> anyhow::Result<Valu
         session.ensure_attached(shared)?;
         return shared_get(session, shared);
     }
-    let items: Vec<(String, Value)> = session.frontend_items()?.into_iter().filter(|x| x.tool == crate::session::RENDER_UI).map(|x| (x.id, x.input)).collect();
-    let Some((_, input)) = items.iter().find(|(i, _)| i == id) else {
-        let known: Vec<&str> = items.iter().map(|(i, _)| i.as_str()).collect();
+    let Some(item) = session.frontend_item(crate::session::RENDER_UI, id)? else {
+        let items = session.frontend_items()?;
+        let known: Vec<&str> = items.iter().filter(|x| x.tool == crate::session::RENDER_UI).map(|x| x.id.as_str()).collect();
         anyhow::bail!("no render_ui panel with id {id:?}. Known ids: {}", if known.is_empty() { "none".to_owned() } else { known.join(", ") });
     };
+    let input = &item.input;
     let source = input.get("source").and_then(Value::as_str);
     if let Some(shared) = source.and_then(crate::shared::reference) {
         let mut out = json!({ "input": input });
@@ -84,7 +85,9 @@ pub(super) fn info(session: &Session) -> anyhow::Result<Value> {
     let items: Vec<Value> = session
         .frontend_items()?
         .into_iter()
-        .map(|crate::session::FrontendItem { tool, id, input, ts_ms, .. }| {
+        .map(|item| {
+            let crate::session::FrontendItem { tool, id, input, ts_ms, .. } = item.as_ref();
+            let (tool, id, ts_ms) = (tool.clone(), id.clone(), *ts_ms);
             let mut item = json!({ "tool": tool, "id": id });
             for k in ["placement", "title", "source"] {
                 if let Some(v) = input.get(k) {

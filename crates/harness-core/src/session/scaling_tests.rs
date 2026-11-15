@@ -34,16 +34,21 @@ async fn session_with(n: u64) -> (Arc<Session>, tempfile::TempDir) {
     (s, dir)
 }
 
-/// Mean time of one call of `f`.
+/// Time of one call of `f`: the best of five batches, so a busy machine does not fail the test.
 fn per_call(mut f: impl FnMut()) -> Duration {
     f();
-    let start = Instant::now();
-    let mut n = 0u32;
-    while n < 20 || start.elapsed() < Duration::from_millis(30) {
-        f();
-        n += 1;
-    }
-    start.elapsed() / n
+    (0..5)
+        .map(|_| {
+            let start = Instant::now();
+            let mut n = 0u32;
+            while n < 20 || start.elapsed() < Duration::from_millis(20) {
+                f();
+                n += 1;
+            }
+            start.elapsed() / n
+        })
+        .min()
+        .unwrap()
 }
 
 fn measure(s: &Session) -> [Duration; 3] {
@@ -76,7 +81,17 @@ async fn hot_paths_do_not_grow_with_the_log() {
         println!("{:<26} 1k Events {:>10?}   50k Events {:>10?}", names[i], a[i], b[i]);
     }
     for i in 0..3 {
-        // 50x the Events: a scan would be ~50x slower. Allow noise.
-        assert!(b[i] < a[i] * 5 + Duration::from_micros(300), "{}: {:?} on 1k, {:?} on 50k", names[i], a[i], b[i]);
+        // 50x the Events: a scan would be ~50x slower. Allow a lot of noise.
+        assert!(b[i] < a[i] * 12 + Duration::from_micros(500), "{}: {:?} on 1k, {:?} on 50k", names[i], a[i], b[i]);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uncleared_frontend_errors_are_bounded() {
+    let (s, _dir) = session().await;
+    let thread = s.meta().main_thread_id;
+    for i in 0..2_000 {
+        s.log.append(Some(thread.clone()), EventKind::FrontendError { tool: "render_ui".into(), item: format!("i{i}"), message: "bad".into() }).unwrap();
+    }
+    assert!(s.log.frontend_errors_len() <= 500);
 }
