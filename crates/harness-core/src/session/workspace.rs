@@ -204,8 +204,10 @@ impl Session {
         }
         self.update_meta(|m| m.archived = true)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
-        self.log.append(None, EventKind::SessionArchived { archived: true })?;
-        self.log.sync()
+        // The Session is archived by now: a log that cannot be written is reported, not an error here.
+        self.log.append_or_report(None, EventKind::SessionArchived { archived: true });
+        self.log.sync_or_report();
+        Ok(())
     }
 
     pub async fn unarchive(&self) -> anyhow::Result<()> {
@@ -217,8 +219,9 @@ impl Session {
         }
         self.update_meta(|m| m.archived = false)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
-        self.log.append(None, EventKind::SessionArchived { archived: false })?;
-        self.log.sync()
+        self.log.append_or_report(None, EventKind::SessionArchived { archived: false });
+        self.log.sync_or_report();
+        Ok(())
     }
 
     /// Removes the Worktree and its branch; the caller removes the Session Directory.

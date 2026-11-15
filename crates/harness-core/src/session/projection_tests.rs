@@ -7,7 +7,7 @@ use super::*;
 use crate::api::{Command, CommandResult, StateWriter};
 use serde_json::json;
 
-pub(super) async fn session() -> (Arc<Session>, tempfile::TempDir) {
+pub(crate) async fn session() -> (Arc<Session>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let agent = AgentInfo {
         id: "a".into(),

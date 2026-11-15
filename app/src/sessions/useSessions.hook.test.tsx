@@ -88,21 +88,30 @@ describe("useSessions", () => {
       expect(list).toHaveBeenCalledTimes(1);
    });
 
-   it("SessionLogHealth marks the row and tells the user once per episode", async () => {
+   it("SessionLogHealth marks the row and tells the user once per episode and once a minute", async () => {
       const { transport, hook } = setup();
       await waitFor(() => expect(hook.result.current.settled).toBe(true));
+      vi.useFakeTimers({ toFake: ["Date"], now: 1_000_000 });
       const told = vi.spyOn(console, "error").mockImplementation(() => {});
-      const health = (error: string | null) =>
-         emit(transport, { type: "SessionLogHealth", session_id: "mock-1", error, dropped: 0 });
+      const health = (error: string | null, id = "mock-1") =>
+         emit(transport, { type: "SessionLogHealth", session_id: id, error, dropped: 0 });
+      const title = hook.result.current.sessions[0]?.title;
       health("disk full");
       health("disk full again");
       expect(hook.result.current.sessions[0]?.log_error).toBe("disk full again");
       expect(told).toHaveBeenCalledTimes(1);
-      expect(told.mock.calls[0]?.[0]).toBe("This Session is not being saved");
+      expect(told.mock.calls[0]?.[0]).toBe(`This Session ("${title}") is not being saved`);
       health(null);
       expect(hook.result.current.sessions[0]?.log_error).toBeNull();
-      health("gone");
+      health("flapping");
+      expect(told).toHaveBeenCalledTimes(1);
+      health(null);
+      vi.setSystemTime(1_000_000 + 61_000);
+      health("later");
       expect(told).toHaveBeenCalledTimes(2);
+      health("not a Session I know", "ghost");
+      expect(told).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
    });
 
    it("settles even when the first load fails", async () => {

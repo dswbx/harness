@@ -7,7 +7,9 @@ mod shared;
 mod workspace;
 
 #[cfg(test)]
-mod projection_tests;
+mod dangling_tests;
+#[cfg(test)]
+pub(crate) mod projection_tests;
 #[cfg(test)]
 mod scaling_tests;
 
@@ -92,6 +94,10 @@ impl Session {
     pub fn open(dir: &Path, shared: Arc<Shared>) -> anyhow::Result<Self> {
         let meta: SessionMeta = serde_json::from_slice(&std::fs::read(dir.join("session.json"))?)?;
         let log = SessionLog::open(meta.id.clone(), &dir.join("log.jsonl"))?;
+        if meta.archived {
+            // Archived: not written to, so what the last run left open stays as it was.
+            log.skip_repair();
+        }
         log.note_agent_gone()?;
         let session = Self::from_parts(dir, meta, log, shared);
         if !session.meta.lock().title_backfilled {
@@ -401,6 +407,10 @@ impl Session {
     pub fn thread_working(&self, thread: &ThreadId) -> anyhow::Result<bool> {
         if self.agent.thread_working(thread) {
             return Ok(true);
+        }
+        // A log that is not written to (newer Harness, archived) is not repaired: what it left open is not running.
+        if self.log.read_only_reason().is_some() || self.meta().archived {
+            return Ok(false);
         }
         self.log.thread_turn_open(thread)
     }
