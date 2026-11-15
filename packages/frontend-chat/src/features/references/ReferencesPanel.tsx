@@ -1,4 +1,4 @@
-import { displayRef, formatAge, openExternalUrl, prKey } from "@harness/api";
+import { displayRef, formatAge, formatDateTime, openExternalUrl, prKey } from "@harness/api";
 import { Button, cn, DropdownMenuItem, ScrollArea, Tooltip } from "@harness/ui";
 import {
    ChevronDown,
@@ -298,9 +298,11 @@ function ListRow({ r, selected, onOpen }: { r: Reference; selected: boolean; onO
                </span>
                {r.kind === "code" && r.changed && <Changed />}
                <CountBadge r={r} />
-               <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatAge(r.ts, now)}
-               </span>
+               <Tooltip content={formatDateTime(r.ts)}>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                     {formatAge(r.ts, now)}
+                  </span>
+               </Tooltip>
             </span>
             <span className="flex items-center gap-2">
                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

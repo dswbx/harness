@@ -1,5 +1,5 @@
 import type { SharedArtifactEntry, SharedArtifactMeta } from "@harness/api";
-import { errText, formatAge } from "@harness/api";
+import { errText, formatAge, formatDateTime } from "@harness/api";
 import {
    Button,
    cn,
@@ -423,7 +423,9 @@ function Row({
             </div>
             <div className="truncate text-xs text-muted-foreground">{a.sub}</div>
          </div>
-         <span className="text-xs text-muted-foreground">{formatAge(a.ts, now)}</span>
+         <Tooltip content={formatDateTime(a.ts)}>
+            <span className="text-xs text-muted-foreground">{formatAge(a.ts, now)}</span>
+         </Tooltip>
          {onShare && (
             <RowMenu label={`${a.title} options`}>
                <DropdownMenuItem onSelect={onShare}>
@@ -535,9 +537,11 @@ function SharedRowView({
                {meta ? `${KIND_LABEL[meta.kind]} · ${sessionCount(meta)}` : "Shared artifact"}
             </div>
          </div>
-         <span className="text-xs text-muted-foreground">
-            {formatAge(meta?.updated_ms ?? row.ts, now)}
-         </span>
+         <Tooltip content={formatDateTime(meta?.updated_ms ?? row.ts)}>
+            <span className="text-xs text-muted-foreground">
+               {formatAge(meta?.updated_ms ?? row.ts, now)}
+            </span>
+         </Tooltip>
          <RowMenu label={`${title} options`}>
             <DropdownMenuItem onSelect={onOpen}>
                <ArrowRight /> Open panel
@@ -672,9 +676,11 @@ function AttachPicker({
                            {on ? (
                               <Check className="size-3.5 shrink-0 text-muted-foreground" />
                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                 {formatAge(e.meta.updated_ms, now)}
-                              </span>
+                              <Tooltip content={formatDateTime(e.meta.updated_ms)}>
+                                 <span className="text-xs text-muted-foreground">
+                                    {formatAge(e.meta.updated_ms, now)}
+                                 </span>
+                              </Tooltip>
                            )}
                         </div>
                      );

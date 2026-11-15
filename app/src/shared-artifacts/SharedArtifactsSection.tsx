@@ -1,4 +1,4 @@
-import { formatAge, type SharedArtifactEntry, storedValue } from "@harness/api";
+import { formatAge, formatDateTime, type SharedArtifactEntry, storedValue } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, Search, Share2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -163,9 +163,11 @@ export function SharedArtifactsSection({
                                        className="size-2 shrink-0 rounded-full bg-sky-500"
                                     />
                                  )}
-                                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
-                                    {formatAge(e.meta.updated_ms, now)}
-                                 </span>
+                                 <Tooltip content={formatDateTime(e.meta.updated_ms)}>
+                                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
+                                       {formatAge(e.meta.updated_ms, now)}
+                                    </span>
+                                 </Tooltip>
                               </button>
                            </li>
                         );
