@@ -298,8 +298,12 @@ mod claude {
 
     /// Recent Claude models omit thinking text by default, so `agent_thought_chunk` updates are
     /// empty and no thinking shows. ACP has no standard way to ask for thinking text.
+    ///
+    /// Through the SDK, recent Claude models get no todo tools (`TodoWrite`, `TaskCreate`, ...)
+    /// unless `CLAUDE_CODE_ENABLE_TODO_TOOLS` is set, so they never send an ACP `plan` and the
+    /// task list stays empty.
     pub fn extra_env() -> Vec<(&'static str, &'static str)> {
-        vec![("CLAUDE_CODE_THINKING_DISPLAY", "summarized")]
+        vec![("CLAUDE_CODE_THINKING_DISPLAY", "summarized"), ("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1")]
     }
 
     /// Subagents. ACP has no notion of them; without this, a subagent's tool calls look like the
