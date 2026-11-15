@@ -469,7 +469,10 @@ export type ErrorCode =
 "policy_denied" | 
 /**  The Agent is not running, not installed or its Agent Session could not be restored. */
 "agent_unavailable" | 
-/**  The Command's input is wrong (empty, malformed, not supported here). */
+/**
+ *  The Command's input is wrong (empty, malformed), or the request cannot apply to this Workspace
+ *  (not a git repository, no GitHub remote, a detached HEAD).
+ */
 "invalid" | 
 /**  A process or request the Command waits on did not finish in time (`git`, `gh`, a download). */
 "timeout" | 

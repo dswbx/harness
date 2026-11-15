@@ -148,11 +148,19 @@ enum Stop {
     TooLarge,
 }
 
-/// Reads `r` to the end, keeping at most `cap` bytes. Past the cap it either stops with `TooLarge`
-/// or keeps draining (so the child never blocks on a full pipe) and flags the cut.
-async fn read_capped<R: AsyncRead + Unpin>(mut r: R, cap: usize, truncate: bool) -> Result<(Vec<u8>, bool), Stop> {
-    let mut buf = Vec::new();
-    let mut cut = false;
+/// What a pipe has delivered so far, and whether bytes past the cap were dropped.
+#[derive(Default)]
+struct Acc {
+    buf: Vec<u8>,
+    cut: bool,
+}
+
+/// After the process exits, how long a grandchild that still holds the pipes open may keep them.
+const PIPE_GRACE: Duration = Duration::from_secs(2);
+
+/// Reads `r` to the end into `acc`, keeping at most `cap` bytes. Past the cap it either stops with
+/// `TooLarge` or keeps draining (so the child never blocks on a full pipe) and flags the cut.
+async fn read_capped<R: AsyncRead + Unpin>(mut r: R, cap: usize, truncate: bool, acc: &mut Acc) -> Result<(), Stop> {
     // On the heap: a stack array would bloat every caller's future.
     let mut chunk = vec![0u8; 16 * 1024];
     loop {
@@ -160,16 +168,16 @@ async fn read_capped<R: AsyncRead + Unpin>(mut r: R, cap: usize, truncate: bool)
             Ok(0) | Err(_) => break,
             Ok(n) => n,
         };
-        let room = cap.saturating_sub(buf.len());
+        let room = cap.saturating_sub(acc.buf.len());
         if n > room {
             if !truncate {
                 return Err(Stop::TooLarge);
             }
-            cut = true;
+            acc.cut = true;
         }
-        buf.extend_from_slice(&chunk[..n.min(room)]);
+        acc.buf.extend_from_slice(&chunk[..n.min(room)]);
     }
-    Ok((buf, cut))
+    Ok(())
 }
 
 /// Runs `program` to completion. Same env as the parent plus `opts.env`.
@@ -197,17 +205,34 @@ pub async fn run(program: impl AsRef<OsStr>, opts: Opts) -> Result<Output, ProcE
         }
         Ok::<_, Stop>(())
     };
+    let (mut out, mut err) = (Acc::default(), Acc::default());
     let work = async {
-        let ((), out, err) = tokio::try_join!(write, read_capped(stdout, opts.max_output, opts.truncate), read_capped(stderr, MAX_STDERR, true))?;
-        let status = child.wait().await.map_err(|_| Stop::TooLarge).ok();
-        Ok::<_, Stop>((status, out, err))
+        let io = async {
+            tokio::try_join!(write, read_capped(stdout, opts.max_output, opts.truncate, &mut out), read_capped(stderr, MAX_STDERR, true, &mut err)).map(|_| ())
+        };
+        tokio::pin!(io);
+        let status = tokio::select! {
+            r = &mut io => {
+                r?;
+                child.wait().await
+            }
+            status = child.wait() => {
+                // The process is done; a grandchild may hold its pipes open for good. What was read is the answer.
+                if let Ok(Err(stop)) = tokio::time::timeout(PIPE_GRACE, &mut io).await {
+                    return Err(stop);
+                }
+                status
+            }
+        };
+        Ok::<_, Stop>(status.map_err(|_| Stop::TooLarge).ok())
     };
-    match tokio::time::timeout(opts.timeout, work).await {
-        Ok(Ok((Some(status), (stdout, truncated), (stderr, _)))) => {
+    let result = tokio::time::timeout(opts.timeout, work).await;
+    match result {
+        Ok(Ok(Some(status))) => {
             guard.0 = None;
-            Ok(Output { status, stdout, stderr, truncated })
+            Ok(Output { status, stdout: out.buf, stderr: err.buf, truncated: out.cut })
         }
-        Ok(Ok((None, ..))) => {
+        Ok(Ok(None)) => {
             guard.kill();
             Err(ProcError::Io { program: label(), source: std::io::Error::other("wait failed") })
         }
@@ -234,6 +259,15 @@ mod tests {
 
     fn alive(pid: i32) -> bool {
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok()
+    }
+
+    #[tokio::test]
+    async fn a_grandchild_holding_the_pipes_does_not_hold_up_a_finished_process() {
+        let started = std::time::Instant::now();
+        let out = run("sh", sh("sleep 6 & echo done", Opts::new(Duration::from_secs(60)))).await.unwrap();
+        assert_eq!(out.stdout_lossy(), "done\n");
+        assert!(out.success());
+        assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
     }
 
     #[tokio::test]

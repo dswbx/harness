@@ -23,7 +23,9 @@ export const agentsHandlers = {
    },
    InstallAgent: async (mock, cmd) => {
       const entry = MOCK_REGISTRY.find((a) => a.id === cmd.registry_id);
-      if (!entry || !entry.install_method)
+      if (!entry)
+         throw new CommandError("not_found", `${cmd.registry_id} is not in the ACP Registry`);
+      if (!entry.install_method)
          throw new CommandError("agent_unavailable", "Agent is not installable on this machine");
       await new Promise((r) => setTimeout(r, 1500));
       const agent: AgentInfo = {

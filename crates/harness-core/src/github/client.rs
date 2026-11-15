@@ -27,14 +27,16 @@ pub(crate) async fn gh_in(dir: Option<&Path>, args: &[&str]) -> anyhow::Result<S
     })?;
     if !out.success() {
         let message = format!("gh {}: {}", args.join(" "), out.stderr_lossy().trim());
-        return Err(if signed_out(&out.stderr_lossy()) { crate::error::auth_required(message) } else { anyhow::anyhow!(message) });
+        // `gh auth token` fails only when there is no token to give: any failure of it is "sign in".
+        let sign_in = args == ["auth", "token"] || signed_out(&out.stderr_lossy());
+        return Err(if sign_in { crate::error::auth_required(message) } else { anyhow::anyhow!(message) });
     }
     Ok(out.stdout_lossy())
 }
 
 /// Whether `gh` failed because the user is not signed in.
 fn signed_out(stderr: &str) -> bool {
-    stderr.contains("gh auth login") || stderr.contains("not logged in")
+    stderr.contains("gh auth login") || stderr.contains("not logged in") || stderr.contains("HTTP 401")
 }
 
 /// Queries keep the short limit; `pr create`/`merge`/`checkout` and anything not listed push or wait.

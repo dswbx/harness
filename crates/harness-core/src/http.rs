@@ -83,7 +83,13 @@ pub enum Error {
     TooLarge(u64),
     Stalled(u64),
     TimedOut(u64),
-    Checksum { expected: String, actual: String },
+    Checksum {
+        expected: String,
+        actual: String,
+    },
+    /// The request was refused on purpose: a certificate that does not verify, a redirect that is not allowed.
+    /// Retrying cannot help.
+    Refused(String),
     Other(String),
 }
 
@@ -96,7 +102,7 @@ impl std::fmt::Display for Error {
             Error::Stalled(s) => write!(f, "no data for {s} s"),
             Error::TimedOut(s) => write!(f, "not finished within {s} s"),
             Error::Checksum { expected, actual } => write!(f, "checksum mismatch: expected {expected}, got {actual}"),
-            Error::Other(m) => f.write_str(m),
+            Error::Refused(m) | Error::Other(m) => f.write_str(m),
         }
     }
 }
@@ -108,6 +114,7 @@ impl Error {
     pub fn code(&self) -> Option<crate::api::ErrorCode> {
         match self {
             Error::Stalled(_) | Error::TimedOut(_) => Some(crate::api::ErrorCode::Timeout),
+            Error::Refused(_) => Some(crate::api::ErrorCode::Invalid),
             e if e.transient() => Some(crate::api::ErrorCode::Unavailable),
             _ => None,
         }
@@ -147,7 +154,7 @@ async fn open(url: &str, o: &Opts) -> Result<reqwest::Response, Error> {
     if let Some(a) = o.accept {
         req = req.header(reqwest::header::ACCEPT, a);
     }
-    let resp = req.send().await.map_err(|e| Error::Other(format!("request: {}", describe(&e))))?;
+    let resp = req.send().await.map_err(|e| request_error(&e))?;
     let status = resp.status();
     if !status.is_success() {
         return Err(Error::Status(status.as_u16()));
@@ -156,6 +163,12 @@ async fn open(url: &str, o: &Opts) -> Result<reqwest::Response, Error> {
         return Err(Error::TooLarge(o.max_bytes));
     }
     Ok(resp)
+}
+
+/// A reqwest error as ours: refused on purpose (TLS, redirect policy), else a network failure.
+fn request_error(e: &reqwest::Error) -> Error {
+    let message = format!("request: {}", describe(e));
+    if e.is_redirect() || message.to_lowercase().contains("certificate") { Error::Refused(message) } else { Error::Other(message) }
 }
 
 /// The innermost causes of a reqwest error, without its URL (callers name the URL).
@@ -192,7 +205,7 @@ async fn pump(url: &str, o: &Opts, mut sink: impl FnMut(&[u8]) -> std::io::Resul
         loop {
             let next = tokio::time::timeout(o.stall_timeout, stream.next()).await.map_err(|_| Error::Stalled(o.stall_timeout.as_secs()))?;
             let Some(chunk) = next else { break };
-            let chunk = chunk.map_err(|e| Error::Other(format!("request: {}", describe(&e))))?;
+            let chunk = chunk.map_err(|e| request_error(&e))?;
             total += chunk.len() as u64;
             if total > o.max_bytes {
                 return Err(Error::TooLarge(o.max_bytes));
@@ -259,27 +272,28 @@ pub async fn get_json(url: &str, o: &Opts) -> anyhow::Result<serde_json::Value> 
 /// to `dest`, which is renamed into place only after the hash matched: a failure leaves no `dest`.
 pub async fn download(url: &str, dest: &Path, o: &Opts) -> Result<String, Error> {
     let dir = dest.parent().unwrap_or(Path::new("."));
-    let tmp: PathBuf = dir.join(format!(".{}.part", dest.file_name().and_then(|n| n.to_str()).unwrap_or("download")));
+    // Its own name per download, removed however this ends (also when the future is dropped).
+    let tmp = Part(dir.join(format!(".{}.{}.part", dest.file_name().and_then(|n| n.to_str()).unwrap_or("download"), uuid::Uuid::new_v4().simple())));
     let r = with_retries(o, || async {
-        let mut file = std::fs::File::create(&tmp).map_err(|e| Error::Other(e.to_string()))?;
+        let mut file = std::fs::File::create(&tmp.0).map_err(|e| Error::Other(e.to_string()))?;
         let sha = pump(url, o, |c| std::io::Write::write_all(&mut file, c)).await?;
         verify(o, &sha)?;
         file.sync_all().map_err(|e| Error::Other(e.to_string()))?;
         Ok(sha)
     })
     .await;
-    let sha = match r {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&tmp).await;
-            return Err(e);
-        }
-    };
-    if let Err(e) = tokio::fs::rename(&tmp, dest).await {
-        let _ = tokio::fs::remove_file(&tmp).await;
-        return Err(Error::Other(e.to_string()));
-    }
+    let sha = r?;
+    tokio::fs::rename(&tmp.0, dest).await.map_err(|e| Error::Other(e.to_string()))?;
     Ok(sha)
+}
+
+/// A download's temp file; deleted on drop (after a rename there is nothing left to delete).
+struct Part(PathBuf);
+
+impl Drop for Part {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 #[cfg(test)]

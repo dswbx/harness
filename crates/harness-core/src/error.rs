@@ -114,9 +114,18 @@ mod tests {
                 http(Http::Status(503)),
                 http(Http::Other("request: refused".into())),
                 http(Http::Status(404)),
-                http(Http::NotHttps)
+                http(Http::NotHttps),
+                http(Http::Refused("request: bad certificate".into()))
             ],
-            [ErrorCode::Timeout, ErrorCode::Timeout, ErrorCode::Unavailable, ErrorCode::Unavailable, ErrorCode::Internal, ErrorCode::Internal]
+            [
+                ErrorCode::Timeout,
+                ErrorCode::Timeout,
+                ErrorCode::Unavailable,
+                ErrorCode::Unavailable,
+                ErrorCode::Internal,
+                ErrorCode::Internal,
+                ErrorCode::Invalid
+            ]
         );
         assert_eq!(from_proc(&proc_timeout, "git status: timed out").to_string(), "git status: timed out");
     }

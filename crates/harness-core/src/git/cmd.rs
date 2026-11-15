@@ -18,7 +18,7 @@ pub(super) async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::
 
 /// `git` bounded by `timeout`; a hang fails with a timeout error and kills git and what it spawned.
 pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)], timeout: Duration) -> anyhow::Result<String> {
-    let mut opts = proc::Opts::new(timeout).args(args).cwd(dir).env("PATH", crate::env::login_path()).env("GIT_TERMINAL_PROMPT", "0");
+    let mut opts = proc::Opts::new(timeout).args(args).cwd(dir).env("PATH", crate::env::login_path()).env("GIT_TERMINAL_PROMPT", "0").env("LC_ALL", "C");
     for (k, v) in env {
         opts = opts.env(k, v);
     }
@@ -31,7 +31,7 @@ pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi:
         let err = out.stderr_lossy();
         let msg = if err.trim().is_empty() { out.stdout_lossy() } else { err };
         let message = format!("git {}: {}", args.join(" "), msg.trim());
-        return Err(match failure_code(&msg) {
+        return Err(match failure_code(args.first().copied().unwrap_or(""), &msg) {
             Some(code) => crate::error::coded(code, message),
             None => anyhow::anyhow!(message),
         });
@@ -39,22 +39,24 @@ pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi:
     Ok(out.stdout_lossy())
 }
 
-/// What a failed `git` tells the caller to do differently, read from its message: not a repository, or
-/// an empty commit message, or state in the way (a branch or Worktree that exists or is in use, nothing to commit,
-/// changes a checkout would overwrite).
-fn failure_code(msg: &str) -> Option<crate::api::ErrorCode> {
+/// What a failed `git` tells the caller to do differently, read from its message (git runs with
+/// `LC_ALL=C`, so the text is English). "Not a repository" holds for any subcommand; the rest only
+/// for the subcommands that produce it, so a hook's output on `commit` or `push` is not mistaken for it.
+fn failure_code(sub: &str, msg: &str) -> Option<crate::api::ErrorCode> {
     use crate::api::ErrorCode;
-    if msg.contains("not a git repository") || msg.contains("empty commit message") {
-        Some(ErrorCode::Invalid)
-    } else if msg.contains("already exists")
-        || msg.contains("nothing to commit")
-        || msg.contains("is already checked out at")
-        || msg.contains("is already used by worktree")
-        || msg.contains("would be overwritten by")
-    {
-        Some(ErrorCode::Conflict)
-    } else {
-        None
+    if msg.contains("not a git repository") {
+        return Some(ErrorCode::Invalid);
+    }
+    match sub {
+        "commit" if msg.contains("empty commit message") => Some(ErrorCode::Invalid),
+        "commit" if msg.contains("nothing to commit") => Some(ErrorCode::Conflict),
+        "switch" | "checkout" | "branch" | "worktree"
+            if msg.contains("already exists") || msg.contains("is already checked out at") || msg.contains("is already used by worktree") =>
+        {
+            Some(ErrorCode::Conflict)
+        }
+        "switch" | "checkout" | "merge" | "pull" if msg.contains("would be overwritten by") => Some(ErrorCode::Conflict),
+        _ => None,
     }
 }
 
@@ -144,17 +146,20 @@ mod tests {
     #[test]
     fn git_failures_the_caller_can_act_on_have_a_code() {
         use crate::api::ErrorCode::{Conflict, Invalid};
-        for (msg, want) in [
-            ("fatal: not a git repository (or any of the parent directories): .git", Some(Invalid)),
-            ("Aborting commit due to empty commit message.", Some(Invalid)),
-            ("fatal: a branch named 'x' already exists", Some(Conflict)),
-            ("fatal: 'main' is already checked out at '/tmp/wt'", Some(Conflict)),
-            ("fatal: '/tmp/wt' already exists", Some(Conflict)),
-            ("error: Your local changes to the following files would be overwritten by checkout", Some(Conflict)),
-            ("nothing to commit, working tree clean", Some(Conflict)),
-            ("fatal: couldn't find remote ref x", None),
+        for (sub, msg, want) in [
+            ("status", "fatal: not a git repository (or any of the parent directories): .git", Some(Invalid)),
+            ("commit", "Aborting commit due to empty commit message.", Some(Invalid)),
+            ("switch", "fatal: a branch named 'x' already exists", Some(Conflict)),
+            ("worktree", "fatal: 'main' is already checked out at '/tmp/wt'", Some(Conflict)),
+            ("worktree", "fatal: '/tmp/wt' already exists", Some(Conflict)),
+            ("checkout", "error: Your local changes to the following files would be overwritten by checkout", Some(Conflict)),
+            ("commit", "nothing to commit, working tree clean", Some(Conflict)),
+            ("fetch", "fatal: couldn't find remote ref x", None),
+            // A hook's output is not git's.
+            ("commit", "pre-commit: build/ already exists", None),
+            ("push", "remote: a branch named 'x' already exists", None),
         ] {
-            assert_eq!(failure_code(msg), want, "{msg}");
+            assert_eq!(failure_code(sub, msg), want, "{sub}: {msg}");
         }
     }
 

@@ -90,11 +90,9 @@ async fn sign_in_needed_is_auth_required() {
 async fn other_failures_are_internal() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[]);
-    let sid = session(&h, dir.path()).await;
     // An unreadable image: a plain failure (no code the caller could act on).
     let e = h.execute(Command::ReadImageFile { path: dir.path().join("nope.png").display().to_string() }).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Internal, "{e}");
-    let _ = sid;
 }
 
 /// A git repository on `main` with one commit and a `README.md`.

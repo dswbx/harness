@@ -392,6 +392,7 @@ describe("MockTransport like the core", () => {
       expect(await failure(client.holdAgentVersion("nope", true))).toMatchObject({
          code: "not_found",
       });
+      expect(await failure(client.installAgent("not-listed"))).toMatchObject({ code: "not_found" });
       expect(await failure(client.installAgent("windows-only"))).toMatchObject({
          code: "agent_unavailable",
       });
