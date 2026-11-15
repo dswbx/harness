@@ -12,6 +12,7 @@ import type {
    McpServerDef,
    PermissionRule,
    SessionSummary,
+   StartupNotice,
    WorkspaceInfo,
 } from "../generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "../transport/transport";
@@ -86,6 +87,8 @@ export class MockTransport implements Transport {
    ahead = new Map<string, number>();
    /** @internal */
    committed = new Set<string>();
+   /** Settings files that "did not load", handed out once by `TakeNotices`. @internal */
+   notices: StartupNotice[] = [];
    /** @internal */
    readOnly = new Set<string>();
    /** @internal */

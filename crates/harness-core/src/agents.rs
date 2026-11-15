@@ -479,6 +479,27 @@ mod tests {
         assert_eq!(written, serde_json::json!({"mine": {"effort": "high", "model": "fast"}}));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn files_that_cannot_be_moved_aside_do_not_block_the_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("agents.json"), b"[{").unwrap();
+        std::fs::write(d.path().join("agent-config.json"), b"nope").unwrap();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = std::fs::write(d.path().join("probe"), b"").is_ok();
+        let a = open(d.path());
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return; // running as root
+        }
+        assert!(a.list().is_empty() && a.remembered_config("x").is_empty());
+        assert_eq!(std::fs::read(d.path().join("agent-config.json")).unwrap(), b"nope");
+        assert!(a.remember_config("x", "k", "v").is_err());
+        assert_eq!(std::fs::read(d.path().join("agent-config.json")).unwrap(), b"nope");
+        assert_eq!(crate::persist::take_problems(d.path()).len(), 2);
+    }
+
     #[test]
     fn corrupt_files_no_longer_block_the_start() {
         let d = tempfile::tempdir().unwrap();

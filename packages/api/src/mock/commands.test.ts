@@ -8,6 +8,7 @@ const repo = { owner: "dswbx", name: "harness" };
 
 /** A minimal valid instance of every Command. A new Command fails the typecheck until it has a row. */
 const table: Record<Command["type"], () => Command> = {
+   TakeNotices: () => ({ type: "TakeNotices" }),
    ListAgents: () => ({ type: "ListAgents" }),
    ListRegistry: () => ({ type: "ListRegistry" }),
    InstallAgent: () => ({ type: "InstallAgent", registry_id: "claude-acp" }),

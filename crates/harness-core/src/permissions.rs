@@ -66,8 +66,11 @@ impl Policy {
         let rule =
             PermissionRule { id: uuid::Uuid::now_v7().to_string(), scope: new.scope, tool_kind: new.tool_kind, pattern: new.pattern, decision: new.decision };
         let mut rules = self.rules.write();
-        rules.push(rule.clone());
-        self.save(&rules)?;
+        // In memory only once saved: a refused save must not leave a rule that is not on disk.
+        let mut next = rules.clone();
+        next.push(rule.clone());
+        self.save(&next)?;
+        *rules = next;
         Ok(rule)
     }
 
@@ -314,6 +317,54 @@ mod tests {
         assert_eq!(written["rules"].as_array().unwrap().len(), 1);
         assert_eq!(written["rules"][0]["id"], "r2");
         assert_eq!(written["rules"][0]["pattern"], "src/**");
+    }
+
+    fn asks_everything(p: &Policy) {
+        assert!(p.list().is_empty());
+        for facts in [
+            ToolFacts { kind: Some("edit".into()), command: None, paths: vec![PathBuf::from(w("a.rs"))] },
+            exec("rm -rf /"),
+            ToolFacts { kind: Some("fetch".into()), ..Default::default() },
+        ] {
+            assert_eq!(p.evaluate(&cx(), &facts).decision, Decision::Ask);
+        }
+    }
+
+    #[test]
+    fn a_file_from_a_newer_build_is_set_aside_as_unreadable_and_the_defaults_apply() {
+        let d = tempfile::tempdir().unwrap();
+        let file = r#"{"rules":[{"id":"r1","scope":{"type":"global"},"tool_kind":"fetch","pattern":null,"decision":"allow-for-ever"}]}"#;
+        std::fs::write(d.path().join("permissions.json"), file).unwrap();
+        let p = Policy::open(d.path().join("permissions.json")).unwrap();
+        asks_everything(&p);
+        let names: Vec<_> = std::fs::read_dir(d.path()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        let copy = names.iter().find(|n| n.starts_with("permissions.json.unreadable-")).unwrap();
+        assert_eq!(std::fs::read_to_string(d.path().join(copy)).unwrap(), file);
+        let n = crate::persist::take_problems(d.path());
+        assert_eq!(n.len(), 1);
+        assert!(n[0].notice().message.starts_with("Permission rules were reset."));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn when_the_file_cannot_be_moved_the_defaults_apply_and_it_is_never_overwritten() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let file = d.path().join("permissions.json");
+        std::fs::write(&file, b"{\"rules\": [{\"id\":").unwrap();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = std::fs::write(d.path().join("probe"), b"").is_ok();
+        let p = Policy::open(file.clone()).unwrap();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return; // running as root
+        }
+        asks_everything(&p);
+        // Adding a rule is refused: saving would destroy the unreadable file, and the rule must not apply unsaved.
+        assert!(p.add(rule(RuleScope::Global, Some("fetch"), None, Decision::Allow)).is_err());
+        asks_everything(&p);
+        assert_eq!(std::fs::read(&file).unwrap(), b"{\"rules\": [{\"id\":");
+        assert_eq!(crate::persist::take_problems(d.path()).len(), 1);
     }
 
     #[test]

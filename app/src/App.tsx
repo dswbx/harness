@@ -1,5 +1,6 @@
 import { Overlay } from "./overlay/Overlay";
 import { FrontendRequests } from "./platform/FrontendRequests";
+import { StartupNotices } from "./platform/StartupNotices";
 import { ToastProvider } from "./platform/toast";
 import { useTransport } from "./platform/useTransport";
 import { Shell } from "./shell/Shell";
@@ -25,6 +26,7 @@ export function App() {
             <Shell transport={transport} />
          )}
          {!params.get("pane") && <FrontendRequests transport={transport} />}
+         {!solo && !params.get("pane") && <StartupNotices transport={transport} />}
       </ToastProvider>
    );
 }
