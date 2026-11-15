@@ -141,17 +141,38 @@ describe("worktreeAfterPick", () => {
 });
 
 describe("createArgs", () => {
-   const args = (over: Partial<Parameters<typeof createArgs>[0]> = {}) =>
-      createArgs({
+   const args = (over: Partial<Parameters<typeof createArgs>[0]> = {}) => {
+      const target = over.target === undefined ? local("feature") : over.target;
+      return createArgs({
          isRepo: true,
          mode: "branch",
          pr: null,
-         target: local("feature"),
+         target,
+         info: info(target),
          current: "feature",
          worktree: false,
          prWorktree: true,
          ...over,
       });
+   };
+
+   it("what is sent is what the switch shows, for every target and mode", () => {
+      for (const mode of ["branch", "pr"] as const) {
+         for (const target of [null, local("feature"), local("main"), local("busy")].concat([
+            remote("origin/other"),
+            fresh("topic"),
+         ])) {
+            for (const worktree of [false, true]) {
+               for (const prWorktree of [false, true]) {
+                  const sent = args({ mode, pr: { number: 1 }, target, worktree, prWorktree });
+                  expect((sent as { worktree: boolean }).worktree).toBe(
+                     worktreeSwitch({ mode, target, info: info(target), worktree, prWorktree }).on,
+                  );
+               }
+            }
+         }
+      }
+   });
 
    it("outside a repository: nothing", () => {
       expect(args({ isRepo: false })).toEqual({});
@@ -214,7 +235,7 @@ describe("createArgs", () => {
    // Intended: the Worktree switch shows ON and locked for a branch checked out elsewhere, so it must be sent
    // as a Worktree. The dialog's initial pick (`defaultTarget`, worktree state false) is the default branch
    // when HEAD is detached; if that one is checked out elsewhere, the switch shows on but `worktree: false` is sent.
-   it.skip("an initial pick locked on by mustWorktree sends worktree: true", () => {
+   it("an initial pick locked on by mustWorktree sends worktree: true", () => {
       const detached = branches({
          current: null,
          branches: [br("main", { worktree: true }), br("feature")],
@@ -234,6 +255,7 @@ describe("createArgs", () => {
             mode: "branch",
             pr: null,
             target,
+            info: targetInfo(target, detached),
             current: null,
             worktree: false,
             prWorktree: true,

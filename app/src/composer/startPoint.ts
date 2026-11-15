@@ -66,6 +66,7 @@ export function createArgs(o: {
    mode: "branch" | "pr";
    pr: { number: number } | null;
    target: Target | null;
+   info: BranchInfo | undefined;
    current: string | null;
    worktree: boolean;
    prWorktree: boolean;
@@ -78,13 +79,16 @@ export function createArgs(o: {
      }
    | Record<string, never> {
    if (!o.isRepo) return {};
-   if (o.mode === "pr" && o.pr) return { pr: o.pr.number, worktree: o.prWorktree };
+   // The same state the switch renders, so what is shown is what is sent.
+   const mode = o.mode === "pr" && o.pr ? "pr" : "branch";
+   const { on: worktree } = worktreeSwitch({ ...o, mode });
+   if (o.mode === "pr" && o.pr) return { pr: o.pr.number, worktree };
    const { target } = o;
-   if (target?.kind === "new") return { newBranch: target.name, worktree: o.worktree };
-   if (target?.kind === "remote") return { branch: target.name, worktree: true };
+   if (target?.kind === "new") return { newBranch: target.name, worktree };
    return {
-      branch: target && target.name !== o.current ? target.name : null,
-      worktree: o.worktree,
+      branch:
+         target && (target.kind === "remote" || target.name !== o.current) ? target.name : null,
+      worktree,
    };
 }
 
