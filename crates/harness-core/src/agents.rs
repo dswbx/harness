@@ -134,15 +134,22 @@ impl Agents {
     /// Records a picked config option value, so new Sessions with this Agent start with it.
     pub fn remember_config(&self, agent_id: &str, config_id: &str, value: &str) -> anyhow::Result<()> {
         let mut all = self.config.write();
-        all.entry(agent_id.to_owned()).or_default().insert(config_id.to_owned(), value.to_owned());
-        Self::config_file(&self.data_dir).save(&all)
+        // In memory only once saved.
+        let mut next = all.clone();
+        next.entry(agent_id.to_owned()).or_default().insert(config_id.to_owned(), value.to_owned());
+        Self::config_file(&self.data_dir).save(&next)?;
+        *all = next;
+        Ok(())
     }
 
     fn upsert(&self, agent: AgentInfo) -> anyhow::Result<()> {
         let mut all = self.installed.write();
-        all.retain(|a| a.id != agent.id);
-        all.push(agent);
-        self.save(&all)
+        let mut next = all.clone();
+        next.retain(|a| a.id != agent.id);
+        next.push(agent);
+        self.save(&next)?;
+        *all = next;
+        Ok(())
     }
 
     /// Registry entries, from the cache unless `refresh` (or no cache yet).
@@ -279,9 +286,12 @@ impl Agents {
 
     fn drop_previous(&self, id: &str) {
         let mut all = self.installed.write();
-        if let Some(a) = all.iter_mut().find(|a| a.id == id) {
+        let mut next = all.clone();
+        if let Some(a) = next.iter_mut().find(|a| a.id == id) {
             a.install.previous = None;
-            let _ = self.save(&all);
+            if self.save(&next).is_ok() {
+                *all = next;
+            }
         }
     }
 
@@ -319,10 +329,12 @@ impl Agents {
     /// Holds an installed Agent at its current version, or releases it.
     pub fn hold(&self, id: &str, hold: bool) -> anyhow::Result<AgentInfo> {
         let mut all = self.installed.write();
-        let a = all.iter_mut().find(|a| a.id == id).ok_or_else(|| crate::error::not_found(format!("unknown Agent {id}")))?;
+        let mut next = all.clone();
+        let a = next.iter_mut().find(|a| a.id == id).ok_or_else(|| crate::error::not_found(format!("unknown Agent {id}")))?;
         a.install.held = hold;
         let agent = a.clone();
-        self.save(&all)?;
+        self.save(&next)?;
+        *all = next;
         Ok(agent)
     }
 
@@ -418,12 +430,13 @@ impl Agents {
 
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
         let mut all = self.installed.write();
-        let before = all.len();
-        all.retain(|a| a.id != id);
-        if all.len() == before {
+        let mut next = all.clone();
+        next.retain(|a| a.id != id);
+        if next.len() == all.len() {
             return Err(crate::error::not_found(format!("unknown Agent {id}")));
         }
-        self.save(&all)?;
+        self.save(&next)?;
+        *all = next;
         let _ = std::fs::remove_dir_all(self.data_dir.join("agents").join(id));
         Ok(())
     }
@@ -516,6 +529,32 @@ mod tests {
         a.remember_config("mine", "effort", "high").unwrap();
         let written: serde_json::Value = serde_json::from_slice(&std::fs::read(d.path().join("agent-config.json")).unwrap()).unwrap();
         assert_eq!(written, serde_json::json!({"mine": {"effort": "high", "model": "fast"}}));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_save_leaves_the_agents_and_remembered_config_unchanged() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let a = open(d.path());
+        let mine = a.add_custom("Mine".into(), "/bin/mine".into(), vec![], BTreeMap::new()).unwrap();
+        a.remember_config(&mine.id, "model", "fast").unwrap();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = std::fs::write(d.path().join("probe"), b"").is_ok();
+        let results = (
+            a.add_custom("Other".into(), "/bin/other".into(), vec![], BTreeMap::new()).is_err(),
+            a.remember_config(&mine.id, "model", "slow").is_err(),
+            a.hold(&mine.id, true).is_err(),
+            a.remove(&mine.id).is_err(),
+        );
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return; // running as root
+        }
+        assert_eq!(results, (true, true, true, true));
+        assert_eq!(a.list().len(), 1);
+        assert!(!a.get(&mine.id).unwrap().install.held);
+        assert_eq!(a.remembered_config(&mine.id)["model"], "fast");
     }
 
     #[cfg(unix)]
