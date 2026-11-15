@@ -13,7 +13,6 @@ pub(crate) mod projection_tests;
 #[cfg(test)]
 mod scaling_tests;
 
-pub use crate::app_events::AppEvents;
 pub use frontend::{FrontendErrorEntry, FrontendItem, MAX_FRONTEND_ERROR_LEN, MAX_FRONTEND_ERRORS, RENDER_UI};
 pub(crate) use meta::title_from_text;
 pub use meta::{BranchPrMeta, PrStatusMeta, QUICK_TITLE, SessionMeta, SideOrigin, WorkspaceMeta};
@@ -240,7 +239,7 @@ impl Session {
         self.adopt_repo();
         // The git read happens outside the `meta` lock, which every notification takes.
         let folder = self.meta.lock().folder.clone();
-        let branch = crate::workspace::head_branch(Path::new(&folder));
+        let branch = crate::git::head_branch(Path::new(&folder));
         let m = self.meta.lock();
         let pr = shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), branch.as_deref());
         let status = m.workspace.pr_status.filter(|s| Some(s.number) == pr);

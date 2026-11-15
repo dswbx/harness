@@ -4,9 +4,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::api::*;
+use crate::git::WorktreeMeta;
 use crate::host::Harness;
 use crate::session::{Session, WorkspaceMeta};
-use crate::workspace::WorktreeMeta;
 
 impl Harness {
     /// Creates a Session (Command `CreateSession`, or a Sub Session). The caller tells the windows
@@ -56,7 +56,7 @@ impl Harness {
             let message = format!("{folder}: {e}");
             if e.kind() == std::io::ErrorKind::NotFound { crate::error::not_found(message) } else { anyhow::anyhow!(message) }
         })?;
-        let repo_root = crate::workspace::repo_root(&folder).await;
+        let repo_root = crate::git::repo_root(&folder).await;
         let Some(root) = repo_root.clone() else {
             if !matches!(start, Start::Branch { base: None, new_branch: None, worktree: false }) {
                 return Err(crate::error::invalid(format!("{} is not in a git repository", folder.display())));
@@ -64,10 +64,10 @@ impl Harness {
             return Ok((folder.display().to_string(), WorkspaceMeta::default()));
         };
         let repo_name = root.file_name().map(|n| n.to_owned()).unwrap_or_else(|| "repo".into());
-        let base = crate::workspace::worktree_base(&root, &crate::workspace::worktree_dir(&self.data_dir));
+        let base = crate::git::worktree_base(&root, &crate::git::worktree_dir(&self.data_dir));
         let dest = base.join(id).join(repo_name);
         if matches!(start, Start::Pr { worktree: true, .. } | Start::Branch { worktree: true, .. })
-            && let Err(e) = crate::workspace::exclude_in_repo(&root, &base).await
+            && let Err(e) = crate::git::exclude_in_repo(&root, &base).await
         {
             tracing::warn!("could not exclude {} from git: {e:#}", base.display());
         }
@@ -84,19 +84,19 @@ impl Harness {
                 if let Some(parent) = dest.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                crate::workspace::git(&root, &["worktree", "add", "--detach", &dest.display().to_string()]).await?;
+                crate::git::git(&root, &["worktree", "add", "--detach", &dest.display().to_string()]).await?;
                 let fallback = format!("harness/pr-{}-{short}", pr.number);
                 let branch = match crate::github::checkout_pr(&dest, pr.number, &fallback).await {
                     Ok(b) => b,
                     Err(e) => {
-                        let _ = crate::workspace::git(&root, &["worktree", "remove", "--force", &dest.display().to_string()]).await;
+                        let _ = crate::git::git(&root, &["worktree", "remove", "--force", &dest.display().to_string()]).await;
                         return Err(e);
                     }
                 };
                 Ok(in_worktree(WorktreeMeta { repo_root: root, path: dest.clone(), branch, base: pr.base }, Some(pr.number)))
             }
             Start::Pr { pr, worktree: false } => {
-                if crate::workspace::is_dirty(&root).await? {
+                if crate::git::is_dirty(&root).await? {
                     return Err(crate::error::conflict("the folder has uncommitted changes; commit or stash them, or use a Worktree"));
                 }
                 crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
@@ -106,16 +106,16 @@ impl Harness {
                 ))
             }
             Start::Branch { base, new_branch, worktree: true } => {
-                let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
+                let wt = crate::git::create_worktree(&root, base, new_branch, &dest, &crate::git::slug(title), short).await?;
                 Ok(in_worktree(wt, None))
             }
             Start::Branch { base, new_branch, worktree: false } => {
                 if let Some(nb) = new_branch {
-                    crate::workspace::create_branch(&root, &nb, base.as_deref()).await?;
+                    crate::git::create_branch(&root, &nb, base.as_deref()).await?;
                 } else if let Some(b) = base
-                    && crate::workspace::current_branch(&root).await?.as_deref() != Some(b.as_str())
+                    && crate::git::current_branch(&root).await?.as_deref() != Some(b.as_str())
                 {
-                    crate::workspace::checkout(&root, &b).await?;
+                    crate::git::checkout(&root, &b).await?;
                 }
                 Ok((folder.display().to_string(), WorkspaceMeta { repo_root, worktree: None, base: None, pr: None, branch_pr: None, pr_status: None }))
             }

@@ -87,7 +87,7 @@ impl Library {
         }
         let is_new = server.id.is_empty();
         if is_new {
-            server.id = crate::workspace::slug(&server.name);
+            server.id = crate::git::slug(&server.name);
         }
         if server.id == "harness" {
             return Err(crate::error::invalid("\"harness\" is reserved for the Harness MCP"));

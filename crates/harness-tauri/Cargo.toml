@@ -28,7 +28,7 @@ specta.workspace = true
 specta-typescript.workspace = true
 specta-serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["signal", "time"] }
+tokio = { workspace = true, features = ["signal"] }
 parking_lot.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -41,7 +41,7 @@ tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-# The Quick overlay as a non-activating NSPanel (`overlay.rs`). Pinned: v2.1 branch.
+# The Quick overlay as a non-activating NSPanel (`overlay/panel.rs`). Pinned: v2.1 branch.
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "3ffa93ed14e0f8e857e43619b4157f2a685d35a4" }
 
 # Not the workspace lints: the macOS window code needs `unsafe` (objc2).

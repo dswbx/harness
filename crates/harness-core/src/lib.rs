@@ -13,9 +13,8 @@ mod env;
 pub mod error;
 mod frontend_files;
 mod fsutil;
-mod git;
+pub mod git;
 mod github;
-mod github_refs;
 mod harness_context;
 pub mod host;
 mod http;
@@ -36,6 +35,5 @@ pub mod terminal;
 mod tool_facts;
 pub mod toolchain;
 mod transcript;
-pub mod workspace;
 
 pub use host::Harness;

@@ -7,9 +7,9 @@
 //! - 2, Automation (macOS asks once per target app): a small AppleScript per known app (`Adapter`):
 //!   the browser tab's URL and title, Finder's folder and selection, iTerm2's folder.
 //!
-//! `overlay.rs` polls levels 0 and 1 while the overlay is open and runs level 2 on a change.
+//! `overlay/poll.rs` polls levels 0 and 1 while the overlay is open and runs level 2 on a change.
 //! The pure parts (adapters, output parsing, file URLs, change detection) are tested here; the page formats the chip
-//! and the prompt line (`app/src/windowContext.ts`). Other platforms have no context.
+//! and the prompt line (`app/src/overlay/windowContext.ts`). Other platforms have no context.
 
 use serde::Serialize;
 

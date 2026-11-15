@@ -26,7 +26,7 @@ pub struct Shared {
     /// Optional overrides of the `<harness_context>` texts (`harness.md`, `<frontend id>.md`).
     pub prompts_dir: PathBuf,
     /// PR lookups and the Sessions' GitHub repos, shared by all Sessions.
-    pub pr_refs: crate::github_refs::PrRefs,
+    pub pr_refs: crate::github::PrRefs,
     /// Shared Artifacts (ADR 0024), in `<data dir>/shared/`.
     pub artifacts: crate::shared::SharedArtifacts,
     /// The Harness, so the Harness MCP can start and reach Sub Sessions. Set once it exists.
