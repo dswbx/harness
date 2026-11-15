@@ -69,7 +69,7 @@ export function TaskListCard({ entries, className }: { entries: Entry[]; classNa
          >
             <ChevronUp className="size-3.5" />
          </button>
-         <ul className="space-y-2">
+         <ul className="space-y-1">
             {entries.map((t, i) => (
                <li
                   key={i}
