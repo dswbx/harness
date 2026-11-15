@@ -180,7 +180,7 @@ impl Agents {
         if refresh || !cache.exists() {
             let tmp = cache.with_extension("json.tmp");
             let url = &self.registry_url;
-            crate::http::download(url, &tmp, &self.http_opts().max_bytes(32 << 20))
+            crate::http::download(url, &tmp, &crate::http::Opts::index().insecure(!url.starts_with("https://")))
                 .await
                 .map_err(|e| crate::error::from_http(&e, format!("download {url}: {e}")))?;
             std::fs::rename(&tmp, &cache)?;

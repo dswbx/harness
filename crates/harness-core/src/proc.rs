@@ -1,6 +1,6 @@
 //! The one way the core runs an external program to completion (git, gh, tar, lsof, npm, ...).
-//! Every call has a timeout, kills the child and its process group on timeout or drop, reads no
-//! stdin unless given some, and caps what it captures. Agent processes, the Terminal PTY and the
+//! Every call has a timeout, stops the child and its process group on timeout (SIGTERM, then SIGKILL
+//! after a short grace) or drop (SIGKILL), reads no stdin unless given some, and caps what it captures. Agent processes, the Terminal PTY and the
 //! MCP shim are not run through here.
 
 use std::ffi::{OsStr, OsString};
@@ -27,6 +27,11 @@ pub const INSTALL: Duration = Duration::from_secs(900);
 const MAX_OUTPUT: usize = 128 * 1024 * 1024;
 /// stderr is only ever shown in error messages: always truncated, never an error.
 const MAX_STDERR: usize = 1024 * 1024;
+/// How much of stderr a timeout error carries (the end: what it was doing when it hung).
+const STDERR_TAIL: usize = 2048;
+/// After SIGTERM on a timeout, how long the child gets to clean up (git removes its lock files)
+/// before SIGKILL.
+const TERM_GRACE: Duration = Duration::from_secs(2);
 
 /// What to run and how. `Opts::new(timeout)` then the builder methods.
 #[derive(Debug, Clone)]
@@ -36,13 +41,14 @@ pub struct Opts {
     env: Vec<(OsString, OsString)>,
     input: Option<Vec<u8>>,
     timeout: Duration,
+    term_grace: Duration,
     max_output: usize,
     truncate: bool,
 }
 
 impl Opts {
     pub fn new(timeout: Duration) -> Self {
-        Self { args: vec![], cwd: None, env: vec![], input: None, timeout, max_output: MAX_OUTPUT, truncate: false }
+        Self { args: vec![], cwd: None, env: vec![], input: None, timeout, term_grace: TERM_GRACE, max_output: MAX_OUTPUT, truncate: false }
     }
     pub fn arg(mut self, a: impl AsRef<OsStr>) -> Self {
         self.args.push(a.as_ref().to_owned());
@@ -68,6 +74,12 @@ impl Opts {
     #[cfg_attr(not(test), expect(dead_code, reason = "no caller feeds stdin yet"))]
     pub fn input(mut self, bytes: Vec<u8>) -> Self {
         self.input = Some(bytes);
+        self
+    }
+    /// How long a child may take to exit after SIGTERM on a timeout before it gets SIGKILL.
+    #[cfg_attr(not(test), expect(dead_code, reason = "only tests shorten the grace"))]
+    pub fn term_grace(mut self, d: Duration) -> Self {
+        self.term_grace = d;
         self
     }
     /// stdout limit in bytes; more than this is `ProcError::TooLarge` unless `truncate`.
@@ -107,17 +119,32 @@ impl Output {
 /// Why a run did not produce an `Output`. A non-zero exit is not an error here: see `Output::status`.
 #[derive(Debug)]
 pub enum ProcError {
-    Spawn { program: String, source: std::io::Error },
-    Timeout { program: String, after: Duration },
-    TooLarge { program: String, limit: usize },
-    Io { program: String, source: std::io::Error },
+    Spawn {
+        program: String,
+        source: std::io::Error,
+    },
+    /// `stderr_tail`: the end of what the program printed to stderr before it was stopped.
+    Timeout {
+        program: String,
+        after: Duration,
+        stderr_tail: String,
+    },
+    TooLarge {
+        program: String,
+        limit: usize,
+    },
+    Io {
+        program: String,
+        source: std::io::Error,
+    },
 }
 
 impl std::fmt::Display for ProcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Spawn { program, source } => write!(f, "could not run {program}: {source}"),
-            Self::Timeout { program, after } => write!(f, "{program} timed out after {}s", after.as_secs()),
+            Self::Timeout { program, after, stderr_tail } if stderr_tail.is_empty() => write!(f, "{program} timed out after {}s", after.as_secs()),
+            Self::Timeout { program, after, stderr_tail } => write!(f, "{program} timed out after {}s, last output:\n{stderr_tail}", after.as_secs()),
             Self::TooLarge { program, limit } => write!(f, "{program} printed more than {limit} bytes"),
             Self::Io { program, source } => write!(f, "{program}: {source}"),
         }
@@ -130,12 +157,28 @@ impl std::error::Error for ProcError {}
 struct GroupGuard(Option<i32>);
 
 impl GroupGuard {
+    /// Asks the group to stop and keeps the guard armed for the SIGKILL that follows.
+    fn term(&self) {
+        if let Some(pgid) = self.0 {
+            // The group we created with `process_group(0)` (pgid is the child's pid); already gone is fine.
+            let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pgid), nix::sys::signal::Signal::SIGTERM);
+        }
+    }
     fn kill(&mut self) {
         if let Some(pgid) = self.0.take() {
-            // The group we created with `process_group(0)`; already gone is fine.
             let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pgid), nix::sys::signal::Signal::SIGKILL);
         }
     }
+}
+
+/// The last `STDERR_TAIL` bytes of `err` as trimmed text.
+fn tail(err: &[u8]) -> String {
+    let mut from = err.len().saturating_sub(STDERR_TAIL);
+    // Not in the middle of a UTF-8 sequence: skip its continuation bytes.
+    while from < err.len() && err[from] & 0xC0 == 0x80 {
+        from += 1;
+    }
+    String::from_utf8_lossy(&err[from..]).trim().to_owned()
 }
 
 impl Drop for GroupGuard {
@@ -226,7 +269,15 @@ pub async fn run(program: impl AsRef<OsStr>, opts: Opts) -> Result<Output, ProcE
         };
         Ok::<_, Stop>(status.map_err(|_| Stop::TooLarge).ok())
     };
-    let result = tokio::time::timeout(opts.timeout, work).await;
+    let mut work = Box::pin(work);
+    let result = tokio::time::timeout(opts.timeout, &mut work).await;
+    if result.is_err() {
+        // Let it clean up (git's lock files) before the kill. Keep draining the pipes meanwhile: a
+        // child that prints while stopping must not get SIGPIPE.
+        guard.term();
+        let _ = tokio::time::timeout(opts.term_grace, &mut work).await;
+    }
+    drop(work);
     match result {
         Ok(Ok(Some(status))) => {
             guard.0 = None;
@@ -242,9 +293,13 @@ pub async fn run(program: impl AsRef<OsStr>, opts: Opts) -> Result<Output, ProcE
             Err(ProcError::TooLarge { program: label(), limit: opts.max_output })
         }
         Err(_) => {
+            // The kill also sweeps what ignored SIGTERM. Safe even if the leader was reaped in the
+            // grace: while any member lives the group id cannot be reused, and with none left the
+            // call fails with ESRCH (a reuse of that exact id as a new group within microseconds is
+            // the only, negligible, gap).
             guard.kill();
             let _ = child.wait().await;
-            Err(ProcError::Timeout { program: label(), after: opts.timeout })
+            Err(ProcError::Timeout { program: label(), after: opts.timeout, stderr_tail: tail(&err.buf) })
         }
     }
 }
@@ -294,6 +349,58 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("grandchild {pid} survived the timeout");
+    }
+
+    #[tokio::test]
+    async fn timeout_sends_sigterm_first_so_the_child_can_clean_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("cleaned");
+        // Traps TERM, "removes its lock", exits; a plain SIGKILL would leave no marker.
+        let script = format!("trap 'echo done > \"{}\"; exit 0' TERM; echo started >&2; while :; do sleep 0.1; done", marker.display());
+        let err = run("sh", sh(&script, Opts::new(Duration::from_millis(500)).term_grace(Duration::from_secs(5)))).await.unwrap_err();
+        assert!(matches!(err, ProcError::Timeout { .. }), "{err}");
+        assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "done");
+    }
+
+    #[test]
+    fn the_stderr_tail_starts_on_a_char_boundary() {
+        // 3-byte chars: a cut at STDERR_TAIL bytes from the end lands inside one.
+        let err = "\u{20ac}".repeat(1000).into_bytes();
+        let t = tail(&err);
+        assert!(!t.contains('\u{fffd}') && t.chars().all(|c| c == '\u{20ac}'), "{t:?}");
+        assert!(t.len() <= STDERR_TAIL);
+    }
+
+    #[tokio::test]
+    async fn a_child_that_ignores_sigterm_is_killed_after_the_grace() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let script = format!("trap '' TERM; (trap '' TERM; sleep 30) & echo $! > '{}'; while :; do sleep 0.1; done", pidfile.display());
+        let started = std::time::Instant::now();
+        let err = run("sh", sh(&script, Opts::new(Duration::from_millis(500)).term_grace(Duration::from_millis(300)))).await.unwrap_err();
+        assert!(matches!(err, ProcError::Timeout { .. }), "{err}");
+        assert!(started.elapsed() >= Duration::from_millis(750) && started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        let pid: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+        for _ in 0..50 {
+            if !alive(pid) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("grandchild {pid} survived the kill");
+    }
+
+    #[tokio::test]
+    async fn timeout_error_carries_the_stderr_tail() {
+        let script = "i=0; while [ $i -lt 400 ]; do echo \"line $i\" >&2; i=$((i+1)); done; echo hanging-step >&2; sleep 30";
+        let err = run("sh", sh(script, Opts::new(Duration::from_millis(800)).term_grace(Duration::from_millis(200)))).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("timed out") && msg.ends_with("hanging-step"), "{msg}");
+        assert!(msg.contains("line 399") && !msg.contains("line 0\n"), "{msg}");
+        assert!(msg.len() < STDERR_TAIL + 100, "{}", msg.len());
+        assert!(!msg.contains('\u{fffd}'), "{msg}");
+        let quiet = run("sh", sh("sleep 30", Opts::new(Duration::from_millis(300)).term_grace(Duration::from_millis(100)))).await.unwrap_err();
+        assert!(!quiet.to_string().contains("last output"), "{quiet}");
     }
 
     #[tokio::test]

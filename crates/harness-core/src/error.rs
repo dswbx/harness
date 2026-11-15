@@ -103,7 +103,7 @@ mod tests {
     fn timeouts_and_network_failures_keep_a_code_other_failures_stay_plain() {
         use crate::http::Error as Http;
         let code = |e: anyhow::Error| HarnessError::from(e).code;
-        let proc_timeout = crate::proc::ProcError::Timeout { program: "git".into(), after: std::time::Duration::from_secs(1) };
+        let proc_timeout = crate::proc::ProcError::Timeout { program: "git".into(), after: std::time::Duration::from_secs(1), stderr_tail: String::new() };
         let proc_spawn = crate::proc::ProcError::Spawn { program: "git".into(), source: std::io::Error::other("x") };
         assert_eq!([code(from_proc(&proc_timeout, "m")), code(from_proc(&proc_spawn, "m"))], [ErrorCode::Timeout, ErrorCode::Internal]);
         let http = |e: Http| code(from_http(&e, "m"));

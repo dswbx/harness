@@ -11,6 +11,6 @@ pub(crate) use diff::default_branch;
 pub use diff::{commit, diff, diff_base, list_branches, log, push, show_file, snapshot, status};
 pub use parse::slug;
 pub use worktree::{
-    DEFAULT_WORKTREE_DIR, WorktreeMeta, checkout, create_branch, create_worktree, delete_branch, exclude_in_repo, is_dirty, remove_worktree, restore_worktree,
-    set_worktree_dir, unmerged_count, update_branch, wip_commit, worktree_base, worktree_dir,
+    BaseFetches, DEFAULT_WORKTREE_DIR, WorktreeMeta, checkout, create_branch, create_worktree, delete_branch, exclude_in_repo, is_dirty, remove_worktree,
+    restore_worktree, set_worktree_dir, unmerged_count, update_branch, wip_commit, worktree_base, worktree_dir,
 };
