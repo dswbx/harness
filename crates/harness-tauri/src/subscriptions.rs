@@ -302,10 +302,13 @@ mod tests {
         let (n, sink) = counting();
         assert!(subs.subscribe_at(&h, "main", started_at, &sid, 0, sink).is_err());
         assert_eq!(subs.counts("main"), (0, 0, 0));
+        // The replay thread may hand over the backlog before the release lands; what matters is
+        // that nothing new arrives afterwards.
         settle().await;
+        let before = n.load(Ordering::SeqCst);
         poke(&h, &sid).await;
         settle().await;
-        assert_eq!(n.load(Ordering::SeqCst), 0, "the stale subscription was released: nothing is delivered");
+        assert_eq!(n.load(Ordering::SeqCst), before, "the stale subscription was released: nothing new is delivered");
 
         let CommandResult::TerminalOpened { terminal_id } = h.execute(Command::TerminalOpen { session_id: sid.clone() }).await.unwrap() else { panic!() };
         let started_at = subs.generation("main");

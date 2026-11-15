@@ -433,6 +433,10 @@ struct HealthState {
     closed: bool,
     hook: Option<HealthHook>,
     notify: Option<Sender<LogHealth>>,
+    /// Set by `close`: the hook thread drops what it has not delivered yet.
+    stop: Arc<AtomicBool>,
+    /// Disconnects when the hook thread ends.
+    hook_done: Option<Receiver<()>>,
     /// Tests: every write and probe fails.
     #[cfg(test)]
     inject: bool,
@@ -478,8 +482,19 @@ impl Health {
         h.send(LogHealth::Recovered { dropped });
     }
 
+    /// Stops reporting: a change not delivered yet is dropped, and one being delivered gets a
+    /// short bound to finish (a hook that blocks must not stall the close).
     fn close(&self) {
-        self.0.lock().closed = true;
+        let done = {
+            let mut h = self.0.lock();
+            h.closed = true;
+            h.stop.store(true, Ordering::SeqCst);
+            h.notify = None;
+            h.hook_done.take()
+        };
+        if let Some(done) = done {
+            let _ = done.recv_timeout(Duration::from_millis(200));
+        }
     }
 
     /// Sets the hook, and tells it right away when the log is already degraded.
@@ -509,8 +524,14 @@ impl HealthState {
         let Some(hook) = self.hook.clone() else { return };
         if self.notify.is_none() {
             let (t, rx) = mpsc::channel::<LogHealth>();
+            let (done_tx, done_rx) = mpsc::channel::<()>();
+            let stop = self.stop.clone();
             let spawned = std::thread::Builder::new().name("session-log-health".into()).spawn(move || {
+                let _done = done_tx;
                 for change in rx {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
                     hook(&change);
                 }
             });
@@ -518,6 +539,7 @@ impl HealthState {
                 return;
             }
             self.notify = Some(t);
+            self.hook_done = Some(done_rx);
         }
         if let Some(t) = &self.notify {
             let _ = t.send(change);
@@ -2112,6 +2134,21 @@ mod tests {
         log.close();
         log.inject_write_failure(false);
         assert_eq!(hooks.lock().len(), 1);
+    }
+
+    #[test]
+    fn nothing_is_reported_after_close_returns() {
+        let dir = tempfile::tempdir().unwrap();
+        for _ in 0..20 {
+            let log = open_in(dir.path());
+            let hooks = health_hook(&log);
+            log.inject_write_failure(true);
+            log.append(None, err("a")).unwrap();
+            log.close();
+            let at_close = hooks.lock().len();
+            std::thread::sleep(Duration::from_millis(20));
+            assert_eq!(hooks.lock().len(), at_close, "the hook thread emitted after close");
+        }
     }
 
     #[test]
