@@ -1,5 +1,5 @@
 //! `<harness_context>`: what the Agent should know about the Harness hosting it. Sent as a text
-//! block after the user's text (and attachments) on the first prompt of each Agent Session, the way agent apps send
+//! block before the user's text on the first prompt of each Agent Session, the way agent apps send
 //! their own instruction files. The texts are plain files: `prompts/harness.md` (built in) and the
 //! Frontend's `instructions.md` (in its manifest). `<data dir>/prompts/harness.md` and
 //! `<data dir>/prompts/<frontend id>.md` override them without a rebuild.

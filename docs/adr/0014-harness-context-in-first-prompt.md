@@ -2,7 +2,7 @@
 
 The Agent needs to know about the Harness hosting it: its MCP tools, worktrees, the Frontend's tools (when to use `render_ui`), and facts about the Session. Tool descriptions only explain each tool on its own.
 
-**Decision:** the core sends a `<harness_context>` text block after the user's text (and attachments), on the first prompt of each Agent Session (a new Session, a new Thread, and after "continue with a summary"). Not on resume or load: the Agent already has it.
+**Decision:** the core sends a `<harness_context>` text block before the user's text, on the first prompt of each Agent Session (a new Session, a new Thread, and after "continue with a summary"). Not on resume or load: the Agent already has it.
 
 **Why the first prompt:** ACP has no standard system prompt field. Agent apps already send their instruction files as tagged blocks in user turns (Claude Code: CLAUDE.md in `<system-reminder>`; Codex: AGENTS.md in `<user_instructions>`), and models are trained to read them as context. MCP server `instructions` are not shown with the same weight by every Agent. Agent-specific system prompt fields would be Agent-specific code (ADR 0008).
 
@@ -13,5 +13,3 @@ The Agent needs to know about the Harness hosting it: its MCP tools, worktrees, 
 **Transparency:** `TurnStarted.context` records the exact block sent; the chat shows it on request ("Harness context" under the message).
 
 **Known risk:** when an Agent compacts its context, it may summarize or drop the block, and ACP has no standard signal for compaction. Keep the texts short and important; add a reminder in a later Turn if Agents forget it.
-
-**Addendum (2026-11-15): after the user's text, not before.** Agents name a Session from the start of its first prompt (codex-acp: the prompt's text, cut at 4000 chars, sent to a title model). With the ~10k-char block first, Codex showed `<harness_context> You run inside Harness…` as the title, then a made-up one. Seeds (`<context>`) still come before the user's text.

@@ -435,14 +435,13 @@ async fn main() -> agent_client_protocol::Result<()> {
                         })
                         .collect::<Vec<_>>()
                         .join(" ");
-                    // The user's own text: the last text block besides `<harness_context>` (seeds and
-                    // excerpts come before it).
+                    // The user's own text: the last text block (seeds and excerpts come before it).
                     let command = req
                         .prompt
                         .iter()
                         .rev()
                         .find_map(|b| match b {
-                            ContentBlock::Text(t) if !t.text.starts_with("<harness_context>") => Some(t.text.clone()),
+                            ContentBlock::Text(t) => Some(t.text.clone()),
                             _ => None,
                         })
                         .unwrap_or_default();

@@ -42,8 +42,9 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
     }
 }
 
-/// An Agent title cut where the Harness's own `<harness_context>` starts: an Agent may name a
-/// Session after the first prompt's text, and that block follows the user's text.
+/// An Agent title cut where the Harness's own `<harness_context>` starts. An Agent may name a
+/// Session after the first prompt's text, which starts with that block (codex-acp's preview
+/// title): the cut leaves it empty, and an empty title is ignored.
 fn without_context(title: &str) -> String {
     title.split("<harness_context>").next().unwrap_or_default().trim_end().to_owned()
 }

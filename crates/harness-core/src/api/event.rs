@@ -87,7 +87,7 @@ pub enum EventKind {
         text: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<Attachment>,
-        /// The `<harness_context>` block sent after `text`, on the first prompt of an Agent Session.
+        /// The `<harness_context>` block sent before `text`, on the first prompt of an Agent Session.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<String>,
         /// Set when another Session's Agent sent the prompt, not the user.
