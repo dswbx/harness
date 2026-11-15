@@ -1,5 +1,5 @@
-import { cn } from "@harness/ui";
-import { CheckCircle2, CircleDashed, Loader2 } from "lucide-react";
+import { cn, Spinner } from "@harness/ui";
+import { CheckCircle2, CircleDashed } from "lucide-react";
 import type { ChatState } from "../../state/reducer";
 
 /** The Agent's task list, above the messages. */
@@ -23,7 +23,7 @@ export function TaskListPanel({ entries }: { entries: ChatState["taskList"] }) {
                   {t.status === "completed" ? (
                      <CheckCircle2 className="size-3.5 text-emerald-500" />
                   ) : t.status === "in_progress" ? (
-                     <Loader2 className="size-3.5 animate-spin" />
+                     <Spinner className="size-3.5" />
                   ) : (
                      <CircleDashed className="size-3.5 text-muted-foreground" />
                   )}

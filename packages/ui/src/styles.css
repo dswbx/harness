@@ -330,6 +330,12 @@
    background-color: color-mix(in oklch, Highlight 70%, transparent);
 }
 
+/* Spinning icons: own compositing layer, so WebKit rotates one bitmap instead of repainting the SVG snapped to pixels each frame (wobble). */
+.animate-spin {
+   will-change: transform;
+   backface-visibility: hidden;
+}
+
 /* WorkingLoader: 4 squares (box-shadows) of a 2x2 grid, 35 units wide; --size scales it to 16px. a/b = -/+ offset. */
 .working-loader {
    --size: calc(10px / 40);

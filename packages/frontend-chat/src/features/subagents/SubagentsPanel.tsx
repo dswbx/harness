@@ -1,6 +1,6 @@
 import type { SubagentRow } from "@harness/api";
-import { ScrollArea } from "@harness/ui";
-import { Check, Loader2, X } from "lucide-react";
+import { ScrollArea, Spinner } from "@harness/ui";
+import { Check, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { formatDuration } from "../../lib/time";
 import { PanelHeader } from "../../panels/PanelHeader";
@@ -64,10 +64,7 @@ function Row({ r, now, onOpen }: { r: SubagentRow; now: number; onOpen: () => vo
       >
          <span className="grid h-5 shrink-0 place-items-center">
             {r.state === "running" ? (
-               <Loader2
-                  className="size-3.5 animate-spin text-muted-foreground"
-                  aria-label="running"
-               />
+               <Spinner className="size-3.5 text-muted-foreground" aria-label="running" />
             ) : r.state === "failed" ? (
                <X className="size-3.5 text-destructive" aria-label="failed" />
             ) : (

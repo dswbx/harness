@@ -1,6 +1,6 @@
 import { openExternalLink } from "@harness/api";
-import { Button } from "@harness/ui";
-import { ArrowUpRight, Check, Loader2, RefreshCw } from "lucide-react";
+import { Button, Spinner } from "@harness/ui";
+import { ArrowUpRight, Check, RefreshCw } from "lucide-react";
 import { releaseUrl, type useUpdate } from "./updates";
 
 const link =
@@ -66,7 +66,7 @@ export function UpdateFooter({
             <>
                <div className="flex items-center gap-2">
                   {restarting ? (
-                     <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                     <Spinner className="size-3.5 text-muted-foreground" />
                   ) : (
                      <Check className="size-3.5 text-green-400" />
                   )}
