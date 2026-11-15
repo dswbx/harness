@@ -87,22 +87,29 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     };
 
     if let Some(option_id) = auto {
-        let _ =
-            session.log().append(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
-        let _ = session.log().append(
+        session
+            .log()
+            .append_or_report(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
+        session.log().append_or_report(
             thread.clone(),
             EventKind::PermissionResolved { request_id, option_id: Some(option_id.clone()), by: Resolver::Policy, rule_id: verdict.rule_id },
         );
-        let _ = session.log().sync();
-        let _ = responder.respond(acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id))));
+        // The Agent is answered only once the pair is durable.
+        let session = session.clone();
+        tokio::spawn(async move {
+            session.sync_log().await;
+            let _ =
+                responder.respond(acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id))));
+        });
         return;
     }
     let pending = Pending { thread: thread.clone(), responder: Answer::Acp(responder), options: options.clone(), facts };
     slot.add_pending(session, request_id.clone(), pending, || {
         let requested = permission_requested(session, thread.as_ref(), request_id, tool_call, options, harness_tool);
-        let _ = session.log().append(thread, requested);
+        session.log().append_or_report(thread, requested);
     });
-    let _ = session.log().sync();
+    // Not awaited: the user's answer syncs again (`resolve_permission`) before the Agent hears it.
+    session.sync_log_detached();
 }
 
 /// Checks a Harness MCP tool call against the Permission Policy, asking the user when the Policy
@@ -174,6 +181,7 @@ pub async fn authorize_at(
             Some(thread.clone()),
             EventKind::PermissionResolved { request_id, option_id: Some("allow".into()), by: Resolver::Policy, rule_id: verdict.rule_id },
         )?;
+        session.sync_log().await;
         return Ok(());
     }
     if verdict.decision == Decision::Deny {
@@ -182,16 +190,21 @@ pub async fn authorize_at(
             Some(thread.clone()),
             EventKind::PermissionResolved { request_id, option_id: Some("reject".into()), by: Resolver::Policy, rule_id: verdict.rule_id },
         )?;
+        session.sync_log().await;
         anyhow::bail!("denied by the Harness Permission Policy");
     }
     let (tx, rx) = oneshot::channel();
     let pending = Pending { thread: Some(thread.clone()), responder: Answer::Local(tx), options, facts };
     let mut logged = Ok(());
-    session.agent_slot().add_pending(session, request_id, pending, || {
+    session.agent_slot().add_pending(session, request_id.clone(), pending, || {
         logged = session.log().append(Some(thread.clone()), requested).map(drop);
     });
-    logged?;
-    session.log().sync()?;
+    if let Err(e) = logged {
+        // Not asked, so nothing may stay pending for it.
+        session.agent_slot().remove_pending(session, &request_id);
+        return Err(e);
+    }
+    session.sync_log().await;
     match rx.await {
         Ok(Some(o)) if o != "reject" => Ok(()),
         Ok(Some(_)) => anyhow::bail!("the user denied this"),

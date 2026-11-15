@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -134,11 +135,46 @@ impl SessionMeta {
     }
 }
 
+/// Writes `session.json`. The bytes are made under the `meta` lock (`snapshot`, which numbers
+/// them), the fsynced write happens outside it (`write`): every streamed notification reads `meta`.
+/// A version no newer than what is on disk is skipped, so an older snapshot never lands last.
+pub(super) struct MetaDisk {
+    path: PathBuf,
+    version: AtomicU64,
+    written: parking_lot::Mutex<u64>,
+}
+
+impl MetaDisk {
+    pub(super) fn new(dir: &Path) -> Self {
+        Self { path: dir.join("session.json"), version: AtomicU64::new(0), written: parking_lot::Mutex::new(0) }
+    }
+
+    /// Call with the `meta` lock held.
+    pub(super) fn snapshot(&self, meta: &SessionMeta) -> anyhow::Result<(Vec<u8>, u64)> {
+        let version = self.version.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok((serde_json::to_vec_pretty(meta)?, version))
+    }
+
+    /// Call without the `meta` lock.
+    pub(super) fn write(&self, bytes: &[u8], version: u64) -> anyhow::Result<()> {
+        let mut written = self.written.lock();
+        if *written < version {
+            crate::fsutil::write_atomic(&self.path, bytes)?;
+            *written = version;
+        }
+        Ok(())
+    }
+}
+
 impl Session {
     pub fn update_meta<R>(&self, f: impl FnOnce(&mut SessionMeta) -> R) -> anyhow::Result<R> {
-        let mut meta = self.meta.lock();
-        let r = f(&mut meta);
-        write_meta(&self.dir, &meta)?;
+        let (r, bytes, version) = {
+            let mut meta = self.meta.lock();
+            let r = f(&mut meta);
+            let (bytes, version) = self.meta_disk.snapshot(&meta)?;
+            (r, bytes, version)
+        };
+        self.meta_disk.write(&bytes, version)?;
         Ok(r)
     }
 }
@@ -172,5 +208,38 @@ mod meta_tests {
         let back: SessionMeta = serde_json::from_slice(&std::fs::read(d.path().join("session.json")).unwrap()).unwrap();
         assert_eq!((back.id, back.title), ("s".to_owned(), "T".to_owned()));
         assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
+    }
+
+    /// Updates race: each takes its snapshot under the lock and writes outside it. The newest
+    /// snapshot is what stays on disk, whatever order the writes happen in.
+    #[test]
+    fn concurrent_meta_writes_end_with_the_newest_snapshot() {
+        use std::sync::Arc;
+        let old = r#"{"id":"s","title":"0","folder":"/f","agent":{"id":"a","name":"A","command":"a","args":[],"env":{}},"frontend_id":"chat","created_ms":1,"main_thread_id":"m"}"#;
+        let dir = tempfile::tempdir().unwrap();
+        let disk = Arc::new(MetaDisk::new(dir.path()));
+        let meta = Arc::new(parking_lot::Mutex::new(serde_json::from_str::<SessionMeta>(old).unwrap()));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let (disk, meta) = (disk.clone(), meta.clone());
+                std::thread::spawn(move || {
+                    for _ in 0..40 {
+                        let (bytes, version) = {
+                            let mut m = meta.lock();
+                            m.title = (m.title.parse::<u32>().unwrap() + 1).to_string();
+                            disk.snapshot(&m).unwrap()
+                        };
+                        std::thread::yield_now();
+                        disk.write(&bytes, version).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let stored: SessionMeta = serde_json::from_slice(&std::fs::read(dir.path().join("session.json")).unwrap()).unwrap();
+        assert_eq!(stored.title, "320");
+        assert_eq!(meta.lock().title, "320");
     }
 }

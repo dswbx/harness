@@ -58,6 +58,9 @@ pub struct SessionSummary {
     /// A Sub Session: the Session whose Agent started it (`session_start`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<SessionParent>,
+    /// Why new Events are not being saved to the Session Log right now (disk full, no permission, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_error: Option<String>,
 }
 
 /// Where a Sub Session comes from: the Session, Thread and tool call that started it.

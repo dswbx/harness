@@ -208,6 +208,18 @@ export const promptHandlers = {
          });
          return { type: "Ok" };
       }
+      // Typing "/unsaved" simulates a Session Log that cannot be written; typing it again, that it can be again.
+      if (cmd.text.trim() === "/unsaved") {
+         const s = mock.session(sid);
+         s.log_error = s.log_error ? null : "No space left on device (os error 28)";
+         mock.emitApp({
+            type: "SessionLogHealth",
+            session_id: sid,
+            error: s.log_error,
+            dropped: s.log_error ? 0 : 3,
+         });
+         return { type: "Ok" };
+      }
       // Typing "/auth" simulates an Agent that needs sign-in.
       if (cmd.text.trim() === "/auth") {
          mock.emit(sid, {

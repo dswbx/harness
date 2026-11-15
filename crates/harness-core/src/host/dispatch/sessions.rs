@@ -158,14 +158,14 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
-    pub(in crate::host) fn cmd_resolve_permission(
+    pub(in crate::host) async fn cmd_resolve_permission(
         &self,
         session_id: SessionId,
         request_id: String,
         option_id: Option<String>,
         global: bool,
     ) -> anyhow::Result<CommandResult> {
-        self.session(&session_id)?.resolve_permission(&request_id, option_id, global)?;
+        self.session(&session_id)?.resolve_permission(&request_id, option_id, global).await?;
         Ok(CommandResult::Ok)
     }
 

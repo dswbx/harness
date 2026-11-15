@@ -38,6 +38,13 @@ pub struct Shared {
 }
 
 impl Shared {
+    /// Runs `f` on the MCP Library on the blocking pool: its secrets are in the Keychain, whose
+    /// calls can wait on the system (a prompt) and must not park a runtime thread.
+    pub async fn library_blocking<R: Send + 'static>(self: &Arc<Self>, f: impl FnOnce(&crate::library::Library) -> R + Send + 'static) -> anyhow::Result<R> {
+        let shared = self.clone();
+        tokio::task::spawn_blocking(move || f(&shared.library)).await.map_err(|e| anyhow::anyhow!("library task: {e}"))
+    }
+
     /// The Harness, while it lives.
     pub fn host(&self) -> anyhow::Result<Arc<crate::host::Harness>> {
         self.host.get().and_then(std::sync::Weak::upgrade).ok_or_else(|| anyhow::anyhow!("the Harness is shutting down"))

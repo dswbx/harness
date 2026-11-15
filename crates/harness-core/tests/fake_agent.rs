@@ -1571,3 +1571,67 @@ async fn usage_update_carries_typed_numbers() {
     });
     assert_eq!(usage, Some((Some(1200), Some(200000))));
 }
+
+// ---------- blocking work stays off the async workers ----------
+
+/// Views subscribe from other threads while Turns stream; each gets every `seq` from the one it
+/// asked for, exactly once and in order: no gap and no duplicate at the replay-to-live hand-over.
+async fn subscribers_during_turns(h: &Arc<Harness>, sid: &str, turns: usize) {
+    type Seqs = Arc<Mutex<Vec<u64>>>;
+    let views: Arc<Mutex<Vec<(u64, Seqs)>>> = Default::default();
+    let spawner = {
+        let (h, sid, views) = (h.clone(), sid.to_owned(), views.clone());
+        tokio::spawn(async move {
+            for i in 0..30u64 {
+                let seqs: Seqs = Default::default();
+                let (s, hh, id) = (seqs.clone(), h.clone(), sid.clone());
+                let from = if i % 3 == 0 { 0 } else { i / 2 };
+                tokio::task::spawn_blocking(move || {
+                    hh.subscribe_session(
+                        &id,
+                        from,
+                        Box::new(move |e: &Event| {
+                            s.lock().unwrap().push(e.seq);
+                            true
+                        }),
+                    )
+                    .unwrap()
+                })
+                .await
+                .unwrap();
+                views.lock().unwrap().push((from, seqs));
+                tokio::time::sleep(Duration::from_millis(7)).await;
+            }
+        })
+    };
+    for _ in 0..turns {
+        turn(h, sid, None, "use a tool").await;
+    }
+    spawner.await.unwrap();
+    let last = events(h, sid).last().unwrap().seq;
+    let views = views.lock().unwrap().clone();
+    for (from, view) in &views {
+        wait_until("a view to catch up", Duration::from_secs(10), || view.lock().unwrap().last() == Some(&last)).await;
+        let seqs = view.lock().unwrap().clone();
+        assert!(seqs.iter().copied().eq(*from..=last), "view from {from} saw {seqs:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscribing_during_streaming_turns_sees_every_seq_once() {
+    let (h, sid, _dir) = setup().await;
+    subscribers_during_turns(&h, &sid, 8).await;
+}
+
+/// The same on a Harness that was reopened: the log is not in memory yet, so the first subscribe
+/// parses it while the Turn streams.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscribing_to_an_unloaded_log_during_a_turn_sees_every_seq_once() {
+    let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    for _ in 0..2 {
+        turn(&h, &sid, None, "use a tool").await;
+    }
+    drop(h);
+    let reopened = harness(&dir.path().join("data"), &["--resume"], Duration::from_secs(900));
+    subscribers_during_turns(&reopened, &sid, 4).await;
+}

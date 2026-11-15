@@ -127,6 +127,26 @@ describe("turns", () => {
       expect(s.items.at(-1)).toMatchObject({ type: "notice", text: "Turn stopped: cancelled" });
    });
 
+   it("a log repaired after a kill mid-Turn shows no running Turn and no open permission", () => {
+      // What the core appends when it opens a log that ends mid-Turn with an unanswered request.
+      const s = fold([
+         started(),
+         ev({ type: "TurnStarted", turn_id: "t1", text: "hi" }),
+         ev({
+            type: "PermissionRequested",
+            request_id: "r1",
+            tool_call: { title: "Edit" },
+            options: [],
+         }),
+         ev({ type: "AgentProcessState", state: "stopped", message: "app_restart" }),
+         ev({ type: "PermissionResolved", request_id: "r1", option_id: null, by: "cancelled" }),
+         ev({ type: "TurnEnded", turn_id: "t1", stop_reason: "cancelled" }),
+      ]);
+      expect(s.turnId).toBeNull();
+      expect(s.turnStartedAt).toBeNull();
+      expect(s.items.find((i) => i.type === "permission")).toMatchObject({ resolved: true });
+   });
+
    it("end_turn adds no notice; thought and message chunks stay separate blocks", () => {
       const s = fold([
          started(),

@@ -1339,6 +1339,37 @@ async fn sub_session_start_send_and_wait() {
     assert!(foreign.contains("is not a Sub Session"), "{foreign}");
 }
 
+/// A Sub Session killed mid-Turn (its log ends open) is idle again after a restart, so its parent can send to it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sub_session_killed_mid_turn_can_be_sent_to_after_a_restart() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let data = dir.path().join("data");
+    let h = harness(&data, &["--resume"]);
+    let sid = create(&h, &repo, vec![]).await;
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child","notify":false}"#).await;
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    let evs = events(&h, &child);
+    let (seq, thread) = (evs.last().unwrap().seq, evs.iter().find_map(|e| e.thread_id.clone()).unwrap());
+    drop(h);
+    // The run died right after a Turn started: the log ends open.
+    let line = serde_json::json!({
+        "v": 1, "seq": seq + 1, "session_id": child, "thread_id": thread,
+        "ts_ms": 1, "kind": { "type": "TurnStarted", "turn_id": "killed", "text": "lost", "attachments": [] }
+    });
+    let mut f = std::fs::OpenOptions::new().append(true).open(data.join("sessions").join(&child).join("log.jsonl")).unwrap();
+    writeln!(f, "{line}").unwrap();
+    drop(f);
+
+    let h = harness(&data, &["--resume"]);
+    let sent = mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"history"}}"#)).await;
+    assert_eq!(sent["session_id"], child.as_str(), "{sent}");
+    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    assert_eq!(done["status"], "idle", "{done}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn sub_session_rules_cap_and_cascade() {
     let dir = tempfile::tempdir().unwrap();

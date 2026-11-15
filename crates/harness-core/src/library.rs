@@ -62,6 +62,8 @@ impl Secrets for MemorySecrets {
 pub struct Library {
     path: PathBuf,
     servers: RwLock<Vec<McpServerDef>>,
+    /// Serializes `save` and `remove`, so their Keychain calls need not run under `servers`.
+    edit: Mutex<()>,
     secrets: Box<dyn Secrets>,
 }
 
@@ -72,7 +74,7 @@ fn secret_key(server_id: &str, key: &str) -> String {
 impl Library {
     pub fn open(path: PathBuf, secrets: Box<dyn Secrets>) -> anyhow::Result<Self> {
         let servers = crate::persist::JsonFile::<Vec<McpServerDef>>::new(path.clone()).load_or_default()?;
-        Ok(Self { path, servers: RwLock::new(servers), secrets })
+        Ok(Self { path, servers: RwLock::new(servers), edit: Mutex::new(()), secrets })
     }
 
     pub fn list(&self) -> Vec<McpServerDef> {
@@ -90,8 +92,14 @@ impl Library {
         if server.id == "harness" {
             return Err(crate::error::invalid("\"harness\" is reserved for the Harness MCP"));
         }
-        let mut all = self.servers.write();
-        if is_new && all.iter().any(|s| s.id == server.id) {
+        let _edit = self.edit.lock();
+        // Keychain calls run before the `servers` lock is taken: readers never wait on them, and a
+        // failed call leaves the stored list as it was.
+        let (exists, old_keys) = {
+            let all = self.servers.read();
+            (all.iter().any(|s| s.id == server.id), all.iter().find(|s| s.id == server.id).map(|s| s.secret_keys.clone()))
+        };
+        if is_new && exists {
             return Err(crate::error::conflict(format!("an MCP server named {:?} already exists", server.name.trim())));
         }
         // Secret values never land in mcp.json.
@@ -105,11 +113,10 @@ impl Library {
             }
             self.secrets.set(&secret_key(&server.id, k), v)?;
         }
-        if let Some(old) = all.iter().find(|s| s.id == server.id) {
-            for k in old.secret_keys.iter().filter(|k| !server.secret_keys.contains(k)) {
-                self.secrets.delete(&secret_key(&server.id, k))?;
-            }
+        for k in old_keys.iter().flatten().filter(|k| !server.secret_keys.contains(k)) {
+            self.secrets.delete(&secret_key(&server.id, k))?;
         }
+        let mut all = self.servers.write();
         all.retain(|s| s.id != server.id);
         all.push(server.clone());
         self.write(&all)?;
@@ -117,13 +124,14 @@ impl Library {
     }
 
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
-        let mut all = self.servers.write();
-        let Some(server) = all.iter().find(|s| s.id == id).cloned() else {
+        let _edit = self.edit.lock();
+        let Some(server) = self.servers.read().iter().find(|s| s.id == id).cloned() else {
             return Err(crate::error::not_found(format!("unknown MCP server {id}")));
         };
         for k in &server.secret_keys {
             self.secrets.delete(&secret_key(id, k))?;
         }
+        let mut all = self.servers.write();
         all.retain(|s| s.id != id);
         self.write(&all)
     }

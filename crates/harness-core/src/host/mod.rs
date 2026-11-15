@@ -365,9 +365,9 @@ impl Harness {
                 self.cmd_continue_with_summary(session_id, thread_id, text, attachments).await
             }
             Command::StartSideThread { session_id, seed, source, mode } => self.cmd_start_side_thread(session_id, seed, source, mode).await,
-            Command::ListMcpServers => self.cmd_list_mcp_servers(),
-            Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets),
-            Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id),
+            Command::ListMcpServers => self.cmd_list_mcp_servers().await,
+            Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets).await,
+            Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id).await,
             Command::FrontendRead { session_id, path } => self.cmd_frontend_read(session_id, path),
             Command::PanelSourceRead { session_id, name } => self.cmd_panel_source_read(session_id, name).await,
             Command::GetAppSetting { key } => self.cmd_get_app_setting(key),
@@ -412,7 +412,9 @@ impl Harness {
             Command::GitShowFile { session_id, rev, path } => self.cmd_git_show_file(session_id, rev, path).await,
             Command::GitCommit { session_id, message } => self.cmd_git_commit(session_id, message).await,
             Command::GitPush { session_id } => self.cmd_git_push(session_id).await,
-            Command::ResolvePermission { session_id, request_id, option_id, global } => self.cmd_resolve_permission(session_id, request_id, option_id, global),
+            Command::ResolvePermission { session_id, request_id, option_id, global } => {
+                self.cmd_resolve_permission(session_id, request_id, option_id, global).await
+            }
             Command::ListPermissionRules => self.cmd_list_permission_rules(),
             Command::AddPermissionRule { rule } => self.cmd_add_permission_rule(rule),
             Command::RemovePermissionRule { rule_id } => self.cmd_remove_permission_rule(rule_id),
@@ -438,7 +440,7 @@ impl Harness {
 
     /// A snapshot of a Session's Events (no subscription, so it never counts as an open View).
     pub fn session_events(&self, session_id: &str) -> Result<Vec<Event>, String> {
-        self.session(session_id).map_err(|e| e.to_string())?.log().events().map_err(|e| format!("{e:#}"))
+        self.session(session_id).map_err(|e| e.to_string())?.log().events().map(|v| v.iter().map(|e| (**e).clone()).collect()).map_err(|e| format!("{e:#}"))
     }
 
     pub fn unsubscribe_session(&self, session_id: &str, sub: SubscriptionId) {

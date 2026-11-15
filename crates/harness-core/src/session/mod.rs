@@ -7,7 +7,11 @@ mod shared;
 mod workspace;
 
 #[cfg(test)]
-mod projection_tests;
+mod dangling_tests;
+#[cfg(test)]
+pub(crate) mod projection_tests;
+#[cfg(test)]
+mod scaling_tests;
 
 pub use crate::app_events::AppEvents;
 pub use frontend::{FrontendErrorEntry, FrontendItem, MAX_FRONTEND_ERROR_LEN, MAX_FRONTEND_ERRORS, RENDER_UI};
@@ -30,6 +34,8 @@ use workspace::shown_pr;
 pub struct Session {
     dir: PathBuf,
     meta: Arc<parking_lot::Mutex<SessionMeta>>,
+    /// Writes `session.json` for `meta`, outside its lock and in version order.
+    meta_disk: Arc<meta::MetaDisk>,
     log: SessionLog,
     agent: crate::acp::AgentSlot,
     jobs: crate::acp::JobWatchers,
@@ -91,6 +97,10 @@ impl Session {
     pub fn open(dir: &Path, shared: Arc<Shared>) -> anyhow::Result<Self> {
         let meta: SessionMeta = serde_json::from_slice(&std::fs::read(dir.join("session.json"))?)?;
         let log = SessionLog::open(meta.id.clone(), &dir.join("log.jsonl"))?;
+        if meta.archived {
+            // Archived: not written to, so what the last run left open stays as it was.
+            log.skip_repair();
+        }
         log.note_agent_gone()?;
         let session = Self::from_parts(dir, meta, log, shared);
         if !session.meta.lock().title_backfilled {
@@ -123,9 +133,18 @@ impl Session {
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
+        let (session_id, events) = (meta.id.clone(), shared.clone());
+        log.set_health_hook(move |change| {
+            let (error, dropped) = match change {
+                crate::log::LogHealth::Degraded(m) => (Some(m.clone()), 0),
+                crate::log::LogHealth::Recovered { dropped } => (None, *dropped),
+            };
+            events.app_events.emit(crate::api::AppEvent::SessionLogHealth { session_id: session_id.clone(), error, dropped });
+        });
         Self {
             dir: dir.to_owned(),
             meta: Arc::new(parking_lot::Mutex::new(meta)),
+            meta_disk: Arc::new(meta::MetaDisk::new(dir)),
             log,
             agent: Default::default(),
             jobs: Default::default(),
@@ -140,7 +159,7 @@ impl Session {
         &self.shared.policy
     }
 
-    pub fn shared(&self) -> &Shared {
+    pub fn shared(&self) -> &Arc<Shared> {
         &self.shared
     }
 
@@ -189,6 +208,25 @@ impl Session {
         &self.log
     }
 
+    /// Makes the log durable (`SessionLog::sync_or_report`) without blocking the caller's runtime
+    /// thread: the writer thread fsyncs, the wait and the checkpoint write run on the blocking
+    /// pool. A failed sync is reported through the log's health, never an error here.
+    pub async fn sync_log(self: &Arc<Self>) {
+        let session = self.clone();
+        tokio::task::spawn_blocking(move || session.log.sync_or_report()).await.ok();
+    }
+
+    /// `sync_log` for callers that do not wait for it.
+    pub fn sync_log_detached(self: &Arc<Self>) {
+        let session = self.clone();
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn_blocking(move || session.log.sync_or_report());
+            }
+            Err(_) => session.log.sync_or_report(),
+        }
+    }
+
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().clone()
     }
@@ -200,8 +238,10 @@ impl Session {
 
     pub fn summary(&self) -> SessionSummary {
         self.adopt_repo();
+        // The git read happens outside the `meta` lock, which every notification takes.
+        let folder = self.meta.lock().folder.clone();
+        let branch = crate::workspace::head_branch(Path::new(&folder));
         let m = self.meta.lock();
-        let branch = crate::workspace::head_branch(Path::new(&m.folder));
         let pr = shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), branch.as_deref());
         let status = m.workspace.pr_status.filter(|s| Some(s.number) == pr);
         SessionSummary {
@@ -235,6 +275,7 @@ impl Session {
                 branch,
             },
             parent: m.parent.clone(),
+            log_error: self.log.degraded(),
         }
     }
 
@@ -373,8 +414,8 @@ impl Session {
         self.agent.cancel(self, &thread).await
     }
 
-    pub fn resolve_permission(&self, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
-        self.agent.resolve_permission(self, request_id, option_id, global)
+    pub async fn resolve_permission(self: &Arc<Self>, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
+        self.agent.resolve_permission(self, request_id, option_id, global).await
     }
 
     pub async fn set_config_option(self: &Arc<Self>, thread_id: Option<ThreadId>, config_id: String, value: String) -> anyhow::Result<()> {
@@ -393,12 +434,11 @@ impl Session {
         if self.agent.thread_working(thread) {
             return Ok(true);
         }
-        let open = self.log.events()?.iter().rev().filter(|e| e.thread_id.as_ref() == Some(thread)).find_map(|e| match e.kind {
-            EventKind::TurnStarted { .. } => Some(true),
-            EventKind::TurnEnded { .. } => Some(false),
-            _ => None,
-        });
-        Ok(open.unwrap_or(false))
+        // A log that is not written to (newer Harness, archived) is not repaired: what it left open is not running.
+        if self.log.read_only_reason().is_some() || self.meta().archived {
+            return Ok(false);
+        }
+        self.log.thread_turn_open(thread)
     }
 
     pub(crate) fn job_watchers(&self) -> &crate::acp::JobWatchers {
@@ -439,7 +479,7 @@ impl Session {
     }
 
     pub fn set_status(&self, status: SessionStatus) {
-        let _ = self.log.append(None, EventKind::SessionStatusChanged { status });
+        self.log.append_or_report(None, EventKind::SessionStatusChanged { status });
         let (session_id, title) = {
             let m = self.meta.lock();
             (m.id.clone(), m.title.clone())

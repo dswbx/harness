@@ -95,16 +95,40 @@ impl EventSink for ViewSink {
     }
 }
 
+/// Blocking work of a command (parsing a big log, forking a shell, taking a lock a load holds)
+/// runs on the blocking pool: a sync command would run it on the main thread.
+async fn blocking<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> Result<R, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+}
+
+/// The webview's generation at the moment its IPC message arrived. Tauri reads command arguments
+/// synchronously when it dispatches the command, before an async command's body is spawned, so a
+/// reload that lands later makes the registration fail (`Subscriptions::subscribe_at`).
+struct Generation(u64);
+
+impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for Generation {
+    fn from_command(command: tauri::ipc::CommandItem<'de, R>) -> Result<Self, tauri::ipc::InvokeError> {
+        let webview = command.message.webview();
+        Ok(Self(webview.state::<Subscriptions>().generation(webview.label())))
+    }
+}
+
+/// The replay-then-live hand-over is one step inside the log (`SessionLog::subscribe`), so moving
+/// the first parse of the log off the main thread leaves no gap and no duplicate.
 #[tauri::command]
-fn subscribe(
+async fn subscribe(
     webview: Webview,
+    generation: Generation,
     harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
     session_id: String,
     from_seq: u64,
     channel: Channel<SessionMessage>,
 ) -> Result<u64, String> {
-    subs.subscribe(&harness, webview.label(), &session_id, from_seq, Box::new(ViewSink(channel)))
+    let harness = harness.inner().clone();
+    let app = webview.app_handle().clone();
+    let label = webview.label().to_owned();
+    let generation = generation.0;
+    blocking(move || app.state::<Subscriptions>().subscribe_at(&harness, &label, generation, &session_id, from_seq, Box::new(ViewSink(channel)))).await?
 }
 
 /// Harness-wide events (session list, attention) for this webview.
@@ -117,47 +141,52 @@ fn subscribe_app(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs
 /// bytes (an `ArrayBuffer` in JS, no JSON), then `{"exit": code}` when the shell ends.
 #[tauri::command]
 #[allow(clippy::too_many_arguments, reason = "Tauri maps each IPC argument to a parameter")]
-fn terminal_attach(
+async fn terminal_attach(
     webview: Webview,
+    generation: Generation,
     harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
     session_id: String,
     terminal_id: u32,
     cols: u16,
     rows: u16,
     channel: Channel<InvokeResponseBody>,
 ) -> Result<u64, String> {
-    subs.terminal_attach(
-        &harness,
-        webview.label(),
-        &session_id,
-        terminal_id,
-        cols,
-        rows,
-        Box::new(move |o: TerminalOutput| match o {
-            TerminalOutput::Replay(d) => {
-                (d.is_empty() || channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok())
-                    && channel.send(InvokeResponseBody::Json(r#"{"replayed":true}"#.into())).is_ok()
-            }
-            TerminalOutput::Data(d) => channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok(),
-            TerminalOutput::Exit(code) => {
-                let _ = channel.send(InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string()));
-                false
-            }
-        }),
-    )
+    let harness = harness.inner().clone();
+    let app = webview.app_handle().clone();
+    let label = webview.label().to_owned();
+    // Starting the shell forks; the replay then live hand-over is atomic inside the Terminal.
+    let generation = generation.0;
+    blocking(move || {
+        app.state::<Subscriptions>().terminal_attach_at(
+            &harness,
+            &label,
+            generation,
+            &session_id,
+            terminal_id,
+            cols,
+            rows,
+            Box::new(move |o: TerminalOutput| match o {
+                TerminalOutput::Replay(d) => {
+                    (d.is_empty() || channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok())
+                        && channel.send(InvokeResponseBody::Json(r#"{"replayed":true}"#.into())).is_ok()
+                }
+                TerminalOutput::Data(d) => channel.send(InvokeResponseBody::Raw(d.to_vec())).is_ok(),
+                TerminalOutput::Exit(code) => {
+                    let _ = channel.send(InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string()));
+                    false
+                }
+            }),
+        )
+    })
+    .await?
 }
 
 #[tauri::command]
-fn terminal_detach(
-    webview: Webview,
-    harness: tauri::State<'_, Arc<Harness>>,
-    subs: tauri::State<'_, Subscriptions>,
-    session_id: String,
-    terminal_id: u32,
-    id: u64,
-) {
-    subs.terminal_detach(&harness, webview.label(), &session_id, terminal_id, id);
+async fn terminal_detach(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, session_id: String, terminal_id: u32, id: u64) -> Result<(), String> {
+    let harness = harness.inner().clone();
+    let app = webview.app_handle().clone();
+    let label = webview.label().to_owned();
+    blocking(move || app.state::<Subscriptions>().terminal_detach(&harness, &label, &session_id, terminal_id, id)).await
 }
 
 /// Dock badge with the number of Sessions waiting for the user, and notifications while no
@@ -203,9 +232,22 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
     }));
 }
 
+/// Async: the log lock may be held by a first load of a big log.
 #[tauri::command]
-fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, subs: tauri::State<'_, Subscriptions>, session_id: String, id: u64) {
-    subs.unsubscribe(&harness, webview.label(), &session_id, id);
+async fn unsubscribe(webview: Webview, harness: tauri::State<'_, Arc<Harness>>, session_id: String, id: u64) -> Result<(), String> {
+    let harness = harness.inner().clone();
+    let app = webview.app_handle().clone();
+    let label = webview.label().to_owned();
+    blocking(move || app.state::<Subscriptions>().unsubscribe(&harness, &label, &session_id, id)).await
+}
+
+/// Forgets what the webview subscribed to now (a reload or a closed window must not leak it), and
+/// releases it in the core off the main thread.
+fn drop_webview(app: &tauri::AppHandle, label: &str) {
+    let Some(harness) = app.try_state::<Arc<Harness>>() else { return };
+    let dropped = app.state::<Subscriptions>().take_webview(label);
+    let harness = harness.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || dropped.release(&harness));
 }
 
 /// Same as `HTML_CSP` in the Chat Frontend's `htmlBridge.ts`.
@@ -280,10 +322,7 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             // A (re)loading page starts with no subscriptions.
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
-                let app = webview.app_handle();
-                if let Some(harness) = app.try_state::<Arc<Harness>>() {
-                    app.state::<Subscriptions>().drop_webview(&harness, webview.label());
-                }
+                drop_webview(webview.app_handle(), webview.label());
             }
             // Windows start hidden; the page shows them once it has the theme background and has
             // painted (`set_window_background`, `reveal_window`). This is only for a page that
@@ -309,10 +348,8 @@ pub fn run() {
                 overlay::hide(window.app_handle());
             }
             if let tauri::WindowEvent::Destroyed = event {
-                let app = window.app_handle();
-                if let Some(harness) = app.try_state::<Arc<Harness>>() {
-                    app.state::<Subscriptions>().drop_webview(&harness, window.label());
-                }
+                drop_webview(window.app_handle(), window.label());
+                window.app_handle().state::<Subscriptions>().forget_label(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![

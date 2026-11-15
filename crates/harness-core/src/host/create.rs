@@ -32,9 +32,8 @@ impl Harness {
             Start::Branch { .. } => folder_name(&folder),
         });
         let (folder, workspace) = self.prepare_workspace(&id, &title, folder, start).await?;
-        for m in &mcp_servers {
-            self.shared.library.resolve(m)?;
-        }
+        let ids = mcp_servers.clone();
+        self.shared.library_blocking(move |lib| ids.iter().try_for_each(|m| lib.resolve(m).map(drop))).await??;
         let session = Session::create(&dir, id.clone(), title, folder, agent, frontend_id, workspace, mcp_servers, self.shared.clone())?;
         if parent.is_some() || !initial_config.is_empty() {
             session.update_meta(|m| {
@@ -163,9 +162,8 @@ impl Harness {
         if !self.shared.frontends.read().iter().any(|f| f.id == frontend_id) {
             return Err(crate::error::not_found(format!("unknown frontend {frontend_id}")));
         }
-        for m in &mcp_servers {
-            self.shared.library.resolve(m)?;
-        }
+        let ids = mcp_servers.clone();
+        self.shared.library_blocking(move |lib| ids.iter().try_for_each(|m| lib.resolve(m).map(drop))).await??;
         let id = uuid::Uuid::now_v7().to_string();
         let folder = self.data_dir.join("quick").join(&id);
         std::fs::create_dir_all(&folder)?;
