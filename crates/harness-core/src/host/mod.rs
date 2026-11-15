@@ -306,6 +306,10 @@ impl Harness {
         if let (Ok(_), Some(id)) = (&result, changed) {
             self.shared.app_events.emit(AppEvent::SharedArtifactChanged { id });
         }
+        // A settings file loaded by this Command did not load.
+        if crate::persist::has_problems(&self.data_dir) {
+            self.shared.app_events.emit(AppEvent::NoticesChanged);
+        }
         result
     }
 
@@ -332,6 +336,9 @@ impl Harness {
 
     async fn execute_inner(&self, cmd: Command) -> anyhow::Result<CommandResult> {
         match cmd {
+            Command::TakeNotices => {
+                Ok(CommandResult::Notices { notices: crate::persist::take_problems(&self.data_dir).iter().map(crate::persist::Problem::notice).collect() })
+            }
             Command::ListAgents => self.cmd_list_agents(),
             Command::ListRegistry { refresh } => self.cmd_list_registry(refresh).await,
             Command::InstallAgent { registry_id, allow_unverified } => self.cmd_install_agent(registry_id, allow_unverified).await,

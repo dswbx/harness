@@ -9,6 +9,17 @@ use super::info::info;
 use crate::api::ThreadId;
 use crate::session::Session;
 
+/// Files outside the Workspace Folder are copied only with the user's approval of those files.
+async fn authorize_outside(session: &Arc<Session>, thread: &ThreadId, name: &str, planned: &[crate::frontend_files::Planned]) -> anyhow::Result<()> {
+    let outside: Vec<std::path::PathBuf> = planned.iter().filter(|p| p.outside).map(|p| p.path.clone()).collect();
+    if outside.is_empty() {
+        return Ok(());
+    }
+    let title = format!("Frontend tool: {name} shows files outside the Workspace Folder");
+    let args = json!({ "files": outside });
+    crate::acp::authorize_at(session, thread, name, &title, crate::acp::OUTSIDE_FILE_KIND, &args, &outside).await
+}
+
 /// Runs a call of one of the Session's Frontend Tools, after the Permission Policy agrees.
 pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: Value) -> anyhow::Result<Vec<ContentBlock>> {
     let tool = session.frontend_tools().into_iter().find(|t| t.name == name).ok_or_else(|| anyhow::anyhow!("unknown tool {name}"))?;
@@ -39,9 +50,11 @@ pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, 
         let root = root.ok_or_else(|| anyhow::anyhow!("an id shared:<id> takes only a new root (to detach it, use artifact_detach)"))?;
         session.ensure_attached(id)?;
         let images = images.lock().clone();
-        let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
+        let planned = crate::frontend_files::plan_blocking(std::path::PathBuf::from(&session.meta().folder), images).await?;
+        authorize_outside(session, thread, name, &planned).await?;
         crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
-        session.shared().artifacts.write_ui(id, root, planned)?;
+        let (s, id_owned, root) = (session.clone(), id.to_owned(), root.clone());
+        tokio::task::spawn_blocking(move || s.shared().artifacts.write_ui(&id_owned, &root, planned)).await??;
         session.shared().app_events.emit(crate::api::AppEvent::SharedArtifactChanged { id: id.to_owned() });
         return Ok(vec![ContentBlock::text(format!("Done. Shared artifact {id} now shows the new tree in every Session that has it attached."))]);
     }
@@ -56,9 +69,10 @@ pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, 
         return Ok(text.into_iter().chain(image).collect());
     }
     let images = images.lock().clone();
-    let planned = crate::frontend_files::plan(std::path::Path::new(&session.meta().folder), &images)?;
+    let planned = crate::frontend_files::plan_blocking(std::path::PathBuf::from(&session.meta().folder), images).await?;
+    authorize_outside(session, thread, name, &planned).await?;
     crate::acp::authorize(session, thread, name, &format!("Frontend tool: {name}"), "frontend_tool", &args).await?;
-    let files = crate::frontend_files::store(&session.frontend_dir(), planned)?;
+    let files = crate::frontend_files::store_blocking(session.frontend_root()?, planned).await?;
     let path = session.write_frontend_tool_output(thread, name, args, files)?;
     let items = info(session)?["items"].clone();
     Ok(vec![ContentBlock::text(format!("Done. The Frontend received it ({path}). Live items: {items}"))])

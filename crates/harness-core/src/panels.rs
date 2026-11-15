@@ -16,28 +16,6 @@ pub const DEBOUNCE: Duration = Duration::from_millis(200);
 /// Largest source file the Harness reads.
 pub const MAX_BYTES: u64 = 1_000_000;
 
-/// Where `path` really is (symlinks followed) when that is inside `dir`; `None` otherwise. `path`
-/// may not exist yet (a file the Agent is about to write): then its deepest existing ancestor is
-/// resolved and the rest appended. `..` is refused, and so is a dangling symlink (a write would
-/// follow it out of the folder).
-pub fn resolve_inside(dir: &Path, path: &Path) -> Option<PathBuf> {
-    if path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return None;
-    }
-    let real_dir = dir.canonicalize().ok()?;
-    let mut existing = path;
-    let mut rest = Vec::new();
-    while std::fs::symlink_metadata(existing).is_err() {
-        rest.push(existing.file_name()?);
-        existing = existing.parent()?;
-    }
-    let mut real = existing.canonicalize().ok()?;
-    for part in rest.iter().rev() {
-        real.push(part);
-    }
-    (real != real_dir && real.starts_with(&real_dir)).then_some(real)
-}
-
 /// File types a source can have: Markdown, HTML shown in the Html frame, or a render_ui tree
 /// (`{"root": node}`, the format of a Shared Artifact's `ui.json`).
 const EXTENSIONS: [&str; 3] = [".md", ".html", ".json"];
@@ -62,7 +40,7 @@ pub fn check_name(name: &str) -> anyhow::Result<()> {
 /// The file a `source` name points to, checked to be inside `dir`.
 pub fn source_path(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
     check_name(name)?;
-    resolve_inside(dir, &dir.join(name)).ok_or_else(|| crate::error::policy_denied(format!("source {name:?} is outside panels_dir")))
+    crate::fsutil::resolve_below_via_ancestor(dir, &dir.join(name)).ok_or_else(|| crate::error::policy_denied(format!("source {name:?} is outside panels_dir")))
 }
 
 /// A source file's text and a hash of it (sha256, hex).
@@ -198,8 +176,8 @@ mod tests {
         assert_eq!(read(&panels, "b.html").unwrap().0, "<p>b</p>");
         assert!(mtime_ms(&panels, "b.html").is_some());
         assert!(read(&panels, "missing.md").unwrap_err().to_string().contains("does not exist"));
-        assert!(resolve_inside(&panels, &panels).is_none(), "the folder itself is not a file in it");
-        assert!(resolve_inside(&panels, &d.path().join("secret.md")).is_none());
+        assert!(crate::fsutil::resolve_below_via_ancestor(&panels, &panels).is_none(), "the folder itself is not a file in it");
+        assert!(crate::fsutil::resolve_below_via_ancestor(&panels, &d.path().join("secret.md")).is_none());
     }
 
     #[test]

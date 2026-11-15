@@ -14,6 +14,7 @@ import type {
    SessionSummary,
    SharedArtifactEntry,
    SharedArtifactMeta,
+   StartupNotice,
    StatePatchOp,
 } from "../generated";
 import type { Transport, Unsubscribe } from "../transport/transport";
@@ -42,6 +43,10 @@ export class HarnessClient {
 
    async listSessions(): Promise<SessionSummary[]> {
       return (await expectResult(this.transport, { type: "ListSessions" }, "Sessions")).sessions;
+   }
+   /** Settings files that did not load, reset to defaults, the file kept. Handed out once: call after `subscribeApp` and again on `NoticesChanged`. */
+   async takeNotices(): Promise<StartupNotice[]> {
+      return (await expectResult(this.transport, { type: "TakeNotices" }, "Notices")).notices;
    }
    async listAgents(): Promise<AgentInfo[]> {
       return (await expectResult(this.transport, { type: "ListAgents" }, "Agents")).agents;

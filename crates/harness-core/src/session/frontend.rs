@@ -124,19 +124,40 @@ impl Session {
         let call_id = uuid::Uuid::now_v7().to_string();
         let rel = format!("tools/{tool}/{call_id}.json");
         let path = self.dir.join("frontend").join(&rel);
-        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        std::fs::create_dir_all(crate::fsutil::parent_of(&path)?)?;
         std::fs::write(&path, serde_json::to_vec_pretty(&input)?)?;
         self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput { tool: tool.to_owned(), call_id, path: rel.clone(), input, files })?;
         Ok(rel)
     }
 
-    /// A path inside `frontend/`; refuses absolute paths and `..`.
+    /// The Session's `frontend/` directory, created if missing. It must be a real directory (not
+    /// a link) inside the Session Directory.
+    pub(crate) fn frontend_root(&self) -> anyhow::Result<PathBuf> {
+        let root = self.dir.join("frontend");
+        std::fs::create_dir_all(&root)?;
+        let plain = std::fs::symlink_metadata(&root)?.file_type().is_dir();
+        let inside = matches!((root.canonicalize(), self.dir.canonicalize()), (Ok(r), Ok(d)) if r == d.join("frontend"));
+        anyhow::ensure!(plain && inside, "the Frontend's directory is not a plain directory of the Session");
+        Ok(root)
+    }
+
+    /// A path inside `frontend/`; refuses absolute paths and `..`, and a path whose resolved real
+    /// location (symbolic links followed; for a missing path its nearest existing ancestor) is not
+    /// below the real `frontend/` directory.
     pub(crate) fn frontend_path(&self, rel: &str) -> anyhow::Result<PathBuf> {
         let p = Path::new(rel);
         if !p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)) {
             return Err(crate::error::policy_denied(format!("{rel} is outside the Frontend's directory")));
         }
-        Ok(self.dir.join("frontend").join(p))
+        let root = self.frontend_root()?;
+        let path = root.join(p);
+        if p.components().all(|c| matches!(c, std::path::Component::CurDir)) {
+            return Ok(path);
+        }
+        if crate::fsutil::resolve_below_via_ancestor(&root, &path).is_none() {
+            return Err(crate::error::policy_denied(format!("{rel} is outside the Frontend's directory")));
+        }
+        Ok(path)
     }
 
     pub fn frontend_read(&self, rel: &str) -> anyhow::Result<String> {
@@ -267,13 +288,13 @@ impl Session {
         if rel.trim().is_empty() {
             return Err(crate::error::invalid("path is required"));
         }
-        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        std::fs::create_dir_all(crate::fsutil::parent_of(&path)?)?;
         crate::fsutil::write_atomic(&path, content.as_bytes())?;
         Ok(())
     }
 
     pub fn frontend_list(&self, rel: &str) -> anyhow::Result<Vec<String>> {
-        let root = self.dir.join("frontend");
+        let root = self.frontend_root()?;
         let start = self.frontend_path(rel)?;
         let mut out = Vec::new();
         let mut stack = vec![start];
@@ -281,7 +302,9 @@ impl Session {
             let Ok(entries) = std::fs::read_dir(&dir) else { continue };
             for e in entries.flatten() {
                 let p = e.path();
-                if p.is_dir() {
+                // Links are listed as entries, never walked into.
+                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+                if is_dir {
                     stack.push(p);
                 } else if let Ok(r) = p.strip_prefix(&root) {
                     out.push(r.display().to_string());

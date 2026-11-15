@@ -1040,6 +1040,61 @@ async fn share_attach_and_search() {
     assert_eq!(shared_meta(&h, &meta.id).created_by.origin.as_deref(), Some("r1:diagram:0"), "read back");
 }
 
+fn file_requests(h: &Harness, sid: &str) -> Vec<(serde_json::Value, Vec<String>)> {
+    events(h, sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::PermissionRequested { tool_call, options, .. } if tool_call["kind"] == "frontend_file" => {
+                Some((tool_call, options.into_iter().map(|o| o.option_id).collect()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_outside_the_folder_needs_approval_of_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    std::fs::write(other.path().join("shot.png"), b"png").unwrap();
+    let outside = other.path().join("shot.png");
+    let real = outside.canonicalize().unwrap();
+    let call = format!(r#"mcp json_render {{"title":"Hi","items":["x"],"image":{}}}"#, serde_json::to_string(&outside.display().to_string()).unwrap());
+    // A rule for Frontend Tools in general does not cover a file outside the folder.
+    h.execute(Command::AddPermissionRule {
+        rule: NewPermissionRule { scope: RuleScope::Global, tool_kind: Some("frontend_tool".into()), pattern: None, decision: Decision::Allow },
+    })
+    .await
+    .unwrap();
+
+    let denied = ask(&h, &sid, &call, Some("reject")).await;
+    assert!(denied.contains("the user denied this"), "{denied}");
+    let requests = file_requests(&h, &sid);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0["locations"][0]["path"], real.display().to_string(), "the resolved path is shown");
+    assert_eq!(requests[0].1, vec!["allow", "reject"], "no 'always' answer");
+    assert!(!events(&h, &sid).iter().any(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })));
+
+    let ok = ask(&h, &sid, &call, Some("allow")).await;
+    assert!(ok.starts_with("mcp: Done."), "{ok}");
+    assert_eq!(file_requests(&h, &sid).len(), 2, "asked again for the next call");
+    let files = events(&h, &sid)
+        .into_iter()
+        .find_map(|e| match e.kind {
+            EventKind::FrontendToolOutput { files, .. } => Some(files),
+            _ => None,
+        })
+        .unwrap();
+    let CommandResult::Attachment { data, .. } =
+        h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: files[&outside.display().to_string()].clone() }).await.unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(data, "cG5n");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_tree_takes_its_state_and_images_and_a_new_root() {
     let dir = tempfile::tempdir().unwrap();

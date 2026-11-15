@@ -107,20 +107,17 @@ pub const DEFAULT_WORKTREE_DIR: &str = ".harness";
 
 /// The Worktree folder setting (`<data dir>/worktree_dir.json`), else `DEFAULT_WORKTREE_DIR`.
 pub fn worktree_dir(data_dir: &Path) -> String {
-    std::fs::read(data_dir.join("worktree_dir.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<String>(&b).ok())
+    crate::persist::JsonFile::<String>::in_dir(data_dir, "worktree_dir.json")
+        .load_logged()
         .filter(|d| !d.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_WORKTREE_DIR.to_owned())
 }
 
 pub fn set_worktree_dir(data_dir: &Path, dir: Option<&str>) -> anyhow::Result<()> {
-    let path = data_dir.join("worktree_dir.json");
+    let file = crate::persist::JsonFile::<String>::in_dir(data_dir, "worktree_dir.json");
     match dir.map(str::trim).filter(|d| !d.is_empty() && *d != DEFAULT_WORKTREE_DIR) {
-        Some(d) => crate::fsutil::write_atomic(&path, &serde_json::to_vec(d)?)?,
-        None => {
-            let _ = std::fs::remove_file(path);
-        }
+        Some(d) => file.save(&d.to_owned())?,
+        None => file.remove(),
     }
     Ok(())
 }
@@ -215,6 +212,18 @@ pub async fn update_branch(dir: &Path, branch: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn worktree_dir_file_round_trips_and_ignores_a_corrupt_one() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("worktree_dir.json"), r#""../wt""#).unwrap();
+        assert_eq!(worktree_dir(d.path()), "../wt");
+        set_worktree_dir(d.path(), Some(" ../other ")).unwrap();
+        assert_eq!(std::fs::read_to_string(d.path().join("worktree_dir.json")).unwrap(), "\"../other\"");
+        std::fs::write(d.path().join("worktree_dir.json"), b"\"unterminated").unwrap();
+        assert_eq!(worktree_dir(d.path()), DEFAULT_WORKTREE_DIR);
+        set_worktree_dir(d.path(), None).unwrap();
+    }
     use super::*;
 
     #[test]

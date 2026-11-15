@@ -16,7 +16,7 @@ use crate::api::{AttachmentInput, EventKind, ThreadId};
 use crate::session::Session;
 
 pub use jobs::JobWatchers;
-pub use permission::authorize;
+pub use permission::{OUTSIDE_FILE_KIND, authorize, authorize_at};
 pub use process::AgentSlot;
 pub use restore::{continue_with_summary, set_config_option, set_mode, warm_up};
 

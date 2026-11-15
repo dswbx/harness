@@ -112,6 +112,23 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
 /// asking but log a `PermissionRequested` + `PermissionResolved` (by Policy, option "allow") pair so
 /// the UI can show why.
 pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, title: &str, kind: &str, args: &Value) -> anyhow::Result<()> {
+    authorize_at(session, thread, tool, title, kind, args, &[]).await
+}
+
+/// The kind of a request to copy a file from outside the Workspace Folder (`frontend_files`): it
+/// always asks the user, once per call, and has no "always" answer.
+pub const OUTSIDE_FILE_KIND: &str = "frontend_file";
+
+/// `authorize` for a request that names resolved file `locations`, shown to the user.
+pub async fn authorize_at(
+    session: &Arc<Session>,
+    thread: &ThreadId,
+    tool: &str,
+    title: &str,
+    kind: &str,
+    args: &Value,
+    locations: &[std::path::PathBuf],
+) -> anyhow::Result<()> {
     let meta = session.meta();
     let folder = std::path::PathBuf::from(&meta.folder);
     let tool_call = serde_json::json!({
@@ -119,23 +136,31 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
         "title": title,
         "kind": kind,
         "rawInput": args,
+        "locations": locations.iter().map(|p| serde_json::json!({ "path": p })).collect::<Vec<_>>(),
         "_meta": { "harnessTool": tool },
     });
-    let facts = crate::permissions::facts_of(&tool_call, &folder);
+    let mut facts = crate::permissions::facts_of(&tool_call, &folder);
+    // A Harness read names no path: it reads the Session's own Workspace and Threads.
+    if facts.kind.as_deref() == Some("read") && facts.paths.is_empty() {
+        facts.paths.push(folder.clone());
+    }
     let panels = session.panels_dir();
     let shared = session.attached_shared_dirs();
     let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder, panels: Some(&panels), shared: &shared };
     let verdict = session.policy().evaluate(&cx, &facts);
     let request_id = uuid::Uuid::now_v7().to_string();
-    let options = vec![
+    let mut options = vec![
         PermissionOption { option_id: "allow".into(), name: "Allow".into(), kind: "allow_once".into(), plan_mode: None, clears_context: false },
         PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into(), plan_mode: None, clears_context: false },
         PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into(), plan_mode: None, clears_context: false },
     ];
+    if kind == OUTSIDE_FILE_KIND {
+        options.retain(|o| o.option_id != "always");
+    }
     let requested = permission_requested(session, Some(thread), request_id.clone(), tool_call, options.clone(), Some(tool.to_owned()));
     let passes = match verdict.decision {
         Decision::Allow => verdict.rule_id.is_some(),
-        Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {
+        Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" && kind != OUTSIDE_FILE_KIND => {
             session.log().thread_mode(thread).ok().flatten().is_some_and(|m| crate::agent_quirks::auto_mode(&m))
         }
         _ => false,

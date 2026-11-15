@@ -49,7 +49,9 @@ unused: boolean } |
  */
 { type: "SharedArtifactChanged"; id: string } | 
 /**  Shared Artifacts were added, removed, renamed, attached or detached: reload the list. */
-{ type: "SharedArtifactsChanged" };
+{ type: "SharedArtifactsChanged" } | 
+/**  A settings file did not load and was reset (see `Command::TakeNotices`). */
+{ type: "NoticesChanged" };
 
 /**  App settings kept as JSON files in the data dir (`app_settings.rs`). */
 export type AppSettingKey = "appearance" | "themes" | 
@@ -120,7 +122,12 @@ export type Branches = {
 	remote: BranchInfo[],
 };
 
-export type Command = { type: "ListAgents" } | 
+export type Command = 
+/**
+ *  Settings files that did not load, once each: reset to defaults, the file kept. Call after
+ *  subscribing to AppEvents and again on `NoticesChanged`.
+ */
+{ type: "TakeNotices" } | { type: "ListAgents" } | 
 /**  ACP Registry entries, from the local cache unless `refresh`. */
 { type: "ListRegistry"; refresh?: boolean } | 
 /**
@@ -377,7 +384,7 @@ origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; i
  */
 { type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null };
 
-export type CommandResult = { type: "Ok" } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | 
+export type CommandResult = { type: "Ok" } | { type: "Notices"; notices: StartupNotice[] } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | 
 /**
  *  `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
  *  `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
@@ -821,6 +828,13 @@ export type NewPermissionRule = {
 	decision: Decision,
 };
 
+/**  Why a settings file was reset. */
+export type NoticeKind = 
+/**  Not valid JSON. */
+"corrupt" | 
+/**  Valid JSON of another shape, e.g. written by a newer version. */
+"unreadable";
+
 /**  Where the overlay's prompt box opens: at the mouse, or at the bottom center of that screen. */
 export type OverlayPosition = "cursor" | "bottom";
 
@@ -1048,6 +1062,19 @@ export type SlashCommand = {
 	name: string,
 	description: string,
 	hint: string | null,
+};
+
+/**  A settings file in the data folder that did not load: reset to defaults, the file kept. */
+export type StartupNotice = {
+	/**  File name, e.g. `permissions.json`. */
+	file: string,
+	kind: NoticeKind,
+	/**  The file's full path. */
+	path: string,
+	/**  Where the file was moved; `None` when that failed and it stays at `path` (never overwritten). */
+	copy: string | null,
+	/**  What was reset and why, in plain words. */
+	message: string,
 };
 
 /**  One Session State patch operation (lenient JSON Patch, see `state.rs`). */

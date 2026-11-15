@@ -4,6 +4,11 @@ import { MOCK_THEME } from "../fixtures/theme";
 import type { Handlers } from "./types";
 
 export const settingsHandlers = {
+   TakeNotices: (mock) => {
+      const notices = mock.notices;
+      mock.notices = [];
+      return { type: "Notices", notices };
+   },
    ListMcpServers: (mock) => {
       return { type: "McpServers", servers: [...mock.mcp] };
    },

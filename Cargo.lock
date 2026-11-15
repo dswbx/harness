@@ -1825,6 +1825,7 @@ dependencies = [
  "http",
  "jsonschema",
  "keyring",
+ "libc",
  "nix 0.31.3",
  "notify",
  "parking_lot",
