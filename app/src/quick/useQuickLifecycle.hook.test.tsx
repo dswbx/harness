@@ -40,6 +40,18 @@ describe("useQuickLifecycle", () => {
       expect(props.refresh).toHaveBeenCalledTimes(1);
    });
 
+   it("startQuick takes the Agent of the newest used Session, not an unused draft", async () => {
+      const { hook, create } = setup(
+         [
+            session("s1", { agent_id: "a1", created_ms: 1 }),
+            session("q0", { agent_id: "a2", created_ms: 9, quick: true, unused: true }),
+         ],
+         [{ id: "a1" } as AgentInfo, { id: "a2" } as AgentInfo],
+      );
+      await act(() => hook.result.current());
+      expect(create).toHaveBeenCalledWith({ agentId: "a1", frontendId: "chat" });
+   });
+
    it("startQuick stays on a Quick Session that is still unused", async () => {
       const { hook, create, props } = setup(
          [session("q0", { quick: true, unused: true })],

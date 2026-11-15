@@ -91,7 +91,7 @@ const READ_ONLY: &[&str] = &[
 
 fn timeout_for(args: &[&str]) -> Duration {
     match args.first() {
-        Some(sub) if READ_ONLY.contains(sub) => proc::LOCAL,
+        Some(sub) if READ_ONLY.contains(sub) => proc::GIT_READ,
         _ => proc::GIT_LONG,
     }
 }
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn timeouts_by_subcommand() {
         for sub in ["status", "rev-parse", "diff", "log", "branch", "config", "ls-files", "for-each-ref", "show"] {
-            assert_eq!(timeout_for(&[sub, "x"]), proc::LOCAL, "{sub}");
+            assert_eq!(timeout_for(&[sub, "x"]), proc::GIT_READ, "{sub}");
         }
         for sub in ["commit", "merge", "rebase", "checkout", "switch", "worktree", "stash", "add", "gc", "push", "pull", "clone", "fetch", "unknown-cmd"] {
             assert_eq!(timeout_for(&[sub]), proc::GIT_LONG, "{sub}");

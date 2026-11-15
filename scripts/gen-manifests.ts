@@ -11,9 +11,8 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
    const dir = resolve("packages", pkg);
    const manifestPath = join(dir, "manifest.json");
    if (!existsSync(manifestPath)) continue;
-   const toolsPath = ["src/tools.ts", "src/features/renderUi/tools.ts"]
-      .map((f) => join(dir, f))
-      .find((f) => existsSync(f));
+   const toolsFile = join(dir, "src/features/renderUi/tools.ts");
+   const toolsPath = existsSync(toolsFile) ? toolsFile : undefined;
    const tools: { name: string; description: string; schema: unknown; replies?: boolean }[] =
       toolsPath ? (await import(toolsPath)).frontendTools : [];
    const instructionsPath = join(dir, "instructions.md");

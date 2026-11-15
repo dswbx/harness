@@ -10,8 +10,10 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
-/// A read-only local query (`git status`, `lsof`, `open`).
+/// A read-only local query (`lsof`, `open`).
 pub const LOCAL: Duration = Duration::from_secs(30);
+/// Read-only git (`status`, `diff`, `rev-list`, ...): slow on a huge repository with a cold cache.
+pub const GIT_READ: Duration = Duration::from_secs(120);
 /// Background or opportunistic network work (a fetch that refreshes a base ref, a `gh` query).
 pub const NETWORK: Duration = Duration::from_secs(60);
 /// User-initiated git that may run hooks or scale with the repository (`commit`, `push`, `checkout`, `add -A`, ...).
