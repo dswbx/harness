@@ -356,7 +356,7 @@ async fn diff_base_finds_a_prs_base_locally_or_on_origin() {
     };
     let base = |b: &'static str| {
         let repo = repo.clone();
-        async move { harness_core::workspace::diff_base(&repo, Some(b)).await.unwrap() }
+        async move { harness_core::git::diff_base(&repo, Some(b)).await.unwrap() }
     };
     // Base only on origin (no local branch): its fork point, not HEAD.
     let fork = commit("dev");

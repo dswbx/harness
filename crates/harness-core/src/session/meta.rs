@@ -93,7 +93,7 @@ pub struct SideOrigin {
 pub struct WorkspaceMeta {
     /// Repository containing the Workspace Folder, if any.
     pub repo_root: Option<PathBuf>,
-    pub worktree: Option<crate::workspace::WorktreeMeta>,
+    pub worktree: Option<crate::git::WorktreeMeta>,
     /// Base branch without a Worktree (a PR checked out in the folder); diffs and commits compare against it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,

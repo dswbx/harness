@@ -1,5 +1,5 @@
-//! Pins what the log projections of `session.rs` (`frontend_items`, `frontend_errors`,
-//! `attached_shared`) return for small hand-built logs. They read the Session Log, so whatever
+//! Pins what the log projections (`frontend_items`, `frontend_errors` in `session/frontend.rs`,
+//! `attached_shared` in `session/artifacts.rs`) return for small hand-built logs. They read the Session Log, so whatever
 //! replaces them (projections kept up to date on append) must give the same answers.
 #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 

@@ -14,7 +14,7 @@ contexts(first: 100) { nodes { ... on CheckRun { name status conclusion startedA
 ... on StatusContext { context state createdAt } } } } } } } }";
 
 /// The check runs and statuses of a PR from `PR_FRAGMENT`.
-pub(crate) fn rollup(pr: &Value) -> &[Value] {
+fn rollup(pr: &Value) -> &[Value] {
     pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].as_array().map_or(&[][..], Vec::as_slice)
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn author(pr: &Value) -> String {
 }
 
 async fn folder_repo(folder: &Path) -> anyhow::Result<RepoId> {
-    crate::workspace::origin_repo(folder).await.ok_or_else(|| crate::error::invalid(format!("{} has no GitHub remote", folder.display())))
+    super::repos::origin_repo(folder).await.ok_or_else(|| crate::error::invalid(format!("{} has no GitHub remote", folder.display())))
 }
 
 pub async fn list_prs(folder: &Path, filter: PrFilter) -> anyhow::Result<Vec<PullRequest>> {
@@ -83,7 +83,7 @@ pub(crate) fn checks(rollup: &[serde_json::Value]) -> PrChecks {
 }
 
 /// Checks that passed, and all checks.
-pub(crate) fn check_counts(rollup: &[serde_json::Value]) -> (u32, u32) {
+fn check_counts(rollup: &[serde_json::Value]) -> (u32, u32) {
     let rollup = latest_runs(rollup);
     (rollup.iter().filter(|c| check_passed(c) == Some(true)).count() as u32, rollup.len() as u32)
 }
@@ -148,7 +148,7 @@ pub async fn checkout_pr(dir: &Path, number: u32, fallback: &str) -> anyhow::Res
     if gh(dir, &["pr", "checkout", &n]).await.is_err() {
         gh(dir, &["pr", "checkout", &n, "--branch", fallback]).await?;
     }
-    crate::workspace::current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("PR #{number} checkout left HEAD detached"))
+    crate::git::current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("PR #{number} checkout left HEAD detached"))
 }
 
 /// PRs of a `headRefName` result, minus fork PRs: `headRefName` matches the branch name in any fork (a fork's `main` too).

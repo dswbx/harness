@@ -98,7 +98,7 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
         None => session.summary().workspace.source_folder,
     };
     anyhow::ensure!(Path::new(&folder).is_dir(), "folder {folder} does not exist");
-    let is_repo = crate::workspace::repo_root(Path::new(&folder)).await.is_some();
+    let is_repo = crate::git::repo_root(Path::new(&folder)).await.is_some();
     let worktree = args.get("worktree").and_then(Value::as_bool).unwrap_or(is_repo);
     let branch = text_arg(args, "branch");
     anyhow::ensure!(branch.is_none() || worktree, "branch needs a worktree: omit worktree or pass worktree: true");
@@ -138,7 +138,7 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
         anyhow::bail!("started Sub Session {id}, but its first prompt failed: {e:#}");
     }
     let m = child.meta();
-    let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
+    let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::git::head_branch(Path::new(&m.folder)));
     Ok(serde_json::to_value(SubSessionStarted {
         session_id: Some(id),
         title: Some(m.title.clone()),
@@ -225,7 +225,7 @@ async fn list(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
         .iter()
         .map(|c| {
             let m = c.meta();
-            let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
+            let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::git::head_branch(Path::new(&m.folder)));
             Ok(SubSessionEntry {
                 session_id: Some(m.id.clone()),
                 title: Some(m.title.clone()),

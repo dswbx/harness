@@ -411,7 +411,7 @@ impl Agents {
 
     pub fn add_custom(&self, name: String, command: String, args: Vec<String>, env: BTreeMap<String, String>) -> anyhow::Result<AgentInfo> {
         let agent = AgentInfo {
-            id: format!("custom-{}", crate::workspace::slug(&name)),
+            id: format!("custom-{}", crate::git::slug(&name)),
             name,
             command,
             args,
