@@ -9,6 +9,7 @@
 //   /quiz          a practice test built with Session State and slots (render_ui)
 //   /artifacts     a reply with a diagram, a table and a pull request (Artifacts panel)
 //   /prs           a reply with PR references in every form (chips, one batched lookup)
+//   /permission    two pending permission requests (a multi-line command, an edit with a diff)
 //   /card          a render_ui call with local images
 // Anywhere in a prompt: "attention" leaves the Session needing attention; in a Side Thread, "edit" asks for a permission.
 export { mockImage, mockRenderUi } from "./fixtures/renderUi";

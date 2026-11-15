@@ -356,6 +356,13 @@ export function timelineSlice(c: Ctx, e: Event) {
             }
          }
          const call = (k.tool_call ?? {}) as ToolCallRef;
+         // An Agent's own tool call: its step (not finished) is what the approval stands in for.
+         if (!stepId && call.toolCallId) {
+            const ti = toolIndex(c).get(call.toolCallId);
+            const t = ti !== undefined ? d.items[ti] : undefined;
+            if (t?.type === "tool" && t.status !== "completed" && t.status !== "failed")
+               stepId = t.id;
+         }
          const facts = toolFactsOfCall(k.tool_call, k.harness_tool);
          const plan = k.plan ?? facts.plan;
          if (plan) addPlan(c, k.request_id, plan, e.ts_ms, k.mode_before);

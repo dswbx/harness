@@ -11,21 +11,29 @@ import { type ChatSubagent, groupTools } from "../toolDisplay/group";
  * Subagent calls go inside their Task call's card.
  */
 export function chatRows(items: Item[], ui: ReturnType<typeof splitRenderUi>) {
-   const hidden = new Set(
+   // Pending step approvals by their step's id: the step is hidden, the approval row shows it.
+   const pending = new Set(
       items.flatMap((i) =>
-         i.type === "permission" && !i.resolved && i.stepId && isStepApproval(i) ? i.stepId : [],
+         i.type === "permission" && !i.resolved && !i.auto && isStepApproval(i) ? i.stepId : [],
       ),
    );
+   const hidden = new Map<string, Extract<Item, { type: "tool" }>>();
+   for (const i of items) if (i.type === "tool" && pending.has(i.id)) hidden.set(i.id, i);
    const g = groupSubagents(
-      items.filter((i) => {
-         // A plan stays: its row records how it was answered.
-         if (i.type === "permission" && !i.auto && i.resolved && !i.plan) return false;
-         // A Harness tool's approval shows on its step: the policy's answer is the step's own
-         // note, and a pending git approval stands in for the step until it is answered.
-         if (i.type === "permission" && i.auto && i.stepId) return false;
-         if (i.type === "tool" && hidden.has(i.id)) return false;
-         return ui.inline.get(i.id) !== null;
-      }),
+      items
+         .filter((i) => {
+            // A plan stays: its row records how it was answered.
+            if (i.type === "permission" && !i.auto && i.resolved && !i.plan) return false;
+            // A Harness tool's approval shows on its step: the policy's answer is the step's own
+            // note, and a pending git approval stands in for the step until it is answered.
+            if (i.type === "permission" && i.auto && i.stepId) return false;
+            if (i.type === "tool" && hidden.has(i.id)) return false;
+            return ui.inline.get(i.id) !== null;
+         })
+         .map((i) => {
+            const step = i.type === "permission" && i.stepId ? hidden.get(i.stepId) : undefined;
+            return step && i.type === "permission" && !i.resolved ? { ...i, step } : i;
+         }),
       (i) => (i.type === "tool" ? i : null),
       (i) => (i.type === "thought" || i.type === "agent" ? i.parent : null),
    );

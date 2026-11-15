@@ -113,15 +113,28 @@ describe("chatRows", () => {
       ).toEqual(["tools:t1"]);
    });
 
-   it("a pending approval of another Harness tool or without a step hides nothing", () => {
+   it("a pending approval stands in for any linked step, an Agent's tool call too", () => {
+      expect(
+         rowIds([
+            tool("t1", { kind: "execute", status: "pending" }),
+            perm("p1", { stepId: "t1", toolCall: { toolCallId: "t1", kind: "execute" } }),
+         ]),
+      ).toEqual(["p1"]);
+      const rows = chatRows(
+         [tool("t1", { kind: "execute" }), perm("p1", { stepId: "t1" })],
+         splitRenderUi([]),
+      ).rows;
+      expect(rows[0]).toMatchObject({ type: "permission", step: { id: "t1" } });
+   });
+
+   it("a pending approval without a step hides nothing", () => {
       expect(
          rowIds([
             tool("t1", { harnessTool: "git_status" }),
-            perm("p1", { stepId: "t1", harnessTool: "git_status" }),
             tool("t2", { harnessTool: "git_commit" }),
             perm("p2", { harnessTool: "git_commit" }),
          ]),
-      ).toEqual(["tools:t1", "p1", "tools:t2", "p2"]);
+      ).toEqual(["tools:t1+t2", "p2"]);
    });
 
    describe("render_ui items", () => {
