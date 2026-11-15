@@ -239,6 +239,11 @@ pub enum Command {
         folder: String,
         branch: String,
     },
+    /// Names the Session. Titles the Agent sends no longer replace it.
+    SetSessionTitle {
+        session_id: SessionId,
+        title: String,
+    },
     /// Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept.
     ArchiveSession {
         session_id: SessionId,

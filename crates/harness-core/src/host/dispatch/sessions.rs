@@ -137,6 +137,11 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
+    pub(in crate::host) fn cmd_set_session_title(&self, session_id: SessionId, title: String) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.set_title(&title)?;
+        Ok(CommandResult::Ok)
+    }
+
     pub(in crate::host) async fn cmd_unarchive_session(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
         self.session(&session_id)?.unarchive().await?;
         for child in self.children(&session_id).into_iter().filter(|c| c.meta().archived) {

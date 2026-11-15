@@ -16,7 +16,7 @@ pub fn stripped_env() -> Vec<String> {
 
 /// Env vars added when spawning any Agent. A Custom Agent's own env overrides them.
 pub fn extra_env() -> Vec<(&'static str, &'static str)> {
-    claude::extra_env()
+    [claude::extra_env(), codex::extra_env()].concat()
 }
 
 /// Fills generic event fields from an Agent's own signals in the raw ACP `session/update`.
@@ -298,8 +298,12 @@ mod claude {
 
     /// Recent Claude models omit thinking text by default, so `agent_thought_chunk` updates are
     /// empty and no thinking shows. ACP has no standard way to ask for thinking text.
+    ///
+    /// Through the SDK, recent Claude models get no todo tools (`TodoWrite`, `TaskCreate`, ...)
+    /// unless `CLAUDE_CODE_ENABLE_TODO_TOOLS` is set, so they never send an ACP `plan` and the
+    /// task list stays empty.
     pub fn extra_env() -> Vec<(&'static str, &'static str)> {
-        vec![("CLAUDE_CODE_THINKING_DISPLAY", "summarized")]
+        vec![("CLAUDE_CODE_THINKING_DISPLAY", "summarized"), ("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1")]
     }
 
     /// Subagents. ACP has no notion of them; without this, a subagent's tool calls look like the
@@ -345,6 +349,16 @@ mod claude {
         let end = file.find(".output")? + ".output".len();
         let output_file = file[..end].trim().to_owned();
         (!id.is_empty() && output_file.starts_with('/')).then_some(BackgroundJob { id, output_file })
+    }
+}
+
+/// Codex Agent (codex-acp).
+mod codex {
+    /// Codex has its `update_plan` tool (the task list, sent as ACP `plan`) only when
+    /// `tools.update_plan.enabled` is set; codex-acp passes `CODEX_CONFIG` (JSON) into each thread's
+    /// config. ACP has no standard way to ask for a task list.
+    pub fn extra_env() -> Vec<(&'static str, &'static str)> {
+        vec![("CODEX_CONFIG", r#"{"tools.update_plan.enabled":true}"#)]
     }
 }
 
@@ -435,6 +449,15 @@ mod tests {
     #[test]
     fn claude_thinking_display() {
         assert!(extra_env().contains(&("CLAUDE_CODE_THINKING_DISPLAY", "summarized")));
+    }
+
+    #[test]
+    fn task_list_tools_enabled() {
+        let env = extra_env();
+        assert!(env.contains(&("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1")));
+        let (_, codex) = env.iter().find(|(k, _)| *k == "CODEX_CONFIG").unwrap();
+        let v: Value = serde_json::from_str(codex).unwrap();
+        assert_eq!(v["tools.update_plan.enabled"], true);
     }
 
     #[test]

@@ -263,6 +263,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  out elsewhere or has diverged).
  */
 { type: "UpdateBranch"; folder: string; branch: string } | 
+/**  Names the Session. Titles the Agent sends no longer replace it. */
+{ type: "SetSessionTitle"; session_id: string; title: string } | 
 /**  Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept. */
 { type: "ArchiveSession"; session_id: string } | 
 /**  Restores an archived Session's Worktree. */
