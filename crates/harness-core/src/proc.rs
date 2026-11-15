@@ -1,7 +1,6 @@
 //! The one way the core runs an external program to completion (git, gh, tar, lsof, npm, ...).
 //! Every call has a timeout, stops the child and its process group on timeout (SIGTERM, then SIGKILL
-//! after a short grace) or drop (SIGKILL), reads no stdin unless given some, runs without a
-//! controlling terminal, and caps what it captures. Agent processes, the Terminal PTY and the
+//! after a short grace) or drop (SIGKILL), reads no stdin unless given some, and caps what it captures. Agent processes, the Terminal PTY and the
 //! MCP shim are not run through here.
 
 use std::ffi::{OsStr, OsString};
@@ -161,7 +160,7 @@ impl GroupGuard {
     /// Asks the group to stop and keeps the guard armed for the SIGKILL that follows.
     fn term(&self) {
         if let Some(pgid) = self.0 {
-            // The group we created with `setsid` (pgid is the child's pid); already gone is fine.
+            // The group we created with `process_group(0)` (pgid is the child's pid); already gone is fine.
             let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pgid), nix::sys::signal::Signal::SIGTERM);
         }
     }
@@ -174,7 +173,11 @@ impl GroupGuard {
 
 /// The last `STDERR_TAIL` bytes of `err` as trimmed text.
 fn tail(err: &[u8]) -> String {
-    let from = err.len().saturating_sub(STDERR_TAIL);
+    let mut from = err.len().saturating_sub(STDERR_TAIL);
+    // Not in the middle of a UTF-8 sequence: skip its continuation bytes.
+    while from < err.len() && err[from] & 0xC0 == 0x80 {
+        from += 1;
+    }
     String::from_utf8_lossy(&err[from..]).trim().to_owned()
 }
 
@@ -229,21 +232,12 @@ pub async fn run(program: impl AsRef<OsStr>, opts: Opts) -> Result<Output, ProcE
     if let Some(d) = &opts.cwd {
         cmd.current_dir(d);
     }
-    cmd.stdin(if opts.input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-    // A new session: its own process group (pgid = child pid), so a timeout also reaches what it
-    // spawned (hooks, credential helpers), and no controlling terminal, so a prompt that wants
-    // /dev/tty (ssh host key, passphrase) fails or goes to its askpass like in the packaged app,
-    // instead of stopping the child with SIGTTIN in a dev run from a terminal.
-    #[allow(unsafe_code)]
-    // SAFETY: the closure only calls `setsid`, which is async-signal-safe.
-    unsafe {
-        cmd.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    cmd.stdin(if opts.input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        // Its own group, so a timeout also reaches what it spawned (hooks, credential helpers).
+        .process_group(0);
     let mut child = cmd.spawn().map_err(|source| ProcError::Spawn { program: label(), source })?;
     let mut guard = GroupGuard(child.id().map(|p| p as i32));
     let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
@@ -299,7 +293,10 @@ pub async fn run(program: impl AsRef<OsStr>, opts: Opts) -> Result<Output, ProcE
             Err(ProcError::TooLarge { program: label(), limit: opts.max_output })
         }
         Err(_) => {
-            // The kill also sweeps what ignored SIGTERM (a group that is already empty: no-op).
+            // The kill also sweeps what ignored SIGTERM. Safe even if the leader was reaped in the
+            // grace: while any member lives the group id cannot be reused, and with none left the
+            // call fails with ESRCH (a reuse of that exact id as a new group within microseconds is
+            // the only, negligible, gap).
             guard.kill();
             let _ = child.wait().await;
             Err(ProcError::Timeout { program: label(), after: opts.timeout, stderr_tail: tail(&err.buf) })
@@ -365,6 +362,15 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "done");
     }
 
+    #[test]
+    fn the_stderr_tail_starts_on_a_char_boundary() {
+        // 3-byte chars: a cut at STDERR_TAIL bytes from the end lands inside one.
+        let err = "\u{20ac}".repeat(1000).into_bytes();
+        let t = tail(&err);
+        assert!(!t.contains('\u{fffd}') && t.chars().all(|c| c == '\u{20ac}'), "{t:?}");
+        assert!(t.len() <= STDERR_TAIL);
+    }
+
     #[tokio::test]
     async fn a_child_that_ignores_sigterm_is_killed_after_the_grace() {
         let dir = tempfile::tempdir().unwrap();
@@ -392,17 +398,9 @@ mod tests {
         assert!(msg.contains("timed out") && msg.ends_with("hanging-step"), "{msg}");
         assert!(msg.contains("line 399") && !msg.contains("line 0\n"), "{msg}");
         assert!(msg.len() < STDERR_TAIL + 100, "{}", msg.len());
+        assert!(!msg.contains('\u{fffd}'), "{msg}");
         let quiet = run("sh", sh("sleep 30", Opts::new(Duration::from_millis(300)).term_grace(Duration::from_millis(100)))).await.unwrap_err();
         assert!(!quiet.to_string().contains("last output"), "{quiet}");
-    }
-
-    #[tokio::test]
-    async fn children_lead_their_own_session_without_a_controlling_terminal() {
-        let out = run("sh", sh("echo $$; ps -o pgid= -p $$; ps -o tty= -p $$", Opts::new(LOCAL))).await.unwrap();
-        let lines: Vec<String> = out.stdout_lossy().lines().map(|l| l.trim().to_owned()).collect();
-        // pgid == pid (group kill reaches it) and no tty ("??" on macOS, "?" on Linux).
-        assert_eq!(lines[0], lines[1], "{lines:?}");
-        assert!(lines[2].starts_with('?'), "{lines:?}");
     }
 
     #[tokio::test]

@@ -106,7 +106,7 @@ impl Harness {
                 ))
             }
             Start::Branch { base, new_branch, worktree: true } => {
-                let wt = crate::workspace::create_worktree(&root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
+                let wt = crate::workspace::create_worktree(&self.base_fetches, &root, base, new_branch, &dest, &crate::workspace::slug(title), short).await?;
                 Ok(in_worktree(wt, None))
             }
             Start::Branch { base, new_branch, worktree: false } => {

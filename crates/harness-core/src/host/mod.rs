@@ -62,6 +62,8 @@ pub struct Harness {
     terminals: crate::terminal::Terminals,
     /// When the PR states of the Session list were last refreshed.
     prs_refreshed: parking_lot::Mutex<Option<std::time::Instant>>,
+    /// Background fetches that refresh a Worktree's base; stopped by `shutdown`.
+    base_fetches: crate::git::BaseFetches,
     /// Set once `shutdown` is done, so a second call returns at once.
     shut_down: tokio::sync::OnceCell<()>,
     shutdown_timeout: std::time::Duration,
@@ -175,6 +177,7 @@ impl Harness {
             sessions: RwLock::new(sessions),
             terminals,
             prs_refreshed: Default::default(),
+            base_fetches: Default::default(),
             shut_down: Default::default(),
             shutdown_timeout,
             _lock: lock,
@@ -247,6 +250,7 @@ impl Harness {
         sessions.sort_by_key(|s| !s.log().is_dirty());
         self.terminals.kill_everything();
         self.shared.mcp.stop();
+        self.base_fetches.abort_all().await;
         // The Agent's process group goes with its connection (the ACP crate kills it on drop).
         let grace = self.shutdown_timeout * 3 / 5;
         let stopping = futures_util::future::join_all(sessions.iter().map(|s| s.shutdown_stop(grace)));
