@@ -22,6 +22,9 @@ pub struct Subscriptions {
     app_by_webview: Mutex<HashMap<String, Vec<u64>>>,
     /// Webview label -> (session id, terminal id, terminal attach id).
     terminals_by_webview: Mutex<HashMap<String, Vec<TerminalAttach>>>,
+    /// Webview label -> how many times it was dropped (reload, closed). A subscription started
+    /// before a drop must not register after it.
+    generations: Mutex<HashMap<String, u64>>,
 }
 
 /// What a webview held, still to be released in the core (which may block on a log lock).
@@ -46,10 +49,36 @@ impl Dropped {
 }
 
 impl Subscriptions {
-    /// Subscribes the webview to a Session Log.
+    /// The webview's current generation: read when a command starts, before its blocking part.
+    pub fn generation(&self, label: &str) -> u64 {
+        self.generations.lock().get(label).copied().unwrap_or(0)
+    }
+
+    /// Subscribes the webview to a Session Log, as of now.
+    #[cfg(test)]
     pub fn subscribe(&self, harness: &Harness, label: &str, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<u64, String> {
+        self.subscribe_at(harness, label, self.generation(label), session_id, from_seq, sink)
+    }
+
+    /// Subscribes for the webview as of `generation`. When the webview was dropped meanwhile the
+    /// subscription is released again and this fails: nobody is left to hear it.
+    pub fn subscribe_at(
+        &self,
+        harness: &Harness,
+        label: &str,
+        generation: u64,
+        session_id: &str,
+        from_seq: u64,
+        sink: Box<dyn EventSink>,
+    ) -> Result<u64, String> {
         let id = harness.subscribe_session(session_id, from_seq, sink)?;
-        self.by_webview.lock().entry(label.to_owned()).or_default().push((session_id.to_owned(), id));
+        let mut map = self.by_webview.lock();
+        if self.generation(label) != generation {
+            drop(map);
+            harness.unsubscribe_session(session_id, id);
+            return Err("the window was reloaded".to_owned());
+        }
+        map.entry(label.to_owned()).or_default().push((session_id.to_owned(), id));
         Ok(id)
     }
 
@@ -68,6 +97,7 @@ impl Subscriptions {
     }
 
     /// Attaches the webview to a Terminal tab.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments, reason = "mirrors the Tauri command's IPC arguments")]
     pub fn terminal_attach(
         &self,
@@ -79,8 +109,30 @@ impl Subscriptions {
         rows: u16,
         sink: TerminalSink,
     ) -> Result<u64, String> {
+        self.terminal_attach_at(harness, label, self.generation(label), session_id, terminal_id, cols, rows, sink)
+    }
+
+    /// As `subscribe_at`, for a Terminal.
+    #[allow(clippy::too_many_arguments, reason = "mirrors the Tauri command's IPC arguments")]
+    pub fn terminal_attach_at(
+        &self,
+        harness: &Harness,
+        label: &str,
+        generation: u64,
+        session_id: &str,
+        terminal_id: u32,
+        cols: u16,
+        rows: u16,
+        sink: TerminalSink,
+    ) -> Result<u64, String> {
         let id = harness.terminal_attach(session_id, terminal_id, cols, rows, sink).map_err(|e| format!("{e:#}"))?;
-        self.terminals_by_webview.lock().entry(label.to_owned()).or_default().push((session_id.to_owned(), terminal_id, id));
+        let mut map = self.terminals_by_webview.lock();
+        if self.generation(label) != generation {
+            drop(map);
+            harness.terminal_detach(session_id, terminal_id, id);
+            return Err("the window was reloaded".to_owned());
+        }
+        map.entry(label.to_owned()).or_default().push((session_id.to_owned(), terminal_id, id));
         Ok(id)
     }
 
@@ -94,6 +146,8 @@ impl Subscriptions {
     /// Forgets every subscription of the webview: it reloaded or its window is gone. Cheap (maps
     /// only), so it runs on the main thread; `Dropped::release` does the core's part.
     pub fn take_webview(&self, label: &str) -> Dropped {
+        // Bumped first: a registration that checks after this fails, one before is removed below.
+        *self.generations.lock().entry(label.to_owned()).or_default() += 1;
         Dropped {
             sessions: self.by_webview.lock().remove(label).unwrap_or_default(),
             app: self.app_by_webview.lock().remove(label).unwrap_or_default(),
@@ -227,6 +281,35 @@ mod tests {
         subs.unsubscribe(&h, "main", &sid, 9999);
         subs.unsubscribe(&h, "nobody", &sid, id_b);
         assert_eq!(subs.counts("main"), (1, 0, 0));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_subscription_started_before_a_reload_is_not_registered_after_it() {
+        let (h, sid, _dir) = harness().await;
+        let subs = Subscriptions::default();
+        let started_at = subs.generation("main");
+        // The reload lands between the command starting and the subscription registering.
+        subs.take_webview("main").release(&h);
+        let (n, sink) = counting();
+        assert!(subs.subscribe_at(&h, "main", started_at, &sid, 0, sink).is_err());
+        assert_eq!(subs.counts("main"), (0, 0, 0));
+        settle().await;
+        poke(&h, &sid).await;
+        settle().await;
+        assert_eq!(n.load(Ordering::SeqCst), 0, "the stale subscription was released: nothing is delivered");
+
+        let CommandResult::TerminalOpened { terminal_id } = h.execute(Command::TerminalOpen { session_id: sid.clone() }).await.unwrap() else { panic!() };
+        let started_at = subs.generation("main");
+        subs.take_webview("main").release(&h);
+        let (_, term) = terminal_sink();
+        assert!(subs.terminal_attach_at(&h, "main", started_at, &sid, terminal_id, 80, 24, term).is_err());
+        assert_eq!(subs.counts("main"), (0, 0, 0));
+
+        // After the reload, a fresh one registers.
+        let (_, sink) = counting();
+        subs.subscribe(&h, "main", &sid, 0, sink).unwrap();
+        assert_eq!(subs.counts("main"), (1, 0, 0));
+        h.execute(Command::TerminalClose { session_id: sid.clone(), terminal_id }).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]

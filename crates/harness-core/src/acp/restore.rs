@@ -198,7 +198,7 @@ pub async fn continue_with_summary(session: Arc<Session>, thread: ThreadId) -> a
     session.update_meta(|m| {
         m.seeds.insert(thread.clone(), summary);
     })?;
-    session.sync_log().await?;
+    session.sync_log().await;
     Ok(())
 }
 
@@ -271,8 +271,8 @@ pub(super) async fn continue_previous(
         }
     }
     let transcript = Some(crate::summary::transcript_size(&session.log().events()?, thread));
-    session.log().append(Some(thread.clone()), EventKind::ThreadReadOnly { reason: NOT_RESTORED.to_owned(), retryable, errors, transcript })?;
-    session.sync_log().await?;
+    session.log().append_or_report(Some(thread.clone()), EventKind::ThreadReadOnly { reason: NOT_RESTORED.to_owned(), retryable, errors, transcript });
+    session.sync_log().await;
     Ok(None)
 }
 

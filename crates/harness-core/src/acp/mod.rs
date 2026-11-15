@@ -1,6 +1,8 @@
 //! ACP client side: one Agent process per Session (shared by its Threads), normalized into the
 //! Session Log. See docs/spikes/acp-client.md for the crate's behaviour.
 
+#[cfg(test)]
+mod degraded_tests;
 mod jobs;
 mod normalize;
 mod permission;

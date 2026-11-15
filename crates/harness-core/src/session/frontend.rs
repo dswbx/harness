@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::Session;
@@ -162,8 +163,13 @@ impl Session {
 
     /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
-    pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<Arc<FrontendItem>>> {
         self.log.frontend_items()
+    }
+
+    /// One live Frontend Tool item by tool and id.
+    pub fn frontend_item(&self, tool: &str, id: &str) -> anyhow::Result<Option<Arc<FrontendItem>>> {
+        self.log.frontend_item(tool, id)
     }
 
     /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since, oldest
@@ -182,13 +188,11 @@ impl Session {
             message.truncate(message.floor_char_boundary(MAX_FRONTEND_ERROR_LEN));
             message.push('…');
         }
-        let (items, errors) = self.log.frontend_state()?;
-        let Some(thread) = items.get(&(tool.to_owned(), item.to_owned())) else { return Ok(()) };
-        let current: Vec<_> = errors.iter().filter(|x| x.tool == tool && x.item == item).collect();
-        if current.len() >= MAX_FRONTEND_ERRORS || current.iter().any(|x| x.message == message) {
+        let Some((thread, current)) = self.log.frontend_item_errors(tool, item)? else { return Ok(()) };
+        if current.len() >= MAX_FRONTEND_ERRORS || current.contains(&message) {
             return Ok(());
         }
-        self.log.append(Some(thread.clone()), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
+        self.log.append(Some(thread), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
         Ok(())
     }
 

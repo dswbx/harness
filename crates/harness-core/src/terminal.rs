@@ -226,9 +226,13 @@ impl Terminals {
         let reader = pair.master.try_clone_reader()?;
         let mut writer = pair.master.take_writer()?;
         let (input_tx, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let mut input_killer = child.clone_killer();
         std::thread::Builder::new().name("terminal-input".into()).spawn(move || {
             for data in input_rx {
                 if writer.write_all(&data).and_then(|()| writer.flush()).is_err() {
+                    // The PTY is gone: end the shell so the View hears `Exit` once, and later
+                    // `input` calls fail (the queue closes with this thread).
+                    let _ = input_killer.kill();
                     break;
                 }
             }

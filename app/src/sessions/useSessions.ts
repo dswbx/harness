@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useReportError } from "../platform/toast";
 
 type StatusEvent = Extract<AppEvent, { type: "SessionStatus" }>;
+const TOLD_EVERY_MS = 60_000;
 type LogHealthEvent = Extract<AppEvent, { type: "SessionLogHealth" }>;
 
 /** The list with one Session's `log_error` set or cleared (its Log cannot be written, or can be again). */
@@ -30,20 +31,28 @@ export function applyStatus(
 export function useSessions(client: HarnessClient, onAgentsChanged?: () => void) {
    const [sessions, setSessions] = useState<SessionSummary[]>([]);
    const [settled, setSettled] = useState(false);
+   // The list as last rendered: titles for the notice.
+   const shown = useRef(sessions);
+   shown.current = sessions;
    const report = useReportError();
    // Sessions whose unsaved state was already shown, so it is told once per episode.
    const unsaved = useRef(new Set<string>());
+   const toldAt = useRef(new Map<string, number>());
    const agentsChanged = useRef(onAgentsChanged);
    agentsChanged.current = onAgentsChanged;
    useEffect(() => {
       let stop = false;
       let failed = false;
-      const tell = (id: string, error: string | null | undefined) => {
-         if (!error) unsaved.current.delete(id);
-         else if (!unsaved.current.has(id)) {
-            unsaved.current.add(id);
-            report("This Session is not being saved", error);
-         }
+      // Once per episode, and once a minute per Session however often the disk flaps.
+      const tell = (list: SessionSummary[], id: string, error: string | null | undefined) => {
+         if (!error) return void unsaved.current.delete(id);
+         const s = list.find((x) => x.id === id);
+         if (!s || unsaved.current.has(id)) return;
+         unsaved.current.add(id);
+         const now = Date.now();
+         if (now - (toldAt.current.get(id) ?? -Infinity) < TOLD_EVERY_MS) return;
+         toldAt.current.set(id, now);
+         report(`This Session ("${s.title}") is not being saved`, error);
       };
       const load = () =>
          client.listSessions().then(
@@ -52,7 +61,7 @@ export function useSessions(client: HarnessClient, onAgentsChanged?: () => void)
                if (!stop) {
                   setSessions(l);
                   setSettled(true);
-                  for (const s of l) tell(s.id, s.log_error);
+                  for (const s of l) tell(l, s.id, s.log_error);
                }
             },
             (e) => {
@@ -76,7 +85,7 @@ export function useSessions(client: HarnessClient, onAgentsChanged?: () => void)
                });
             } else if (e.type === "SessionLogHealth") {
                setSessions((l) => applyLogHealth(l, e));
-               tell(e.session_id, e.error);
+               tell(shown.current, e.session_id, e.error);
             } else if (e.type === "AgentsChanged") agentsChanged.current?.();
          })
          .then((u) => (stop ? u() : (unsub = u)))

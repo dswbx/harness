@@ -114,7 +114,9 @@ async fn subscribe(
     let harness = harness.inner().clone();
     let app = webview.app_handle().clone();
     let label = webview.label().to_owned();
-    blocking(move || app.state::<Subscriptions>().subscribe(&harness, &label, &session_id, from_seq, Box::new(ViewSink(channel)))).await?
+    // Read before the blocking part: a reload meanwhile makes the registration fail.
+    let generation = app.state::<Subscriptions>().generation(&label);
+    blocking(move || app.state::<Subscriptions>().subscribe_at(&harness, &label, generation, &session_id, from_seq, Box::new(ViewSink(channel)))).await?
 }
 
 /// Harness-wide events (session list, attention) for this webview.
@@ -140,10 +142,12 @@ async fn terminal_attach(
     let app = webview.app_handle().clone();
     let label = webview.label().to_owned();
     // Starting the shell forks; the replay then live hand-over is atomic inside the Terminal.
+    let generation = app.state::<Subscriptions>().generation(&label);
     blocking(move || {
-        app.state::<Subscriptions>().terminal_attach(
+        app.state::<Subscriptions>().terminal_attach_at(
             &harness,
             &label,
+            generation,
             &session_id,
             terminal_id,
             cols,

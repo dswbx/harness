@@ -77,11 +77,7 @@ impl Session {
     /// call on the Thread of its latest one, and this Session is attached.
     pub fn share_item(&self, item_id: &str, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
         use crate::api::SharedKind;
-        let item = self
-            .frontend_items()?
-            .into_iter()
-            .find(|x| x.tool == RENDER_UI && x.id == item_id)
-            .ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))?;
+        let item = self.frontend_item(RENDER_UI, item_id)?.ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))?;
         let title = item.input.get("title").and_then(|v| v.as_str()).unwrap_or(item_id).to_owned();
         let artifacts = &self.shared.artifacts;
         let write_state = |dir: &Path, state: &serde_json::Value| -> anyhow::Result<()> {
@@ -143,7 +139,7 @@ impl Session {
             o.remove("root");
             o.insert("source".into(), serde_json::json!(format!("{}{}", crate::shared::PREFIX, meta.id)));
         }
-        let thread = item.thread.unwrap_or_else(|| self.meta().main_thread_id);
+        let thread = item.thread.clone().unwrap_or_else(|| self.meta().main_thread_id);
         self.write_frontend_tool_output(&thread, RENDER_UI, input, Default::default())?;
         self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
         Ok(meta)
