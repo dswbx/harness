@@ -16,5 +16,5 @@
 
 **Open questions:**
 - Does the nudge make Agents keep a list for small tasks too (noise)?
-- Codex's generated title still sees mostly `<harness_context>` (first 4000 chars) and may make one up. Fix without reordering?
+- Titles: Claude's come from Claude Code's session summary (whole conversation, updated); Codex's from one title-model call on the first prompt's first 4000 chars. Now the Harness MCP `set_title` tool (and `SetSessionTitle`) sets an explicit title that Agent titles no longer replace. In a smoke run Codex called it for a real task, not for a one-line question. Not checked with Claude.
 - `TaskListPanel` keeps a finished list and is replaced per update; should it follow Turns?

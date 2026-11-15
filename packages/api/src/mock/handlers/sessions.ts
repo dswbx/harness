@@ -80,6 +80,22 @@ export const sessionsHandlers = {
       }
       return { type: "Ok" };
    },
+   // Like the core: logged on the Session and announced; Agent titles no longer replace it.
+   SetSessionTitle: (mock, cmd) => {
+      const s = mock.session(cmd.session_id);
+      const title = cmd.title.trim().split(/\s+/).join(" ").slice(0, 80);
+      if (!title) throw new CommandError("invalid", "title is empty");
+      s.title = title;
+      mock.emit(s.id, { type: "SessionInfoUpdated", title }, null);
+      mock.emitApp({
+         type: "SessionStatus",
+         session_id: s.id,
+         title,
+         status: s.status,
+         unused: s.unused,
+      });
+      return { type: "Ok" };
+   },
    // Like the core: archiving a Session first archives its Sub Sessions, unarchiving restores them.
    ArchiveSession: (mock, cmd) => {
       mock.session(cmd.session_id);

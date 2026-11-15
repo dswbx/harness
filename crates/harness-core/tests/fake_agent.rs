@@ -150,6 +150,28 @@ async fn agent_title_becomes_session_title() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn explicit_title_wins_over_agent_titles() {
+    let (h, sid, _dir) = setup().await;
+    let (all, mut rx) = collect(&h, &sid);
+    h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: "  Fix the\nlogin bug ".into() }).await.unwrap();
+    assert_eq!(title_of(&h).await, "Fix the login bug");
+    assert!(h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: " ".into() }).await.is_err());
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![] }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    assert_eq!(title_of(&h).await, "Fix the login bug", "the Agent's title is dropped");
+    let titles: Vec<Option<String>> = all
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::SessionInfoUpdated { title } => Some(title.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, vec![Some("Fix the login bug".to_owned())], "only the explicit title is logged");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn permission_first_answer_wins_and_late_view_replays() {
     let (h, sid, _dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);

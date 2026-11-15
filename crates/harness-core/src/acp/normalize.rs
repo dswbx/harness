@@ -29,6 +29,9 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
         kind = super::restore::named_mode_changed(session, mode_id.clone());
     }
     if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
+        if session.ignores_agent_title(thread.as_ref()) {
+            return;
+        }
         session.set_agent_title(thread.as_ref(), t);
     }
     let job = match &kind {
@@ -44,7 +47,7 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
 
 /// An Agent title cut where the Harness's own `<harness_context>` starts. An Agent may name a
 /// Session after the first prompt's text, which starts with that block (codex-acp's preview
-/// title): the cut leaves it empty, and an empty title is ignored.
+/// title): the cut leaves it empty: no title.
 fn without_context(title: &str) -> String {
     title.split("<harness_context>").next().unwrap_or_default().trim_end().to_owned()
 }
@@ -167,7 +170,7 @@ pub(crate) fn normalize(u: &Value) -> EventKind {
                 .unwrap_or_default(),
         },
         Some("usage_update") => EventKind::usage_updated(u.clone()),
-        Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title").map(|t| without_context(&t)) },
+        Some("session_info_update") => EventKind::SessionInfoUpdated { title: s("title").map(|t| without_context(&t)).filter(|t| !t.is_empty()) },
         _ => EventKind::AgentUpdate { update: u.clone() },
     }
 }

@@ -155,7 +155,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -444,6 +444,17 @@ async fn editor_setting_and_open_guard() {
     // Checked before anything opens.
     assert!(h.execute(open("../outside.txt")).await.is_err());
     assert!(h.execute(open("missing.txt")).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_title_tool_names_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    let r = ask(&h, &sid, r#"mcp set_title {"title":"Repo line count"}"#, None).await;
+    assert_eq!(r, "mcp: Session titled: Repo line count");
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert_eq!(sessions.iter().find(|s| s.id == sid).unwrap().title, "Repo line count");
 }
 
 #[tokio::test(flavor = "multi_thread")]

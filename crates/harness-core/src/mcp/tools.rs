@@ -110,6 +110,13 @@ pub(super) fn primitives() -> Vec<Primitive> {
             |s, t, a| Box::pin(run_harness_info(s, t, a)),
         ),
         Primitive::run(
+            "set_title",
+            "Name this Session: a short title (3-7 words) the user sees in the sidebar and header. Replaces the automatic title.",
+            json!({ "type": "object", "properties": { "title": { "type": "string" } }, "required": ["title"] }),
+            "state",
+            |s, t, a| Box::pin(run_set_title(s, t, a)),
+        ),
+        Primitive::run(
             "ui_get",
             "Read a panel you placed with render_ui: its stored input (root or source, placement, title, ...), the Session State values its `$state` paths point to, and for a `source` panel the file's current `content`. For a Shared Artifact (`shared:<id>`, or a panel whose source is one): its meta, content and its own state. Use it before you change a panel you no longer see, e.g. after compaction.",
             json!({ "type": "object", "properties": {
@@ -355,6 +362,12 @@ async fn run_artifact_detach(session: &Arc<Session>, _: &ThreadId, args: &Value)
 
 async fn run_harness_info(session: &Arc<Session>, _: &ThreadId, _: &Value) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(&info(session)?)?)
+}
+
+async fn run_set_title(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
+    let title = arg_str(args)("title").unwrap_or_default();
+    session.set_title(&title)?;
+    Ok(format!("Session titled: {}", session.meta().title))
 }
 
 async fn run_ui_get(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {

@@ -82,6 +82,7 @@ impl Session {
             quick: false,
             awaiting_first_prompt: false,
             title_from_prompt: false,
+            title_explicit: false,
             parent: None,
             initial_config: Default::default(),
         };
@@ -116,6 +117,28 @@ impl Session {
 
     pub(crate) fn is_main(&self, thread: Option<&ThreadId>) -> bool {
         thread.is_none_or(|t| *t == self.meta.lock().main_thread_id)
+    }
+
+    /// Sets the Session's title on purpose: Agent titles no longer replace it. Logged as
+    /// `SessionInfoUpdated` on the Main Thread.
+    pub fn set_title(&self, title: &str) -> anyhow::Result<()> {
+        const MAX: usize = 80;
+        let title: String = title.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(MAX).collect();
+        anyhow::ensure!(!title.is_empty(), "title is empty");
+        let main = self.update_meta(|m| {
+            m.title = title.clone();
+            m.title_explicit = true;
+            m.title_from_prompt = false;
+            m.main_thread_id.clone()
+        })?;
+        self.log().append(Some(main), EventKind::SessionInfoUpdated { title: Some(title.clone()) })?;
+        self.emit_status(self.id(), title, self.agent.status());
+        Ok(())
+    }
+
+    /// Titles the Agent sends on `thread` are dropped: the title was set on purpose.
+    pub fn ignores_agent_title(&self, thread: Option<&ThreadId>) -> bool {
+        self.is_main(thread) && self.meta.lock().title_explicit
     }
 
     /// Keeps the Agent's title for the Session (`session_info_update` on the main Thread).
