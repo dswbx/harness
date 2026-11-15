@@ -114,13 +114,14 @@ export function SessionHeader({
          <h1 className="mr-1 flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             {parent && (
                <>
-                  <button
-                     onClick={onOpenParent}
-                     title={`Open ${parent.title}`}
-                     className="min-w-0 max-w-[45%] shrink truncate rounded font-normal text-muted-foreground hover:text-foreground"
-                  >
-                     {parent.title}
-                  </button>
+                  <Tooltip content={`Open ${parent.title}`}>
+                     <button
+                        onClick={onOpenParent}
+                        className="min-w-0 max-w-[45%] shrink truncate rounded font-normal text-muted-foreground hover:text-foreground"
+                     >
+                        {parent.title}
+                     </button>
+                  </Tooltip>
                   <span aria-hidden className="shrink-0 font-normal text-muted-foreground">
                      ›
                   </span>

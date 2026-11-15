@@ -78,13 +78,14 @@ function GitLetter({ status }: { status: string | undefined }) {
    if (!status) return null;
    const g = GIT[status] ?? { className: "text-muted-foreground", label: status };
    return (
-      <span
-         className={cn("w-3 shrink-0 text-center font-mono text-xs font-semibold", g.className)}
-         title={g.label}
-         aria-label={g.label}
-      >
-         {status === "?" ? "U" : status}
-      </span>
+      <Tooltip content={g.label}>
+         <span
+            className={cn("w-3 shrink-0 text-center font-mono text-xs font-semibold", g.className)}
+            aria-label={g.label}
+         >
+            {status === "?" ? "U" : status}
+         </span>
+      </Tooltip>
    );
 }
 

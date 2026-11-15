@@ -24,7 +24,7 @@ import { useState } from "react";
 import { prStyle } from "./prStyle";
 import { SessionDetails } from "./SessionDetails";
 import { StatusDot } from "./StatusDot";
-import { branchOf, type Display, highlight, refTitle } from "./sessionGroups";
+import { branchOf, type Display, highlight } from "./sessionGroups";
 
 /** One row's detail line: folder, then branch / Worktree / PR, then the last activity. */
 function DetailLine({
@@ -58,7 +58,7 @@ function DetailLine({
                </span>
             )}
             {(branch || ws.pr != null) && (
-               <span title={refTitle(ws)} className="flex min-w-0 items-center gap-1">
+               <span className="flex min-w-0 items-center gap-1">
                   {ws.worktree_branch ? (
                      <GitFork className="size-3 shrink-0" aria-label="Worktree" />
                   ) : (
@@ -138,7 +138,6 @@ export function SessionRow({
          <Tooltip
             side="right"
             align="start"
-            delay={700}
             className="w-80 max-w-80 p-3 text-xs"
             content={
                <>

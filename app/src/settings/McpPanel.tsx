@@ -262,12 +262,11 @@ export function McpPanel({ client, onChanged }: { client: HarnessClient; onChang
                                  </Badge>
                               )}
                            </div>
-                           <div
-                              className="truncate font-mono text-xs text-muted-foreground"
-                              title={summary(s)}
-                           >
-                              {summary(s)}
-                           </div>
+                           <Tooltip content={summary(s)}>
+                              <div className="truncate font-mono text-xs text-muted-foreground">
+                                 {summary(s)}
+                              </div>
+                           </Tooltip>
                         </div>
                         <Button
                            size="sm"

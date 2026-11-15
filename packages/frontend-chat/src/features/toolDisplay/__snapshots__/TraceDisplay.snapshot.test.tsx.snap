@@ -3001,8 +3001,8 @@ body
 <div data-state="open" id="radix-_r_">
 <div>
 <ul>
-<li title="mcp__a__b">a b</li>
-<li title="Read">Read</li>
+<li data-state="closed">a b</li>
+<li data-state="closed">Read</li>
 </ul>
 <div data-state="closed">
 <button type="button" aria-expanded="false" data-state="closed">
@@ -3039,7 +3039,7 @@ body
 <div data-state="open" id="radix-_r_">
 <div>
 <ul>
-<li title="mcp__s__send">s send</li>
+<li data-state="closed">s send</li>
 </ul>
 <div data-state="closed">
 <button type="button" aria-expanded="false" data-state="closed">

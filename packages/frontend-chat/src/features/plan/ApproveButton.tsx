@@ -10,6 +10,7 @@ import {
    DropdownMenuRadioItem,
    DropdownMenuSeparator,
    DropdownMenuTrigger,
+   Tooltip,
 } from "@harness/ui";
 import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -150,16 +151,17 @@ export function ApproveButton({
       ));
    return (
       <div className="flex">
-         <Button
-            size={size}
-            variant={variant}
-            className={allow.length > 1 ? "rounded-r-none" : undefined}
-            disabled={!chosen}
-            title="Approve (⌘⏎)"
-            onClick={() => chosen && onApprove(chosen.option_id)}
-         >
-            {text}
-         </Button>
+         <Tooltip content="Approve" shortcut={["⌘", "⏎"]}>
+            <Button
+               size={size}
+               variant={variant}
+               className={allow.length > 1 ? "rounded-r-none" : undefined}
+               disabled={!chosen}
+               onClick={() => chosen && onApprove(chosen.option_id)}
+            >
+               {text}
+            </Button>
+         </Tooltip>
          {allow.length > 1 && (
             <DropdownMenu>
                <DropdownMenuTrigger asChild>

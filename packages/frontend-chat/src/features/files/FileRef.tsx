@@ -1,6 +1,6 @@
 import type { SessionApi } from "@harness/api";
 import { errText } from "@harness/api";
-import { cn, Popover, PopoverAnchor, PopoverContent, ScrollArea } from "@harness/ui";
+import { cn, Popover, PopoverAnchor, PopoverContent, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, ChevronUp, Eye } from "lucide-react";
 import {
    createContext,
@@ -239,22 +239,25 @@ function FileRefView({
             onMouseLeave={() => hover(false, CLOSE_DELAY)}
          >
             <div className="flex min-w-0 items-center gap-2 border-b py-1 pr-1 pl-3 font-mono text-[11px] text-muted-foreground">
-               <span className="min-w-0 truncate [direction:rtl] text-left" title={slice.path}>
-                  <bdi>{slice.path}</bdi>
-               </span>
+               <Tooltip content={slice.path}>
+                  <span className="min-w-0 truncate [direction:rtl] text-left">
+                     <bdi>{slice.path}</bdi>
+                  </span>
+               </Tooltip>
                {label && <span className="shrink-0">{label}</span>}
                {error && <span className="min-w-0 truncate text-destructive">{error}</span>}
                <span className="ml-auto" />
                <WrapButton />
-               <button
-                  type="button"
-                  title={onView ? "Show in the Files panel" : "Open in editor"}
-                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 font-sans text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-                  onClick={view}
-               >
-                  <Eye className="size-3.5" aria-hidden />
-                  View
-               </button>
+               <Tooltip content={onView ? "Show in the Files panel" : "Open in editor"}>
+                  <button
+                     type="button"
+                     className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 font-sans text-xs outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+                     onClick={view}
+                  >
+                     <Eye className="size-3.5" aria-hidden />
+                     View
+                  </button>
+               </Tooltip>
             </div>
             <FileLines reader={reader} base={slice} fileRef={ref} />
          </PopoverContent>
@@ -376,17 +379,18 @@ function FileLines({
 function MoreLines({ up, count, onClick }: { up?: boolean; count: number; onClick: () => void }) {
    const Icon = up ? ChevronUp : ChevronDown;
    return (
-      <button
-         type="button"
-         title={`Show ${Math.min(count, STEP)} more`}
-         className={cn(
-            "flex w-full items-center gap-1.5 px-3 py-0.5 text-left font-sans text-[11px] text-muted-foreground outline-none hover:bg-muted/40 hover:text-foreground focus-visible:bg-muted/40 focus-visible:text-foreground",
-            up ? "border-b" : "border-t",
-         )}
-         onClick={onClick}
-      >
-         <Icon className="size-3.5" aria-hidden />
-         {count} more {count === 1 ? "line" : "lines"}
-      </button>
+      <Tooltip content={`Show ${Math.min(count, STEP)} more`}>
+         <button
+            type="button"
+            className={cn(
+               "flex w-full items-center gap-1.5 px-3 py-0.5 text-left font-sans text-[11px] text-muted-foreground outline-none hover:bg-muted/40 hover:text-foreground focus-visible:bg-muted/40 focus-visible:text-foreground",
+               up ? "border-b" : "border-t",
+            )}
+            onClick={onClick}
+         >
+            <Icon className="size-3.5" aria-hidden />
+            {count} more {count === 1 ? "line" : "lines"}
+         </button>
+      </Tooltip>
    );
 }

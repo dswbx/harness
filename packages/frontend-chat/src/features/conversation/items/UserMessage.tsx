@@ -62,7 +62,7 @@ function HarnessContext({ text }: { text: string }) {
    const body = text.replace(/^<harness_context>\n?/, "").replace(/\n?<\/harness_context>$/, "");
    return (
       <>
-         <Tooltip content="Context the Harness sent the Agent with this message" delay={100}>
+         <Tooltip content="Context the Harness sent the Agent with this message">
             <button
                type="button"
                onClick={() => setOpen(true)}

@@ -60,9 +60,9 @@ export function PanelHeader({
          }
       >
          {title != null && (
-            <span className="min-w-0 truncate text-sm font-medium" title={titleHint}>
-               {title}
-            </span>
+            <Tooltip content={titleHint}>
+               <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+            </Tooltip>
          )}
          {children}
          {p && (

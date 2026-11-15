@@ -156,15 +156,3 @@ export function groupSessions(
    }
    return groups.map((g) => ({ ...g, sessions: attentionFirst(g.sessions, children) }));
 }
-
-/** Full text of the detail row's ref, e.g. "Worktree · opt-in-update · PR #16". */
-export function refTitle(ws: WorkspaceInfo): string {
-   const branch = branchOf(ws);
-   return [
-      ws.worktree_branch ? "Worktree" : "Checked out in folder",
-      branch,
-      ws.pr != null && `PR #${ws.pr}`,
-   ]
-      .filter(Boolean)
-      .join(" · ");
-}
