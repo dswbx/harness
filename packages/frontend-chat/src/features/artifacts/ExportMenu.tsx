@@ -8,8 +8,9 @@ import {
    DropdownMenuSubContent,
    DropdownMenuSubTrigger,
    DropdownMenuTrigger,
+   Spinner,
 } from "@harness/ui";
-import { Download, LoaderCircle } from "lucide-react";
+import { Download } from "lucide-react";
 import { useState } from "react";
 import type { ExportFormat } from "./exportFormats";
 
@@ -59,7 +60,7 @@ export function ExportMenu({
                   aria-label="Download"
                   disabled={busy}
                >
-                  {busy ? <LoaderCircle className="animate-spin" /> : <Download />}
+                  {busy ? <Spinner /> : <Download />}
                </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">

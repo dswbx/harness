@@ -14,6 +14,7 @@ import {
    DropdownMenuItem,
    DropdownMenuSeparator,
    DropdownMenuTrigger,
+   Spinner,
 } from "@harness/ui";
 import {
    ArrowDown,
@@ -25,7 +26,6 @@ import {
    ExternalLink,
    GitBranch,
    GitMerge,
-   Loader2,
    Plus,
    RefreshCw,
    X,
@@ -77,7 +77,7 @@ const Count = ({
 }) => (
    <span className={cn("flex items-center gap-px tabular-nums", className)}>
       {busy ? (
-         <Loader2 className="size-[11px] animate-spin" />
+         <Spinner className="size-[11px]" />
       ) : dir === "up" ? (
          <ArrowUp className="size-[11px]" />
       ) : (

@@ -17,6 +17,7 @@ export * from "./primitives/portal";
 export * from "./primitives/scroll-area";
 export * from "./primitives/select";
 export * from "./primitives/separator";
+export * from "./primitives/spinner";
 export * from "./primitives/textarea";
 export * from "./primitives/toggle-group";
 export * from "./primitives/tooltip";

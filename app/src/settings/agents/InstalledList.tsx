@@ -1,6 +1,5 @@
 import type { AgentInfo, HarnessClient, RegistryAgent } from "@harness/api";
-import { Badge, Button, cn } from "@harness/ui";
-import { Loader2 } from "lucide-react";
+import { Badge, Button, cn, Spinner } from "@harness/ui";
 import { checkLine } from "../agents";
 import { AgentIcon } from "./AgentIcon";
 import { heading } from "./heading";
@@ -116,8 +115,7 @@ export function InstalledList({
                            disabled={installing.has(id)}
                            onClick={() => void install(id)}
                         >
-                           {installing.has(id) && <Loader2 className="animate-spin" />} Update to v
-                           {reg!.version}
+                           {installing.has(id) && <Spinner />} Update to v{reg!.version}
                         </Button>
                      )}
                      <Button size="sm" variant="ghost" onClick={() => onRemove(a)}>

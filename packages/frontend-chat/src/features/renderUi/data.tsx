@@ -1,15 +1,6 @@
 import type { StatePatchOp } from "@harness/api";
-import { cn, Input } from "@harness/ui";
-import {
-   ArrowDown,
-   ArrowUp,
-   Ban,
-   CheckCircle2,
-   CircleDashed,
-   Loader2,
-   Search,
-   XCircle,
-} from "lucide-react";
+import { cn, Input, Spinner } from "@harness/ui";
+import { ArrowDown, ArrowUp, Ban, CheckCircle2, CircleDashed, Search, XCircle } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { InlineMarkdown as Md } from "../markdown/InlineMarkdown";
 import { Markdown } from "../markdown/Markdown";
@@ -33,7 +24,7 @@ export * from "./data.spec";
 /** List `status` icons. */
 const statusIcons = {
    done: { icon: CheckCircle2, className: "text-emerald-500" },
-   running: { icon: Loader2, className: "animate-spin text-sky-500" },
+   running: { icon: Spinner, className: "text-sky-500" },
    waiting: { icon: CircleDashed, className: "text-muted-foreground" },
    blocked: { icon: Ban, className: "text-amber-500" },
    failed: { icon: XCircle, className: "text-destructive" },
