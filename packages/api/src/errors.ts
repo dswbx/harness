@@ -13,15 +13,19 @@ export class CommandError extends Error implements HarnessError {
    }
 }
 
-const CODES: ReadonlySet<string> = new Set<ErrorCode>([
-   "auth_required",
-   "not_found",
-   "conflict",
-   "policy_denied",
-   "agent_unavailable",
-   "invalid",
-   "internal",
-]);
+/** Every `ErrorCode`: a new one in `generated.ts` fails the typecheck here until it is listed. */
+const CODE_TABLE = {
+   auth_required: true,
+   not_found: true,
+   conflict: true,
+   policy_denied: true,
+   agent_unavailable: true,
+   invalid: true,
+   timeout: true,
+   unavailable: true,
+   internal: true,
+} satisfies Record<ErrorCode, true>;
+const CODES: ReadonlySet<string> = new Set(Object.keys(CODE_TABLE));
 
 /** The wire shape the core sends: `{ code, message }`. */
 function isWire(e: unknown): e is HarnessError {
@@ -48,5 +52,15 @@ export function isCommandError(e: unknown, code?: ErrorCode): e is CommandError 
    return e instanceof CommandError && (code === undefined || e.code === code);
 }
 
-/** A failure as text for the user (a Command's `message`; anything else as it reads). */
-export const errText = (e: unknown): string => toCommandError(e).message;
+/**
+ * A failure as text for the user, the one way to show an error: a Command's `message`, an Error's
+ * message, a string as is, an object with a string `message`, else its JSON (`String` when that
+ * has none).
+ */
+export function errText(e: unknown): string {
+   if (e instanceof Error) return e.message;
+   if (typeof e === "string") return e;
+   const m = (e as { message?: unknown } | null)?.message;
+   if (typeof m === "string") return m;
+   return JSON.stringify(e) ?? String(e);
+}

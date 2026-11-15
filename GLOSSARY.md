@@ -72,6 +72,18 @@ _Avoid_: main chat, root thread
 A secondary Thread in a Session (e.g. sidechat, btw window, comment thread) that never feeds the Main Thread's Agent context unless the user explicitly says so.
 _Avoid_: subthread, branch, sidechat (as the general term)
 
+**Sub Session**:
+A whole Session (own Session Log, Agent process and Worktree) that the Agent of another Session, its parent, started with the `session_start` tool; it shows under the parent, and archive and delete follow the parent (ADR 0026).
+_Avoid_: subsession, child session (in prose), subagent, Side Thread
+
+**Notice**:
+The message the Harness sends a parent's Agent, as one prompt once it is idle, when a Turn it started in a Sub Session ended or the Sub Session waits for the user (ADR 0026).
+_Avoid_: alert, callback
+
+**Subagent**:
+An Agent's own internal helper (e.g. Claude's Task tool) that works inside a Thread and shows in the Subagents Panel; it has no Session Log or Workspace of its own and the Harness does not manage it.
+_Avoid_: Sub Session, Thread, child agent
+
 **Harness Context**:
 What the Harness tells the Agent about itself, its Frontend and the Session, sent as a `<harness_context>` block before the first prompt of each Agent Session (ADR 0014).
 _Avoid_: system prompt
@@ -103,6 +115,10 @@ _Avoid_: window, tab, subscriber
 **Panel**:
 A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, References, or a `render_ui` item placed left or right; ADR 0019).
 _Avoid_: tab, pane, sidebar
+
+**Panel family**:
+Panels the Agent creates at runtime (the `render_ui` items placed left or right), defined once as a family instead of one by one: each instance is a Panel with the id `<prefix>:<key>` (ADR 0025).
+_Avoid_: dynamic panel, panel group
 
 **File-backed panel**:
 A `render_ui` item whose content is a Markdown (`.md`) or HTML (`.html`, shown like an Html node) file the Agent writes in the Session's `panels/` folder (in the Session Directory), named by `source` instead of a `root` tree; the Panel follows the file as the Agent edits it (ADR 0023).
@@ -150,7 +166,7 @@ _Avoid_: checkout, clone, sandbox
 A user's shell of one Session (a Session can have several, shown as tabs), running in its primary Workspace Folder; a live byte stream outside the Session Log, kept while the Harness runs and ended when the Session is archived or deleted, or the tab is closed.
 _Avoid_: console, shell panel
 
-**Workspace Template**:
+**Workspace Template** (planned, not built yet):
 A saved Workspace setup from which new Sessions can be composed; a convenience, never a prerequisite for creating a Session.
 _Avoid_: project, workspace (for the saved setup)
 
@@ -182,6 +198,6 @@ _Avoid_: MCP config, integrations
 The Harness's rules deciding whether an Agent's request to act is allowed, denied, or put to the user; it applies the same way in every Frontend.
 _Avoid_: permission settings, rules (alone)
 
-**Permission Checker**:
+**Permission Checker** (planned, not built yet):
 An automated judge the Harness may consult for requests the Permission Policy would otherwise put to the user, for Agents without their own automatic mode.
 _Avoid_: auto mode (that is the Agent's own feature), classifier

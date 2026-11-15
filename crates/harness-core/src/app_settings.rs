@@ -15,40 +15,38 @@ fn file(key: AppSettingKey) -> &'static str {
 }
 
 pub fn load(data_dir: &Path, key: AppSettingKey) -> Option<Json> {
-    serde_json::from_slice(&std::fs::read(data_dir.join(file(key))).ok()?).ok()
+    json_file(data_dir, key).load_logged()
+}
+
+fn json_file(data_dir: &Path, key: AppSettingKey) -> crate::persist::JsonFile<Json> {
+    crate::persist::JsonFile::in_dir(data_dir, file(key))
 }
 
 pub fn save(data_dir: &Path, key: AppSettingKey, value: Option<&Json>) -> anyhow::Result<()> {
-    let path = data_dir.join(file(key));
     match value {
-        Some(v) => {
-            // Write then rename: a crash never leaves half a file.
-            crate::fsutil::write_atomic(&path, &serde_json::to_vec_pretty(v)?)?;
-        }
-        None => {
-            let _ = std::fs::remove_file(path);
-        }
+        Some(v) => json_file(data_dir, key).save(v)?,
+        None => json_file(data_dir, key).remove(),
     }
     Ok(())
 }
 
-/// Largest theme document we read.
-const MAX_BYTES: &str = "524288";
-
-/// The JSON at an https `url` (system `curl`, like toolchain downloads; https only, 512 KB at most).
+/// The JSON at an https `url` (512 KB at most, 15 s).
 pub async fn fetch_json(url: &str) -> anyhow::Result<Json> {
-    anyhow::ensure!(url.starts_with("https://"), "only https URLs");
-    let out = tokio::process::Command::new("curl")
-        .args(["-fsSL", "--proto", "=https", "--max-time", "15", "--max-filesize", MAX_BYTES, "-H", "Accept: application/json"])
-        .arg(url)
-        .output()
-        .await?;
-    anyhow::ensure!(out.status.success(), "fetch {url}: {}", String::from_utf8_lossy(&out.stderr).trim());
-    serde_json::from_slice(&out.stdout).map_err(|e| anyhow::anyhow!("{url} is not JSON: {e}"))
+    crate::http::get_json(url, &crate::http::Opts::small()).await.map_err(|e| crate::error::reword(&e, format!("fetch {url}: {e}")))
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_corrupt_setting_is_moved_aside_and_reads_as_unset() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("themes.json"), r#"{"zen":{"label":"Zen"}}"#).unwrap();
+        assert_eq!(load(dir.path(), AppSettingKey::Themes), Some(serde_json::json!({"zen": {"label": "Zen"}})));
+        std::fs::write(dir.path().join("themes.json"), b"{").unwrap();
+        assert_eq!(load(dir.path(), AppSettingKey::Themes), None);
+        assert!(std::fs::read_dir(dir.path()).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("themes.json.corrupt-")));
+    }
     use super::*;
 
     #[test]

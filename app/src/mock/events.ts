@@ -1,4 +1,5 @@
-import { type Event, type EventKind, mockImage, mockRenderUi } from "@harness/api";
+import type { Event, EventKind } from "@harness/api";
+import { mockImage, mockRenderUi } from "@harness/api/mock";
 import codexLog from "../../../packages/frontend-chat/src/fixtures/codex-basic.jsonl?raw";
 
 /** Recorded Codex log plus a synthetic tail (task list, diff, plan approval) so the whole chat UI is exercisable. */
@@ -384,9 +385,18 @@ function mockPlans(ev: (kind: EventKind) => Event, recorded: Event[]): Event[] {
       config?.type === "ConfigOptionsChanged" && Array.isArray(config.options)
          ? (config.options as { category?: string }[]).filter((o) => o.category !== "mode")
          : [];
+   const modeNames: Record<string, string> = {
+      default: "Default",
+      acceptEdits: "Accept Edits",
+      plan: "Plan Mode",
+      auto: "Auto",
+      bypassPermissions: "Bypass Permissions",
+   };
+   // Typed like the core's events: the current mode, with the plan flag.
    const modes = (current: string) =>
       ev({
          type: "ConfigOptionsChanged",
+         mode: { id: current, name: modeNames[current], plan: current === "plan" },
          options: [
             {
                id: "mode",
@@ -440,6 +450,7 @@ function mockPlans(ev: (kind: EventKind) => Event, recorded: Event[]): Event[] {
          tool_call: { toolCallId: `${id}-call`, kind: "switch_mode", title: "Ready to code?" },
          options,
          plan,
+         mode_before: "auto",
       });
    return [
       modes("auto"),

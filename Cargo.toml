@@ -16,8 +16,12 @@ specta-typescript = "0.0.14"
 specta-serde = "0.0.14"
 uuid = { version = "1", features = ["v4", "v7"] }
 anyhow = "1"
-thiserror = "2"
 tracing = "0.1"
+# Shared by several crates; features stay per crate.
+agent-client-protocol = "3.5"
+rmcp = "3.7"
+base64 = "0.22"
+tempfile = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

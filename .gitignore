@@ -5,6 +5,5 @@ dist/
 .env.*
 .claude/settings.local.json
 .claude/worktrees/
-src-tauri/gen/
 .idea/
 .private/

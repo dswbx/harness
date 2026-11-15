@@ -90,10 +90,115 @@ async fn sign_in_needed_is_auth_required() {
 async fn other_failures_are_internal() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[]);
-    let sid = session(&h, dir.path()).await;
-    // Not a git repository: a plain failure.
-    let e = h.execute(Command::GitStatus { session_id: sid }).await.unwrap_err();
+    // An unreadable image: a plain failure (no code the caller could act on).
+    let e = h.execute(Command::ReadImageFile { path: dir.path().join("nope.png").display().to_string() }).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Internal, "{e}");
+}
+
+/// A git repository on `main` with one commit and a `README.md`.
+fn git_repo(dir: &std::path::Path) -> std::path::PathBuf {
+    let repo = dir.join("proj");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "T"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    std::fs::write(repo.join("README.md"), "hi\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "init"]);
+    repo.canonicalize().unwrap()
+}
+
+fn mcp_server(name: &str) -> harness_core::api::McpServerDef {
+    harness_core::api::McpServerDef {
+        id: String::new(),
+        name: name.into(),
+        transport: harness_core::api::McpTransport::Stdio { command: "x".into(), args: vec![], env: Default::default() },
+        secret_keys: vec![],
+    }
+}
+
+fn code(r: Result<CommandResult, harness_core::api::HarnessError>) -> ErrorCode {
+    r.unwrap_err().code
+}
+
+#[tokio::test]
+async fn unknown_agents_servers_frontends_and_folders_are_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    assert_eq!(code(h.execute(Command::RollbackAgent { agent_id: "nope".into() }).await), ErrorCode::NotFound);
+    assert_eq!(code(h.execute(Command::RemoveAgent { agent_id: "nope".into() }).await), ErrorCode::NotFound);
+    assert_eq!(code(h.execute(Command::HoldAgentVersion { agent_id: "nope".into(), hold: true }).await), ErrorCode::NotFound);
+    assert_eq!(code(h.execute(Command::RemoveMcpServer { server_id: "nope".into() }).await), ErrorCode::NotFound);
+    let mut c = create(dir.path(), "fake");
+    if let Command::CreateSession { frontend_id, .. } = &mut c {
+        *frontend_id = "nope".into();
+    }
+    assert_eq!(code(h.execute(c).await), ErrorCode::NotFound);
+    assert_eq!(code(h.execute(create(&dir.path().join("missing"), "fake")).await), ErrorCode::NotFound);
+    let sid = session(&h, dir.path()).await;
+    let e = h.execute(Command::ReadAttachment { session_id: sid.clone(), path: "../elsewhere.png".into() }).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+    let e = h.execute(Command::PanelSourceRead { session_id: sid, name: "none.md".into() }).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+}
+
+#[tokio::test]
+async fn input_the_command_cannot_use_is_invalid() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = session(&h, dir.path()).await;
+    // Not a git repository, where the Command needs one.
+    assert_eq!(code(h.execute(Command::GitStatus { session_id: sid.clone() }).await), ErrorCode::Invalid);
+    let mut c = create(dir.path(), "fake");
+    if let Command::CreateSession { worktree, .. } = &mut c {
+        *worktree = true;
+    }
+    assert_eq!(code(h.execute(c).await), ErrorCode::Invalid);
+    assert_eq!(code(h.execute(Command::SaveMcpServer { server: mcp_server("  "), secrets: Default::default() }).await), ErrorCode::Invalid);
+    assert_eq!(code(h.execute(Command::PatchState { session_id: sid, ops: vec![] }).await), ErrorCode::Invalid);
+}
+
+#[tokio::test]
+async fn an_empty_commit_message_is_invalid() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = git_repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = session(&h, &repo).await;
+    std::fs::write(repo.join("README.md"), "changed\n").unwrap();
+    let e = h.execute(Command::GitCommit { session_id: sid, message: String::new() }).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid, "{e}");
+    assert!(e.message.starts_with("git commit"), "the message stays git's: {e}");
+}
+
+#[tokio::test]
+async fn state_in_the_way_is_a_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = git_repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let add = |id: &str| Command::AddCustomAgent { name: id.into(), command: "x".into(), args: vec![], env: Default::default() };
+    h.execute(add("twin")).await.unwrap();
+    assert_eq!(code(h.execute(add("twin")).await), ErrorCode::Conflict);
+    // A branch that exists.
+    let mut c = create(&repo, "fake");
+    if let Command::CreateSession { new_branch, .. } = &mut c {
+        *new_branch = Some("main".into());
+    }
+    let e = h.execute(c).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict, "{e}");
+    // Uncommitted changes in the way of a checkout.
+    assert!(std::process::Command::new("git").args(["branch", "other"]).current_dir(&repo).status().unwrap().success());
+    std::fs::write(repo.join("README.md"), "changed\n").unwrap();
+    let mut c = create(&repo, "fake");
+    if let Command::CreateSession { branch, .. } = &mut c {
+        *branch = Some("other".into());
+    }
+    let e = h.execute(c).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict, "{e}");
 }
 
 #[test]

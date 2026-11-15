@@ -1,6 +1,8 @@
 //! ACP client side: one Agent process per Session (shared by its Threads), normalized into the
 //! Session Log. See docs/spikes/acp-client.md for the crate's behaviour.
 
+#[cfg(test)]
+mod degraded_tests;
 mod jobs;
 mod normalize;
 mod permission;
@@ -15,7 +17,8 @@ use serde_json::Value;
 use crate::api::{AttachmentInput, EventKind, ThreadId};
 use crate::session::Session;
 
-pub use permission::authorize;
+pub use jobs::JobWatchers;
+pub use permission::{OUTSIDE_FILE_KIND, authorize, authorize_at};
 pub use process::AgentSlot;
 pub use restore::{continue_with_summary, set_config_option, set_mode, warm_up};
 
@@ -42,12 +45,17 @@ pub async fn prompt(
     if meta.archived {
         return Err(crate::error::conflict("this Session is archived; unarchive it first"));
     }
+    // Before the workspace snapshot below, which can take long.
+    let closing = || session.shared().closing.load(std::sync::atomic::Ordering::SeqCst);
+    if closing() {
+        return Err(crate::error::unavailable("the Harness is shutting down"));
+    }
     let folder = std::path::PathBuf::from(&meta.folder);
     let tracked = meta.workspace.repo_root.is_some();
     // Held until the Turn counts (or the prompt fails): starting or resuming the Agent is not idle.
     let slot = session.agent_slot();
     let preparing = slot.preparing();
-    let before = if tracked { crate::workspace::snapshot(&folder).await.ok() } else { None };
+    let before = if tracked { crate::git::snapshot(&folder).await.ok() } else { None };
     let conn = ensure_conn(&session).await?;
     let acp_session = match ensure_agent_session(&session, &conn, &thread).await {
         Err(e) if is_auth_required(&e) => {
@@ -86,7 +94,10 @@ pub async fn prompt(
             origin,
         },
     )?;
-    slot.update(&session, |s| *s.turns.entry(thread.clone()).or_default() += 1);
+    slot.update(&session, |s| {
+        *s.turns.entry(thread.clone()).or_default() += 1;
+        s.unlogged += 1;
+    });
     drop(preparing);
     tokio::spawn(async move {
         let mut blocks = Vec::new();
@@ -108,23 +119,28 @@ pub async fn prompt(
                 "auth_required".to_owned()
             }
             // A Cancel the Agent did not answer: its process was stopped, which is what ended the Turn.
-            Err(_) if session.agent_slot().cancelling(&thread) => "cancelled".to_owned(),
+            // Also a Turn whose connection was taken just before the Harness began to shut down.
+            Err(_) if session.agent_slot().cancelling(&thread) || session.shared().closing.load(std::sync::atomic::Ordering::SeqCst) => "cancelled".to_owned(),
             Err(e) => {
                 let message = if agent_client_protocol::is_incoming_transport_closed(&e) {
                     "The Agent process ended during this Turn. Your next message restarts it.".to_owned()
                 } else {
                     e.to_string()
                 };
-                let _ = session.log().append(Some(thread.clone()), EventKind::Error { message });
+                session.log().append_or_report(Some(thread.clone()), EventKind::Error { message });
                 "error".to_owned()
             }
         };
+        // Not while shutting down: `TurnEnded` must reach the log within the grace.
         if let Some(from_tree) = before
-            && let Ok(to_tree) = crate::workspace::snapshot(&folder).await
+            && !session.shared().closing.load(std::sync::atomic::Ordering::SeqCst)
+            && let Ok(to_tree) = crate::git::snapshot(&folder).await
             && to_tree != from_tree
-            && let Ok(diff) = crate::workspace::diff(&folder, &from_tree, &to_tree).await
+            && let Ok(diff) = crate::git::diff(&folder, &from_tree, &to_tree).await
         {
-            let _ = session.log().append(Some(thread.clone()), EventKind::WorkspaceChanged { turn_id: turn_id.clone(), from_tree, to_tree, files: diff.files });
+            session
+                .log()
+                .append_or_report(Some(thread.clone()), EventKind::WorkspaceChanged { turn_id: turn_id.clone(), from_tree, to_tree, files: diff.files });
         }
         // The Turn stops counting before `TurnEnded` is logged, so a View that sees the end never
         // reads the Session as still working.
@@ -137,12 +153,18 @@ pub async fn prompt(
             }
             if s.turns.values().all(|n| *n == 0) {
                 s.tool_calls.clear();
+                s.tool_sent.clear();
             }
         });
-        let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
+        session.log().append_or_report(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
+        // Shutdown waits for this count: it drops once `TurnEnded` is logged, or failed to be.
+        {
+            let mut s = session.agent_slot().state.lock();
+            s.unlogged = s.unlogged.saturating_sub(1);
+        }
         let meta = session.meta();
         session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
-        let _ = session.log().sync();
+        session.sync_log().await;
     });
     Ok(())
 }
@@ -151,7 +173,7 @@ fn is_auth_required(e: &anyhow::Error) -> bool {
     e.downcast_ref::<agent_client_protocol::Error>().is_some_and(|e| e.code == agent_client_protocol::ErrorCode::AuthRequired)
 }
 
-fn report_auth_required(session: &Session, thread: Option<&ThreadId>, message: &str) {
+fn report_auth_required(session: &Arc<Session>, thread: Option<&ThreadId>, message: &str) {
     let methods = session
         .agent_slot()
         .state
@@ -165,8 +187,8 @@ fn report_auth_required(session: &Session, thread: Option<&ThreadId>, message: &
             kind: m.get("type").and_then(Value::as_str).unwrap_or("agent").to_owned(),
         })
         .collect();
-    let _ = session.log().append(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
-    let _ = session.log().sync();
+    session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
+    session.sync_log_detached();
 }
 
 fn thread_of(session: &Session, acp_session: &acp::SessionId) -> Option<ThreadId> {

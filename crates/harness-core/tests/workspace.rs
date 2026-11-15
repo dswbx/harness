@@ -356,7 +356,7 @@ async fn diff_base_finds_a_prs_base_locally_or_on_origin() {
     };
     let base = |b: &'static str| {
         let repo = repo.clone();
-        async move { harness_core::workspace::diff_base(&repo, Some(b)).await.unwrap() }
+        async move { harness_core::git::diff_base(&repo, Some(b)).await.unwrap() }
     };
     // Base only on origin (no local branch): its fork point, not HEAD.
     let fork = commit("dev");
@@ -414,4 +414,57 @@ async fn worktree_dir_setting() {
     h.execute(Command::SetWorktreeDir { dir: None }).await.unwrap();
     let CommandResult::WorktreeDir { dir: d } = h.execute(Command::GetWorktreeDir).await.unwrap() else { panic!() };
     assert_eq!(d, ".harness");
+}
+
+#[tokio::test]
+async fn frontend_paths_resolve_links_and_stay_below_the_frontend_dir() {
+    let (dir, repo, data) = repo();
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    let fe = data.join("sessions").join(&sid).join("frontend");
+    let outside = dir.path().join("elsewhere");
+    std::fs::create_dir_all(fe.join("sub")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(fe.join("sub/in.txt"), "in").unwrap();
+    std::fs::write(outside.join("o.txt"), "out").unwrap();
+    std::os::unix::fs::symlink(fe.join("sub"), fe.join("inner")).unwrap();
+    std::os::unix::fs::symlink(&outside, fe.join("out")).unwrap();
+    std::os::unix::fs::symlink(outside.join("o.txt"), fe.join("a_link_that_leaves.txt")).unwrap();
+
+    let read = |p: &str| h.execute(Command::FrontendRead { session_id: sid.clone(), path: p.into() });
+    let write = |p: &str| h.execute(Command::FrontendWrite { session_id: sid.clone(), path: p.into(), content: "w".into() });
+    assert!(read("sub/in.txt").await.is_ok());
+    assert!(read("inner/in.txt").await.is_ok(), "a link that stays inside");
+    assert!(write("inner/new.txt").await.is_ok());
+    assert!(write("fresh/dir/new.txt").await.is_ok());
+    assert!(read("a_link_that_leaves.txt").await.is_err());
+    assert!(read("out/o.txt").await.is_err());
+    assert!(write("out/missing.txt").await.is_err(), "missing leaf under a link that leaves");
+    assert!(!outside.join("missing.txt").exists());
+    assert!(read("../state.json").await.is_err());
+
+    // `frontend/` itself must be a plain directory of the Session.
+    let elsewhere = dir.path().join("elsewhere2");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("s.txt"), "s").unwrap();
+    std::fs::remove_dir_all(&fe).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &fe).unwrap();
+    assert!(read("s.txt").await.is_err());
+    assert!(write("new.txt").await.is_err());
+    assert!(!elsewhere.join("new.txt").exists());
+}
+
+#[tokio::test]
+async fn frontend_list_does_not_follow_links() {
+    let (_dir, repo, data) = repo();
+    let h = harness(&data);
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    let fe = data.join("sessions").join(&sid).join("frontend");
+    std::fs::create_dir_all(fe.join("a")).unwrap();
+    std::fs::write(fe.join("a/f.txt"), "x").unwrap();
+    // A cycle: every walk that follows links would never end.
+    std::os::unix::fs::symlink(&fe, fe.join("a/back")).unwrap();
+    std::os::unix::fs::symlink(fe.join("a"), fe.join("a2")).unwrap();
+    let CommandResult::Files { files } = h.execute(Command::FrontendList { session_id: sid.clone(), dir: String::new() }).await.unwrap() else { panic!() };
+    assert_eq!(files, vec!["a/back", "a/f.txt", "a2"]);
 }

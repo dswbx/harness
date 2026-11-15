@@ -72,7 +72,7 @@ pub fn resolve(session_dir: &Path, folder: &Path, agent: &str, caps: &acp::Promp
                 Source::File(p) => (p, None),
             };
             let uri = file_uri(&path);
-            let text = if path.starts_with(&folder) || !caps.embedded_context {
+            let text = if crate::fsutil::inside_lexical(&folder, &path) || !caps.embedded_context {
                 None
             } else {
                 match &bytes {
@@ -99,7 +99,7 @@ pub fn store(resolved: &[Resolved]) -> anyhow::Result<()> {
     for r in resolved {
         if let Some(bytes) = &r.store {
             let path = Path::new(&r.attachment.path);
-            std::fs::create_dir_all(crate::env::parent_of(path)?)?;
+            std::fs::create_dir_all(crate::fsutil::parent_of(path)?)?;
             std::fs::write(path, bytes)?;
         }
     }
@@ -108,10 +108,10 @@ pub fn store(resolved: &[Resolved]) -> anyhow::Result<()> {
 
 /// A stored attachment as `(mime, base64)`; refuses anything outside `attachments/`.
 pub fn read(session_dir: &Path, path: &str) -> anyhow::Result<(String, String)> {
-    let outside = || anyhow::anyhow!("{path} is not an attachment of this Session");
-    let root = std::fs::canonicalize(session_dir.join(DIR)).map_err(|_| outside())?;
-    let p = std::fs::canonicalize(path).map_err(|_| outside())?;
-    anyhow::ensure!(p.starts_with(&root) && p != root && p.is_file(), outside());
+    let outside = || crate::error::not_found(format!("{path} is not an attachment of this Session"));
+    let real = crate::fsutil::inside_existing(&session_dir.join(DIR), Path::new(path)).map_err(|_| outside())?;
+    anyhow::ensure!(real.below() && real.path.is_file(), outside());
+    let p = real.path;
     Ok((guess_mime(&p).to_owned(), B64.encode(std::fs::read(&p)?)))
 }
 

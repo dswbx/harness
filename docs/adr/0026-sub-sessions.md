@@ -1,0 +1,31 @@
+# Sub Sessions: an Agent starts another Session and hears back when it ends
+
+An Agent sometimes needs work done somewhere else: in another repository, or isolated in its own Worktree so it cannot disturb the Session's files. A Side Thread (ADR 0018) cannot do that: it shares the Session, its Workspace and its Session Log. ADR 0018 kept this open as "Subsessions"; this is what shipped.
+
+**Decision:** a Sub Session is a whole Session, with its own Session Log, Agent process, Workspace and Worktree, that the Agent of another Session (its parent) started. The child keeps `parent` (`SessionParent`: the parent Session, the Thread and, when known, the tool call that started it) in its `session.json`. The Harness MCP gives the parent's Agent four Primitives, `session_start`, `session_send`, `session_wait` and `session_list` (`sub_sessions.rs`).
+
+**Who can start one.** Only the Agent, through those tools, and only on the Main Thread of a Session that is not itself a Sub Session. So the depth is one, and Side Threads cannot start them. There is no Command for the user to start one: the user opens the child like any Session and can prompt it there. `session_send`, `session_wait` and `session_list` see only the caller's own Sub Sessions. Each tool asks the Permission Policy itself, after its input is checked (`session_start` and `session_send` as kind `session`, the other two as `read`), so the user never approves a call that cannot run.
+
+**What a child starts with.** The same Agent and the same Frontend as the parent. The folder is the parent's source folder unless `folder` says otherwise; in a git repository it gets its own Worktree by default (`worktree`, `branch` to choose), outside one it runs in the folder. Model and effort follow the parent's current values unless the call names others. It gets no MCP Library selection. Its first prompt is the call's `prompt`, marked in the log as coming from the parent (`PromptOrigin`, kind `Parent`), so Views can show where it came from.
+
+**Results and notices.** `session_wait` blocks until the child's Main Thread Turn ends, or the timeout (default 10 minutes, at most 30; `0` only checks), and returns the status, the stop reason, the duration and the last reply as JSON. An Agent acts only on a prompt, so a parent that ended its Turn would never learn that its child finished. A **notice** closes that gap: when a Turn the parent's Agent started in a child ends, or the child starts waiting for the user (a permission request), the Harness queues a message for the parent and sends it as one prompt once the parent's Main Thread is idle (`Notices`). The prompt carries `PromptOrigin` kind `SubSession` with a structured report per child, so Views render a report step instead of a wall of text. Rules: a Turn the user started in the child gives no notice; a running `session_wait` for that child reports instead and drops what is queued; `notify: false` on `session_start` turns notices off for that child; notices are not sent to an Archived parent; a notice that fails to send goes back to the front of the queue and waits for the parent's next Turn end.
+
+**Lifetime follows the parent.** Archive archives the children too, and restore restores them. Delete deletes the children first, each with the usual checks (a child with unmerged work stops the delete, unless forced, before the parent is touched). Its Terminals end with it, like any Session's.
+
+**Views.** The sidebar nests a Sub Session under its parent (a Sub Session whose parent is not in the list is shown as a root); the parent's status shows needs-attention or working when a child does, and its sort time includes the children's activity. The Session header shows a Sub Session's title as a breadcrumb after the parent. In the parent's chat, the four tools render as their own steps and notices as report steps.
+
+**Not the Subagents panel.** A Subagent is the Agent's own internal helper (for example Claude's Task tool), run inside a Thread and shown in the Subagents panel. It has no Session Log, Workspace or Worktree of its own and the Harness does not manage it. A Sub Session is a Session the Harness manages. The Agent's prompt (`harness.md`) tells it to use its own subagents for quick research and Sub Sessions for work in another repository or in isolation.
+
+**Not supported, on purpose.**
+- Depth beyond one: a Sub Session cannot start Sub Sessions.
+- A different Agent or Frontend for the child: it matches the parent's.
+- Reading across Sessions with the transcript tools: they still see one Session only (ADR 0018). The parent learns about a child through `session_wait` and notices.
+- The user starting a Sub Session from a View.
+- Moving a Session under a parent, or detaching it, after the fact.
+
+**A cap, not a product limit.** At most 4 Sub Sessions of one parent may be working or waiting for the user at a time (`MAX_RUNNING_SUB_SESSIONS`). Each is a separate Agent process with its own memory and API cost, so the cap keeps a looping Agent from starting many. `session_start` over the cap errors and tells the Agent to `session_wait` for one first.
+
+**Consequences.**
+- One Session Log per child keeps every View, replay and archive rule unchanged (ADR 0003, 0021); only `parent` is new, an optional field with a serde default.
+- Notices are prompts in the parent's Session Log, so the parent's history shows what it was told and when.
+- Notices are queued in memory: a Harness that quits with notices queued does not send them on the next start. The parent can still find its children with `session_list` and read them with `session_wait`.

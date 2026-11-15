@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
 
 mod common;
-use common::fake_agent_bin;
+use common::{fake_agent_bin, wait_until, wait_until_blocking};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -84,12 +84,7 @@ fn collect(h: &Harness, sid: &str) -> (Arc<Mutex<Vec<Event>>>, tokio::sync::mpsc
     )
     .unwrap();
     // Replay is delivered from a thread of its own: wait until the history so far has arrived.
-    for _ in 0..400 {
-        if all.lock().unwrap().len() >= replayed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    wait_until_blocking("the replay to arrive", Duration::from_secs(5), || all.lock().unwrap().len() >= replayed);
     (all, rx)
 }
 
@@ -208,6 +203,17 @@ async fn harness_looking_titles_do_not_skip_the_policy() {
     assert_eq!(option_id.as_deref(), Some("allow"));
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
 
+    // A served tool name on a plan approval, or a read outside the Workspace, still asks.
+    for kind in ["switch_mode", "read-outside"] {
+        let before = h_events(&h, &sid).iter().filter(|k| matches!(k, EventKind::PermissionRequested { .. })).count();
+        h.execute(prompt(&format!("spoof {kind} mcp__harness__git_status"))).await.unwrap();
+        let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { request_id, .. } if !h_events(&h, &sid).iter().any(|r| matches!(r, EventKind::PermissionResolved { request_id: q, .. } if q == request_id)))).await;
+        let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+        assert_eq!(h_events(&h, &sid).iter().filter(|k| matches!(k, EventKind::PermissionRequested { .. })).count(), before + 1, "{kind}");
+        h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+        until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    }
+
     // An unserved tool name in a benign kind asks (the default Policy asks for "other").
     h.execute(prompt("spoof other mcp__harness__nope")).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { harness_tool: Some(t), .. } if t == "nope")).await;
@@ -324,15 +330,37 @@ async fn turn(h: &Harness, sid: &str, thread_id: Option<String>, text: &str) -> 
 
 async fn turn_with(h: &Harness, sid: &str, thread_id: Option<String>, text: &str, attachments: Vec<AttachmentInput>) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id, text: text.into(), attachments }).await.unwrap();
-    for _ in 0..400 {
-        let evs = events(h, sid);
-        if let Some(EventKind::TurnEnded { stop_reason, .. }) = evs[before..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::TurnEnded { .. })) {
-            return stop_reason.clone();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: thread_id.clone(), text: text.into(), attachments }).await.unwrap();
+    // The end of the Turn this prompt started: another Turn of the Thread may run beside it.
+    let ended = |evs: &[Event]| {
+        let evs = &evs[before..];
+        let id = evs.iter().find_map(|e| match &e.kind {
+            EventKind::TurnStarted { turn_id, text: t, origin: None, .. }
+                if t == text && thread_id.as_ref().is_none_or(|th| e.thread_id.as_ref() == Some(th)) =>
+            {
+                Some(turn_id)
+            }
+            _ => None,
+        })?;
+        evs.iter().find_map(|e| match &e.kind {
+            EventKind::TurnEnded { turn_id, stop_reason } if turn_id == id => Some(stop_reason.clone()),
+            _ => None,
+        })
+    };
+    wait_until("the Turn to end", Duration::from_secs(20), || ended(&events(h, sid)).is_some()).await;
+    // Events trail the Turn's end (status back to Idle, ...): let the log go quiet, so a test that
+    // drops the Harness next (or edits the log file) does not race the last append.
+    let (mut len, mut quiet) = (events(h, sid).len(), 0);
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let now = events(h, sid).len();
+        quiet = if now == len { quiet + 1 } else { 0 };
+        len = now;
+        if quiet == 3 {
+            break;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    panic!("turn did not end");
+    ended(&events(h, sid)).unwrap()
 }
 
 fn boundaries(h: &Harness, sid: &str) -> Vec<Boundary> {
@@ -468,12 +496,10 @@ async fn resume_that_keeps_failing_can_be_tried_again_later() {
 async fn crash_mid_turn_ends_the_turn_and_the_next_prompt_recovers() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
     assert_eq!(turn(&h, &sid, None, "crash now").await, "error");
-    for _ in 0..100 {
-        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Exited | ProcessState::Failed, .. })) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_until("the crashed Agent to be recorded as gone", Duration::from_secs(5), || {
+        h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Exited | ProcessState::Failed, .. }))
+    })
+    .await;
     assert_eq!(status_of(&h).await, SessionStatus::Idle);
     assert_eq!(turn(&h, &sid, None, "hi").await, "end_turn");
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -497,7 +523,7 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
     assert_eq!(stopped(&h), 0, "an open View keeps the Agent running");
 
     h.unsubscribe_session(&sid, view);
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    wait_until("the Agent to stop without Views", Duration::from_secs(5), || stopped(&h) == 1).await;
     assert_eq!(stopped(&h), 1);
     assert_eq!(turn(&h, &sid, None, "back").await, "end_turn");
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -932,12 +958,7 @@ async fn app_events_announce_list_changes_and_attention() {
     until(&mut rx, |k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })).await;
     h.execute(Command::ResolvePermission { session_id: session_id.clone(), request_id, option_id: Some("allow".into()), global: false }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
-    for _ in 0..40 {
-        if seen.lock().unwrap().iter().any(|e| e["type"] == "TurnFinished") {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    wait_until("TurnFinished", Duration::from_secs(5), || seen.lock().unwrap().iter().any(|e| e["type"] == "TurnFinished")).await;
     let seen = seen.lock().unwrap().clone();
     assert_eq!(seen[0]["type"], "SessionsChanged");
     assert!(seen.iter().any(|e| e["type"] == "SessionStatus" && e["status"] == "needs_attention" && e["session_id"] == session_id));
@@ -963,12 +984,10 @@ async fn warm_up_delivers_config_options_before_the_first_prompt() {
 async fn a_slow_resume_is_not_stopped_as_idle() {
     let (h, sid, _dir) = setup_with(&["--resume", "--resume-delay-ms=600"], Duration::from_millis(200)).await;
     turn(&h, &sid, None, "hi").await;
-    for _ in 0..100 {
-        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_until("the idle Agent to stop", Duration::from_secs(5), || {
+        h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. }))
+    })
+    .await;
     let back = turn(&h, &sid, None, "back").await;
     assert_eq!(back, "end_turn", "{:#?}", h_events(&h, &sid));
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial, Boundary::Resumed]);
@@ -978,12 +997,10 @@ async fn a_slow_resume_is_not_stopped_as_idle() {
 async fn warm_up_does_not_resume_a_stopped_agent() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_millis(200)).await;
     turn(&h, &sid, None, "hi").await;
-    for _ in 0..100 {
-        if h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. })) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_until("the idle Agent to stop", Duration::from_secs(5), || {
+        h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::AgentProcessState { state: ProcessState::Stopped, .. }))
+    })
+    .await;
     h.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(boundaries(&h, &sid), vec![Boundary::Initial]);
@@ -1168,6 +1185,63 @@ async fn quick_session_title_comes_from_the_first_prompt_then_the_agent() {
 }
 
 #[tokio::test]
+async fn quick_session_is_unused_until_the_first_prompt_whatever_its_title() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[], Duration::from_secs(900));
+    let plain = quick_session(&h).await;
+    let CommandResult::SessionCreated { session_id: named } = h
+        .execute(Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "inspector".into(), title: Some("Mine".into()), mcp_servers: vec![] })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(summary(&h, &plain).await.unwrap().unused);
+    assert!(summary(&h, &named).await.unwrap().unused);
+    // A custom title does not make it used; a prompt does, and the title stays.
+    turn(&h, &named, None, "hello").await;
+    let s = summary(&h, &named).await.unwrap();
+    assert!(!s.unused);
+    assert_eq!(s.title, "Mine");
+    assert!(summary(&h, &plain).await.unwrap().unused);
+    drop(h);
+
+    // After a restart the used one is still used (the unused leftover is removed).
+    let h = harness(&data, &[], Duration::from_secs(900));
+    assert!(!summary(&h, &named).await.unwrap().unused);
+    assert!(summary(&h, &plain).await.is_none());
+}
+
+#[tokio::test]
+async fn a_first_prompt_on_a_side_thread_uses_the_session_and_announces_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        if let harness_core::api::AppEvent::SessionStatus { unused, title, .. } = e {
+            s.lock().unwrap().push((*unused, title.clone()));
+        }
+        true
+    }));
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fresh).await;
+    turn(&h, &sid, Some(side), "hello").await;
+    // No title from a Side Thread prompt, but `unused` changed and is announced; never `true` after.
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|(unused, title)| !unused && title == "New Quick Session"));
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
+async fn other_sessions_are_not_unused() {
+    let (h, sid, _dir) = setup().await;
+    assert!(!summary(&h, &sid).await.unwrap().unused);
+}
+
+#[tokio::test]
 async fn quick_session_with_a_given_title_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
@@ -1279,13 +1353,7 @@ async fn startup_removes_unused_quick_sessions_only() {
 
 /// Waits (up to a few seconds) until `f` holds for the Session's log.
 async fn wait_for(h: &Harness, sid: &str, what: &str, f: impl Fn(&[EventKind]) -> bool) {
-    for _ in 0..200 {
-        if f(&h_events(h, sid)) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    panic!("timed out waiting for {what}");
+    wait_until(what, Duration::from_secs(5), || f(&h_events(h, sid))).await;
 }
 
 fn turn_ends(log: &[EventKind]) -> usize {
@@ -1384,4 +1452,186 @@ async fn session_log_survives_a_crash_mid_append() {
     drop(h2);
     let text = std::fs::read_to_string(&log_path).unwrap();
     assert!(text.ends_with('\n') && text.lines().all(|l| serde_json::from_str::<serde_json::Value>(l).is_ok()), "the file holds only whole lines");
+}
+
+/// ADR 0021: a Session Log a newer Harness wrote opens read-only. The Session stays in the list,
+/// and a prompt is refused before anything starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
+    use std::io::Write as _;
+    let (h, sid, dir) = setup().await;
+    turn(&h, &sid, None, "hi").await;
+    let next = events(&h, &sid).len();
+    drop(h);
+    let data = dir.path().join("data");
+    let log = data.join("sessions").join(&sid).join("log.jsonl");
+    // The newer Harness quit while its Agent ran (quitting logs nothing), after an Event this
+    // build cannot read.
+    let line =
+        |seq: usize, v: u32, kind: &str| format!("{{\"v\":{v},\"seq\":{seq},\"session_id\":\"{sid}\",\"thread_id\":null,\"ts_ms\":5,\"kind\":{kind}}}\n");
+    let tail = [line(next, 1, r#"{"type":"AgentProcessState","state":"ready","message":null}"#), line(next + 1, 99, r#"{"type":"Shiny"}"#)].concat();
+    std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(tail.as_bytes()).unwrap();
+    let _ = std::fs::remove_file(log.with_extension("checkpoint.json"));
+    let before = std::fs::read(&log).unwrap();
+
+    let h2 = harness(&data, &[], Duration::from_secs(900));
+    let CommandResult::Sessions { sessions } = h2.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert!(sessions.iter().any(|s| s.id == sid), "the Session is still listed");
+    assert_eq!(events(&h2, &sid).len(), next + 2, "and its Events can be read");
+
+    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "again".into(), attachments: vec![] };
+    let e = h2.execute(prompt).await.unwrap_err();
+    assert_eq!(e.code, harness_core::api::ErrorCode::Conflict, "{e}");
+    assert!(e.message.contains("newer version"), "{e}");
+    let side = Command::StartSideThread { session_id: sid.clone(), seed: None, source: ThreadStart::Fresh, mode: None };
+    assert_eq!(h2.execute(side).await.unwrap_err().code, harness_core::api::ErrorCode::Conflict);
+    h2.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let CommandResult::Sessions { sessions } = h2.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert_eq!(sessions.iter().find(|s| s.id == sid).unwrap().status, SessionStatus::Idle, "no Agent was started");
+    assert_eq!(std::fs::read(&log).unwrap(), before, "the log is untouched");
+}
+
+/// Asks a plan approval (`spoof switch_mode`) and rejects it; returns its `mode_before`.
+async fn plan_mode_before(h: &Harness, sid: &str) -> Option<String> {
+    let (_all, mut rx) = collect(h, sid);
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "spoof switch_mode Ready to code?".into(), attachments: vec![] }).await.unwrap();
+    // Earlier plan requests replay: take the one still pending.
+    let pending = |k: &EventKind| match k {
+        EventKind::PermissionRequested { plan: Some(_), request_id, .. } => {
+            !h_events(h, sid).iter().any(|r| matches!(r, EventKind::PermissionResolved { request_id: q, .. } if q == request_id))
+        }
+        _ => false,
+    };
+    let e = until(&mut rx, pending).await;
+    let EventKind::PermissionRequested { request_id, mode_before, .. } = e.kind else { unreachable!() };
+    h.execute(Command::ResolvePermission { session_id: sid.into(), request_id, option_id: Some("reject".into()), global: false }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    mode_before
+}
+
+fn last_config_mode(h: &Harness, sid: &str) -> Option<harness_core::api::ModeInfo> {
+    h_events(h, sid).into_iter().rev().find_map(|k| match k {
+        EventKind::ConfigOptionsChanged { mode, .. } => mode,
+        _ => None,
+    })
+}
+
+fn last_mode_changed(h: &Harness, sid: &str) -> Option<harness_core::api::ModeInfo> {
+    h_events(h, sid).into_iter().rev().find_map(|k| match k {
+        EventKind::ModeChanged { mode, .. } => mode,
+        _ => None,
+    })
+}
+
+fn mode(id: &str, name: Option<&str>, plan: bool) -> Option<harness_core::api::ModeInfo> {
+    Some(harness_core::api::ModeInfo { id: id.into(), name: name.map(str::to_owned), plan })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn config_option_agent_reports_typed_mode_and_mode_before() {
+    let (h, sid, _dir) = setup_with(&["--plan-mode"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hello").await;
+    assert_eq!(last_config_mode(&h, &sid), mode("auto", Some("Auto"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("auto"));
+
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "plan".into() }).await.unwrap();
+    assert_eq!(last_config_mode(&h, &sid), mode("plan", Some("Plan"), true), "the plan mode is flagged by core");
+    // The plan mode is not what to switch back to.
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("auto"));
+
+    h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "default".into() }).await.unwrap();
+    assert_eq!(last_config_mode(&h, &sid), mode("default", Some("Manual"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_mode_agent_reports_typed_mode_and_mode_before() {
+    let (h, sid, _dir) = setup_with(&["--legacy-modes"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "hello").await;
+    assert!(h_events(&h, &sid).iter().all(|k| !matches!(k, EventKind::ConfigOptionsChanged { .. })), "no config options");
+    assert_eq!(last_mode_changed(&h, &sid), mode("default", Some("Manual"), false));
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"));
+
+    h.execute(Command::SetMode { session_id: sid.clone(), thread_id: None, mode_id: "plan".into() }).await.unwrap();
+    assert_eq!(last_mode_changed(&h, &sid), mode("plan", Some("Plan"), true), "named and flagged by core");
+    // Every ModeChanged carries the name (the Agent's own update and the one core logs after set_mode).
+    let all: Vec<_> = h_events(&h, &sid).into_iter().filter_map(|k| if let EventKind::ModeChanged { mode, .. } = k { Some(mode) } else { None }).collect();
+    assert!(all.len() >= 3 && all.iter().all(|m| m.as_ref().is_some_and(|m| m.name.is_some())), "{all:?}");
+    assert_eq!(plan_mode_before(&h, &sid).await.as_deref(), Some("default"), "plan is never the mode to return to");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn usage_update_carries_typed_numbers() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "report usage").await;
+    let usage = h_events(&h, &sid).into_iter().find_map(|k| match k {
+        EventKind::UsageUpdated { used, size, .. } => Some((used, size)),
+        _ => None,
+    });
+    assert_eq!(usage, Some((Some(1200), Some(200000))));
+}
+
+// ---------- blocking work stays off the async workers ----------
+
+/// Views subscribe from other threads while Turns stream; each gets every `seq` from the one it
+/// asked for, exactly once and in order: no gap and no duplicate at the replay-to-live hand-over.
+async fn subscribers_during_turns(h: &Arc<Harness>, sid: &str, turns: usize) {
+    type Seqs = Arc<Mutex<Vec<u64>>>;
+    let views: Arc<Mutex<Vec<(u64, Seqs)>>> = Default::default();
+    let spawner = {
+        let (h, sid, views) = (h.clone(), sid.to_owned(), views.clone());
+        tokio::spawn(async move {
+            for i in 0..30u64 {
+                let seqs: Seqs = Default::default();
+                let (s, hh, id) = (seqs.clone(), h.clone(), sid.clone());
+                let from = if i % 3 == 0 { 0 } else { i / 2 };
+                tokio::task::spawn_blocking(move || {
+                    hh.subscribe_session(
+                        &id,
+                        from,
+                        Box::new(move |e: &Event| {
+                            s.lock().unwrap().push(e.seq);
+                            true
+                        }),
+                    )
+                    .unwrap()
+                })
+                .await
+                .unwrap();
+                views.lock().unwrap().push((from, seqs));
+                tokio::time::sleep(Duration::from_millis(7)).await;
+            }
+        })
+    };
+    for _ in 0..turns {
+        turn(h, sid, None, "use a tool").await;
+    }
+    spawner.await.unwrap();
+    let last = events(h, sid).last().unwrap().seq;
+    let views = views.lock().unwrap().clone();
+    for (from, view) in &views {
+        wait_until("a view to catch up", Duration::from_secs(10), || view.lock().unwrap().last() == Some(&last)).await;
+        let seqs = view.lock().unwrap().clone();
+        assert!(seqs.iter().copied().eq(*from..=last), "view from {from} saw {seqs:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscribing_during_streaming_turns_sees_every_seq_once() {
+    let (h, sid, _dir) = setup().await;
+    subscribers_during_turns(&h, &sid, 8).await;
+}
+
+/// The same on a Harness that was reopened: the log is not in memory yet, so the first subscribe
+/// parses it while the Turn streams.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscribing_to_an_unloaded_log_during_a_turn_sees_every_seq_once() {
+    let (h, sid, dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
+    for _ in 0..2 {
+        turn(&h, &sid, None, "use a tool").await;
+    }
+    drop(h);
+    let reopened = harness(&dir.path().join("data"), &["--resume"], Duration::from_secs(900));
+    subscribers_during_turns(&reopened, &sid, 4).await;
 }

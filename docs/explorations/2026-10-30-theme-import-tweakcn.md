@@ -9,7 +9,7 @@
 
 **Assumed / unverified:**
 - tweakcn share links are `tweakcn.com/themes/<id>`; the editor uses `?theme=<id>`. Both are rewritten to `/r/themes/<id>`.
-- Whether tweakcn sends CORS headers (not tested): the fetch runs in the core (`FetchJson`, system curl) either way.
+- Whether tweakcn sends CORS headers (not tested): the fetch runs in the core (`FetchJson`, then system curl, now `http::get_json`) either way.
 
 **Open questions:**
 - Other community registries: any https URL serving a registry item works, untested beyond tweakcn.

@@ -172,10 +172,8 @@ impl Terminals {
 
     pub fn input(&self, session_id: &str, terminal_id: u32, data: &[u8]) -> anyhow::Result<()> {
         let t = self.get(session_id, terminal_id).ok_or_else(|| anyhow::anyhow!("no terminal {terminal_id} for {session_id}"))?;
-        let mut w = t.writer.lock();
-        w.write_all(data)?;
-        w.flush()?;
-        Ok(())
+        // Queued in call order; the writer thread writes them in that order.
+        t.input.lock().send(data.to_vec()).map_err(|_| anyhow::anyhow!("terminal {terminal_id} for {session_id} has ended"))
     }
 
     pub fn resize(&self, session_id: &str, terminal_id: u32, cols: u16, rows: u16) -> anyhow::Result<()> {
@@ -216,6 +214,14 @@ impl Terminals {
         }
     }
 
+    /// Kills every shell of every Session (Harness shutdown).
+    pub fn kill_everything(&self) {
+        let all: Vec<Session> = self.map.lock().drain().map(|(_, s)| s).collect();
+        for t in all.into_iter().flat_map(|s| s.slots).filter_map(|x| x.term) {
+            let _ = t.killer.lock().kill();
+        }
+    }
+
     fn get(&self, session_id: &str, terminal_id: u32) -> Option<Arc<Terminal>> {
         let map = self.map.lock();
         map.get(session_id)?.slots.iter().find(|x| x.id == terminal_id)?.term.clone()
@@ -226,9 +232,20 @@ impl Terminals {
         let mut child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
         let reader = pair.master.try_clone_reader()?;
+        let mut writer = pair.master.take_writer()?;
+        let (input_tx, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::Builder::new().name("terminal-input".into()).spawn(move || {
+            for data in input_rx {
+                if writer.write_all(&data).and_then(|()| writer.flush()).is_err() {
+                    // The PTY is gone: its reader hits EOF, which ends the shell and sends `Exit`
+                    // once. The queue closes with this thread, so later `input` calls fail.
+                    break;
+                }
+            }
+        })?;
         let term = Arc::new(Terminal {
             pid: child.process_id(),
-            writer: Mutex::new(pair.master.take_writer()?),
+            input: Mutex::new(input_tx),
             master: Mutex::new(pair.master),
             killer: Mutex::new(child.clone_killer()),
             out: Default::default(),
@@ -324,7 +341,8 @@ struct Out {
 struct Terminal {
     pid: Option<u32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// Keystrokes for the PTY writer thread: a write to a full PTY blocks, never the caller.
+    input: Mutex<std::sync::mpsc::Sender<Vec<u8>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     out: Mutex<Out>,
     unacked: (Mutex<usize>, Condvar),
@@ -472,6 +490,28 @@ mod tests {
     }
 
     #[test]
+    fn many_inputs_reach_the_program_in_call_order() {
+        let terms = Terminals::default();
+        // `cat` with echo off: what it prints is what was written, in order.
+        let rx = collect(&terms, "ord", sh("stty -echo; echo ready-go; cat"));
+        let mut ready = String::new();
+        while !ready.contains("ready-go") {
+            ready.push_str(&String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap()));
+        }
+        let expected: String = (0..500).map(|i| format!("k{i};\n")).collect();
+        for i in 0..500 {
+            terms.input("ord", 1, format!("k{i};\n").as_bytes()).unwrap();
+        }
+        let mut seen = String::new();
+        while !seen.contains("k499;") {
+            seen.push_str(&String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap()));
+        }
+        let got = seen.replace('\r', "");
+        assert!(got.trim() == expected.trim(), "input arrived out of order or damaged");
+        terms.kill_all("ord");
+    }
+
+    #[test]
     fn a_later_view_gets_earlier_output_as_replay_first() {
         let terms = Terminals::default();
         let mut cmd = CommandBuilder::new("/bin/sh");
@@ -526,6 +566,73 @@ mod tests {
         assert!(terms.input("m", 1, b"x").is_err());
         terms.kill_all("m");
         assert_eq!(terms.list("m").len(), 1, "a fresh first tab after kill_all");
+    }
+
+    fn alive(pid: &str) -> bool {
+        std::process::Command::new("kill").args(["-0", pid]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
+    }
+
+    /// Types `line` (which must start a background job and print `bgpid=$!`) into an interactive
+    /// shell, closes the tab, and returns whether `Exit` reached the view within 5 s and whether
+    /// the job is still alive afterwards. The job is killed before returning.
+    fn close_with_background_job(line: &str) -> (bool, bool) {
+        let terms = Terminals::default();
+        // An interactive shell has job control, like the user's: its background job is a process
+        // group of its own.
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-i");
+        let rx = collect(&terms, "bg", cmd);
+        terms.input("bg", 1, format!("{line}\n").as_bytes()).unwrap();
+        let mut seen = String::new();
+        let pid = loop {
+            let d = rx.recv_timeout(Duration::from_secs(10)).expect("the shell's output").expect("the shell is still running");
+            seen.push_str(&String::from_utf8_lossy(&d));
+            // The typed line is echoed with `$!` unexpanded: take the first `bgpid=` followed by digits.
+            let found = seen.split("bgpid=").skip(1).map(|r| r.chars().take_while(char::is_ascii_digit).collect::<String>()).find(|p| !p.is_empty());
+            if let Some(pid) = found {
+                break pid;
+            }
+        };
+        assert!(alive(&pid), "the background job runs");
+
+        terms.close("bg", 1);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut exited = false;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) => {
+                    exited = true;
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+        let job_alive = alive(&pid);
+        // Do not leave the job behind, whatever the outcome.
+        let _ = std::process::Command::new("kill").args(["-9", &pid]).status();
+        (exited, job_alive)
+    }
+
+    /// macOS revokes the terminal when its session leader dies, which ends the PTY's output and
+    /// hangs up the job. Linux does not: the job keeps the PTY open, so `Exit` is never sent (the
+    /// same leak as below, with a plain job). A real product bug, pinned here as ignored off macOS.
+    #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "known: on Linux a background job keeps the PTY open after close")]
+    fn closing_a_tab_with_a_background_job_sends_exit_and_ends_the_job() {
+        let (exited, job_alive) = close_with_background_job("sleep 300 & echo bgpid=$!");
+        assert!(exited, "Exit was not sent within 5 s of closing the tab");
+        assert!(!job_alive, "the background job survived the close");
+    }
+
+    /// Closing only kills the shell: a job that ignores the hangup (`nohup`) outlives the tab
+    /// (`Exit` is sent, the process stays).
+    #[test]
+    #[ignore = "known: a job that ignores the hangup outlives the closed tab"]
+    fn closing_a_tab_with_a_hangup_ignoring_job_sends_exit_and_ends_the_job() {
+        let (exited, job_alive) = close_with_background_job("nohup sleep 300 >/dev/null 2>&1 & echo bgpid=$!");
+        assert!(exited, "Exit was not sent within 5 s of closing the tab");
+        assert!(!job_alive, "the background job survived the close");
     }
 
     #[test]

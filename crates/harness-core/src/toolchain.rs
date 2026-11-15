@@ -1,10 +1,10 @@
 //! Harness-managed runtimes for Agents (ADR 0007): pinned Node and uv in app data, verified by
-//! sha256, never the user's system installs. Downloads use the system `curl`; archives are
+//! sha256, never the user's system installs. Downloads go through `http::download` (timeouts, size cap, sha256 checked while streaming); archives are
 //! unpacked with the system `tar` (bsdtar reads zip too).
 
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
+use crate::proc;
 
 struct Pin {
     name: &'static str,
@@ -80,14 +80,16 @@ impl Toolchain {
         let result = async {
             std::fs::create_dir_all(&staging)?;
             let archive = staging.join("archive.tar.gz");
-            download(&pin.url, &archive, Some(pin.sha256)).await?;
+            crate::http::download(&pin.url, &archive, &crate::http::Opts::download().sha256(Some(pin.sha256)))
+                .await
+                .map_err(|e| crate::error::from_http(&e, format!("download {}: {e}", pin.url)))?;
             unpack(&archive, &staging).await?;
             std::fs::rename(staging.join(&pin.top), &dir)?;
             anyhow::Ok(())
         }
         .await;
         let _ = std::fs::remove_dir_all(&staging);
-        result.map_err(|e| anyhow::anyhow!("installing {}: {e:#}", pin.name))?;
+        result.map_err(|e| crate::error::reword(&e, format!("installing {}: {e:#}", pin.name)))?;
         Ok(bin)
     }
 
@@ -113,21 +115,10 @@ fn intact(pin: &Pin, bin: &Path) -> bool {
     pin.name != "node" || ["npm", "npx"].iter().all(|f| bin.join(f).is_symlink())
 }
 
-/// Downloads `url` (http(s) or file) to `dest`, verifying the sha256 when given. Returns the
-/// sha256 of what was downloaded.
-pub async fn download(url: &str, dest: &Path, sha256: Option<&str>) -> anyhow::Result<String> {
-    let out = tokio::process::Command::new("curl").args(["-fsSL", "--retry", "2", "-o"]).arg(dest).arg(url).output().await?;
-    anyhow::ensure!(out.status.success(), "download {url}: {}", String::from_utf8_lossy(&out.stderr).trim());
-    let actual = format!("{:x}", Sha256::digest(std::fs::read(dest)?));
-    if let Some(expected) = sha256 {
-        anyhow::ensure!(actual.eq_ignore_ascii_case(expected), "checksum mismatch for {url}: expected {expected}, got {actual}");
-    }
-    Ok(actual)
-}
-
 pub async fn unpack(archive: &Path, into: &Path) -> anyhow::Result<()> {
-    let out = tokio::process::Command::new("tar").arg("-xf").arg(archive).arg("-C").arg(into).output().await?;
-    anyhow::ensure!(out.status.success(), "unpack {}: {}", archive.display(), String::from_utf8_lossy(&out.stderr).trim());
+    let opts = proc::Opts::new(proc::UNPACK).arg("-xf").arg(archive).arg("-C").arg(into);
+    let out = proc::run("tar", opts).await.map_err(|e| anyhow::anyhow!("unpack {}: {e}", archive.display()))?;
+    anyhow::ensure!(out.success(), "unpack {}: {}", archive.display(), out.stderr_lossy().trim());
     Ok(())
 }
 

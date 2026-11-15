@@ -1,0 +1,62 @@
+import { cn, Tooltip, useCopied } from "@harness/ui";
+import { Check, Copy } from "lucide-react";
+import type { ReactNode } from "react";
+import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "../../lib/time";
+
+/**
+ * Actions under a message. Shown while the message is hovered or has focus (parent needs `group`).
+ * `hidden` (a message still streaming in) keeps its space so the layout doesn't shift when it ends.
+ * `children`: extra actions after the time.
+ */
+export function MessageFooter({
+   text,
+   ts,
+   durationMs,
+   align = "start",
+   hidden,
+   children,
+}: {
+   text: string;
+   ts: number;
+   durationMs?: number;
+   align?: "start" | "end";
+   hidden?: boolean;
+   children?: ReactNode;
+}) {
+   const [copied, copyText] = useCopied();
+   const now = useNow();
+   const copy = () => void copyText(text);
+
+   return (
+      <div
+         className={cn(
+            "mt-1 flex h-6 items-center gap-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+            align === "end" && "flex-row-reverse",
+            hidden && "invisible",
+         )}
+         aria-hidden={hidden}
+      >
+         <Tooltip content={copied ? "Copied" : "Copy"} delay={100}>
+            <button
+               type="button"
+               aria-label={copied ? "Copied" : "Copy message"}
+               onClick={copy}
+               className="grid size-6 place-items-center rounded hover:bg-accent hover:text-accent-foreground"
+            >
+               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            </button>
+         </Tooltip>
+         <Tooltip content={fullMessageTime(ts)} align={align} delay={100}>
+            <time dateTime={new Date(ts).toISOString()} className="px-1">
+               {formatRelativeTime(ts, now)}
+            </time>
+         </Tooltip>
+         {durationMs !== undefined && (
+            <Tooltip content="Turn duration" delay={100}>
+               <span className="px-1 tabular-nums">· {formatDuration(durationMs)}</span>
+            </Tooltip>
+         )}
+         {children}
+      </div>
+   );
+}

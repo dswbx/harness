@@ -1,0 +1,130 @@
+import {
+   Button,
+   cn,
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuItem,
+   DropdownMenuSeparator,
+   DropdownMenuSub,
+   DropdownMenuSubContent,
+   DropdownMenuSubTrigger,
+   DropdownMenuTrigger,
+   Tooltip,
+} from "@harness/ui";
+import { Check, Maximize2, Minimize2, Minus, MoreVertical, MoveUpRight } from "lucide-react";
+import { createContext, type PointerEvent, type ReactNode, useContext } from "react";
+
+/** What the host tells the panel it is in, for its header: where it can move and what the header can do. */
+export type PanelChrome = {
+   id: string;
+   label: string;
+   /** The places Move to offers, in order; `current` is where the panel sits now. */
+   moves: { id: string; label: string; current: boolean }[];
+   /** Offers Expand in the menu. */
+   expandable: boolean;
+   expanded: boolean;
+   onExpand: () => void;
+   onMove: (id: string) => void;
+   onHide: () => void;
+   /** Pointer down on the header: drags the panel to another zone. */
+   onDragStart: (e: PointerEvent) => void;
+};
+
+export const PanelContext = createContext<PanelChrome | null>(null);
+
+/**
+ * The header every panel shares: `title`, the panel's own controls (`children`), a menu (the panel's own
+ * entries in `menu`, then Expand, Move to) and the hide button. Dragging the header drags the panel to another zone.
+ */
+export function PanelHeader({
+   title,
+   titleHint,
+   children,
+   menu,
+   className,
+}: {
+   title?: ReactNode;
+   titleHint?: string;
+   children?: ReactNode;
+   menu?: ReactNode;
+   className?: string;
+}) {
+   const p = useContext(PanelContext);
+   return (
+      <div
+         className={cn("flex shrink-0 items-center gap-1.5 border-b h-10 pr-2 pl-2.5", className)}
+         onPointerDown={(e) =>
+            !p?.expanded &&
+            !(e.target as Element).closest("button, input, select, a, label, [role=tab]") &&
+            p?.onDragStart(e)
+         }
+      >
+         {title != null && (
+            <span className="min-w-0 truncate text-sm font-medium" title={titleHint}>
+               {title}
+            </span>
+         )}
+         {children}
+         {p && (
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+               <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                     <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 data-[state=open]:bg-accent"
+                        aria-label={`${p.label} options`}
+                     >
+                        <MoreVertical />
+                     </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                     {menu && (
+                        <>
+                           {menu}
+                           <DropdownMenuSeparator />
+                        </>
+                     )}
+                     {p.expandable && (
+                        <>
+                           <DropdownMenuItem onSelect={p.onExpand}>
+                              {p.expanded ? <Minimize2 /> : <Maximize2 />}{" "}
+                              {p.expanded ? "Collapse" : "Expand"}
+                           </DropdownMenuItem>
+                           <DropdownMenuSeparator />
+                        </>
+                     )}
+                     <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                           <MoveUpRight /> Move to
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-44">
+                           {p.moves.map((m) => (
+                              <DropdownMenuItem
+                                 key={m.id}
+                                 onSelect={() => !m.current && p.onMove(m.id)}
+                              >
+                                 {m.label}
+                                 {m.current && <Check className="ml-auto" />}
+                              </DropdownMenuItem>
+                           ))}
+                        </DropdownMenuSubContent>
+                     </DropdownMenuSub>
+                  </DropdownMenuContent>
+               </DropdownMenu>
+               <Tooltip content="Hide" side="bottom">
+                  <Button
+                     size="icon"
+                     variant="ghost"
+                     className="size-7"
+                     aria-label={`Hide ${p.label}`}
+                     onClick={p.onHide}
+                  >
+                     <Minus />
+                  </Button>
+               </Tooltip>
+            </div>
+         )}
+      </div>
+   );
+}

@@ -28,8 +28,9 @@ pub(super) async fn mcp_servers(session: &Arc<Session>, conn: &AgentConn, thread
                 .env(vec![acp::EnvVariable::new("HARNESS_MCP_URL", url), acp::EnvVariable::new("HARNESS_MCP_TOKEN", token)]),
         ));
     }
-    for id in session.meta().mcp_servers {
-        let def = shared.library.resolve(&id)?;
+    let ids = session.meta().mcp_servers;
+    let defs = shared.library_blocking(move |lib| ids.iter().map(|id| lib.resolve(id)).collect::<anyhow::Result<Vec<_>>>()).await??;
+    for def in defs {
         match def.transport {
             crate::api::McpTransport::Stdio { command, args, env } => {
                 let mut env: Vec<acp::EnvVariable> = env.into_iter().map(|(k, v)| acp::EnvVariable::new(k, v)).collect();
@@ -80,15 +81,7 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
     let mode = session.is_main(Some(&thread)) || {
-        let events = session.log().events()?;
-        events
-            .iter()
-            .rev()
-            .find_map(|e| match &e.kind {
-                EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(&thread) => options.as_array().cloned(),
-                _ => None,
-            })
-            .is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
+        session.log().thread_config_options(&thread)?.is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
     };
     anyhow::ensure!(mode, "Side Threads follow the Main Thread's config, except for the mode");
     let (conn, id) = live_agent_session(&session, &thread).await?;
@@ -117,6 +110,19 @@ pub(super) fn current_mode(options: Option<&Value>, modes: &acp::SessionModeStat
     }
 }
 
+/// `ModeChanged` for the legacy mode `current_mode` picks, with its name from the Agent's mode list
+/// (which is remembered to name later changes).
+fn legacy_mode_changed(session: &Session, options: Option<&Value>, modes: &acp::SessionModeState) -> EventKind {
+    session.agent_slot().state.lock().mode_names = modes.available_modes.iter().map(|m| (m.id.to_string(), m.name.clone())).collect();
+    named_mode_changed(session, current_mode(options, modes))
+}
+
+/// `ModeChanged` for `mode_id`, named from the Agent's mode list when it is known.
+pub(super) fn named_mode_changed(session: &Session, mode_id: String) -> EventKind {
+    let name = session.agent_slot().state.lock().mode_names.get(&mode_id).cloned();
+    EventKind::mode_changed(mode_id, name)
+}
+
 /// Puts a new Side Thread Agent Session in the mode the user chose for it, if the Agent offers it,
 /// else in the Agent's mode that asks before writes (a fork inherits the Main Thread's mode, which
 /// may auto-approve). Returns the options to log.
@@ -142,14 +148,8 @@ pub(super) async fn start_asking(session: &Arc<Session>, conn: &Arc<AgentConn>, 
 /// Threads follow the Main Thread, except for the mode, which is their own. Skips values the Side
 /// Thread's Agent Session does not offer.
 pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentConn>, thread: &ThreadId, id: &acp::SessionId) {
-    let Ok(events) = session.log().events() else { return };
     let main = session.meta().main_thread_id;
-    let latest = |t: &ThreadId| {
-        events.iter().rev().find_map(|e| match &e.kind {
-            EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(t) => options.as_array().cloned(),
-            _ => None,
-        })
-    };
+    let latest = |t: &ThreadId| session.log().thread_config_options(t).ok().flatten();
     let (Some(wanted), Some(mut current)) = (latest(&main), latest(thread)) else { return };
     let mut changed = None;
     for w in &wanted {
@@ -174,7 +174,7 @@ pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentC
         }
     }
     if let Some(options) = changed {
-        let _ = session.log().append(Some(thread.clone()), EventKind::config_options(options));
+        session.log().append_or_report(Some(thread.clone()), EventKind::config_options(options));
     }
 }
 
@@ -182,7 +182,7 @@ pub(super) async fn follow_main_config(session: &Arc<Session>, conn: &Arc<AgentC
 pub async fn set_mode(session: Arc<Session>, thread: ThreadId, mode_id: String) -> anyhow::Result<()> {
     let (conn, id) = live_agent_session(&session, &thread).await?;
     conn.cx.send_request(acp::SetSessionModeRequest::new(id, mode_id.clone())).block_task().await?;
-    session.log().append(Some(thread), EventKind::ModeChanged { mode_id })?;
+    session.log().append(Some(thread), named_mode_changed(&session, mode_id))?;
     Ok(())
 }
 
@@ -197,7 +197,7 @@ pub async fn continue_with_summary(session: Arc<Session>, thread: ThreadId) -> a
     session.update_meta(|m| {
         m.seeds.insert(thread.clone(), summary);
     })?;
-    session.log().sync()?;
+    session.sync_log().await;
     Ok(())
 }
 
@@ -270,8 +270,8 @@ pub(super) async fn continue_previous(
         }
     }
     let transcript = Some(crate::summary::transcript_size(&session.log().events()?, thread));
-    session.log().append(Some(thread.clone()), EventKind::ThreadReadOnly { reason: NOT_RESTORED.to_owned(), retryable, errors, transcript })?;
-    session.log().sync()?;
+    session.log().append_or_report(Some(thread.clone()), EventKind::ThreadReadOnly { reason: NOT_RESTORED.to_owned(), retryable, errors, transcript });
+    session.sync_log().await;
     Ok(None)
 }
 
@@ -303,10 +303,11 @@ pub(super) async fn restore_once(
         }
     }
     if boundary.is_none() && caps.load_session {
-        conn.replaying.store(true, Ordering::SeqCst);
-        let r =
-            conn.cx.send_request(acp::LoadSessionRequest::new(prev_id.clone(), cwd).mcp_servers(mcp_servers(session, conn, thread).await?)).block_task().await;
-        conn.replaying.store(false, Ordering::SeqCst);
+        let r = {
+            // Dropped on every way out, so a failed load never leaves the Agent Session muted.
+            let _replaying = conn.replaying.start(prev_id);
+            conn.cx.send_request(acp::LoadSessionRequest::new(prev_id.clone(), cwd).mcp_servers(mcp_servers(session, conn, thread).await?)).block_task().await
+        };
         match r {
             Ok(_) => boundary = Some(Boundary::Loaded),
             Err(e) if e.code == agent_client_protocol::ErrorCode::AuthRequired => return Err(e.into()),
@@ -373,7 +374,7 @@ pub(super) async fn fork_agent_session(
         session.log().append(Some(thread.clone()), EventKind::config_options(options.clone()))?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
+        session.log().append(Some(thread.clone()), legacy_mode_changed(session, options.as_ref(), modes))?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().insert(thread.clone(), id.clone());
@@ -443,7 +444,7 @@ pub(super) async fn new_agent_session(
         session.log().append(Some(thread.clone()), EventKind::config_options(options.clone()))?;
     }
     if let Some(modes) = &r.modes {
-        session.log().append(Some(thread.clone()), EventKind::ModeChanged { mode_id: current_mode(options.as_ref(), modes) })?;
+        session.log().append(Some(thread.clone()), legacy_mode_changed(session, options.as_ref(), modes))?;
     }
     let id = r.session_id;
     conn.acp_sessions.lock().insert(thread.clone(), id.clone());

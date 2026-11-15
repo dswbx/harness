@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { HarnessClient } from "./client";
+import { HarnessClient } from "./client/client";
 import { CommandError, errText, isCommandError, toCommandError } from "./errors";
-import { MockTransport } from "./mock";
-import type { Transport } from "./transport";
+import { MockTransport } from "./mock/mock";
+import type { Transport } from "./transport/transport";
 
 describe("CommandError", () => {
    it("reads the core's { code, message } shape", () => {
@@ -29,6 +29,16 @@ describe("CommandError", () => {
       expect(errText(new Error("bad"))).toBe("bad");
       expect(errText("boom")).toBe("boom");
       expect(errText({ a: 1 })).toBe('{"a":1}');
+   });
+
+   it("errText edge inputs", () => {
+      expect(errText({ message: "no code" })).toBe("no code");
+      expect(errText({ message: 5 })).toBe('{"message":5}');
+      expect(errText(undefined)).toBe("undefined");
+      expect(errText(null)).toBe("null");
+      expect(errText(42)).toBe("42");
+      expect(errText("")).toBe("");
+      expect(errText(new TypeError("t"))).toBe("t");
    });
 
    it("the mock transport rejects with codes", async () => {

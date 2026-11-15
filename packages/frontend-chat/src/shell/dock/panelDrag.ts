@@ -1,0 +1,114 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Zone } from "./model";
+
+/** Where a drop would land: a zone, and (over a stripe group) the insert index in its list; null: the end. */
+export type DropTarget = { zone: Zone; index: number | null };
+export type DragState = {
+   id: string;
+   label: string;
+   x: number;
+   y: number;
+   target: DropTarget | null;
+};
+
+const THRESHOLD = 4;
+
+/** The drop target under the pointer: `data-drop-zone` on a stripe group or pad, `data-drop-index` on a stripe icon. */
+export function targetAt(x: number, y: number): DropTarget | null {
+   const els = document
+      .elementsFromPoint(x, y)
+      .filter((e): e is HTMLElement => e instanceof HTMLElement);
+   const zoneEl = els.find((e) => e.dataset.dropZone);
+   if (!zoneEl) return null;
+   const item = els.find((e) => e.dataset.dropIndex !== undefined && zoneEl.contains(e));
+   let index: number | null = null;
+   if (item) {
+      const r = item.getBoundingClientRect();
+      index = Number(item.dataset.dropIndex) + (y > r.top + r.height / 2 ? 1 : 0);
+   }
+   return { zone: zoneEl.dataset.dropZone as Zone, index };
+}
+
+/**
+ * Pointer-event drag of a panel (from a stripe icon or a panel header). It starts after 4 px, so a plain
+ * click still clicks; Esc cancels; the click that ends a drag is swallowed. Not HTML5 DnD: that gives
+ * no custom ghost and the Tauri webview handles file drops itself.
+ */
+export function usePanelDrag(onDrop: (id: string, target: DropTarget) => void) {
+   const [drag, setDrag] = useState<DragState | null>(null);
+   const drop = useRef(onDrop);
+   useEffect(() => {
+      drop.current = onDrop;
+   });
+   const cancel = useRef<(() => void) | null>(null);
+   useEffect(() => () => cancel.current?.(), []);
+
+   const start = useCallback((id: string, label: string, e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      // No text selection (or native drag) from the press; a plain click still clicks.
+      e.preventDefault();
+      const el = e.currentTarget as HTMLElement;
+      const pointer = e.pointerId;
+      const sx = e.clientX;
+      const sy = e.clientY;
+      let active = false;
+      let target: DropTarget | null = null;
+      const onMove = (ev: PointerEvent) => {
+         if (!active) {
+            if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESHOLD) return;
+            active = true;
+            // Keep the pointer here: over an iframe (an Html panel), moves and the release would go to the frame.
+            // Only once dragging: a capture earlier would turn a plain click into one on the header.
+            el.setPointerCapture?.(pointer);
+            document.body.style.cursor = "grabbing";
+            document.body.style.userSelect = "none";
+         }
+         target = targetAt(ev.clientX, ev.clientY);
+         setDrag({ id, label, x: ev.clientX, y: ev.clientY, target });
+      };
+      let done = false;
+      const finish = (commit: boolean) => {
+         // lostpointercapture also fires after a normal release: a no-op once finished.
+         if (done) return;
+         done = true;
+         window.removeEventListener("pointermove", onMove);
+         window.removeEventListener("pointerup", onUp);
+         window.removeEventListener("pointercancel", onCancel);
+         window.removeEventListener("keydown", onKey, true);
+         window.removeEventListener("blur", onCancel);
+         el.removeEventListener("lostpointercapture", onCancel);
+         cancel.current = null;
+         if (!active) return;
+         if (el.hasPointerCapture?.(pointer)) el.releasePointerCapture(pointer);
+         document.body.style.removeProperty("cursor");
+         document.body.style.removeProperty("user-select");
+         setDrag(null);
+         // The button the drag started on would take the release as a click.
+         const swallow = (ev: MouseEvent) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+         };
+         window.addEventListener("click", swallow, true);
+         setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+         if (commit && target) drop.current(id, target);
+      };
+      const onUp = () => finish(true);
+      const onCancel = () => finish(false);
+      const onKey = (ev: KeyboardEvent) => {
+         if (ev.key !== "Escape") return;
+         ev.preventDefault();
+         ev.stopPropagation();
+         finish(false);
+      };
+      cancel.current = () => finish(false);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+      window.addEventListener("keydown", onKey, true);
+      // The window lost focus (Cmd+Tab) or the capture was taken away: no drop, like Esc.
+      window.addEventListener("blur", onCancel);
+      el.addEventListener("lostpointercapture", onCancel);
+   }, []);
+
+   return { drag, start };
+}

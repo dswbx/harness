@@ -35,13 +35,7 @@ pub fn fork_note(session: &Session, thread: &ThreadId) -> String {
 /// Errors the UI reported for Frontend Tool items of `thread` since its last Turn started
 /// (`FrontendError`, still current), as a short block for the next prompt.
 pub fn frontend_errors(session: &Session, thread: &ThreadId) -> anyhow::Result<Option<String>> {
-    let since = session
-        .log()
-        .events()?
-        .into_iter()
-        .rev()
-        .find(|e| e.thread_id.as_ref() == Some(thread) && matches!(e.kind, crate::api::EventKind::TurnStarted { .. }))
-        .map_or(0, |e| e.seq);
+    let since = session.log().thread_turn_started(thread)?.unwrap_or(0);
     let lines: Vec<String> = session
         .frontend_errors()?
         .into_iter()

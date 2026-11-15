@@ -1,5 +1,7 @@
 # Side Threads plan
 
+Status: implemented (ADR 0018). Section 3 (read-only layer) was dropped, see "Changed after review". Sub Sessions, kept open here, shipped in ADR 0026.
+
 **Directories:** `crates/harness-core` (api, session, acp, mcp, permissions, summary), `packages/api`, `packages/frontend-chat`, `docs/`. Design: [ADR 0018](../adr/0018-side-threads-fork-with-transcript-tools.md).
 
 ## Context

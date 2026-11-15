@@ -5,38 +5,29 @@ import {
    cleanFont,
    DEFAULT_APPEARANCE,
    filterThemes,
-   loadAppearance,
    mapFontStack,
    modeVars,
    normalize,
+   parseAppearance,
    resolveVars,
-   STORAGE_KEY,
-   saveAppearance,
+   rolledBack,
+   serializeAppearance,
    stepIndex,
    swatch,
    THEMES,
 } from "./appearance";
 import { PRESETS } from "./presets";
 
-const store = (init: Record<string, string> = {}) => {
-   const m = new Map(Object.entries(init));
-   return {
-      getItem: (k: string) => m.get(k) ?? null,
-      setItem: (k: string, v: string) => void m.set(k, v),
-      m,
-   };
-};
 const a = (p: Partial<Appearance>): Appearance => ({ ...DEFAULT_APPEARANCE, ...p });
 
 describe("load / save", () => {
    it("defaults when empty or bad JSON", () => {
-      expect(loadAppearance(store())).toEqual(DEFAULT_APPEARANCE);
-      expect(loadAppearance(store({ [STORAGE_KEY]: "{nope" }))).toEqual(DEFAULT_APPEARANCE);
-      expect(loadAppearance(store({ [STORAGE_KEY]: "42" }))).toEqual(DEFAULT_APPEARANCE);
+      expect(parseAppearance(null)).toEqual(DEFAULT_APPEARANCE);
+      expect(parseAppearance("{nope")).toEqual(DEFAULT_APPEARANCE);
+      expect(parseAppearance("42")).toEqual(DEFAULT_APPEARANCE);
    });
 
    it("round-trips", () => {
-      const s = store();
       const v = a({
          theme: "claude",
          mode: "dark",
@@ -47,8 +38,7 @@ describe("load / save", () => {
          leading: "loose",
          flow: "airy",
       });
-      saveAppearance(s, v);
-      expect(loadAppearance(s)).toEqual(v);
+      expect(parseAppearance(serializeAppearance(v))).toEqual(v);
    });
 
    it("falls back per field and clamps size", () => {
@@ -171,6 +161,18 @@ describe("custom font vars", () => {
       );
       const mm = resolveVars(a({ theme: "modern-minimal", font: "custom" }), false);
       expect(mm["--font-sans"]).toBe('"Inter Variable", Inter, sans-serif');
+   });
+});
+
+describe("rolledBack", () => {
+   it("restores the previous value when the failed write is still the current one", () => {
+      const prev = {};
+      const tried = {};
+      expect(rolledBack(tried, tried, prev)).toBe(prev);
+   });
+   it("keeps a newer value a later change already set", () => {
+      const newer = {};
+      expect(rolledBack(newer, {}, {})).toBe(newer);
    });
 });
 

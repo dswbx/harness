@@ -116,7 +116,7 @@ async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String
                     .await;
             }
         }
-        if evs[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
+        if own_turn_ended(&evs[before..], text, None) {
             return evs[before..]
                 .iter()
                 .filter_map(|e| match &e.kind {
@@ -128,6 +128,19 @@ async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     panic!("turn did not end");
+}
+
+/// The Turn started by the user prompt `text` (in `thread`, when given) has ended. Another Turn of the
+/// Thread may run beside it (a notice Turn, say), so its `TurnEnded` does not count. Chunks carry no
+/// turn id: callers find their text in the joined reply, not at its start.
+fn own_turn_ended(evs: &[Event], text: &str, thread: Option<&str>) -> bool {
+    let id = evs.iter().find_map(|e| match &e.kind {
+        EventKind::TurnStarted { turn_id, text: t, origin: None, .. } if t == text && thread.is_none_or(|th| e.thread_id.as_deref() == Some(th)) => {
+            Some(turn_id)
+        }
+        _ => None,
+    });
+    id.is_some_and(|id| evs.iter().any(|e| matches!(&e.kind, EventKind::TurnEnded { turn_id, .. } if turn_id == id)))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -158,6 +171,61 @@ async fn primitives_over_http() {
     assert_eq!(push, "mcp error: the user denied this");
     let asked = events(&h, &sid).into_iter().any(|e| matches!(&e.kind, EventKind::PermissionRequested { tool_call, .. } if tool_call["kind"] == "git_push"));
     assert!(asked);
+}
+
+/// Guards the catalog/dispatch pairing in `mcp.rs`: every tool the server lists must be handled.
+/// Each is called with no arguments and must answer with a result or a normal tool error: not
+/// "unknown tool" (listed but not dispatched), not a dropped connection or a panic.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_listed_tool_is_dispatched_and_answers_without_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    let listed = ask(&h, &sid, "mcp-list", None).await;
+    let tools: Vec<&str> = listed.strip_prefix("tools: ").unwrap().split(',').collect();
+    assert!(tools.len() > 20 && tools.contains(&"git_status") && tools.contains(&"json_render"), "{listed}");
+
+    let mut answers = Vec::new();
+    for tool in &tools {
+        // A request for permission (git_push) is answered with a denial: still a normal error.
+        let reply = ask(&h, &sid, &format!("mcp {tool} {{}}"), Some("reject")).await;
+        assert!(reply.starts_with("mcp: ") || reply.starts_with("mcp error: "), "{tool}: {reply}");
+        assert!(!reply.contains("unknown tool"), "{tool} is listed but not dispatched: {reply}");
+        let lower = reply.to_lowercase();
+        assert!(!lower.contains("panicked") && !lower.contains("transport closed") && !lower.contains("connection closed"), "{tool}: {reply}");
+        answers.push((tool, reply));
+    }
+    // The tools that need arguments say so; the ones that do not, work.
+    let reply = |name: &str| answers.iter().find(|(t, _)| **t == name).unwrap().1.clone();
+    assert!(reply("git_status").starts_with("mcp: "), "{}", reply("git_status"));
+    assert!(reply("session_list").starts_with("mcp: "), "{}", reply("session_list"));
+    assert!(reply("git_commit").starts_with("mcp error: "), "{}", reply("git_commit"));
+    assert!(reply("json_render").starts_with("mcp error: "), "{}", reply("json_render"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_diff_refuses_option_like_revisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+    let out = dir.path().join("out.txt");
+    let call = format!(r#"mcp git_diff {{"from":"--output={}","to":"HEAD"}}"#, out.display());
+    let reply = ask(&h, &sid, &call, None).await;
+    assert!(reply.starts_with("mcp error:"), "{reply}");
+    assert!(!out.exists(), "git wrote the file");
+    let call = format!(r#"mcp git_diff {{"from":"HEAD","to":"--output={}"}}"#, out.display());
+    let reply = ask(&h, &sid, &call, None).await;
+    assert!(reply.starts_with("mcp error:"), "{reply}");
+    assert!(!out.exists(), "git wrote the file");
+    // Normal revisions still work.
+    std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "b"]);
+    let reply = ask(&h, &sid, r#"mcp git_diff {"from":"HEAD~1","to":"HEAD"}"#, None).await;
+    assert!(reply.contains("+b"), "{reply}");
 }
 
 fn pushed_asks(h: &Harness, sid: &str) -> bool {
@@ -868,7 +936,8 @@ fn shared_harness(data: &Path) -> Arc<Harness> {
 /// Calls a Harness MCP tool and parses the JSON it returns.
 async fn mcp_json(h: &Harness, sid: &str, call: &str) -> serde_json::Value {
     let reply = ask(h, sid, &format!("mcp {call}"), None).await;
-    let body = reply.strip_prefix("mcp: ").unwrap_or_else(|| panic!("{call}: {reply}"));
+    // Text of a Turn running beside this one may come first.
+    let body = reply.rsplit_once("mcp: ").map(|(_, b)| b).unwrap_or_else(|| panic!("{call}: {reply}"));
     serde_json::Deserializer::from_str(body).into_iter().next().unwrap().unwrap_or_else(|e| panic!("{call}: {e}: {reply}"))
 }
 
@@ -969,6 +1038,61 @@ async fn share_attach_and_search() {
     assert_eq!((meta.title.as_str(), meta.kind), ("Diagram", harness_core::api::SharedKind::Md));
     assert_eq!(meta.created_by.origin.as_deref(), Some("r1:diagram:0"));
     assert_eq!(shared_meta(&h, &meta.id).created_by.origin.as_deref(), Some("r1:diagram:0"), "read back");
+}
+
+fn file_requests(h: &Harness, sid: &str) -> Vec<(serde_json::Value, Vec<String>)> {
+    events(h, sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::PermissionRequested { tool_call, options, .. } if tool_call["kind"] == "frontend_file" => {
+                Some((tool_call, options.into_iter().map(|o| o.option_id).collect()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_outside_the_folder_needs_approval_of_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    std::fs::write(other.path().join("shot.png"), b"png").unwrap();
+    let outside = other.path().join("shot.png");
+    let real = outside.canonicalize().unwrap();
+    let call = format!(r#"mcp json_render {{"title":"Hi","items":["x"],"image":{}}}"#, serde_json::to_string(&outside.display().to_string()).unwrap());
+    // A rule for Frontend Tools in general does not cover a file outside the folder.
+    h.execute(Command::AddPermissionRule {
+        rule: NewPermissionRule { scope: RuleScope::Global, tool_kind: Some("frontend_tool".into()), pattern: None, decision: Decision::Allow },
+    })
+    .await
+    .unwrap();
+
+    let denied = ask(&h, &sid, &call, Some("reject")).await;
+    assert!(denied.contains("the user denied this"), "{denied}");
+    let requests = file_requests(&h, &sid);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0["locations"][0]["path"], real.display().to_string(), "the resolved path is shown");
+    assert_eq!(requests[0].1, vec!["allow", "reject"], "no 'always' answer");
+    assert!(!events(&h, &sid).iter().any(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })));
+
+    let ok = ask(&h, &sid, &call, Some("allow")).await;
+    assert!(ok.starts_with("mcp: Done."), "{ok}");
+    assert_eq!(file_requests(&h, &sid).len(), 2, "asked again for the next call");
+    let files = events(&h, &sid)
+        .into_iter()
+        .find_map(|e| match e.kind {
+            EventKind::FrontendToolOutput { files, .. } => Some(files),
+            _ => None,
+        })
+        .unwrap();
+    let CommandResult::Attachment { data, .. } =
+        h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: files[&outside.display().to_string()].clone() }).await.unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(data, "cG5n");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1145,7 +1269,7 @@ async fn ask_on(h: &Harness, sid: &str, thread: &str, text: &str) -> String {
     for _ in 0..800 {
         let evs = events(h, sid);
         let mine = || evs[before..].iter().filter(|e| e.thread_id.as_deref() == Some(thread));
-        if mine().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
+        if own_turn_ended(&evs[before..], text, Some(thread)) {
             return mine()
                 .filter_map(|e| match &e.kind {
                     EventKind::AgentMessageChunk { text, .. } => Some(text.as_str()),
@@ -1213,6 +1337,37 @@ async fn sub_session_start_send_and_wait() {
     assert_eq!(foreign, format!("mcp error: Session {other} is not a Sub Session of this Session"));
     let foreign = ask(&h, &sid, &format!(r#"mcp session_send {{"id":"{other}","text":"x"}}"#), None).await;
     assert!(foreign.contains("is not a Sub Session"), "{foreign}");
+}
+
+/// A Sub Session killed mid-Turn (its log ends open) is idle again after a restart, so its parent can send to it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sub_session_killed_mid_turn_can_be_sent_to_after_a_restart() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let data = dir.path().join("data");
+    let h = harness(&data, &["--resume"]);
+    let sid = create(&h, &repo, vec![]).await;
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child","notify":false}"#).await;
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    let evs = events(&h, &child);
+    let (seq, thread) = (evs.last().unwrap().seq, evs.iter().find_map(|e| e.thread_id.clone()).unwrap());
+    drop(h);
+    // The run died right after a Turn started: the log ends open.
+    let line = serde_json::json!({
+        "v": 1, "seq": seq + 1, "session_id": child, "thread_id": thread,
+        "ts_ms": 1, "kind": { "type": "TurnStarted", "turn_id": "killed", "text": "lost", "attachments": [] }
+    });
+    let mut f = std::fs::OpenOptions::new().append(true).open(data.join("sessions").join(&child).join("log.jsonl")).unwrap();
+    writeln!(f, "{line}").unwrap();
+    drop(f);
+
+    let h = harness(&data, &["--resume"]);
+    let sent = mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"history"}}"#)).await;
+    assert_eq!(sent["session_id"], child.as_str(), "{sent}");
+    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    assert_eq!(done["status"], "idle", "{done}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1330,7 +1485,8 @@ fn notices(h: &Harness, sid: &str) -> Vec<(String, harness_core::api::PromptOrig
 }
 
 async fn until(what: &str, mut f: impl FnMut() -> bool) {
-    for _ in 0..400 {
+    // Only bounds a failure: generous for a loaded machine.
+    for _ in 0..1200 {
         if f() {
             return;
         }
@@ -1401,17 +1557,24 @@ fn idle(h: &Harness, sid: &str) -> bool {
     n(true) == n(false)
 }
 
+/// The latest permission request in `sid` that still waits for an answer (the Policy answers some itself).
 async fn until_request(h: &Harness, sid: &str) -> String {
     for _ in 0..400 {
-        if let Some(id) = events(h, sid).into_iter().rev().find_map(|e| match e.kind {
-            EventKind::PermissionRequested { request_id, .. } => Some(request_id),
+        let log = events(h, sid);
+        let pending = log.iter().rev().find_map(|e| match &e.kind {
+            EventKind::PermissionRequested { request_id, .. }
+                if !log.iter().any(|r| matches!(&r.kind, EventKind::PermissionResolved { request_id: id, .. } if id == request_id)) =>
+            {
+                Some(request_id.clone())
+            }
             _ => None,
-        }) {
+        });
+        if let Some(id) = pending {
             return id;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("no permission request");
+    panic!("timed out: no pending permission request in {sid}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1421,10 +1584,18 @@ async fn a_running_session_wait_replaces_the_notice() {
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, &repo, vec![]).await;
 
-    // "slow": the child still works when the wait starts, so the wait sees the end and reports it.
-    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"slow","worktree":false}"#).await;
+    // "gated": the child works until the file exists, so it still works when the wait starts, however
+    // long the parent takes to get there. The wait runs beside the parent's other Turns.
+    let gate = dir.path().join("gate");
+    let started = mcp_json(&h, &sid, &format!(r#"session_start {{"prompt":"gated {}","worktree":false}}"#, gate.display())).await;
     let child = started["session_id"].as_str().unwrap().to_owned();
-    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    let waiter = {
+        let (h, sid, child) = (h.clone(), sid.clone(), child.clone());
+        tokio::spawn(async move { mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await })
+    };
+    until("the wait is under way", || h.sub_session_waits(&child) == 1).await;
+    std::fs::write(&gate, "").unwrap();
+    let done = waiter.await.unwrap();
     assert_eq!(done["status"], "idle", "{done}");
     assert_eq!(done["reply"], "Working on it. Done.");
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1433,4 +1604,42 @@ async fn a_running_session_wait_replaces_the_notice() {
     // The same kind of Turn without a wait: the parent hears of it.
     mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"slow again"}}"#)).await;
     until("the parent hears the child ended", || notices(&h, &sid).len() == 1).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_notice_that_arrives_during_a_notice_turn_goes_out_without_a_user_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // "slow" in the title makes the parent notice Turn slow (the fake agent reads the prompt).
+    mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"slow first","worktree":false}"#).await;
+    until("the first notice Turn starts", || notices(&h, &sid).len() == 1 && !idle(&h, &sid)).await;
+    // ... and it is mid-Turn: its first chunk is out and the fake agent now sleeps.
+    until("the notice Turn says its first words", || {
+        let evs = events(&h, &sid);
+        let start = evs.iter().position(|e| matches!(&e.kind, EventKind::TurnStarted { origin: Some(_), .. }));
+        start.is_some_and(|i| evs[i..].iter().any(|e| matches!(&e.kind, EventKind::AgentMessageChunk { text, .. } if text.contains("Working on it."))))
+    })
+    .await;
+    // The second child ends while the parent is busy with that Turn.
+    mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Second","worktree":false}"#).await;
+    until("the parent hears the second child too", || notices(&h, &sid).len() == 2).await;
+    assert!(notices(&h, &sid)[1].0.contains("\"Second\""), "{:?}", notices(&h, &sid)[1].0);
+    until("the parent is idle", || idle(&h, &sid)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_is_found_when_another_turn_of_the_thread_still_streams() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, &repo, vec![]).await;
+
+    // "slow" says "Working on it." at once and then waits: the next prompt runs beside it, and the
+    // chunks of both Turns land in the log (chunks carry no turn id).
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "slow".into(), attachments: vec![] }).await.unwrap();
+    let info = mcp_json(&h, &sid, "harness_info {}").await;
+    assert!(info.is_object(), "{info}");
 }

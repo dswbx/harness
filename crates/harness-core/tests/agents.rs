@@ -182,3 +182,15 @@ async fn auth_required_until_the_user_signs_in() {
     h.execute(Command::Authenticate { session_id: sid.clone(), method_id: "login".into() }).await.unwrap();
     turn_ends(&h, &sid, "hi").await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_without_a_distribution_for_this_machine_is_unavailable() {
+    use harness_core::api::ErrorCode;
+    let dir = tempfile::tempdir().unwrap();
+    let (tgz, sha) = archive(dir.path(), "");
+    let h = harness(&dir.path().join("data"), &registry(dir.path(), &tgz, &sha), vec![]);
+    let e = h.execute(Command::InstallAgent { registry_id: "linux-only".into(), allow_unverified: false }).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::AgentUnavailable, "{e}");
+    let e = h.execute(Command::InstallAgent { registry_id: "not-listed".into(), allow_unverified: false }).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+}

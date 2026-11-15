@@ -22,6 +22,7 @@ export function stressEvents(turns = 21): Event[] {
          agent_id: "claude",
          folder: "/mock/project",
       } as EventKind),
+      ev({ type: "ThreadStarted", agent_id: "claude", main: true }),
    ];
    const output = (n: number, lines: number) =>
       Array.from(
@@ -82,7 +83,12 @@ export function stressEvents(turns = 21): Event[] {
          }
          for (let k = 0; k < 3; k++)
             out.push(
-               ev({ type: "UsageUpdated", usage: { used: 1000 * (t + 1) + k, size: 200000 } }),
+               ev({
+                  type: "UsageUpdated",
+                  usage: { used: 1000 * (t + 1) + k, size: 200000 },
+                  used: 1000 * (t + 1) + k,
+                  size: 200000,
+               }),
             );
       }
       const reply =

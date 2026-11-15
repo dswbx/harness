@@ -14,12 +14,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::api::{
     AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, SubSessionReport, SubSessionReportKind, ThreadId,
 };
 use crate::host::{Harness, NewSession};
+use crate::mcp::results::{SubSessionEntry, SubSessionListing, SubSessionSent, SubSessionStarted, SubSessionWaited};
 use crate::session::Session;
 
 /// The tools, as named in `mcp::primitives`.
@@ -97,7 +98,7 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
         None => session.summary().workspace.source_folder,
     };
     anyhow::ensure!(Path::new(&folder).is_dir(), "folder {folder} does not exist");
-    let is_repo = crate::workspace::repo_root(Path::new(&folder)).await.is_some();
+    let is_repo = crate::git::repo_root(Path::new(&folder)).await.is_some();
     let worktree = args.get("worktree").and_then(Value::as_bool).unwrap_or(is_repo);
     let branch = text_arg(args, "branch");
     anyhow::ensure!(branch.is_none() || worktree, "branch needs a worktree: omit worktree or pass worktree: true");
@@ -137,16 +138,16 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
         anyhow::bail!("started Sub Session {id}, but its first prompt failed: {e:#}");
     }
     let m = child.meta();
-    let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
-    Ok(json!({
-        "session_id": id,
-        "title": m.title,
-        "folder": m.folder,
-        "repo": m.repo_folder().map(|p| p.display().to_string()),
-        "branch": branch,
-        "model": config.model,
-        "effort": config.effort,
-    }))
+    let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::git::head_branch(Path::new(&m.folder)));
+    Ok(serde_json::to_value(SubSessionStarted {
+        session_id: Some(id),
+        title: Some(m.title.clone()),
+        folder: Some(m.folder.clone()),
+        repo: m.repo_folder().map(|p| p.display().to_string()),
+        branch,
+        model: config.model,
+        effort: config.effort,
+    })?)
 }
 
 /// A Sub Session of `parent` by id; any other Session is refused.
@@ -170,7 +171,7 @@ async fn send(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
     crate::acp::authorize(session, thread, "session_send", &format!("Send to sub session: {}", m.title), "session", args).await?;
     busy()?;
     child.prompt(None, text, Vec::new(), Some(origin(session))).await?;
-    Ok(json!({ "session_id": m.id, "title": m.title }))
+    Ok(serde_json::to_value(SubSessionSent { session_id: Some(m.id), title: Some(m.title) })?)
 }
 
 /// Unsubscribes from AppEvents when the wait ends in any way.
@@ -224,19 +225,19 @@ async fn list(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, ar
         .iter()
         .map(|c| {
             let m = c.meta();
-            let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::workspace::head_branch(Path::new(&m.folder)));
-            Ok(json!({
-                "session_id": m.id,
-                "title": m.title,
-                "folder": m.folder,
-                "repo": m.repo_folder().map(|p| p.display().to_string()),
-                "branch": branch,
-                "status": status(c)?,
-                "archived": m.archived,
-            }))
+            let branch = m.workspace.worktree.as_ref().map(|w| w.branch.clone()).or_else(|| crate::git::head_branch(Path::new(&m.folder)));
+            Ok(SubSessionEntry {
+                session_id: Some(m.id.clone()),
+                title: Some(m.title.clone()),
+                folder: Some(m.folder.clone()),
+                repo: m.repo_folder().map(|p| p.display().to_string()),
+                branch,
+                status: Some(status(c)?.to_owned()),
+                archived: m.archived,
+            })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(json!({ "sub_sessions": rows }))
+    Ok(serde_json::to_value(SubSessionListing { sub_sessions: rows })?)
 }
 
 /// `needs_attention` (a permission request waits for the user), `working` (a Main Thread Turn is in
@@ -279,11 +280,15 @@ fn report(child: &Session) -> anyhow::Result<Value> {
             })
         })
         .unwrap_or_default();
-    let mut out = json!({ "session_id": m.id, "title": m.title, "status": status, "duration_ms": duration_ms, "reply": reply });
-    if let Some((stop_reason, _)) = ended.filter(|_| status != "working") {
-        out["stop_reason"] = json!(stop_reason);
-    }
-    Ok(out)
+    let stop_reason = ended.filter(|_| status != "working").map(|(stop_reason, _)| stop_reason);
+    Ok(serde_json::to_value(SubSessionWaited {
+        session_id: Some(m.id),
+        title: Some(m.title),
+        status: Some(status.to_owned()),
+        duration_ms: Some(duration_ms),
+        reply: Some(reply),
+        stop_reason,
+    })?)
 }
 
 /// Messages for parents about their Sub Sessions, held until the parent's Main Thread is idle,
@@ -319,6 +324,11 @@ impl Drop for Waiting<'_> {
 }
 
 impl Notices {
+    /// How many `session_wait`s wait for `child` now. For tests.
+    pub(crate) fn waits_for(&self, child: &SessionId) -> usize {
+        self.0.lock().waiting.get(child).copied().unwrap_or(0)
+    }
+
     fn waiting(&self, child: &SessionId) -> Waiting<'_> {
         *self.0.lock().waiting.entry(child.clone()).or_default() += 1;
         Waiting(self, child.clone())
@@ -329,6 +339,25 @@ impl Notices {
         if let Some(list) = self.0.lock().pending.get_mut(parent) {
             list.retain(|(c, ..)| c != child);
         }
+    }
+
+    /// Takes what `parent` is still to hear and marks it as being sent (see `Sending`). `None`
+    /// when there is nothing, or a send is under way. One lock for the look and the take: a
+    /// `session_wait` that just told the parent may empty the list at any time.
+    fn take(&self, parent: &SessionId) -> Option<Vec<(SessionId, String, SubSessionReport)>> {
+        let mut st = self.0.lock();
+        if st.pending.get(parent).is_none_or(Vec::is_empty) || !st.sending.insert(parent.clone()) {
+            return None;
+        }
+        st.pending.remove(parent)
+    }
+
+    /// Puts notices that could not be sent back in front of the newer ones, in their order.
+    fn put_back(&self, parent: &SessionId, mut list: Vec<(SessionId, String, SubSessionReport)>) {
+        let mut st = self.0.lock();
+        let slot = st.pending.entry(parent.clone()).or_default();
+        list.append(slot);
+        *slot = list;
     }
 
     fn push(&self, parent: &SessionId, text: String, report: SubSessionReport) {
@@ -346,6 +375,8 @@ pub(crate) fn watch(host: &Arc<Harness>) {
     }));
 }
 
+// Turns cancelled by `Harness::shutdown` also come here; the notices they make are lost with the process, and
+// prompting a parent is refused while closing, so nothing starts.
 fn on_event(host: &Arc<Harness>, e: &AppEvent) {
     let (session_id, ended) = match e {
         AppEvent::TurnFinished { session_id, thread_id, .. } => (session_id, Some(thread_id)),
@@ -436,7 +467,10 @@ fn started_by(child: &Session, parent: &SessionId) -> bool {
 }
 
 /// Sends a parent its pending notices as one prompt, when its Main Thread is idle. Otherwise its
-/// next Turn end comes back here.
+/// next Turn end comes back here. A notice that arrives while the send is under way (the parent's
+/// Turn may end before the sending task is done, and `take` then finds a send under way) is
+/// picked up by one more `flush` at the end of the task. When the prompt fails, the notices go
+/// back to the front of the list and wait for the parent's next Turn end: no retry loop.
 fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     let Ok(parent) = host.session(parent_id) else { return };
@@ -448,43 +482,52 @@ fn flush(host: &Arc<Harness>, parent_id: &SessionId) {
     if m.archived || parent.thread_working(&m.main_thread_id).unwrap_or(true) {
         return;
     }
-    let list = {
-        let mut st = notices.0.lock();
-        if !st.sending.insert(parent_id.clone()) {
-            return;
-        }
-        st.pending.remove(parent_id).unwrap_or_default()
+    let Some(list) = notices.take(parent_id) else { return };
+    let Some(first) = list.first().map(|(child, ..)| child.clone()) else {
+        notices.0.lock().sending.remove(parent_id);
+        return;
     };
     let parent_id = parent_id.clone();
+    let host = Arc::downgrade(host);
     rt.spawn(async move {
+        // Cleared however the task ends, or the parent would never hear from a Sub Session again.
+        let sending = Sending(&parent.shared().notices, parent_id.clone());
         let titles: Vec<&str> = list.iter().map(|(.., r)| r.title.as_str()).collect();
         let text = list.iter().map(|(_, text, _)| text.as_str()).collect::<Vec<_>>().join("\n\n---\n\n");
         let origin = PromptOrigin {
-            session_id: list[0].0.clone(),
+            session_id: first,
             title: titles.join(", "),
             kind: PromptOriginKind::SubSession,
-            reports: list.into_iter().map(|(.., r)| r).collect(),
+            reports: list.iter().map(|(.., r)| r.clone()).collect(),
         };
-        if let Err(e) = parent.prompt(None, text, Vec::new(), Some(origin)).await {
+        let sent = parent.prompt(None, text, Vec::new(), Some(origin)).await;
+        if let Err(e) = &sent {
             tracing::warn!("telling Session {parent_id} about its Sub Sessions: {e:#}");
+            parent.shared().notices.put_back(&parent_id, list);
         }
-        parent.shared().notices.0.lock().sending.remove(&parent_id);
+        drop(sending);
+        // Notices that came in while sending: their Turn end may have found a send under way.
+        if sent.is_ok()
+            && let Some(host) = host.upgrade()
+        {
+            flush(&host, &parent_id);
+        }
     });
+}
+
+/// A parent's notices being sent; dropping it lets the next ones go (see `flush`).
+struct Sending<'a>(&'a Notices, SessionId);
+
+impl Drop for Sending<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().sending.remove(&self.1);
+    }
 }
 
 /// The latest config options of the Session's Main Thread (empty before its Agent reported any).
 fn main_config(session: &Session) -> anyhow::Result<Vec<Value>> {
     let main = session.meta().main_thread_id;
-    Ok(session
-        .log()
-        .events()?
-        .into_iter()
-        .rev()
-        .find_map(|e| match e.kind {
-            EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(&main) => options.as_array().cloned(),
-            _ => None,
-        })
-        .unwrap_or_default())
+    Ok(session.log().thread_config_options(&main)?.unwrap_or_default())
 }
 
 /// A Sub Session's starting model and effort.
@@ -585,6 +628,8 @@ fn choice(o: &Value) -> Option<(String, String)> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn options() -> Vec<Value> {
@@ -624,5 +669,53 @@ mod tests {
     fn options_without_categories_match_by_id() {
         let o: Vec<Value> = serde_json::from_value(json!([{ "id": "model", "currentValue": "a", "options": [{ "value": "a", "name": "A" }] }])).unwrap();
         assert_eq!(Config::choose(&o, None, None).unwrap().values["model"], "a");
+    }
+
+    fn ended(child: &str) -> SubSessionReport {
+        SubSessionReport {
+            session_id: child.into(),
+            title: child.into(),
+            kind: SubSessionReportKind::Ended,
+            stop_reason: None,
+            duration_ms: None,
+            asked: None,
+            reply: None,
+        }
+    }
+
+    #[test]
+    fn notices_are_taken_once_and_not_while_a_send_is_under_way() {
+        let (notices, parent): (Notices, SessionId) = (Notices::default(), "p".into());
+        assert!(notices.take(&parent).is_none());
+        assert!(!notices.0.lock().sending.contains(&parent), "nothing to send: the next notice can still go");
+
+        notices.push(&parent, "a ended".into(), ended("a"));
+        // A `session_wait` told the parent itself in the meantime.
+        notices.drop_for(&parent, &"a".into());
+        assert!(notices.take(&parent).is_none());
+        assert!(!notices.0.lock().sending.contains(&parent));
+
+        notices.push(&parent, "b ended".into(), ended("b"));
+        let list = notices.take(&parent).unwrap();
+        assert_eq!(list.len(), 1);
+        {
+            let _sending = Sending(&notices, parent.clone());
+            notices.push(&parent, "c ended".into(), ended("c"));
+            assert!(notices.take(&parent).is_none(), "one prompt at a time");
+        }
+        assert_eq!(notices.take(&parent).unwrap()[0].0, "c", "kept for the next send");
+    }
+
+    #[test]
+    fn notices_that_were_not_sent_go_back_in_front() {
+        let (notices, parent): (Notices, SessionId) = (Notices::default(), "p".into());
+        notices.push(&parent, "a".into(), ended("a"));
+        notices.push(&parent, "b".into(), ended("b"));
+        let list = notices.take(&parent).unwrap();
+        notices.push(&parent, "c".into(), ended("c"));
+        notices.put_back(&parent, list);
+        let _ = Sending(&notices, parent.clone());
+        let order: Vec<String> = notices.take(&parent).unwrap().into_iter().map(|(c, ..)| c).collect();
+        assert_eq!(order, ["a", "b", "c"]);
     }
 }

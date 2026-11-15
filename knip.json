@@ -1,0 +1,32 @@
+{
+   "$schema": "https://unpkg.com/knip@6/schema.json",
+   "workspaces": {
+      ".": {
+         "entry": ["scripts/*.ts"],
+         "project": ["scripts/**/*.ts"],
+         "ignore": ["**/*.test.{ts,tsx}"],
+         "ignoreDependencies": ["@testing-library/react"]
+      },
+      "app": {
+         "ignore": ["**/*.test.{ts,tsx}"]
+      },
+      "packages/*": {
+         "project": ["src/**/*.{ts,tsx}"],
+         "ignore": ["**/*.test.{ts,tsx}"]
+      },
+      "packages/frontend-chat": {
+         "project": ["src/**/*.{ts,tsx}"],
+         "ignore": ["**/*.test.{ts,tsx}", "src/state/syntheticLog.ts"],
+         "ignoreDependencies": ["@lexical/headless", "remark-parse", "remark-rehype", "unified"]
+      },
+      "packages/ui": {
+         "project": ["src/**/*.{ts,tsx}"],
+         "ignore": ["**/*.test.{ts,tsx}"],
+         "ignoreIssues": { "src/primitives/**": ["exports", "types"] }
+      }
+   },
+   "vitest": false,
+   "ignoreExportsUsedInFile": true,
+   "tags": ["-internal"],
+   "ignoreUnresolved": ["vite/client"]
+}

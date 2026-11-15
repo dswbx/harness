@@ -1,15 +1,22 @@
 //! Session Log: append-only JSONL in the Session Directory, plus live fan-out to subscribed Views.
 //!
-//! **Never lose history.** The file is only ever appended to, with one exception: a torn final
-//! line (no trailing newline) is cut on open. A complete line that does not parse is kept, after
-//! a one-time copy of the file to `log.jsonl.corrupt-<ts_ms>`; it reads as `EventKind::Unknown`
-//! (the original text stays in the file only; a type this build does not know is not counted as a bad line) or, when it is not even JSON, is left out of the
-//! in-memory view. An Event with a `v` newer than this build knows opens the Session read-only.
+//! **Never lose history.** The file is only ever appended to, except that open cuts a torn final
+//! line (no trailing newline, so it never parsed). The writer thread never cuts anything: after a
+//! failed write it adds a newline to a file that does not end in one, so a half-written line
+//! becomes a bad line instead of running into the next Event. A complete line that does not parse
+//! is kept, after a one-time copy of the file to `log.jsonl.corrupt-<ts_ms>`; it reads as
+//! `EventKind::Unknown` (the original text stays in the file only; a type this build does not
+//! know is not counted as a bad line) or, when it is not even JSON, is left out of the in-memory
+//! view. An Event with a `v` newer than this build knows opens the Session read-only.
 //! Old shapes are read through `upcast` (ADR 0021).
 //!
-//! **Memory.** Events load into memory on first need (`events`, `subscribe`, a projection), not
-//! on open. After that reads never touch the file. Small projections (current mode per Thread,
-//! the Agent's title) are kept up to date on append for hot paths.
+//! **Memory.** Events load into memory on first need (`events`, `subscribe`, a projection, the first append), not
+//! on open. After that reads never touch the file. `events` hands out shared `Arc<Event>` handles
+//! (cold paths: export, replay, transcripts). Hot paths read projections kept up to date on append and
+//! rebuilt on load: mode, title, attached Shared Artifacts, Frontend items and errors, open Turn,
+//! newest config options. `tests/projections.rs` pins each to a scan of all Events. The first
+//! append of a run also loads (so every Event reaches memory and the projections); loading closes
+//! what an earlier run left open (see `close_dangling`).
 //!
 //! **Startup.** `sync` writes a checkpoint (`log.checkpoint.json`: `next_seq`, `last_ts_ms`,
 //! `agent_was_running`, `byte_len`). Open trusts it when the file is at least `byte_len` long and
@@ -21,6 +28,20 @@
 //! A subscriber whose queue overflows is dropped after `EventSink::lagged`, and the View
 //! resubscribes. Replay comes from memory: the boundary `seq` is captured under the lock, so
 //! replay then live has no gaps and no duplicates.
+//!
+//! **A failing disk** (full, no permission, file gone) never stops the Session: the Event still
+//! gets its `seq`, memory and subscribers, and the log turns `degraded` (a `LogHealth` change goes
+//! to the hook, which the Session turns into `AppEvent::SessionLogHealth`). The failed Event is
+//! dropped and counted, not queued, so memory stays bounded; the next write reopens the file and
+//! tries again, and the first good one clears the flag. The file stays well formed with `seq`
+//! ascending but gapped, and a reload misses the dropped Events. The log is loaded before the
+//! first append, so every Event reaches memory and the projections whether or not it was written.
+//! `next_seq` never goes back (the checkpoint keeps it), so a dropped `seq` is not handed out
+//! again after a restart that finds the checkpoint; `last_seq` after a restart is the newest
+//! `seq` actually in the file. A restart while the disk still fails, with no checkpoint written
+//! since the drop, can reuse the dropped `seq`s: the log cannot record what it could not write.
+//! A reopened file that is another file, or shorter than expected, is appended to at its end and
+//! its checkpoint removed.
 //!
 //! Message and thought chunks are coalesced: a chunk is held for up to `COALESCE` (its `seq`
 //! already reserved) and later chunks of the same kind and Thread are appended to it. Any other
@@ -40,6 +61,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use crate::api::{EVENT_SCHEMA_VERSION, Event, EventKind, EventSink, ProcessState, SessionId, ThreadId};
+use crate::session::{FrontendErrorEntry, FrontendItem};
 
 pub type SubscriptionId = u64;
 
@@ -63,7 +85,7 @@ pub(crate) fn is_mode_option(option: &Value) -> bool {
 
 /// The Agent mode a `ConfigOptionsChanged` reports, when it carries the mode option.
 fn config_mode(options: &Value) -> Option<String> {
-    options.as_array()?.iter().find(|o| is_mode_option(o)).and_then(|o| o["currentValue"].as_str()).map(str::to_owned)
+    options.as_array()?.iter().find(|o| is_mode_option(o)).and_then(|o| o["currentValue"].as_str()).filter(|v| !v.is_empty()).map(str::to_owned)
 }
 
 /// Facts derived from the Events, kept current on append.
@@ -72,23 +94,144 @@ struct Projections {
     /// Thread -> its current Agent mode: the newest of its `ModeChanged` events and the mode
     /// option in its `ConfigOptionsChanged` events (Agents without legacy modes only report the latter).
     modes: HashMap<ThreadId, String>,
+    /// Thread -> the newest mode it was in that is not the plan mode (`PermissionRequested.mode_before`).
+    before_plan: HashMap<ThreadId, String>,
     /// Thread (None: Session level) -> (seq, newest non-blank title from `SessionInfoUpdated`).
     titles: HashMap<Option<ThreadId>, (u64, String)>,
+    /// Attached Shared Artifact ids, in order of attaching (`ArtifactAttached` / `ArtifactDetached`).
+    attached: Vec<String>,
+    /// Thread -> whether its newest `TurnStarted` / `TurnEnded` is a start.
+    open_turn: HashMap<ThreadId, bool>,
+    /// Thread -> `seq` of its newest `TurnStarted`.
+    turn_started: HashMap<ThreadId, u64>,
+    /// Thread -> the options array of its newest `ConfigOptionsChanged` that has one.
+    config: HashMap<ThreadId, Vec<Value>>,
+    frontend: FrontendProj,
+}
+
+/// Frontend Tool items and errors: what `Session::frontend_items` and `frontend_errors` return.
+#[derive(Default)]
+struct FrontendProj {
+    /// Calls that named an `id` and were not removed since, keyed by the order first seen.
+    items: std::collections::BTreeMap<u64, Arc<FrontendItem>>,
+    /// `(tool, id)` -> key in `items`: a call finds its item without a scan.
+    pos: HashMap<(String, String), u64>,
+    next_order: u64,
+    /// Every live item (its `id`, or the call id of a call without one) -> Thread of its latest call.
+    keyed: HashMap<(String, String), ThreadId>,
+    /// `FrontendError`s not cleared since, oldest first. May name items that never existed: read through `errors`.
+    errors: Vec<FrontendErrorEntry>,
+}
+
+/// Most uncleared `FrontendError`s the projection keeps; the oldest go first.
+const MAX_PROJECTED_ERRORS: usize = 500;
+
+impl FrontendProj {
+    fn apply(&mut self, e: &Event) {
+        match &e.kind {
+            EventKind::FrontendToolOutput { tool, call_id, input, files, .. } => {
+                let id = input.get("id").and_then(Value::as_str);
+                let remove = input.get("remove") == Some(&Value::Bool(true));
+                if let Some(id) = id {
+                    let key = (tool.clone(), id.to_owned());
+                    let at = self.pos.get(&key).copied();
+                    match (remove, at) {
+                        (true, Some(i)) => {
+                            self.items.remove(&i);
+                            self.pos.remove(&key);
+                        }
+                        (true, None) => {}
+                        (false, at) => {
+                            let item = Arc::new(FrontendItem {
+                                tool: tool.clone(),
+                                id: id.to_owned(),
+                                input: input.clone(),
+                                ts_ms: e.ts_ms,
+                                thread: e.thread_id.clone(),
+                                files: files.clone(),
+                            });
+                            match at {
+                                Some(i) => {
+                                    self.items.insert(i, item);
+                                }
+                                None => {
+                                    self.items.insert(self.next_order, item);
+                                    self.pos.insert(key, self.next_order);
+                                    self.next_order += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                let Some(thread) = &e.thread_id else { return };
+                match id {
+                    Some(id) => {
+                        self.errors.retain(|x| !(x.tool == *tool && x.item == id));
+                        let key = (tool.clone(), id.to_owned());
+                        if remove {
+                            self.keyed.remove(&key);
+                        } else {
+                            self.keyed.insert(key, thread.clone());
+                        }
+                    }
+                    None => {
+                        self.keyed.insert((tool.clone(), call_id.clone()), thread.clone());
+                    }
+                }
+            }
+            EventKind::FrontendError { tool, item, message } => {
+                self.errors.push(FrontendErrorEntry {
+                    seq: e.seq,
+                    thread: e.thread_id.clone().unwrap_or_default(),
+                    tool: tool.clone(),
+                    item: item.clone(),
+                    message: message.clone(),
+                });
+                if self.errors.len() > MAX_PROJECTED_ERRORS {
+                    self.errors.drain(..self.errors.len() - MAX_PROJECTED_ERRORS);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn errors(&self) -> Vec<FrontendErrorEntry> {
+        self.errors.iter().filter(|x| self.keyed.contains_key(&(x.tool.clone(), x.item.clone()))).cloned().collect()
+    }
 }
 
 impl Projections {
+    fn set_mode(&mut self, e: &Event, mode: String) {
+        let Some(t) = &e.thread_id else { return };
+        if !crate::agent_quirks::is_plan_mode(&mode) {
+            self.before_plan.insert(t.clone(), mode.clone());
+        }
+        self.modes.insert(t.clone(), mode);
+    }
+
     fn apply(&mut self, e: &Event) {
         match &e.kind {
-            EventKind::ModeChanged { mode_id } => {
-                if let Some(t) = &e.thread_id {
-                    self.modes.insert(t.clone(), mode_id.clone());
-                }
-            }
+            EventKind::ModeChanged { mode_id, .. } if !mode_id.is_empty() => self.set_mode(e, mode_id.clone()),
             EventKind::ConfigOptionsChanged { options, .. } => {
-                if let (Some(t), Some(mode)) = (&e.thread_id, config_mode(options)) {
-                    self.modes.insert(t.clone(), mode);
+                if let Some(mode) = config_mode(options) {
+                    self.set_mode(e, mode);
+                }
+                if let (Some(t), Some(o)) = (&e.thread_id, options.as_array()) {
+                    self.config.insert(t.clone(), o.clone());
                 }
             }
+            EventKind::ArtifactAttached { id, .. } if !self.attached.contains(id) => self.attached.push(id.clone()),
+            EventKind::ArtifactDetached { id, .. } => self.attached.retain(|x| x != id),
+            EventKind::TurnStarted { .. } | EventKind::TurnEnded { .. } => {
+                if let Some(t) = &e.thread_id {
+                    let started = matches!(e.kind, EventKind::TurnStarted { .. });
+                    self.open_turn.insert(t.clone(), started);
+                    if started {
+                        self.turn_started.insert(t.clone(), e.seq);
+                    }
+                }
+            }
+            EventKind::FrontendToolOutput { .. } | EventKind::FrontendError { .. } => self.frontend.apply(e),
             EventKind::SessionInfoUpdated { title: Some(t) } if !t.trim().is_empty() => {
                 self.titles.insert(e.thread_id.clone(), (e.seq, t.clone()));
             }
@@ -237,6 +380,10 @@ struct Checkpoint {
     last_ts_ms: i64,
     agent_was_running: bool,
     byte_len: u64,
+    /// `seq` of the newest Event in the file. `next_seq` never goes back, so a dropped tail's
+    /// `seq`s are not handed out again; this is what `last_seq` names after a restart.
+    #[serde(default)]
+    last_seq: Option<u64>,
 }
 
 fn checkpoint_path(log: &Path) -> PathBuf {
@@ -264,84 +411,310 @@ fn read_checkpoint(log: &Path, file_len: u64) -> Option<Checkpoint> {
 
 // ---------- writer thread ----------
 
+/// A change in whether the log's file can be written, reported to the hook set with
+/// `SessionLog::set_health_hook`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogHealth {
+    /// The first failed write (or refused append) since the last good one.
+    Degraded(String),
+    /// A write worked again. `dropped` Events failed in between: they reached subscribers and
+    /// memory but not the file, so a reload misses them. The file stays well formed, `seq` ascending (with a gap).
+    Recovered { dropped: u32 },
+}
+
+type HealthHook = Arc<dyn Fn(&LogHealth) + Send + Sync>;
+
+#[derive(Default)]
+struct HealthState {
+    error: Option<String>,
+    /// Events with a `seq` that failed to write since the last good write.
+    dropped: u32,
+    /// `close` ran: nothing is reported any more.
+    closed: bool,
+    hook: Option<HealthHook>,
+    notify: Option<Sender<LogHealth>>,
+    /// Set by `close`: the hook thread drops what it has not delivered yet.
+    stop: Arc<AtomicBool>,
+    /// Disconnects when the hook thread ends.
+    hook_done: Option<Receiver<()>>,
+    /// Tests: every write and probe fails.
+    #[cfg(test)]
+    inject: bool,
+}
+
+/// Whether the file can be written. One lock covers the state and the queueing of its change, so
+/// the flag and what was reported cannot disagree. Changes reach the hook on a thread of its own,
+/// in order, so a hook that blocks never stalls the writer or an append.
+#[derive(Default)]
+struct Health(Mutex<HealthState>);
+
+impl Health {
+    fn error(&self) -> Option<String> {
+        self.0.lock().error.clone()
+    }
+
+    /// An Event could not be written (`lost`: it had a `seq`), or a try without one (a probe, a
+    /// sync, a refused append) did not work.
+    fn fail(&self, message: String, lost: bool) {
+        let mut h = self.0.lock();
+        if h.closed {
+            return;
+        }
+        if lost {
+            h.dropped = h.dropped.saturating_add(1);
+        }
+        let first = h.error.is_none();
+        h.error = Some(message.clone());
+        if first {
+            tracing::warn!("Session Log not written: {message}");
+            h.send(LogHealth::Degraded(message));
+        }
+    }
+
+    /// A write worked.
+    fn ok(&self) {
+        let mut h = self.0.lock();
+        if h.closed || h.error.take().is_none() {
+            return;
+        }
+        let dropped = std::mem::take(&mut h.dropped);
+        tracing::info!("Session Log writes work again; {dropped} Events were not written");
+        h.send(LogHealth::Recovered { dropped });
+    }
+
+    /// Stops reporting: a change not delivered yet is dropped, and one being delivered gets a
+    /// short bound to finish (a hook that blocks must not stall the close).
+    fn close(&self) {
+        let done = {
+            let mut h = self.0.lock();
+            h.closed = true;
+            h.stop.store(true, Ordering::SeqCst);
+            h.notify = None;
+            h.hook_done.take()
+        };
+        if let Some(done) = done {
+            let _ = done.recv_timeout(Duration::from_millis(200));
+        }
+    }
+
+    /// Sets the hook, and tells it right away when the log is already degraded.
+    fn set_hook(&self, hook: HealthHook) {
+        let mut h = self.0.lock();
+        h.hook = Some(hook);
+        if let Some(e) = h.error.clone() {
+            h.send(LogHealth::Degraded(e));
+        }
+    }
+
+    #[cfg(test)]
+    fn inject(&self, on: bool) {
+        self.0.lock().inject = on;
+    }
+
+    fn injected(&self) -> bool {
+        #[cfg(test)]
+        return self.0.lock().inject;
+        #[cfg(not(test))]
+        false
+    }
+}
+
+impl HealthState {
+    fn send(&mut self, change: LogHealth) {
+        let Some(hook) = self.hook.clone() else { return };
+        if self.notify.is_none() {
+            let (t, rx) = mpsc::channel::<LogHealth>();
+            let (done_tx, done_rx) = mpsc::channel::<()>();
+            let stop = self.stop.clone();
+            let spawned = std::thread::Builder::new().name("session-log-health".into()).spawn(move || {
+                let _done = done_tx;
+                for change in rx {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    hook(&change);
+                }
+            });
+            if spawned.is_err() {
+                return;
+            }
+            self.notify = Some(t);
+            self.hook_done = Some(done_rx);
+        }
+        if let Some(t) = &self.notify {
+            let _ = t.send(change);
+        }
+    }
+}
+
 enum Job {
     Write(Arc<Event>),
-    /// Answers with the bytes written so far, after `fsync` when asked.
+    /// Answers with the bytes written so far and the `seq` of the newest Event on disk, after `fsync` when asked.
     Sync {
         fsync: bool,
-        reply: Sender<Result<u64, String>>,
+        reply: Sender<Result<Written, String>>,
     },
+}
+
+#[derive(Clone, Copy)]
+struct Written {
+    len: u64,
+    /// `seq` of the newest Event this writer wrote (or the log had when it started).
+    last_seq: Option<u64>,
 }
 
 /// The only owner of the log's file handle. Lines are written in the order they were queued.
 struct Writer {
     tx: Sender<Job>,
     handle: Option<std::thread::JoinHandle<()>>,
-    error: Arc<Mutex<Option<String>>>,
 }
 
 impl Writer {
-    fn spawn(path: PathBuf, start_len: u64) -> anyhow::Result<Self> {
+    fn spawn(path: PathBuf, start_len: u64, start_seq: Option<u64>, health: Arc<Health>) -> anyhow::Result<Self> {
         let (tx, rx) = mpsc::channel::<Job>();
-        let error = Arc::new(Mutex::new(None));
-        let err = error.clone();
-        let handle = std::thread::Builder::new().name("session-log-writer".into()).spawn(move || write_loop(&path, start_len, &rx, &err))?;
-        Ok(Self { tx, handle: Some(handle), error })
+        let handle = std::thread::Builder::new().name("session-log-writer".into()).spawn(move || write_loop(&path, start_len, start_seq, &rx, &health))?;
+        Ok(Self { tx, handle: Some(handle) })
     }
 
-    fn check(&self) -> anyhow::Result<()> {
-        match self.error.lock().as_ref() {
-            Some(e) => Err(anyhow::anyhow!("writing the Session Log failed: {e}")),
-            None => Ok(()),
-        }
-    }
-
+    /// Queues the Event. A failed write does not fail this: it marks the log degraded.
     fn write(&self, ev: Arc<Event>) -> anyhow::Result<()> {
-        self.check()?;
         self.tx.send(Job::Write(ev)).map_err(|_| anyhow::anyhow!("the Session Log writer stopped"))
     }
 
-    /// Waits until everything queued so far is written (and synced when `fsync`); returns the file length.
-    fn barrier(&self, fsync: bool) -> anyhow::Result<u64> {
+    /// Waits until everything queued so far is written (and synced when `fsync`).
+    fn barrier(&self, fsync: bool) -> anyhow::Result<Written> {
         let (reply, rx) = mpsc::channel();
         self.tx.send(Job::Sync { fsync, reply }).map_err(|_| anyhow::anyhow!("the Session Log writer stopped"))?;
         rx.recv().map_err(|_| anyhow::anyhow!("the Session Log writer stopped"))?.map_err(|e| anyhow::anyhow!("writing the Session Log failed: {e}"))
     }
 }
 
-fn write_loop(path: &Path, start_len: u64, rx: &Receiver<Job>, error: &Mutex<Option<String>>) {
-    let mut file: Option<File> = None;
-    let mut len = start_len;
+/// Which file a handle is on: (device, inode). Where there is no such thing, only its length can tell.
+fn identity(m: &std::fs::Metadata) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some((m.dev(), m.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        None
+    }
+}
+
+/// The file and how much of it is known good. The writer never cuts the file.
+struct FileState {
+    file: Option<File>,
+    /// Bytes of whole lines written.
+    len: u64,
+    /// A write failed: the file may end in a partial line, be a different file, or be gone.
+    recheck: bool,
+    /// The file the first handle was opened on.
+    ident: Option<(u64, u64)>,
+}
+
+impl FileState {
+    fn new(len: u64) -> Self {
+        Self { file: None, len, recheck: false, ident: None }
+    }
+
+    /// Appends `line` (nothing, to probe), opening the file when needed. After a failure the
+    /// reopened file is checked first: if it does not end in a newline (a write died half way) one
+    /// is added, so the partial line becomes a bad line `open` keeps and backs up instead of
+    /// running into the next Event. A file that is shorter than expected, or another file than
+    /// before, is appended to at its end and the checkpoint (which describes the old one) removed.
+    fn append(&mut self, path: &Path, line: &[u8]) -> anyhow::Result<()> {
+        if self.file.is_none() {
+            // Append mode: every write lands at the current end.
+            let mut f = OpenOptions::new().create(true).append(true).open(path)?;
+            let meta = f.metadata()?;
+            if self.recheck {
+                let other = self.ident.is_some() && identity(&meta) != self.ident;
+                if other || meta.len() < self.len {
+                    let _ = std::fs::remove_file(checkpoint_path(path));
+                    self.ident = identity(&meta);
+                }
+                self.len = meta.len();
+                if meta.len() > 0 && last_byte(path, meta.len())? != b'\n' {
+                    f.write_all(b"\n")?;
+                    self.len += 1;
+                }
+                self.recheck = false;
+            } else if self.ident.is_none() {
+                self.ident = identity(&meta);
+            }
+            self.file = Some(f);
+        }
+        let result = self.file.as_mut().map_or(Ok(()), |f| f.write_all(line));
+        match result {
+            Ok(()) => {
+                self.len += line.len() as u64;
+                Ok(())
+            }
+            Err(e) => {
+                self.broke();
+                Err(e.into())
+            }
+        }
+    }
+
+    fn broke(&mut self) {
+        self.file = None;
+        self.recheck = true;
+    }
+}
+
+fn last_byte(path: &Path, len: u64) -> std::io::Result<u8> {
+    let mut f = File::open(path)?;
+    f.seek(SeekFrom::Start(len - 1))?;
+    let mut b = [0u8; 1];
+    f.read_exact(&mut b)?;
+    Ok(b[0])
+}
+
+fn write_loop(path: &Path, start_len: u64, start_seq: Option<u64>, rx: &Receiver<Job>, health: &Health) {
+    let mut st = FileState::new(start_len);
+    let mut last_seq = start_seq;
     for job in rx {
         match job {
             Job::Write(ev) => {
-                if error.lock().is_some() {
-                    continue;
-                }
-                let result = (|| -> anyhow::Result<()> {
-                    if file.is_none() {
-                        // Append mode: every write lands at the current end.
-                        file = Some(OpenOptions::new().create(true).append(true).open(path)?);
+                // Every Event is a fresh try: a failed one is dropped (counted), the next one reopens the file.
+                let result = if health.injected() {
+                    Err(anyhow::anyhow!("injected write failure"))
+                } else {
+                    serde_json::to_vec(&*ev).map_err(anyhow::Error::from).and_then(|mut line| {
+                        line.push(b'\n');
+                        st.append(path, &line)
+                    })
+                };
+                match result {
+                    Ok(()) => {
+                        last_seq = Some(ev.seq);
+                        health.ok();
                     }
-                    let mut line = serde_json::to_vec(&*ev)?;
-                    line.push(b'\n');
-                    if let Some(f) = file.as_mut() {
-                        f.write_all(&line)?;
-                    }
-                    len += line.len() as u64;
-                    Ok(())
-                })();
-                if let Err(e) = result {
-                    *error.lock() = Some(format!("{e:#}"));
+                    Err(e) => health.fail(format!("{e:#}"), true),
                 }
             }
             Job::Sync { fsync, reply } => {
-                let answer = match error.lock().clone() {
-                    Some(e) => Err(e),
-                    None => match (&file, fsync) {
-                        (Some(f), true) => f.sync_data().map(|()| len).map_err(|e| e.to_string()),
-                        _ => Ok(len),
+                if health.error().is_some() {
+                    let probe = if health.injected() { Err(anyhow::anyhow!("injected write failure")) } else { st.append(path, &[]) };
+                    match probe {
+                        Ok(()) => health.ok(),
+                        Err(e) => health.fail(format!("{e:#}"), false),
+                    }
+                }
+                let answer = match health.error() {
+                    Some(e) if fsync => Err(e),
+                    _ if fsync => match st.file.as_ref().map(File::sync_data) {
+                        Some(Err(e)) => {
+                            st.broke();
+                            health.fail(e.to_string(), false);
+                            Err(e.to_string())
+                        }
+                        _ => Ok(Written { len: st.len, last_seq }),
                     },
+                    _ => Ok(Written { len: st.len, last_seq }),
                 };
                 let _ = reply.send(answer);
             }
@@ -417,6 +790,7 @@ pub struct SessionLog {
     session_id: SessionId,
     path: PathBuf,
     inner: Arc<Mutex<Inner>>,
+    health: Arc<Health>,
     /// `ts_ms` of the last Event (0 when empty); kept in memory, read for `SessionSummary.updated_ms`.
     last_ts_ms: AtomicI64,
     /// When opened, the log's last process state said an Agent was running.
@@ -424,7 +798,7 @@ pub struct SessionLog {
     /// Why appends are refused (the file holds Events from a newer build).
     read_only: Option<String>,
     /// `byte_len` of the checkpoint on disk; held while writing one.
-    checkpointed_len: Mutex<Option<u64>>,
+    checkpointed_len: Mutex<Option<(u64, u64)>>,
     /// `close` ran: no more checkpoints (the directory may be on its way out).
     closed: AtomicBool,
     /// Tests: runs right before a checkpoint is written.
@@ -433,11 +807,15 @@ pub struct SessionLog {
 }
 
 struct Inner {
+    session_id: SessionId,
     path: PathBuf,
     /// File length when opened, then kept by the writer.
     start_len: u64,
     writer: Option<Writer>,
+    health: Arc<Health>,
     next_seq: u64,
+    /// `seq` of the newest Event the log has: after open the newest in the file, then the newest appended (None: empty).
+    last_present: Option<u64>,
     /// The newest `AgentProcessState` said an Agent runs.
     running: bool,
     /// All Events, once loaded (`None` until the first need).
@@ -449,13 +827,17 @@ struct Inner {
     pending: Option<Event>,
     /// `close` ran: the file may be gone, so nothing is written any more.
     closed: bool,
+    /// Dangling Turns and permission requests from before this open were closed (or are left alone).
+    repaired: bool,
+    /// `next_seq` at open: Events below it are from an earlier run.
+    opened_next_seq: u64,
 }
 
 impl Inner {
     fn writer(&mut self) -> anyhow::Result<&Writer> {
         anyhow::ensure!(!self.closed, "the Session Log is closed");
         if self.writer.is_none() {
-            self.writer = Some(Writer::spawn(self.path.clone(), self.start_len)?);
+            self.writer = Some(Writer::spawn(self.path.clone(), self.start_len, self.last_present, self.health.clone())?);
         }
         self.writer.as_ref().ok_or_else(|| anyhow::anyhow!("no writer"))
     }
@@ -465,6 +847,7 @@ impl Inner {
         let ev = Arc::new(event);
         self.writer()?.write(ev.clone())?;
         self.next_seq = ev.seq + 1;
+        self.last_present = Some(ev.seq);
         if let EventKind::AgentProcessState { state, .. } = &ev.kind {
             self.running = matches!(state, ProcessState::Starting | ProcessState::Ready);
         }
@@ -503,6 +886,47 @@ impl Inner {
         }
         self.events = Some(events);
         self.proj = proj;
+        self.close_dangling()
+    }
+
+    /// A Turn or a permission request left open by an earlier run (killed mid-Turn, or its closing
+    /// Events were dropped by a failing disk) would read as running or waiting forever. Once per
+    /// open, right after the load and before any new append: a `TurnEnded` ("cancelled", the
+    /// vocabulary of a Cancel) for each Thread with an open Turn, and a cancelled
+    /// `PermissionResolved` for each unanswered request, in that order of causes. Events of this
+    /// run are not touched. Not done for a read-only log. Idempotent: the next open finds nothing.
+    fn close_dangling(&mut self) -> anyhow::Result<()> {
+        if std::mem::replace(&mut self.repaired, true) {
+            return Ok(());
+        }
+        let Some(events) = self.events.as_ref() else { return Ok(()) };
+        let mut turns: Vec<(ThreadId, String)> = Vec::new();
+        let mut asks: Vec<(String, Option<ThreadId>)> = Vec::new();
+        for e in events.iter().take_while(|e| e.seq < self.opened_next_seq) {
+            match (&e.kind, &e.thread_id) {
+                (EventKind::TurnStarted { turn_id, .. }, Some(t)) => match turns.iter_mut().find(|(x, _)| x == t) {
+                    Some(slot) => slot.1 = turn_id.clone(),
+                    None => turns.push((t.clone(), turn_id.clone())),
+                },
+                (EventKind::TurnEnded { .. }, Some(t)) => turns.retain(|(x, _)| x != t),
+                (EventKind::PermissionRequested { request_id, .. }, _) => asks.push((request_id.clone(), e.thread_id.clone())),
+                (EventKind::PermissionResolved { request_id, .. }, _) => asks.retain(|(r, _)| r != request_id),
+                _ => {}
+            }
+        }
+        // Keeps the Session where it was in the list.
+        let ts_ms = events.last().map_or(0, |e| e.ts_ms);
+        let mut close = Vec::new();
+        for (request_id, thread_id) in asks {
+            close.push((thread_id, EventKind::PermissionResolved { request_id, option_id: None, by: crate::api::Resolver::Cancelled, rule_id: None }));
+        }
+        for (thread, turn_id) in turns {
+            close.push((Some(thread), EventKind::TurnEnded { turn_id, stop_reason: "cancelled".to_owned() }));
+        }
+        for (thread_id, kind) in close {
+            let event = Event { v: EVENT_SCHEMA_VERSION, seq: self.next_seq, session_id: self.session_id.clone(), thread_id, ts_ms, kind };
+            self.write(event)?;
+        }
         Ok(())
     }
 }
@@ -533,17 +957,20 @@ impl SessionLog {
         let file_len = std::fs::metadata(path)?.len();
         let checkpoint = read_checkpoint(path, file_len);
         let mut next_seq = 0;
+        let mut last_present = None;
         let mut last_ts_ms = 0;
         let mut running = false;
         let mut offset = 0;
         if let Some(cp) = &checkpoint {
             next_seq = cp.next_seq;
+            last_present = cp.last_seq.or(cp.next_seq.checked_sub(1));
             last_ts_ms = cp.last_ts_ms;
             running = cp.agent_was_running;
             offset = cp.byte_len;
         }
         let scan = scan_lines(path, offset, |ev| {
             next_seq = ev.seq + 1;
+            last_present = Some(ev.seq);
             last_ts_ms = ev.ts_ms;
             if let EventKind::AgentProcessState { state, .. } = &ev.kind {
                 running = matches!(state, ProcessState::Starting | ProcessState::Ready);
@@ -561,14 +988,19 @@ impl SessionLog {
             OpenOptions::new().write(true).open(path)?.set_len(scan.valid_len)?;
         }
         let start_len = if read_only.is_some() { file_len } else { scan.valid_len };
+        let health = Arc::new(Health::default());
         Ok(Self {
-            session_id,
+            session_id: session_id.clone(),
             path: path.to_owned(),
+            health: health.clone(),
             inner: Arc::new(Mutex::new(Inner {
+                session_id: session_id.clone(),
                 path: path.to_owned(),
                 start_len,
                 writer: None,
+                health,
                 next_seq,
+                last_present,
                 running,
                 events: None,
                 proj: Projections::default(),
@@ -576,8 +1008,10 @@ impl SessionLog {
                 subscribers: Vec::new(),
                 pending: None,
                 closed: false,
+                repaired: read_only.is_some(),
+                opened_next_seq: next_seq,
             })),
-            checkpointed_len: Mutex::new(checkpoint.map(|c| c.byte_len)),
+            checkpointed_len: Mutex::new(checkpoint.map(|c| (c.byte_len, c.next_seq))),
             closed: AtomicBool::new(false),
             #[cfg(test)]
             before_checkpoint: Mutex::new(None),
@@ -587,9 +1021,10 @@ impl SessionLog {
         })
     }
 
-    fn writable(&self) -> anyhow::Result<()> {
+    /// An error (`Conflict`) with the reason when the log refuses appends.
+    pub fn writable(&self) -> anyhow::Result<()> {
         match &self.read_only {
-            Some(reason) => anyhow::bail!("{reason}"),
+            Some(reason) => Err(crate::error::conflict(reason.clone())),
             None => Ok(()),
         }
     }
@@ -602,11 +1037,13 @@ impl SessionLog {
     /// Logs that the Agent process of an earlier run of the Harness is gone: quitting logs nothing.
     /// It keeps the last Event's time, so it does not move the Session up in the list.
     pub fn note_agent_gone(&self) -> anyhow::Result<()> {
-        if !self.agent_was_running {
+        // A read-only log is not touched: it stays as the newer Harness left it.
+        if !self.agent_was_running || self.read_only.is_some() {
             return Ok(());
         }
-        self.writable()?;
         let mut inner = self.inner.lock();
+        // Loads first: an earlier run's dangling Turns are closed before anything new is appended.
+        inner.ensure_loaded()?;
         let event = Event {
             v: EVENT_SCHEMA_VERSION,
             seq: inner.next_seq,
@@ -618,9 +1055,44 @@ impl SessionLog {
         inner.write(event)
     }
 
+    /// Leaves an earlier run's dangling Turns and permission requests as they are (an archived Session is not written to).
+    pub fn skip_repair(&self) {
+        self.inner.lock().repaired = true;
+    }
+
+    /// Why Events are not reaching the file right now (None: they are). Set on the first failed
+    /// write; every later append tries again, and a good write clears it.
+    pub fn degraded(&self) -> Option<String> {
+        self.health.error()
+    }
+
+    /// Called, on a thread of its own and in order, when `degraded` turns on or off.
+    pub fn set_health_hook(&self, hook: impl Fn(&LogHealth) + Send + Sync + 'static) {
+        self.health.set_hook(Arc::new(hook));
+    }
+
+    /// `append` for sites with nobody to hand an error to (an Agent update, a status change): a
+    /// refused append marks the log degraded like a failed write does, so the user hears of it.
+    /// Writes that fail later, on the writer thread, are reported the same way.
+    pub fn append_or_report(&self, thread_id: Option<ThreadId>, kind: EventKind) -> Option<Event> {
+        match self.append(thread_id, kind) {
+            Ok(e) => Some(e),
+            Err(e) => {
+                // A log that was closed on purpose (Session deleted) is not a failure.
+                if !self.closed.load(Ordering::SeqCst) {
+                    self.health.fail(format!("{e:#}"), false);
+                }
+                None
+            }
+        }
+    }
+
     pub fn append(&self, thread_id: Option<ThreadId>, kind: EventKind) -> anyhow::Result<Event> {
         self.writable()?;
         let mut inner = self.inner.lock();
+        // Loads first, so an earlier run's dangling Turns are closed before this Event gets its
+        // `seq`, and every Event reaches memory and the projections.
+        inner.ensure_loaded()?;
         self.last_ts_ms.store(now_ms(), Ordering::Relaxed);
         if let Some(p) = inner.pending.as_mut()
             && merge_chunk(p, &thread_id, &kind)
@@ -650,21 +1122,47 @@ impl SessionLog {
         Ok(event)
     }
 
+    /// `sync` for sites that must not fail because the disk does (answering a permission, an
+    /// archive): a failure is reported like a failed write, and the caller carries on.
+    pub fn sync_or_report(&self) {
+        if let Err(e) = self.sync()
+            && !self.closed.load(Ordering::SeqCst)
+        {
+            self.health.fail(format!("{e:#}"), false);
+        }
+    }
+
+    /// Tests: `f` runs inside every `sync`, after the file is synced and before the checkpoint is written.
+    #[cfg(test)]
+    pub(crate) fn set_sync_hook(&self, f: impl Fn() + Send + 'static) {
+        *self.before_checkpoint.lock() = Some(Box::new(f));
+    }
+
+    /// Tests: every write and probe fails until switched off.
+    #[cfg(test)]
+    pub(crate) fn inject_write_failure(&self, on: bool) {
+        self.health.inject(on);
+    }
+
     /// Flushes to disk and writes the checkpoint; called at Turn end and on permission events.
     pub fn sync(&self) -> anyhow::Result<()> {
         let (writer_tx_reply, cp) = {
             let mut inner = self.inner.lock();
             inner.flush()?;
-            let cp =
-                Checkpoint { next_seq: inner.next_seq, last_ts_ms: self.last_ts_ms.load(Ordering::Relaxed), agent_was_running: inner.running, byte_len: 0 };
+            let cp = Checkpoint {
+                next_seq: inner.next_seq,
+                last_ts_ms: self.last_ts_ms.load(Ordering::Relaxed),
+                agent_was_running: inner.running,
+                byte_len: 0,
+                last_seq: None,
+            };
             // Queued under the lock: the answer covers exactly the Events counted in `cp`.
             let (reply, rx) = mpsc::channel();
             let w = inner.writer()?;
-            w.check()?;
             w.tx.send(Job::Sync { fsync: true, reply }).map_err(|_| anyhow::anyhow!("the Session Log writer stopped"))?;
             (rx, cp)
         };
-        let byte_len = writer_tx_reply
+        let Written { len: byte_len, last_seq } = writer_tx_reply
             .recv()
             .map_err(|_| anyhow::anyhow!("the Session Log writer stopped"))?
             .map_err(|e| anyhow::anyhow!("writing the Session Log failed: {e}"))?;
@@ -678,9 +1176,10 @@ impl SessionLog {
         if let Some(hook) = self.before_checkpoint.lock().as_ref() {
             hook();
         }
-        if written.is_none_or(|w| w < byte_len) {
-            crate::fsutil::write_atomic(&checkpoint_path(&self.path), &serde_json::to_vec(&Checkpoint { byte_len, ..cp })?)?;
-            *written = Some(byte_len);
+        // Newer than what is stored: more bytes, or a higher `next_seq` (a dropped tail adds no bytes).
+        if written.is_none_or(|(len, next)| len < byte_len || next < cp.next_seq) {
+            crate::fsutil::write_atomic(&checkpoint_path(&self.path), &serde_json::to_vec(&Checkpoint { byte_len, last_seq, ..cp })?)?;
+            *written = Some((byte_len, cp.next_seq));
         }
         Ok(())
     }
@@ -722,12 +1221,13 @@ impl SessionLog {
         inner.subscribers.retain(|s| s.id != id);
     }
 
-    /// `seq` of the newest Event, 0 for an empty log. Flushes a held chunk, so subscribers have
+    /// `seq` of the newest Event the log has, 0 for an empty log: after a restart the newest in the
+    /// file, never a `seq` that was dropped on the way. Flushes a held chunk, so subscribers have
     /// been handed this `seq` when the call returns.
     pub fn last_seq(&self) -> anyhow::Result<u64> {
         let mut inner = self.inner.lock();
         inner.flush()?;
-        Ok(inner.next_seq.saturating_sub(1))
+        Ok(inner.last_present.unwrap_or(0))
     }
 
     /// Time of the last appended Event, None for an empty log.
@@ -740,12 +1240,73 @@ impl SessionLog {
         self.inner.lock().subscribers.iter().filter(|s| !s.state.dead.load(Ordering::Relaxed)).count()
     }
 
-    /// All Events, from memory (loaded from the file the first time). Prefer a projection on hot paths.
-    pub fn events(&self) -> anyhow::Result<Vec<Event>> {
+    /// All Events, from memory (loaded from the file the first time): shared handles, not copies.
+    /// For cold paths (export, replay, a transcript). Hot paths read a projection.
+    pub fn events(&self) -> anyhow::Result<Vec<Arc<Event>>> {
+        self.project(|inner| inner.events.clone().unwrap_or_default())
+    }
+
+    /// Runs `read` on the loaded log under its lock (a held chunk is flushed first).
+    fn project<T>(&self, read: impl FnOnce(&Inner) -> T) -> anyhow::Result<T> {
         let mut inner = self.inner.lock();
         inner.flush()?;
         inner.ensure_loaded()?;
-        Ok(inner.events.as_deref().unwrap_or_default().iter().map(|e| (**e).clone()).collect())
+        Ok(read(&inner))
+    }
+
+    /// Attached Shared Artifact ids, in order of attaching. Projection, no scan.
+    pub fn attached_shared(&self) -> anyhow::Result<Vec<String>> {
+        self.project(|i| i.proj.attached.clone())
+    }
+
+    /// Live Frontend Tool items (calls that named an `id`, not removed since), first seen first. Projection, no scan.
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<Arc<FrontendItem>>> {
+        self.project(|i| i.proj.frontend.items.values().cloned().collect())
+    }
+
+    /// One live Frontend Tool item by tool and id. Projection, one lookup.
+    pub fn frontend_item(&self, tool: &str, id: &str) -> anyhow::Result<Option<Arc<FrontendItem>>> {
+        self.project(|i| {
+            let f = &i.proj.frontend;
+            f.pos.get(&(tool.to_owned(), id.to_owned())).and_then(|k| f.items.get(k)).map(Arc::clone)
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn frontend_errors_len(&self) -> usize {
+        self.project(|i| i.proj.frontend.errors.len()).unwrap()
+    }
+
+    /// The Thread of a live item's latest call (an `id`, or the call id of a call without one) and
+    /// the messages of its uncleared errors; `None` when the item is gone. Projection, no scan of the log.
+    pub fn frontend_item_errors(&self, tool: &str, item: &str) -> anyhow::Result<Option<(ThreadId, Vec<String>)>> {
+        self.project(|i| {
+            let f = &i.proj.frontend;
+            let thread = f.keyed.get(&(tool.to_owned(), item.to_owned()))?;
+            Some((thread.clone(), f.errors.iter().filter(|x| x.tool == tool && x.item == item).map(|x| x.message.clone()).collect()))
+        })
+    }
+
+    /// Live Frontend Tool items by `(tool, item id)` with the Thread of their latest call, and the
+    /// errors not cleared since, oldest first. Projection, no scan.
+    #[allow(clippy::type_complexity)]
+    pub fn frontend_state(&self) -> anyhow::Result<(HashMap<(String, String), ThreadId>, Vec<FrontendErrorEntry>)> {
+        self.project(|i| (i.proj.frontend.keyed.clone(), i.proj.frontend.errors()))
+    }
+
+    /// Whether the Thread's newest `TurnStarted` / `TurnEnded` is a start. Projection, no scan.
+    pub fn thread_turn_open(&self, thread: &ThreadId) -> anyhow::Result<bool> {
+        self.project(|i| i.proj.open_turn.get(thread).copied().unwrap_or(false))
+    }
+
+    /// `seq` of the Thread's newest `TurnStarted`. Projection, no scan.
+    pub fn thread_turn_started(&self, thread: &ThreadId) -> anyhow::Result<Option<u64>> {
+        self.project(|i| i.proj.turn_started.get(thread).copied())
+    }
+
+    /// The Thread's newest config options (`ConfigOptionsChanged` with an options array). Projection, no scan.
+    pub fn thread_config_options(&self, thread: &ThreadId) -> anyhow::Result<Option<Vec<Value>>> {
+        self.project(|i| i.proj.config.get(thread).cloned())
     }
 
     /// The Thread's current Agent mode: the newest `ModeChanged`, or the mode option of the
@@ -755,6 +1316,14 @@ impl SessionLog {
         inner.flush()?;
         inner.ensure_loaded()?;
         Ok(inner.proj.modes.get(thread).cloned())
+    }
+
+    /// The newest mode of the Thread that is not the plan mode. Projection, no scan.
+    pub fn thread_mode_before_plan(&self, thread: &ThreadId) -> anyhow::Result<Option<String>> {
+        let mut inner = self.inner.lock();
+        inner.flush()?;
+        inner.ensure_loaded()?;
+        Ok(inner.proj.before_plan.get(thread).cloned())
     }
 
     /// The Agent's newest non-blank title (`SessionInfoUpdated`) for the Session's main Thread
@@ -778,6 +1347,7 @@ impl SessionLog {
     /// be removed without a late Event (an Agent's exit) writing into the directory again.
     pub fn close(&self) {
         self.closed.store(true, Ordering::SeqCst);
+        self.health.close();
         // A `sync` past the log lock may be writing the checkpoint: wait for it to finish.
         drop(self.checkpointed_len.lock());
         let mut inner = self.inner.lock();
@@ -794,6 +1364,14 @@ impl SessionLog {
                 let _ = h.join();
             }
         }
+    }
+}
+
+impl SessionLog {
+    /// Whether anything was appended this run (a writer exists) or a chunk is still held.
+    pub fn is_dirty(&self) -> bool {
+        let inner = self.inner.lock();
+        inner.writer.is_some() || inner.pending.is_some()
     }
 }
 
@@ -1093,9 +1671,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
         let log = open_in(dir.path());
-        log.append(Some("t".into()), EventKind::ModeChanged { mode_id: "plan".into() }).unwrap();
+        log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
         log.append(Some("t".into()), EventKind::config_options(serde_json::json!([{"id":"mode","currentValue":"auto"}]))).unwrap();
-        log.append(Some("u".into()), EventKind::ModeChanged { mode_id: "x".into() }).unwrap();
+        log.append(Some("u".into()), EventKind::mode_changed("x".into(), None)).unwrap();
         log.append(Some("t".into()), EventKind::config_options(serde_json::json!([{"id":"model","currentValue":"m"}]))).unwrap();
         log.append(None, EventKind::SessionInfoUpdated { title: Some("  ".into()) }).unwrap();
         log.append(Some("t".into()), EventKind::SessionInfoUpdated { title: Some("Hello".into()) }).unwrap();
@@ -1105,9 +1683,42 @@ mod tests {
         assert_eq!(log.thread_mode(&"u".into()).unwrap().as_deref(), Some("x"));
         assert_eq!(log.thread_mode(&"v".into()).unwrap(), None);
         assert_eq!(log.agent_title(&"t".into()).unwrap().as_deref(), Some("Hello"));
-        log.append(Some("t".into()), EventKind::ModeChanged { mode_id: "plan".into() }).unwrap();
+        log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
         assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
         assert_eq!(log.events().unwrap().len(), 7);
+    }
+
+    #[test]
+    fn before_plan_projection_keeps_the_newest_non_plan_mode_per_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = |v: &str| EventKind::config_options(serde_json::json!([{"id":"mode","category":"mode","currentValue":v}]));
+        let log = open_in(dir.path());
+        let before = |l: &SessionLog, t: &str| l.thread_mode_before_plan(&t.into()).unwrap();
+        // A Thread that started in plan has nothing to go back to.
+        log.append(Some("t".into()), cfg("plan")).unwrap();
+        assert_eq!(before(&log, "t"), None);
+        log.append(Some("t".into()), EventKind::mode_changed("auto".into(), None)).unwrap();
+        log.append(Some("t".into()), cfg("plan")).unwrap();
+        // plan -> plan keeps the earlier mode.
+        log.append(Some("t".into()), EventKind::mode_changed("plan".into(), None)).unwrap();
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        // An empty id is no mode.
+        log.append(Some("t".into()), EventKind::mode_changed(String::new(), None)).unwrap();
+        log.append(Some("t".into()), cfg("")).unwrap();
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
+        // Threads are isolated.
+        log.append(Some("u".into()), cfg("default")).unwrap();
+        assert_eq!(before(&log, "u").as_deref(), Some("default"));
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        assert_eq!(before(&log, "v"), None);
+        // The same after reopening the log from disk.
+        log.sync().unwrap();
+        drop(log);
+        let log = open_in(dir.path());
+        assert_eq!(before(&log, "t").as_deref(), Some("auto"));
+        assert_eq!(before(&log, "u").as_deref(), Some("default"));
+        assert_eq!(log.thread_mode(&"t".into()).unwrap().as_deref(), Some("plan"));
     }
 
     #[test]
@@ -1318,5 +1929,249 @@ mod tests {
         let bytes = std::fs::read(&path).unwrap();
         assert!(!bytes.contains(&0), "no zero-byte gap");
         assert_eq!(bytes.iter().filter(|&&b| b == b'\n').count(), 3);
+    }
+
+    fn health_hook(log: &SessionLog) -> Arc<StdMutex<Vec<LogHealth>>> {
+        let seen = Arc::new(StdMutex::new(Vec::new()));
+        let s = seen.clone();
+        log.set_health_hook(move |c| s.lock().push(c.clone()));
+        seen
+    }
+
+    #[cfg(unix)]
+    fn chmod(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// A write that fails marks the log degraded once, later appends try again, and a good write
+    /// clears it. The file stays well formed and Views kept getting the Events live.
+    #[cfg(unix)]
+    #[test]
+    fn an_unwritable_file_degrades_the_log_and_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_file(dir.path(), &[&line(0, ERR_KIND), &line(1, ERR_KIND)]);
+        let log = open_in(dir.path());
+        let hooks = health_hook(&log);
+        let (sink, live) = collector();
+        log.subscribe(0, sink).unwrap();
+        assert_eq!(log.events().unwrap().len(), 2);
+        assert_eq!(log.degraded(), None);
+
+        // Nothing written yet, so the writer has not opened the file: it cannot now.
+        chmod(&path, 0o000);
+        for i in 0..3 {
+            log.append(None, err(&format!("lost {i}"))).unwrap();
+        }
+        eventually("degraded", || log.degraded().is_some());
+        assert!(log.sync().is_err(), "a sync says the file is not written");
+        log.append(None, err("lost 3")).unwrap();
+        log.append(None, err("lost 4")).unwrap();
+        eventually("all lost", || log.sync().is_err() && log.events().unwrap().len() == 7);
+        // Live Views and memory still have everything; no lock is held across the failure.
+        eventually("live", || live.lock().len() == 7);
+        assert_eq!(log.last_seq().unwrap(), 6);
+        eventually("hook", || !hooks.lock().is_empty());
+        assert!(matches!(&hooks.lock()[..], [LogHealth::Degraded(_)]), "reported once: {:?}", hooks.lock());
+
+        chmod(&path, 0o644);
+        let kept = log.append(None, err("kept")).unwrap();
+        assert_eq!(kept.seq, 7);
+        log.sync().unwrap();
+        assert_eq!(log.degraded(), None);
+        eventually("recovered", || hooks.lock().len() == 2);
+        assert_eq!(hooks.lock()[1], LogHealth::Recovered { dropped: 5 });
+        // Later writes just work, and report nothing more.
+        log.append(None, err("after")).unwrap();
+        log.sync().unwrap();
+        drop(log);
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let seqs: Vec<u64> = text.lines().map(|l| serde_json::from_str::<Event>(l).unwrap().seq).collect();
+        assert_eq!(seqs, vec![0, 1, 7, 8], "whole lines, ascending; the lost Events leave a gap");
+        let again = open_in(dir.path());
+        assert_eq!(again.events().unwrap().len(), 4);
+        assert_eq!(again.last_seq().unwrap(), 8);
+        assert_eq!(again.degraded(), None);
+    }
+
+    #[test]
+    fn a_partial_tail_gets_a_newline_and_nothing_is_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_file(dir.path(), &[&line(0, ERR_KIND)]);
+        let mut st = FileState::new(std::fs::metadata(&path).unwrap().len());
+        st.append(&path, line(1, ERR_KIND).as_bytes()).unwrap();
+        // A write that died half way left a partial line (here ending in a multi-byte character).
+        let partial = "{\"v\":1,\"seq\":2,\"message\":\"h\u{e9}\u{1f600}".as_bytes();
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(&partial[..partial.len() - 2]).unwrap();
+        st.broke();
+        st.append(&path, line(3, ERR_KIND).as_bytes()).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 4);
+        assert!(lines[2].starts_with(b"{\"v\":1,\"seq\":2"), "the partial line is kept as it was");
+        assert!(bytes.ends_with(line(3, ERR_KIND).as_bytes()));
+        // `open` keeps it as a bad line and reads the Events around it.
+        let log = open_in(dir.path());
+        assert_eq!(log.events().unwrap().iter().map(|e| e.seq).collect::<Vec<_>>(), vec![0, 1, 3]);
+    }
+
+    #[test]
+    fn a_longer_foreign_file_is_not_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_file(dir.path(), &[&line(0, ERR_KIND)]);
+        let mut st = FileState::new(std::fs::metadata(&path).unwrap().len());
+        st.append(&path, line(1, ERR_KIND).as_bytes()).unwrap();
+        let foreign = format!("{}{}", line(2, ERR_KIND), line(3, ERR_KIND));
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(foreign.as_bytes()).unwrap();
+        st.broke();
+        st.append(&path, line(4, ERR_KIND).as_bytes()).unwrap();
+        let expected = [line(0, ERR_KIND), line(1, ERR_KIND), foreign, line(4, ERR_KIND)].concat();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    }
+
+    #[test]
+    fn a_file_that_went_missing_is_started_again_without_zero_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_file(dir.path(), &[&line(0, ERR_KIND)]);
+        let mut st = FileState::new(std::fs::metadata(&path).unwrap().len());
+        st.append(&path, line(1, ERR_KIND).as_bytes()).unwrap();
+        std::fs::write(checkpoint_path(&path), b"{}").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        st.broke();
+        st.append(&path, line(2, ERR_KIND).as_bytes()).unwrap();
+        assert!(!checkpoint_path(&path).exists(), "the checkpoint described the old file");
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes.contains(&0));
+        assert_eq!(bytes, line(2, ERR_KIND).into_bytes());
+    }
+
+    #[test]
+    fn a_refused_append_is_reported_and_a_closed_log_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let future = "{\"v\":999,\"seq\":0,\"session_id\":\"s\",\"thread_id\":null,\"ts_ms\":5,\"kind\":{\"type\":\"Error\",\"message\":\"x\"}}\n";
+        write_file(dir.path(), &[future]);
+        let log = open_in(dir.path());
+        let hooks = health_hook(&log);
+        assert!(log.append_or_report(None, err("a")).is_none());
+        assert!(log.degraded().unwrap().contains("newer version"));
+        log.append_or_report(None, err("b"));
+        eventually("hook", || !hooks.lock().is_empty());
+        assert_eq!(hooks.lock().len(), 1, "reported once");
+
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        assert!(log.append_or_report(None, err("a")).is_some());
+        log.close();
+        assert!(log.append_or_report(None, err("b")).is_none());
+        assert_eq!(log.degraded(), None, "closing on purpose is not a failure");
+    }
+
+    /// Restart after the tail was dropped: `last_seq` is what the file has, and the dropped `seq`s
+    /// are not handed out again (the checkpoint carries `next_seq`).
+    #[test]
+    fn a_restart_after_a_dropped_tail_does_not_name_or_reuse_missing_seqs() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        log.append(None, err("kept")).unwrap();
+        log.sync().unwrap();
+        log.inject_write_failure(true);
+        for i in 0..3 {
+            log.append(None, err(&format!("lost {i}"))).unwrap();
+        }
+        eventually("degraded", || log.degraded().is_some());
+        // The sync is queued behind the three writes and fails while the injection is on: once it
+        // answers, all three were processed (degraded alone only says the first one failed).
+        assert!(log.sync().is_err());
+        log.inject_write_failure(false);
+        // The disk is back; a sync probes it and writes the checkpoint with the counted `next_seq`.
+        log.sync().unwrap();
+        assert_eq!(log.degraded(), None);
+        drop(log);
+        let again = open_in(dir.path());
+        assert_eq!(again.last_seq().unwrap(), 0, "the newest Event in the file");
+        assert_eq!(again.append(None, err("next")).unwrap().seq, 4, "no seq of a dropped Event is used again");
+        assert_eq!(again.last_seq().unwrap(), 4);
+    }
+
+    /// Whatever order a caller-thread failure and a writer-thread success arrive in, what was
+    /// reported ends up the same as the flag.
+    #[test]
+    fn what_was_reported_matches_the_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Arc::new(open_in(dir.path()));
+        let hooks = health_hook(&log);
+        let failer = {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for _ in 0..300 {
+                    log.health.fail("refused".into(), false);
+                }
+            })
+        };
+        for i in 0..300 {
+            log.append(None, err(&i.to_string())).unwrap();
+        }
+        failer.join().unwrap();
+        log.sync().unwrap();
+        eventually("settled", || {
+            let h = hooks.lock();
+            let reported_degraded = h.last().map(|c| matches!(c, LogHealth::Degraded(_)));
+            reported_degraded.unwrap_or(false) == log.degraded().is_some()
+        });
+        let h = hooks.lock();
+        assert!(
+            h.windows(2).all(|w| matches!(
+                (&w[0], &w[1]),
+                (LogHealth::Degraded(_), LogHealth::Recovered { .. }) | (LogHealth::Recovered { .. }, LogHealth::Degraded(_))
+            )),
+            "{h:?}"
+        );
+    }
+
+    #[test]
+    fn a_closed_log_reports_nothing_and_a_late_hook_hears_the_current_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        log.inject_write_failure(true);
+        log.append(None, err("a")).unwrap();
+        eventually("degraded", || log.degraded().is_some());
+        let hooks = health_hook(&log);
+        eventually("told on set", || hooks.lock().len() == 1);
+        assert!(matches!(&hooks.lock()[0], LogHealth::Degraded(_)));
+        log.close();
+        log.inject_write_failure(false);
+        assert_eq!(hooks.lock().len(), 1);
+    }
+
+    #[test]
+    fn nothing_is_reported_after_close_returns() {
+        let dir = tempfile::tempdir().unwrap();
+        for _ in 0..20 {
+            let log = open_in(dir.path());
+            let hooks = health_hook(&log);
+            log.inject_write_failure(true);
+            log.append(None, err("a")).unwrap();
+            log.close();
+            let at_close = hooks.lock().len();
+            std::thread::sleep(Duration::from_millis(20));
+            assert_eq!(hooks.lock().len(), at_close, "the hook thread emitted after close");
+        }
+    }
+
+    #[test]
+    fn only_events_with_a_seq_count_as_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        let hooks = health_hook(&log);
+        log.inject_write_failure(true);
+        log.append(None, err("a")).unwrap();
+        eventually("degraded", || log.degraded().is_some());
+        log.health.fail("refused".into(), false);
+        log.health.fail("refused".into(), false);
+        log.inject_write_failure(false);
+        log.append(None, err("b")).unwrap();
+        eventually("recovered", || hooks.lock().len() == 2);
+        assert_eq!(hooks.lock()[1], LogHealth::Recovered { dropped: 1 });
     }
 }

@@ -1,7 +1,7 @@
 //! Agent process lifecycle: the per-Session slot, spawn, watchdog, exit and shutdown.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -52,7 +52,16 @@ pub(super) struct SlotState {
     /// Latest known state of each tool call (merged updates), since permission requests may
     /// carry only an id and a title.
     pub(super) tool_calls: HashMap<String, Value>,
+    /// The Agent's legacy session modes (id -> name) from its last `session/new` or `load`, to
+    /// name the `ModeChanged` events that carry only an id.
+    pub(super) mode_names: HashMap<String, String>,
+    /// What each tool call's Events already carried of its facts (see `tool_facts::fill_detail`).
+    pub(super) tool_sent: HashMap<String, crate::tool_facts::Sent>,
     pub(super) last_active: Option<Instant>,
+    /// Turns started and not yet ended in the log (a Turn stops counting in `turns` just before).
+    pub(super) unlogged: usize,
+    /// The newest Agent's connection task, from the moment it starts: dropping it kills the process group.
+    pub(super) task: Option<tokio::task::AbortHandle>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,
 }
@@ -105,14 +114,41 @@ pub(super) struct AgentConn {
     pub(super) init: acp::InitializeResponse,
     /// Agent Session per Thread.
     pub(super) acp_sessions: Mutex<HashMap<ThreadId, acp::SessionId>>,
-    /// Drop notifications while `session/load` replays history (the Session Log already has it).
-    pub(super) replaying: Arc<AtomicBool>,
+    /// The Agent Sessions whose `session/load` is replaying history right now.
+    pub(super) replaying: Arc<Replaying>,
     /// Drop notifications for Agent Sessions not yet mapped to a Thread while `session/fork` runs
     /// (a fork may replay the source's history under its new id).
     pub(super) forking: Arc<AtomicBool>,
     /// Why the Harness stopped the process, when it did so on purpose.
     pub(super) stop_reason: Arc<Mutex<Option<String>>>,
     pub(super) shutdown: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+/// Agent Sessions whose `session/load` is replaying history. Their notifications are dropped: the
+/// Session Log already has that history. Every other Agent Session of the connection keeps
+/// streaming (another Thread may be mid-Turn).
+#[derive(Default)]
+pub(super) struct Replaying(Mutex<HashSet<String>>);
+
+impl Replaying {
+    /// Drops `id`'s notifications until the guard is dropped.
+    pub(super) fn start(self: &Arc<Self>, id: &acp::SessionId) -> ReplayGuard {
+        let id = id.to_string();
+        self.0.lock().insert(id.clone());
+        ReplayGuard(self.clone(), id)
+    }
+
+    pub(super) fn has(&self, id: &acp::SessionId) -> bool {
+        self.0.lock().contains(&id.to_string())
+    }
+}
+
+pub(super) struct ReplayGuard(Arc<Replaying>, String);
+
+impl Drop for ReplayGuard {
+    fn drop(&mut self) {
+        self.0.0.lock().remove(&self.1);
+    }
 }
 
 impl AgentSlot {
@@ -167,8 +203,27 @@ impl AgentSlot {
         }
     }
 
+    /// Drops a pending request that will not be asked after all.
+    pub(super) fn remove_pending(&self, session: &Session, request_id: &str) {
+        self.update(session, |s| {
+            s.pending.remove(request_id);
+        });
+    }
+
     pub(super) fn cancelling(&self, thread: &ThreadId) -> bool {
         self.state.lock().cancelling.contains(thread)
+    }
+
+    /// Marks `thread` as cancelling when a Turn of it is in flight, and says whether it did. One
+    /// lock for the look and the mark: a Turn that ends in between must not leave the mark behind
+    /// (it would cancel the next Turn's permission requests).
+    fn mark_cancelling(&self, thread: &ThreadId) -> bool {
+        let mut s = self.state.lock();
+        let in_turn = s.turns.get(thread).is_some_and(|n| *n > 0);
+        if in_turn {
+            s.cancelling.insert(thread.clone());
+        }
+        in_turn
     }
 
     pub(super) fn conn(&self) -> Option<Arc<AgentConn>> {
@@ -181,9 +236,7 @@ impl AgentSlot {
         if let Some(id) = id {
             conn.cx.send_notification(acp::CancelNotification::new(id))?;
         }
-        let in_turn = self.state.lock().turns.get(thread).is_some_and(|n| *n > 0);
-        if in_turn {
-            self.state.lock().cancelling.insert(thread.clone());
+        if self.mark_cancelling(thread) {
             // ACP wants the Agent to answer the prompt with `cancelled`. One that never does would
             // leave the Turn running forever, so after a grace period its process is stopped (the
             // next prompt restarts it and resumes the Agent Session).
@@ -210,21 +263,31 @@ impl AgentSlot {
                 }
             }
         });
-        for (request_id, p) in cancelled {
-            let _ = session.log().append(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
-            let _ = p.responder.send(None);
+        let answers: Vec<_> = cancelled
+            .into_iter()
+            .map(|(request_id, p)| {
+                session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+                p.responder
+            })
+            .collect();
+        // The Agent hears "cancelled" only once the resolutions are durable.
+        session.sync_log().await;
+        for responder in answers {
+            let _ = responder.send(None);
         }
         Ok(())
     }
 
-    pub fn resolve_permission(&self, session: &Session, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
+    pub async fn resolve_permission(&self, session: &Arc<Session>, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
         // First answer wins: later answers find nothing pending.
         let mut pending = None;
         self.update(session, |s| pending = s.pending.remove(request_id));
         let Some(pending) = pending else {
             return Err(crate::error::not_found(format!("permission request {request_id} is not pending")));
         };
-        session.log().append(
+        // The answer reaches the Agent whatever the disk does: a log that cannot be written is
+        // reported (the Session shows it), never a reason to leave the Agent waiting.
+        session.log().append_or_report(
             pending.thread.clone(),
             EventKind::PermissionResolved {
                 request_id: request_id.to_owned(),
@@ -232,15 +295,17 @@ impl AgentSlot {
                 by: if option_id.is_some() { Resolver::View } else { Resolver::Cancelled },
                 rule_id: None,
             },
-        )?;
+        );
         let kind = pending.options.iter().find(|o| Some(&o.option_id) == option_id.as_ref()).map(|o| o.kind.as_str());
-        if let Some(rule) = remembered_rule(session, kind, &pending.facts, global) {
+        let rule_added = remembered_rule(session, kind, &pending.facts, global).map(|rule| {
             let rule = session.policy().add(rule)?;
-            session.log().append(None, EventKind::PermissionRuleAdded { rule })?;
-        }
-        session.log().sync()?;
+            session.log().append_or_report(None, EventKind::PermissionRuleAdded { rule });
+            anyhow::Ok(())
+        });
+        session.sync_log().await;
         // Answer last so the Agent's follow-up lands after the resolution in the log.
         pending.responder.send(option_id)?;
+        rule_added.transpose()?;
         Ok(())
     }
 
@@ -303,6 +368,44 @@ impl AgentSlot {
             conn.stop(reason);
         }
     }
+
+    /// Harness shutdown: stops the Agent process like `shutdown`, and waits until it is gone and
+    /// every Turn that was running has ended in the log. Those Turns end as `cancelled`, the same
+    /// way a Cancel the Agent never answered does. Gives up after `grace`, then drops the
+    /// connection task, which kills the process group. Reads only the slot, never the log.
+    pub(crate) async fn close(&self, reason: &str, grace: Duration) {
+        let deadline = tokio::time::Instant::now() + grace;
+        // A start in flight holds `start`; after it nothing new starts (`Shared::closing`).
+        if tokio::time::timeout_at(deadline, self.start.lock()).await.is_err() {
+            // Still waiting for the Agent's `initialize`: dropping its task kills the process.
+            self.abort_task();
+        }
+        let conn = {
+            let mut s = self.state.lock();
+            let working: Vec<ThreadId> = s.turns.iter().filter(|(_, n)| **n > 0).map(|(t, _)| t.clone()).collect();
+            s.cancelling.extend(working);
+            s.conn.clone()
+        };
+        if let Some(conn) = conn {
+            conn.stop(reason);
+        }
+        let ended = || {
+            let s = self.state.lock();
+            s.conn.is_none() && s.preparing == 0 && s.unlogged == 0 && s.turns.values().all(|n| *n == 0)
+        };
+        while !ended() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        if !ended() {
+            self.abort_task();
+        }
+    }
+
+    fn abort_task(&self) {
+        if let Some(task) = self.state.lock().task.take() {
+            task.abort();
+        }
+    }
 }
 
 impl AgentConn {
@@ -317,9 +420,14 @@ impl AgentConn {
 pub(super) async fn ensure_conn(session: &Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let slot = session.agent_slot();
     let _guard = slot.start.lock().await;
+    if session.shared().closing.load(Ordering::SeqCst) {
+        return Err(crate::error::unavailable("the Harness is shutting down"));
+    }
     if let Some(conn) = slot.conn() {
         return Ok(conn);
     }
+    // No Agent for a Session whose log cannot record what it does.
+    session.log().writable()?;
     let conn = spawn_agent(session.clone()).await?;
     slot.update(session, |s| s.conn = Some(conn.clone()));
     spawn_watchdog(Arc::downgrade(session), conn.generation);
@@ -370,7 +478,7 @@ pub(crate) fn launch_args(spec: &crate::api::AgentInfo, path: &str, overrides: &
 pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let meta = session.meta();
     let log = |kind| {
-        let _ = session.log().append(None, kind);
+        session.log().append_or_report(None, kind);
     };
     log(EventKind::AgentProcessState { state: ProcessState::Starting, message: None });
 
@@ -394,7 +502,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
     });
 
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
-    let replaying = Arc::new(AtomicBool::new(false));
+    let replaying = Arc::new(Replaying::default());
     let forking = Arc::new(AtomicBool::new(false));
     let stop_reason = Arc::new(Mutex::new(None::<String>));
     let (ready_tx, ready_rx) = oneshot::channel::<Result<(ConnectionTo<Agent>, acp::InitializeResponse), String>>();
@@ -407,14 +515,14 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
     let forking_n = forking.clone();
     let stop_reason_exit = stop_reason.clone();
     let stderr_exit = stderr.clone();
-    tokio::spawn(async move {
+    let connection = tokio::spawn(async move {
         let result = Client
             .builder()
             .name("harness")
             .on_receive_notification(
                 async move |n: acp::SessionNotification, _cx| {
                     let fork_replay = forking_n.load(Ordering::SeqCst) && thread_of(&s_notify, &n.session_id).is_none();
-                    if !replaying_n.load(Ordering::SeqCst) && !fork_replay {
+                    if !replaying_n.has(&n.session_id) && !fork_replay {
                         on_update(&s_notify, &n);
                     }
                     Ok(())
@@ -462,6 +570,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
         let error = result.err().map(|e| with_tail(e.to_string(), &stderr_exit));
         on_exit(&s_exit, generation, stopped, error);
     });
+    session.agent_slot().state.lock().task = Some(connection.abort_handle());
 
     let started = match ready_rx.await {
         Ok(Ok(r)) => Ok(r),
@@ -509,7 +618,7 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
         }
     });
     for (request_id, p) in orphaned {
-        let _ = session.log().append(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+        session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
     }
     if current {
         session.shared().mcp.revoke(session);
@@ -521,7 +630,34 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
         (None, None) => (ProcessState::Exited, None),
     };
     if current || on_purpose {
-        let _ = session.log().append(None, EventKind::AgentProcessState { state, message });
-        let _ = session.log().sync();
+        session.log().append_or_report(None, EventKind::AgentProcessState { state, message });
+        session.sync_log_detached();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cancel_marks_only_a_thread_with_a_turn_in_flight() {
+        let slot = AgentSlot::default();
+        let thread: ThreadId = "t".into();
+        assert!(!slot.mark_cancelling(&thread));
+        assert!(!slot.cancelling(&thread), "no Turn: nothing to leave behind for the next one");
+        slot.state.lock().turns.insert(thread.clone(), 1);
+        assert!(slot.mark_cancelling(&thread));
+        assert!(slot.cancelling(&thread));
+    }
+
+    #[test]
+    fn only_the_loading_agent_session_is_muted_and_only_while_it_loads() {
+        let replaying = Arc::new(Replaying::default());
+        let (loading, live) = (acp::SessionId::new("fake-1"), acp::SessionId::new("fake-2"));
+        let guard = replaying.start(&loading);
+        assert!(replaying.has(&loading));
+        assert!(!replaying.has(&live), "another Thread's Agent Session keeps streaming");
+        drop(guard);
+        assert!(!replaying.has(&loading));
     }
 }
