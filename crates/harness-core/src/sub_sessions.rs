@@ -370,6 +370,8 @@ pub(crate) fn watch(host: &Arc<Harness>) {
     }));
 }
 
+// Turns cancelled by `Harness::shutdown` also come here; the notices they make are lost with the process, and
+// prompting a parent is refused while closing, so nothing starts.
 fn on_event(host: &Arc<Harness>, e: &AppEvent) {
     let (session_id, ended) = match e {
         AppEvent::TurnFinished { session_id, thread_id, .. } => (session_id, Some(thread_id)),

@@ -36,8 +36,6 @@ pub struct AgentSlot {
     /// Serializes Agent Session setup (warm-up racing the first prompt must not open two).
     pub(super) setup: AsyncMutex<()>,
     pub(super) state: Mutex<SlotState>,
-    /// The Harness shuts down: no Agent starts any more.
-    closed: AtomicBool,
 }
 
 #[derive(Default)]
@@ -60,6 +58,10 @@ pub(super) struct SlotState {
     /// What each tool call's Events already carried of its facts (see `tool_facts::fill_detail`).
     pub(super) tool_sent: HashMap<String, crate::tool_facts::Sent>,
     pub(super) last_active: Option<Instant>,
+    /// Turns started and not yet ended in the log (a Turn stops counting in `turns` just before).
+    pub(super) unlogged: usize,
+    /// The newest Agent's connection task, from the moment it starts: dropping it kills the process group.
+    pub(super) task: Option<tokio::task::AbortHandle>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,
 }
@@ -348,38 +350,41 @@ impl AgentSlot {
         }
     }
 
-    /// Refuses Agent starts from now on (Harness shutdown); a start in flight still finishes.
-    pub(crate) fn refuse_starts(&self) {
-        self.closed.store(true, Ordering::SeqCst);
-    }
-
     /// Harness shutdown: stops the Agent process like `shutdown`, and waits until it is gone and
     /// every Turn that was running has ended in the log. Those Turns end as `cancelled`, the same
-    /// way a Cancel the Agent never answered does. Gives up after `grace`.
-    pub(crate) async fn close(&self, session: &Arc<Session>, reason: &str, grace: Duration) {
-        self.refuse_starts();
+    /// way a Cancel the Agent never answered does. Gives up after `grace`, then drops the
+    /// connection task, which kills the process group. Reads only the slot, never the log.
+    pub(crate) async fn close(&self, reason: &str, grace: Duration) {
         let deadline = tokio::time::Instant::now() + grace;
-        // A start in flight holds `start`; after it nothing new starts.
-        let _start = tokio::time::timeout_at(deadline, self.start.lock()).await;
-        let (conn, working) = {
+        // A start in flight holds `start`; after it nothing new starts (`Shared::closing`).
+        if tokio::time::timeout_at(deadline, self.start.lock()).await.is_err() {
+            // Still waiting for the Agent's `initialize`: dropping its task kills the process.
+            self.abort_task();
+        }
+        let conn = {
             let mut s = self.state.lock();
             let working: Vec<ThreadId> = s.turns.iter().filter(|(_, n)| **n > 0).map(|(t, _)| t.clone()).collect();
-            s.cancelling.extend(working.iter().cloned());
-            (s.conn.clone(), working)
+            s.cancelling.extend(working);
+            s.conn.clone()
         };
         if let Some(conn) = conn {
             conn.stop(reason);
         }
         let ended = || {
-            let gone = {
-                let s = self.state.lock();
-                s.conn.is_none() && s.turns.values().all(|n| *n == 0)
-            };
-            // The Turn stops counting just before `TurnEnded` is logged: the log has the last word.
-            gone && working.iter().all(|t| !session.thread_working(t).unwrap_or(false))
+            let s = self.state.lock();
+            s.conn.is_none() && s.preparing == 0 && s.unlogged == 0 && s.turns.values().all(|n| *n == 0)
         };
         while !ended() && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        if !ended() {
+            self.abort_task();
+        }
+    }
+
+    fn abort_task(&self) {
+        if let Some(task) = self.state.lock().task.take() {
+            task.abort();
         }
     }
 }
@@ -396,7 +401,7 @@ impl AgentConn {
 pub(super) async fn ensure_conn(session: &Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let slot = session.agent_slot();
     let _guard = slot.start.lock().await;
-    if slot.closed.load(Ordering::SeqCst) {
+    if session.shared().closing.load(Ordering::SeqCst) {
         return Err(crate::error::unavailable("the Harness is shutting down"));
     }
     if let Some(conn) = slot.conn() {
@@ -491,7 +496,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
     let forking_n = forking.clone();
     let stop_reason_exit = stop_reason.clone();
     let stderr_exit = stderr.clone();
-    tokio::spawn(async move {
+    let connection = tokio::spawn(async move {
         let result = Client
             .builder()
             .name("harness")
@@ -546,6 +551,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
         let error = result.err().map(|e| with_tail(e.to_string(), &stderr_exit));
         on_exit(&s_exit, generation, stopped, error);
     });
+    session.agent_slot().state.lock().task = Some(connection.abort_handle());
 
     let started = match ready_rx.await {
         Ok(Ok(r)) => Ok(r),

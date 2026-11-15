@@ -12,6 +12,10 @@ impl Harness {
     /// Creates a Session (Command `CreateSession`, or a Sub Session). The caller tells the windows
     /// (`SessionsChanged`).
     pub(crate) async fn create_session(&self, spec: NewSession) -> anyhow::Result<Arc<Session>> {
+        // The Harness MCP (a Sub Session) comes here without passing `execute`.
+        if self.shared.closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(crate::error::unavailable("the Harness is shutting down"));
+        }
         let NewSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, parent, initial_config } = spec;
         let agent = self.agent(&agent_id)?;
         if !self.shared.frontends.read().iter().any(|f| f.id == frontend_id) {

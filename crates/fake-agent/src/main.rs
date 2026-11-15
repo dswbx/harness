@@ -47,7 +47,9 @@
 //! `--fork-fail` the request is refused. `--exit` prints a line to stderr and exits at startup
 //! (Agent conformance check tests). `--legacy-modes` makes it an Agent with legacy session modes
 //! (`default`, `plan`) and no config options (`session/set_mode` answers; the mode starts `default`);
-//! `--ignore-sigterm` makes the process ignore SIGTERM. `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
+//! `--pid-file=<path>` writes its pid and the pid of a `sleep` grandchild (one per line) at startup;
+//! `--ignore-stdin-eof` keeps the process alive after the Harness hangs up; `--init-delay-ms=N` delays
+//! the answer to `initialize`. `--ignore-sigterm` makes the process ignore SIGTERM. `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
 //! `usage_update` (1200 of 200000).
 
 use agent_client_protocol::schema::v1::*;
@@ -261,6 +263,12 @@ async fn main() -> agent_client_protocol::Result<()> {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
         tokio::spawn(async move { while term.recv().await.is_some() {} });
     }
+    if let Some(path) = args.iter().find_map(|a| a.strip_prefix("--pid-file=")) {
+        let grandchild = std::process::Command::new("sleep").arg("3600").stdin(std::process::Stdio::null()).spawn().unwrap();
+        let _ = std::fs::write(path, format!("{}\n{}\n", std::process::id(), grandchild.id()));
+    }
+    let init_delay_ms: u64 = args.iter().find_map(|a| a.strip_prefix("--init-delay-ms=")).and_then(|n| n.parse().ok()).unwrap_or(0);
+    let ignore_eof = args.iter().any(|a| a == "--ignore-stdin-eof");
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");
     let no_http_mcp = args.iter().any(|a| a == "--no-http-mcp");
@@ -279,6 +287,9 @@ async fn main() -> agent_client_protocol::Result<()> {
         .name("fake-agent")
         .on_receive_request(
             async move |req: InitializeRequest, responder, _cx| {
+                if init_delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(init_delay_ms)).await;
+                }
                 let mut caps = AgentCapabilities::new()
                     .load_session(load)
                     .mcp_capabilities(McpCapabilities::new().http(!no_http_mcp))
@@ -591,5 +602,9 @@ async fn main() -> agent_client_protocol::Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         .connect_to(Stdio::new())
-        .await
+        .await?;
+    if ignore_eof {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+    }
+    Ok(())
 }
