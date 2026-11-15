@@ -199,6 +199,13 @@ impl AgentSlot {
         }
     }
 
+    /// Drops a pending request that will not be asked after all.
+    pub(super) fn remove_pending(&self, session: &Session, request_id: &str) {
+        self.update(session, |s| {
+            s.pending.remove(request_id);
+        });
+    }
+
     pub(super) fn cancelling(&self, thread: &ThreadId) -> bool {
         self.state.lock().cancelling.contains(thread)
     }
@@ -266,7 +273,9 @@ impl AgentSlot {
         let Some(pending) = pending else {
             return Err(crate::error::not_found(format!("permission request {request_id} is not pending")));
         };
-        session.log().append(
+        // The answer reaches the Agent whatever the disk does: a log that cannot be written is
+        // reported (the Session shows it), never a reason to leave the Agent waiting.
+        session.log().append_or_report(
             pending.thread.clone(),
             EventKind::PermissionResolved {
                 request_id: request_id.to_owned(),
@@ -274,15 +283,17 @@ impl AgentSlot {
                 by: if option_id.is_some() { Resolver::View } else { Resolver::Cancelled },
                 rule_id: None,
             },
-        )?;
+        );
         let kind = pending.options.iter().find(|o| Some(&o.option_id) == option_id.as_ref()).map(|o| o.kind.as_str());
-        if let Some(rule) = remembered_rule(session, kind, &pending.facts, global) {
+        let rule_added = remembered_rule(session, kind, &pending.facts, global).map(|rule| {
             let rule = session.policy().add(rule)?;
-            session.log().append(None, EventKind::PermissionRuleAdded { rule })?;
-        }
-        session.log().sync()?;
+            session.log().append_or_report(None, EventKind::PermissionRuleAdded { rule });
+            anyhow::Ok(())
+        });
+        session.log().sync_or_report();
         // Answer last so the Agent's follow-up lands after the resolution in the log.
         pending.responder.send(option_id)?;
+        rule_added.transpose()?;
         Ok(())
     }
 

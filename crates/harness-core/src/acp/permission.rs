@@ -163,11 +163,15 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
     let (tx, rx) = oneshot::channel();
     let pending = Pending { thread: Some(thread.clone()), responder: Answer::Local(tx), options, facts };
     let mut logged = Ok(());
-    session.agent_slot().add_pending(session, request_id, pending, || {
+    session.agent_slot().add_pending(session, request_id.clone(), pending, || {
         logged = session.log().append(Some(thread.clone()), requested).map(drop);
     });
-    logged?;
-    session.log().sync()?;
+    if let Err(e) = logged {
+        // Not asked, so nothing may stay pending for it.
+        session.agent_slot().remove_pending(session, &request_id);
+        return Err(e);
+    }
+    session.log().sync_or_report();
     match rx.await {
         Ok(Some(o)) if o != "reject" => Ok(()),
         Ok(Some(_)) => anyhow::bail!("the user denied this"),
