@@ -2044,6 +2044,9 @@ mod tests {
             log.append(None, err(&format!("lost {i}"))).unwrap();
         }
         eventually("degraded", || log.degraded().is_some());
+        // The sync is queued behind the three writes and fails while the injection is on: once it
+        // answers, all three were processed (degraded alone only says the first one failed).
+        assert!(log.sync().is_err());
         log.inject_write_failure(false);
         // The disk is back; a sync probes it and writes the checkpoint with the counted `next_seq`.
         log.sync().unwrap();
