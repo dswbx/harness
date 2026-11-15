@@ -31,9 +31,6 @@ const RAW_ALLOWED: Record<string, string> = {
       "the raw JSON viewers (a call's Input and Output folds) read rawInput/rawOutput as the Agent sent them",
 };
 
-/** frontend-chat layering edges (`file -> target`, relative to its src/) that break the layer rule today. New ones must not. */
-const LAYER_ALLOWED: Record<string, string> = {};
-
 /** App files that break the Frontend-package rule today, with the reason. New files must not. */
 const APP_ALLOWED: Record<string, string> = {
    "app/src/mock/events.ts":
@@ -77,13 +74,13 @@ for (const pkg of readdirSync("packages").filter((d) => d.startsWith("frontend-"
          }
       }
       if (pkg === "frontend-chat") {
-         const src = resolve(root, "src");
-         for (const spec of importSpecs(readFileSync(file, "utf8"))) {
+         const srcDir = resolve(root, "src");
+         for (const spec of importSpecs(src)) {
             if (!spec.startsWith(".")) continue;
-            const from = relative(src, file);
-            const to = relative(src, resolve(dirname(file), spec));
+            const from = relative(srcDir, file);
+            const to = relative(srcDir, resolve(dirname(file), spec));
             const why = layerViolation(from, to);
-            if (why && !(`${from} -> ${to}` in LAYER_ALLOWED)) {
+            if (why) {
                console.error(`${from} -> ${to}: ${why}`);
                bad++;
             }

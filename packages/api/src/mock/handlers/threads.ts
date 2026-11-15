@@ -1,7 +1,8 @@
+import { isModeOption } from "../../derive/mode";
 import { CommandError } from "../../errors";
 import type { Command, CommandResult, PermissionRule } from "../../generated";
 import type { MockTransport } from "../mock";
-import { ASKING_MODE, isModeOption } from "../sideMode";
+import { ASKING_MODE } from "../sideMode";
 import type { Handlers } from "./types";
 
 const setOption = (

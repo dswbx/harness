@@ -1,5 +1,5 @@
 /**
- * The Quick overlay's state (ADR 0022), a pure reducer. The host (`overlay.rs`) only follows it:
+ * The Quick overlay's state (ADR 0022), a pure reducer. The host (`overlay/`) only follows it:
  * each `mode` sets the window size, and `visible` going false hides the window.
  *
  * - `prompt`: a draft Session, only its prompt box.

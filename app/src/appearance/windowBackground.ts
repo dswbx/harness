@@ -24,7 +24,7 @@ let last: string | undefined;
  * once that is set (a webview only renders on screen) and turns opaque after the page has painted.
  */
 export function syncWindowBackground(show = false) {
-   // The Quick overlay stays transparent and is shown by its shortcut (`overlay.rs`).
+   // The Quick overlay stays transparent and is shown by its shortcut (`overlay/`).
    if (!inTauri() || document.documentElement.classList.contains("overlay")) return;
    const rgb = backgroundRgb();
    const key = String(rgb);

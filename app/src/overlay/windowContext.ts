@@ -3,7 +3,7 @@ import { BROWSER_BUNDLE_IDS, type WindowContext } from "../platform/generated";
 
 /**
  * The Quick overlay's window context (ADR 0022 Phase 3): what the user is looking at in another app
- * while the overlay is open. The host polls it (`context.rs`, `overlay.rs`); this formats the prompt
+ * while the overlay is open. The host polls it (`context.rs`, `overlay/poll.rs`); this formats the prompt
  * box's chip and the Markdown attachment sent with each message.
  */
 

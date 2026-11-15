@@ -2,11 +2,11 @@ import type { AttachmentInput, SessionApi } from "@harness/api";
 import { ScrollArea, ToggleGroup, ToggleGroupItem } from "@harness/ui";
 import { MessagesSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { groupConfigOptions } from "../../state/configGroups";
 import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
-import { MessageList, useRows } from "../conversation/Messages";
+import { MessageList, useRows } from "../conversation/MessageList";
 import { ScrollUnder } from "../conversation/ScrollUnder";
-import { groupConfigOptions } from "../prompt/configGroups";
 import { PromptBox, type PromptBoxHandle } from "../prompt/PromptBox";
 import type { UiEnv } from "../renderUi/RenderUi";
 
