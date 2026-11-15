@@ -84,12 +84,16 @@ impl Library {
     }
 
     pub fn save(&self, mut server: McpServerDef, secrets: BTreeMap<String, String>) -> anyhow::Result<McpServerDef> {
-        anyhow::ensure!(!server.name.trim().is_empty(), "the server needs a name");
+        if server.name.trim().is_empty() {
+            return Err(crate::error::invalid("the server needs a name"));
+        }
         let is_new = server.id.is_empty();
         if is_new {
             server.id = crate::workspace::slug(&server.name);
         }
-        anyhow::ensure!(server.id != "harness", "\"harness\" is reserved for the Harness MCP");
+        if server.id == "harness" {
+            return Err(crate::error::invalid("\"harness\" is reserved for the Harness MCP"));
+        }
         let mut all = self.servers.write();
         if is_new && all.iter().any(|s| s.id == server.id) {
             return Err(crate::error::conflict(format!("an MCP server named {:?} already exists", server.name.trim())));
@@ -100,7 +104,9 @@ impl Library {
             McpTransport::Http { headers, .. } => headers.retain(|k, _| !server.secret_keys.contains(k)),
         }
         for (k, v) in &secrets {
-            anyhow::ensure!(server.secret_keys.contains(k), "{k} is not one of the server's secret keys");
+            if !server.secret_keys.contains(k) {
+                return Err(crate::error::invalid(format!("{k} is not one of the server's secret keys")));
+            }
             self.secrets.set(&secret_key(&server.id, k), v)?;
         }
         if let Some(old) = all.iter().find(|s| s.id == server.id) {
@@ -117,7 +123,7 @@ impl Library {
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
         let mut all = self.servers.write();
         let Some(server) = all.iter().find(|s| s.id == id).cloned() else {
-            anyhow::bail!("unknown MCP server {id}");
+            return Err(crate::error::not_found(format!("unknown MCP server {id}")));
         };
         for k in &server.secret_keys {
             self.secrets.delete(&secret_key(id, k))?;
@@ -132,7 +138,7 @@ impl Library {
 
     /// The server with its secrets filled in, ready to hand to an Agent.
     pub fn resolve(&self, id: &str) -> anyhow::Result<McpServerDef> {
-        let mut server = self.list().into_iter().find(|s| s.id == id).ok_or_else(|| anyhow::anyhow!("unknown MCP server {id}"))?;
+        let mut server = self.list().into_iter().find(|s| s.id == id).ok_or_else(|| crate::error::not_found(format!("unknown MCP server {id}")))?;
         let mut filled = BTreeMap::new();
         for k in &server.secret_keys {
             let v = self.secrets.get(&secret_key(id, k))?.ok_or_else(|| anyhow::anyhow!("{}: secret {k} is not set", server.name))?;

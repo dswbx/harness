@@ -125,7 +125,7 @@ export const promptHandlers = {
    },
    ReadAttachment: (mock, cmd) => {
       const a = mock.attachments.get(cmd.path);
-      if (!a) throw new CommandError("internal", "not an attachment of this Session");
+      if (!a) throw new CommandError("not_found", "not an attachment of this Session");
       return { type: "Attachment", mime: a.mime, data: a.data };
    },
    Prompt: async (mock, cmd) => {

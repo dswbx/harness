@@ -60,7 +60,7 @@ impl Harness {
     pub(in crate::host) async fn cmd_open_shared_in_editor(&self, id: String) -> anyhow::Result<CommandResult> {
         let editor = crate::editor::load(&self.data_dir).ok_or_else(|| crate::error::invalid("choose an editor in Settings first"))?;
         let target = crate::editor::target(&editor, &self.shared.artifacts.content_path(&id)?, None);
-        tokio::task::spawn_blocking(move || crate::editor::open(&target)).await??;
+        crate::editor::open(&target).await?;
         Ok(CommandResult::Ok)
     }
 

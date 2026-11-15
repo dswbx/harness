@@ -32,6 +32,7 @@ pub struct Session {
     meta: Arc<parking_lot::Mutex<SessionMeta>>,
     log: SessionLog,
     agent: crate::acp::AgentSlot,
+    jobs: crate::acp::JobWatchers,
     shared: Arc<Shared>,
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: parking_lot::Mutex<()>,
@@ -127,6 +128,7 @@ impl Session {
             meta: Arc::new(parking_lot::Mutex::new(meta)),
             log,
             agent: Default::default(),
+            jobs: Default::default(),
             shared,
             state_lock: Default::default(),
             frontend_requests: Default::default(),
@@ -166,8 +168,8 @@ impl Session {
         std::fs::write(&path, script)?;
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
-        let status = tokio::process::Command::new("open").args(["-a", "Terminal"]).arg(&path).status().await?;
-        anyhow::ensure!(status.success(), "could not open Terminal");
+        let out = crate::proc::run("open", crate::proc::Opts::new(crate::proc::LOCAL).args(["-a", "Terminal"]).arg(&path)).await?;
+        anyhow::ensure!(out.success(), "could not open Terminal");
         Ok(())
     }
 
@@ -397,6 +399,39 @@ impl Session {
             _ => None,
         });
         Ok(open.unwrap_or(false))
+    }
+
+    pub(crate) fn job_watchers(&self) -> &crate::acp::JobWatchers {
+        &self.jobs
+    }
+
+    /// Stops what runs for the Session: its job watchers and its Agent process. The one path for
+    /// archive and delete (shutdown stops them in `shutdown_stop`, which also waits).
+    pub(crate) fn stop_processes(&self, reason: &str) {
+        self.jobs.stop_all();
+        self.agent.shutdown(reason);
+    }
+
+    /// Harness shutdown, part 1: no more watchers or Agent starts; stops the Agent, which ends its Turns in
+    /// the log as cancelled, and waits for that, at most `grace`.
+    pub(crate) async fn shutdown_stop(self: &Arc<Self>, grace: Duration) {
+        self.jobs.close();
+        self.agent.close("app_restart", grace).await;
+    }
+
+    /// Harness shutdown, part 2: writes what this run appended to disk, then refuses later appends.
+    /// Blocking. A read-only log (from a newer build) is left alone; `session.json` is written on
+    /// every change, so it is not written again.
+    pub(crate) fn shutdown_flush(&self) {
+        if self.log.read_only_reason().is_some() {
+            return;
+        }
+        if self.log.is_dirty()
+            && let Err(e) = self.log.sync()
+        {
+            tracing::warn!("flushing the Session Log of {} at shutdown: {e:#}", self.dir.display());
+        }
+        self.log.close();
     }
 
     pub(crate) fn agent_slot(&self) -> &crate::acp::AgentSlot {

@@ -67,7 +67,7 @@ impl FrontendRequests {
         emit(request_id);
         match tokio::time::timeout(timeout, rx).await {
             Ok(answer) => Ok(answer?),
-            Err(_) => anyhow::bail!("No app window answered in time. The window may be closed or the Mac asleep."),
+            Err(_) => Err(crate::error::timeout("No app window answered in time. The window may be closed or the Mac asleep.")),
         }
     }
 
@@ -133,10 +133,9 @@ impl Session {
     /// A path inside `frontend/`; refuses absolute paths and `..`.
     pub(crate) fn frontend_path(&self, rel: &str) -> anyhow::Result<PathBuf> {
         let p = Path::new(rel);
-        anyhow::ensure!(
-            p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)),
-            "{rel} is outside the Frontend's directory"
-        );
+        if !p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)) {
+            return Err(crate::error::policy_denied(format!("{rel} is outside the Frontend's directory")));
+        }
         Ok(self.dir.join("frontend").join(p))
     }
 
@@ -155,7 +154,9 @@ impl Session {
 
     /// Applies `ops` to the Session State (all or nothing), stores it and logs `StateChanged`.
     pub fn patch_state(&self, thread: Option<ThreadId>, ops: Vec<crate::api::StatePatchOp>, by: crate::api::StateWriter) -> anyhow::Result<serde_json::Value> {
-        anyhow::ensure!(!ops.is_empty(), "no operations");
+        if ops.is_empty() {
+            return Err(crate::error::invalid("no operations"));
+        }
         let _guard = self.state_lock.lock();
         let next = crate::state::apply(&self.state()?, &ops)?;
         crate::fsutil::write_atomic(&self.dir.join("state.json"), &serde_json::to_vec_pretty(&next)?)?;
@@ -230,7 +231,9 @@ impl Session {
     /// than `MAX_FRONTEND_ERRORS` per item; cuts long messages.
     pub fn report_frontend_error(&self, tool: &str, item: &str, message: &str) -> anyhow::Result<()> {
         let mut message = message.trim().to_owned();
-        anyhow::ensure!(!message.is_empty(), "message is required");
+        if message.is_empty() {
+            return Err(crate::error::invalid("message is required"));
+        }
         if message.len() > MAX_FRONTEND_ERROR_LEN {
             message.truncate(message.floor_char_boundary(MAX_FRONTEND_ERROR_LEN));
             message.push('…');
@@ -253,13 +256,17 @@ impl Session {
         use base64::Engine;
         let p = self.frontend_path(rel)?;
         let mime = crate::attachments::guess_mime(&p);
-        anyhow::ensure!(crate::attachments::is_image(mime), "{rel} is not an image");
+        if !crate::attachments::is_image(mime) {
+            return Err(crate::error::invalid(format!("{rel} is not an image")));
+        }
         Ok((mime.to_owned(), base64::engine::general_purpose::STANDARD.encode(std::fs::read(&p)?)))
     }
 
     pub fn frontend_write(&self, rel: &str, content: &str) -> anyhow::Result<()> {
         let path = self.frontend_path(rel)?;
-        anyhow::ensure!(!rel.trim().is_empty(), "path is required");
+        if rel.trim().is_empty() {
+            return Err(crate::error::invalid("path is required"));
+        }
         std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
         crate::fsutil::write_atomic(&path, content.as_bytes())?;
         Ok(())

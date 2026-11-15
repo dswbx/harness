@@ -62,13 +62,13 @@ pub fn check_name(name: &str) -> anyhow::Result<()> {
 /// The file a `source` name points to, checked to be inside `dir`.
 pub fn source_path(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
     check_name(name)?;
-    resolve_inside(dir, &dir.join(name)).ok_or_else(|| anyhow::anyhow!("source {name:?} is outside panels_dir"))
+    resolve_inside(dir, &dir.join(name)).ok_or_else(|| crate::error::policy_denied(format!("source {name:?} is outside panels_dir")))
 }
 
 /// A source file's text and a hash of it (sha256, hex).
 pub fn read(dir: &Path, name: &str) -> anyhow::Result<(String, String)> {
     let path = source_path(dir, name)?;
-    std::fs::metadata(&path).map_err(|_| anyhow::anyhow!("source {name:?} does not exist in panels_dir ({})", dir.display()))?;
+    std::fs::metadata(&path).map_err(|_| crate::error::not_found(format!("source {name:?} does not exist in panels_dir ({})", dir.display())))?;
     read_file(&path).map_err(|e| anyhow::anyhow!("source {name:?} {e:#}"))
 }
 

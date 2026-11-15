@@ -14,10 +14,10 @@ export const settingsHandlers = {
          .replace(/^-|-$/g, "");
       const id = cmd.server.id || slug;
       // Core: `McpLibrary::save`. A new server (no id) whose slug is taken is a `conflict`; the
-      // rest are plain (internal) errors.
-      if (!cmd.server.name.trim()) throw new CommandError("internal", "the server needs a name");
+      // rest are `invalid`.
+      if (!cmd.server.name.trim()) throw new CommandError("invalid", "the server needs a name");
       if (id === "harness")
-         throw new CommandError("internal", '"harness" is reserved for the Harness MCP');
+         throw new CommandError("invalid", '"harness" is reserved for the Harness MCP');
       if (!cmd.server.id && mock.mcp.some((x) => x.id === id))
          throw new CommandError(
             "conflict",

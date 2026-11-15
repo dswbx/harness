@@ -216,6 +216,14 @@ impl Terminals {
         }
     }
 
+    /// Kills every shell of every Session (Harness shutdown).
+    pub fn kill_everything(&self) {
+        let all: Vec<Session> = self.map.lock().drain().map(|(_, s)| s).collect();
+        for t in all.into_iter().flat_map(|s| s.slots).filter_map(|x| x.term) {
+            let _ = t.killer.lock().kill();
+        }
+    }
+
     fn get(&self, session_id: &str, terminal_id: u32) -> Option<Arc<Terminal>> {
         let map = self.map.lock();
         map.get(session_id)?.slots.iter().find(|x| x.id == terminal_id)?.term.clone()

@@ -108,7 +108,7 @@ pub fn store(resolved: &[Resolved]) -> anyhow::Result<()> {
 
 /// A stored attachment as `(mime, base64)`; refuses anything outside `attachments/`.
 pub fn read(session_dir: &Path, path: &str) -> anyhow::Result<(String, String)> {
-    let outside = || anyhow::anyhow!("{path} is not an attachment of this Session");
+    let outside = || crate::error::not_found(format!("{path} is not an attachment of this Session"));
     let root = std::fs::canonicalize(session_dir.join(DIR)).map_err(|_| outside())?;
     let p = std::fs::canonicalize(path).map_err(|_| outside())?;
     anyhow::ensure!(p.starts_with(&root) && p != root && p.is_file(), outside());

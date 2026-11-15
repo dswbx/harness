@@ -6,7 +6,7 @@ import type { Handlers } from "./types";
 export const prsHandlers = {
    ListPullRequests: (_mock, cmd) => {
       if (cmd.folder.includes("norepo") || cmd.folder.includes("nogh"))
-         throw new CommandError("internal", "gh: no GitHub remote");
+         throw new CommandError("invalid", "gh: no GitHub remote");
       const prs =
          cmd.filter === "mine"
             ? MOCK_PRS.filter((p) => p.author === "you")

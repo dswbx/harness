@@ -95,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+    h.shutdown().await;
     println!("SMOKE_DATA={} SMOKE_SESSION={session_id}", data.display());
     Ok(())
 }

@@ -32,19 +32,9 @@ pub fn save(data_dir: &Path, key: AppSettingKey, value: Option<&Json>) -> anyhow
     Ok(())
 }
 
-/// Largest theme document we read.
-const MAX_BYTES: &str = "524288";
-
-/// The JSON at an https `url` (system `curl`, like toolchain downloads; https only, 512 KB at most).
+/// The JSON at an https `url` (512 KB at most, 15 s).
 pub async fn fetch_json(url: &str) -> anyhow::Result<Json> {
-    anyhow::ensure!(url.starts_with("https://"), "only https URLs");
-    let out = tokio::process::Command::new("curl")
-        .args(["-fsSL", "--proto", "=https", "--max-time", "15", "--max-filesize", MAX_BYTES, "-H", "Accept: application/json"])
-        .arg(url)
-        .output()
-        .await?;
-    anyhow::ensure!(out.status.success(), "fetch {url}: {}", String::from_utf8_lossy(&out.stderr).trim());
-    serde_json::from_slice(&out.stdout).map_err(|e| anyhow::anyhow!("{url} is not JSON: {e}"))
+    crate::http::get_json(url, &crate::http::Opts::small()).await.map_err(|e| crate::error::reword(&e, format!("fetch {url}: {e}")))
 }
 
 #[cfg(test)]

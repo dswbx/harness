@@ -21,6 +21,7 @@ import { AttachDialog } from "../shared-artifacts/AttachDialog";
 import { SharedArtifactsSection } from "../shared-artifacts/SharedArtifactsSection";
 import { UpdateFooter } from "../updates/UpdateFooter";
 import { useUpdate } from "../updates/updates";
+import { needsEditor } from "./editorError";
 import { useSidebarOpen, useSidebarWidth } from "./useSidebar";
 import { DevBadge, WindowControls } from "./WindowControls";
 
@@ -243,8 +244,7 @@ export function Shell({ transport }: { transport: Transport }) {
                      onDeleted={() => setSelection(null)}
                      onOpenInEditor={() =>
                         client.openSharedInEditor(sharedId).catch((e) => {
-                           if (errText(e).includes("choose an editor"))
-                              setSettingsSection("editor");
+                           if (needsEditor(e)) setSettingsSection("editor");
                            else report("Could not open in editor", e);
                         })
                      }

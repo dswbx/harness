@@ -118,7 +118,9 @@ impl PrRefs {
 
     /// Up to 30 PRs of `repo` in any state, the user's own first; `query` matches titles. Fills the cache.
     pub async fn search(&self, repo: &RepoId, query: Option<&str>) -> anyhow::Result<Vec<PrInfo>> {
-        anyhow::ensure!(valid_repo(repo), "invalid repository {}/{}", repo.owner, repo.name);
+        if !valid_repo(repo) {
+            return Err(crate::error::invalid(format!("invalid repository {}/{}", repo.owner, repo.name)));
+        }
         let search = query.map(str::trim).filter(|q| !q.is_empty());
         let list = async {
             match search {
@@ -144,7 +146,9 @@ impl PrRefs {
 
     /// The PR whose head is `branch` in `repo`: an open one first, else the most recently updated. Fills the cache.
     pub async fn for_branch(&self, repo: &RepoId, branch: &str) -> anyhow::Result<Option<PrInfo>> {
-        anyhow::ensure!(valid_repo(repo), "invalid repository {}/{}", repo.owner, repo.name);
+        if !valid_repo(repo) {
+            return Err(crate::error::invalid(format!("invalid repository {}/{}", repo.owner, repo.name)));
+        }
         let q = format!(
             "query($owner: String!, $name: String!, $branch: String!) {{ repository(owner: $owner, name: $name) {{ \
              pullRequests(headRefName: $branch, first: 10) {{ nodes {{ ...pr }} }} }} }} {PR_FRAGMENT}"

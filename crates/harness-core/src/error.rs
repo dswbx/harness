@@ -48,6 +48,38 @@ pub fn invalid(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::Invalid, message)
 }
 
+pub fn unavailable(message: impl Into<String>) -> anyhow::Error {
+    coded(ErrorCode::Unavailable, message)
+}
+
+pub fn timeout(message: impl Into<String>) -> anyhow::Error {
+    coded(ErrorCode::Timeout, message)
+}
+
+/// `e` with a new message, keeping its code.
+pub fn reword(e: &anyhow::Error, message: impl Into<String>) -> anyhow::Error {
+    match e.chain().find_map(|c| c.downcast_ref::<Coded>()) {
+        Some(c) => coded(c.code, message),
+        None => anyhow::anyhow!(message.into()),
+    }
+}
+
+/// A failed process run with the caller's `message`: a timeout keeps its code, anything else is plain.
+pub fn from_proc(e: &crate::proc::ProcError, message: impl Into<String>) -> anyhow::Error {
+    match e {
+        crate::proc::ProcError::Timeout { .. } => timeout(message),
+        _ => anyhow::anyhow!(message.into()),
+    }
+}
+
+/// A failed download or request with the caller's `message`: a timeout is `Timeout`, a network failure `Unavailable`.
+pub fn from_http(e: &crate::http::Error, message: impl Into<String>) -> anyhow::Error {
+    match e.code() {
+        Some(code) => coded(code, message),
+        None => anyhow::anyhow!(message.into()),
+    }
+}
+
 impl From<anyhow::Error> for HarnessError {
     fn from(e: anyhow::Error) -> Self {
         let code = e.chain().find_map(|c| c.downcast_ref::<Coded>()).map_or(ErrorCode::Internal, |c| c.code);
@@ -65,6 +97,37 @@ mod tests {
         let h = HarnessError::from(e);
         assert_eq!(h.code, ErrorCode::NotFound);
         assert_eq!(h.message, "while opening: unknown session x");
+    }
+
+    #[test]
+    fn timeouts_and_network_failures_keep_a_code_other_failures_stay_plain() {
+        use crate::http::Error as Http;
+        let code = |e: anyhow::Error| HarnessError::from(e).code;
+        let proc_timeout = crate::proc::ProcError::Timeout { program: "git".into(), after: std::time::Duration::from_secs(1) };
+        let proc_spawn = crate::proc::ProcError::Spawn { program: "git".into(), source: std::io::Error::other("x") };
+        assert_eq!([code(from_proc(&proc_timeout, "m")), code(from_proc(&proc_spawn, "m"))], [ErrorCode::Timeout, ErrorCode::Internal]);
+        let http = |e: Http| code(from_http(&e, "m"));
+        assert_eq!(
+            [
+                http(Http::TimedOut(5)),
+                http(Http::Stalled(5)),
+                http(Http::Status(503)),
+                http(Http::Other("request: refused".into())),
+                http(Http::Status(404)),
+                http(Http::NotHttps),
+                http(Http::Refused("request: bad certificate".into()))
+            ],
+            [
+                ErrorCode::Timeout,
+                ErrorCode::Timeout,
+                ErrorCode::Unavailable,
+                ErrorCode::Unavailable,
+                ErrorCode::Internal,
+                ErrorCode::Internal,
+                ErrorCode::Invalid
+            ]
+        );
+        assert_eq!(from_proc(&proc_timeout, "git status: timed out").to_string(), "git status: timed out");
     }
 
     #[test]

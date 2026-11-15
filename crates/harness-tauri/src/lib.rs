@@ -167,6 +167,9 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
     let app = app.clone();
     let waiting: Mutex<std::collections::HashSet<String>> = Default::default();
     harness.subscribe_app(Box::new(move |e: &AppEvent| {
+        if QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
+            return true;
+        }
         let focused = || app.webview_windows().values().any(|w| w.is_focused().unwrap_or(false));
         if let AppEvent::TurnFinished { title, stop_reason, .. } = e {
             if !focused() {
@@ -271,6 +274,7 @@ pub fn run() {
                 main.set_title(&app.package_info().name)?;
             }
             updates::spawn_checks(app.handle());
+            stop_on_signal(app.handle());
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -338,9 +342,71 @@ pub fn run() {
             overlay::overlay_settings,
             overlay::overlay_set_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Harness");
+        .build(tauri::generate_context!())
+        .expect("error while building Harness")
+        .run(|app, event| match event {
+            // Every way out passes here: Cmd+Q, the last window closing, the updater's restart, and
+            // SIGINT/SIGTERM (`stop_on_signal`). A restart cannot be prevented, so shutdown runs
+            // right here and blocks (bounded) instead of deferring the exit.
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => shut_down(app),
+            _ => {}
+        });
 }
+
+/// Set once quitting starts: cancelled Turns must not notify or move the dock badge.
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// How long the exit path waits for `Harness::shutdown`, past its own bound.
+const SHUTDOWN_MARGIN: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Stops the Agents, Terminals and Session Logs before the process ends. Windows hide first, so
+/// quitting looks instant. The work runs on the async runtime; this thread waits with a hard
+/// timeout and exits regardless (also when shutdown panics). Runs once: both exit events call it.
+fn shut_down(app: &tauri::AppHandle) {
+    if QUITTING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let Some(harness) = app.try_state::<Arc<Harness>>() else { return };
+    for window in app.webview_windows().values() {
+        let _ = window.hide();
+    }
+    let harness = harness.inner().clone();
+    let wait = harness.shutdown_timeout() + SHUTDOWN_MARGIN;
+    let (tx, rx) = std::sync::mpsc::channel();
+    tauri::async_runtime::spawn(async move {
+        harness.shutdown().await;
+        let _ = tx.send(());
+    });
+    if rx.recv_timeout(wait) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+        tracing::warn!("shutdown did not finish within {wait:?}; exiting anyway");
+    }
+}
+
+/// SIGINT/SIGTERM (Ctrl-C in `bun run dev`) quit the app the normal way, through `shut_down`. A
+/// second signal, or the bound running out, ends the process at once.
+#[cfg(unix)]
+fn stop_on_signal(app: &tauri::AppHandle) {
+    use tokio::signal::unix::{SignalKind, signal};
+    let app = app.clone();
+    let wait = app.try_state::<Arc<Harness>>().map_or(std::time::Duration::from_secs(5), |h| h.shutdown_timeout()) + SHUTDOWN_MARGIN * 2;
+    tauri::async_runtime::spawn(async move {
+        let (Ok(mut int), Ok(mut term)) = (signal(SignalKind::interrupt()), signal(SignalKind::terminate())) else { return };
+        tokio::select! {
+            _ = int.recv() => {}
+            _ = term.recv() => {}
+        }
+        app.exit(0);
+        tokio::select! {
+            _ = int.recv() => {}
+            _ = term.recv() => {}
+            _ = tokio::time::sleep(wait) => {}
+        }
+        std::process::exit(130);
+    });
+}
+
+#[cfg(not(unix))]
+fn stop_on_signal(_app: &tauri::AppHandle) {}
 
 #[cfg(test)]
 mod frame_tests {

@@ -23,6 +23,8 @@
 //! - starts with "spoof <kind> <title>": a tool call of that kind (`execute` carries a `command`,
 //!   `read-outside` a read of `/etc/hosts`, `switch_mode` a plan approval) with that title, asking
 //!   for permission under that title; answers "spoof: allowed" or "spoof: rejected"
+//! - starts with "background-job <file>": a tool call that completes at once with the text Claude's
+//!   Bash tool uses for a job left running, writing to `<file>` (see `agent_quirks::background_job_of`)
 //! - starts with "fault-malformed": a line of malformed JSON on stdout mid-Turn, then the Turn
 //!   carries on
 //! - starts with "fault-hang": never answers the prompt (and ignores `session/cancel`)
@@ -45,7 +47,9 @@
 //! `--fork-fail` the request is refused. `--exit` prints a line to stderr and exits at startup
 //! (Agent conformance check tests). `--legacy-modes` makes it an Agent with legacy session modes
 //! (`default`, `plan`) and no config options (`session/set_mode` answers; the mode starts `default`);
-//! `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
+//! `--pid-file=<path>` writes its pid and the pid of a `sleep` grandchild (one per line) at startup;
+//! `--ignore-stdin-eof` keeps the process alive after the Harness hangs up; `--init-delay-ms=N` delays
+//! the answer to `initialize`. `--ignore-sigterm` makes the process ignore SIGTERM. `--plan-mode` adds a `plan` value to the mode config option. A prompt containing "usage" sends a
 //! `usage_update` (1200 of 200000).
 
 use agent_client_protocol::schema::v1::*;
@@ -254,6 +258,18 @@ async fn main() -> agent_client_protocol::Result<()> {
         eprintln!("fake-agent: exiting on purpose");
         std::process::exit(3);
     }
+    if args.iter().any(|a| a == "--ignore-sigterm") {
+        // A registered handler replaces the default action; this one does nothing.
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        tokio::spawn(async move { while term.recv().await.is_some() {} });
+    }
+    if let Some(path) = args.iter().find_map(|a| a.strip_prefix("--pid-file=")) {
+        #[allow(clippy::zombie_processes, reason = "it is killed with the process group")]
+        let grandchild = std::process::Command::new("sleep").arg("3600").stdin(std::process::Stdio::null()).spawn().unwrap();
+        let _ = std::fs::write(path, format!("{}\n{}\n", std::process::id(), grandchild.id()));
+    }
+    let init_delay_ms: u64 = args.iter().find_map(|a| a.strip_prefix("--init-delay-ms=")).and_then(|n| n.parse().ok()).unwrap_or(0);
+    let ignore_eof = args.iter().any(|a| a == "--ignore-stdin-eof");
     let load = args.iter().any(|a| a == "--load");
     let auth = args.iter().any(|a| a == "--auth");
     let no_http_mcp = args.iter().any(|a| a == "--no-http-mcp");
@@ -272,6 +288,9 @@ async fn main() -> agent_client_protocol::Result<()> {
         .name("fake-agent")
         .on_receive_request(
             async move |req: InitializeRequest, responder, _cx| {
+                if init_delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(init_delay_ms)).await;
+                }
                 let mut caps = AgentCapabilities::new()
                     .load_session(load)
                     .mcp_capabilities(McpCapabilities::new().http(!no_http_mcp))
@@ -507,6 +526,15 @@ async fn main() -> agent_client_protocol::Result<()> {
                         update(&cx, &sid, text(if allowed { "spoof: allowed" } else { "spoof: rejected" }))?;
                         return responder.respond(PromptResponse::new(StopReason::EndTurn));
                     }
+                    if let Some(file) = command.strip_prefix("background-job ") {
+                        update(&cx, &sid, SessionUpdate::ToolCall(ToolCall::new("bg-1", "Run job").kind(ToolKind::Execute).status(ToolCallStatus::Pending)))?;
+                        let note = format!("Command running in background with ID: job-1. Output is being written to: {}", file.trim());
+                        let fields = ToolCallUpdateFields::new()
+                            .status(ToolCallStatus::Completed)
+                            .content(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(TextContent::new(note))))]);
+                        update(&cx, &sid, SessionUpdate::ToolCallUpdate(ToolCallUpdate::new("bg-1", fields)))?;
+                        return responder.respond(PromptResponse::new(StopReason::EndTurn));
+                    }
                     if command.starts_with("fault-") {
                         return fault(&cx, &sid, &command, responder).await;
                     }
@@ -575,5 +603,9 @@ async fn main() -> agent_client_protocol::Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         .connect_to(Stdio::new())
-        .await
+        .await?;
+    if ignore_eof {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+    }
+    Ok(())
 }

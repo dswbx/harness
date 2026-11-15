@@ -146,7 +146,9 @@ impl Session {
     fn folder(&self) -> anyhow::Result<PathBuf> {
         self.adopt_repo();
         let m = self.meta.lock();
-        anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
+        if m.workspace.repo_root.is_none() {
+            return Err(crate::error::invalid("the Workspace is not a git repository"));
+        }
         Ok(PathBuf::from(&m.folder))
     }
 
@@ -195,7 +197,7 @@ impl Session {
         if self.meta().archived {
             return Err(crate::error::conflict("already archived"));
         }
-        self.agent.shutdown("archived");
+        self.stop_processes("archived");
         if let Some(wt) = self.meta().workspace.worktree {
             if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
                 crate::workspace::wip_commit(&wt.path).await?;
@@ -233,14 +235,14 @@ impl Session {
                     return Err(crate::error::conflict(format!("branch {} has {n} commit(s) not on {}", wt.branch, wt.base)));
                 }
             }
-            self.agent.shutdown("deleted");
+            self.stop_processes("deleted");
             crate::workspace::remove_worktree(&wt).await?;
             crate::workspace::delete_branch(&wt.repo_root, &wt.branch).await?;
             if let Some(parent) = wt.path.parent() {
                 let _ = std::fs::remove_dir(parent);
             }
         } else {
-            self.agent.shutdown("deleted");
+            self.stop_processes("deleted");
         }
         Ok(())
     }

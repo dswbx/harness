@@ -118,9 +118,11 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
             found.push(rel.to_owned());
         }
     });
-    anyhow::ensure!(complete, "{suffix}: No such file (folder too large to search)");
+    if !complete {
+        return Err(crate::error::not_found(format!("{suffix}: No such file (folder too large to search)")));
+    }
     match found.len() {
-        0 => anyhow::bail!("{suffix}: No such file"),
+        0 => Err(crate::error::not_found(format!("{suffix}: No such file"))),
         1 => Ok(found.swap_remove(0)),
         n => anyhow::bail!("{suffix}: {n} files match"),
     }
@@ -163,22 +165,17 @@ pub fn target(editor: &Editor, path: &Path, line: Option<u32>) -> String {
 }
 
 /// Opens `target` with the OS (`open`, `xdg-open`, `start`).
-pub fn open(target: &str) -> anyhow::Result<()> {
-    let mut cmd = if cfg!(target_os = "macos") {
-        let mut c = std::process::Command::new("open");
-        c.arg(target);
-        c
+pub async fn open(target: &str) -> anyhow::Result<()> {
+    let opts = crate::proc::Opts::new(crate::proc::LOCAL);
+    let (program, opts) = if cfg!(target_os = "macos") {
+        ("open", opts.arg(target))
     } else if cfg!(windows) {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", "", target]);
-        c
+        ("cmd", opts.args(["/C", "start", "", target]))
     } else {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(target);
-        c
+        ("xdg-open", opts.arg(target))
     };
-    let status = cmd.status().map_err(|e| anyhow::anyhow!("could not open {target}: {e}"))?;
-    anyhow::ensure!(status.success(), "could not open {target}: is the editor installed?");
+    let out = crate::proc::run(program, opts).await.map_err(|e| anyhow::anyhow!("could not open {target}: {e}"))?;
+    anyhow::ensure!(out.success(), "could not open {target}: is the editor installed?");
     Ok(())
 }
 

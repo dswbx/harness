@@ -30,14 +30,14 @@ export const sessionsHandlers = {
       const isRepo = !cmd.folder.includes("norepo");
       if (!isRepo && (cmd.worktree || cmd.branch))
          throw new CommandError(
-            "internal",
+            "invalid",
             "not a git repository: worktree and branch are not available",
          );
       const pr = cmd.pr != null ? MOCK_PRS.find((p) => p.number === cmd.pr) : undefined;
-      if (cmd.pr != null && !pr) throw new CommandError("internal", `no pull request #${cmd.pr}`);
+      if (cmd.pr != null && !pr) throw new CommandError("not_found", `no pull request #${cmd.pr}`);
       if (!pr && !cmd.worktree && !cmd.new_branch && cmd.branch && cmd.branch !== "main")
          throw new CommandError(
-            "internal",
+            "conflict",
             "cannot check out branch: the folder has uncommitted changes",
          );
       const worktree = cmd.worktree;
