@@ -9,10 +9,10 @@ import {
 /** Title of a Quick Session until its first prompt (the core's `QUICK_TITLE`). */
 export const QUICK_TITLE = "New Quick Session";
 
-/** The Agent for a new Quick Session: the newest Session's if still installed, else the first. */
+/** The Agent for a new Quick Session: the newest used Session's if still installed, else the first. */
 export function quickAgent(sessions: SessionSummary[], agents: AgentInfo[]): AgentInfo | undefined {
    const newest = sessions.reduce<SessionSummary | undefined>(
-      (a, s) => (!a || s.created_ms > a.created_ms ? s : a),
+      (a, s) => (s.unused || (a && a.created_ms >= s.created_ms) ? a : s),
       undefined,
    );
    return agents.find((a) => a.id === newest?.agent_id) ?? agents[0];

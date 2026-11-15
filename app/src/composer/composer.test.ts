@@ -97,6 +97,14 @@ describe("Quick Sessions", () => {
       expect(quickAgent([], agents)?.id).toBe("a");
       expect(quickAgent([], [])).toBeUndefined();
    });
+
+   it("quickAgent ignores unused Sessions", () => {
+      const agents = [agent("a"), agent("b")];
+      const used = session({ agent_id: "b", created_ms: 1 });
+      const draft = session({ agent_id: "a", created_ms: 2, unused: true });
+      expect(quickAgent([used, draft], agents)?.id).toBe("b");
+      expect(quickAgent([draft], [agent("c"), agent("a")])?.id).toBe("c");
+   });
 });
 
 describe("pathsToRequest", () => {
