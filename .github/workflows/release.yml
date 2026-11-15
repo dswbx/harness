@@ -132,6 +132,7 @@ jobs:
            with:
               name: release-assets
               path: dist-release/
+              overwrite: true
               if-no-files-found: error
               retention-days: 3
 
@@ -168,11 +169,16 @@ jobs:
          # Every step is safe to repeat: reuse a draft a failed run left, overwrite its assets.
          - name: Draft release and assets
            run: |
-              if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
-                 test "$state" = true || { echo "$TAG is already published"; exit 1; }
-                 gh release edit "$TAG" --target "$GITHUB_SHA"
-              else
+              if out="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>&1)"; then
+                 test "$out" = true || { echo "$TAG is already published"; exit 1; }
+                 # Reused draft: point it at this commit and regenerate its notes to match.
+                 notes="$(gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --jq .body)"
+                 gh release edit "$TAG" --target "$GITHUB_SHA" --notes "$notes"
+              elif echo "$out" | grep -qi "release not found"; then
                  gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Harness $TAG" --generate-notes
+              else
+                 echo "$out"
+                 exit 1
               fi
               gh release upload "$TAG" dist-release/* --clobber
 
