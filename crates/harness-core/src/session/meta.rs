@@ -180,7 +180,8 @@ impl Session {
 }
 
 pub(super) fn write_meta(dir: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
-    crate::persist::JsonFile::<SessionMeta>::in_dir(dir, "session.json").save(meta)
+    // The same bytes and atomic write as `update_meta` (through `MetaDisk`).
+    crate::fsutil::write_atomic(&dir.join("session.json"), &serde_json::to_vec_pretty(meta)?)
 }
 
 #[cfg(test)]
