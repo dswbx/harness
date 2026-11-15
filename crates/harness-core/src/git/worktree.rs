@@ -1,11 +1,15 @@
 //! Worktrees the Harness creates per Session, the Worktree folder setting, and branch moves.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use super::cmd::{current_branch, git, git_with, rev};
 use super::diff::base_refs;
+use crate::proc;
 
 /// A Worktree the Harness created for one Session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,17 +60,61 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
         _ => None,
     };
     let (remote, branch) = tracking.unwrap_or(("origin", base));
-    let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
-    let args = ["fetch", "--quiet", "--no-tags", remote, &spec];
-    // Bounded: a timeout kills the fetch (and its hooks and credential helpers), not just stops waiting.
-    if let Err(e) = git_with(repo_root, &args, &[], std::time::Duration::from_secs(15)).await {
-        tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}");
-    }
+    refresh_remote_ref(repo_root, remote, branch, FETCH_WAIT, proc::NETWORK).await;
     if tracking.is_some() {
         return base.to_owned();
     }
     let remote_ref = format!("refs/remotes/origin/{base}");
     if git(repo_root, &["rev-parse", "--verify", "--quiet", &remote_ref]).await.is_ok() { remote_ref } else { base.to_owned() }
+}
+
+/// How long creating a Worktree waits for the base refresh.
+const FETCH_WAIT: Duration = Duration::from_secs(15);
+
+/// Fetches in flight, by repository and refspec: a second Worktree for the same base waits on the
+/// running fetch instead of starting another.
+static FETCHES: LazyLock<Mutex<HashMap<FetchKey, tokio::sync::watch::Receiver<bool>>>> = LazyLock::new(Default::default);
+
+type FetchKey = (PathBuf, String);
+
+/// Ends a fetch task, also when it panics: clears its entry and wakes the waiters.
+struct FetchDone(FetchKey, tokio::sync::watch::Sender<bool>);
+
+impl Drop for FetchDone {
+    fn drop(&mut self) {
+        FETCHES.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+        let _ = self.1.send(true);
+    }
+}
+
+/// Refreshes `refs/remotes/<remote>/<branch>`. The fetch runs as its own task, so it is not
+/// cancelled when we stop waiting after `wait`: on a slow link it finishes in the background (up to
+/// `bound`, then git and what it spawned are killed) and the next Worktree starts from the fresh
+/// ref. A failed or slow fetch is logged and the last known remote ref is used.
+async fn refresh_remote_ref(repo_root: &Path, remote: &str, branch: &str, wait: Duration, bound: Duration) {
+    let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+    let key = (repo_root.to_owned(), spec.clone());
+    let mut done = {
+        let mut inflight = FETCHES.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(rx) = inflight.get(&key) {
+            rx.clone()
+        } else {
+            let (tx, rx) = tokio::sync::watch::channel(false);
+            inflight.insert(key.clone(), rx.clone());
+            let (dir, remote) = (repo_root.to_owned(), remote.to_owned());
+            tokio::spawn(async move {
+                let _done = FetchDone(key, tx);
+                let args = ["fetch", "--quiet", "--no-tags", remote.as_str(), spec.as_str()];
+                if let Err(e) = git_with(&dir, &args, &[], bound).await {
+                    tracing::warn!("fetching {remote} {spec} failed, using the last known copy: {e:#}");
+                }
+            });
+            rx
+        }
+    };
+    if tokio::time::timeout(wait, done.wait_for(|finished| *finished)).await.is_err() {
+        tracing::warn!("fetching {remote}/{branch} takes longer than {}s, using the last known copy for now", wait.as_secs());
+    }
 }
 
 /// Creates `branch` from `base` (default: HEAD) and switches the folder to it; uncommitted
@@ -357,6 +405,68 @@ mod tests {
         sh(&clone, &["remote", "set-url", "origin", tmp.join("missing").to_str().unwrap()]);
         let meta = wt(&clone, "main", "a").await;
         assert_eq!(sh(&meta.path, &["rev-parse", "HEAD"]), known);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// Points `origin` at a remote whose upload-pack takes `secs` seconds; each call is logged to `<tmp>/calls`.
+    fn slow_origin(tmp: &Path, clone: &Path, secs: &str) -> PathBuf {
+        let script = tmp.join("slow-upload-pack");
+        let calls = tmp.join("calls");
+        std::fs::write(&script, format!("#!/bin/sh\necho call >> '{}'\nsleep {secs}\nexec git-upload-pack \"$@\"\n", calls.display())).unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        sh(clone, &["config", "remote.origin.uploadpack", script.to_str().unwrap()]);
+        calls
+    }
+
+    async fn until(mut done: impl FnMut() -> bool) -> bool {
+        for _ in 0..100 {
+            if done() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn a_slow_fetch_stops_the_wait_but_still_finishes() {
+        let (tmp, origin, clone) = stale_clone();
+        let tip = sh(&origin, &["rev-parse", "main"]);
+        slow_origin(&tmp, &clone, "1.5");
+        let started = std::time::Instant::now();
+        refresh_remote_ref(&clone, "origin", "main", Duration::from_millis(300), proc::NETWORK).await;
+        assert!(started.elapsed() < Duration::from_millis(1200), "waited {:?}", started.elapsed());
+        assert_ne!(sh(&clone, &["rev-parse", "refs/remotes/origin/main"]), tip);
+        assert!(until(|| sh(&clone, &["rev-parse", "refs/remotes/origin/main"]) == tip).await, "fetch did not finish");
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_fetch_past_its_bound_is_killed() {
+        let (tmp, origin, clone) = stale_clone();
+        let tip = sh(&origin, &["rev-parse", "main"]);
+        slow_origin(&tmp, &clone, "20");
+        refresh_remote_ref(&clone, "origin", "main", Duration::from_secs(5), Duration::from_millis(400)).await;
+        assert_ne!(sh(&clone, &["rev-parse", "refs/remotes/origin/main"]), tip);
+        assert!(FETCHES.lock().unwrap().keys().all(|(dir, _)| dir != &clone));
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetches_for_one_ref_do_not_overlap() {
+        let (tmp, origin, clone) = stale_clone();
+        let tip = sh(&origin, &["rev-parse", "main"]);
+        let calls = slow_origin(&tmp, &clone, "1");
+        let wait = Duration::from_millis(200);
+        refresh_remote_ref(&clone, "origin", "main", wait, proc::NETWORK).await;
+        // The first is still running: these join it.
+        refresh_remote_ref(&clone, "origin", "main", wait, proc::NETWORK).await;
+        refresh_remote_ref(&clone, "origin", "main", Duration::from_secs(10), proc::NETWORK).await;
+        assert_eq!(sh(&clone, &["rev-parse", "refs/remotes/origin/main"]), tip);
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+        // Once it is done, the next one starts a new fetch.
+        refresh_remote_ref(&clone, "origin", "main", Duration::from_secs(10), proc::NETWORK).await;
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 2);
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

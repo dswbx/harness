@@ -38,5 +38,9 @@ nix = { version = "0.31", default-features = false, features = ["signal"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["net"] }
 
-[lints]
-workspace = true
+# Not the workspace lints: `proc::run` needs one `unsafe` (`setsid` between fork and exec).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"

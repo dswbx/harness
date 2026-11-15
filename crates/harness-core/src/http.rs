@@ -1,7 +1,7 @@
 //! HTTP for the core: one reqwest stack (rustls, ring provider, platform certificate verifier, proxy
 //! from the standard env vars). `download` streams to a file, `get_bytes`/`get_json` read small
-//! documents. Every call has a connect timeout, a stall timeout, a total limit, a size cap and a
-//! redirect limit. https only, unless `Opts::insecure` (a test server or a local registry).
+//! documents. Every call has a connect timeout, a stall timeout, a size cap and a redirect limit; small
+//! documents also a total limit (a download has none: it runs as long as bytes keep coming). https only, unless `Opts::insecure` (a test server or a local registry).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,13 +19,14 @@ pub fn builder() -> reqwest::ClientBuilder {
 #[derive(Debug, Clone)]
 pub struct Opts {
     pub connect_timeout: Duration,
-    /// Give up when no bytes arrive for this long.
+    /// Give up when no bytes arrive for this long (also while waiting for the response headers).
     pub stall_timeout: Duration,
-    /// Give up after this long in total, per attempt.
-    pub total_timeout: Duration,
+    /// Give up after this long in total, per attempt. `None`: as long as bytes keep coming.
+    pub total_timeout: Option<Duration>,
     pub max_bytes: u64,
     pub max_redirects: usize,
-    /// Extra attempts after a transient failure (connect, stall, timeout, 5xx).
+    /// Extra attempts after a connection failure or a 5xx. A stall or timeout is not retried: a
+    /// retry restarts from byte 0 and would only repeat the wait.
     pub retries: u32,
     /// Hex sha256 the body must have; checked before the file is put in place.
     pub sha256: Option<String>,
@@ -35,12 +36,12 @@ pub struct Opts {
 }
 
 impl Opts {
-    /// Archives and binaries: up to 10 minutes and 2 GiB, 60 s without bytes, 2 retries.
+    /// Archives and binaries: up to 2 GiB, no total limit, 60 s without bytes, 2 retries.
     pub fn download() -> Self {
         Self {
             connect_timeout: Duration::from_secs(30),
             stall_timeout: Duration::from_secs(60),
-            total_timeout: Duration::from_secs(600),
+            total_timeout: None,
             max_bytes: 2 << 30,
             max_redirects: 10,
             retries: 2,
@@ -52,7 +53,7 @@ impl Opts {
 
     /// A small document: 15 s, 512 KB, no retries.
     pub fn small() -> Self {
-        Self { total_timeout: Duration::from_secs(15), stall_timeout: Duration::from_secs(15), max_bytes: 512 * 1024, retries: 0, ..Self::download() }
+        Self { total_timeout: Some(Duration::from_secs(15)), stall_timeout: Duration::from_secs(15), max_bytes: 512 * 1024, retries: 0, ..Self::download() }
     }
 
     pub fn sha256(mut self, hex: Option<&str>) -> Self {
@@ -120,9 +121,9 @@ impl Error {
         }
     }
 
+    /// Worth another attempt: a connection failure or a 5xx. Not a stall or timeout (see `Opts::retries`).
     fn transient(&self) -> bool {
         match self {
-            Error::Stalled(_) | Error::TimedOut(_) => true,
             Error::Status(s) => *s >= 500,
             Error::Other(m) => m.starts_with("request:"),
             _ => false,
@@ -183,7 +184,7 @@ fn describe(e: &reqwest::Error) -> String {
     if parts.is_empty() { e.to_string() } else { parts.join(": ") }
 }
 
-/// Reads chunks into `sink` with the stall, total and size limits; returns the sha256 of the body.
+/// Reads chunks into `sink` with the stall, total (when set) and size limits; returns the sha256 of the body.
 async fn pump(url: &str, o: &Opts, mut sink: impl FnMut(&[u8]) -> std::io::Result<()>) -> Result<String, Error> {
     let io = |e: std::io::Error| Error::Other(e.to_string());
     let hash = |h: Sha256| format!("{:x}", h.finalize());
@@ -200,7 +201,7 @@ async fn pump(url: &str, o: &Opts, mut sink: impl FnMut(&[u8]) -> std::io::Resul
         return Ok(hash(hasher));
     }
     let work = async {
-        let resp = open(url, o).await?;
+        let resp = tokio::time::timeout(o.stall_timeout, open(url, o)).await.map_err(|_| Error::Stalled(o.stall_timeout.as_secs()))??;
         let mut stream = resp.bytes_stream();
         loop {
             let next = tokio::time::timeout(o.stall_timeout, stream.next()).await.map_err(|_| Error::Stalled(o.stall_timeout.as_secs()))?;
@@ -215,7 +216,10 @@ async fn pump(url: &str, o: &Opts, mut sink: impl FnMut(&[u8]) -> std::io::Resul
         }
         Ok(())
     };
-    tokio::time::timeout(o.total_timeout, work).await.map_err(|_| Error::TimedOut(o.total_timeout.as_secs()))??;
+    match o.total_timeout {
+        Some(limit) => tokio::time::timeout(limit, work).await.map_err(|_| Error::TimedOut(limit.as_secs()))??,
+        None => work.await?,
+    }
     Ok(hash(hasher))
 }
 
@@ -349,6 +353,18 @@ mod tests {
                                 tokio::time::sleep(Duration::from_millis(50)).await;
                             }
                         }
+                        "/drip-short" => {
+                            let _ = s.write_all(b"HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n").await;
+                            for _ in 0..30 {
+                                if s.write_all(b"x").await.is_err() {
+                                    return;
+                                }
+                                tokio::time::sleep(Duration::from_millis(30)).await;
+                            }
+                        }
+                        "/no-headers" => {
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                        }
                         "/loop" => {
                             let _ = s.write_all(&reply("302 Found", "location: /loop\r\n", b"")).await;
                         }
@@ -429,10 +445,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_slow_but_alive_download_has_no_total_limit() {
+        let base = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f");
+        // About 0.9 s of body, past the 400 ms a total limit would allow; every gap is far below the stall limit.
+        let o = Opts { stall_timeout: Duration::from_millis(500), ..opts() };
+        assert!(o.total_timeout.is_none());
+        download(&format!("{base}/drip-short"), &dest, &o).await.unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap().len(), 30);
+        let limited = Opts { total_timeout: Some(Duration::from_millis(400)), ..o };
+        let e = download(&format!("{base}/drip-short"), &dir.path().join("g"), &limited).await.unwrap_err();
+        assert!(matches!(e, Error::TimedOut(_)), "{e}");
+    }
+
+    #[tokio::test]
+    async fn a_stall_is_not_retried_and_silent_headers_count_as_a_stall() {
+        let base = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let o = Opts { stall_timeout: Duration::from_millis(300), retries: 2, ..opts() };
+        let started = std::time::Instant::now();
+        let e = download(&format!("{base}/stall"), &dir.path().join("f"), &o).await.unwrap_err();
+        assert!(matches!(e, Error::Stalled(_)), "{e}");
+        // Three attempts would take over 1.9 s (3 x 300 ms plus two pauses).
+        assert!(started.elapsed() < Duration::from_millis(1500), "{:?}", started.elapsed());
+        let e = download(&format!("{base}/no-headers"), &dir.path().join("f"), &o).await.unwrap_err();
+        assert!(matches!(e, Error::Stalled(_)), "{e}");
+    }
+
+    #[tokio::test]
     async fn total_timeout_even_when_bytes_keep_coming() {
         let base = serve().await;
         let dir = tempfile::tempdir().unwrap();
-        let o = Opts { total_timeout: Duration::from_millis(400), ..opts() };
+        let o = Opts { total_timeout: Some(Duration::from_millis(400)), ..opts() };
         let e = download(&format!("{base}/drip"), &dir.path().join("f"), &o).await.unwrap_err();
         assert!(matches!(e, Error::TimedOut(_)), "{e}");
     }
