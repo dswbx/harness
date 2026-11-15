@@ -5,6 +5,7 @@
  * unreadable just leaves a field out.
  */
 import { failure, type GitToolCall, harnessResult, textOf } from "./gitTool";
+import { baseName } from "./paths";
 
 export const SUB_SESSION_TOOLS = [
    "session_start",
@@ -51,13 +52,6 @@ export type SubSessionToolSummary = {
 
 const str = (v: unknown): string | undefined =>
    typeof v === "string" && v.trim() ? v.trim() : undefined;
-
-/** Last part of a path: `/a/b/harness` → `harness`. */
-const baseName = (p: string) =>
-   p
-      .replace(/[/\\]+$/, "")
-      .split(/[/\\]/)
-      .pop() || p;
 
 export function subSessionToolSummary(tool: GitToolCall): SubSessionToolSummary | null {
    const { harnessTool, rawInput } = tool;

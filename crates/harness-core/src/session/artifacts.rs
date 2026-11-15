@@ -10,15 +10,7 @@ use crate::api::{EventKind, ThreadId};
 impl Session {
     /// Shared Artifacts this Session has attached (from its log), in order of attaching.
     pub fn attached_shared(&self) -> anyhow::Result<Vec<String>> {
-        let mut ids: Vec<String> = Vec::new();
-        for e in self.log.events()? {
-            match e.kind {
-                EventKind::ArtifactAttached { id, .. } if !ids.contains(&id) => ids.push(id),
-                EventKind::ArtifactDetached { id, .. } => ids.retain(|x| *x != id),
-                _ => {}
-            }
-        }
-        Ok(ids)
+        self.log.attached_shared()
     }
 
     /// The folders of the attached Shared Artifacts that still exist.
@@ -85,11 +77,7 @@ impl Session {
     /// call on the Thread of its latest one, and this Session is attached.
     pub fn share_item(&self, item_id: &str, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
         use crate::api::SharedKind;
-        let item = self
-            .frontend_items()?
-            .into_iter()
-            .find(|x| x.tool == RENDER_UI && x.id == item_id)
-            .ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))?;
+        let item = self.frontend_item(RENDER_UI, item_id)?.ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))?;
         let title = item.input.get("title").and_then(|v| v.as_str()).unwrap_or(item_id).to_owned();
         let artifacts = &self.shared.artifacts;
         let write_state = |dir: &Path, state: &serde_json::Value| -> anyhow::Result<()> {
@@ -103,7 +91,9 @@ impl Session {
                 return Err(crate::error::conflict(format!("{item_id} is already shared ({source})")));
             }
             let file = crate::panels::source_path(&self.panels_dir(), source)?;
-            anyhow::ensure!(file.is_file(), "source {source:?} does not exist in panels_dir");
+            if !file.is_file() {
+                return Err(crate::error::not_found(format!("source {source:?} does not exist in panels_dir")));
+            }
             let kind = if source.ends_with(".html") {
                 SharedKind::Html
             } else if source.ends_with(".json") {
@@ -116,7 +106,7 @@ impl Session {
                 // A tree file is a `ui.json` already: it takes the state it binds, like a `root`.
                 SharedKind::Ui => {
                     let ui: serde_json::Value =
-                        serde_json::from_slice(&std::fs::read(&file)?).map_err(|e| anyhow::anyhow!("source {source:?} is not JSON: {e}"))?;
+                        serde_json::from_slice(&std::fs::read(&file)?).map_err(|e| crate::error::invalid(format!("source {source:?} is not JSON: {e}")))?;
                     let root = &ui["root"];
                     let doc = self.state()?;
                     if has_html(root) { doc } else { crate::state::subset(&doc, &crate::state::bound_paths(root))? }
@@ -151,7 +141,7 @@ impl Session {
             o.remove("root");
             o.insert("source".into(), serde_json::json!(format!("{}{}", crate::shared::PREFIX, meta.id)));
         }
-        let thread = item.thread.unwrap_or_else(|| self.meta().main_thread_id);
+        let thread = item.thread.clone().unwrap_or_else(|| self.meta().main_thread_id);
         self.write_frontend_tool_output(&thread, RENDER_UI, input, Default::default())?;
         self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
         Ok(meta)

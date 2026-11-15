@@ -1,8 +1,10 @@
 import {
+   errText,
    type HarnessClient,
    revealPath,
    type SharedArtifactMeta,
    type StatePatchOp,
+   storedNumber,
 } from "@harness/api";
 import {
    Button,
@@ -44,6 +46,7 @@ import { useCapture } from "./Capture";
 
 const KIND: Record<SharedArtifactMeta["kind"], string> = { md: "Markdown", html: "HTML", ui: "UI" };
 
+const sideWidth = storedNumber("harness:shared-artifact-side-width");
 const noSession = () => Promise.reject(new Error("This view has no Session."));
 
 /**
@@ -99,14 +102,14 @@ export function SharedArtifactView({
    const [error, setError] = useState<string | null>(null);
    const act = (f: () => Promise<unknown>) => {
       setError(null);
-      f().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      f().catch((e) => setError(errText(e)));
    };
    const titleOf = (sid: string) => sessions.find((s) => s.id === sid)?.title ?? "Session";
    const root = useMemo(() => sharedNode(id), [id]);
    const [tab, setTab] = useState<"info" | "image" | "source">("info");
    const { stage, shoot } = useCapture();
    const side = useResizableWidth({
-      storageKey: "harness:shared-artifact-side-width",
+      store: sideWidth,
       initial: 320,
       min: 240,
       max: 640,
@@ -386,7 +389,7 @@ function RenameDialog({
    const save = () => {
       const t = value.trim();
       if (!t) return;
-      onRename(t).then(onClose, (e) => setError(e instanceof Error ? e.message : String(e)));
+      onRename(t).then(onClose, (e) => setError(errText(e)));
    };
    return (
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

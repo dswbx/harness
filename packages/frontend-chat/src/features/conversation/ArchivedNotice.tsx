@@ -1,4 +1,5 @@
 import type { SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import { Button } from "@harness/ui";
 import { Archive } from "lucide-react";
 import { useState } from "react";
@@ -15,9 +16,7 @@ export function ArchivedNotice({ api }: { api: SessionApi }) {
                size="sm"
                onClick={() => {
                   setError(null);
-                  api.unarchive().catch((e) =>
-                     setError(e instanceof Error ? e.message : String(e)),
-                  );
+                  api.unarchive().catch((e) => setError(errText(e)));
                }}
             >
                Unarchive

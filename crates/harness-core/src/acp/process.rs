@@ -58,6 +58,10 @@ pub(super) struct SlotState {
     /// What each tool call's Events already carried of its facts (see `tool_facts::fill_detail`).
     pub(super) tool_sent: HashMap<String, crate::tool_facts::Sent>,
     pub(super) last_active: Option<Instant>,
+    /// Turns started and not yet ended in the log (a Turn stops counting in `turns` just before).
+    pub(super) unlogged: usize,
+    /// The newest Agent's connection task, from the moment it starts: dropping it kills the process group.
+    pub(super) task: Option<tokio::task::AbortHandle>,
     /// Auth methods from the last `initialize` (raw ACP JSON).
     pub(super) auth_methods: Vec<Value>,
 }
@@ -199,6 +203,13 @@ impl AgentSlot {
         }
     }
 
+    /// Drops a pending request that will not be asked after all.
+    pub(super) fn remove_pending(&self, session: &Session, request_id: &str) {
+        self.update(session, |s| {
+            s.pending.remove(request_id);
+        });
+    }
+
     pub(super) fn cancelling(&self, thread: &ThreadId) -> bool {
         self.state.lock().cancelling.contains(thread)
     }
@@ -252,21 +263,31 @@ impl AgentSlot {
                 }
             }
         });
-        for (request_id, p) in cancelled {
-            let _ = session.log().append(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
-            let _ = p.responder.send(None);
+        let answers: Vec<_> = cancelled
+            .into_iter()
+            .map(|(request_id, p)| {
+                session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+                p.responder
+            })
+            .collect();
+        // The Agent hears "cancelled" only once the resolutions are durable.
+        session.sync_log().await;
+        for responder in answers {
+            let _ = responder.send(None);
         }
         Ok(())
     }
 
-    pub fn resolve_permission(&self, session: &Session, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
+    pub async fn resolve_permission(&self, session: &Arc<Session>, request_id: &str, option_id: Option<String>, global: bool) -> anyhow::Result<()> {
         // First answer wins: later answers find nothing pending.
         let mut pending = None;
         self.update(session, |s| pending = s.pending.remove(request_id));
         let Some(pending) = pending else {
             return Err(crate::error::not_found(format!("permission request {request_id} is not pending")));
         };
-        session.log().append(
+        // The answer reaches the Agent whatever the disk does: a log that cannot be written is
+        // reported (the Session shows it), never a reason to leave the Agent waiting.
+        session.log().append_or_report(
             pending.thread.clone(),
             EventKind::PermissionResolved {
                 request_id: request_id.to_owned(),
@@ -274,15 +295,17 @@ impl AgentSlot {
                 by: if option_id.is_some() { Resolver::View } else { Resolver::Cancelled },
                 rule_id: None,
             },
-        )?;
+        );
         let kind = pending.options.iter().find(|o| Some(&o.option_id) == option_id.as_ref()).map(|o| o.kind.as_str());
-        if let Some(rule) = remembered_rule(session, kind, &pending.facts, global) {
+        let rule_added = remembered_rule(session, kind, &pending.facts, global).map(|rule| {
             let rule = session.policy().add(rule)?;
-            session.log().append(None, EventKind::PermissionRuleAdded { rule })?;
-        }
-        session.log().sync()?;
+            session.log().append_or_report(None, EventKind::PermissionRuleAdded { rule });
+            anyhow::Ok(())
+        });
+        session.sync_log().await;
         // Answer last so the Agent's follow-up lands after the resolution in the log.
         pending.responder.send(option_id)?;
+        rule_added.transpose()?;
         Ok(())
     }
 
@@ -345,6 +368,44 @@ impl AgentSlot {
             conn.stop(reason);
         }
     }
+
+    /// Harness shutdown: stops the Agent process like `shutdown`, and waits until it is gone and
+    /// every Turn that was running has ended in the log. Those Turns end as `cancelled`, the same
+    /// way a Cancel the Agent never answered does. Gives up after `grace`, then drops the
+    /// connection task, which kills the process group. Reads only the slot, never the log.
+    pub(crate) async fn close(&self, reason: &str, grace: Duration) {
+        let deadline = tokio::time::Instant::now() + grace;
+        // A start in flight holds `start`; after it nothing new starts (`Shared::closing`).
+        if tokio::time::timeout_at(deadline, self.start.lock()).await.is_err() {
+            // Still waiting for the Agent's `initialize`: dropping its task kills the process.
+            self.abort_task();
+        }
+        let conn = {
+            let mut s = self.state.lock();
+            let working: Vec<ThreadId> = s.turns.iter().filter(|(_, n)| **n > 0).map(|(t, _)| t.clone()).collect();
+            s.cancelling.extend(working);
+            s.conn.clone()
+        };
+        if let Some(conn) = conn {
+            conn.stop(reason);
+        }
+        let ended = || {
+            let s = self.state.lock();
+            s.conn.is_none() && s.preparing == 0 && s.unlogged == 0 && s.turns.values().all(|n| *n == 0)
+        };
+        while !ended() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        if !ended() {
+            self.abort_task();
+        }
+    }
+
+    fn abort_task(&self) {
+        if let Some(task) = self.state.lock().task.take() {
+            task.abort();
+        }
+    }
 }
 
 impl AgentConn {
@@ -359,6 +420,9 @@ impl AgentConn {
 pub(super) async fn ensure_conn(session: &Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let slot = session.agent_slot();
     let _guard = slot.start.lock().await;
+    if session.shared().closing.load(Ordering::SeqCst) {
+        return Err(crate::error::unavailable("the Harness is shutting down"));
+    }
     if let Some(conn) = slot.conn() {
         return Ok(conn);
     }
@@ -414,7 +478,7 @@ pub(crate) fn launch_args(spec: &crate::api::AgentInfo, path: &str, overrides: &
 pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<AgentConn>> {
     let meta = session.meta();
     let log = |kind| {
-        let _ = session.log().append(None, kind);
+        session.log().append_or_report(None, kind);
     };
     log(EventKind::AgentProcessState { state: ProcessState::Starting, message: None });
 
@@ -451,7 +515,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
     let forking_n = forking.clone();
     let stop_reason_exit = stop_reason.clone();
     let stderr_exit = stderr.clone();
-    tokio::spawn(async move {
+    let connection = tokio::spawn(async move {
         let result = Client
             .builder()
             .name("harness")
@@ -506,6 +570,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
         let error = result.err().map(|e| with_tail(e.to_string(), &stderr_exit));
         on_exit(&s_exit, generation, stopped, error);
     });
+    session.agent_slot().state.lock().task = Some(connection.abort_handle());
 
     let started = match ready_rx.await {
         Ok(Ok(r)) => Ok(r),
@@ -553,7 +618,7 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
         }
     });
     for (request_id, p) in orphaned {
-        let _ = session.log().append(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
+        session.log().append_or_report(p.thread, EventKind::PermissionResolved { request_id, option_id: None, by: Resolver::Cancelled, rule_id: None });
     }
     if current {
         session.shared().mcp.revoke(session);
@@ -565,8 +630,8 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
         (None, None) => (ProcessState::Exited, None),
     };
     if current || on_purpose {
-        let _ = session.log().append(None, EventKind::AgentProcessState { state, message });
-        let _ = session.log().sync();
+        session.log().append_or_report(None, EventKind::AgentProcessState { state, message });
+        session.sync_log_detached();
     }
 }
 

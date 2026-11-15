@@ -9,6 +9,7 @@ import {
    PopoverContent,
    Textarea,
    Tooltip,
+   useCopied,
 } from "@harness/ui";
 import { Check, Copy, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -29,7 +30,7 @@ const iconButton = "size-6 text-muted-foreground hover:text-accent-foreground";
 
 /** Under a finished reply in a Side Thread: copy it, or send it to the Main composer as a quote (optionally with a note). */
 export function SideReplyFooter({ sessionId, text }: { sessionId: string; text: string }) {
-   const [copied, flashCopied] = useFlash();
+   const [copied, copy] = useCopied();
    const [sent, flashSent] = useFlash();
    const [commenting, setCommenting] = useState(false);
    const [note, setNote] = useState("");
@@ -52,7 +53,7 @@ export function SideReplyFooter({ sessionId, text }: { sessionId: string; text: 
                variant="ghost"
                className={iconButton}
                aria-label={copied ? "Copied" : "Copy reply"}
-               onClick={() => void navigator.clipboard.writeText(text).then(flashCopied, () => {})}
+               onClick={() => void copy(text)}
             >
                {copied ? <Check /> : <Copy />}
             </Button>

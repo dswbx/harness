@@ -1,4 +1,11 @@
-import { type Diff, inTauri, rememberWindowFrame, type SessionApi } from "@harness/api";
+import {
+   type Diff,
+   errText,
+   inTauri,
+   rememberWindowFrame,
+   type SessionApi,
+   storedNumber,
+} from "@harness/api";
 import { Button, cn, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
 import {
    ArrowDown,
@@ -15,13 +22,13 @@ import {
    WrapText,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import { FileTreeList, fileRowKey, type NavRow, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree } from "../fileTree/fileTree";
 import { useDiffComments } from "../review/reviewComments";
 import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer, type FileContents } from "./DiffViewer";
 import { type FilePatch, splitPatch } from "./diff";
+import { type FileView, viewStore, wrapStore } from "./diffPrefs";
 import { type DiffScope, selectionScope } from "./scope";
 
 /** URL of the pop-out diff window. Boots through the app entry like any solo View window. */
@@ -74,16 +81,7 @@ function changeRows(root: HTMLElement | null): HTMLElement[] {
 
 const fileKey = (f: FilePatch) => fileRowKey(f.path);
 
-const VIEW_KEY = "harness:diff-file-view";
-const WRAP_KEY = "harness:diff-wrap";
-type FileView = "list" | "tree";
-const readView = (): FileView => {
-   try {
-      return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "tree";
-   } catch {
-      return "tree";
-   }
-};
+const sidebarWidth = storedNumber("harness:diff-sidebar-width");
 
 /** JetBrains-like diff viewer: files (list or tree) and commits left, one file's diff right, keyboard navigation through files and changes. */
 export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scope: DiffScope }) {
@@ -93,20 +91,14 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    /** Selected row key; null = the first file. */
    const [cursor, setCursor] = useState<string | null>(null);
    const [mode, setMode] = useState<"split" | "unified">("split");
-   const [view, setView] = useState<FileView>(readView);
-   const [wrap, setWrap] = useState(() => {
-      try {
-         return localStorage.getItem(WRAP_KEY) === "1";
-      } catch {
-         return false;
-      }
-   });
+   const [view, setView] = useState<FileView>(viewStore.get);
+   const [wrap, setWrap] = useState(wrapStore.get);
    const [closed, setClosed] = useState<Set<string>>(new Set());
    const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
    const comments = useDiffComments(api.sessionId);
    const commits = useCommits(api);
    const sidebar = useResizableWidth({
-      storageKey: "harness:diff-sidebar-width",
+      store: sidebarWidth,
       initial: 320,
       min: 200,
       max: 640,
@@ -129,7 +121,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       change.current = -1;
       api.gitDiff(scope.from, scope.to).then(
          (d) => !off && setDiff(d),
-         (e) => !off && setError(errorMessage(e)),
+         (e) => !off && setError(errText(e)),
       );
       return () => {
          off = true;
@@ -267,21 +259,13 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
 
    const toggleWrap = () => {
       setWrap(!wrap);
-      try {
-         localStorage.setItem(WRAP_KEY, wrap ? "0" : "1");
-      } catch {
-         /* per-viewer convenience only */
-      }
+      wrapStore.set(!wrap);
    };
    const selectedCommits = commits.filter((c) => scope.sel?.includes(c.sha));
 
    const changeView = (v: FileView) => {
       setView(v);
-      try {
-         localStorage.setItem(VIEW_KEY, v);
-      } catch {
-         /* per-viewer convenience only */
-      }
+      viewStore.set(v);
    };
 
    const pathComments = (p: string) => comments.filter((c) => c.path === p).length;

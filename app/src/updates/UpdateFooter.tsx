@@ -1,6 +1,6 @@
+import { openExternalLink } from "@harness/api";
 import { Button } from "@harness/ui";
 import { ArrowUpRight, Check, Loader2, RefreshCw } from "lucide-react";
-import { openExternal } from "../platform/openExternal";
 import { releaseUrl, type useUpdate } from "./updates";
 
 const link =
@@ -19,7 +19,7 @@ export function UpdateFooter({
          target="_blank"
          rel="noreferrer"
          className={link}
-         onClick={(e) => openExternal(e, releaseUrl(state.version))}
+         onClick={(e) => openExternalLink(e, releaseUrl(state.version))}
       >
          Changes <ArrowUpRight />
       </a>

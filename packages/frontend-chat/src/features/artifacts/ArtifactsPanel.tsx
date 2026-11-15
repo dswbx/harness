@@ -1,4 +1,5 @@
 import type { SharedArtifactEntry, SharedArtifactMeta } from "@harness/api";
+import { errText, formatAge, formatDateTime } from "@harness/api";
 import {
    Button,
    cn,
@@ -35,7 +36,7 @@ import { Segmented } from "../../lib/Segmented";
 import { fullMessageTime, useNow } from "../../lib/time";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { CopyButton, Frame, useWrapCode, WRAP, WrapButton } from "../markdown/CodeBlock";
-import { Highlighted } from "../markdown/highlight";
+import { Highlighted } from "../markdown/Highlighted";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { parseTree, sharedSourceText, useSharedArtifact } from "../renderUi/sharedSource";
 import { sourceLang, usePanelSource } from "../renderUi/source";
@@ -54,15 +55,6 @@ import {
 import { useCapture } from "./Capture";
 import { ExportSubmenu, useExport } from "./ExportMenu";
 import { fileName, sharedFormats } from "./exportFormats";
-
-/** Short age for a row: "now", "5m", "2h", "3d". */
-export function age(ts: number, now: number): string {
-   const m = Math.floor((now - ts) / 60_000);
-   if (m < 1) return "now";
-   if (m < 60) return `${m}m`;
-   if (m < 24 * 60) return `${Math.floor(m / 60)}h`;
-   return `${Math.floor(m / (24 * 60))}d`;
-}
 
 const KINDS: { kind: ArtifactKind | "all"; label: string }[] = [
    { kind: "all", label: "All" },
@@ -178,7 +170,7 @@ export function ArtifactsPanel({
    }, [groupsOf.shared, kind, query, metas]);
    const act = (f: () => Promise<unknown>) => {
       setError(null);
-      f().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      f().catch((e) => setError(errText(e)));
    };
    const sharedOpen = inspecting
       ? groupsOf.shared.find((r) => `shared:${r.id}` === inspecting)
@@ -431,7 +423,9 @@ function Row({
             </div>
             <div className="truncate text-xs text-muted-foreground">{a.sub}</div>
          </div>
-         <span className="text-xs text-muted-foreground">{age(a.ts, now)}</span>
+         <Tooltip content={formatDateTime(a.ts)}>
+            <span className="text-xs text-muted-foreground">{formatAge(a.ts, now)}</span>
+         </Tooltip>
          {onShare && (
             <RowMenu label={`${a.title} options`}>
                <DropdownMenuItem onSelect={onShare}>
@@ -543,9 +537,11 @@ function SharedRowView({
                {meta ? `${KIND_LABEL[meta.kind]} · ${sessionCount(meta)}` : "Shared artifact"}
             </div>
          </div>
-         <span className="text-xs text-muted-foreground">
-            {age(meta?.updated_ms ?? row.ts, now)}
-         </span>
+         <Tooltip content={formatDateTime(meta?.updated_ms ?? row.ts)}>
+            <span className="text-xs text-muted-foreground">
+               {formatAge(meta?.updated_ms ?? row.ts, now)}
+            </span>
+         </Tooltip>
          <RowMenu label={`${title} options`}>
             <DropdownMenuItem onSelect={onOpen}>
                <ArrowRight /> Open panel
@@ -680,9 +676,11 @@ function AttachPicker({
                            {on ? (
                               <Check className="size-3.5 shrink-0 text-muted-foreground" />
                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                 {age(e.meta.updated_ms, now)}
-                              </span>
+                              <Tooltip content={formatDateTime(e.meta.updated_ms)}>
+                                 <span className="text-xs text-muted-foreground">
+                                    {formatAge(e.meta.updated_ms, now)}
+                                 </span>
+                              </Tooltip>
                            )}
                         </div>
                      );

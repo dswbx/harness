@@ -37,7 +37,7 @@ const setOption = (
       if (!mine || !target || !isModeOption(target))
          throw new CommandError(
             "internal",
-            "Side threads follow the Main Thread's config options; only the mode can be changed here",
+            "Side Threads follow the Main Thread's config, except for the mode",
          );
       mock.emit(sid, { type: "ConfigOptionsChanged", options: apply(mine) }, cmd.thread_id);
       return { type: "Ok" };
@@ -129,34 +129,39 @@ export const threadsHandlers = {
          ?.find(
             (e) => e.kind.type === "PermissionRequested" && e.kind.request_id === cmd.request_id,
          );
-      if (req) {
-         mock.emit(
-            cmd.session_id,
-            {
-               type: "PermissionResolved",
-               request_id: cmd.request_id,
-               option_id: cmd.option_id,
-               by: "view",
-            },
-            req.thread_id,
+      const resolved = mock.logs
+         .get(cmd.session_id)
+         ?.some(
+            (e) => e.kind.type === "PermissionResolved" && e.kind.request_id === cmd.request_id,
          );
-         const asked = req.kind.type === "PermissionRequested" ? req.kind : null;
-         const always = asked?.options.find((o) => o.option_id === cmd.option_id)?.kind;
-         const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
-         // Like the core (`remembered_rule`): a plan approval is never remembered as a rule.
-         if (always === "allow_always" && tool_call.kind !== "switch_mode") {
-            const rule: PermissionRule = {
-               id: `rule-${++mock.ruleN}`,
-               scope: cmd.global
-                  ? { type: "global" }
-                  : { type: "session", session_id: cmd.session_id },
-               tool_kind: tool_call.kind ?? null,
-               pattern: null,
-               decision: "allow",
-            };
-            mock.rules.push(rule);
-            mock.emit(cmd.session_id, { type: "PermissionRuleAdded", rule }, req.thread_id);
-         }
+      if (!req || resolved)
+         throw new CommandError("not_found", `permission request ${cmd.request_id} is not pending`);
+      mock.emit(
+         cmd.session_id,
+         {
+            type: "PermissionResolved",
+            request_id: cmd.request_id,
+            option_id: cmd.option_id,
+            by: "view",
+         },
+         req.thread_id,
+      );
+      const asked = req.kind.type === "PermissionRequested" ? req.kind : null;
+      const always = asked?.options.find((o) => o.option_id === cmd.option_id)?.kind;
+      const tool_call = (asked?.tool_call ?? {}) as { kind?: string };
+      // Like the core (`remembered_rule`): a plan approval is never remembered as a rule.
+      if (always === "allow_always" && tool_call.kind !== "switch_mode") {
+         const rule: PermissionRule = {
+            id: `rule-${++mock.ruleN}`,
+            scope: cmd.global
+               ? { type: "global" }
+               : { type: "session", session_id: cmd.session_id },
+            tool_kind: tool_call.kind ?? null,
+            pattern: null,
+            decision: "allow",
+         };
+         mock.rules.push(rule);
+         mock.emit(cmd.session_id, { type: "PermissionRuleAdded", rule }, req.thread_id);
       }
       return { type: "Ok" };
    },

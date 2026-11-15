@@ -1,4 +1,10 @@
-import type { AgentInfo, Branches, BranchInfo, SessionSummary } from "@harness/api";
+import {
+   type AgentInfo,
+   type Branches,
+   type BranchInfo,
+   type SessionSummary,
+   storedValue,
+} from "@harness/api";
 
 /** Title of a Quick Session until its first prompt (the core's `QUICK_TITLE`). */
 export const QUICK_TITLE = "New Quick Session";
@@ -18,26 +24,27 @@ const MAX_RECENT = 20;
 
 export type RecentFolder = { path: string; at: number };
 
-export function loadRecent(): RecentFolder[] {
-   try {
-      const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-      return Array.isArray(v)
-         ? v.filter((x) => typeof x?.path === "string" && typeof x?.at === "number")
-         : [];
-   } catch {
-      return [];
-   }
-}
+const recentStore = storedValue<RecentFolder[]>({
+   key: RECENT_KEY,
+   scope: "app",
+   parse: (raw) => {
+      try {
+         const v = JSON.parse(raw ?? "[]");
+         return Array.isArray(v)
+            ? v.filter((x) => typeof x?.path === "string" && typeof x?.at === "number")
+            : [];
+      } catch {
+         return [];
+      }
+   },
+   sync: false,
+});
 
+export const loadRecent = (): RecentFolder[] => recentStore.get();
+
+/** Storage unavailable or full: the list falls back to Sessions. */
 export function rememberFolder(path: string, now = Date.now()) {
-   try {
-      localStorage.setItem(
-         RECENT_KEY,
-         JSON.stringify(mergeRecent([{ path, at: now }], loadRecent())),
-      );
-   } catch {
-      // Storage unavailable: the list falls back to Sessions.
-   }
+   recentStore.set(mergeRecent([{ path, at: now }], loadRecent()));
 }
 
 /** Newest first, one entry per path (its newest use), at most MAX_RECENT. */
@@ -73,26 +80,13 @@ export function sourceFolders(list: RecentFolder[], sessions: SessionSummary[]):
 /** `/Users/me/x` → `~/x` (display only). */
 export const tildify = (p: string) => p.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
 
-/** Short age: "now", "5m", "3h", "Yesterday", "4d", "2w", "Mar 3". */
-export function relTime(ms: number, now = Date.now()): string {
-   const s = Math.max(0, (now - ms) / 1000);
-   if (s < 60) return "now";
-   if (s < 3600) return `${Math.floor(s / 60)}m`;
-   if (s < 86400) return `${Math.floor(s / 3600)}h`;
-   const d = Math.floor(s / 86400);
-   if (d === 1) return "Yesterday";
-   if (d < 14) return `${d}d`;
-   if (d < 60) return `${Math.floor(d / 7)}w`;
-   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 /** The paths (once each) not yet in `requested`: what still needs a request. */
 export function pathsToRequest(paths: string[], requested: ReadonlySet<string>): string[] {
    return [...new Set(paths)].filter((p) => !requested.has(p));
 }
 
 /** Case-insensitive match of every word in `q` against any of `fields`. */
-export function matches(q: string, ...fields: (string | undefined)[]): boolean {
+export function matchesWords(q: string, ...fields: (string | undefined)[]): boolean {
    const hay = fields.join(" ").toLowerCase();
    return q
       .toLowerCase()
@@ -106,11 +100,11 @@ export function branchChoices(b: Branches | null, q: string) {
    const isDefault = (x: BranchInfo) => x.name === b?.default_branch;
    const shown = (x: BranchInfo) =>
       !isDefault(x) &&
-      matches(q, x.name) &&
+      matchesWords(q, x.name) &&
       (!(x.worktree || x.archived) || x.name === b?.current || q.trim() !== "");
    const local = b?.branches ?? [];
    const remote = b?.remote ?? [];
-   const pick = (x?: BranchInfo) => (x && matches(q, x.name) ? x : undefined);
+   const pick = (x?: BranchInfo) => (x && matchesWords(q, x.name) ? x : undefined);
    return {
       defaultLocal: pick(local.find(isDefault)),
       defaultRemote: pick(remote.find(isDefault)),

@@ -51,3 +51,21 @@ export function placeSteps(
    for (const r of rows) visit(r.id, r.type === "tools" ? r.steps : [r], []);
    return out;
 }
+
+/** The subagents a row shows (its tool calls' own, and those nested inside them), in step order. */
+export function subagentsOf(
+   row: Item | ToolGroup,
+   subagents: Map<string, ChatSubagent>,
+): ChatSubagent[] {
+   const out: ChatSubagent[] = [];
+   const visit = (steps: readonly Item[]) => {
+      for (const s of steps) {
+         const sub = s.type === "tool" ? subagents.get(s.id) : undefined;
+         if (!sub) continue;
+         out.push(sub);
+         visit(sub.steps);
+      }
+   };
+   visit(row.type === "tools" ? row.steps : [row]);
+   return out;
+}

@@ -13,4 +13,10 @@ describe("baseName", () => {
       expect(baseName("/")).toBe("/");
       expect(baseName("")).toBe("");
    });
+
+   it("mixed and repeated separators", () => {
+      expect(baseName("C:\\Users\\me\\")).toBe("me");
+      expect(baseName("/a//b//")).toBe("b");
+      expect(baseName("a/b\\c")).toBe("c");
+   });
 });

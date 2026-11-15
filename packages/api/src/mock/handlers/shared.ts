@@ -102,7 +102,7 @@ export const sharedHandlers = {
             mock.panelFiles.get(sid)?.get(input.source) ?? MOCK_PANEL_SOURCES[input.source];
          if (content === undefined)
             throw new CommandError(
-               "internal",
+               "not_found",
                `source "${input.source}" does not exist in panels_dir`,
             );
          const html = input.source.endsWith(".html");
@@ -173,7 +173,7 @@ export const sharedHandlers = {
    RenameSharedArtifact: (mock, cmd) => {
       const a = sharedArtifact(mock, cmd.id);
       const title = cmd.title.trim();
-      if (!title) throw new CommandError("invalid", "the title is empty");
+      if (!title) throw new CommandError("invalid", "a title is required");
       a.meta.title = title;
       a.meta.updated_ms = Date.now();
       mock.emitApp({ type: "SharedArtifactsChanged" });
@@ -199,7 +199,10 @@ export const sharedHandlers = {
    PatchArtifactState: (mock, cmd) => {
       const a = sharedArtifact(mock, cmd.id);
       if (cmd.session_id && !a.meta.attached?.includes(cmd.session_id))
-         throw new CommandError("invalid", `${cmd.id} is not attached to this Session`);
+         throw new CommandError(
+            "conflict",
+            `shared artifact ${cmd.id} is not attached to this Session: attach it first (artifact_attach)`,
+         );
       a.state = applyStatePatch(a.state, cmd.ops);
       a.meta.updated_ms = Date.now();
       if (cmd.session_id)

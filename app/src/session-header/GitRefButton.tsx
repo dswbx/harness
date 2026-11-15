@@ -1,5 +1,12 @@
-import type { GitStatus, HarnessClient, PrInfo, RepoId, SessionSummary } from "@harness/api";
-import { inTauri } from "@harness/api";
+import {
+   formatAgeAgo,
+   type GitStatus,
+   type HarnessClient,
+   openExternalUrl,
+   type PrInfo,
+   type RepoId,
+   type SessionSummary,
+} from "@harness/api";
 import {
    cn,
    DropdownMenu,
@@ -123,11 +130,7 @@ export function GitRefButton({
    const copy = (text: string, what: string) =>
       navigator.clipboard.writeText(text).catch((e) => report(`Could not copy ${what}`, e));
    const open = (url: string) =>
-      inTauri()
-         ? import("@tauri-apps/plugin-opener")
-              .then(({ openUrl }) => openUrl(url))
-              .catch((e) => report("Could not open the browser", e))
-         : void window.open(url, "_blank", "noopener");
+      openExternalUrl(url, (e) => report("Could not open the browser", e));
    const branchUrl =
       repo && branch ? `https://github.com/${repo.owner}/${repo.name}/tree/${branch}` : null;
    /** On the base itself (main in the folder): nothing to merge, no PR to create. */
@@ -203,7 +206,7 @@ export function GitRefButton({
                         <span className={cn("text-xs text-muted-foreground", done && st?.cls)}>
                            {st?.label}
                            {checks && ` · ${pr.checks_passed}/${pr.checks_total} ${checks.label}`}
-                           {` · ${pr.author} · ${relative(pr.updated_at)}`}
+                           {` · ${pr.author} · ${formatAgeAgo(Date.parse(pr.updated_at))}`}
                         </span>
                      </>
                   ) : (
@@ -281,12 +284,4 @@ export function GitRefButton({
          </DropdownMenuContent>
       </DropdownMenu>
    );
-}
-
-/** "2h ago", "3d ago" from an RFC 3339 time. */
-function relative(iso: string): string {
-   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-   if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
-   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-   return `${Math.round(s / 86400)}d ago`;
 }

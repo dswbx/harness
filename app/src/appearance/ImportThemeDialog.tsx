@@ -1,4 +1,5 @@
 import type { HarnessClient } from "@harness/api";
+import { errText, openExternalLink } from "@harness/api";
 import {
    Button,
    Dialog,
@@ -11,7 +12,6 @@ import {
    Textarea,
 } from "@harness/ui";
 import { useState } from "react";
-import { openExternal } from "../platform/openExternal";
 import { getImportedThemes, setImportedThemes } from "./appearance";
 import { fromCss, fromRegistryItem, registryUrl, themeId } from "./importTheme";
 
@@ -53,7 +53,7 @@ export function ImportThemeDialog({
          setText("");
          setName("");
       } catch (e) {
-         setError(e instanceof Error ? e.message : String(e));
+         setError(errText(e));
       } finally {
          setBusy(false);
       }
@@ -85,7 +85,7 @@ export function ImportThemeDialog({
                         href={TWEAKCN}
                         target="_blank"
                         rel="noreferrer"
-                        onClick={(e) => openExternal(e, TWEAKCN)}
+                        onClick={(e) => openExternalLink(e, TWEAKCN)}
                         className="underline underline-offset-2 hover:text-foreground"
                      >
                         Find or make themes on tweakcn

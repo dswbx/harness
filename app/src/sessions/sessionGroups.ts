@@ -1,4 +1,5 @@
 import type { SessionStatus, SessionSummary, WorkspaceInfo } from "@harness/api";
+import { baseName } from "@harness/api";
 
 /** Sidebar Session list: search, sort, group and the detail row's labels (pure, see `SessionList.tsx`). */
 
@@ -14,19 +15,16 @@ export const viewChanges = (v: ViewOptions) =>
    (Object.keys(DEFAULT_VIEW) as (keyof ViewOptions)[]).filter((k) => v[k] !== DEFAULT_VIEW[k])
       .length;
 
-/** Top-level folder name: "/Users/me/harness/" -> "harness". */
-export const folderName = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
-
 /** The branch to show: the folder's current branch, else the Worktree's own. */
 export const branchOf = (ws: WorkspaceInfo) => ws.branch ?? ws.worktree_branch;
 
 /** `q` lowercased and trimmed; matches title, folder name, branch and "#<pr>". */
-export function matches(s: SessionSummary, q: string): boolean {
+export function sessionMatches(s: SessionSummary, q: string): boolean {
    if (!q) return true;
    const ws = s.workspace;
    return [
       s.title,
-      s.quick ? "quick" : folderName(s.folder),
+      s.quick ? "quick" : baseName(s.folder),
       branchOf(ws) ?? "",
       ws.pr != null ? `#${ws.pr}` : "",
    ].some((t) => t.toLowerCase().includes(q));
@@ -71,8 +69,8 @@ export function nestSubSessions(list: SessionSummary[], q = ""): Nested {
    const children: Children = new Map();
    const shown = roots.filter((r) => {
       const kids = all.get(r.id) ?? [];
-      const own = matches(r, q);
-      const hits = own ? kids : kids.filter((k) => matches(k, q));
+      const own = sessionMatches(r, q);
+      const hits = own ? kids : kids.filter((k) => sessionMatches(k, q));
       if (hits.length) children.set(r.id, hits);
       return own || hits.length > 0;
    });
@@ -137,7 +135,7 @@ export function groupSessions(
       const byName = new Map<string, Group>();
       for (const s of sorted) {
          if (s.quick) continue;
-         const name = folderName(s.folder);
+         const name = baseName(s.folder);
          if (!byName.has(name))
             byName.set(name, { id: `folder:${name}`, label: name, folder: true, sessions: [] });
          byName.get(name)!.sessions.push(s);
@@ -157,18 +155,6 @@ export function groupSessions(
       groups = [{ id: "all", label: "", sessions: sorted }];
    }
    return groups.map((g) => ({ ...g, sessions: attentionFirst(g.sessions, children) }));
-}
-
-/** "12m", "5h", "2d", "3w", else "Oct 12". */
-export function relativeTime(ms: number, now = Date.now()): string {
-   const min = (now - ms) / 60_000;
-   if (min < 60) return `${Math.max(1, Math.floor(min))}m`;
-   const h = min / 60;
-   if (h < 24) return `${Math.floor(h)}h`;
-   const d = Math.floor(h / 24);
-   if (d < 7) return `${d}d`;
-   if (d < 30) return `${Math.floor(d / 7)}w`;
-   return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /** Full text of the detail row's ref, e.g. "Worktree · opt-in-update · PR #16". */

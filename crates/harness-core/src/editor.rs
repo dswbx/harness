@@ -6,16 +6,17 @@ use std::path::{Path, PathBuf};
 use crate::api::Editor;
 
 pub fn load(data_dir: &Path) -> Option<Editor> {
-    serde_json::from_slice(&std::fs::read(data_dir.join("editor.json")).ok()?).ok()
+    file(data_dir).load_logged()
+}
+
+fn file(data_dir: &Path) -> crate::persist::JsonFile<Editor> {
+    crate::persist::JsonFile::in_dir(data_dir, "editor.json")
 }
 
 pub fn save(data_dir: &Path, editor: Option<&Editor>) -> anyhow::Result<()> {
-    let path = data_dir.join("editor.json");
     match editor {
-        Some(e) => std::fs::write(path, serde_json::to_vec_pretty(e)?)?,
-        None => {
-            let _ = std::fs::remove_file(path);
-        }
+        Some(e) => file(data_dir).save(e)?,
+        None => file(data_dir).remove(),
     }
     Ok(())
 }
@@ -24,11 +25,11 @@ pub fn save(data_dir: &Path, editor: Option<&Editor>) -> anyhow::Result<()> {
 pub fn resolve(folder: &Path, path: Option<&str>) -> anyhow::Result<PathBuf> {
     let root = std::fs::canonicalize(folder)?;
     let Some(p) = path.filter(|p| !p.trim().is_empty()) else { return Ok(root) };
-    let p = std::fs::canonicalize(root.join(p)).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
-    if !p.starts_with(&root) {
-        return Err(crate::error::policy_denied(format!("{} is outside the Session's folder", p.display())));
+    let real = crate::fsutil::inside_existing(&root, &root.join(p)).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
+    if !real.within() {
+        return Err(crate::error::policy_denied(format!("{} is outside the Session's folder", real.path.display())));
     }
-    Ok(p)
+    Ok(real.path)
 }
 
 /// Writes `markdown` to `<session_dir>/plans/<name>.md`, `name` cut to `[a-z0-9-]` (so no path tricks). Returns the absolute path.
@@ -118,9 +119,11 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
             found.push(rel.to_owned());
         }
     });
-    anyhow::ensure!(complete, "{suffix}: No such file (folder too large to search)");
+    if !complete {
+        return Err(crate::error::not_found(format!("{suffix}: No such file (folder too large to search)")));
+    }
     match found.len() {
-        0 => anyhow::bail!("{suffix}: No such file"),
+        0 => Err(crate::error::not_found(format!("{suffix}: No such file"))),
         1 => Ok(found.swap_remove(0)),
         n => anyhow::bail!("{suffix}: {n} files match"),
     }
@@ -163,22 +166,17 @@ pub fn target(editor: &Editor, path: &Path, line: Option<u32>) -> String {
 }
 
 /// Opens `target` with the OS (`open`, `xdg-open`, `start`).
-pub fn open(target: &str) -> anyhow::Result<()> {
-    let mut cmd = if cfg!(target_os = "macos") {
-        let mut c = std::process::Command::new("open");
-        c.arg(target);
-        c
+pub async fn open(target: &str) -> anyhow::Result<()> {
+    let opts = crate::proc::Opts::new(crate::proc::LOCAL);
+    let (program, opts) = if cfg!(target_os = "macos") {
+        ("open", opts.arg(target))
     } else if cfg!(windows) {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", "", target]);
-        c
+        ("cmd", opts.args(["/C", "start", "", target]))
     } else {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(target);
-        c
+        ("xdg-open", opts.arg(target))
     };
-    let status = cmd.status().map_err(|e| anyhow::anyhow!("could not open {target}: {e}"))?;
-    anyhow::ensure!(status.success(), "could not open {target}: is the editor installed?");
+    let out = crate::proc::run(program, opts).await.map_err(|e| anyhow::anyhow!("could not open {target}: {e}"))?;
+    anyhow::ensure!(out.success(), "could not open {target}: is the editor installed?");
     Ok(())
 }
 
@@ -197,6 +195,22 @@ fn encode(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn editor_file_round_trips_and_a_corrupt_one_reads_as_unset() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("editor.json"), r#"{"type":"custom","template":"x://{path}"}"#).unwrap();
+        assert_eq!(load(d.path()), Some(Editor::Custom { template: "x://{path}".into() }));
+        save(d.path(), Some(&Editor::Zed)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(d.path().join("editor.json")).unwrap()).unwrap(),
+            serde_json::json!({"type": "zed"})
+        );
+        std::fs::write(d.path().join("editor.json"), b"{oops").unwrap();
+        assert_eq!(load(d.path()), None);
+        assert!(std::fs::read_dir(d.path()).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("editor.json.corrupt-")));
+        save(d.path(), None).unwrap();
+    }
     use super::*;
 
     #[test]

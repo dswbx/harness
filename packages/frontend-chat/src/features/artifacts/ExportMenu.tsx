@@ -1,4 +1,4 @@
-import { saveFile } from "@harness/api";
+import { errText, saveFile } from "@harness/api";
 import {
    Button,
    DropdownMenu,
@@ -23,7 +23,7 @@ export function useExport() {
       try {
          await saveFile(f.file, await f.blob());
       } catch (e) {
-         setError(e instanceof Error ? e.message : String(e));
+         setError(errText(e));
       } finally {
          setBusy(false);
       }

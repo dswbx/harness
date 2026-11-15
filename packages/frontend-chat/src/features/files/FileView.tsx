@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCodeFontSize } from "../changes/DiffViewer";
 import { WRAP } from "../markdown/CodeBlock";
-import { fileLanguage, highlightLines, type Run } from "../markdown/highlight";
+import { highlightLines, languageOf, type Run } from "../markdown/highlight";
 import { CommentForm, CommentList } from "../review/ReviewCommentWidgets";
 import { addReviewComment, type FileComment } from "../review/reviewComments";
 
@@ -44,7 +44,7 @@ export function FileView({
    /** The scroller's width: comment widgets stay this wide while the lines scroll sideways. */
    const [width, setWidth] = useState(0);
    const rows: Run[][] = useMemo(
-      () => highlightLines(lines.length > MAX_HIGHLIGHT_LINES ? null : fileLanguage(path), lines),
+      () => highlightLines(lines.length > MAX_HIGHLIGHT_LINES ? null : languageOf(path), lines),
       [path, lines],
    );
    const byLine = useMemo(() => {

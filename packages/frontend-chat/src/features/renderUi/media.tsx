@@ -1,6 +1,7 @@
 import { cn, Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
+import { cachedImage } from "../../lib/imageCache";
 import { Env, type Renderers, runActions } from "./runtime";
 import { SourceView } from "./source";
 import type { UiAction } from "./tools";
@@ -10,7 +11,6 @@ export * from "./media.spec";
 
 /** Renderers of this group; its specs (schema, description, example) are in `media.spec.ts`. */
 type Img = { src: string; alt: string; caption?: string };
-const imageCache = new Map<string, Promise<string>>();
 
 function useImage(src: string): { url: string | null; failed: boolean } {
    const env = useContext(Env);
@@ -30,12 +30,7 @@ function useImage(src: string): { url: string | null; failed: boolean } {
          return;
       }
       const key = `${env?.scope ?? ""}:${copy}`;
-      let p = imageCache.get(key);
-      if (!p) {
-         p = read(copy).then((r) => `data:${r.mime};base64,${r.data}`);
-         p.catch(() => imageCache.delete(key));
-         imageCache.set(key, p);
-      }
+      const p = cachedImage(`ui:${key}`, () => read(copy));
       let live = true;
       p.then(
          (url) => live && setState({ url, failed: false }),

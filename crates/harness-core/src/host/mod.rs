@@ -25,7 +25,12 @@ pub const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10)
 pub const RESTORE_RETRIES: [std::time::Duration; 3] =
     [std::time::Duration::from_secs(2), std::time::Duration::from_secs(5), std::time::Duration::from_secs(15)];
 
+/// Default for `Options::shutdown_timeout`.
+pub const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct Options {
+    /// The most `Harness::shutdown` takes before it gives up waiting.
+    pub shutdown_timeout: std::time::Duration,
     pub idle_timeout: std::time::Duration,
     pub restore_retries: Vec<std::time::Duration>,
     pub cancel_grace: std::time::Duration,
@@ -39,6 +44,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            shutdown_timeout: SHUTDOWN_TIMEOUT,
             idle_timeout: IDLE_TIMEOUT,
             restore_retries: RESTORE_RETRIES.to_vec(),
             cancel_grace: CANCEL_GRACE,
@@ -56,6 +62,9 @@ pub struct Harness {
     terminals: crate::terminal::Terminals,
     /// When the PR states of the Session list were last refreshed.
     prs_refreshed: parking_lot::Mutex<Option<std::time::Instant>>,
+    /// Set once `shutdown` is done, so a second call returns at once.
+    shut_down: tokio::sync::OnceCell<()>,
+    shutdown_timeout: std::time::Duration,
     /// Holds the data directory lock for as long as the Harness lives.
     _lock: std::fs::File,
 }
@@ -125,6 +134,7 @@ impl Harness {
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
             host: Default::default(),
             notices: Default::default(),
+            closing: Default::default(),
         });
         // One watch on `shared/` for the life of the Host (ADR 0024 addendum): changes from any
         // Session, the no-Session view or an editor reach every View.
@@ -158,7 +168,17 @@ impl Harness {
         let terminals = crate::terminal::Terminals::new(move |session_id| {
             app_events.app_events.emit(AppEvent::TerminalsChanged { session_id: session_id.to_owned() });
         });
-        let host = Arc::new(Self { data_dir, shared, sessions: RwLock::new(sessions), terminals, prs_refreshed: Default::default(), _lock: lock });
+        let shutdown_timeout = options.shutdown_timeout;
+        let host = Arc::new(Self {
+            data_dir,
+            shared,
+            sessions: RwLock::new(sessions),
+            terminals,
+            prs_refreshed: Default::default(),
+            shut_down: Default::default(),
+            shutdown_timeout,
+            _lock: lock,
+        });
         let _ = host.shared.host.set(Arc::downgrade(&host));
         crate::sub_sessions::watch(&host);
         Ok(host)
@@ -205,7 +225,58 @@ impl Harness {
         self.shared.policy.forget_session(session_id)
     }
 
+    /// Stops everything the Harness runs, then returns; at most `Options::shutdown_timeout`. Commands
+    /// fail from the first call on. Per Session: its job watchers stop, its Agent process (group)
+    /// is stopped and a Turn that was running ends in the log as `cancelled`, the Session Log is
+    /// written to disk and closed. Terminals and the Harness MCP stop too. Safe to call again:
+    /// later calls wait for the first and return.
+    pub async fn shutdown(&self) {
+        self.shared.closing.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.shut_down.get_or_init(|| self.shutdown_once()).await;
+    }
+
+    /// The most `shutdown` takes.
+    pub fn shutdown_timeout(&self) -> std::time::Duration {
+        self.shutdown_timeout
+    }
+
+    async fn shutdown_once(&self) {
+        let started = std::time::Instant::now();
+        // Sessions with activity this run first: they are the ones with something to write.
+        let mut sessions: Vec<Arc<Session>> = self.sessions.read().values().cloned().collect();
+        sessions.sort_by_key(|s| !s.log().is_dirty());
+        self.terminals.kill_everything();
+        self.shared.mcp.stop();
+        // The Agent's process group goes with its connection (the ACP crate kills it on drop).
+        let grace = self.shutdown_timeout * 3 / 5;
+        let stopping = futures_util::future::join_all(sessions.iter().map(|s| s.shutdown_stop(grace)));
+        if tokio::time::timeout(grace, stopping).await.is_err() {
+            tracing::warn!("shutdown: an Agent did not stop within {grace:?}");
+        }
+        let left = self.shutdown_timeout.saturating_sub(started.elapsed()).max(std::time::Duration::from_millis(500));
+        let flushing = tokio::task::spawn_blocking(move || sessions.iter().for_each(|s| s.shutdown_flush()));
+        if tokio::time::timeout(left, flushing).await.is_err() {
+            tracing::warn!("shutdown: writing the Session Logs took longer than {left:?}");
+        }
+    }
+
+    fn ensure_open(&self) -> anyhow::Result<()> {
+        if self.shared.closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(crate::error::unavailable("the Harness is shutting down"));
+        }
+        Ok(())
+    }
+
+    /// How many job watchers the Session has now; the counter keeps working after the Session is
+    /// deleted. For tests.
+    #[doc(hidden)]
+    pub fn job_watcher_counter(&self, session_id: &str) -> anyhow::Result<impl Fn() -> usize + Send + Sync + use<>> {
+        let watchers = self.session(session_id)?.job_watchers().clone();
+        Ok(move || watchers.len())
+    }
+
     pub async fn execute(&self, cmd: Command) -> Result<CommandResult, HarnessError> {
+        self.ensure_open()?;
         let changes = match &cmd {
             Command::CreateSession { .. } | Command::CreateQuickSession { .. } | Command::DeleteSession { .. } | Command::DiscardEmptySession { .. } => {
                 Some(AppEvent::SessionsChanged)
@@ -235,6 +306,10 @@ impl Harness {
         if let (Ok(_), Some(id)) = (&result, changed) {
             self.shared.app_events.emit(AppEvent::SharedArtifactChanged { id });
         }
+        // A settings file loaded by this Command did not load.
+        if crate::persist::has_problems(&self.data_dir) {
+            self.shared.app_events.emit(AppEvent::NoticesChanged);
+        }
         result
     }
 
@@ -250,6 +325,7 @@ impl Harness {
     /// Attaches to a Terminal tab of the Session (a shell in its Workspace Folder, started if none runs):
     /// the replay buffer, then live output until the sink returns `false` or `terminal_detach`.
     pub fn terminal_attach(&self, session_id: &str, terminal_id: u32, cols: u16, rows: u16, sink: crate::terminal::TerminalSink) -> anyhow::Result<u64> {
+        self.ensure_open()?;
         let folder = PathBuf::from(self.session(session_id)?.meta().folder);
         self.terminals.attach(session_id, terminal_id, &folder, cols, rows, sink)
     }
@@ -260,6 +336,9 @@ impl Harness {
 
     async fn execute_inner(&self, cmd: Command) -> anyhow::Result<CommandResult> {
         match cmd {
+            Command::TakeNotices => {
+                Ok(CommandResult::Notices { notices: crate::persist::take_problems(&self.data_dir).iter().map(crate::persist::Problem::notice).collect() })
+            }
             Command::ListAgents => self.cmd_list_agents(),
             Command::ListRegistry { refresh } => self.cmd_list_registry(refresh).await,
             Command::InstallAgent { registry_id, allow_unverified } => self.cmd_install_agent(registry_id, allow_unverified).await,
@@ -286,9 +365,9 @@ impl Harness {
                 self.cmd_continue_with_summary(session_id, thread_id, text, attachments).await
             }
             Command::StartSideThread { session_id, seed, source, mode } => self.cmd_start_side_thread(session_id, seed, source, mode).await,
-            Command::ListMcpServers => self.cmd_list_mcp_servers(),
-            Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets),
-            Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id),
+            Command::ListMcpServers => self.cmd_list_mcp_servers().await,
+            Command::SaveMcpServer { server, secrets } => self.cmd_save_mcp_server(server, secrets).await,
+            Command::RemoveMcpServer { server_id } => self.cmd_remove_mcp_server(server_id).await,
             Command::FrontendRead { session_id, path } => self.cmd_frontend_read(session_id, path),
             Command::PanelSourceRead { session_id, name } => self.cmd_panel_source_read(session_id, name).await,
             Command::GetAppSetting { key } => self.cmd_get_app_setting(key),
@@ -333,7 +412,9 @@ impl Harness {
             Command::GitShowFile { session_id, rev, path } => self.cmd_git_show_file(session_id, rev, path).await,
             Command::GitCommit { session_id, message } => self.cmd_git_commit(session_id, message).await,
             Command::GitPush { session_id } => self.cmd_git_push(session_id).await,
-            Command::ResolvePermission { session_id, request_id, option_id, global } => self.cmd_resolve_permission(session_id, request_id, option_id, global),
+            Command::ResolvePermission { session_id, request_id, option_id, global } => {
+                self.cmd_resolve_permission(session_id, request_id, option_id, global).await
+            }
             Command::ListPermissionRules => self.cmd_list_permission_rules(),
             Command::AddPermissionRule { rule } => self.cmd_add_permission_rule(rule),
             Command::RemovePermissionRule { rule_id } => self.cmd_remove_permission_rule(rule_id),
@@ -352,14 +433,16 @@ impl Harness {
         }
     }
 
+    /// Fails once the Harness is closing (a subscribe in flight at quit must not read or append to a log after the flush).
     pub fn subscribe_session(&self, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<SubscriptionId, String> {
+        self.ensure_open().map_err(|e| format!("{e:#}"))?;
         let session = self.session(session_id).map_err(|e| e.to_string())?;
         session.log().subscribe(from_seq, sink).map_err(|e| format!("{e:#}"))
     }
 
     /// A snapshot of a Session's Events (no subscription, so it never counts as an open View).
     pub fn session_events(&self, session_id: &str) -> Result<Vec<Event>, String> {
-        self.session(session_id).map_err(|e| e.to_string())?.log().events().map_err(|e| format!("{e:#}"))
+        self.session(session_id).map_err(|e| e.to_string())?.log().events().map(|v| v.iter().map(|e| (**e).clone()).collect()).map_err(|e| format!("{e:#}"))
     }
 
     pub fn unsubscribe_session(&self, session_id: &str, sub: SubscriptionId) {

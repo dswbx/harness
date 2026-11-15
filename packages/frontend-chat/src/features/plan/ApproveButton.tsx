@@ -1,4 +1,5 @@
 import type { PermissionOption, SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import {
    Button,
    DropdownMenu,
@@ -12,7 +13,6 @@ import {
 } from "@harness/ui";
 import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import type { ConfigOption, Item, PlanEntry } from "../../state/reducer";
 import {
    getReviewComments,
@@ -48,7 +48,7 @@ export function usePlanAnswer(api: SessionApi, item: Perm) {
          .resolvePermission(item.requestId, optionId, false)
          .then(() => true)
          .catch((e) => {
-            setError(errorMessage(e));
+            setError(errText(e));
             return false;
          });
    };
@@ -66,7 +66,7 @@ export function usePlanAnswer(api: SessionApi, item: Perm) {
       api.prompt(withReviewComments(RESUBMIT, sent)).catch((e) => {
          // Not sent: put the comments back.
          setReviewComments(api.sessionId, [...getReviewComments(api.sessionId), ...sent]);
-         setError(errorMessage(e));
+         setError(errText(e));
       });
    };
    return { answer, keepPlanning, error };

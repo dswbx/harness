@@ -12,7 +12,7 @@
       "bundle": "tauri build",
       "gen-ts": "cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts && cargo run -q -p harness-tauri --bin gen-host-ts -- app/src/platform/generated.ts && bun run gen-manifests",
       "typecheck": "bun run --filter '*' typecheck && tsc -p tsconfig.scripts.json && bun run check-boundaries",
-      "test": "vitest run",
+      "test": "vitest run --project node --project dom && vitest run --project bench --no-file-parallelism",
       "check:rust": "cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked",
       "check:generated": "bun run gen-ts && git diff --exit-code -- packages/api/src/generated.ts app/src/platform/generated.ts packages/*/manifest.json",
       "check-boundaries": "bun scripts/check-boundaries.ts && bun scripts/gen-manifests.ts --check",

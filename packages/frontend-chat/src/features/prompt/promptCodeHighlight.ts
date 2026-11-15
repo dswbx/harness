@@ -19,7 +19,7 @@ import {
    type PointType,
    TextNode,
 } from "lexical";
-import { lowlight } from "../markdown/inlineCode";
+import { highlight } from "../markdown/highlight";
 import { $offsetIn } from "./promptMarkdown";
 
 /** Larger code blocks stay plain: they are highlighted again on each key press. */
@@ -49,8 +49,10 @@ export function codeLeaves(code: string, language: string | null | undefined): L
       const own = n.properties?.className?.join(" ") || type;
       for (const c of n.children ?? []) walk(c, own);
    };
-   if (language && code.length <= MAX_CHARS && lowlight.registered(language))
-      walk(lowlight.highlight(language, code));
+   // Mermaid stays plain here: its grammar is only for showing a diagram's source.
+   const tree =
+      code.length <= MAX_CHARS && language !== "mermaid" ? highlight(code, language) : null;
+   if (tree) walk(tree);
    else add(code);
    return runs.flatMap(({ text, type }) =>
       text

@@ -1,4 +1,5 @@
 import type { SessionApi } from "@harness/api";
+import { errText } from "@harness/api";
 import { cn, Popover, PopoverAnchor, PopoverContent, ScrollArea } from "@harness/ui";
 import { ChevronDown, ChevronUp, Eye } from "lucide-react";
 import {
@@ -12,7 +13,7 @@ import {
    useState,
 } from "react";
 import { Frame, useWrapCode, WRAP, WrapButton } from "../markdown/CodeBlock";
-import { fileLanguage, highlightLines } from "../markdown/highlight";
+import { highlightLines, languageOf } from "../markdown/highlight";
 import { chipClick, chipOpen, chipPopover, closedChip } from "../prRefs/prChip";
 import { type FileRef, fileRefKey, lineLabel, parseFileRefKey, refWindow } from "./fileRefs";
 
@@ -169,7 +170,7 @@ function FileRefView({
       reader.open(slice?.path ?? ref.path, line).then(
          () => setError(null),
          (e) => {
-            setError(e instanceof Error ? e.message : String(e));
+            setError(errText(e));
             dispatch({ type: "toggle" });
          },
       );
@@ -291,7 +292,7 @@ function FileLines({
    const [win, setWin] = useState({ from: base.start, to: base.start + base.lines.length - 1 });
    const slice = useFileSlice(reader, base.path, win.from, win.to) ?? base;
    const { start: first, lines, total } = slice;
-   const rows = useMemo(() => highlightLines(fileLanguage(slice.path), lines), [lines, slice.path]);
+   const rows = useMemo(() => highlightLines(languageOf(slice.path), lines), [lines, slice.path]);
    if (!lines.length)
       return (
          <div className="px-3 py-2 text-xs text-muted-foreground">

@@ -41,8 +41,8 @@ export function useDragDelta(opts: DragOptions) {
 }
 
 type Options = {
-   /** localStorage key the width is kept under (per viewer). */
-   storageKey: string;
+   /** Where the width is kept (per viewer): 0 or out of range reads as `initial`. */
+   store: { get(): number; set(w: number): unknown };
    initial: number;
    min: number;
    max: number;
@@ -51,22 +51,12 @@ type Options = {
 };
 
 /** A panel width dragged from one of its edges (double-click resets), remembered per viewer. */
-export function useResizableWidth({ storageKey, initial, min, max, edge }: Options) {
+export function useResizableWidth({ store, initial, min, max, edge }: Options) {
    const [width, setWidth] = React.useState(() => {
-      try {
-         const w = Number(localStorage.getItem(storageKey));
-         return w >= min && w <= max ? w : initial;
-      } catch {
-         return initial;
-      }
+      const w = store.get();
+      return w >= min && w <= max ? w : initial;
    });
-   const save = (w: number) => {
-      try {
-         localStorage.setItem(storageKey, String(w));
-      } catch {
-         /* per-viewer convenience only */
-      }
-   };
+   const save = (w: number) => void store.set(w);
    const start = React.useRef(width);
    const last = React.useRef(width);
    const onPointerDown = useDragDelta({

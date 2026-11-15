@@ -1,4 +1,4 @@
-import { htmlFrameUrl, openExternalUrl, type StatePatchOp } from "@harness/api";
+import { errText, htmlFrameUrl, openExternalUrl, type StatePatchOp } from "@harness/api";
 import {
    createContext,
    useCallback,
@@ -8,6 +8,8 @@ import {
    useRef,
    useState,
 } from "react";
+import { hashText } from "../../lib/hash";
+import { lru } from "../../lib/lru";
 import { PanelContext } from "../../panels/PanelHeader";
 import { InExpanded } from "../markdown/Expandable";
 import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBridge";
@@ -15,8 +17,8 @@ import { buildSrcdoc, currentTheme, type FrameMessage, onceEach } from "./htmlBr
 const MAX_HEIGHT = 2000;
 /** Set in Tauri: the frame loads this and asks for its document. Otherwise the document goes in `srcdoc`. */
 const FRAME_URL = htmlFrameUrl();
-/** Last height by HTML: the chat's virtual list remounts rows; keep their height. */
-const heights = new Map<string, number>();
+/** Last height by the HTML's hash (not the document itself): the chat's virtual list remounts rows; keep their height. */
+const heights = lru<number>({ maxEntries: 2000, maxBytes: Number.POSITIVE_INFINITY });
 
 type Props = {
    html: string;
@@ -59,7 +61,10 @@ export function UiHtml(p: Props) {
    const fill = useContext(FillFrame);
    const latest = useRef(p);
    latest.current = p;
-   const [auto, setAuto] = useState(() => heights.get(p.html) ?? 120);
+   const htmlKey = useMemo(() => hashText(p.html), [p.html]);
+   const keyRef = useRef(htmlKey);
+   keyRef.current = htmlKey;
+   const [auto, setAuto] = useState(() => heights.get(htmlKey) ?? 120);
    const [error, setShown] = useState<string | null>(null);
    // Per document: new HTML may fix the errors, so it reports again.
    // biome-ignore lint/correctness/useExhaustiveDependencies: one reporter per document
@@ -92,13 +97,13 @@ export function UiHtml(p: Props) {
          if (!frame.current || e.source !== frame.current.contentWindow) return;
          const m = e.data as FrameMessage;
          const cur = latest.current;
-         const fail = (x: unknown) => setError(x instanceof Error ? x.message : String(x));
+         const fail = (x: unknown) => setError(errText(x));
          if (m?.type === "ready") {
             sent.current = doc.current;
             post({ type: "doc", html: doc.current });
          } else if (m?.type === "height" && typeof m.px === "number") {
             const px = Math.min(Math.max(m.px, 20), MAX_HEIGHT);
-            heights.set(cur.html, px);
+            heights.set(keyRef.current, px);
             setAuto(px);
          } else if (m?.type === "error") setError(String(m.message));
          else if (

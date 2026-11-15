@@ -87,22 +87,29 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
     };
 
     if let Some(option_id) = auto {
-        let _ =
-            session.log().append(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
-        let _ = session.log().append(
+        session
+            .log()
+            .append_or_report(thread.clone(), permission_requested(session, thread.as_ref(), request_id.clone(), tool_call, options.clone(), harness_tool));
+        session.log().append_or_report(
             thread.clone(),
             EventKind::PermissionResolved { request_id, option_id: Some(option_id.clone()), by: Resolver::Policy, rule_id: verdict.rule_id },
         );
-        let _ = session.log().sync();
-        let _ = responder.respond(acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id))));
+        // The Agent is answered only once the pair is durable.
+        let session = session.clone();
+        tokio::spawn(async move {
+            session.sync_log().await;
+            let _ =
+                responder.respond(acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id))));
+        });
         return;
     }
     let pending = Pending { thread: thread.clone(), responder: Answer::Acp(responder), options: options.clone(), facts };
     slot.add_pending(session, request_id.clone(), pending, || {
         let requested = permission_requested(session, thread.as_ref(), request_id, tool_call, options, harness_tool);
-        let _ = session.log().append(thread, requested);
+        session.log().append_or_report(thread, requested);
     });
-    let _ = session.log().sync();
+    // Not awaited: the user's answer syncs again (`resolve_permission`) before the Agent hears it.
+    session.sync_log_detached();
 }
 
 /// Checks a Harness MCP tool call against the Permission Policy, asking the user when the Policy
@@ -112,6 +119,23 @@ pub(super) fn on_permission(session: &Arc<Session>, req: acp::RequestPermissionR
 /// asking but log a `PermissionRequested` + `PermissionResolved` (by Policy, option "allow") pair so
 /// the UI can show why.
 pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, title: &str, kind: &str, args: &Value) -> anyhow::Result<()> {
+    authorize_at(session, thread, tool, title, kind, args, &[]).await
+}
+
+/// The kind of a request to copy a file from outside the Workspace Folder (`frontend_files`): it
+/// always asks the user, once per call, and has no "always" answer.
+pub const OUTSIDE_FILE_KIND: &str = "frontend_file";
+
+/// `authorize` for a request that names resolved file `locations`, shown to the user.
+pub async fn authorize_at(
+    session: &Arc<Session>,
+    thread: &ThreadId,
+    tool: &str,
+    title: &str,
+    kind: &str,
+    args: &Value,
+    locations: &[std::path::PathBuf],
+) -> anyhow::Result<()> {
     let meta = session.meta();
     let folder = std::path::PathBuf::from(&meta.folder);
     let tool_call = serde_json::json!({
@@ -119,23 +143,31 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
         "title": title,
         "kind": kind,
         "rawInput": args,
+        "locations": locations.iter().map(|p| serde_json::json!({ "path": p })).collect::<Vec<_>>(),
         "_meta": { "harnessTool": tool },
     });
-    let facts = crate::permissions::facts_of(&tool_call, &folder);
+    let mut facts = crate::permissions::facts_of(&tool_call, &folder);
+    // A Harness read names no path: it reads the Session's own Workspace and Threads.
+    if facts.kind.as_deref() == Some("read") && facts.paths.is_empty() {
+        facts.paths.push(folder.clone());
+    }
     let panels = session.panels_dir();
     let shared = session.attached_shared_dirs();
     let cx = crate::permissions::Context { session_id: &meta.id, agent_id: &meta.agent.id, folder: &folder, panels: Some(&panels), shared: &shared };
     let verdict = session.policy().evaluate(&cx, &facts);
     let request_id = uuid::Uuid::now_v7().to_string();
-    let options = vec![
+    let mut options = vec![
         PermissionOption { option_id: "allow".into(), name: "Allow".into(), kind: "allow_once".into(), plan_mode: None, clears_context: false },
         PermissionOption { option_id: "always".into(), name: "Always allow".into(), kind: "allow_always".into(), plan_mode: None, clears_context: false },
         PermissionOption { option_id: "reject".into(), name: "Deny".into(), kind: "reject_once".into(), plan_mode: None, clears_context: false },
     ];
+    if kind == OUTSIDE_FILE_KIND {
+        options.retain(|o| o.option_id != "always");
+    }
     let requested = permission_requested(session, Some(thread), request_id.clone(), tool_call, options.clone(), Some(tool.to_owned()));
     let passes = match verdict.decision {
         Decision::Allow => verdict.rule_id.is_some(),
-        Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" => {
+        Decision::Ask if verdict.rule_id.is_none() && kind != "switch_mode" && kind != OUTSIDE_FILE_KIND => {
             session.log().thread_mode(thread).ok().flatten().is_some_and(|m| crate::agent_quirks::auto_mode(&m))
         }
         _ => false,
@@ -149,6 +181,7 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
             Some(thread.clone()),
             EventKind::PermissionResolved { request_id, option_id: Some("allow".into()), by: Resolver::Policy, rule_id: verdict.rule_id },
         )?;
+        session.sync_log().await;
         return Ok(());
     }
     if verdict.decision == Decision::Deny {
@@ -157,16 +190,21 @@ pub async fn authorize(session: &Arc<Session>, thread: &ThreadId, tool: &str, ti
             Some(thread.clone()),
             EventKind::PermissionResolved { request_id, option_id: Some("reject".into()), by: Resolver::Policy, rule_id: verdict.rule_id },
         )?;
+        session.sync_log().await;
         anyhow::bail!("denied by the Harness Permission Policy");
     }
     let (tx, rx) = oneshot::channel();
     let pending = Pending { thread: Some(thread.clone()), responder: Answer::Local(tx), options, facts };
     let mut logged = Ok(());
-    session.agent_slot().add_pending(session, request_id, pending, || {
+    session.agent_slot().add_pending(session, request_id.clone(), pending, || {
         logged = session.log().append(Some(thread.clone()), requested).map(drop);
     });
-    logged?;
-    session.log().sync()?;
+    if let Err(e) = logged {
+        // Not asked, so nothing may stay pending for it.
+        session.agent_slot().remove_pending(session, &request_id);
+        return Err(e);
+    }
+    session.sync_log().await;
     match rx.await {
         Ok(Some(o)) if o != "reject" => Ok(()),
         Ok(Some(_)) => anyhow::bail!("the user denied this"),

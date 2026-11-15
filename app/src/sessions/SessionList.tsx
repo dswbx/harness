@@ -11,9 +11,9 @@ import {
    type Display,
    type GroupBy,
    groupSessions,
-   matches,
    nestSubSessions,
    type SortBy,
+   sessionMatches,
    type ViewOptions,
 } from "./sessionGroups";
 import { ViewOptionsButton } from "./ViewOptionsButton";
@@ -95,7 +95,7 @@ export function SessionList({
          subs: n.children,
       };
    }, [sessions, q, sort, group]);
-   const archived = sessions.filter((s) => s.archived && matches(s, q));
+   const archived = sessions.filter((s) => s.archived && sessionMatches(s, q));
    const empty = q !== "" && groups.every((g) => g.sessions.length === 0) && archived.length === 0;
    const toggle = (id: string) =>
       setCollapsed(collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id]);

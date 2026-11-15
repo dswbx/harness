@@ -1040,6 +1040,61 @@ async fn share_attach_and_search() {
     assert_eq!(shared_meta(&h, &meta.id).created_by.origin.as_deref(), Some("r1:diagram:0"), "read back");
 }
 
+fn file_requests(h: &Harness, sid: &str) -> Vec<(serde_json::Value, Vec<String>)> {
+    events(h, sid)
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::PermissionRequested { tool_call, options, .. } if tool_call["kind"] == "frontend_file" => {
+                Some((tool_call, options.into_iter().map(|o| o.option_id).collect()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_outside_the_folder_needs_approval_of_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    std::fs::write(other.path().join("shot.png"), b"png").unwrap();
+    let outside = other.path().join("shot.png");
+    let real = outside.canonicalize().unwrap();
+    let call = format!(r#"mcp json_render {{"title":"Hi","items":["x"],"image":{}}}"#, serde_json::to_string(&outside.display().to_string()).unwrap());
+    // A rule for Frontend Tools in general does not cover a file outside the folder.
+    h.execute(Command::AddPermissionRule {
+        rule: NewPermissionRule { scope: RuleScope::Global, tool_kind: Some("frontend_tool".into()), pattern: None, decision: Decision::Allow },
+    })
+    .await
+    .unwrap();
+
+    let denied = ask(&h, &sid, &call, Some("reject")).await;
+    assert!(denied.contains("the user denied this"), "{denied}");
+    let requests = file_requests(&h, &sid);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0["locations"][0]["path"], real.display().to_string(), "the resolved path is shown");
+    assert_eq!(requests[0].1, vec!["allow", "reject"], "no 'always' answer");
+    assert!(!events(&h, &sid).iter().any(|e| matches!(e.kind, EventKind::FrontendToolOutput { .. })));
+
+    let ok = ask(&h, &sid, &call, Some("allow")).await;
+    assert!(ok.starts_with("mcp: Done."), "{ok}");
+    assert_eq!(file_requests(&h, &sid).len(), 2, "asked again for the next call");
+    let files = events(&h, &sid)
+        .into_iter()
+        .find_map(|e| match e.kind {
+            EventKind::FrontendToolOutput { files, .. } => Some(files),
+            _ => None,
+        })
+        .unwrap();
+    let CommandResult::Attachment { data, .. } =
+        h.execute(Command::FrontendReadImage { session_id: sid.clone(), path: files[&outside.display().to_string()].clone() }).await.unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(data, "cG5n");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_tree_takes_its_state_and_images_and_a_new_root() {
     let dir = tempfile::tempdir().unwrap();
@@ -1282,6 +1337,37 @@ async fn sub_session_start_send_and_wait() {
     assert_eq!(foreign, format!("mcp error: Session {other} is not a Sub Session of this Session"));
     let foreign = ask(&h, &sid, &format!(r#"mcp session_send {{"id":"{other}","text":"x"}}"#), None).await;
     assert!(foreign.contains("is not a Sub Session"), "{foreign}");
+}
+
+/// A Sub Session killed mid-Turn (its log ends open) is idle again after a restart, so its parent can send to it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sub_session_killed_mid_turn_can_be_sent_to_after_a_restart() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo(dir.path());
+    let data = dir.path().join("data");
+    let h = harness(&data, &["--resume"]);
+    let sid = create(&h, &repo, vec![]).await;
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hello","title":"Child","notify":false}"#).await;
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    let evs = events(&h, &child);
+    let (seq, thread) = (evs.last().unwrap().seq, evs.iter().find_map(|e| e.thread_id.clone()).unwrap());
+    drop(h);
+    // The run died right after a Turn started: the log ends open.
+    let line = serde_json::json!({
+        "v": 1, "seq": seq + 1, "session_id": child, "thread_id": thread,
+        "ts_ms": 1, "kind": { "type": "TurnStarted", "turn_id": "killed", "text": "lost", "attachments": [] }
+    });
+    let mut f = std::fs::OpenOptions::new().append(true).open(data.join("sessions").join(&child).join("log.jsonl")).unwrap();
+    writeln!(f, "{line}").unwrap();
+    drop(f);
+
+    let h = harness(&data, &["--resume"]);
+    let sent = mcp_json(&h, &sid, &format!(r#"session_send {{"id":"{child}","text":"history"}}"#)).await;
+    assert_eq!(sent["session_id"], child.as_str(), "{sent}");
+    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    assert_eq!(done["status"], "idle", "{done}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

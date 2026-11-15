@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type Item, initialState } from "../../state/reducer";
 import { reduce } from "../renderUi/chatReducer";
 import { splitRenderUi } from "../renderUi/slots";
-import { chatRows, chatRowsOf, renderUiOf } from "./chatRows";
+import { chatRows, chatRowsOf, renderUiOf, stabilizeRows } from "./chatRows";
 
 type Tool = Extract<Item, { type: "tool" }>;
 type Perm = Extract<Item, { type: "permission" }>;
@@ -197,5 +197,47 @@ describe("shared computation", () => {
       expect(chatRowsOf(items, renderUiOf(items, [{ id: "x", ts: 1 }]))).not.toBe(a);
       const other = [...items];
       expect(chatRowsOf(other, renderUiOf(other, []))).not.toBe(a);
+   });
+});
+
+describe("stabilizeRows", () => {
+   const rowsOf = (items: Item[]) => chatRows(items, splitRenderUi(items));
+   const task = tool("task", { subagentPrompt: "do it" });
+   const c1 = tool("c1", { parent: "task" });
+
+   it("keeps what did not change: groups, the rows array and the subagents map", () => {
+      const items: Item[] = [tool("t1"), tool("t2"), task, c1];
+      const a = stabilizeRows(null, rowsOf(items));
+      const b = stabilizeRows(a, rowsOf([...items]));
+      expect(b.rows).toBe(a.rows);
+      expect(b.subagents).toBe(a.subagents);
+   });
+   it("a new step makes a new group and leaves the others as they were", () => {
+      const items: Item[] = [tool("t1"), { type: "user", id: "u", text: "x" } as Item, tool("t2")];
+      const a = stabilizeRows(null, rowsOf(items));
+      const b = stabilizeRows(a, rowsOf([...items, tool("t3")]));
+      expect(b.rows).not.toBe(a.rows);
+      expect(b.rows[0]).toBe(a.rows[0]);
+      expect(b.rows[1]).toBe(a.rows[1]);
+      expect(b.rows[2]).not.toBe(a.rows[2]);
+      expect((b.rows[2] as { steps: unknown[] }).steps).toHaveLength(2);
+   });
+   it("a changed call replaces its group and its subagent, not the other subagents", () => {
+      const other = tool("other", { subagentPrompt: "x" });
+      const o1 = tool("o1", { parent: "other" });
+      const items: Item[] = [task, c1, other, o1];
+      const a = stabilizeRows(null, rowsOf(items));
+      const c2 = tool("c2", { parent: "task" });
+      const b = stabilizeRows(a, rowsOf([...items, c2]));
+      expect(b.subagents).not.toBe(a.subagents);
+      expect(b.subagents.get("other")).toBe(a.subagents.get("other"));
+      expect(b.subagents.get("task")).not.toBe(a.subagents.get("task"));
+      expect(b.subagents.get("task")?.calls).toHaveLength(2);
+   });
+   it("a subagent that goes away is gone", () => {
+      const a = stabilizeRows(null, rowsOf([task, c1]));
+      const b = stabilizeRows(a, rowsOf([tool("t1")]));
+      expect(b.subagents.size).toBe(0);
+      expect(b.rows.map((r) => r.id)).toEqual(["t1"]);
    });
 });

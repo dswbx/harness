@@ -1,4 +1,4 @@
-import { inTauri, revealPath, type SessionApi } from "@harness/api";
+import { errText, inTauri, revealPath, type SessionApi } from "@harness/api";
 import {
    cn,
    DropdownMenuItem,
@@ -95,7 +95,7 @@ export function PlanPanel({
         )
       : undefined;
    const [error, setError] = useState<string | null>(null);
-   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+   const fail = (e: unknown) => setError(errText(e));
    const exportFile = (open: boolean) =>
       entry ? api.exportPlan(`plan-v${entry.version}`, entry.markdown, open) : Promise.resolve("");
    const menu = entry ? (

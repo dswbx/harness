@@ -141,5 +141,23 @@
       "doc": { "a": { "x": 1 } },
       "ops": [{ "op": "test", "path": "/a", "value": { "x": 1, "y": 1 } }],
       "error": "test failed"
+   },
+   {
+      "name": "remove of a top-level key",
+      "doc": { "a": 1, "b": { "c": 2 } },
+      "ops": [{ "op": "remove", "path": "/a" }],
+      "expect": { "b": { "c": 2 } }
+   },
+   {
+      "name": "remove of a missing top-level key does nothing",
+      "doc": { "a": 1 },
+      "ops": [{ "op": "remove", "path": "/zz" }],
+      "expect": { "a": 1 }
+   },
+   {
+      "name": "the empty key is an ordinary key: remove of / drops it",
+      "doc": { "": 1, "a": 2 },
+      "ops": [{ "op": "remove", "path": "/" }],
+      "expect": { "a": 2 }
    }
 ]

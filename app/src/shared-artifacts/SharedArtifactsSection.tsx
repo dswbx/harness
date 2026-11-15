@@ -1,9 +1,8 @@
-import type { SharedArtifactEntry } from "@harness/api";
+import { formatAge, formatDateTime, type SharedArtifactEntry, storedValue } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, Search, Share2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStored } from "../platform/useStored";
-import { relativeTime } from "../sessions/sessionGroups";
 import {
    hasChanged,
    isSharedSeen,
@@ -13,6 +12,8 @@ import {
 } from "./sharedSection";
 
 const SEEN_KEY = "harness.sharedArtifacts.seen";
+// Only asked whether it exists yet (useStored keeps the value).
+const seenStore = storedValue<null>({ key: SEEN_KEY, scope: "app", parse: () => null });
 const isBool = (v: unknown): v is boolean => typeof v === "boolean";
 
 /**
@@ -42,11 +43,7 @@ export function SharedArtifactsSection({
 
    // Keep the first `since`, so a reload does not hide what changed while the app was closed.
    useEffect(() => {
-      try {
-         if (localStorage.getItem(SEEN_KEY) === null) setSeen(seen);
-      } catch {
-         /* per-window convenience only */
-      }
+      if (!seenStore.has()) setSeen(seen);
    }, [seen, setSeen]);
 
    // Opening an artifact marks it seen, and so does each change while it is open.
@@ -166,9 +163,11 @@ export function SharedArtifactsSection({
                                        className="size-2 shrink-0 rounded-full bg-sky-500"
                                     />
                                  )}
-                                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
-                                    {relativeTime(e.meta.updated_ms, now)}
-                                 </span>
+                                 <Tooltip content={formatDateTime(e.meta.updated_ms)}>
+                                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
+                                       {formatAge(e.meta.updated_ms, now)}
+                                    </span>
+                                 </Tooltip>
                               </button>
                            </li>
                         );

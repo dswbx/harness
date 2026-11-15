@@ -8,6 +8,9 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type")]
 pub enum Command {
+    /// Settings files that did not load, once each: reset to defaults, the file kept. Call after
+    /// subscribing to AppEvents and again on `NoticesChanged`.
+    TakeNotices,
     ListAgents,
     /// ACP Registry entries, from the local cache unless `refresh`.
     ListRegistry {

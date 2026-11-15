@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::cmd::{current_branch, git, git_env, repo_root, rev};
+use super::cmd::{current_branch, git, git_env, git_with, repo_root, rev};
 use super::parse::{parse_branch, parse_diff_files, parse_log, parse_status};
 use crate::api::{BranchInfo, Branches, Commit, Diff, GitStatus};
 
@@ -93,7 +93,9 @@ pub async fn diff_base(dir: &Path, base: Option<&str>) -> anyhow::Result<String>
         let mut refs = base_refs(dir, base).await;
         if refs.is_empty() {
             for remote in git(dir, &["remote"]).await.unwrap_or_default().lines() {
-                let _ = git(dir, &["fetch", "--quiet", "--no-tags", remote, &format!("refs/heads/{base}:refs/remotes/{remote}/{base}")]).await;
+                // A failed or slow fetch is skipped; each is bounded and killed on timeout.
+                let spec = format!("refs/heads/{base}:refs/remotes/{remote}/{base}");
+                let _ = git_with(dir, &["fetch", "--quiet", "--no-tags", remote, &spec], &[], crate::proc::NETWORK).await;
             }
             refs = base_refs(dir, base).await;
         }
@@ -160,7 +162,7 @@ pub async fn commit(dir: &Path, message: &str) -> anyhow::Result<String> {
 }
 
 pub async fn push(dir: &Path) -> anyhow::Result<String> {
-    let branch = current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("HEAD is detached"))?;
+    let branch = current_branch(dir).await?.ok_or_else(|| crate::error::invalid("HEAD is detached"))?;
     git(dir, &["push", "-u", "origin", &branch]).await?;
     Ok(branch)
 }

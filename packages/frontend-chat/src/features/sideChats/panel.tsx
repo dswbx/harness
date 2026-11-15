@@ -1,7 +1,7 @@
 import type { AttachmentInput } from "@harness/api";
+import { errText } from "@harness/api";
 import { MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage } from "../../lib/errors";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { changesPanel } from "../changes/panel";
 import { clearDraft } from "../prompt/drafts";
@@ -115,7 +115,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             try {
                ({ thread_id } = await api.startSideThread(s));
             } catch (e) {
-               setError(errorMessage(e));
+               setError(errText(e));
                throw e;
             }
             // A draft tab that closed meanwhile does not take it: a new tab opens, and shows the panel.

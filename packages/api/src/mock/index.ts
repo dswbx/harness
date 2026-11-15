@@ -4,6 +4,7 @@
 //   /readonly      the Agent lost its session: the Thread turns read-only
 //   /restorefail   a resume fails once; the next try works
 //   /apprestart    the app was reopened: the Agent process is gone
+//   /unsaved       the Session Log cannot be written (toast); again: it can be
 //   /auth          the Agent needs sign-in (AuthRequired)
 //   /quiz          a practice test built with Session State and slots (render_ui)
 //   /artifacts     a reply with a diagram, a table and a pull request (Artifacts panel)

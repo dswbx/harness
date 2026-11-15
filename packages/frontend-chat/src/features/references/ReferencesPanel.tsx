@@ -1,4 +1,4 @@
-import { displayRef, openExternalUrl, prKey } from "@harness/api";
+import { displayRef, formatAge, formatDateTime, openExternalUrl, prKey } from "@harness/api";
 import { Button, cn, DropdownMenuItem, ScrollArea, Tooltip } from "@harness/ui";
 import {
    ChevronDown,
@@ -29,7 +29,6 @@ import { localPref } from "../../lib/localPref";
 import { useNow } from "../../lib/time";
 import { PanelHeader } from "../../panels/PanelHeader";
 import type { Item } from "../../state/reducer";
-import { age } from "../artifacts/ArtifactsPanel";
 import { FilePreview, type FileReader, useFileRefs } from "../files/FileRef";
 import { type FileRef, lineLabel, refWindow } from "../files/fileRefs";
 import { usePrRefs } from "../prRefs/prRefs";
@@ -299,7 +298,11 @@ function ListRow({ r, selected, onOpen }: { r: Reference; selected: boolean; onO
                </span>
                {r.kind === "code" && r.changed && <Changed />}
                <CountBadge r={r} />
-               <span className="shrink-0 text-xs text-muted-foreground">{age(r.ts, now)}</span>
+               <Tooltip content={formatDateTime(r.ts)}>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                     {formatAge(r.ts, now)}
+                  </span>
+               </Tooltip>
             </span>
             <span className="flex items-center gap-2">
                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

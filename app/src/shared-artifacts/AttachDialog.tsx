@@ -1,4 +1,4 @@
-import { errText, type SessionSummary } from "@harness/api";
+import { baseName, errText, formatAge, type SessionSummary } from "@harness/api";
 import {
    cn,
    Dialog,
@@ -11,7 +11,7 @@ import {
 } from "@harness/ui";
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
-import { folderName, matches, relativeTime } from "../sessions/sessionGroups";
+import { sessionMatches } from "../sessions/sessionGroups";
 
 /** "Attach to Session…" for a Shared Artifact (ADR 0024): pick a Session, newest first. */
 export function AttachDialog({
@@ -38,7 +38,9 @@ export function AttachDialog({
       }
    }, [open]);
    const q = query.trim().toLowerCase();
-   const rows = sessions.filter((s) => matches(s, q)).sort((a, b) => b.updated_ms - a.updated_ms);
+   const rows = sessions
+      .filter((s) => sessionMatches(s, q))
+      .sort((a, b) => b.updated_ms - a.updated_ms);
    const pickable = rows.filter((s) => !attached.includes(s.id));
    const pick = (id: string) => {
       setBusy(true);
@@ -93,8 +95,8 @@ export function AttachDialog({
                            </span>
                         ) : (
                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {s.quick ? "Quick" : folderName(s.folder)} ·{" "}
-                              {relativeTime(s.updated_ms, now)}
+                              {s.quick ? "Quick" : baseName(s.folder)} ·{" "}
+                              {formatAge(s.updated_ms, now)}
                            </span>
                         )}
                      </button>

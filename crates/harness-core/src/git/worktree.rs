@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::cmd::{current_branch, git, rev};
+use super::cmd::{current_branch, git, git_with, rev};
 use super::diff::base_refs;
 
 /// A Worktree the Harness created for one Session.
@@ -30,7 +30,7 @@ pub async fn create_worktree(
 ) -> anyhow::Result<WorktreeMeta> {
     let base = match base {
         Some(b) => rev(&b)?.to_owned(),
-        None => current_branch(repo_root).await?.ok_or_else(|| anyhow::anyhow!("HEAD is detached; pick a base branch"))?,
+        None => current_branch(repo_root).await?.ok_or_else(|| crate::error::invalid("HEAD is detached; pick a base branch"))?,
     };
     let branch = branch.unwrap_or_else(|| format!("harness/{slug}-{short_id}"));
     if let Some(parent) = path.parent() {
@@ -58,10 +58,9 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
     let (remote, branch) = tracking.unwrap_or(("origin", base));
     let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
     let args = ["fetch", "--quiet", "--no-tags", remote, &spec];
-    match tokio::time::timeout(std::time::Duration::from_secs(15), git(repo_root, &args)).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(e)) => tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}"),
-        Err(_) => tracing::warn!("fetching {remote}/{branch} timed out, using the last known copy"),
+    // Bounded: a timeout kills the fetch (and its hooks and credential helpers), not just stops waiting.
+    if let Err(e) = git_with(repo_root, &args, &[], std::time::Duration::from_secs(15)).await {
+        tracing::warn!("fetching {remote}/{branch} failed, using the last known copy: {e:#}");
     }
     if tracking.is_some() {
         return base.to_owned();
@@ -73,7 +72,7 @@ async fn worktree_start(repo_root: &Path, base: &str) -> String {
 /// Creates `branch` from `base` (default: HEAD) and switches the folder to it; uncommitted
 /// changes come along.
 pub async fn create_branch(dir: &Path, branch: &str, base: Option<&str>) -> anyhow::Result<()> {
-    git(dir, &["check-ref-format", "--branch", branch]).await.map_err(|_| anyhow::anyhow!("{branch:?} is not a valid branch name"))?;
+    git(dir, &["check-ref-format", "--branch", branch]).await.map_err(|_| crate::error::invalid(format!("{branch:?} is not a valid branch name")))?;
     let mut args = vec!["switch", "-c", branch];
     if let Some(base) = base {
         args.extend(["--end-of-options", rev(base)?]);
@@ -84,10 +83,9 @@ pub async fn create_branch(dir: &Path, branch: &str, base: Option<&str>) -> anyh
 
 /// Switches a plain folder to `branch`; refuses when the working tree has changes.
 pub async fn checkout(dir: &Path, branch: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        git(dir, &["status", "--porcelain"]).await?.trim().is_empty(),
-        "the folder has uncommitted changes; commit or stash them, or use a Worktree"
-    );
+    if !git(dir, &["status", "--porcelain"]).await?.trim().is_empty() {
+        return Err(crate::error::conflict("the folder has uncommitted changes; commit or stash them, or use a Worktree"));
+    }
     git(dir, &["checkout", "--end-of-options", rev(branch)?]).await?;
     Ok(())
 }
@@ -109,20 +107,17 @@ pub const DEFAULT_WORKTREE_DIR: &str = ".harness";
 
 /// The Worktree folder setting (`<data dir>/worktree_dir.json`), else `DEFAULT_WORKTREE_DIR`.
 pub fn worktree_dir(data_dir: &Path) -> String {
-    std::fs::read(data_dir.join("worktree_dir.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<String>(&b).ok())
+    crate::persist::JsonFile::<String>::in_dir(data_dir, "worktree_dir.json")
+        .load_logged()
         .filter(|d| !d.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_WORKTREE_DIR.to_owned())
 }
 
 pub fn set_worktree_dir(data_dir: &Path, dir: Option<&str>) -> anyhow::Result<()> {
-    let path = data_dir.join("worktree_dir.json");
+    let file = crate::persist::JsonFile::<String>::in_dir(data_dir, "worktree_dir.json");
     match dir.map(str::trim).filter(|d| !d.is_empty() && *d != DEFAULT_WORKTREE_DIR) {
-        Some(d) => crate::fsutil::write_atomic(&path, &serde_json::to_vec(d)?)?,
-        None => {
-            let _ = std::fs::remove_file(path);
-        }
+        Some(d) => file.save(&d.to_owned())?,
+        None => file.remove(),
     }
     Ok(())
 }
@@ -217,6 +212,18 @@ pub async fn update_branch(dir: &Path, branch: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn worktree_dir_file_round_trips_and_ignores_a_corrupt_one() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("worktree_dir.json"), r#""../wt""#).unwrap();
+        assert_eq!(worktree_dir(d.path()), "../wt");
+        set_worktree_dir(d.path(), Some(" ../other ")).unwrap();
+        assert_eq!(std::fs::read_to_string(d.path().join("worktree_dir.json")).unwrap(), "\"../other\"");
+        std::fs::write(d.path().join("worktree_dir.json"), b"\"unterminated").unwrap();
+        assert_eq!(worktree_dir(d.path()), DEFAULT_WORKTREE_DIR);
+        set_worktree_dir(d.path(), None).unwrap();
+    }
     use super::*;
 
     #[test]

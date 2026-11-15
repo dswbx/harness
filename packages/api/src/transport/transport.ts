@@ -51,24 +51,27 @@ export async function subscribeResilient(
    let next = fromSeq;
    let stopped = false;
    let off: Unsubscribe | null = null;
+   // Opens can resolve out of order: a handle of an older open is closed as soon as it arrives.
+   let generation = 0;
    const open = async (): Promise<void> => {
+      const mine = ++generation;
       const handle = await transport.subscribe(
          sessionId,
          next,
          (e) => {
             // A late Event of a dropped subscription, or a replay overlap: already delivered.
-            if (stopped || e.seq < next) return;
+            if (stopped || mine !== generation || e.seq < next) return;
             next = e.seq + 1;
             onEvent(e);
          },
          () => {
-            if (stopped) return;
+            if (stopped || mine !== generation) return;
             off?.();
             off = null;
             void reopen(0);
          },
       );
-      if (stopped) handle();
+      if (stopped || mine !== generation) handle();
       else off = handle;
    };
    const reopen = async (attempt: number): Promise<void> => {

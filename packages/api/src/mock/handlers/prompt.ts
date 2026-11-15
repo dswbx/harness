@@ -66,17 +66,18 @@ export function promptSide(
          60 * (i + 1),
       ),
    );
-   setTimeout(
-      () => mock.emit(sid, { type: "TurnEnded", turn_id: turn, stop_reason: "end_turn" }, thread),
-      60 * (words.length + 1),
-   );
+   turnStarted(mock, sid);
+   setTimeout(() => turnEnded(mock, sid, thread, turn), 60 * (words.length + 1));
    return { type: "Ok" };
 }
 
-export function setStatus(mock: MockTransport, id: string, status: SessionSummary["status"]) {
-   const s = mock.session(id);
+/** Like the core: a change is logged (`SessionStatusChanged`) and then announced; no change, nothing. */
+function setStatus(mock: MockTransport, id: string, status: SessionSummary["status"]) {
+   const s = mock.sessions.find((x) => x.id === id);
+   if (!s || s.status === status) return;
    s.status = status;
    s.updated_ms = Date.now();
+   mock.emit(id, { type: "SessionStatusChanged", status }, null);
    mock.emitApp({
       type: "SessionStatus",
       session_id: id,
@@ -86,18 +87,54 @@ export function setStatus(mock: MockTransport, id: string, status: SessionSummar
    });
 }
 
+/** A Turn is logged as started: the Session counts it and is working. */
+function turnStarted(mock: MockTransport, sid: string) {
+   mock.turns.set(sid, (mock.turns.get(sid) ?? 0) + 1);
+   setStatus(mock, sid, "working");
+}
+
+/**
+ * A Turn ends, in the core's order: the Session stops counting it (and goes idle, or stays
+ * `needs_attention`), `TurnEnded` is logged, then `TurnFinished` is announced.
+ */
+function turnEnded(
+   mock: MockTransport,
+   sid: string,
+   thread: string,
+   turn_id: string,
+   attention = false,
+) {
+   const left = Math.max(0, (mock.turns.get(sid) ?? 1) - 1);
+   mock.turns.set(sid, left);
+   setStatus(mock, sid, attention ? "needs_attention" : left > 0 ? "working" : "idle");
+   mock.emit(sid, { type: "TurnEnded", turn_id, stop_reason: "end_turn" }, thread);
+   const s = mock.sessions.find((x) => x.id === sid);
+   if (s)
+      mock.emitApp({
+         type: "TurnFinished",
+         session_id: sid,
+         thread_id: thread,
+         title: s.title,
+         stop_reason: "end_turn",
+      });
+}
+
 export const promptHandlers = {
    ReadImageFile: () => {
       throw new CommandError("internal", "no file access in the browser mock");
    },
    ReadAttachment: (mock, cmd) => {
       const a = mock.attachments.get(cmd.path);
-      if (!a) throw new CommandError("internal", "not an attachment of this Session");
+      if (!a) throw new CommandError("not_found", "not an attachment of this Session");
       return { type: "Attachment", mime: a.mime, data: a.data };
    },
    Prompt: async (mock, cmd) => {
       const sid = cmd.session_id;
       const used = mock.session(sid);
+      if (used.archived)
+         throw new CommandError("conflict", "this Session is archived; unarchive it first");
+      if (cmd.thread_id && !mock.logs.get(sid)?.some((e) => e.thread_id === cmd.thread_id))
+         throw new CommandError("not_found", `unknown thread ${cmd.thread_id}`);
       if (used.unused) {
          // Like the core: a prompt on any Thread uses the Session; only a Main Thread prompt
          // replaces a placeholder title.
@@ -151,7 +188,10 @@ export const promptHandlers = {
             errors: ["resume: Internal error"],
             transcript: { kept_turns: 18, total_turns: 42 },
          });
-         throw new CommandError("internal", "The Agent could not reopen its earlier session.");
+         throw new CommandError(
+            "agent_unavailable",
+            "The Agent could not reopen its earlier session. Try again, or continue from a transcript.",
+         );
       }
       if (cmd.text.trim() === "/restorefail")
          mock.emit(sid, {
@@ -165,6 +205,18 @@ export const promptHandlers = {
             type: "AgentProcessState",
             state: "stopped",
             message: "app_restart",
+         });
+         return { type: "Ok" };
+      }
+      // Typing "/unsaved" simulates a Session Log that cannot be written; typing it again, that it can be again.
+      if (cmd.text.trim() === "/unsaved") {
+         const s = mock.session(sid);
+         s.log_error = s.log_error ? null : "No space left on device (os error 28)";
+         mock.emitApp({
+            type: "SessionLogHealth",
+            session_id: sid,
+            error: s.log_error,
+            dropped: s.log_error ? 0 : 3,
          });
          return { type: "Ok" };
       }
@@ -394,7 +446,6 @@ export const promptHandlers = {
          return { type: "Ok" };
       }
       const turn = `t${mock.logs.get(sid)!.length}`;
-      setStatus(mock, sid, "working");
       const attachments = (cmd.attachments ?? []).map((a) => storeAttachment(mock, a));
       const first = !mock.logs.get(sid)!.some((e) => e.kind.type === "TurnStarted");
       const context = first
@@ -407,6 +458,7 @@ export const promptHandlers = {
          attachments,
          context,
       });
+      turnStarted(mock, sid);
       const words =
          `You said: **${cmd.text}**. This is a mock reply.\n\n- streamed\n- in chunks`.split(
             /(?<= )/,
@@ -424,16 +476,8 @@ export const promptHandlers = {
             to_tree: "tree-b",
             files: MOCK_FILES,
          });
-         mock.emit(sid, { type: "TurnEnded", turn_id: turn, stop_reason: "end_turn" });
-         mock.emitApp({
-            type: "TurnFinished",
-            session_id: sid,
-            thread_id: mock.mainThread(sid),
-            title: mock.session(sid).title,
-            stop_reason: "end_turn",
-         });
          // Typing "attention" in a prompt leaves the mock Session needing attention.
-         setStatus(mock, sid, cmd.text.includes("attention") ? "needs_attention" : "idle");
+         turnEnded(mock, sid, mock.mainThread(sid), turn, cmd.text.includes("attention"));
       }, end);
       return { type: "Ok" };
    },

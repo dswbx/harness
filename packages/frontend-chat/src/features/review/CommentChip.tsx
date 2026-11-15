@@ -1,7 +1,8 @@
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { ClipboardList, Layers, MessageSquare, X } from "lucide-react";
 import { useFileView } from "../files/FileRef";
-import { InlineMarkdown, Markdown } from "../markdown/Markdown";
+import { InlineMarkdown } from "../markdown/InlineMarkdown";
+import { Markdown } from "../markdown/Markdown";
 import type { ReviewComment } from "./reviewComments";
 
 const sourceIcon = (c: ReviewComment) =>
@@ -90,7 +91,7 @@ export function CommentChip({
             )}
             {c.text && (
                <span className="min-w-0 max-w-64 truncate">
-                  <InlineMarkdown>{c.text}</InlineMarkdown>
+                  <InlineMarkdown variant="quiet">{c.text}</InlineMarkdown>
                </span>
             )}
             {onRemove && (

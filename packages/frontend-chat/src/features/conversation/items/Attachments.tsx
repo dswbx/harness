@@ -2,21 +2,15 @@ import type { Attachment, SessionApi } from "@harness/api";
 import { Dialog, DialogContent, DialogTitle, Tooltip } from "@harness/ui";
 import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
-
-/** Stored image path -> data URL, so thumbnails load once per window. */
-const imageCache = new Map<string, Promise<string>>();
+import { cachedImage } from "../../../lib/imageCache";
 
 function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
    const [url, setUrl] = useState<string | null>(null);
    const [failed, setFailed] = useState(false);
    const [open, setOpen] = useState(false);
    useEffect(() => {
-      let p = imageCache.get(a.path);
-      if (!p) {
-         p = api.readAttachment(a.path).then((r) => `data:${r.mime};base64,${r.data}`);
-         p.catch(() => imageCache.delete(a.path));
-         imageCache.set(a.path, p);
-      }
+      // Thumbnails load once while they are among the recent ones.
+      const p = cachedImage(`attachment:${a.path}`, () => api.readAttachment(a.path));
       let live = true;
       p.then(
          (u) => live && setUrl(u),

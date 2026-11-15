@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::Session;
@@ -29,9 +30,6 @@ pub struct FrontendItem {
 pub const RENDER_UI: &str = "render_ui";
 
 /// A `FrontendError` not cleared yet.
-/// Frontend Tool items by `(tool, item id)`, with the Thread of their latest call.
-type FrontendItems = HashMap<(String, String), ThreadId>;
-
 #[derive(Debug, Clone)]
 pub struct FrontendErrorEntry {
     pub seq: u64,
@@ -67,7 +65,7 @@ impl FrontendRequests {
         emit(request_id);
         match tokio::time::timeout(timeout, rx).await {
             Ok(answer) => Ok(answer?),
-            Err(_) => anyhow::bail!("No app window answered in time. The window may be closed or the Mac asleep."),
+            Err(_) => Err(crate::error::timeout("No app window answered in time. The window may be closed or the Mac asleep.")),
         }
     }
 
@@ -124,20 +122,40 @@ impl Session {
         let call_id = uuid::Uuid::now_v7().to_string();
         let rel = format!("tools/{tool}/{call_id}.json");
         let path = self.dir.join("frontend").join(&rel);
-        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        std::fs::create_dir_all(crate::fsutil::parent_of(&path)?)?;
         std::fs::write(&path, serde_json::to_vec_pretty(&input)?)?;
         self.log.append(Some(thread.clone()), EventKind::FrontendToolOutput { tool: tool.to_owned(), call_id, path: rel.clone(), input, files })?;
         Ok(rel)
     }
 
-    /// A path inside `frontend/`; refuses absolute paths and `..`.
+    /// The Session's `frontend/` directory, created if missing. It must be a real directory (not
+    /// a link) inside the Session Directory.
+    pub(crate) fn frontend_root(&self) -> anyhow::Result<PathBuf> {
+        let root = self.dir.join("frontend");
+        std::fs::create_dir_all(&root)?;
+        let plain = std::fs::symlink_metadata(&root)?.file_type().is_dir();
+        let inside = matches!((root.canonicalize(), self.dir.canonicalize()), (Ok(r), Ok(d)) if r == d.join("frontend"));
+        anyhow::ensure!(plain && inside, "the Frontend's directory is not a plain directory of the Session");
+        Ok(root)
+    }
+
+    /// A path inside `frontend/`; refuses absolute paths and `..`, and a path whose resolved real
+    /// location (symbolic links followed; for a missing path its nearest existing ancestor) is not
+    /// below the real `frontend/` directory.
     pub(crate) fn frontend_path(&self, rel: &str) -> anyhow::Result<PathBuf> {
         let p = Path::new(rel);
-        anyhow::ensure!(
-            p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)),
-            "{rel} is outside the Frontend's directory"
-        );
-        Ok(self.dir.join("frontend").join(p))
+        if !p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)) {
+            return Err(crate::error::policy_denied(format!("{rel} is outside the Frontend's directory")));
+        }
+        let root = self.frontend_root()?;
+        let path = root.join(p);
+        if p.components().all(|c| matches!(c, std::path::Component::CurDir)) {
+            return Ok(path);
+        }
+        if crate::fsutil::resolve_below_via_ancestor(&root, &path).is_none() {
+            return Err(crate::error::policy_denied(format!("{rel} is outside the Frontend's directory")));
+        }
+        Ok(path)
     }
 
     pub fn frontend_read(&self, rel: &str) -> anyhow::Result<String> {
@@ -155,7 +173,9 @@ impl Session {
 
     /// Applies `ops` to the Session State (all or nothing), stores it and logs `StateChanged`.
     pub fn patch_state(&self, thread: Option<ThreadId>, ops: Vec<crate::api::StatePatchOp>, by: crate::api::StateWriter) -> anyhow::Result<serde_json::Value> {
-        anyhow::ensure!(!ops.is_empty(), "no operations");
+        if ops.is_empty() {
+            return Err(crate::error::invalid("no operations"));
+        }
         let _guard = self.state_lock.lock();
         let next = crate::state::apply(&self.state()?, &ops)?;
         crate::fsutil::write_atomic(&self.dir.join("state.json"), &serde_json::to_vec_pretty(&next)?)?;
@@ -165,64 +185,19 @@ impl Session {
 
     /// Frontend Tool calls that named an `id` and were not removed since (`remove: true`), in the
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
-    pub fn frontend_items(&self) -> anyhow::Result<Vec<FrontendItem>> {
-        let mut items: Vec<FrontendItem> = Vec::new();
-        for e in self.log.events()? {
-            let EventKind::FrontendToolOutput { tool, input, files, .. } = e.kind else { continue };
-            let Some(id) = input.get("id").and_then(|v| v.as_str()).map(str::to_owned) else { continue };
-            let at = items.iter().position(|x| x.tool == tool && x.id == id);
-            match (input.get("remove") == Some(&serde_json::Value::Bool(true)), at) {
-                (true, Some(i)) => {
-                    items.remove(i);
-                }
-                (true, None) => {}
-                (false, Some(i)) => {
-                    items[i] = FrontendItem { tool, id, input, ts_ms: e.ts_ms, thread: e.thread_id, files };
-                }
-                (false, None) => items.push(FrontendItem { tool, id, input, ts_ms: e.ts_ms, thread: e.thread_id, files }),
-            }
-        }
-        Ok(items)
+    pub fn frontend_items(&self) -> anyhow::Result<Vec<Arc<FrontendItem>>> {
+        self.log.frontend_items()
     }
 
-    /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since: a
-    /// new call with the item's id, or its removal, clears them. Also the items errors can be
-    /// reported for, with the Thread of their latest call.
-    fn frontend_error_scan(&self) -> anyhow::Result<(FrontendItems, Vec<FrontendErrorEntry>)> {
-        let mut items: FrontendItems = HashMap::new();
-        let mut errors: Vec<FrontendErrorEntry> = Vec::new();
-        for e in self.log.events()? {
-            match e.kind {
-                EventKind::FrontendToolOutput { tool, call_id, input, .. } => {
-                    let Some(thread) = e.thread_id else { continue };
-                    match input.get("id").and_then(|v| v.as_str()) {
-                        Some(id) => {
-                            errors.retain(|x| !(x.tool == tool && x.item == id));
-                            let key = (tool, id.to_owned());
-                            if input.get("remove") == Some(&serde_json::Value::Bool(true)) {
-                                items.remove(&key);
-                            } else {
-                                items.insert(key, thread);
-                            }
-                        }
-                        None => {
-                            items.insert((tool, call_id), thread);
-                        }
-                    }
-                }
-                EventKind::FrontendError { tool, item, message } => {
-                    errors.push(FrontendErrorEntry { seq: e.seq, thread: e.thread_id.unwrap_or_default(), tool, item, message })
-                }
-                _ => {}
-            }
-        }
-        errors.retain(|x| items.contains_key(&(x.tool.clone(), x.item.clone())));
-        Ok((items, errors))
+    /// One live Frontend Tool item by tool and id.
+    pub fn frontend_item(&self, tool: &str, id: &str) -> anyhow::Result<Option<Arc<FrontendItem>>> {
+        self.log.frontend_item(tool, id)
     }
 
-    /// Current errors of Frontend Tool items, oldest first (see `frontend_error_scan`).
+    /// Errors the UI reported for Frontend Tool items (`FrontendError`) and not cleared since, oldest
+    /// first: a new call with the item's id, or its removal, clears them.
     pub fn frontend_errors(&self) -> anyhow::Result<Vec<FrontendErrorEntry>> {
-        Ok(self.frontend_error_scan()?.1)
+        Ok(self.log.frontend_state()?.1)
     }
 
     /// Logs `FrontendError` for a live item (its `id`, or the call id of a call without one), on
@@ -230,18 +205,18 @@ impl Session {
     /// than `MAX_FRONTEND_ERRORS` per item; cuts long messages.
     pub fn report_frontend_error(&self, tool: &str, item: &str, message: &str) -> anyhow::Result<()> {
         let mut message = message.trim().to_owned();
-        anyhow::ensure!(!message.is_empty(), "message is required");
+        if message.is_empty() {
+            return Err(crate::error::invalid("message is required"));
+        }
         if message.len() > MAX_FRONTEND_ERROR_LEN {
             message.truncate(message.floor_char_boundary(MAX_FRONTEND_ERROR_LEN));
             message.push('…');
         }
-        let (items, errors) = self.frontend_error_scan()?;
-        let Some(thread) = items.get(&(tool.to_owned(), item.to_owned())) else { return Ok(()) };
-        let current: Vec<_> = errors.iter().filter(|x| x.tool == tool && x.item == item).collect();
-        if current.len() >= MAX_FRONTEND_ERRORS || current.iter().any(|x| x.message == message) {
+        let Some((thread, current)) = self.log.frontend_item_errors(tool, item)? else { return Ok(()) };
+        if current.len() >= MAX_FRONTEND_ERRORS || current.contains(&message) {
             return Ok(());
         }
-        self.log.append(Some(thread.clone()), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
+        self.log.append(Some(thread), EventKind::FrontendError { tool: tool.to_owned(), item: item.to_owned(), message })?;
         Ok(())
     }
 
@@ -253,20 +228,24 @@ impl Session {
         use base64::Engine;
         let p = self.frontend_path(rel)?;
         let mime = crate::attachments::guess_mime(&p);
-        anyhow::ensure!(crate::attachments::is_image(mime), "{rel} is not an image");
+        if !crate::attachments::is_image(mime) {
+            return Err(crate::error::invalid(format!("{rel} is not an image")));
+        }
         Ok((mime.to_owned(), base64::engine::general_purpose::STANDARD.encode(std::fs::read(&p)?)))
     }
 
     pub fn frontend_write(&self, rel: &str, content: &str) -> anyhow::Result<()> {
         let path = self.frontend_path(rel)?;
-        anyhow::ensure!(!rel.trim().is_empty(), "path is required");
-        std::fs::create_dir_all(crate::env::parent_of(&path)?)?;
+        if rel.trim().is_empty() {
+            return Err(crate::error::invalid("path is required"));
+        }
+        std::fs::create_dir_all(crate::fsutil::parent_of(&path)?)?;
         crate::fsutil::write_atomic(&path, content.as_bytes())?;
         Ok(())
     }
 
     pub fn frontend_list(&self, rel: &str) -> anyhow::Result<Vec<String>> {
-        let root = self.dir.join("frontend");
+        let root = self.frontend_root()?;
         let start = self.frontend_path(rel)?;
         let mut out = Vec::new();
         let mut stack = vec![start];
@@ -274,7 +253,9 @@ impl Session {
             let Ok(entries) = std::fs::read_dir(&dir) else { continue };
             for e in entries.flatten() {
                 let p = e.path();
-                if p.is_dir() {
+                // Links are listed as entries, never walked into.
+                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+                if is_dir {
                     stack.push(p);
                 } else if let Ok(r) = p.strip_prefix(&root) {
                     out.push(r.display().to_string());

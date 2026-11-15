@@ -1,4 +1,4 @@
-import { pickFiles, type SessionApi } from "@harness/api";
+import { errText, pickFiles, type SessionApi } from "@harness/api";
 import {
    type ChangeEvent,
    type ClipboardEvent,
@@ -8,7 +8,6 @@ import {
    useRef,
    useState,
 } from "react";
-import { errorMessage } from "../../lib/errors";
 import type { ChatState } from "../../state/reducer";
 import { fromFile, fromPickedPath, type PendingAttachment } from "./attachments";
 import { useDraftAttachments } from "./drafts";
@@ -47,12 +46,12 @@ export function useAttachments({
       if (items.length) setAttachments((cur) => [...cur, ...items]);
    };
    const addFiles = (files: File[]) => {
-      Promise.all(files.map(fromFile)).then(addAttachments, (err) => setError(errorMessage(err)));
+      Promise.all(files.map(fromFile)).then(addAttachments, (err) => setError(errText(err)));
    };
    const addPaths = (paths: string[]) => {
       Promise.all(paths.map((p) => fromPickedPath(p, api.readImageFile))).then(
          addAttachments,
-         (err) => setError(errorMessage(err)),
+         (err) => setError(errText(err)),
       );
    };
    const attach = async () => {

@@ -2,6 +2,7 @@ import type { AgentInfo, AgentSwitch, HarnessClient } from "@harness/api";
 import { type Dispatch, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QUICK_TITLE } from "../composer/composer";
 import { saveAgent, startQuickSession } from "../quick/startSession";
+import { discardEmpty } from "../sessions/forgetGone";
 import { overlayHost } from "./overlayHost";
 import type { OverlayAction, OverlayMode } from "./overlayMode";
 
@@ -103,9 +104,9 @@ export function useQuickDraft({
       const d = draft;
       reset();
       if (d)
-         client
-            .discardEmptySession(d.id)
-            .catch((e) => report("Could not remove the empty Quick Session", e));
+         discardEmpty(client, d.id).catch((e) =>
+            report("Could not remove the empty Quick Session", e),
+         );
    };
    const merge = () => {
       if (!draft) return;
@@ -118,7 +119,7 @@ export function useQuickDraft({
          if (!d || d.agentId === agentId) return;
          saveAgent(agentId);
          setDraft(null);
-         client.discardEmptySession(d.id).catch(() => {});
+         discardEmpty(client, d.id).catch(() => {});
       },
       [client],
    );

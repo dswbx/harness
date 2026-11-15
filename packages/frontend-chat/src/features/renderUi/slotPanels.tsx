@@ -1,8 +1,9 @@
 import type { SharedArtifactMeta } from "@harness/api";
+import { formatAgeAgo, formatDateTime } from "@harness/api";
 import { DropdownMenuItem, DropdownMenuSeparator, ScrollArea, Tooltip } from "@harness/ui";
 import { Copy, ExternalLink, Layers, Share2, Unlink } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { formatAge, formatRelativeTime, useNow } from "../../lib/time";
+import { formatRelativeTime, useNow } from "../../lib/time";
 import { definePanelFamily } from "../../panels/contract";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { sessionCount } from "../artifacts/ArtifactsPanel";
@@ -23,15 +24,16 @@ import { uiIcons } from "./uiIcons";
  */
 function UpdatedAgo({ ts }: { ts: number }) {
    const now = useNow();
-   const age = formatAge(ts, now);
    return (
       <div className="@container min-w-0 flex-1 basis-0">
-         <time
-            dateTime={new Date(ts).toISOString()}
-            className="hidden text-right text-[11px] whitespace-nowrap text-muted-foreground @min-[3.5rem]:block"
-         >
-            {age === "now" ? "now" : `${age} ago`}
-         </time>
+         <Tooltip content={formatDateTime(ts)}>
+            <time
+               dateTime={new Date(ts).toISOString()}
+               className="hidden text-right text-[11px] whitespace-nowrap text-muted-foreground @min-[3.5rem]:block"
+            >
+               {formatAgeAgo(ts, now)}
+            </time>
+         </Tooltip>
       </div>
    );
 }

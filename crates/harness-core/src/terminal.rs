@@ -172,10 +172,8 @@ impl Terminals {
 
     pub fn input(&self, session_id: &str, terminal_id: u32, data: &[u8]) -> anyhow::Result<()> {
         let t = self.get(session_id, terminal_id).ok_or_else(|| anyhow::anyhow!("no terminal {terminal_id} for {session_id}"))?;
-        let mut w = t.writer.lock();
-        w.write_all(data)?;
-        w.flush()?;
-        Ok(())
+        // Queued in call order; the writer thread writes them in that order.
+        t.input.lock().send(data.to_vec()).map_err(|_| anyhow::anyhow!("terminal {terminal_id} for {session_id} has ended"))
     }
 
     pub fn resize(&self, session_id: &str, terminal_id: u32, cols: u16, rows: u16) -> anyhow::Result<()> {
@@ -216,6 +214,14 @@ impl Terminals {
         }
     }
 
+    /// Kills every shell of every Session (Harness shutdown).
+    pub fn kill_everything(&self) {
+        let all: Vec<Session> = self.map.lock().drain().map(|(_, s)| s).collect();
+        for t in all.into_iter().flat_map(|s| s.slots).filter_map(|x| x.term) {
+            let _ = t.killer.lock().kill();
+        }
+    }
+
     fn get(&self, session_id: &str, terminal_id: u32) -> Option<Arc<Terminal>> {
         let map = self.map.lock();
         map.get(session_id)?.slots.iter().find(|x| x.id == terminal_id)?.term.clone()
@@ -226,9 +232,20 @@ impl Terminals {
         let mut child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
         let reader = pair.master.try_clone_reader()?;
+        let mut writer = pair.master.take_writer()?;
+        let (input_tx, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::Builder::new().name("terminal-input".into()).spawn(move || {
+            for data in input_rx {
+                if writer.write_all(&data).and_then(|()| writer.flush()).is_err() {
+                    // The PTY is gone: its reader hits EOF, which ends the shell and sends `Exit`
+                    // once. The queue closes with this thread, so later `input` calls fail.
+                    break;
+                }
+            }
+        })?;
         let term = Arc::new(Terminal {
             pid: child.process_id(),
-            writer: Mutex::new(pair.master.take_writer()?),
+            input: Mutex::new(input_tx),
             master: Mutex::new(pair.master),
             killer: Mutex::new(child.clone_killer()),
             out: Default::default(),
@@ -324,7 +341,8 @@ struct Out {
 struct Terminal {
     pid: Option<u32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// Keystrokes for the PTY writer thread: a write to a full PTY blocks, never the caller.
+    input: Mutex<std::sync::mpsc::Sender<Vec<u8>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     out: Mutex<Out>,
     unacked: (Mutex<usize>, Condvar),
@@ -469,6 +487,28 @@ mod tests {
         let (text, code) = drain(rx);
         assert!(text.contains("got-abc"), "{text:?}");
         assert_eq!(code, Some(0));
+    }
+
+    #[test]
+    fn many_inputs_reach_the_program_in_call_order() {
+        let terms = Terminals::default();
+        // `cat` with echo off: what it prints is what was written, in order.
+        let rx = collect(&terms, "ord", sh("stty -echo; echo ready-go; cat"));
+        let mut ready = String::new();
+        while !ready.contains("ready-go") {
+            ready.push_str(&String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap()));
+        }
+        let expected: String = (0..500).map(|i| format!("k{i};\n")).collect();
+        for i in 0..500 {
+            terms.input("ord", 1, format!("k{i};\n").as_bytes()).unwrap();
+        }
+        let mut seen = String::new();
+        while !seen.contains("k499;") {
+            seen.push_str(&String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap()));
+        }
+        let got = seen.replace('\r', "");
+        assert!(got.trim() == expected.trim(), "input arrived out of order or damaged");
+        terms.kill_all("ord");
     }
 
     #[test]

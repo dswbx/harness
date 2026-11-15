@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::Session;
-use super::meta::{BranchPrMeta, PrStatusMeta, SessionMeta, write_meta};
+use super::meta::{BranchPrMeta, PrStatusMeta, SessionMeta};
 use super::shared::Shared;
 use crate::api::{EventKind, GitActor};
 
@@ -16,21 +16,24 @@ pub(super) fn shown_pr(pr: Option<u32>, branch_pr: Option<&BranchPrMeta>, head: 
 /// Owned handle on what finding a Session's branch PR needs, so a spawned task can use it.
 #[derive(Clone)]
 pub struct PrWatch {
-    dir: PathBuf,
     meta: Arc<parking_lot::Mutex<SessionMeta>>,
+    disk: Arc<super::meta::MetaDisk>,
     shared: Arc<Shared>,
 }
 
 impl PrWatch {
     /// Stores the PR of a branch; tells the windows when it changed.
     fn set(&self, branch_pr: Option<BranchPrMeta>) {
-        {
+        let stored = {
             let mut m = self.meta.lock();
             if m.workspace.branch_pr == branch_pr {
                 return;
             }
             m.workspace.branch_pr = branch_pr;
-            let _ = write_meta(&self.dir, &m);
+            self.disk.snapshot(&m)
+        };
+        if let Ok((bytes, version)) = stored {
+            let _ = self.disk.write(&bytes, version);
         }
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
     }
@@ -38,13 +41,16 @@ impl PrWatch {
     /// Stores the state and checks of one of the Session's PRs; tells the windows when they changed.
     pub fn note(&self, pr: &crate::api::PrInfo) {
         let status = Some(PrStatusMeta { number: pr.number, state: pr.state, checks: pr.checks });
-        {
+        let stored = {
             let mut m = self.meta.lock();
             if m.workspace.pr_status == status {
                 return;
             }
             m.workspace.pr_status = status;
-            let _ = write_meta(&self.dir, &m);
+            self.disk.snapshot(&m)
+        };
+        if let Ok((bytes, version)) = stored {
+            let _ = self.disk.write(&bytes, version);
         }
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
     }
@@ -146,7 +152,9 @@ impl Session {
     fn folder(&self) -> anyhow::Result<PathBuf> {
         self.adopt_repo();
         let m = self.meta.lock();
-        anyhow::ensure!(m.workspace.repo_root.is_some(), "the Workspace is not a git repository");
+        if m.workspace.repo_root.is_none() {
+            return Err(crate::error::invalid("the Workspace is not a git repository"));
+        }
         Ok(PathBuf::from(&m.folder))
     }
 
@@ -191,11 +199,11 @@ impl Session {
         Ok(branch)
     }
 
-    pub async fn archive(&self) -> anyhow::Result<()> {
+    pub async fn archive(self: &Arc<Self>) -> anyhow::Result<()> {
         if self.meta().archived {
             return Err(crate::error::conflict("already archived"));
         }
-        self.agent.shutdown("archived");
+        self.stop_processes("archived");
         if let Some(wt) = self.meta().workspace.worktree {
             if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
                 crate::workspace::wip_commit(&wt.path).await?;
@@ -204,11 +212,13 @@ impl Session {
         }
         self.update_meta(|m| m.archived = true)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
-        self.log.append(None, EventKind::SessionArchived { archived: true })?;
-        self.log.sync()
+        // The Session is archived by now: a log that cannot be written is reported, not an error here.
+        self.log.append_or_report(None, EventKind::SessionArchived { archived: true });
+        self.sync_log().await;
+        Ok(())
     }
 
-    pub async fn unarchive(&self) -> anyhow::Result<()> {
+    pub async fn unarchive(self: &Arc<Self>) -> anyhow::Result<()> {
         if !self.meta().archived {
             return Err(crate::error::conflict("not archived"));
         }
@@ -217,8 +227,9 @@ impl Session {
         }
         self.update_meta(|m| m.archived = false)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
-        self.log.append(None, EventKind::SessionArchived { archived: false })?;
-        self.log.sync()
+        self.log.append_or_report(None, EventKind::SessionArchived { archived: false });
+        self.sync_log().await;
+        Ok(())
     }
 
     /// Removes the Worktree and its branch; the caller removes the Session Directory.
@@ -233,20 +244,20 @@ impl Session {
                     return Err(crate::error::conflict(format!("branch {} has {n} commit(s) not on {}", wt.branch, wt.base)));
                 }
             }
-            self.agent.shutdown("deleted");
+            self.stop_processes("deleted");
             crate::workspace::remove_worktree(&wt).await?;
             crate::workspace::delete_branch(&wt.repo_root, &wt.branch).await?;
             if let Some(parent) = wt.path.parent() {
                 let _ = std::fs::remove_dir(parent);
             }
         } else {
-            self.agent.shutdown("deleted");
+            self.stop_processes("deleted");
         }
         Ok(())
     }
 
     pub fn pr_watch(&self) -> PrWatch {
-        PrWatch { dir: self.dir.clone(), meta: self.meta.clone(), shared: self.shared.clone() }
+        PrWatch { meta: self.meta.clone(), disk: self.meta_disk.clone(), shared: self.shared.clone() }
     }
 }
 

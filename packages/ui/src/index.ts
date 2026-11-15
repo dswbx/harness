@@ -4,6 +4,7 @@ export * from "./composites/stat";
 export * from "./composites/trace";
 export * from "./composites/virtual-list";
 export * from "./composites/working-loader";
+export { useCopied } from "./lib/useCopied";
 export { clamp, cn } from "./lib/utils";
 export * from "./primitives/badge";
 export * from "./primitives/button";

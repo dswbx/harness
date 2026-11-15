@@ -370,6 +370,8 @@ pub(crate) fn watch(host: &Arc<Harness>) {
     }));
 }
 
+// Turns cancelled by `Harness::shutdown` also come here; the notices they make are lost with the process, and
+// prompting a parent is refused while closing, so nothing starts.
 fn on_event(host: &Arc<Harness>, e: &AppEvent) {
     let (session_id, ended) = match e {
         AppEvent::TurnFinished { session_id, thread_id, .. } => (session_id, Some(thread_id)),
@@ -520,16 +522,7 @@ impl Drop for Sending<'_> {
 /// The latest config options of the Session's Main Thread (empty before its Agent reported any).
 fn main_config(session: &Session) -> anyhow::Result<Vec<Value>> {
     let main = session.meta().main_thread_id;
-    Ok(session
-        .log()
-        .events()?
-        .into_iter()
-        .rev()
-        .find_map(|e| match e.kind {
-            EventKind::ConfigOptionsChanged { options, .. } if e.thread_id.as_ref() == Some(&main) => options.as_array().cloned(),
-            _ => None,
-        })
-        .unwrap_or_default())
+    Ok(session.log().thread_config_options(&main)?.unwrap_or_default())
 }
 
 /// A Sub Session's starting model and effort.

@@ -1,6 +1,5 @@
 import { type ComponentProps, createContext, lazy, Suspense, useContext, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
@@ -15,6 +14,7 @@ import { AnsiText } from "./AnsiText";
 import { CodeBlock } from "./CodeBlock";
 import { Expandable } from "./Expandable";
 import { rehypeInlineCode, useGuessInlineCode } from "./inlineCode";
+import { rehypeHighlightBlocks } from "./rehypeHighlight";
 
 /** mermaid is large: loaded with the first diagram. */
 const Mermaid = lazy(() => import("./Mermaid").then((m) => ({ default: m.Mermaid })));
@@ -182,7 +182,7 @@ const plainCodeComponents: Components = {
 import { cn } from "@harness/ui";
 
 type Plugins = NonNullable<import("react-markdown").Options["rehypePlugins"]>;
-const block: Plugins[number] = [rehypeHighlight, { detect: false, plainText: ["mermaid", "ansi"] }];
+const block: Plugins[number] = [rehypeHighlightBlocks, { plainText: ["mermaid", "ansi"] }];
 /** Code blocks with a language, and inline code (see `inlineCode.ts`; guessing per Settings), get highlight.js tokens,
  * colored by the shared code theme (`@harness/ui`). */
 const inline = {
@@ -257,26 +257,5 @@ export function Markdown({
             </ReactMarkdown>
          </MarkdownText.Provider>
       </div>
-   );
-}
-
-const INLINE = ["p", "strong", "em", "del", "code", "a"];
-const inlineComponents: import("react-markdown").Components = {
-   p: ({ children }) => <>{children}</>,
-   a: ({ children }) => <span className="underline">{children}</span>,
-   code: ({ children }) => <code className="font-mono">{children}</code>,
-};
-
-/** One line of inline Markdown (code, bold, italic; links as text); other blocks become their text. */
-export function InlineMarkdown({ children }: { children: string }) {
-   return (
-      <ReactMarkdown
-         remarkPlugins={[remarkGfm]}
-         allowedElements={INLINE}
-         unwrapDisallowed
-         components={inlineComponents}
-      >
-         {children.replace(/\s*\n\s*/g, " ")}
-      </ReactMarkdown>
    );
 }

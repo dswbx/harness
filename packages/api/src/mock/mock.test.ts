@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionApi, HarnessClient } from "../client/client";
-import type { AppEvent, Event } from "../generated";
+import { expectResult } from "../client/expect";
+import { CommandError } from "../errors";
+import type { AppEvent, Command, Event } from "../generated";
 import { MockTransport } from "./mock";
 
 describe("MockTransport app events", () => {
@@ -378,6 +380,189 @@ describe("MockTransport like the core", () => {
       }
    });
 
+   it("opens a new Session's log like the core: SessionCreated, then the Main Thread", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const sid = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+         title: "T",
+      });
+      const log = await first(transport, sid);
+      expect(log).toHaveLength(2);
+      expect(log.map((e) => e.seq)).toEqual([0, 1]);
+      expect(log[0]).toMatchObject({
+         thread_id: null,
+         kind: {
+            type: "SessionCreated",
+            title: "T",
+            frontend_id: "chat",
+            agent_id: "codex",
+            folder: "/tmp/x",
+         },
+      });
+      expect(log[1]).toMatchObject({
+         kind: { type: "ThreadStarted", agent_id: "codex", main: true },
+      });
+   });
+
+   it("a Turn: working after TurnStarted, idle before TurnEnded, then TurnFinished", async () => {
+      vi.useFakeTimers();
+      try {
+         const transport = new MockTransport([], []);
+         const client = new HarnessClient(transport);
+         const sid = await client.createSession({
+            folder: "/tmp/x",
+            agentId: "codex",
+            frontendId: "chat",
+         });
+         const log = await first(transport, sid);
+         const order: string[] = [];
+         await transport.subscribe(sid, log.length, (e) => order.push(e.kind.type));
+         await transport.subscribeApp((e) => {
+            if (e.type === "TurnFinished" || e.type === "SessionStatus")
+               order.push(`app:${e.type}`);
+         });
+         await client.sessionApi(sid).prompt("hello");
+         vi.runAllTimers();
+         const keep = order.filter((t) => t !== "AgentMessageChunk" && t !== "WorkspaceChanged");
+         expect(keep).toEqual([
+            "TurnStarted",
+            "SessionStatusChanged",
+            "app:SessionStatus",
+            "SessionStatusChanged",
+            "app:SessionStatus",
+            "TurnEnded",
+            "app:TurnFinished",
+         ]);
+         const status = log.filter((e) => e.kind.type === "SessionStatusChanged");
+         expect(status.map((e) => (e.kind as { status: string }).status)).toEqual([
+            "working",
+            "idle",
+         ]);
+         expect(status.every((e) => e.thread_id === null)).toBe(true);
+      } finally {
+         vi.useRealTimers();
+      }
+   });
+
+   it("a Side Thread's Turn ends with TurnFinished for that Thread", async () => {
+      vi.useFakeTimers();
+      try {
+         const transport = new MockTransport([], []);
+         const client = new HarnessClient(transport);
+         const sid = await client.createSession({
+            folder: "/tmp/x",
+            agentId: "codex",
+            frontendId: "chat",
+         });
+         const side = await client.sessionApi(sid).startSideThread({ source: "fresh" });
+         const app: AppEvent[] = [];
+         await transport.subscribeApp((e) => app.push(e));
+         await client.sessionApi(sid).prompt("hi", [], side.thread_id);
+         vi.runAllTimers();
+         expect(app.filter((e) => e.type === "TurnFinished")).toMatchObject([
+            { session_id: sid, thread_id: side.thread_id },
+         ]);
+      } finally {
+         vi.useRealTimers();
+      }
+   });
+
+   it("archiving a parent archives its Sub Sessions first; unarchiving restores them", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const archived = async () =>
+         Object.fromEntries(
+            (await client.listSessions())
+               .filter((s) => s.id.startsWith("mock-p1"))
+               .map((s) => [s.id, s.archived]),
+         );
+      const logs = await Promise.all(
+         ["mock-p1", "mock-p1-a", "mock-p1-b"].map((id) => first(transport, id)),
+      );
+      await client.archiveSession("mock-p1");
+      expect(await archived()).toEqual({ "mock-p1": true, "mock-p1-a": true, "mock-p1-b": true });
+      for (const log of logs)
+         expect(log.at(-1)!.kind).toEqual({ type: "SessionArchived", archived: true });
+      // Archiving a child alone leaves its parent; a second archive of the parent is a conflict.
+      await expect(client.archiveSession("mock-p1")).rejects.toMatchObject({ code: "conflict" });
+      await client.unarchiveSession("mock-p1");
+      expect(await archived()).toEqual({
+         "mock-p1": false,
+         "mock-p1-a": false,
+         "mock-p1-b": false,
+      });
+      await expect(client.unarchiveSession("mock-p1")).rejects.toMatchObject({ code: "conflict" });
+   });
+
+   it("prompting an archived Session is a conflict", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const sid = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      await client.archiveSession(sid);
+      await expect(client.sessionApi(sid).prompt("hi")).rejects.toMatchObject({
+         code: "conflict",
+      });
+   });
+
+   it("coded errors reach expectResult with the core's codes", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const sid = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const code = (cmd: Command) =>
+         expectResult(transport, cmd, "Ok").then(
+            () => null,
+            (e: unknown) => (e instanceof CommandError ? e.code : "plain"),
+         );
+      expect(await code({ type: "Prompt", session_id: "nope", thread_id: null, text: "x" })).toBe(
+         "not_found",
+      );
+      expect(
+         await code({ type: "Prompt", session_id: sid, text: "x", thread_id: "no-such-thread" }),
+      ).toBe("not_found");
+      expect(
+         await code({
+            type: "ResolvePermission",
+            session_id: sid,
+            request_id: "nope",
+            option_id: null,
+            global: false,
+         }),
+      ).toBe("not_found");
+      expect(await code({ type: "PanelSourceRead", session_id: sid, name: "nope.md" })).toBe(
+         "not_found",
+      );
+      expect(
+         await code({ type: "ShareMarkdown", session_id: sid, markdown: " ", title: "t" }),
+      ).toBe("invalid");
+      expect(
+         await code({
+            type: "PatchArtifactState",
+            id: "x",
+            ops: [],
+            session_id: sid,
+         }),
+      ).toBe("not_found");
+      // An uncoded core error stays `internal`.
+      expect(
+         await code({
+            type: "ReadSessionFile",
+            session_id: sid,
+            path: "no/such/file.txt",
+         } as Command),
+      ).toBe("internal");
+   });
+
    it("fails with the core's codes", async () => {
       const transport = new MockTransport([], []);
       const client = new HarnessClient(transport);
@@ -388,7 +573,14 @@ describe("MockTransport like the core", () => {
          );
       expect(await failure(client.archiveSession("nope"))).toMatchObject({ code: "not_found" });
       expect(await failure(client.deleteSession("mock-s1"))).toMatchObject({ code: "conflict" });
-      expect(await failure(client.rollbackAgent("nope"))).toMatchObject({ code: "internal" });
+      expect(await failure(client.rollbackAgent("nope"))).toMatchObject({ code: "not_found" });
+      expect(await failure(client.holdAgentVersion("nope", true))).toMatchObject({
+         code: "not_found",
+      });
+      expect(await failure(client.installAgent("not-listed"))).toMatchObject({ code: "not_found" });
+      expect(await failure(client.installAgent("windows-only"))).toMatchObject({
+         code: "agent_unavailable",
+      });
    });
 });
 

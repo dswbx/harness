@@ -45,6 +45,36 @@ pub enum AppEvent {
     SharedArtifactChanged { id: String },
     /// Shared Artifacts were added, removed, renamed, attached or detached: reload the list.
     SharedArtifactsChanged,
+    /// A Session's Log could not be written (`error`: why) or can be again (`error` null). While
+    /// it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
+    /// Live only, not logged. Also `SessionSummary::log_error`.
+    SessionLogHealth { session_id: SessionId, error: Option<String>, dropped: u32 },
+    /// A settings file did not load and was reset (see `Command::TakeNotices`).
+    NoticesChanged,
+}
+
+/// Why a settings file was reset.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeKind {
+    /// Not valid JSON.
+    Corrupt,
+    /// Valid JSON of another shape, e.g. written by a newer version.
+    Unreadable,
+}
+
+/// A settings file in the data folder that did not load: reset to defaults, the file kept.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct StartupNotice {
+    /// File name, e.g. `permissions.json`.
+    pub file: String,
+    pub kind: NoticeKind,
+    /// The file's full path.
+    pub path: String,
+    /// Where the file was moved; `None` when that failed and it stays at `path` (never overwritten).
+    pub copy: Option<String>,
+    /// What was reset and why, in plain words.
+    pub message: String,
 }
 
 /// The View fell too far behind and its subscription was dropped. Events up to `last_seq` were

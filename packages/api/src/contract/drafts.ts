@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { hasStoredKey, onStoredChange, storageIdentity, storedKeys } from "../platform/storage";
 
 /**
  * Where a Frontend keeps a half-written prompt (localStorage), per composer: the Session id for the
@@ -21,35 +22,60 @@ export function parseDraftKey(key: string): { sessionId: string; threadId: strin
 }
 export const draftStorageKey = (composerKey: string) => PREFIX + composerKey;
 
-const listeners = new Set<() => void>();
-/** A Frontend changed a draft: tell this window (other windows get the `storage` event). */
-export function notifyDraftsChanged() {
-   for (const l of listeners) l();
-}
-function subscribe(l: () => void) {
-   listeners.add(l);
-   const onStorage = (e: StorageEvent) => (!e.key || e.key.startsWith(PREFIX)) && l();
-   window.addEventListener("storage", onStorage);
-   return () => {
-      listeners.delete(l);
-      window.removeEventListener("storage", onStorage);
-   };
+/** Session id to the storage keys of its drafts: built by one scan, then kept current by writes and the `storage` event. */
+let index: Map<string, Set<string>> | null = null;
+let indexedStorage: unknown;
+let hooked = false;
+
+/** Updates the index for a changed draft key; whether the Session's has-a-draft answer changed. */
+function track(key: string): boolean {
+   if (!index) return false;
+   const sessionId = parseDraftKey(key.slice(PREFIX.length)).sessionId;
+   const keys = index.get(sessionId);
+   if (hasStoredKey(key)) {
+      if (keys) keys.add(key);
+      else index.set(sessionId, new Set([key]));
+      return !keys;
+   }
+   if (!keys) return false;
+   keys.delete(key);
+   if (keys.size) return false;
+   index.delete(sessionId);
+   return true;
 }
 
-/** Whether any composer of the Session (Main or a Side Thread) holds a draft. */
-export function sessionHasDraft(sessionId: string): boolean {
-   try {
-      if (localStorage.getItem(draftStorageKey(draftKey(sessionId, null))) !== null) return true;
-      for (let i = 0; i < localStorage.length; i++) {
-         const k = localStorage.key(i);
-         if (k?.startsWith(PREFIX) && parseDraftKey(k.slice(PREFIX.length)).sessionId === sessionId)
-            return true;
-      }
-   } catch {
-      // Storage blocked: no drafts.
+function currentIndex(): Map<string, Set<string>> {
+   if (!hooked) {
+      hooked = true;
+      onStoredChange((key) => {
+         // Typing into a draft that exists changes nothing the sidebar shows: no wake-up.
+         const changed = key === null || (key.startsWith(PREFIX) && track(key));
+         if (key === null) index = null;
+         if (changed) for (const l of [...listeners]) l();
+      });
    }
-   return false;
+   const st = storageIdentity();
+   if (!index || indexedStorage !== st) {
+      indexedStorage = st;
+      index = new Map();
+      for (const k of storedKeys()) if (k.startsWith(PREFIX)) track(k);
+   }
+   return index;
 }
+
+const listeners = new Set<() => void>();
+export function onSessionDraftsChange(l: () => void) {
+   currentIndex();
+   listeners.add(l);
+   return () => void listeners.delete(l);
+}
+
+/** Whether any composer of the Session (Main or a Side Thread) holds a draft. No scan per call. */
+export const sessionHasDraft = (sessionId: string): boolean => currentIndex().has(sessionId);
 
 export const useSessionHasDraft = (sessionId: string) =>
-   useSyncExternalStore(subscribe, () => sessionHasDraft(sessionId));
+   useSyncExternalStore(
+      onSessionDraftsChange,
+      () => sessionHasDraft(sessionId),
+      () => false,
+   );

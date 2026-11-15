@@ -1,4 +1,5 @@
 import type { SharedArtifactData, StatePatchOp } from "@harness/api";
+import { errText } from "@harness/api";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
 import { runActions, type UiEnv, useEnv } from "./runtime";
@@ -71,7 +72,7 @@ export function parseTree(content: string): { root: RawNode } | { error: string 
          return { root: ui.root as RawNode };
       return { error: "ui.json has no root" };
    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: errText(e) };
    }
 }
 

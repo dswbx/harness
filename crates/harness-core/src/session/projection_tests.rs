@@ -7,7 +7,7 @@ use super::*;
 use crate::api::{Command, CommandResult, StateWriter};
 use serde_json::json;
 
-async fn session() -> (Arc<Session>, tempfile::TempDir) {
+pub(crate) async fn session() -> (Arc<Session>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let agent = AgentInfo {
         id: "a".into(),
@@ -45,7 +45,7 @@ fn call(s: &Session, tool: &str, call_id: &str, input: serde_json::Value) {
 
 /// (tool, id) of every live item, in order.
 fn keys(s: &Session) -> Vec<(String, String)> {
-    s.frontend_items().unwrap().into_iter().map(|i| (i.tool, i.id)).collect()
+    s.frontend_items().unwrap().into_iter().map(|i| (i.tool.clone(), i.id.clone())).collect()
 }
 
 fn key(tool: &str, id: &str) -> (String, String) {

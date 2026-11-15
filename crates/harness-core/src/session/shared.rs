@@ -31,11 +31,20 @@ pub struct Shared {
     pub artifacts: crate::shared::SharedArtifacts,
     /// The Harness, so the Harness MCP can start and reach Sub Sessions. Set once it exists.
     pub host: std::sync::OnceLock<std::sync::Weak<crate::host::Harness>>,
+    /// `Harness::shutdown` started: no Agent, Session or Turn starts any more.
+    pub closing: std::sync::atomic::AtomicBool,
     /// What parents still need to hear from their Sub Sessions.
     pub notices: crate::sub_sessions::Notices,
 }
 
 impl Shared {
+    /// Runs `f` on the MCP Library on the blocking pool: its secrets are in the Keychain, whose
+    /// calls can wait on the system (a prompt) and must not park a runtime thread.
+    pub async fn library_blocking<R: Send + 'static>(self: &Arc<Self>, f: impl FnOnce(&crate::library::Library) -> R + Send + 'static) -> anyhow::Result<R> {
+        let shared = self.clone();
+        tokio::task::spawn_blocking(move || f(&shared.library)).await.map_err(|e| anyhow::anyhow!("library task: {e}"))
+    }
+
     /// The Harness, while it lives.
     pub fn host(&self) -> anyhow::Result<Arc<crate::host::Harness>> {
         self.host.get().and_then(std::sync::Weak::upgrade).ok_or_else(|| anyhow::anyhow!("the Harness is shutting down"))

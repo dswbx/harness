@@ -1,7 +1,3 @@
-export function errorMessage(err: unknown): string {
-   return err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
-}
-
 /**
  * Splits an error text into a headline and optional details at the first blank line
  * (the core appends "Agent output (stderr): ..." after one). Newlines are kept as is.

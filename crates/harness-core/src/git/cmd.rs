@@ -1,29 +1,99 @@
 //! The `git` runner and the guard for revisions that come from outside.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::proc;
 
 use super::parse::{parse_gitdir, parse_head};
 
 pub async fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
-    git_env(dir, args, &[]).await
+    git_with(dir, args, &[], timeout_for(args)).await
 }
 
+/// `git` with extra env (a scratch index for the diff snapshot): `add -A` scales with the repository.
 pub(super) async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> anyhow::Result<String> {
-    let out = tokio::process::Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("PATH", crate::env::login_path())
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .envs(env.iter().map(|(k, v)| (*k, *v)))
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let msg = if err.trim().is_empty() { String::from_utf8_lossy(&out.stdout).into_owned() } else { err.into_owned() };
-        anyhow::bail!("git {}: {}", args.join(" "), msg.trim());
+    git_with(dir, args, env, proc::GIT_LONG).await
+}
+
+/// `git` bounded by `timeout`; a hang fails with a timeout error and kills git and what it spawned.
+pub(super) async fn git_with(dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)], timeout: Duration) -> anyhow::Result<String> {
+    let mut opts = proc::Opts::new(timeout).args(args).cwd(dir).env("PATH", crate::env::login_path()).env("GIT_TERMINAL_PROMPT", "0").env("LC_ALL", "C");
+    for (k, v) in env {
+        opts = opts.env(k, v);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    // A huge diff or file never failed before: keep what fits instead of erroring.
+    if matches!(args.first(), Some(&("diff" | "show"))) {
+        opts = opts.max_output(512 * 1024 * 1024).truncate();
+    }
+    let out = proc::run("git", opts).await.map_err(|e| crate::error::from_proc(&e, format!("git {}: {e}", args.join(" "))))?;
+    if !out.success() {
+        let err = out.stderr_lossy();
+        let msg = if err.trim().is_empty() { out.stdout_lossy() } else { err };
+        let message = format!("git {}: {}", args.join(" "), msg.trim());
+        return Err(match failure_code(args.first().copied().unwrap_or(""), &msg) {
+            Some(code) => crate::error::coded(code, message),
+            None => anyhow::anyhow!(message),
+        });
+    }
+    Ok(out.stdout_lossy())
+}
+
+/// What a failed `git` tells the caller to do differently, read from its message (git runs with
+/// `LC_ALL=C`, so the text is English). "Not a repository" holds for any subcommand; the rest only
+/// for the subcommands that produce it, so a hook's output on `commit` or `push` is not mistaken for it.
+fn failure_code(sub: &str, msg: &str) -> Option<crate::api::ErrorCode> {
+    use crate::api::ErrorCode;
+    if msg.contains("not a git repository") {
+        return Some(ErrorCode::Invalid);
+    }
+    match sub {
+        "commit" if msg.contains("empty commit message") => Some(ErrorCode::Invalid),
+        "commit" if msg.contains("nothing to commit") => Some(ErrorCode::Conflict),
+        "switch" | "checkout" | "branch" | "worktree"
+            if msg.contains("already exists") || msg.contains("is already checked out at") || msg.contains("is already used by worktree") =>
+        {
+            Some(ErrorCode::Conflict)
+        }
+        "switch" | "checkout" | "merge" | "pull" if msg.contains("would be overwritten by") => Some(ErrorCode::Conflict),
+        _ => None,
+    }
+}
+
+/// Subcommands that only read local state: they keep the short limit. Everything else (hooks, the
+/// network, working-tree writes, anything not listed) gets the long one.
+const READ_ONLY: &[&str] = &[
+    "status",
+    "rev-parse",
+    "diff",
+    "log",
+    "branch",
+    "config",
+    "ls-files",
+    "for-each-ref",
+    "show",
+    "remote",
+    "symbolic-ref",
+    "merge-base",
+    "rev-list",
+    "hash-object",
+    "check-ref-format",
+    "cat-file",
+    "ls-tree",
+    "show-ref",
+    "describe",
+    "name-rev",
+    "diff-tree",
+    "blame",
+    "var",
+    "version",
+];
+
+fn timeout_for(args: &[&str]) -> Duration {
+    match args.first() {
+        Some(sub) if READ_ONLY.contains(sub) => proc::LOCAL,
+        _ => proc::GIT_LONG,
+    }
 }
 
 /// A revision, branch or ref from outside, checked before it reaches git: not empty and not option-like.
@@ -72,6 +142,37 @@ pub fn head_branch(folder: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_failures_the_caller_can_act_on_have_a_code() {
+        use crate::api::ErrorCode::{Conflict, Invalid};
+        for (sub, msg, want) in [
+            ("status", "fatal: not a git repository (or any of the parent directories): .git", Some(Invalid)),
+            ("commit", "Aborting commit due to empty commit message.", Some(Invalid)),
+            ("switch", "fatal: a branch named 'x' already exists", Some(Conflict)),
+            ("worktree", "fatal: 'main' is already checked out at '/tmp/wt'", Some(Conflict)),
+            ("worktree", "fatal: '/tmp/wt' already exists", Some(Conflict)),
+            ("checkout", "error: Your local changes to the following files would be overwritten by checkout", Some(Conflict)),
+            ("commit", "nothing to commit, working tree clean", Some(Conflict)),
+            ("fetch", "fatal: couldn't find remote ref x", None),
+            // A hook's output is not git's.
+            ("commit", "pre-commit: build/ already exists", None),
+            ("push", "remote: a branch named 'x' already exists", None),
+        ] {
+            assert_eq!(failure_code(sub, msg), want, "{sub}: {msg}");
+        }
+    }
+
+    #[test]
+    fn timeouts_by_subcommand() {
+        for sub in ["status", "rev-parse", "diff", "log", "branch", "config", "ls-files", "for-each-ref", "show"] {
+            assert_eq!(timeout_for(&[sub, "x"]), proc::LOCAL, "{sub}");
+        }
+        for sub in ["commit", "merge", "rebase", "checkout", "switch", "worktree", "stash", "add", "gc", "push", "pull", "clone", "fetch", "unknown-cmd"] {
+            assert_eq!(timeout_for(&[sub]), proc::GIT_LONG, "{sub}");
+        }
+        assert_eq!(timeout_for(&[]), proc::GIT_LONG);
+    }
 
     #[test]
     fn rev_rejects_empty_and_option_like() {

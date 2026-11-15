@@ -1,4 +1,10 @@
-import { type SessionStatus, type SessionSummary, useSessionHasDraft } from "@harness/api";
+import {
+   baseName,
+   formatAge,
+   type SessionStatus,
+   type SessionSummary,
+   useSessionHasDraft,
+} from "@harness/api";
 import { cn, Tooltip } from "@harness/ui";
 import {
    AppWindow,
@@ -18,14 +24,7 @@ import { useState } from "react";
 import { prStyle } from "./prStyle";
 import { SessionDetails } from "./SessionDetails";
 import { StatusDot } from "./StatusDot";
-import {
-   branchOf,
-   type Display,
-   folderName,
-   highlight,
-   refTitle,
-   relativeTime,
-} from "./sessionGroups";
+import { branchOf, type Display, highlight, refTitle } from "./sessionGroups";
 
 /** One row's detail line: folder, then branch / Worktree / PR, then the last activity. */
 function DetailLine({
@@ -54,7 +53,7 @@ function DetailLine({
                      <Folder className="size-3 shrink-0" />
                   )}
                   <span className="whitespace-nowrap">
-                     {s.quick ? "Quick" : folderName(s.folder)}
+                     {s.quick ? "Quick" : baseName(s.folder)}
                   </span>
                </span>
             )}
@@ -80,7 +79,7 @@ function DetailLine({
             )}
          </span>
          {draft && <Pencil className="size-[9px] shrink-0" aria-label="Unsent draft" />}
-         <span className="shrink-0 tabular-nums">{relativeTime(s.updated_ms, now)}</span>
+         <span className="shrink-0 tabular-nums">{formatAge(s.updated_ms, now)}</span>
       </span>
    );
 }
@@ -217,7 +216,7 @@ export function SessionRow({
                   <StatusDot status={status} className="group-hover:hidden" />
                   {inlineDate && (
                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
-                        {relativeTime(s.updated_ms, now)}
+                        {formatAge(s.updated_ms, now)}
                      </span>
                   )}
                </span>

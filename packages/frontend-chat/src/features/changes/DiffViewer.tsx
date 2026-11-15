@@ -3,10 +3,13 @@ import { MessageSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import "@git-diff-view/react/styles/diff-view-pure.css";
 import "./diffView.css";
+import { storedNumber } from "@harness/api";
 import { cn, ResizeHandle, Tooltip, useDragDelta } from "@harness/ui";
+import { languageOf } from "../markdown/highlight";
 import { CommentForm, CommentList } from "../review/ReviewCommentWidgets";
 import { addReviewComment, type DiffComment } from "../review/reviewComments";
-import { type FilePatch, hunkLines, langOf } from "./diff";
+import { type FilePatch, hunkLines } from "./diff";
+import { diffHighlighter } from "./diffHighlighter";
 
 /** Full old/new file text; lets git-diff-view expand collapsed unchanged regions. */
 export type FileContents = { old: string; new: string };
@@ -42,16 +45,12 @@ export function CommentCount({ n }: { n: number }) {
    );
 }
 
-const SPLIT_KEY = "harness:diff-split";
+const splitStore = storedNumber("harness:diff-split");
 const SPLIT_MIN = 0.2;
 const SPLIT_MAX = 0.8;
 const readSplit = () => {
-   try {
-      const r = Number(localStorage.getItem(SPLIT_KEY));
-      return r >= SPLIT_MIN && r <= SPLIT_MAX ? r : 0.5;
-   } catch {
-      return 0.5;
-   }
+   const r = splitStore.get();
+   return r >= SPLIT_MIN && r <= SPLIT_MAX ? r : 0.5;
 };
 
 /** Split mode: where the old side ends, as a share of the width; dragged with a handle, remembered per viewer. */
@@ -66,13 +65,7 @@ function useSplit() {
       o.observe(el);
       return () => o.disconnect();
    }, []);
-   const save = (r: number) => {
-      try {
-         localStorage.setItem(SPLIT_KEY, String(r));
-      } catch {
-         /* per-viewer convenience only */
-      }
-   };
+   const save = (r: number) => void splitStore.set(r);
    const start = useRef(ratio);
    const last = useRef(ratio);
    const onPointerDown = useDragDelta({
@@ -145,7 +138,7 @@ export function DiffViewer({
    const codeSize = useCodeFontSize();
    const split = useSplit();
    const showHandle = resizable && mode === "split" && split.left > 0;
-   const lang = langOf(file.path);
+   const lang = languageOf(file.path) ?? "plaintext";
    // New object only when the input changes: git-diff-view rebuilds its DiffFile on a new `data`.
    const data = useMemo(
       () => ({
@@ -198,6 +191,7 @@ export function DiffViewer({
             diffViewFontSize={fontSize ?? codeSize}
             diffViewWrap={wrap}
             diffViewHighlight
+            registerHighlighter={diffHighlighter}
             diffViewAddWidget={!!sessionId}
             renderExtendLine={({ data: cs }) =>
                sessionId && <CommentList sessionId={sessionId} comments={cs} />

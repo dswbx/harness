@@ -4,6 +4,11 @@ import { MOCK_THEME } from "../fixtures/theme";
 import type { Handlers } from "./types";
 
 export const settingsHandlers = {
+   TakeNotices: (mock) => {
+      const notices = mock.notices;
+      mock.notices = [];
+      return { type: "Notices", notices };
+   },
    ListMcpServers: (mock) => {
       return { type: "McpServers", servers: [...mock.mcp] };
    },
@@ -13,7 +18,16 @@ export const settingsHandlers = {
          .replace(/[^a-z0-9]+/g, "-")
          .replace(/^-|-$/g, "");
       const id = cmd.server.id || slug;
-      if (!id) throw new CommandError("internal", "name required");
+      // Core: `McpLibrary::save`. A new server (no id) whose slug is taken is a `conflict`; the
+      // rest are `invalid`.
+      if (!cmd.server.name.trim()) throw new CommandError("invalid", "the server needs a name");
+      if (id === "harness")
+         throw new CommandError("invalid", '"harness" is reserved for the Harness MCP');
+      if (!cmd.server.id && mock.mcp.some((x) => x.id === id))
+         throw new CommandError(
+            "conflict",
+            `an MCP server named ${JSON.stringify(cmd.server.name.trim())} already exists`,
+         );
       // Secret values never come back: keep only the key names.
       const server: McpServerDef = {
          ...cmd.server,

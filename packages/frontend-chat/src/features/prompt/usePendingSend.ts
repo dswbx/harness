@@ -1,5 +1,5 @@
+import { errText } from "@harness/api";
 import { useEffect, useRef } from "react";
-import { errorMessage } from "../../lib/errors";
 import {
    hasArrived,
    nextBase,
@@ -67,7 +67,7 @@ export function usePendingSend({
          );
          return true;
       } catch (err) {
-         onError(errorMessage(err));
+         onError(errText(err));
          mark("failed");
          return false;
       }

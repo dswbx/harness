@@ -17,8 +17,13 @@ pub enum ErrorCode {
     PolicyDenied,
     /// The Agent is not running, not installed or its Agent Session could not be restored.
     AgentUnavailable,
-    /// The Command's input is wrong (empty, malformed, not supported here).
+    /// The Command's input is wrong (empty, malformed), or the request cannot apply to this Workspace
+    /// (not a git repository, no GitHub remote, a detached HEAD).
     Invalid,
+    /// A process or request the Command waits on did not finish in time (`git`, `gh`, a download).
+    Timeout,
+    /// The Harness cannot serve the Command now (it is shutting down) or a service it needs cannot be reached (the network is down, `gh` is missing).
+    Unavailable,
     /// Anything else.
     Internal,
 }
