@@ -29,6 +29,25 @@ const OP_VERBS: Record<string, [string, string]> = {
    web_search: ["Searching web", "Searched web"],
 };
 
+// The question a pending approval asks, by ACP tool kind; other tools: "Use tool?".
+const ASK_VERBS: Record<string, string> = {
+   execute: "Run command?",
+   edit: "Edit?",
+   delete: "Delete?",
+   move: "Move?",
+   read: "Read?",
+   search: "Search?",
+   fetch: "Fetch?",
+};
+
+/** The question a pending approval of this call asks ("Run command?"). */
+export function askVerb(tool: Tool): string {
+   const d = toolDetail(tool);
+   if (d.op === "write") return "Write?";
+   if (tool.harnessTool || d.mcp) return "Use tool?";
+   return ASK_VERBS[tool.kind ?? ""] ?? "Use tool?";
+}
+
 // [running, done, failed] for the Harness git tools.
 const GIT_VERBS: Record<string, [string, string, string]> = {
    git_commit: ["Committing", "Committed", "Commit failed"],

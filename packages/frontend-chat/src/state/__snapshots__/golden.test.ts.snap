@@ -1064,7 +1064,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "plan": null,
       "requestId": "perm-2",
       "resolved": true,
-      "stepId": null,
+      "stepId": "tc-3",
       "toolCall": {
         "kind": "execute",
         "rawInput": {

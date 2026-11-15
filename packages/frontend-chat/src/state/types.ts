@@ -138,6 +138,8 @@ export type Item =
         frontendTool: string | null;
         /** The tool call this approves (a Harness tool's step in the Trace), when there is one. */
         stepId: string | null;
+        /** Set on the chat row (`chatRows`) of a pending approval: the step it stands in for, for its preview. */
+        step?: Extract<Item, { type: "tool" }>;
         options: PermissionOption[];
         resolved: boolean;
         /** Set when the core answered via the Permission Policy (no actionable card). */

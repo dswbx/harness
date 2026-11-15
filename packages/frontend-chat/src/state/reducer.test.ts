@@ -1712,3 +1712,41 @@ describe("background jobs", () => {
       expect(s.threads.side!.backgroundJobs).toHaveLength(1);
    });
 });
+
+describe("permission requests of an Agent's tool call", () => {
+   const call = (status: string) =>
+      ev({
+         type: "ToolCall",
+         tool_call_id: "tc1",
+         title: "cargo test",
+         kind: "execute",
+         status,
+         content: [],
+         locations: [],
+         raw_input: { command: "cargo test" },
+      });
+   const ask = ev({
+      type: "PermissionRequested",
+      request_id: "r1",
+      tool_call: { toolCallId: "tc1", title: "cargo test", kind: "execute" },
+      options: [
+         { option_id: "a", name: "Allow", kind: "allow_once" },
+         { option_id: "n", name: "Reject", kind: "reject_once" },
+      ],
+   });
+
+   it("links the request to its running step, and marks the step when answered", () => {
+      const s = fold([started(), call("pending"), ask]);
+      expect(s.items[1]).toMatchObject({ type: "permission", stepId: "tc1" });
+      const done = reduce(
+         s,
+         ev({ type: "PermissionResolved", request_id: "r1", option_id: "a", by: "view" }),
+      );
+      expect(done.items[0]).toMatchObject({ type: "tool", id: "tc1", approval: "you" });
+   });
+
+   it("does not link a step that already finished, or an unknown call", () => {
+      expect(fold([started(), call("completed"), ask]).items[1]).toMatchObject({ stepId: null });
+      expect(fold([started(), ask]).items[0]).toMatchObject({ stepId: null });
+   });
+});

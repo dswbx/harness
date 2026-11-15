@@ -422,6 +422,66 @@ export const promptHandlers = {
          });
          return { type: "Ok" };
       }
+      // Typing "/permission" simulates two pending permission requests: a multi-line command and an edit with a diff.
+      if (cmd.text.trim() === "/permission") {
+         const turn = `t${mock.logs.get(sid)!.length}`;
+         mock.emit(sid, {
+            type: "TurnStarted",
+            turn_id: turn,
+            text: cmd.text,
+            attachments: [],
+            context: null,
+         });
+         turnStarted(mock, sid);
+         const command =
+            'set -e\ncd packages/api\nbun install --frozen-lockfile\nbun run typecheck\nbun run test -- --reporter=dot\necho "all green"';
+         const diff = {
+            type: "diff",
+            path: "src/hello.ts",
+            oldText: 'export const hello = () => "hi";\n',
+            newText:
+               'export const hello = (name: string) => `hi ${name}`;\n\nexport const bye = () => "bye";\n',
+         };
+         const calls = [
+            {
+               id: `${turn}-run`,
+               title: "Run tests",
+               kind: "execute",
+               content: [],
+               raw: { command },
+            },
+            {
+               id: `${turn}-edit`,
+               title: "Edit src/hello.ts",
+               kind: "edit",
+               content: [diff],
+               raw: { file_path: "src/hello.ts" },
+            },
+         ];
+         for (const c of calls) {
+            mock.emit(sid, {
+               type: "ToolCall",
+               tool_call_id: c.id,
+               title: c.title,
+               kind: c.kind,
+               status: "pending",
+               content: c.content,
+               locations: [],
+               raw_input: c.raw,
+            });
+            mock.emit(sid, {
+               type: "PermissionRequested",
+               request_id: `${c.id}-perm`,
+               tool_call: { toolCallId: c.id, title: c.title, kind: c.kind, content: c.content },
+               options: [
+                  { option_id: "allow", name: "Allow", kind: "allow_once" },
+                  { option_id: "always", name: "Always allow", kind: "allow_always" },
+                  { option_id: "reject", name: "Reject", kind: "reject_once" },
+               ],
+            });
+         }
+         return { type: "Ok" };
+      }
       // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.
       if (cmd.text.trim() === "/card") {
          const n = ++mock.cardN;
