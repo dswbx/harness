@@ -2,7 +2,7 @@ import { cn } from "@harness/ui";
 import { useRef } from "react";
 import { overlayHost } from "./overlayHost";
 
-/** Transparent margin around the card for its shadow (logical px); `SHADOW` in `overlay.rs`. */
+/** Transparent margin around the card for its shadow (logical px); `SHADOW` in `overlay/mod.rs`. */
 export const SHADOW = 20;
 
 export const CORNERS = ["topLeft", "topRight", "bottomLeft", "bottomRight"] as const;

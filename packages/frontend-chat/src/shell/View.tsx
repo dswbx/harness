@@ -17,7 +17,7 @@ import { useSharedMetas } from "../features/artifacts/useSharedMetas";
 import type { DiffScope } from "../features/changes/DiffPanel";
 import { changesPanel } from "../features/changes/panel";
 import { ArchivedNotice } from "../features/conversation/ArchivedNotice";
-import { MessageList, useRows } from "../features/conversation/Messages";
+import { MessageList, useRows } from "../features/conversation/MessageList";
 import { ScrollUnder } from "../features/conversation/ScrollUnder";
 import { TaskListPanel } from "../features/conversation/TaskListPanel";
 import { FileRefProvider, FileViewProvider } from "../features/files/FileRef";

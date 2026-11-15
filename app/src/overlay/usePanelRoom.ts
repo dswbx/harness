@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { overlayHost } from "./overlayHost";
 import { panelRoomStep, samePanels } from "./overlayMode";
 
-/** The chat card's default width (logical px); `Mode::Chat.card()` in `overlay.rs`. */
+/** The chat card's default width (logical px); `Mode::Chat.card()` in `overlay/mod.rs`. */
 const CHAT_CARD = 540;
 const NO_PANELS: PanelWidth = { left: 0, right: 0 };
 

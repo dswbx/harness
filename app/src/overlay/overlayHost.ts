@@ -3,7 +3,7 @@ import { inTauri } from "@harness/api";
 import type { Anchor, OverlayStatus as HostStatus, WindowContext } from "../platform/generated";
 import type { OverlayMode } from "./overlayMode";
 
-/** The Quick overlay's window commands and signals (`overlay.rs`). Outside Tauri they do nothing. */
+/** The Quick overlay's window commands and signals (`overlay/`). Outside Tauri they do nothing. */
 
 const invoke = async <T>(cmd: string, args?: Record<string, unknown>) =>
    (await import("@tauri-apps/api/core")).invoke<T>(cmd, args);
