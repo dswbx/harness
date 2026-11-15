@@ -734,6 +734,7 @@ describe("task list, config, usage (synthetic)", () => {
          }),
       ]);
       expect(s.taskList.map((t) => t.status)).toEqual(["completed", "in_progress"]);
+      expect(s.taskListAt).toBe(0);
    });
 });
 

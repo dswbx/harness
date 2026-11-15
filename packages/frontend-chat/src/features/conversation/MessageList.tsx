@@ -13,6 +13,7 @@ import type { ChatSubagent } from "../toolDisplay";
 import { WaitingForUser } from "../toolDisplay/waiting";
 import { chatRowsOf, renderUiOf, stabilizeRows } from "./chatRows";
 import { Row } from "./Row";
+import { TaskListCard } from "./TaskListCard";
 import { Working } from "./Working";
 
 /** A Thread's items split into rows: render_ui calls moved to slots, resolved permissions and subagent calls folded away. */
@@ -75,6 +76,18 @@ export function MessageList({
    );
    // Filtered here, not after the fact, so a message never shows twice for a frame.
    const pending = usePendingMessages(composer).filter((p) => !hasArrived(p, userCount));
+   // While the Turn runs, the task list sits at the end, above Working. Once it ends, it stays
+   // after the row it last changed at, so the Turn's closing message comes after it.
+   const tasks = state.taskList.length > 0;
+   const taskRow = useMemo(() => {
+      if (running || !tasks) return null;
+      const index = new Map(state.items.map((it, n) => [it.id, n]));
+      for (let r = rows.length - 1; r >= 0; r--) {
+         const n = index.get(rows[r]!.id);
+         if (n !== undefined && n < state.taskListAt) return r;
+      }
+      return null;
+   }, [running, tasks, state.items, state.taskListAt, rows]);
    const plans = useMemo<PlanCtx>(
       () => ({
          plans: state.plans,
@@ -102,18 +115,21 @@ export function MessageList({
                   )
                }
                renderRow={(i) => (
-                  <Row
-                     item={rows[i]!}
-                     api={api}
-                     env={env}
-                     view={ui.inline.get(rows[i]!.id)}
-                     onOpenDiff={onOpenDiff}
-                     subagents={subagents}
-                     active={running}
-                     streaming={running && i === rows.length - 1}
-                     threadId={threadId}
-                     side={side}
-                  />
+                  <>
+                     <Row
+                        item={rows[i]!}
+                        api={api}
+                        env={env}
+                        view={ui.inline.get(rows[i]!.id)}
+                        onOpenDiff={onOpenDiff}
+                        subagents={subagents}
+                        active={running}
+                        streaming={running && i === rows.length - 1}
+                        threadId={threadId}
+                        side={side}
+                     />
+                     {i === taskRow && <TaskListCard entries={state.taskList} className="mt-6" />}
+                  </>
                )}
                footer={
                   <>
@@ -122,6 +138,9 @@ export function MessageList({
                      {pending.map((p) => (
                         <PendingRow key={p.id} item={p} state={state} composer={composer} />
                      ))}
+                     {tasks && taskRow === null && (
+                        <TaskListCard entries={state.taskList} className="mb-4" />
+                     )}
                      <Working since={state.turnStartedAt} waiting={waiting} />
                      <div style={{ height: inset }} />
                   </>

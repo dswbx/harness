@@ -6,7 +6,9 @@ import { parseReviewComments } from "../reviewCommentText";
 /** Task list and plan entries: the Agent's own list, and the plans it asked to approve (Plan Mode). */
 export function plansSlice(c: Ctx, e: Event) {
    const k = e.kind;
-   if (k.type === "TaskListUpdated") c.d.taskList = k.entries;
+   if (k.type !== "TaskListUpdated") return;
+   c.d.taskList = k.entries;
+   c.d.taskListAt = c.d.items.length;
 }
 
 /** A new plan version. Counts the plan comments sent since the version it revises. */

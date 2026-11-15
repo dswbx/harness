@@ -243,6 +243,8 @@ export type ChatState = {
    turnStartedAt: number | null;
    mainThreadId: string | null;
    taskList: TaskEntry[];
+   /** `items.length` when the Task List last changed: once the Turn ends, it shows after those items. */
+   taskListAt: number;
    configOptions: ConfigOption[];
    /**
     * Old logs only: the last mode announced that was not the plan mode, for plan requests without
