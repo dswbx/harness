@@ -1485,7 +1485,8 @@ fn notices(h: &Harness, sid: &str) -> Vec<(String, harness_core::api::PromptOrig
 }
 
 async fn until(what: &str, mut f: impl FnMut() -> bool) {
-    for _ in 0..400 {
+    // Only bounds a failure: generous for a loaded machine.
+    for _ in 0..1200 {
         if f() {
             return;
         }
@@ -1583,10 +1584,18 @@ async fn a_running_session_wait_replaces_the_notice() {
     let h = harness(&dir.path().join("data"), &[]);
     let sid = create(&h, &repo, vec![]).await;
 
-    // "slow": the child still works when the wait starts, so the wait sees the end and reports it.
-    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"slow","worktree":false}"#).await;
+    // "gated": the child works until the file exists, so it still works when the wait starts, however
+    // long the parent takes to get there. The wait runs beside the parent's other Turns.
+    let gate = dir.path().join("gate");
+    let started = mcp_json(&h, &sid, &format!(r#"session_start {{"prompt":"gated {}","worktree":false}}"#, gate.display())).await;
     let child = started["session_id"].as_str().unwrap().to_owned();
-    let done = mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await;
+    let waiter = {
+        let (h, sid, child) = (h.clone(), sid.clone(), child.clone());
+        tokio::spawn(async move { mcp_json(&h, &sid, &format!(r#"session_wait {{"id":"{child}"}}"#)).await })
+    };
+    until("the wait is under way", || h.sub_session_waits(&child) == 1).await;
+    std::fs::write(&gate, "").unwrap();
+    let done = waiter.await.unwrap();
     assert_eq!(done["status"], "idle", "{done}");
     assert_eq!(done["reply"], "Working on it. Done.");
     tokio::time::sleep(Duration::from_millis(500)).await;

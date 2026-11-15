@@ -9,6 +9,7 @@
 //! - contains "write": appends a line to `fake.txt` in the Session's cwd
 //! - contains "title": sets the Session title "Fake title"
 //! - contains "slow": waits 1.5 s before answering
+//! - starts with "gated <file>": waits until `<file>` exists (at most 60 s) before answering
 //! - contains "crash": the process exits mid-Turn
 //! - contains "hangup": stdout closes mid-Turn but the process lingers (like a killed child of npx)
 //! - contains "echo-prompt": answers "prompt: <the whole prompt text, blocks joined by ' '>"
@@ -554,6 +555,14 @@ async fn main() -> agent_client_protocol::Result<()> {
                     }
                     if command.contains("slow") {
                         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    }
+                    if let Some(gate) = command.strip_prefix("gated ") {
+                        for _ in 0..3000 {
+                            if std::path::Path::new(gate.trim()).exists() {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
                     }
                     if command.contains("crash") {
                         std::process::exit(1);
