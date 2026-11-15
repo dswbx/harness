@@ -6,9 +6,18 @@ import { parseReviewComments } from "../reviewCommentText";
 /** Task list and plan entries: the Agent's own list, and the plans it asked to approve (Plan Mode). */
 export function plansSlice(c: Ctx, e: Event) {
    const k = e.kind;
-   if (k.type !== "TaskListUpdated") return;
-   c.d.taskList = k.entries;
-   c.d.taskListAt = c.d.items.length;
+   const d = c.d;
+   if (k.type === "TaskListUpdated") {
+      d.taskList = k.entries;
+      d.taskListAt = d.items.length;
+      d.taskListTurn = d.turnId;
+   } else if (k.type === "TurnEnded" && d.taskListTurn !== null && d.taskListTurn === d.turnId) {
+      // Its Turn ended: the list stays before the closing message, which may have started before
+      // the list's last change.
+      d.taskListTurn = null;
+      const last = d.items.at(-1);
+      if (last?.type === "agent" && last.parent === null) d.taskListAt = d.items.length - 1;
+   }
 }
 
 /** A new plan version. Counts the plan comments sent since the version it revises. */

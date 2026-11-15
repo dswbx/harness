@@ -76,18 +76,16 @@ export function MessageList({
    );
    // Filtered here, not after the fact, so a message never shows twice for a frame.
    const pending = usePendingMessages(composer).filter((p) => !hasArrived(p, userCount));
-   // While the Turn runs, the task list sits at the end, above Working. Once it ends, it stays
-   // after the row it last changed at, so the Turn's closing message comes after it.
+   // The Task List of the running Turn sits at the end, above Working. Otherwise it stays where
+   // its Turn left it: before the row holding item `taskListAt` (none: at the end).
    const tasks = state.taskList.length > 0;
+   const live = running && state.taskListTurn === state.turnId;
    const taskRow = useMemo(() => {
-      if (running || !tasks) return null;
+      if (!tasks || live) return null;
       const index = new Map(state.items.map((it, n) => [it.id, n]));
-      for (let r = rows.length - 1; r >= 0; r--) {
-         const n = index.get(rows[r]!.id);
-         if (n !== undefined && n < state.taskListAt) return r;
-      }
-      return null;
-   }, [running, tasks, state.items, state.taskListAt, rows]);
+      const r = rows.findIndex((row) => (index.get(row.id) ?? -1) >= state.taskListAt);
+      return r === -1 ? null : r;
+   }, [tasks, live, state.items, state.taskListAt, rows]);
    const plans = useMemo<PlanCtx>(
       () => ({
          plans: state.plans,
@@ -116,6 +114,7 @@ export function MessageList({
                }
                renderRow={(i) => (
                   <>
+                     {i === taskRow && <TaskListCard entries={state.taskList} className="mb-6" />}
                      <Row
                         item={rows[i]!}
                         api={api}
@@ -128,7 +127,6 @@ export function MessageList({
                         threadId={threadId}
                         side={side}
                      />
-                     {i === taskRow && <TaskListCard entries={state.taskList} className="mt-6" />}
                   </>
                )}
                footer={

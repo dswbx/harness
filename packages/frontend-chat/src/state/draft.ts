@@ -7,6 +7,7 @@ export const initialState = (): ChatState => ({
    mainThreadId: null,
    taskList: [],
    taskListAt: 0,
+   taskListTurn: null,
    configOptions: [],
    lastMode: null,
    plans: [],

@@ -736,6 +736,31 @@ describe("task list, config, usage (synthetic)", () => {
       expect(s.taskList.map((t) => t.status)).toEqual(["completed", "in_progress"]);
       expect(s.taskListAt).toBe(0);
    });
+
+   it("places the Task List before the closing message once its Turn ends, and keeps it there", () => {
+      const list = (status: "in_progress" | "completed") =>
+         ev({ type: "TaskListUpdated", entries: [{ content: "a", priority: "medium", status }] });
+      let s = fold([
+         started(),
+         ev({ type: "TurnStarted", turn_id: "t1", text: "q" }),
+         list("in_progress"),
+         ev({ type: "AgentMessageChunk", text: "working on it." }),
+         list("completed"),
+         // The closing text lands in the message that started before the last change.
+         ev({ type: "AgentMessageChunk", text: " Done." }),
+      ]);
+      expect(s.taskListTurn).toBe("t1");
+      s = reduce(s, ev({ type: "TurnEnded", turn_id: "t1", stop_reason: "end_turn" }));
+      expect(s.taskListTurn).toBeNull();
+      expect(s.items.map((i) => i.type)).toEqual(["user", "agent"]);
+      expect(s.taskListAt).toBe(1);
+      // A later Turn does not move it.
+      s = reduce(s, ev({ type: "TurnStarted", turn_id: "t2", text: "ping" }));
+      s = reduce(s, ev({ type: "AgentMessageChunk", text: "pong" }));
+      s = reduce(s, ev({ type: "TurnEnded", turn_id: "t2", stop_reason: "end_turn" }));
+      expect(s.taskListAt).toBe(1);
+      expect(s.taskListTurn).toBeNull();
+   });
 });
 
 describe("permissions (synthetic, shape from codex plan spike)", () => {
