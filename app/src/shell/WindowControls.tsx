@@ -22,11 +22,7 @@ export function WindowControls({
    const btn = "size-7 text-muted-foreground hover:text-foreground";
    return (
       <div className="flex items-center gap-0.5">
-         <Tooltip
-            content={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-            side="bottom"
-            align="start"
-         >
+         <Tooltip content={sidebarOpen ? "Hide sidebar" : "Show sidebar"} side="left">
             <Button
                size="icon"
                variant="ghost"
@@ -37,7 +33,7 @@ export function WindowControls({
                <PanelLeft />
             </Button>
          </Tooltip>
-         <Tooltip content="New Session" side="bottom" align="end">
+         <Tooltip content="New Session" side="right">
             <Button
                size="icon"
                variant="ghost"
