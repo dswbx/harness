@@ -416,20 +416,22 @@ impl Session {
     /// the log as cancelled, and waits for that, at most `grace`.
     pub(crate) async fn shutdown_stop(self: &Arc<Self>, grace: Duration) {
         self.jobs.close();
-        self.agent.close(self, "app_restart", grace).await;
+        self.agent.close("app_restart", grace).await;
     }
 
-    /// Harness shutdown, part 2: writes everything queued to disk, then refuses later appends. Blocking.
+    /// Harness shutdown, part 2: writes what this run appended to disk, then refuses later appends.
+    /// Blocking. A read-only log (from a newer build) is left alone; `session.json` is written on
+    /// every change, so it is not written again.
     pub(crate) fn shutdown_flush(&self) {
-        if self.log.read_only_reason().is_none()
+        if self.log.read_only_reason().is_some() {
+            return;
+        }
+        if self.log.is_dirty()
             && let Err(e) = self.log.sync()
         {
             tracing::warn!("flushing the Session Log of {} at shutdown: {e:#}", self.dir.display());
         }
         self.log.close();
-        if let Err(e) = write_meta(&self.dir, &self.meta.lock()) {
-            tracing::warn!("writing the metadata of {} at shutdown: {e:#}", self.dir.display());
-        }
     }
 
     pub(crate) fn agent_slot(&self) -> &crate::acp::AgentSlot {

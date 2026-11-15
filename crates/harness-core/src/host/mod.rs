@@ -62,8 +62,6 @@ pub struct Harness {
     terminals: crate::terminal::Terminals,
     /// When the PR states of the Session list were last refreshed.
     prs_refreshed: parking_lot::Mutex<Option<std::time::Instant>>,
-    /// `shutdown` started: Commands fail.
-    closing: std::sync::atomic::AtomicBool,
     /// Set once `shutdown` is done, so a second call returns at once.
     shut_down: tokio::sync::OnceCell<()>,
     shutdown_timeout: std::time::Duration,
@@ -136,6 +134,7 @@ impl Harness {
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
             host: Default::default(),
             notices: Default::default(),
+            closing: Default::default(),
         });
         // One watch on `shared/` for the life of the Host (ADR 0024 addendum): changes from any
         // Session, the no-Session view or an editor reach every View.
@@ -176,7 +175,6 @@ impl Harness {
             sessions: RwLock::new(sessions),
             terminals,
             prs_refreshed: Default::default(),
-            closing: Default::default(),
             shut_down: Default::default(),
             shutdown_timeout,
             _lock: lock,
@@ -233,17 +231,20 @@ impl Harness {
     /// written to disk and closed. Terminals and the Harness MCP stop too. Safe to call again:
     /// later calls wait for the first and return.
     pub async fn shutdown(&self) {
-        self.closing.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.shared.closing.store(true, std::sync::atomic::Ordering::SeqCst);
         self.shut_down.get_or_init(|| self.shutdown_once()).await;
+    }
+
+    /// The most `shutdown` takes.
+    pub fn shutdown_timeout(&self) -> std::time::Duration {
+        self.shutdown_timeout
     }
 
     async fn shutdown_once(&self) {
         let started = std::time::Instant::now();
-        let sessions: Vec<Arc<Session>> = self.sessions.read().values().cloned().collect();
-        // Before any await, so a Turn ending meanwhile cannot make a parent start an Agent again.
-        for s in &sessions {
-            s.agent_slot().refuse_starts();
-        }
+        // Sessions with activity this run first: they are the ones with something to write.
+        let mut sessions: Vec<Arc<Session>> = self.sessions.read().values().cloned().collect();
+        sessions.sort_by_key(|s| !s.log().is_dirty());
         self.terminals.kill_everything();
         self.shared.mcp.stop();
         // The Agent's process group goes with its connection (the ACP crate kills it on drop).
@@ -260,7 +261,7 @@ impl Harness {
     }
 
     fn ensure_open(&self) -> anyhow::Result<()> {
-        if self.closing.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.shared.closing.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(crate::error::unavailable("the Harness is shutting down"));
         }
         Ok(())

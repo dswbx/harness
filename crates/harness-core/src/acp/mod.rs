@@ -43,6 +43,11 @@ pub async fn prompt(
     if meta.archived {
         return Err(crate::error::conflict("this Session is archived; unarchive it first"));
     }
+    // Before the workspace snapshot below, which can take long.
+    let closing = || session.shared().closing.load(std::sync::atomic::Ordering::SeqCst);
+    if closing() {
+        return Err(crate::error::unavailable("the Harness is shutting down"));
+    }
     let folder = std::path::PathBuf::from(&meta.folder);
     let tracked = meta.workspace.repo_root.is_some();
     // Held until the Turn counts (or the prompt fails): starting or resuming the Agent is not idle.
@@ -87,7 +92,10 @@ pub async fn prompt(
             origin,
         },
     )?;
-    slot.update(&session, |s| *s.turns.entry(thread.clone()).or_default() += 1);
+    slot.update(&session, |s| {
+        *s.turns.entry(thread.clone()).or_default() += 1;
+        s.unlogged += 1;
+    });
     drop(preparing);
     tokio::spawn(async move {
         let mut blocks = Vec::new();
@@ -109,7 +117,8 @@ pub async fn prompt(
                 "auth_required".to_owned()
             }
             // A Cancel the Agent did not answer: its process was stopped, which is what ended the Turn.
-            Err(_) if session.agent_slot().cancelling(&thread) => "cancelled".to_owned(),
+            // Also a Turn whose connection was taken just before the Harness began to shut down.
+            Err(_) if session.agent_slot().cancelling(&thread) || session.shared().closing.load(std::sync::atomic::Ordering::SeqCst) => "cancelled".to_owned(),
             Err(e) => {
                 let message = if agent_client_protocol::is_incoming_transport_closed(&e) {
                     "The Agent process ended during this Turn. Your next message restarts it.".to_owned()
@@ -120,7 +129,9 @@ pub async fn prompt(
                 "error".to_owned()
             }
         };
+        // Not while shutting down: `TurnEnded` must reach the log within the grace.
         if let Some(from_tree) = before
+            && !session.shared().closing.load(std::sync::atomic::Ordering::SeqCst)
             && let Ok(to_tree) = crate::workspace::snapshot(&folder).await
             && to_tree != from_tree
             && let Ok(diff) = crate::workspace::diff(&folder, &from_tree, &to_tree).await
@@ -142,6 +153,10 @@ pub async fn prompt(
             }
         });
         let _ = session.log().append(Some(thread.clone()), EventKind::TurnEnded { turn_id, stop_reason: stop_reason.clone() });
+        {
+            let mut s = session.agent_slot().state.lock();
+            s.unlogged = s.unlogged.saturating_sub(1);
+        }
         let meta = session.meta();
         session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
         let _ = session.log().sync();

@@ -29,7 +29,16 @@ struct State {
 /// A Session's job watchers. They end with the job, `stop_all` (the Session is deleted or archived)
 /// or `close` (the Harness shuts down).
 #[derive(Clone, Default)]
-pub struct JobWatchers(Arc<Mutex<State>>);
+pub struct JobWatchers(Arc<Mutex<State>>, Arc<std::sync::atomic::AtomicUsize>);
+
+/// Counts a watcher task while it exists, however it ends (also when aborted).
+struct Running(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 
 impl JobWatchers {
     pub(crate) fn stop_all(&self) {
@@ -44,8 +53,9 @@ impl JobWatchers {
         self.stop_all();
     }
 
+    /// Watcher tasks that have not ended yet.
     pub(crate) fn len(&self) -> usize {
-        self.0.lock().watching.len()
+        self.1.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -61,7 +71,10 @@ pub(super) fn watch(session: &Arc<Session>, thread: Option<ThreadId>, job: Backg
     let session = Arc::downgrade(session);
     let file = job.output_file.clone();
     let done = watchers.clone();
+    watchers.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let running = Running(watchers.1.clone());
     let handle = rt.spawn(async move {
+        let _running = running;
         let started = tokio::time::Instant::now();
         let ended = loop {
             if !is_open(&job.output_file).await {

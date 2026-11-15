@@ -812,6 +812,14 @@ impl SessionLog {
     }
 }
 
+impl SessionLog {
+    /// Whether anything was appended this run (a writer exists) or a chunk is still held.
+    pub fn is_dirty(&self) -> bool {
+        let inner = self.inner.lock();
+        inner.writer.is_some() || inner.pending.is_some()
+    }
+}
+
 impl Drop for SessionLog {
     fn drop(&mut self) {
         self.close();
