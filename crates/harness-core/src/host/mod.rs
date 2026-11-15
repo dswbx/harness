@@ -424,7 +424,9 @@ impl Harness {
         }
     }
 
+    /// Fails once the Harness is closing (a subscribe in flight at quit must not read or append to a log after the flush).
     pub fn subscribe_session(&self, session_id: &str, from_seq: u64, sink: Box<dyn EventSink>) -> Result<SubscriptionId, String> {
+        self.ensure_open().map_err(|e| format!("{e:#}"))?;
         let session = self.session(session_id).map_err(|e| e.to_string())?;
         session.log().subscribe(from_seq, sink).map_err(|e| format!("{e:#}"))
     }

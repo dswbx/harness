@@ -345,6 +345,8 @@ async fn no_session_or_turn_starts_once_shutdown_began() {
     };
     assert_eq!(h.execute(create).await.unwrap_err().code, ErrorCode::Unavailable);
     assert_eq!(sessions(), before);
-    let err = h.execute(Command::Prompt { session_id: sid, thread_id: None, text: "hi".into(), attachments: vec![] }).await.unwrap_err();
+    let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.unwrap_err();
     assert_eq!((err.code, err.message.as_str()), (ErrorCode::Unavailable, "the Harness is shutting down"));
+    let sub = h.subscribe_session(&sid, 0, Box::new(|_: &Event| true));
+    assert_eq!(sub.unwrap_err(), "the Harness is shutting down");
 }
