@@ -18,11 +18,11 @@ impl Harness {
     }
 
     pub(in crate::host) fn cmd_get_worktree_dir(&self) -> anyhow::Result<CommandResult> {
-        Ok(CommandResult::WorktreeDir { dir: crate::workspace::worktree_dir(&self.data_dir) })
+        Ok(CommandResult::WorktreeDir { dir: crate::git::worktree_dir(&self.data_dir) })
     }
 
     pub(in crate::host) fn cmd_set_worktree_dir(&self, dir: Option<String>) -> anyhow::Result<CommandResult> {
-        crate::workspace::set_worktree_dir(&self.data_dir, dir.as_deref())?;
+        crate::git::set_worktree_dir(&self.data_dir, dir.as_deref())?;
         Ok(CommandResult::Ok)
     }
 

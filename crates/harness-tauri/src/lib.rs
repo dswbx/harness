@@ -1,6 +1,6 @@
 //! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, the
 //! Terminal byte stream, plus macOS niceties (dock badge, notifications), opt-in self-update and
-//! the Quick overlay (`overlay.rs`).
+//! the Quick overlay (`overlay/`).
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use parking_lot::Mutex;
@@ -272,7 +272,7 @@ pub fn run() {
         .init();
 
     let builder = tauri::Builder::default();
-    // The Quick overlay's NSPanel (`overlay.rs`).
+    // The Quick overlay's NSPanel (`overlay/`).
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
     builder

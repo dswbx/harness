@@ -271,7 +271,7 @@ async fn run_git_diff(session: &Arc<Session>, _: &ThreadId, args: &Value) -> any
 
 async fn run_list_branches(session: &Arc<Session>, _: &ThreadId, _: &Value) -> anyhow::Result<String> {
     let folder = std::path::PathBuf::from(session.meta().folder);
-    Ok(serde_json::to_string_pretty(&crate::workspace::list_branches(&folder).await?)?)
+    Ok(serde_json::to_string_pretty(&crate::git::list_branches(&folder).await?)?)
 }
 
 async fn run_git_commit(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {

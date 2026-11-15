@@ -69,7 +69,7 @@ impl PrWatch {
     pub fn shown(&self) -> Option<(PathBuf, u32)> {
         let m = self.meta.lock();
         let folder = m.repo_folder()?;
-        let head = crate::workspace::head_branch(Path::new(&m.folder));
+        let head = crate::git::head_branch(Path::new(&m.folder));
         Some((folder, shown_pr(m.workspace.pr, m.workspace.branch_pr.as_ref(), head.as_deref())?))
     }
 
@@ -88,7 +88,7 @@ impl PrWatch {
             return;
         }
         let Some(folder) = m.repo_folder() else { return };
-        let Some(branch) = crate::workspace::head_branch(Path::new(&m.folder)) else { return };
+        let Some(branch) = crate::git::head_branch(Path::new(&m.folder)) else { return };
         let base = m.workspace.worktree.as_ref().map(|w| &w.base).or(m.workspace.base.as_ref());
         if base == Some(&branch) {
             return;
@@ -110,7 +110,7 @@ impl Session {
             }
             PathBuf::from(&m.folder)
         };
-        if let Some(root) = crate::workspace::find_repo_root(&folder) {
+        if let Some(root) = crate::git::find_repo_root(&folder) {
             let _ = self.update_meta(|m| m.workspace.repo_root = Some(root));
         }
     }
@@ -159,7 +159,7 @@ impl Session {
     }
 
     pub async fn git_status(&self) -> anyhow::Result<crate::api::GitStatus> {
-        crate::workspace::status(&self.folder()?).await
+        crate::git::status(&self.folder()?).await
     }
 
     pub async fn git_diff(&self, from: Option<String>, to: Option<String>) -> anyhow::Result<crate::api::Diff> {
@@ -167,34 +167,34 @@ impl Session {
         let base = self.base();
         let from = match from {
             Some(f) => f,
-            None => crate::workspace::diff_base(&folder, base.as_deref()).await?,
+            None => crate::git::diff_base(&folder, base.as_deref()).await?,
         };
         let to = match to {
             Some(t) => t,
-            None => crate::workspace::snapshot(&folder).await?,
+            None => crate::git::snapshot(&folder).await?,
         };
-        crate::workspace::diff(&folder, &from, &to).await
+        crate::git::diff(&folder, &from, &to).await
     }
 
     pub async fn git_log(&self) -> anyhow::Result<Vec<crate::api::Commit>> {
         let folder = self.folder()?;
         let base = self.base();
-        let base = crate::workspace::diff_base(&folder, base.as_deref()).await?;
-        crate::workspace::log(&folder, &base).await
+        let base = crate::git::diff_base(&folder, base.as_deref()).await?;
+        crate::git::log(&folder, &base).await
     }
 
     pub async fn git_show_file(&self, rev: &str, path: &str) -> anyhow::Result<String> {
-        crate::workspace::show_file(&self.folder()?, rev, path).await
+        crate::git::show_file(&self.folder()?, rev, path).await
     }
 
     pub async fn git_commit(&self, message: String, by: GitActor) -> anyhow::Result<String> {
-        let commit = crate::workspace::commit(&self.folder()?, &message).await?;
+        let commit = crate::git::commit(&self.folder()?, &message).await?;
         self.log.append(None, EventKind::GitCommitted { commit: commit.clone(), message, by })?;
         Ok(commit)
     }
 
     pub async fn git_push(&self, by: GitActor) -> anyhow::Result<String> {
-        let branch = crate::workspace::push(&self.folder()?).await?;
+        let branch = crate::git::push(&self.folder()?).await?;
         self.log.append(None, EventKind::GitPushed { branch: branch.clone(), by })?;
         Ok(branch)
     }
@@ -205,10 +205,10 @@ impl Session {
         }
         self.stop_processes("archived");
         if let Some(wt) = self.meta().workspace.worktree {
-            if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
-                crate::workspace::wip_commit(&wt.path).await?;
+            if wt.path.exists() && crate::git::is_dirty(&wt.path).await? {
+                crate::git::wip_commit(&wt.path).await?;
             }
-            crate::workspace::remove_worktree(&wt).await?;
+            crate::git::remove_worktree(&wt).await?;
         }
         self.update_meta(|m| m.archived = true)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
@@ -223,7 +223,7 @@ impl Session {
             return Err(crate::error::conflict("not archived"));
         }
         if let Some(wt) = self.meta().workspace.worktree {
-            crate::workspace::restore_worktree(&wt).await?;
+            crate::git::restore_worktree(&wt).await?;
         }
         self.update_meta(|m| m.archived = false)?;
         self.shared.app_events.emit(crate::api::AppEvent::SessionsChanged);
@@ -236,17 +236,17 @@ impl Session {
     pub async fn delete_workspace(&self, force: bool) -> anyhow::Result<()> {
         if let Some(wt) = self.meta().workspace.worktree {
             if !force {
-                if wt.path.exists() && crate::workspace::is_dirty(&wt.path).await? {
+                if wt.path.exists() && crate::git::is_dirty(&wt.path).await? {
                     return Err(crate::error::conflict("the Worktree has uncommitted changes"));
                 }
-                let n = crate::workspace::unmerged_count(&wt.repo_root, &wt.base, &wt.branch).await?;
+                let n = crate::git::unmerged_count(&wt.repo_root, &wt.base, &wt.branch).await?;
                 if n != 0 {
                     return Err(crate::error::conflict(format!("branch {} has {n} commit(s) not on {}", wt.branch, wt.base)));
                 }
             }
             self.stop_processes("deleted");
-            crate::workspace::remove_worktree(&wt).await?;
-            crate::workspace::delete_branch(&wt.repo_root, &wt.branch).await?;
+            crate::git::remove_worktree(&wt).await?;
+            crate::git::delete_branch(&wt.repo_root, &wt.branch).await?;
             if let Some(parent) = wt.path.parent() {
                 let _ = std::fs::remove_dir(parent);
             }

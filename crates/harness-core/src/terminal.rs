@@ -628,7 +628,7 @@ mod tests {
     /// Closing only kills the shell: a job that ignores the hangup (`nohup`) outlives the tab
     /// (`Exit` is sent, the process stays).
     #[test]
-    #[ignore = "known: a background job keeps the PTY open after close"]
+    #[ignore = "known: a job that ignores the hangup outlives the closed tab"]
     fn closing_a_tab_with_a_hangup_ignoring_job_sends_exit_and_ends_the_job() {
         let (exited, job_alive) = close_with_background_job("nohup sleep 300 >/dev/null 2>&1 & echo bgpid=$!");
         assert!(exited, "Exit was not sent within 5 s of closing the tab");

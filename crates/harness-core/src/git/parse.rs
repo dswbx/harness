@@ -98,6 +98,21 @@ pub(super) fn parse_log(out: &str) -> Vec<Commit> {
         .collect()
 }
 
+/// Lowercase, dash-separated, at most 24 chars; safe inside a branch name.
+pub fn slug(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars().flat_map(char::to_lowercase) {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    let out: String = out.trim_end_matches('-').chars().take(24).collect();
+    let out = out.trim_end_matches('-').to_owned();
+    if out.is_empty() { "session".into() } else { out }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,4 +8,3 @@ mod repos;
 
 pub use pr::{checkout_pr, list_prs, view_pr};
 pub use refs::PrRefs;
-pub(crate) use repos::valid_repo;

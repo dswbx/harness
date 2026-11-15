@@ -132,7 +132,7 @@ pub fn find_by_suffix(folder: &Path, suffix: &str) -> anyhow::Result<String> {
 /// Files in `folder` (relative, `/` separators, sorted, at most `MAX_SCAN`). In a git repository: tracked and
 /// untracked files that `.gitignore` does not exclude and that exist on disk. Elsewhere: the files `walk_files` finds.
 pub async fn list_files(folder: &Path) -> anyhow::Result<Vec<String>> {
-    let tracked = crate::workspace::git(folder, &["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).await;
+    let tracked = crate::git::git(folder, &["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).await;
     let folder = folder.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut files = Vec::new();
@@ -327,8 +327,8 @@ mod tests {
         // A subfolder: paths relative to it.
         assert_eq!(list_files(&repo.join("app")).await.unwrap(), ["new.ts", "x.ts"]);
         // Its prefix maps repo-relative paths (git status) to these.
-        assert_eq!(crate::workspace::folder_prefix(&repo.join("app")).await, "app/");
-        assert_eq!(crate::workspace::folder_prefix(repo).await, "");
+        assert_eq!(crate::git::folder_prefix(&repo.join("app")).await, "app/");
+        assert_eq!(crate::git::folder_prefix(repo).await, "");
     }
 
     #[tokio::test]
@@ -337,6 +337,6 @@ mod tests {
         let f = dir.path().join("proj");
         write(&f, &["b.txt", "src/a.rs", ".hidden/x", "node_modules/y/z.js", ".env"]);
         assert_eq!(list_files(&f).await.unwrap(), [".env", "b.txt", "src/a.rs"]);
-        assert_eq!(crate::workspace::folder_prefix(&f).await, "");
+        assert_eq!(crate::git::folder_prefix(&f).await, "");
     }
 }

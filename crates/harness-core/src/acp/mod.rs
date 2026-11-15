@@ -55,7 +55,7 @@ pub async fn prompt(
     // Held until the Turn counts (or the prompt fails): starting or resuming the Agent is not idle.
     let slot = session.agent_slot();
     let preparing = slot.preparing();
-    let before = if tracked { crate::workspace::snapshot(&folder).await.ok() } else { None };
+    let before = if tracked { crate::git::snapshot(&folder).await.ok() } else { None };
     let conn = ensure_conn(&session).await?;
     let acp_session = match ensure_agent_session(&session, &conn, &thread).await {
         Err(e) if is_auth_required(&e) => {
@@ -134,9 +134,9 @@ pub async fn prompt(
         // Not while shutting down: `TurnEnded` must reach the log within the grace.
         if let Some(from_tree) = before
             && !session.shared().closing.load(std::sync::atomic::Ordering::SeqCst)
-            && let Ok(to_tree) = crate::workspace::snapshot(&folder).await
+            && let Ok(to_tree) = crate::git::snapshot(&folder).await
             && to_tree != from_tree
-            && let Ok(diff) = crate::workspace::diff(&folder, &from_tree, &to_tree).await
+            && let Ok(diff) = crate::git::diff(&folder, &from_tree, &to_tree).await
         {
             session
                 .log()

@@ -109,7 +109,7 @@ impl Harness {
 
     pub(in crate::host) async fn cmd_list_session_files(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
         let folder = PathBuf::from(self.session(&session_id)?.meta().folder);
-        let (files, prefix) = tokio::join!(crate::editor::list_files(&folder), crate::workspace::folder_prefix(&folder));
+        let (files, prefix) = tokio::join!(crate::editor::list_files(&folder), crate::git::folder_prefix(&folder));
         Ok(CommandResult::SessionFiles { files: files?, prefix })
     }
 

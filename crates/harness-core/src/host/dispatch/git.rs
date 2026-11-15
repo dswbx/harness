@@ -7,7 +7,7 @@ use crate::host::Harness;
 
 impl Harness {
     pub(in crate::host) async fn cmd_list_branches(&self, folder: String) -> anyhow::Result<CommandResult> {
-        let mut branches = crate::workspace::list_branches(Path::new(&folder)).await?;
+        let mut branches = crate::git::list_branches(Path::new(&folder)).await?;
         // Archived Sessions keep their branch but lose the Worktree.
         let archived: Vec<String> = self
             .sessions
@@ -30,7 +30,7 @@ impl Harness {
     }
 
     pub(in crate::host) async fn cmd_update_branch(&self, folder: String, branch: String) -> anyhow::Result<CommandResult> {
-        crate::workspace::update_branch(Path::new(&folder), &branch).await?;
+        crate::git::update_branch(Path::new(&folder), &branch).await?;
         Ok(CommandResult::Ok)
     }
 
@@ -51,7 +51,7 @@ impl Harness {
                     }
                     refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten()
                 }
-                None => match crate::workspace::current_branch(Path::new(&meta.folder)).await? {
+                None => match crate::git::current_branch(Path::new(&meta.folder)).await? {
                     Some(branch) => session.pr_watch().lookup(repo, &branch).await?,
                     None => None,
                 },
@@ -62,7 +62,7 @@ impl Harness {
         }
         let base = match meta.workspace.worktree.as_ref().map(|w| w.base.clone()).or_else(|| meta.workspace.base.clone()) {
             Some(b) => Some(b),
-            None => crate::workspace::default_branch(Path::new(&meta.folder)).await.map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned()),
+            None => crate::git::default_branch(Path::new(&meta.folder)).await.map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned()),
         };
         Ok(CommandResult::BranchPr { repo, pr, base })
     }

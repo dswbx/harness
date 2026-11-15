@@ -2,7 +2,7 @@
 //! that a global shortcut opens at the mouse or at the bottom center of the screen. It is one
 //! more Frontend window of the core; this module only creates, places, shows and hides it.
 //!
-//! The webview owns the overlay's state (`app/src/overlayMode.ts`) and sends each mode here with
+//! The webview owns the overlay's state (`app/src/overlay/overlayMode.ts`) and sends each mode here with
 //! `overlay_set_mode`. The shortcut only opens: it shows a hidden overlay; on a visible one it focuses
 //! it and sends `overlay-shortcut` to the webview (a mini bar expands).
 //! In the chat, `render_ui` panels sit beside the card (ADR 0022 Phase 2): the page sends their room
