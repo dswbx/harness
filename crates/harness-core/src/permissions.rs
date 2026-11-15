@@ -76,17 +76,28 @@ impl Policy {
 
     pub fn remove(&self, id: &str) -> anyhow::Result<()> {
         let mut rules = self.rules.write();
-        let before = rules.len();
-        rules.retain(|r| r.id != id);
-        anyhow::ensure!(rules.len() != before, "unknown permission rule {id}");
-        self.save(&rules)
+        // In memory only once saved, like `add`.
+        let mut next = rules.clone();
+        next.retain(|r| r.id != id);
+        if next.len() == rules.len() {
+            return Err(crate::error::not_found(format!("unknown permission rule {id}")));
+        }
+        self.save(&next)?;
+        *rules = next;
+        Ok(())
     }
 
     /// Drops rules scoped to a Session that no longer exists.
     pub fn forget_session(&self, session_id: &str) -> anyhow::Result<()> {
         let mut rules = self.rules.write();
-        rules.retain(|r| !matches!(&r.scope, RuleScope::Session { session_id: s } if s == session_id));
-        self.save(&rules)
+        let mut next = rules.clone();
+        next.retain(|r| !matches!(&r.scope, RuleScope::Session { session_id: s } if s == session_id));
+        if next.len() == rules.len() {
+            return Ok(());
+        }
+        self.save(&next)?;
+        *rules = next;
+        Ok(())
     }
 
     fn save(&self, rules: &[PermissionRule]) -> anyhow::Result<()> {
@@ -343,6 +354,32 @@ mod tests {
         let n = crate::persist::take_problems(d.path());
         assert_eq!(n.len(), 1);
         assert!(n[0].notice().message.starts_with("Permission rules were reset."));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_remove_or_forget_keeps_the_rules() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let p = Policy::open(d.path().join("permissions.json")).unwrap();
+        let global = p.add(rule(RuleScope::Global, Some("fetch"), None, Decision::Allow)).unwrap();
+        p.add(rule(RuleScope::Session { session_id: "s1".into() }, Some("fetch"), None, Decision::Allow)).unwrap();
+        assert_eq!(p.list().len(), 2);
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = std::fs::write(d.path().join("probe"), b"").is_ok();
+        let removed = p.remove(&global.id);
+        let forgot = p.forget_session("s1");
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return; // running as root
+        }
+        assert!(removed.is_err() && forgot.is_err());
+        assert_eq!(p.list().len(), 2, "memory matches the file");
+        // Unknown ids are a not-found, and nothing changes.
+        let e = p.remove("nope").unwrap_err();
+        assert_eq!(crate::api::HarnessError::from(e).code, crate::api::ErrorCode::NotFound);
+        p.forget_session("s1").unwrap();
+        assert_eq!(p.list().len(), 1);
     }
 
     #[cfg(unix)]

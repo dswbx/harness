@@ -99,14 +99,20 @@ impl Library {
             anyhow::ensure!(server.secret_keys.contains(k), "{k} is not one of the server's secret keys");
             self.secrets.set(&secret_key(&server.id, k), v)?;
         }
-        if let Some(old) = all.iter().find(|s| s.id == server.id) {
-            for k in old.secret_keys.iter().filter(|k| !server.secret_keys.contains(k)) {
-                self.secrets.delete(&secret_key(&server.id, k))?;
-            }
+        let dropped: Vec<String> = all
+            .iter()
+            .find(|s| s.id == server.id)
+            .map(|old| old.secret_keys.iter().filter(|k| !server.secret_keys.contains(k)).cloned().collect())
+            .unwrap_or_default();
+        // In memory only once saved: a refused write must not leave an edit the file lacks.
+        let mut next = all.clone();
+        next.retain(|s| s.id != server.id);
+        next.push(server.clone());
+        self.write(&next)?;
+        *all = next;
+        for k in dropped {
+            self.secrets.delete(&secret_key(&server.id, &k))?;
         }
-        all.retain(|s| s.id != server.id);
-        all.push(server.clone());
-        self.write(&all)?;
         Ok(server)
     }
 
@@ -115,11 +121,15 @@ impl Library {
         let Some(server) = all.iter().find(|s| s.id == id).cloned() else {
             anyhow::bail!("unknown MCP server {id}");
         };
+        let mut next = all.clone();
+        next.retain(|s| s.id != id);
+        self.write(&next)?;
+        *all = next;
+        // After the file: a refused write keeps the server and its secrets.
         for k in &server.secret_keys {
             self.secrets.delete(&secret_key(id, k))?;
         }
-        all.retain(|s| s.id != id);
-        self.write(&all)
+        Ok(())
     }
 
     fn write(&self, servers: &[McpServerDef]) -> anyhow::Result<()> {
@@ -161,6 +171,38 @@ mod tests {
         assert_eq!(n, 1);
     }
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_save_or_remove_leaves_the_list_and_the_secrets_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        let lib = Library::open(path.clone(), Box::new(MemorySecrets::default())).unwrap();
+        let def = |name: &str| McpServerDef {
+            id: String::new(),
+            name: name.into(),
+            transport: McpTransport::Http { url: "https://example.com/mcp".into(), headers: BTreeMap::new() },
+            secret_keys: vec!["K".into()],
+        };
+        let kept = lib.save(def("Kept"), [("K".to_owned(), "v".to_owned())].into()).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = std::fs::write(dir.path().join("probe"), b"").is_ok();
+        let added = lib.save(def("Added"), BTreeMap::new());
+        let mut edited = kept.clone();
+        edited.name = "Renamed".into();
+        let edit = lib.save(edited, BTreeMap::new());
+        let removed = lib.remove(&kept.id);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return; // running as root
+        }
+        assert!(added.is_err() && edit.is_err() && removed.is_err());
+        let list = lib.list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "Kept");
+        assert_eq!(lib.secrets.get("kept/K").unwrap().as_deref(), Some("v"), "the secret stays with the server");
+    }
 
     #[test]
     fn secrets_stay_out_of_the_file() {
