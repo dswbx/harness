@@ -887,12 +887,11 @@ function Inspect({
                         <dt className="text-muted-foreground">File</dt>
                         <dd className="flex min-w-0 items-center gap-1">
                            {/* Cut from the left, so the file name stays visible. */}
-                           <span
-                              className="min-w-0 flex-1 truncate text-left font-mono text-xs [direction:rtl]"
-                              title={filePath}
-                           >
-                              <bdi>{filePath}</bdi>
-                           </span>
+                           <Tooltip content={filePath}>
+                              <span className="min-w-0 flex-1 truncate text-left font-mono text-xs [direction:rtl]">
+                                 <bdi>{filePath}</bdi>
+                              </span>
+                           </Tooltip>
                            <CopyButton text={filePath} label="Copy file path" />
                         </dd>
                      </>

@@ -1,5 +1,5 @@
 import { applyStatePatch } from "@harness/api";
-import { cn } from "@harness/ui";
+import { cn, Tooltip } from "@harness/ui";
 import { useMemo, useState } from "react";
 import { RenderUi } from "../renderUi/RenderUi";
 import { type ComponentType, components, type RawNode } from "../renderUi/tools";
@@ -49,12 +49,11 @@ function Entry({ name }: { name: ComponentType }) {
       <section className="rounded-lg border">
          <header className="flex items-baseline gap-2 border-b px-4 py-2.5">
             <h3 className="font-mono text-sm font-medium">{name}</h3>
-            <p
-               className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-               title={c.description}
-            >
-               {c.description}
-            </p>
+            <Tooltip content={c.description}>
+               <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                  {c.description}
+               </p>
+            </Tooltip>
             <button
                onClick={() => setJson(!json)}
                className={cn(

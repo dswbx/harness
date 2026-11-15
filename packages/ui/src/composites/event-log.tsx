@@ -373,12 +373,11 @@ const Row = React.memo(function Row({
             <span className="hidden w-24 shrink-0 text-muted-foreground @xl:inline">
                {new Date(e.ts_ms).toISOString().slice(11, 23)}
             </span>
-            <span
-               className="hidden w-16 shrink-0 truncate text-muted-foreground @2xl:inline"
-               title={e.thread_id ?? "session"}
-            >
-               {threadName(e.thread_id)}
-            </span>
+            <Tooltip content={e.thread_id ?? "session"}>
+               <span className="hidden w-16 shrink-0 truncate text-muted-foreground @2xl:inline">
+                  {threadName(e.thread_id)}
+               </span>
+            </Tooltip>
             <span className="flex shrink-0 items-baseline gap-2 font-semibold @xl:w-48">
                <span
                   className={cn(

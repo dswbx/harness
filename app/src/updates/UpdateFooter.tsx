@@ -1,5 +1,5 @@
 import { openExternalLink } from "@harness/api";
-import { Button, Spinner } from "@harness/ui";
+import { Button, Spinner, Tooltip } from "@harness/ui";
 import { ArrowUpRight, Check, RefreshCw } from "lucide-react";
 import { releaseUrl, type useUpdate } from "./updates";
 
@@ -83,9 +83,9 @@ export function UpdateFooter({
             <>
                <div className="flex items-center gap-2">
                   <span className="size-2 rounded-full bg-destructive" />
-                  <span className="flex-1" title={state.error}>
-                     Update failed
-                  </span>
+                  <Tooltip content={state.error}>
+                     <span className="flex-1">Update failed</span>
+                  </Tooltip>
                </div>
                <div className="flex items-center gap-2.5">
                   <Button size="sm" variant="outline" className="h-7 flex-1" onClick={install}>

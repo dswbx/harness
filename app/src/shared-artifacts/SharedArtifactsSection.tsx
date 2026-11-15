@@ -149,14 +149,15 @@ export function SharedArtifactsSection({
                               <button
                                  onClick={() => onSelect(e.meta.id)}
                                  aria-current={isSel || undefined}
-                                 title={e.meta.title}
                                  className={cn(
                                     "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground",
                                     isSel &&
                                        "bg-accent font-medium text-accent-foreground hover:bg-accent",
                                  )}
                               >
-                                 <span className="min-w-0 flex-1 truncate">{e.meta.title}</span>
+                                 <Tooltip content={e.meta.title}>
+                                    <span className="min-w-0 flex-1 truncate">{e.meta.title}</span>
+                                 </Tooltip>
                                  {changed && (
                                     <span
                                        aria-label="Changed"

@@ -36,23 +36,21 @@ export function MessageFooter({
          )}
          aria-hidden={hidden}
       >
-         <Tooltip content={copied ? "Copied" : "Copy"} delay={100}>
-            <button
-               type="button"
-               aria-label={copied ? "Copied" : "Copy message"}
-               onClick={copy}
-               className="grid size-6 place-items-center rounded hover:bg-accent hover:text-accent-foreground"
-            >
-               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            </button>
-         </Tooltip>
-         <Tooltip content={fullMessageTime(ts)} align={align} delay={100}>
+         <button
+            type="button"
+            aria-label={copied ? "Copied" : "Copy message"}
+            onClick={copy}
+            className="grid size-6 place-items-center rounded hover:bg-accent hover:text-accent-foreground"
+         >
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+         </button>
+         <Tooltip content={fullMessageTime(ts)} align={align}>
             <time dateTime={new Date(ts).toISOString()} className="px-1">
                {formatRelativeTime(ts, now)}
             </time>
          </Tooltip>
          {durationMs !== undefined && (
-            <Tooltip content="Turn duration" delay={100}>
+            <Tooltip content="Turn duration">
                <span className="px-1 tabular-nums">· {formatDuration(durationMs)}</span>
             </Tooltip>
          )}
