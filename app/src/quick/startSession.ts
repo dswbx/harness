@@ -16,8 +16,8 @@ import { quickAgent } from "../composer/composer";
  * | Quick Overlay draft            | last Agent sent from the overlay (localStorage), else as the + | "chat", else the first                |
  * | Composer dialog                | the one picked in the dialog, else as the +            | the one picked in the dialog, else "chat", else the first |
  *
- * A preferred Agent that is no longer installed is ignored. "Newest" counts every Session (Sub
- * Sessions too). The entry points differ by the `preferred*` parameters.
+ * A preferred Agent that is no longer installed is ignored. "Newest" counts every used Session (Sub
+ * Sessions too; never-used drafts are skipped). The entry points differ by the `preferred*` parameters.
  */
 export type StartPolicy = {
    agents: AgentInfo[];
