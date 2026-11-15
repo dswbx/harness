@@ -9,7 +9,7 @@ import { syntheticLog } from "./syntheticLog";
 
 // Proof that restructuring the reducer changed nothing it computes. `equivalence.json` was recorded
 // once against the reducer before it was split; every log is folded in batches of 1, 7 and the whole
-// log, and the final state plus the state at every 50th Event must match it. Re-record only for an
+// log, and the final state hash plus the state at every 50th Event must match it (the golden snapshot pins the full final state). Re-record only for an
 // intended behaviour change: `RECORD_EQUIVALENCE=1 bun run test equivalence`.
 
 const goldenDir = join(__dirname, "../../../../crates/harness-core/tests/golden");
@@ -38,8 +38,6 @@ const hash = (s: ChatState) =>
 
 type Run = { final: string; at: Record<string, string> };
 type Recorded = {
-   /** Full final states of the golden logs, to read a diff. */
-   finals: Record<string, unknown>;
    runs: Record<string, Record<string, Run>>;
 };
 
@@ -76,13 +74,12 @@ const sizes = (n: number) => [1, 7, n];
 const key = (b: number, n: number) => (b === n ? "all" : String(b));
 
 function compute(): Recorded {
-   const out: Recorded = { finals: {}, runs: {} };
+   const out: Recorded = { runs: {} };
    for (const [name, get] of Object.entries({ ...logs, ...finalOnly })) {
       const ev = get();
       const every = name in finalOnly ? Number.POSITIVE_INFINITY : 50;
       out.runs[name] = {};
       for (const b of sizes(ev.length)) out.runs[name]![key(b, ev.length)] = fold(ev, b, every);
-      if (name.endsWith(".jsonl")) out.finals[name] = stable(reduceBatch(initialState(), ev));
    }
    return out;
 }
@@ -103,8 +100,6 @@ describe("reducer equivalence with the recorded fold", () => {
             expect(fold(ev, b, every), `${name} batch ${key(b, ev.length)}`).toEqual(
                recorded.runs[name]![key(b, ev.length)],
             );
-         if (recorded.finals[name])
-            expect(stable(reduceBatch(initialState(), ev))).toEqual(recorded.finals[name]);
       }, 300_000);
    }
 });

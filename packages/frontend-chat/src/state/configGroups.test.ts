@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ConfigOption } from "../../state/reducer";
 import { chipLabel, fastOn, groupConfigOptions, isToggle, toggleKind } from "./configGroups";
+import type { ConfigOption } from "./reducer";
 
 const opt = (
    id: string,

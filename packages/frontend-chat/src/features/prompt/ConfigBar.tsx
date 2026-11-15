@@ -26,7 +26,6 @@ import {
    Zap,
 } from "lucide-react";
 import { useMemo } from "react";
-import type { ConfigOption } from "../../state/reducer";
 import {
    type ConfigGroups,
    chipLabel,
@@ -35,7 +34,8 @@ import {
    isToggle,
    toggleKind,
    valueName,
-} from "./configGroups";
+} from "../../state/configGroups";
+import type { ConfigOption } from "../../state/reducer";
 
 type OnChange = (id: string, value: string) => void;
 

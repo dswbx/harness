@@ -17,7 +17,7 @@ import { useWindowContextChip } from "./useWindowContextChip";
 
 /**
  * The Quick overlay window (`?overlay=1`, ADR 0022): a draft Quick Session's prompt box, then the
- * pinned chat, or the mini bar. One more Frontend window of the core; `overlay.rs` places it.
+ * pinned chat, or the mini bar. One more Frontend window of the core; `overlay/` places it.
  */
 export function Overlay({ transport }: { transport: Transport }) {
    const [client] = useState(() => new Client(transport));
