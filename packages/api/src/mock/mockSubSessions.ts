@@ -165,12 +165,14 @@ export function mockSubSessionLogs(): Record<string, EventKind[]> {
                   prompt: "Run the e2e suite.",
                   folder: "/Users/me/harness-web",
                   title: "Run e2e on harness-web",
+                  agent: "claude",
                },
-               "Error: folder /Users/me/harness-web does not exist",
+               // As the core answers a failed call: the error in a fence.
+               '```\nunknown agent "claude". Installed: Claude Agent (claude-acp), Codex (codex-acp)\n```',
                true,
             ),
             say(
-               "Started two sub sessions: jsonv-ts exports and supalite RLS. harness-web isn't on this machine, so I skipped the e2e run.",
+               "Started two sub sessions: jsonv-ts exports and supalite RLS. The e2e run failed to start: no agent named claude.",
             ),
          ],
       ),

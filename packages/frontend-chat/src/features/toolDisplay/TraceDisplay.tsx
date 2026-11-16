@@ -81,7 +81,14 @@ const Step = memo(function Step({
             )}
          </TraceTitle>
          {v.metas.map((m, i) => (
-            <TraceDescription key={i}>
+            <TraceDescription
+               key={i}
+               // An error can be long: it truncates (full text on hover) instead of widening the line.
+               className={v.state === "failed" ? "min-w-0 shrink truncate" : undefined}
+               title={
+                  v.state === "failed" && typeof m === "string" && m !== "failed" ? m : undefined
+               }
+            >
                {typeof m === "string" ? m : <PlusMinus add={m.add} del={m.del} />}
             </TraceDescription>
          ))}
