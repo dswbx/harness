@@ -1,5 +1,15 @@
-import { cn, TraceDescription, TraceIcon, TraceLine, TraceTitle, TraceVerb } from "@harness/ui";
-import { ChevronRight, CircleCheck, LoaderCircle } from "lucide-react";
+import {
+   cn,
+   TraceCollapsible,
+   TraceCollapsibleContent,
+   TraceDescription,
+   TraceIcon,
+   TraceLine,
+   TraceTitle,
+   TraceVerb,
+   WorkingLoader,
+} from "@harness/ui";
+import { ChevronRight } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { formatDuration } from "../../lib/time";
 import type { ToolGroupProps } from ".";
@@ -70,13 +80,16 @@ export function TraceGroup(props: ToolGroupProps) {
 
    if (live ? summary.calls < 1 : summary.calls < 2) return <TraceDisplay {...props} />;
 
-   const hidden = live && !expanded ? Math.max(0, steps.length - VISIBLE_STEPS) : 0;
-   const shown = live || expanded ? steps.slice(hidden) : [];
-   const allShown = shown.length === steps.length;
+   // Running: older steps sit in their own collapsible above the last few, so "Show all" slides them in.
+   const older = live ? steps.slice(0, Math.max(0, steps.length - VISIBLE_STEPS)) : [];
+   const recent = live ? steps.slice(older.length) : steps;
+   const open = live || expanded;
+   const olderOpen = expanded && older.length > 0;
+   const allShown = open && (older.length === 0 || olderOpen);
    const metas = live ? [plural(summary.calls, "tool call")] : summary.parts;
 
    return (
-      <div data-slot="trace-group" className="flex min-w-0 flex-col text-ui-step">
+      <TraceCollapsible data-slot="trace-group" open={open} className="text-ui-step">
          <button
             type="button"
             aria-expanded={allShown}
@@ -84,13 +97,11 @@ export function TraceGroup(props: ToolGroupProps) {
             className="group/trace-trigger flex w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
          >
             <TraceLine status={live ? "running" : undefined}>
-               <TraceIcon>
-                  {live ? (
-                     <LoaderCircle className="animate-spin" />
-                  ) : (
-                     <CircleCheck className="text-emerald-500" />
-                  )}
-               </TraceIcon>
+               {live && (
+                  <TraceIcon>
+                     <WorkingLoader />
+                  </TraceIcon>
+               )}
                <TraceTitle>
                   <TraceVerb>
                      {live ? "Working" : `Ran ${plural(summary.calls, "tool call")}`}
@@ -113,22 +124,28 @@ export function TraceGroup(props: ToolGroupProps) {
             >
                <ChevronRight />
             </TraceIcon>
-            {live && steps.length > VISIBLE_STEPS && (
+            {older.length > 0 && (
                <span className="ml-auto shrink-0 rounded-md border px-2 font-mono text-ui-sm text-muted-foreground in-[button:hover]:text-foreground">
-                  {expanded ? `Show last ${VISIBLE_STEPS}` : `Show all · ${hidden} more`}
+                  {expanded ? `Show last ${VISIBLE_STEPS}` : `Show all · ${older.length} more`}
                </span>
             )}
          </button>
-         {shown.length > 0 && (
-            <div
-               className={cn(
-                  "mt-1.5 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pl-4",
-                  hidden > 0 && "[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
-               )}
-            >
-               <TraceDisplay {...props} steps={shown} />
-            </div>
-         )}
-      </div>
+         <TraceCollapsibleContent
+            className={cn(
+               older.length > 0 &&
+                  !olderOpen &&
+                  "[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+            )}
+         >
+            {older.length > 0 && (
+               <TraceCollapsible open={olderOpen}>
+                  <TraceCollapsibleContent className="mt-0 mb-0 ml-0 border-l-0 pr-0 pb-1.5 pl-0">
+                     <TraceDisplay {...props} steps={older} streaming={false} />
+                  </TraceCollapsibleContent>
+               </TraceCollapsible>
+            )}
+            <TraceDisplay {...props} steps={recent} />
+         </TraceCollapsibleContent>
+      </TraceCollapsible>
    );
 }
