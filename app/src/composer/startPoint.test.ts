@@ -118,6 +118,16 @@ describe("worktreeAfterPick", () => {
    it("the folder's own branch: no Worktree", () => {
       expect(after(local("feature"))).toBe(false);
    });
+   it("the folder's own branch: the remembered choice", () => {
+      expect(
+         worktreeAfterPick(local("feature"), {
+            current: b.current,
+            info: info(local("feature")),
+            worktree: false,
+            preferred: true,
+         }),
+      ).toBe(true);
+   });
    it("another local branch: a Worktree (switching needs a clean tree)", () => {
       expect(after(local("main"))).toBe(true);
    });

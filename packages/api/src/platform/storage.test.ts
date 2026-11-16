@@ -208,6 +208,7 @@ describe("registry", () => {
          "app harness.sidebarOpen",
          "app harness.sidebarWidth",
          "app harness.recentFolders",
+         "app harness.composer.worktree",
          "app harness.overlay.agent",
          "app harness.sessionList.sort",
          "app harness.sessionList.display",

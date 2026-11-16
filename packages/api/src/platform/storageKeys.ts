@@ -35,6 +35,7 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    app("harness.sidebarOpen", "app/shell"),
    app("harness.sidebarWidth", "app/shell"),
    app("harness.recentFolders", "app/composer"),
+   app("harness.composer.worktree", "app/composer"),
    app("harness.overlay.agent", "app/quick"),
    app("harness.sessionList.sort", "app/sessions"),
    app("harness.sessionList.display", "app/sessions"),
