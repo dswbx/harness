@@ -22,7 +22,9 @@ export type AppEvent =
 /**  Sessions were created, deleted, archived or unarchived: reload the list. */
 { type: "SessionsChanged" } | { type: "SessionStatus"; session_id: string; title: string; status: SessionStatus; 
 /**  As `SessionSummary::unused`. */
-unused: boolean } | 
+unused: boolean; 
+/**  As `SessionSummary::unseen`. */
+unseen: boolean } | 
 /**  A Turn ended (`stop_reason` as in `TurnEnded`). */
 { type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string } | 
 /**  Agents were installed, updated or removed. */
@@ -265,6 +267,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "UpdateBranch"; folder: string; branch: string } | 
 /**  Names the Session. Titles the Agent sends no longer replace it. */
 { type: "SetSessionTitle"; session_id: string; title: string } | 
+/**  The user viewed the Session: clears `SessionSummary::unseen`. */
+{ type: "MarkSessionSeen"; session_id: string } | 
 /**  Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept. */
 { type: "ArchiveSession"; session_id: string } | 
 /**  Restores an archived Session's Worktree. */
@@ -1027,6 +1031,8 @@ export type SessionSummary = {
 	quick: boolean,
 	/**  A Quick Session nobody has prompted yet (the overlay's draft, a fresh one from the +). False once a prompt was sent on any Thread, whatever the title; false for other Sessions. */
 	unused: boolean,
+	/**  A Main Thread Turn ended (not cancelled) since the user last viewed the Session. */
+	unseen: boolean,
 	workspace: WorkspaceInfo,
 	/**  A Sub Session: the Session whose Agent started it (`session_start`). */
 	parent?: SessionParent | null,

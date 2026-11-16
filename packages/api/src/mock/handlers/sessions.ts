@@ -23,7 +23,8 @@ const children = (mock: MockTransport, id: string) =>
 
 export const sessionsHandlers = {
    ListSessions: (mock) => {
-      return { type: "Sessions", sessions: [...mock.sessions] };
+      // Copies, as over IPC: the mock edits its own in place.
+      return { type: "Sessions", sessions: mock.sessions.map((s) => structuredClone(s)) };
    },
    CreateSession: (mock, cmd) => {
       const id = `mock-${++mock.n + 1}`;
@@ -80,6 +81,21 @@ export const sessionsHandlers = {
       }
       return { type: "Ok" };
    },
+   MarkSessionSeen: (mock, cmd) => {
+      const s = mock.session(cmd.session_id);
+      if (s.unseen) {
+         s.unseen = false;
+         mock.emitApp({
+            type: "SessionStatus",
+            session_id: s.id,
+            title: s.title,
+            status: s.status,
+            unused: s.unused,
+            unseen: false,
+         });
+      }
+      return { type: "Ok" };
+   },
    // Like the core: logged on the Session and announced; Agent titles no longer replace it.
    SetSessionTitle: (mock, cmd) => {
       const s = mock.session(cmd.session_id);
@@ -93,6 +109,7 @@ export const sessionsHandlers = {
          title,
          status: s.status,
          unused: s.unused,
+         unseen: s.unseen,
       });
       return { type: "Ok" };
    },

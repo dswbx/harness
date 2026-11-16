@@ -17,6 +17,8 @@ pub enum AppEvent {
         status: SessionStatus,
         /// As `SessionSummary::unused`.
         unused: bool,
+        /// As `SessionSummary::unseen`.
+        unseen: bool,
     },
     /// A Turn ended (`stop_reason` as in `TurnEnded`).
     TurnFinished { session_id: SessionId, thread_id: ThreadId, title: String, stop_reason: String },

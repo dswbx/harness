@@ -244,6 +244,10 @@ pub enum Command {
         session_id: SessionId,
         title: String,
     },
+    /// The user viewed the Session: clears `SessionSummary::unseen`.
+    MarkSessionSeen {
+        session_id: SessionId,
+    },
     /// Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept.
     ArchiveSession {
         session_id: SessionId,

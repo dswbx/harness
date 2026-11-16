@@ -86,6 +86,10 @@ export const bubbledStatus = (s: SessionSummary, children?: Children): SessionSt
       s.status,
    );
 
+/** A parent with its Sub Sessions: a Turn ended in one of them that nobody looked at. */
+export const bubbledUnseen = (s: SessionSummary, children?: Children): boolean =>
+   s.unseen || (children?.get(s.id) ?? []).some((c) => c.unseen);
+
 /** The sort time; a parent's last activity includes its Sub Sessions'. */
 const timeOf = (s: SessionSummary, sort: SortBy, children?: Children) =>
    sort === "recent"

@@ -84,6 +84,7 @@ function setStatus(mock: MockTransport, id: string, status: SessionSummary["stat
       title: s.title,
       status,
       unused: s.unused,
+      unseen: s.unseen,
    });
 }
 
@@ -117,6 +118,18 @@ function turnEnded(
          title: s.title,
          stop_reason: "end_turn",
       });
+   // Like the core, after `TurnFinished`: a Main Thread Turn that ended marks the Session unseen.
+   if (s && thread === mock.mainThread(sid) && !s.unseen) {
+      s.unseen = true;
+      mock.emitApp({
+         type: "SessionStatus",
+         session_id: sid,
+         title: s.title,
+         status: s.status,
+         unused: s.unused,
+         unseen: true,
+      });
+   }
 }
 
 export const promptHandlers = {
@@ -148,6 +161,7 @@ export const promptHandlers = {
             title: used.title,
             status: used.status,
             unused: false,
+            unseen: used.unseen,
          });
       }
       if (cmd.thread_id) return promptSide(mock, sid, cmd.thread_id, cmd.text);

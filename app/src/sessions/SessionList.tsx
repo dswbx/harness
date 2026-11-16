@@ -7,6 +7,7 @@ import { GroupHeader } from "./GroupHeader";
 import { SessionRow } from "./SessionRow";
 import {
    bubbledStatus,
+   bubbledUnseen,
    DEFAULT_VIEW,
    type Display,
    type GroupBy,
@@ -129,6 +130,7 @@ export function SessionList({
             <SessionRow
                s={s}
                status={open ? s.status : bubbledStatus(s, subs)}
+               unseen={open ? s.unseen : bubbledUnseen(s, subs)}
                sub={{ count: kids.length, open, onToggle: () => toggle(key) }}
                selected={s.id === selected}
                display={display}

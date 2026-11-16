@@ -77,6 +77,7 @@ impl Session {
             origins: Default::default(),
             workspace,
             archived: false,
+            unseen: false,
             mcp_servers,
             title_backfilled: true,
             quick: false,
@@ -254,8 +255,21 @@ impl Session {
     }
 
     fn emit_status(&self, session_id: SessionId, title: String, status: SessionStatus) {
-        let unused = self.meta.lock().unused();
-        self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status, unused });
+        let (unused, unseen) = {
+            let m = self.meta.lock();
+            (m.unused(), m.unseen)
+        };
+        self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status, unused, unseen });
+    }
+
+    /// Marks that a Main Thread Turn ended unseen (`true`) or that the user viewed the Session
+    /// (`false`). Emits `SessionStatus` only on a change.
+    pub fn set_unseen(&self, unseen: bool) -> anyhow::Result<()> {
+        let (changed, title) = self.update_meta(|m| (std::mem::replace(&mut m.unseen, unseen) != unseen, m.title.clone()))?;
+        if changed {
+            self.emit_status(self.id(), title, self.agent.status());
+        }
+        Ok(())
     }
 
     pub fn summary(&self) -> SessionSummary {
@@ -278,6 +292,7 @@ impl Session {
             archived: m.archived,
             quick: m.quick,
             unused: m.unused(),
+            unseen: m.unseen,
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 source_folder: m

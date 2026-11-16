@@ -41,6 +41,9 @@ pub struct SessionMeta {
     pub workspace: WorkspaceMeta,
     #[serde(default)]
     pub archived: bool,
+    /// A Main Thread Turn ended since the user last viewed the Session (`MarkSessionSeen`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unseen: bool,
     /// MCP Library servers given to the Agent.
     #[serde(default)]
     pub mcp_servers: Vec<String>,
