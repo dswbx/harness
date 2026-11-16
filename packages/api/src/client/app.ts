@@ -22,6 +22,7 @@ import {
    archiveSession,
    deleteSession,
    getEditor,
+   markSessionSeen,
    openInEditor,
    unarchiveSession,
 } from "./commands";
@@ -214,6 +215,10 @@ export class HarnessClient {
    }
    async archiveSession(sessionId: string): Promise<void> {
       await archiveSession(this.transport, sessionId);
+   }
+   /** The user viewed the Session: clears its `unseen`. */
+   async markSessionSeen(sessionId: string): Promise<void> {
+      await markSessionSeen(this.transport, sessionId);
    }
    async unarchiveSession(sessionId: string): Promise<void> {
       await unarchiveSession(this.transport, sessionId);

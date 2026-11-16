@@ -182,6 +182,7 @@ export class MockTransport implements Transport {
          archived: false,
          quick: false,
          unused: false,
+         unseen: false,
          workspace: workspace ?? {
             repo_root: folder,
             source_folder: folder,

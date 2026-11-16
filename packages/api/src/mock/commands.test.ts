@@ -73,6 +73,7 @@ const table: Record<Command["type"], () => Command> = {
    ListBranches: () => ({ type: "ListBranches", folder: "/tmp/x" }),
    ListPullRequests: () => ({ type: "ListPullRequests", folder: "/tmp/x" }),
    UpdateBranch: () => ({ type: "UpdateBranch", folder: "/tmp/x", branch: "main" }),
+   MarkSessionSeen: () => ({ type: "MarkSessionSeen", session_id: S }),
    SetSessionTitle: () => ({ type: "SetSessionTitle", session_id: S, title: "T" }),
    ArchiveSession: () => ({ type: "ArchiveSession", session_id: S }),
    UnarchiveSession: () => ({ type: "UnarchiveSession", session_id: S }),

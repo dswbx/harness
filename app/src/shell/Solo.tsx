@@ -3,7 +3,9 @@ import { HarnessClient as Client } from "@harness/api";
 import { useEffect, useMemo, useState } from "react";
 import { ViewHost } from "../platform/ViewHost";
 import { SessionHeader, trafficLights } from "../session-header/SessionHeader";
+import { useMarkSeen } from "../sessions/useMarkSeen";
 import { useSessions } from "../sessions/useSessions";
+import { useTurnNotices } from "../sessions/useTurnNotices";
 
 const params = new URLSearchParams(window.location.search);
 
@@ -24,6 +26,9 @@ export function Solo({
    const { sessions, settled } = useSessions(client);
    const session = settled ? (sessions.find((x) => x.id === sessionId) ?? null) : undefined;
    const parent = sessions.find((x) => x.id === session?.parent?.session_id);
+   // A Frontend's own window (a pop-out diff) is not where the Session is read.
+   useMarkSeen(client, params.get("pane") ? null : session);
+   useTurnNotices(client, sessions, sessionId, setSessionId, !params.get("pane"));
    useEffect(() => {
       if (session) document.title = session.title;
    }, [session]);

@@ -235,6 +235,7 @@ describe("registry", () => {
          "session harness.chat.sideThreads.{session}",
          "session harness.chat.panel.{session}",
          "session harness.files.{session}",
+         "session harness.changes.seen.{session}",
          "session harness.review-comments.{session}",
          "session harness.review-comments.{session}#{thread}",
          "session harness.draft.{session}",

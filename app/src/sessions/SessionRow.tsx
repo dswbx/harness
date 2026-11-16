@@ -90,6 +90,7 @@ export type SubToggle = { count: number; open: boolean; onToggle: () => void };
 export function SessionRow({
    s,
    status = s.status,
+   unseen = s.unseen,
    parent,
    sub: subToggle,
    selected,
@@ -105,6 +106,8 @@ export function SessionRow({
    s: SessionSummary;
    /** The dot's status; a collapsed parent shows its Sub Sessions'. */
    status?: SessionStatus;
+   /** A Turn ended that nobody looked at; a collapsed parent also shows its Sub Sessions'. */
+   unseen?: boolean;
    /** The parent of a Sub Session, for the hover card. */
    parent?: SessionSummary;
    sub?: SubToggle;
@@ -166,7 +169,13 @@ export function SessionRow({
                      sub && "transition-[padding] group-hover:pr-6 group-has-focus-visible:pr-6",
                   )}
                >
-                  <span className={cn("min-w-0 truncate", !subToggle && "flex-1")}>
+                  <span
+                     className={cn(
+                        "min-w-0 truncate",
+                        !subToggle && "flex-1",
+                        unseen && "font-semibold text-foreground",
+                     )}
+                  >
                      {hit ? (
                         <>
                            {hit[0]}
@@ -178,6 +187,7 @@ export function SessionRow({
                      ) : (
                         s.title
                      )}
+                     {unseen && <span className="sr-only"> (new, not seen)</span>}
                   </span>
                   {subToggle && (
                      <>
@@ -222,6 +232,13 @@ export function SessionRow({
                {sub && <DetailLine s={s} showFolder={showFolder} now={now} />}
             </button>
          </Tooltip>
+         {/* Flush with the sidebar's right border: through the list's px-2. */}
+         {unseen && (
+            <span
+               aria-hidden
+               className="pointer-events-none absolute -right-2 top-[7px] bottom-[7px] w-[3px] rounded-l-[2px] bg-foreground"
+            />
+         )}
          <button
             aria-label="Session menu"
             className="absolute right-1 top-1 translate-x-1 rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100"

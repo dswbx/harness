@@ -230,6 +230,14 @@ export function seedSessions(mock: MockTransport): void {
       if (id !== "mock-p1")
          s.parent = { session_id: "mock-p1", thread_id: mock.mainThread("mock-p1") };
    }
+   // Turns that ended while nobody looked: the sidebar marks them.
+   for (const s of mock.sessions)
+      if (
+         ["Ping and pong greeting", "Hono route types", "Bump jsonv-ts schema exports"].includes(
+            s.title,
+         )
+      )
+         s.unseen = true;
    for (const [sid, kinds] of Object.entries(mockSubSessionLogs())) {
       for (const k of kinds) mock.emit(sid, k);
       // Spread over the last ~3 hours, oldest first.

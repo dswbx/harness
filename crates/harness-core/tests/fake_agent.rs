@@ -171,6 +171,28 @@ async fn explicit_title_wins_over_agent_titles() {
     assert_eq!(titles, vec![Some("Fix the login bug".to_owned())], "only the explicit title is logged");
 }
 
+async fn unseen_of(h: &Harness) -> bool {
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    sessions[0].unseen
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ended_turn_is_unseen_until_marked_seen() {
+    let (h, sid, _dir) = setup().await;
+    assert!(!unseen_of(&h).await);
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![] }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    // Set right after `TurnFinished`.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !unseen_of(&h).await {
+        assert!(tokio::time::Instant::now() < deadline, "a finished Turn marks the Session unseen");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    h.execute(Command::MarkSessionSeen { session_id: sid.clone() }).await.unwrap();
+    assert!(!unseen_of(&h).await);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn permission_first_answer_wins_and_late_view_replays() {
     let (h, sid, _dir) = setup().await;

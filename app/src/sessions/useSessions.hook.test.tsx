@@ -38,6 +38,7 @@ describe("useSessions", () => {
          title: "Renamed",
          status: "needs_attention",
          unused: false,
+         unseen: false,
       });
       const after = hook.result.current.sessions[0]!;
       expect(after).toMatchObject({ id: "mock-1", title: "Renamed", status: "needs_attention" });
@@ -56,6 +57,7 @@ describe("useSessions", () => {
          title: "x",
          status: "working",
          unused: false,
+         unseen: false,
       });
       expect(hook.result.current.sessions).toBe(same);
       await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
@@ -135,6 +137,7 @@ describe("useSessions", () => {
          title: "x",
          status: "idle",
          unused: false,
+         unseen: false,
       });
       await new Promise((r) => setTimeout(r, 10));
       expect(list).toHaveBeenCalledTimes(1);

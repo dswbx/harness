@@ -142,6 +142,11 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
+    pub(in crate::host) fn cmd_mark_session_seen(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.set_unseen(false)?;
+        Ok(CommandResult::Ok)
+    }
+
     pub(in crate::host) async fn cmd_unarchive_session(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
         self.session(&session_id)?.unarchive().await?;
         for child in self.children(&session_id).into_iter().filter(|c| c.meta().archived) {

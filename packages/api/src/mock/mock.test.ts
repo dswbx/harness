@@ -435,6 +435,8 @@ describe("MockTransport like the core", () => {
             "app:SessionStatus",
             "TurnEnded",
             "app:TurnFinished",
+            // `unseen` set: a Main Thread Turn ended.
+            "app:SessionStatus",
          ]);
          const status = log.filter((e) => e.kind.type === "SessionStatusChanged");
          expect(status.map((e) => (e.kind as { status: string }).status)).toEqual([

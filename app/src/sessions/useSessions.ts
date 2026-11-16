@@ -11,7 +11,10 @@ export function applyLogHealth(list: SessionSummary[], e: LogHealthEvent): Sessi
    return list.map((s) => (s.id === e.session_id ? { ...s, log_error: e.error } : s));
 }
 
-/** The list with one Session's status and title patched (also counts as activity); null: unknown Session, the list is stale. */
+/**
+ * The list with one Session's status, title and flags patched (counts as activity, except the user
+ * viewing it: clearing `unseen` alone keeps the order); null: unknown Session, the list is stale.
+ */
 export function applyStatus(
    list: SessionSummary[],
    e: StatusEvent,
@@ -19,9 +22,23 @@ export function applyStatus(
 ): SessionSummary[] | null {
    const i = list.findIndex((s) => s.id === e.session_id);
    if (i < 0) return null;
-   return list.map((s, n) =>
-      n === i ? { ...s, status: e.status, title: e.title, unused: e.unused, updated_ms: now } : s,
-   );
+   return list.map((s, n) => {
+      if (n !== i) return s;
+      const seenOnly =
+         s.unseen &&
+         !e.unseen &&
+         s.status === e.status &&
+         s.title === e.title &&
+         s.unused === e.unused;
+      return {
+         ...s,
+         status: e.status,
+         title: e.title,
+         unused: e.unused,
+         unseen: e.unseen,
+         updated_ms: seenOnly ? s.updated_ms : now,
+      };
+   });
 }
 
 /**

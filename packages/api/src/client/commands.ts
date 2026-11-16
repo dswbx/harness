@@ -7,6 +7,9 @@ import { expectResult, run } from "./expect";
 export const archiveSession = (transport: Transport, sessionId: string) =>
    run(transport, { type: "ArchiveSession", session_id: sessionId });
 
+export const markSessionSeen = (transport: Transport, sessionId: string) =>
+   run(transport, { type: "MarkSessionSeen", session_id: sessionId });
+
 export const unarchiveSession = (transport: Transport, sessionId: string) =>
    run(transport, { type: "UnarchiveSession", session_id: sessionId });
 
