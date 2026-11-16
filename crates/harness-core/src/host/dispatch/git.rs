@@ -60,10 +60,7 @@ impl Harness {
         if let Some(p) = &pr {
             session.pr_watch().note(p);
         }
-        let base = match meta.workspace.worktree.as_ref().map(|w| w.base.clone()).or_else(|| meta.workspace.base.clone()) {
-            Some(b) => Some(b),
-            None => crate::git::default_branch(Path::new(&meta.folder)).await.map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned()),
-        };
+        let base = session.pr_base().await;
         Ok(CommandResult::BranchPr { repo, pr, base })
     }
 

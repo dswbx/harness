@@ -151,6 +151,32 @@ pub async fn checkout_pr(dir: &Path, number: u32, fallback: &str) -> anyhow::Res
     crate::git::current_branch(dir).await?.ok_or_else(|| anyhow::anyhow!("PR #{number} checkout left HEAD detached"))
 }
 
+/// A PR just opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedPr {
+    pub number: u32,
+    pub url: String,
+}
+
+/// Opens a PR in `repo` from the branch checked out in `folder`. `head` is `branch`, or `owner:branch` when the branch
+/// was pushed to a fork.
+pub async fn create_pr(folder: &Path, repo: &RepoId, head: &str, base: &str, title: &str, body: &str, draft: bool) -> anyhow::Result<CreatedPr> {
+    let slug = format!("{}/{}", repo.owner, repo.name);
+    let mut args = vec!["pr", "create", "--repo", &slug, "--head", head, "--base", base, "--title", title, "--body", body];
+    if draft {
+        args.push("--draft");
+    }
+    let out = gh(folder, &args).await?;
+    parse_created(&out).ok_or_else(|| anyhow::anyhow!("gh pr create: no PR URL in its output: {}", out.trim()))
+}
+
+/// The PR URL `gh pr create` prints (its last line, `.../pull/<n>`).
+fn parse_created(out: &str) -> Option<CreatedPr> {
+    let url = out.lines().rev().map(str::trim).find(|l| l.starts_with("http") && l.contains("/pull/"))?;
+    let number = url.rsplit('/').next()?.parse().ok()?;
+    Some(CreatedPr { number, url: url.to_owned() })
+}
+
 /// PRs of a `headRefName` result, minus fork PRs: `headRefName` matches the branch name in any fork (a fork's `main` too).
 pub(super) fn branch_prs(repo: &RepoId, list: &[Value]) -> Vec<PrInfo> {
     list.iter().filter(|v| v["isCrossRepository"] != true).filter_map(|v| pr_info(repo, v)).collect()
@@ -256,6 +282,13 @@ mod tests {
         .unwrap();
         assert_eq!((p.author.as_str(), p.checks, p.checks_passed, p.checks_total), ("ghost", PrChecks::Pending, 1, 2));
         assert_eq!(pr_info(&r, &Value::Null), None);
+    }
+
+    #[test]
+    fn reads_the_created_pr() {
+        let got = parse_created("Warning: 1 uncommitted change\n\nhttps://github.com/o/r/pull/176\n").unwrap();
+        assert_eq!((got.number, got.url.as_str()), (176, "https://github.com/o/r/pull/176"));
+        assert_eq!(parse_created("nothing"), None);
     }
 
     #[test]

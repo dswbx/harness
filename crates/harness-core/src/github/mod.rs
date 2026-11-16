@@ -6,5 +6,6 @@ mod pr;
 mod refs;
 mod repos;
 
-pub use pr::{checkout_pr, list_prs, view_pr};
+pub use pr::{CreatedPr, checkout_pr, create_pr, list_prs, view_pr};
 pub use refs::PrRefs;
+pub(crate) use repos::remote_repo;

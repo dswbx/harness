@@ -139,6 +139,8 @@ export function permissionTitle(
    switch (toolCall.kind) {
       case "git_push":
          return "Push branch to origin?";
+      case "pr_create":
+         return "Open pull request?";
       case "git_commit": {
          const msg = facts.commitMessage;
          return msg && !step ? `Commit all changes: "${msg}"?` : "Commit all changes?";

@@ -37,6 +37,15 @@ export function StepBodyView({
          return <ToolSearchBody tool={tool} tools={body.tools} />;
       case "commit":
          return <CodeFrame label="commit message" meta={body.hash} code={body.message} />;
+      case "pr":
+         return (
+            <CodeFrame
+               label="pull request"
+               meta={body.meta}
+               href={body.url}
+               code={body.body ? `${body.title}\n\n${body.body}` : body.title}
+            />
+         );
       case "call":
          return <CallBody tool={tool} />;
    }

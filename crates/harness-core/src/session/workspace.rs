@@ -13,6 +13,22 @@ pub(super) fn shown_pr(pr: Option<u32>, branch_pr: Option<&BranchPrMeta>, head: 
     pr.or_else(|| branch_pr.filter(|b| head == Some(b.branch.as_str())).map(|b| b.number))
 }
 
+/// What opening a PR for the Session's branch comes to (`Session::pr_plan`).
+#[derive(Debug, Clone)]
+pub enum PrPlan {
+    /// An open PR of the branch exists.
+    Existing {
+        pr: crate::api::PrInfo,
+        branch: String,
+    },
+    New {
+        repo: crate::api::RepoId,
+        branch: String,
+        head: String,
+        base: String,
+    },
+}
+
 /// Owned handle on what finding a Session's branch PR needs, so a spawned task can use it.
 #[derive(Clone)]
 pub struct PrWatch {
@@ -149,6 +165,15 @@ impl Session {
         w.worktree.map(|w| w.base).or(w.base)
     }
 
+    /// The branch a PR of this Session targets: the Worktree's base, else a PR's, else the repository's default branch.
+    pub async fn pr_base(&self) -> Option<String> {
+        if let Some(b) = self.base() {
+            return Some(b);
+        }
+        let folder = self.meta().folder;
+        crate::git::default_branch(Path::new(&folder)).await.map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_owned())
+    }
+
     fn folder(&self) -> anyhow::Result<PathBuf> {
         self.adopt_repo();
         let m = self.meta.lock();
@@ -197,6 +222,49 @@ impl Session {
         let branch = crate::git::push(&self.folder()?).await?;
         self.log.append(None, EventKind::GitPushed { branch: branch.clone(), by })?;
         Ok(branch)
+    }
+
+    /// Checks that a PR can be opened for the branch checked out, before the user is asked: an open PR of the
+    /// branch is returned as is; else the branch must be pushed (nothing ahead of its upstream) and not the base.
+    pub async fn pr_plan(&self, base: Option<String>) -> anyhow::Result<PrPlan> {
+        let folder = self.folder()?;
+        let branch = crate::git::current_branch(&folder).await?.ok_or_else(|| crate::error::invalid("HEAD is detached: no branch to open a PR from"))?;
+        let base = match base.filter(|b| !b.trim().is_empty()) {
+            Some(b) => b,
+            None => self.pr_base().await.ok_or_else(|| crate::error::invalid("no base branch found: pass `base`"))?,
+        };
+        if branch == base {
+            return Err(crate::error::invalid(format!("head equals base: `{branch}` is the base branch, work on another branch first")));
+        }
+        let repo_folder = self.meta().repo_folder().unwrap_or_else(|| folder.clone());
+        let repo =
+            self.shared.pr_refs.repo_of(&repo_folder).await.ok_or_else(|| crate::error::invalid(format!("{} has no GitHub remote", folder.display())))?;
+        if let Some(pr) =
+            self.shared.pr_refs.for_branch(&repo, &branch).await?.filter(|p| matches!(p.state, crate::api::PrState::Open | crate::api::PrState::Draft))
+        {
+            return Ok(PrPlan::Existing { pr, branch });
+        }
+        let status = crate::git::status(&folder).await?;
+        if status.upstream.is_none() {
+            return Err(crate::error::invalid(format!("branch `{branch}` is not pushed: push first with git_push")));
+        }
+        if status.ahead > 0 {
+            return Err(crate::error::invalid(format!("branch `{branch}` has {} commit(s) not pushed: push first with git_push", status.ahead)));
+        }
+        // A branch pushed to a fork (origin) while PRs go to the upstream repo: the head is `owner:branch`.
+        let head = match crate::github::remote_repo(&folder, "origin").await {
+            Some(o) if !o.owner.eq_ignore_ascii_case(&repo.owner) || !o.name.eq_ignore_ascii_case(&repo.name) => format!("{}:{branch}", o.owner),
+            _ => branch.clone(),
+        };
+        Ok(PrPlan::New { repo, branch, head, base })
+    }
+
+    /// Opens the PR a `pr_plan` found possible, and refreshes the stored PR of the branch so the header shows it.
+    pub async fn pr_create(&self, plan: &PrPlan, title: &str, body: &str, draft: bool) -> anyhow::Result<crate::github::CreatedPr> {
+        let PrPlan::New { repo, branch, head, base } = plan else { anyhow::bail!("a PR is already open") };
+        let created = crate::github::create_pr(&self.folder()?, repo, head, base, title, body, draft).await?;
+        let _ = self.pr_watch().lookup(repo, branch).await;
+        Ok(created)
     }
 
     pub async fn archive(self: &Arc<Self>) -> anyhow::Result<()> {

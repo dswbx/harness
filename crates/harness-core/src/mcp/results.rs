@@ -86,6 +86,16 @@ pub(super) fn pushed_text(branch: &str) -> String {
     format!("Pushed {branch}.")
 }
 
+/// The `pr_create` answer: the PR, and for a new one its base and head.
+pub(super) fn pr_created_text(number: u32, url: &str, draft: bool, existing: bool, base_head: Option<(&str, &str)>) -> String {
+    let draft = if draft { " (draft)" } else { "" };
+    let mut text = if existing { format!("PR #{number}{draft} is already open: {url}") } else { format!("Opened PR #{number}{draft}: {url}") };
+    if let Some((base, head)) = base_head {
+        text.push_str(&format!("\nBase {base}, head {head}."));
+    }
+    text
+}
+
 /// The typed result of Harness tool `tool`, out of the call as tracked (`content`, `rawOutput`).
 /// None while there is no output, for a failure (the Harness wraps its text in a code fence) and
 /// for a tool whose answer carries nothing a View shows.
@@ -95,6 +105,7 @@ pub(crate) fn result_of(tool: &str, call: &Value) -> Option<HarnessResult> {
     match tool {
         "git_commit" => committed(text).map(|hash| HarnessResult::GitCommit { hash }),
         "git_push" => pushed(text).map(|branch| HarnessResult::GitPush { branch }),
+        "pr_create" => pr_created(text),
         "git_status" => {
             let v: GitStatusAnswer = object(text)?;
             let branch = v.branch.filter(|b| !b.is_empty());
@@ -254,6 +265,27 @@ fn pushed(text: &str) -> Option<String> {
     })
 }
 
+/// `Opened PR #12 (draft): <url>` or `PR #12 is already open: <url>`, then maybe `Base <base>, head <head>.`
+fn pr_created(text: &str) -> Option<HarnessResult> {
+    let mut lines = text.split('\n').map(str::trim);
+    let (line, existing) = lines.find_map(|l| {
+        l.strip_prefix("Opened PR #").map(|r| (r, false)).or_else(|| l.strip_prefix("PR #").filter(|r| r.contains(" is already open")).map(|r| (r, true)))
+    })?;
+    let digits: String = line.chars().take_while(char::is_ascii_digit).collect();
+    let number = digits.parse().ok()?;
+    let (head_part, url) = line.split_once(": ")?;
+    let url = url.trim();
+    (!url.is_empty()).then_some(())?;
+    let (mut base, mut head) = (None, None);
+    if let Some(l) = lines.find_map(|l| l.strip_prefix("Base "))
+        && let Some((b, h)) = l.trim_end_matches('.').split_once(", head ")
+    {
+        base = Some(b.to_owned()).filter(|b| !b.is_empty());
+        head = Some(h.to_owned()).filter(|h| !h.is_empty());
+    }
+    Some(HarnessResult::PrCreate { number, url: url.to_owned(), draft: head_part.contains("(draft)"), existing, base, head })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +311,12 @@ mod tests {
         for branch in ["main", "harness/fix-it-1", "release/1.2.x"] {
             assert_eq!(result_of("git_push", &out(pushed_text(branch))), Some(HarnessResult::GitPush { branch: branch.into() }), "{branch}");
         }
+        let url = "https://github.com/o/r/pull/12";
+        let pr = |draft, existing, base, head| Some(HarnessResult::PrCreate { number: 12, url: url.into(), draft, existing, base, head });
+        let s = |v: &str| Some(v.to_owned());
+        assert_eq!(result_of("pr_create", &out(pr_created_text(12, url, false, false, Some(("main", "feat/x"))))), pr(false, false, s("main"), s("feat/x")));
+        assert_eq!(result_of("pr_create", &out(pr_created_text(12, url, true, false, None))), pr(true, false, None, None));
+        assert_eq!(result_of("pr_create", &out(pr_created_text(12, url, true, true, None))), pr(true, true, None, None));
     }
 
     /// The answers are the serde types, and their text is what the tools always wrote.

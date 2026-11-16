@@ -17,6 +17,7 @@ export type StepIcon =
    | "failed"
    | "git_commit"
    | "git_push"
+   | "pr_create"
    | "git_status"
    | "git_diff"
    | "list_branches"
@@ -36,6 +37,7 @@ export type StepIcon =
 const GIT_ICONS = new Set<string>([
    "git_commit",
    "git_push",
+   "pr_create",
    "git_status",
    "git_diff",
    "list_branches",
@@ -72,6 +74,7 @@ export type StepBody =
    | { kind: "subSession"; summary: SubSessionToolSummary }
    | { kind: "toolSearch"; tools: ToolRefFacts[] }
    | { kind: "commit"; message: string; hash: string | undefined }
+   | { kind: "pr"; title: string; body: string; meta: string | undefined; url: string | undefined }
    | { kind: "call" };
 
 export type StepView = {
@@ -147,6 +150,8 @@ function metasOf(
           : state === "pending"
             ? ["stopped"]
             : [
+                 git?.number !== undefined && `#${git.number}`,
+                 git?.draft && "draft",
                  git?.changed !== undefined && `${git.changed} changed`,
                  git?.count !== undefined && `${git.count} branch${git.count === 1 ? "" : "es"}`,
                  git?.additions !== undefined && { add: git.additions, del: git.deletions ?? 0 },
@@ -158,6 +163,15 @@ function metasOf(
                  approval,
               ];
    return metas.filter((m): m is StepMeta => !!m);
+}
+
+/** `#176 · main ← branch`: what a PR step's frame header says. */
+function prMeta(g: GitToolSummary): string | undefined {
+   const range = g.base && g.head ? `${g.base} ← ${g.head}` : undefined;
+   return (
+      [g.number !== undefined ? `#${g.number}` : undefined, range].filter(Boolean).join(" · ") ||
+      undefined
+   );
 }
 
 /** Everything the Trace display shows of one tool call, derived in one place. */
@@ -179,7 +193,8 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
    const loaded = subagent ? null : toolSearchTools(tool);
    const { verb, detail } = stepLabel(tool, state, !!subagent);
    const message = tool.commitMessage ?? "";
-   const hasBody = !!subagent || !!message || tool.content.length > 0 || hasRaw(tool);
+   const pr = git?.prTitle && tool.harnessTool === "pr_create" ? git : null;
+   const hasBody = !!subagent || !!message || !!pr || tool.content.length > 0 || hasRaw(tool);
    const body: StepBody = !hasBody
       ? { kind: "none" }
       : subagent
@@ -190,7 +205,15 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
             ? { kind: "toolSearch", tools: loaded }
             : message
               ? { kind: "commit", message, hash: git?.hash }
-              : { kind: "call" };
+              : pr
+                ? {
+                     kind: "pr",
+                     title: pr.prTitle ?? "",
+                     body: pr.prBody ?? "",
+                     meta: prMeta(pr),
+                     url: pr.url,
+                  }
+                : { kind: "call" };
    return {
       state,
       lineStatus:

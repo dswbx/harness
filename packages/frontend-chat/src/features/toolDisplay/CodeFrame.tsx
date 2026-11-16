@@ -1,7 +1,7 @@
 import { cn } from "@harness/ui";
 import { type ReactNode, useState } from "react";
 import { AnsiText } from "../markdown/AnsiText";
-import { CopyButton, Frame, useWrapCode, WrapButton } from "../markdown/CodeBlock";
+import { CopyButton, Frame, LinkButton, useWrapCode, WrapButton } from "../markdown/CodeBlock";
 import { Highlighted } from "../markdown/Highlighted";
 
 export { Frame };
@@ -16,6 +16,7 @@ export function CodeFrame({
    code,
    lang,
    command,
+   href,
 }: {
    label: string;
    meta?: ReactNode;
@@ -23,6 +24,8 @@ export function CodeFrame({
    lang?: string;
    /** A shell command shown as `$ command` above the code (its output). */
    command?: string;
+   /** A link shown in the header as an open button. */
+   href?: string;
 }) {
    const [all, setAll] = useState(false);
    const wrap = useWrapCode();
@@ -35,6 +38,7 @@ export function CodeFrame({
          meta={meta}
          action={
             <>
+               {href && <LinkButton href={href} />}
                <WrapButton />
                <CopyButton text={code} />
             </>

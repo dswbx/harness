@@ -46,6 +46,29 @@ describe("gitToolSummary", () => {
       expect(gitToolSummary("git_push", {}, blocks("Pushed."))).toEqual({});
    });
 
+   it("pr_create: input title and body, result from the answer text", () => {
+      const url = "https://github.com/o/r/pull/12";
+      expect(
+         gitToolSummary(
+            "pr_create",
+            { title: " T ", body: "B", base: "main", draft: true },
+            `Opened PR #12 (draft): ${url}\nBase main, head feat/x.`,
+         ),
+      ).toEqual({
+         prTitle: "T",
+         prBody: "B",
+         base: "main",
+         head: "feat/x",
+         number: 12,
+         url,
+         draft: true,
+      });
+      expect(gitToolSummary("pr_create", { title: "T" }, `PR #12 is already open: ${url}`)).toEqual(
+         { prTitle: "T", number: 12, url, draft: false, existing: true },
+      );
+      expect(gitToolSummary("pr_create", { title: "T" }, null)).toEqual({ prTitle: "T" });
+   });
+
    it("failure: first line, fences stripped, string or blocks", () => {
       expect(
          gitToolSummary(

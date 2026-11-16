@@ -111,6 +111,12 @@ const variants: Tool[] = [
    }),
    mk({ title: "git_push", harnessTool: "git_push", rawOutput: "Pushed feat/x." }),
    mk({
+      title: "pr_create",
+      harnessTool: "pr_create",
+      rawInput: { title: "Add x", body: "Why" },
+      rawOutput: "Opened PR #176: https://github.com/o/r/pull/176\nBase main, head feat/x.",
+   }),
+   mk({
       title: "git_status",
       harnessTool: "git_status",
       rawOutput: "On branch main\n3 files changed",

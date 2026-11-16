@@ -478,5 +478,65 @@
          "rawOutput": "{\"sub_sessions\": \"x\"}"
       },
       "result": null
+   },
+   {
+      "name": "pr_create: new PR with base and head",
+      "tool": "pr_create",
+      "call": {
+         "rawOutput": "Opened PR #12: https://github.com/o/r/pull/12\nBase main, head feat/x."
+      },
+      "result": {
+         "type": "pr_create",
+         "number": 12,
+         "url": "https://github.com/o/r/pull/12",
+         "draft": false,
+         "existing": false,
+         "base": "main",
+         "head": "feat/x"
+      }
+   },
+   {
+      "name": "pr_create: draft",
+      "tool": "pr_create",
+      "call": {
+         "rawOutput": "Opened PR #12 (draft): https://github.com/o/r/pull/12"
+      },
+      "result": {
+         "type": "pr_create",
+         "number": 12,
+         "url": "https://github.com/o/r/pull/12",
+         "draft": true,
+         "existing": false
+      }
+   },
+   {
+      "name": "pr_create: already open",
+      "tool": "pr_create",
+      "call": {
+         "rawOutput": "PR #12 is already open: https://github.com/o/r/pull/12"
+      },
+      "result": {
+         "type": "pr_create",
+         "number": 12,
+         "url": "https://github.com/o/r/pull/12",
+         "draft": false,
+         "existing": true
+      }
+   },
+   {
+      "name": "pr_create: failure is not a result",
+      "tool": "pr_create",
+      "call": {
+         "rawOutput": "```\ntitle is required\n```"
+      },
+      "result": null
+   },
+   {
+      "name": "pr_create: unreadable",
+      "tool": "pr_create",
+      "call": {
+         "rawOutput": "done"
+      },
+      "result": null
    }
 ]

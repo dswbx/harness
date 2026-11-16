@@ -20,6 +20,15 @@ export type GitToolSummary = {
    deletions?: number;
    /** list_branches. */
    count?: number;
+   /** pr_create: the PR title (input), number, url, base and head (when new), draft, already open. */
+   prTitle?: string;
+   prBody?: string;
+   number?: number;
+   url?: string;
+   base?: string;
+   head?: string;
+   draft?: boolean;
+   existing?: boolean;
    /** The first line of the failure text. */
    error?: string;
 };
@@ -95,6 +104,19 @@ function deriveResult(tool: GitToolCall): HarnessResult | null {
       case "git_push": {
          const branch = /^Pushed\s+(.+?)\.?\s*$/m.exec(text)?.[1];
          return branch ? { type: "git_push", branch } : null;
+      }
+      case "pr_create": {
+         const m = /^(Opened PR|PR) #(\d+)( \(draft\))?( is already open)?: (\S+)\s*$/m.exec(text);
+         if (!m || (m[1] === "PR") !== !!m[4]) return null;
+         const bh = /^Base (\S+), head (\S+?)\.?\s*$/m.exec(text);
+         return {
+            type: "pr_create",
+            number: Number(m[2]),
+            url: m[5]!,
+            draft: !!m[3],
+            existing: !!m[4],
+            ...(bh && { base: bh[1], head: bh[2] }),
+         };
       }
       case "git_status": {
          const s = parseJson(text) as Record<string, unknown> | null | undefined;
@@ -183,7 +205,9 @@ export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
    const { harnessTool, rawInput } = tool;
    if (
       !harnessTool ||
-      !["git_commit", "git_push", "git_status", "git_diff", "list_branches"].includes(harnessTool)
+      !["git_commit", "git_push", "pr_create", "git_status", "git_diff", "list_branches"].includes(
+         harnessTool,
+      )
    )
       return null;
    const input = (rawInput && typeof rawInput === "object" ? rawInput : {}) as Record<
@@ -210,6 +234,23 @@ export function gitToolSummary(tool: GitToolCall): GitToolSummary | null {
       }
       case "git_push": {
          if (result?.type === "git_push") out.branch = result.branch;
+         break;
+      }
+      case "pr_create": {
+         const title = typeof input.title === "string" ? input.title.trim() : "";
+         if (title) out.prTitle = title;
+         const body = typeof input.body === "string" ? input.body.trim() : "";
+         if (body) out.prBody = body;
+         if (typeof input.base === "string" && input.base) out.base = input.base;
+         if (input.draft === true) out.draft = true;
+         if (result?.type === "pr_create") {
+            out.number = result.number;
+            out.url = result.url;
+            out.draft = result.draft;
+            if (result.existing) out.existing = true;
+            if (result.base) out.base = result.base;
+            if (result.head) out.head = result.head;
+         }
          break;
       }
       case "git_status": {
