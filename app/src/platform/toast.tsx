@@ -107,56 +107,61 @@ export function ToastProvider({ children }: { children: ReactNode }) {
    );
    const announcer = useMemo(() => ({ announce, withdraw }), [announce, withdraw]);
    const value = useMemo(() => report, [report]);
+   const card = (t: Toast) => (
+      <div
+         key={t.id}
+         role={t.info ? "status" : "alert"}
+         className={cn(
+            "pointer-events-auto flex items-start gap-2 rounded-lg border bg-popover p-3 text-sm shadow-lg",
+            !t.info && "border-destructive/40",
+         )}
+      >
+         {t.info ? (
+            <CircleCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+         ) : (
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+         )}
+         {t.info ? (
+            <div className="min-w-0 flex-1">
+               <p className="truncate font-medium">{t.info.title}</p>
+               <p className="text-xs text-muted-foreground">{t.text}</p>
+            </div>
+         ) : (
+            <p className="max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-words">
+               {t.text}
+            </p>
+         )}
+         {t.action && (
+            <button
+               className="shrink-0 rounded border px-2 py-0.5 text-xs hover:bg-accent hover:text-accent-foreground"
+               onClick={() => {
+                  t.action?.run();
+                  if (t.info) dismiss(t.id);
+               }}
+            >
+               {t.action.label}
+            </button>
+         )}
+         <button
+            aria-label="Dismiss"
+            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            onClick={() => dismiss(t.id)}
+         >
+            <X className="size-4" />
+         </button>
+      </div>
+   );
    return (
       <Ctx.Provider value={value}>
          <NotifyCtx.Provider value={notify}>
             <AnnounceCtx.Provider value={announcer}>{children}</AnnounceCtx.Provider>
          </NotifyCtx.Provider>
+         {/* Announcements top right (below the header), where the eye is; errors bottom right. */}
+         <div className="pointer-events-none fixed right-3 top-14 z-[100] flex w-96 max-w-[calc(100vw-1.5rem)] flex-col gap-2">
+            {toasts.filter((t) => t.info).map(card)}
+         </div>
          <div className="pointer-events-none fixed bottom-3 right-3 z-[100] flex w-96 max-w-[calc(100vw-1.5rem)] flex-col gap-2">
-            {toasts.map((t) => (
-               <div
-                  key={t.id}
-                  role={t.info ? "status" : "alert"}
-                  className={cn(
-                     "pointer-events-auto flex items-start gap-2 rounded-lg border bg-popover p-3 text-sm shadow-lg",
-                     !t.info && "border-destructive/40",
-                  )}
-               >
-                  {t.info ? (
-                     <CircleCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  ) : (
-                     <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-                  )}
-                  {t.info ? (
-                     <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{t.info.title}</p>
-                        <p className="text-xs text-muted-foreground">{t.text}</p>
-                     </div>
-                  ) : (
-                     <p className="max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-words">
-                        {t.text}
-                     </p>
-                  )}
-                  {t.action && (
-                     <button
-                        className="shrink-0 rounded border px-2 py-0.5 text-xs hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => {
-                           t.action?.run();
-                           if (t.info) dismiss(t.id);
-                        }}
-                     >
-                        {t.action.label}
-                     </button>
-                  )}
-                  <button
-                     aria-label="Dismiss"
-                     className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                     onClick={() => dismiss(t.id)}
-                  >
-                     <X className="size-4" />
-                  </button>
-               </div>
-            ))}
+            {toasts.filter((t) => !t.info).map(card)}
          </div>
       </Ctx.Provider>
    );
