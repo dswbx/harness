@@ -46,12 +46,16 @@ export function closeThread(t: ThreadTabs, id: string): ThreadTabs {
    return { threads, thread };
 }
 
-/** Open Side Thread tabs that have something to show: drafts, and Threads whose replay arrived. */
+/**
+ * Open Side Thread tabs that have something to show: drafts, Threads whose replay arrived, and Threads just
+ * started here (`started`), whose replay is on its way.
+ */
 export function openThreadIds(
    threads: readonly string[],
    known: Record<string, unknown>,
+   started: Record<string, unknown> = {},
 ): string[] {
-   return threads.filter((id) => isDraftThread(id) || !!known[id]);
+   return threads.filter((id) => isDraftThread(id) || !!known[id] || id in started);
 }
 
 /** The Side Thread shown: the selected one if open, else the last open one. */

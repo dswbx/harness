@@ -2,11 +2,15 @@ import type { AttachmentInput, SessionApi } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
 import { Plus, X } from "lucide-react";
 import { PanelHeader } from "../../panels/PanelHeader";
-import type { ChatState } from "../../state/reducer";
+import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
+import type { PendingMessage } from "../prompt/pendingMessages";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
 import { isDraftThread } from "./threadTabs";
+
+/** A Side Thread just started here, before its replay arrives. */
+const STARTING: ChatState = { ...initialState(), side: true };
 
 /**
  * The side chats: pill tabs in the panel header, one Side Thread per tab. Every open chat stays mounted
@@ -42,6 +46,7 @@ export function SidePanel({
       text: string,
       attachments: AttachmentInput[],
       start: SideStart,
+      item: PendingMessage,
    ) => Promise<void>;
    onOpenDiff: (s: DiffScope) => void;
 }) {
@@ -105,13 +110,15 @@ export function SidePanel({
                         api={api}
                         main={state}
                         draftId={id}
-                        onSend={(text, files, start) => onSendDraft(id, text, files, start)}
+                        onSend={(text, files, start, item) =>
+                           onSendDraft(id, text, files, start, item)
+                        }
                         focusKey={focus.id === id ? focus.n : 0}
                      />
                   ) : (
                      <ThreadView
                         api={api}
-                        thread={state.threads[id]!}
+                        thread={state.threads[id] ?? STARTING}
                         threadId={id}
                         env={env}
                         onOpenDiff={onOpenDiff}

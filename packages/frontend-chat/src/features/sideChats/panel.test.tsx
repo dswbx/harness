@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultLayout, isOpen, type Layout, resetLayout } from "../../shell/dock/model";
 import { usePanelHost } from "../../shell/usePanelHost";
 import { type ChatState, initialState } from "../../state/reducer";
+import { getPendingMessages } from "../prompt/pendingMessages";
+import { composerKey } from "../review/reviewComments";
 import { type SideChatsModel, sideChatsPanel } from "./panel";
 
 const PANELS = [sideChatsPanel];
@@ -86,13 +88,48 @@ describe("Side chats panel", () => {
       // The draft's Thread starts and takes its tab's place.
       known = ["t1", "t9"];
       await act(async () => {
-         await out.model.start("hi", [], draft);
+         await out.model.start("hi", [], { draft });
       });
       again(1);
       expect(out.model.open).toEqual(["t9"]);
       expect(out.model.active).toBe("t9");
       expect(api.prompt).toHaveBeenCalledWith("hi", [], "t9");
       expect(stored()).toEqual({ v: 1, threads: ["t9"], thread: "t9" });
+   });
+
+   it("a sent draft keeps the panel, takes the message's title and shows it pending before the replay arrives", async () => {
+      const { out, again } = setup();
+      act(() => void out.model.newThread());
+      const draft = out.model.active!;
+      const item = {
+         id: "p1",
+         prompt: "why is the sky blue",
+         inputs: [],
+         files: [],
+         comments: [],
+         snap: {} as never,
+         status: "sending" as const,
+         base: 0,
+      };
+      let sent!: () => void;
+      vi.mocked(api.prompt).mockImplementationOnce(() => new Promise<void>((r) => (sent = r)));
+      let done!: Promise<void>;
+      act(() => {
+         done = out.model.start("why is the sky blue", [], { draft, item });
+      });
+      expect(out.model.titleOf(draft)).toBe("why is the sky blue");
+      await act(async () => {});
+      again(1);
+      // "t9" has no replay yet: its tab shows anyway, the panel stays, the message waits there.
+      expect(out.model.open).toEqual(["t9"]);
+      expect(out.model.titleOf("t9")).toBe("why is the sky blue");
+      expect(sideOpen(out.lay)).toBe(true);
+      expect(getPendingMessages(composerKey("s1", "t9")).map((p) => p.status)).toEqual(["sending"]);
+      await act(async () => {
+         sent();
+         await done;
+      });
+      expect(getPendingMessages(composerKey("s1", "t9")).map((p) => p.status)).toEqual(["sent"]);
    });
 
    it("closing the last tab hides the panel (its icon stays)", () => {

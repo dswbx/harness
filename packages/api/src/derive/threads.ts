@@ -15,6 +15,12 @@ const TITLE_MAX = 48;
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 const cut = (s: string) => (s.length > TITLE_MAX ? s.slice(0, TITLE_MAX - 1).trimEnd() + "…" : s);
 
+/** A Thread's title from its first prompt (null when that has no text). */
+export function threadTitle(prompt: string): string | null {
+   const text = oneLine(prompt);
+   return text ? cut(text) : null;
+}
+
 /**
  * One step of `threadsOf`, for Views that fold Events themselves. Returns `list` itself when `e` changes
  * nothing. Main Thread first, then Side Threads in start order.
@@ -33,11 +39,10 @@ export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly Thr
          break;
       }
       case "TurnStarted": {
-         const text = oneLine(k.text);
          t = {
             ...prev,
             turns: prev.turns + 1,
-            title: prev.turns === 0 && text ? cut(text) : prev.title,
+            title: (prev.turns === 0 && threadTitle(k.text)) || prev.title,
          };
          break;
       }
