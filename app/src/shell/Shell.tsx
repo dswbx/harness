@@ -130,7 +130,7 @@ export function Shell({ transport }: { transport: Transport }) {
          .then(refresh)
          .catch((e) => setMenuError(errText(e)));
    };
-   const startQuick = useQuickLifecycle({
+   const { startQuick, agentSwitch } = useQuickLifecycle({
       client,
       sessions,
       selected,
@@ -138,6 +138,7 @@ export function Shell({ transport }: { transport: Transport }) {
       setComposer,
       refresh,
       report,
+      agentsVersion,
    });
    const askDelete = (s: SessionSummary) => {
       setToDelete(s);
@@ -281,6 +282,7 @@ export function Shell({ transport }: { transport: Transport }) {
                         indicator={indicator}
                         menu={menu}
                         onGitRefresh={git.refresh}
+                        agentSwitch={agentSwitch}
                         onOpenShared={openShared}
                         onOpenSession={setSelected}
                      />

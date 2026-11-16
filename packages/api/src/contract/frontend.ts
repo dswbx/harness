@@ -13,8 +13,9 @@ export type FrontendRequestProps = {
 };
 
 /**
- * The Quick overlay's Agent > model menu. Before the first message the user can pick another Agent
- * (the draft Session is replaced); after it the menu stays the same but is `locked`.
+ * The Agent > model menu of a Quick Session not used yet (the Quick overlay's draft, or one started from the
+ * main window's Quick group). Before the first message the user can pick another Agent (the draft Session is
+ * replaced); after it the overlay keeps the menu but `locked`, the main window drops it.
  */
 export type AgentSwitch = {
    agents: { id: string; name: string }[];
@@ -120,7 +121,7 @@ export interface Frontend {
       onPanelWidth?: (width: PanelWidth) => void;
       /** Overlay only: the chat card's width and the room beside it. */
       overlayFrame?: OverlayFrame;
-      /** Shown as a two-level Agent > model menu in the prompt box (Quick overlay only). */
+      /** Shown as a two-level Agent > model menu in the prompt box (a Quick Session not used yet). */
       agentSwitch?: AgentSwitch;
       /** Quick overlay only: a context chip in the prompt box; each message sends its attachment. */
       context?: PromptContext;
