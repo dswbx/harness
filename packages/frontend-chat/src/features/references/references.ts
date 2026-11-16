@@ -1,6 +1,7 @@
 import {
    findPrRefs,
    isExplicit,
+   linkPrRef,
    type PrEntry,
    type PrInfo,
    type PrRefContext,
@@ -134,7 +135,9 @@ function scanLine(line: string, ctx: PrRefContext): Found[] {
          if (bang) continue;
          const name = label!.replace(/[*_`~]/g, "");
          const ref = linkFileRef(href, name);
+         const pr = ref ? null : linkPrRef(href, name, ctx);
          if (ref) out.push({ start, end, hit: name, target: { kind: "file", ref } });
+         else if (pr) out.push({ start, end, hit: name, target: { kind: "pr", ref: pr } });
          else if (name === href) url(href, start, end);
          else if (http(href))
             out.push({ start, end, hit: name, target: { kind: "link", url: href, title: name } });

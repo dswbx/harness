@@ -64,6 +64,17 @@ it("turns `PR #N` and `PR#N` into a chip for the Session's repo; no Session repo
    expect(run("PR #5", { ...ctx, sessionRepo: null }).chips).toEqual([]);
 });
 
+it("turns PR links named by their ref into chips", () => {
+   expect(
+      run(
+         "- [supabase/spark#26](https://github.com/supabase/spark/pull/26) (draft)\n- [spark-platform#44](https://github.com/supabase/spark-platform/pull/44)",
+      ).chips,
+   ).toEqual([
+      "supabase/spark#26 supabase/spark#26",
+      "supabase/spark-platform#44 spark-platform#44",
+   ]);
+});
+
 it("turns PR autolinks into chips; named PR links and other links stay links", () => {
    const url = "https://github.com/supabase/spark/pull/17/files";
    const { chips, tree } = run(
