@@ -198,7 +198,7 @@ pub(super) fn primitives() -> Vec<Primitive> {
                 "prompt": { "type": "string", "description": "The first message to its agent" },
                 "folder": { "type": "string", "description": "Folder to work in (default: this Session's folder, outside its worktree)" },
                 "title": { "type": "string" },
-                "agent": { "type": "string", "description": "Installed agent id or name, for example for an independent review (default: this Session's agent)" },
+                "agent": { "type": "string", "description": "Installed agent by id or name, for example \"codex\" or \"claude\", for an independent review (default: this Session's agent)" },
                 "model": { "type": "string", "description": "Model value or name (default: this Session's model; with another agent, that agent's last model)" },
                 "effort": { "type": "string", "description": "Effort value or name (default: this Session's effort; with another agent, that agent's last effort)" },
                 "worktree": { "type": "boolean", "description": "Work in a new worktree (default: true in a git repository)" },

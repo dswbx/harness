@@ -170,17 +170,32 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
     })?)
 }
 
-/// The installed Agent named by `asked` (id or name, any case), else the parent's.
+/// The installed Agent named by `asked`, else the parent's.
 fn pick_agent(session: &Session, parent: &str, asked: Option<&str>) -> anyhow::Result<crate::api::AgentInfo> {
     let agents = session.shared().agents.list();
-    let id = asked.unwrap_or(parent);
-    let hit = agents.iter().find(|a| a.id == id).or_else(|| agents.iter().find(|a| a.id.eq_ignore_ascii_case(id) || a.name.eq_ignore_ascii_case(id)));
-    match hit {
-        Some(a) => Ok(a.clone()),
-        None => {
-            let valid: Vec<String> = agents.iter().map(|a| if a.id == a.name { a.id.clone() } else { format!("{} ({})", a.name, a.id) }).collect();
-            anyhow::bail!("unknown agent {id:?}. Installed: {}", valid.join(", "))
-        }
+    match asked {
+        None => agents.into_iter().find(|a| a.id == parent).ok_or_else(|| anyhow::anyhow!("this Session's agent {parent} is not installed")),
+        Some(asked) => find_agent(&agents, asked).cloned(),
+    }
+}
+
+/// An Agent by how people name it: its id or name in any case, else the first words of either
+/// ("codex" for `codex-acp`, "claude" for "Claude Agent"). More than one hit errors with them.
+fn find_agent<'a>(agents: &'a [crate::api::AgentInfo], asked: &str) -> anyhow::Result<&'a crate::api::AgentInfo> {
+    let label = |a: &crate::api::AgentInfo| if a.id == a.name { a.id.clone() } else { format!("{} ({})", a.name, a.id) };
+    if let Some(a) =
+        agents.iter().find(|a| a.id == asked).or_else(|| agents.iter().find(|a| a.id.eq_ignore_ascii_case(asked) || a.name.eq_ignore_ascii_case(asked)))
+    {
+        return Ok(a);
+    }
+    let words = |s: &str| s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let want = words(asked);
+    let leads = |s: &str| !want.is_empty() && words(s).starts_with(&want);
+    let hits: Vec<&crate::api::AgentInfo> = agents.iter().filter(|a| leads(&a.id) || leads(&a.name)).collect();
+    match hits.as_slice() {
+        [a] => Ok(a),
+        [] => anyhow::bail!("unknown agent {asked:?}. Installed: {}", agents.iter().map(label).collect::<Vec<_>>().join(", ")),
+        many => anyhow::bail!("agent {asked:?} matches more than one: {}. Pass its id.", many.iter().map(|a| label(a)).collect::<Vec<_>>().join(", ")),
     }
 }
 
@@ -681,6 +696,25 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn agent(id: &str, name: &str) -> crate::api::AgentInfo {
+        serde_json::from_value(json!({ "id": id, "name": name, "command": "x", "args": [], "version": null, "icon": null })).unwrap()
+    }
+
+    #[test]
+    fn agents_are_found_as_people_name_them() {
+        let agents = [agent("claude-acp", "Claude Agent"), agent("codex-acp", "Codex"), agent("custom-codex-fork", "Codex Fork")];
+        let id = |asked: &str| find_agent(&agents, asked).map(|a| a.id.clone()).map_err(|e| e.to_string());
+        assert_eq!(id("claude").unwrap(), "claude-acp");
+        assert_eq!(id("Claude Agent").unwrap(), "claude-acp");
+        assert_eq!(id("CLAUDE-ACP").unwrap(), "claude-acp");
+        assert_eq!(id("codex").unwrap(), "codex-acp", "the exact name wins over the word match");
+        assert_eq!(id("codex fork").unwrap(), "custom-codex-fork");
+        assert!(id("cod").unwrap_err().starts_with(r#"unknown agent "cod". Installed: Claude Agent (claude-acp), Codex (codex-acp)"#));
+        let agents = [agent("claude-acp", "Claude Agent"), agent("claude-custom", "My Claude")];
+        let err = find_agent(&agents, "claude").unwrap_err().to_string();
+        assert_eq!(err, r#"agent "claude" matches more than one: Claude Agent (claude-acp), My Claude (claude-custom). Pass its id."#);
+    }
 
     fn options() -> Vec<Value> {
         serde_json::from_value(json!([
