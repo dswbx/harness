@@ -25,7 +25,7 @@ function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
    return (
       <>
          <button
-            className="size-20 cursor-zoom-in overflow-hidden rounded-lg border bg-muted"
+            className="h-32 min-w-16 cursor-zoom-in overflow-hidden rounded-md border bg-muted"
             aria-label={`Open ${a.name}`}
             onClick={() => setOpen(true)}
          >
@@ -35,7 +35,7 @@ function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
                   src={url}
                   alt={a.name}
                   draggable={false}
-                  className="pointer-events-none size-full select-none object-cover"
+                  className="pointer-events-none h-full w-auto max-w-64 select-none bg-black/40 object-contain"
                />
             )}
          </button>
