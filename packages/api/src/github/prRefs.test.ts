@@ -5,6 +5,7 @@ import {
    findPrRefs,
    fuzzyRank,
    isExplicit,
+   linkPrRef,
    type PrRefContext,
    parsePrRef,
    qualify,
@@ -202,6 +203,28 @@ describe("qualify and displayRef", () => {
          k("supabase/spark", 17),
       );
    });
+});
+
+it("linkPrRef: a PR link whose text is its URL or its ref", () => {
+   const key = (href: string, text: string) => {
+      const k = linkPrRef(href, text, ctx);
+      return k && `${k.repo.owner}/${k.repo.name}#${k.number}`;
+   };
+   const spark = "https://github.com/supabase/spark/pull/26";
+   const platform = "https://github.com/supabase/spark-platform/pull/44";
+   expect(key(spark, "supabase/spark#26")).toBe("supabase/spark#26");
+   expect(key(spark, "spark#26")).toBe("supabase/spark#26");
+   expect(key(spark, "#26")).toBe("supabase/spark#26");
+   expect(key(spark, "PR #26")).toBe("supabase/spark#26");
+   expect(key(spark, spark)).toBe("supabase/spark#26");
+   // Unknown repo: the URL names it.
+   expect(key(platform, "spark-platform#44")).toBe("supabase/spark-platform#44");
+   // Text that is no ref, or another ref, stays a link.
+   expect(key(spark, "the PR")).toBeNull();
+   expect(key(spark, "spark#27")).toBeNull();
+   expect(key(spark, "lite#26")).toBeNull();
+   expect(key(spark, "other/spark#26")).toBeNull();
+   expect(key("https://github.com/o/r/issues/26", "r#26")).toBeNull();
 });
 
 it("parsePrRef reads a number, #number or PR URL", () => {

@@ -180,3 +180,22 @@ export function parsePrRef(q: string): number | null {
    const n = m ? Number(m[1]) : NaN;
    return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
+
+const PR_URL_ONLY = new RegExp(`^${PR_URL}$`);
+const SHORT_REF_ONLY = new RegExp(`^(?:PR ?)?${SHORT_REF}$`);
+
+/** The PR a Markdown link names: its `href` is a GitHub PR URL and its text is that URL or that ref (`#26`, `spark#26`,
+ * `supabase/spark#26`, `PR #26`). Links with other text (`[the PR](…)`) stay links. */
+export function linkPrRef(href: string, text: string, ctx: PrRefContext): PrRefKey | null {
+   const t = text.trim();
+   if (t === href) return PR_URL_ONLY.test(href) ? qualify(href, ctx) : null;
+   const u = PR_URL_ONLY.exec(href);
+   const r = u && SHORT_REF_ONLY.exec(t);
+   if (!u || !r) return null;
+   const [, owner, name, num] = u;
+   const [, tOwner, tName, tNum] = r;
+   if (toNumber(tNum!) !== toNumber(num!)) return null;
+   if (tOwner && tOwner.toLowerCase() !== owner!.toLowerCase()) return null;
+   if (tName && tName.toLowerCase() !== name!.toLowerCase()) return null;
+   return qualify(href, ctx);
+}

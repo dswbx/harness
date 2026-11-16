@@ -113,6 +113,18 @@ describe("collectReferences", () => {
       ]);
       expect(c[0]).toMatchObject({ kind: "link", title: "the PR" });
    });
+   it("a PR link named by its ref is a PR", () => {
+      const c = collectReferences(
+         [
+            agent(
+               "a",
+               "**spark:** [dswbx/harness#5](https://github.com/dswbx/harness/pull/5) (draft)",
+            ),
+         ],
+         ctx,
+      );
+      expect(c).toMatchObject([{ kind: "pr", key: "dswbx/harness#5" }]);
+   });
 });
 
 describe("resolveReferences", () => {

@@ -1,4 +1,4 @@
-import { findPrRefs, isExplicit, type PrRefContext, prKey, qualify } from "@harness/api";
+import { findPrRefs, isExplicit, linkPrRef, type PrRefContext, prKey, qualify } from "@harness/api";
 
 type Node = {
    type: string;
@@ -36,7 +36,7 @@ function split(text: string, ctx: PrRefContext): Node[] | null {
 }
 
 /** Rehype plugin: PR refs in text (not bare `#N`; `PR #N` is fine) become `<span data-pr-ref="owner/repo#N" data-raw>` (rendered as `PrChip`). A link
- * that is just a PR URL (autolink) becomes one too; named links stay links. Without `ctx` it does nothing. Runs
+ * to a PR whose text is its URL or its ref (`[spark#26](…/pull/26)`) becomes one too; other named links stay links. Without `ctx` it does nothing. Runs
  * before `rehypeInlineCode`, which turns inline code into spans. */
 export function rehypePrRefs({ ctx }: { ctx?: PrRefContext | null } = {}) {
    return (tree: Node) => {
@@ -53,8 +53,8 @@ export function rehypePrRefs({ ctx }: { ctx?: PrRefContext | null } = {}) {
                   c.children?.length === 1 && c.children[0]!.type === "text"
                      ? c.children[0]!.value
                      : null;
-               const key = text === href && /\/pull\/\d+/.test(href) ? qualify(href, ctx) : null;
-               return key ? chip(prKey(key), href) : c;
+               const key = text == null ? null : linkPrRef(href, text, ctx);
+               return key ? chip(prKey(key), text!) : c;
             }
             if (!SKIP.has(c.tagName!)) walk(c);
             return c;
