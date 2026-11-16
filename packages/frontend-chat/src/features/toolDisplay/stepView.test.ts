@@ -179,6 +179,22 @@ const rows: Row[] = [
       metas: [],
    },
    {
+      name: "pr_create: title, #number and draft metas, pr body",
+      tool: mk({
+         title: "pr_create",
+         harnessTool: "pr_create",
+         rawInput: { title: "Add x", body: "Why", draft: true },
+         rawOutput:
+            "Opened PR #176 (draft): https://github.com/o/r/pull/176\nBase main, head feat/x.",
+      }),
+      state: "done",
+      icon: "pr_create",
+      verb: "Opened PR",
+      detail: "Add x",
+      body: "pr",
+      metas: ["#176", "draft"],
+   },
+   {
       name: "git commit failed shows the error",
       tool: mk({
          title: "git_commit",

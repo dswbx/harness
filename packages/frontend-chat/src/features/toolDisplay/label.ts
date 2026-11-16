@@ -52,6 +52,7 @@ export function askVerb(tool: Tool): string {
 const GIT_VERBS: Record<string, [string, string, string]> = {
    git_commit: ["Committing", "Committed", "Commit failed"],
    git_push: ["Pushing", "Pushed", "Push failed"],
+   pr_create: ["Opening pull request", "Opened PR", "PR failed"],
    git_status: ["Checking status", "Checked status", "Status failed"],
    git_diff: ["Reading diff", "Read diff", "Diff failed"],
    list_branches: ["Listing branches", "Listed branches", "List failed"],
@@ -80,12 +81,14 @@ export function gitSummary(tool: Tool): GitToolSummary | null {
    return gitToolSummary(tool);
 }
 
-function gitDetail(name: string, g: GitToolSummary): string {
+function gitDetail(name: string, g: GitToolSummary, live: boolean): string {
    switch (name) {
       case "git_commit":
          return g.subject ?? "";
       case "git_push":
          return g.branch ? `${g.branch} → origin` : "";
+      case "pr_create":
+         return live && g.base && g.head ? `${g.base} ← ${g.head}` : (g.prTitle ?? "");
       case "git_status":
          return g.branch ?? "";
       case "git_diff":
@@ -110,8 +113,10 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
    if (subagent) return { verb: pick(["Running subagent", "Ran subagent"]), detail: tool.title };
    const git = tool.harnessTool ? GIT_VERBS[tool.harnessTool] : undefined;
    if (tool.harnessTool && git) {
-      const verb = live ? git[0] : state === "failed" ? git[2] : git[1];
-      return { verb, detail: gitDetail(tool.harnessTool, gitSummary(tool) ?? {}) };
+      const g = gitSummary(tool) ?? {};
+      const done = tool.harnessTool === "pr_create" && g.existing ? "Found PR" : git[1];
+      const verb = live ? git[0] : state === "failed" ? git[2] : done;
+      return { verb, detail: gitDetail(tool.harnessTool, g, live) };
    }
    const sessionVerbs = tool.harnessTool ? SESSION_VERBS[tool.harnessTool] : undefined;
    if (sessionVerbs) {

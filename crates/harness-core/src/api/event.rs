@@ -499,6 +499,17 @@ pub enum HarnessResult {
     GitCommit { hash: String },
     /// `git_push`: the branch pushed.
     GitPush { branch: String },
+    /// `pr_create`: the PR opened, or the open one of the branch (`existing`). `base` and `head` only for a new PR.
+    PrCreate {
+        number: u32,
+        url: String,
+        draft: bool,
+        existing: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        head: Option<String>,
+    },
     /// `git_status`: the current branch and how many files changed.
     GitStatus {
         #[serde(default, skip_serializing_if = "Option::is_none")]

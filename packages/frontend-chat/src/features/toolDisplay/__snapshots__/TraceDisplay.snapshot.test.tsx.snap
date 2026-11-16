@@ -2583,6 +2583,52 @@ body
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
 <span data-step="x15">
 <span aria-hidden="true">
+<svg lucide-git-pull-request/>
+</span>
+<span>
+<span>Opened PR</span>
+<span>Add x</span>
+</span>
+<span>#176</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="open" id="radix-_r_">
+<div>
+<div>
+<div>
+<span>pull request</span>
+<span>#176 · main ← feat/x</span>
+<span>
+<a href="https://github.com/o/r/pull/176" target="_blank" rel="noreferrer" aria-label="Open" data-state="closed">
+<svg lucide-external-link/>
+</a>
+<button type="button" aria-label="Wrap lines" aria-pressed="false" data-state="closed">
+<svg lucide-text-wrap/>
+</button>
+<button type="button" aria-label="Copy">
+<svg lucide-copy/>
+</button>
+</span>
+</div>
+<div>
+<pre>
+<code>Add x
+
+Why
+</code>
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div data-state="open" data-step="x16">
+<button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
+<span data-step="x16">
+<span aria-hidden="true">
 <svg lucide-circle-dot/>
 </span>
 <span>
@@ -2614,9 +2660,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x16">
+<div data-state="open" data-step="x17">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x16">
+<span data-step="x17">
 <span aria-hidden="true">
 <svg lucide-file-diff/>
 </span>
@@ -2667,9 +2713,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x17">
+<div data-state="open" data-step="x18">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x17">
+<span data-step="x18">
 <span aria-hidden="true">
 <svg lucide-git-branch/>
 </span>
@@ -2702,7 +2748,7 @@ body
 </div>
 </div>
 </div>
-<span data-status="pending" data-step="x18">
+<span data-status="pending" data-step="x19">
 <span aria-hidden="true">
 <svg lucide-arrow-up-from-line/>
 </span>
@@ -2711,9 +2757,9 @@ body
 </span>
 <span>denied</span>
 </span>
-<div data-state="open" data-step="x19">
+<div data-state="open" data-step="x20">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x19">
+<span data-step="x20">
 <span aria-hidden="true">
 <svg lucide-plug/>
 </span>
@@ -2747,9 +2793,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x20">
+<div data-state="open" data-step="x21">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x20">
+<span data-step="x21">
 <span aria-hidden="true">
 <svg lucide-bot/>
 </span>
@@ -2782,9 +2828,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x21">
+<div data-state="open" data-step="x22">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x21">
+<span data-step="x22">
 <span aria-hidden="true">
 <svg lucide-bot/>
 </span>
@@ -2815,9 +2861,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x22">
+<div data-state="open" data-step="x23">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x22">
+<span data-step="x23">
 <span aria-hidden="true">
 <svg lucide-bot/>
 </span>
@@ -2849,9 +2895,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x23">
+<div data-state="open" data-step="x24">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x23">
+<span data-step="x24">
 <span aria-hidden="true">
 <svg lucide-bot/>
 </span>
@@ -2870,9 +2916,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x24">
+<div data-state="open" data-step="x25">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x24">
+<span data-step="x25">
 <span aria-hidden="true">
 <svg lucide-bot/>
 </span>
@@ -2898,9 +2944,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x25">
+<div data-state="open" data-step="x26">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x25">
+<span data-step="x26">
 <span aria-hidden="true">
 <svg lucide-bot/>
 </span>
@@ -2919,9 +2965,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x26">
+<div data-state="open" data-step="x27">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-status="error" data-step="x26">
+<span data-status="error" data-step="x27">
 <span aria-hidden="true">
 <svg lucide-circle-x/>
 </span>
@@ -2983,9 +3029,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x27">
+<div data-state="open" data-step="x28">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x27">
+<span data-step="x28">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>
@@ -3021,9 +3067,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x28">
+<div data-state="open" data-step="x29">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x28">
+<span data-step="x29">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>
@@ -3058,9 +3104,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x29">
+<div data-state="open" data-step="x30">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-step="x29">
+<span data-step="x30">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>
@@ -3094,9 +3140,9 @@ body
 </div>
 </div>
 </div>
-<div data-state="open" data-step="x30">
+<div data-state="open" data-step="x31">
 <button type="button" aria-expanded="true" data-state="open" aria-controls="radix-_r_">
-<span data-status="running" data-step="x30">
+<span data-status="running" data-step="x31">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>
@@ -4679,6 +4725,25 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <button type="button" aria-expanded="false" data-state="closed">
 <span data-step="x15">
 <span aria-hidden="true">
+<svg lucide-git-pull-request/>
+</span>
+<span>
+<span>Opened PR</span>
+<span>Add x</span>
+</span>
+<span>#176</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x16">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-step="x16">
+<span aria-hidden="true">
 <svg lucide-circle-dot/>
 </span>
 <span>
@@ -4692,9 +4757,9 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x16">
+<div data-state="closed" data-step="x17">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x16">
+<span data-step="x17">
 <span aria-hidden="true">
 <svg lucide-file-diff/>
 </span>
@@ -4713,9 +4778,9 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x17">
+<div data-state="closed" data-step="x18">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x17">
+<span data-step="x18">
 <span aria-hidden="true">
 <svg lucide-git-branch/>
 </span>
@@ -4730,7 +4795,7 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<span data-status="pending" data-step="x18">
+<span data-status="pending" data-step="x19">
 <span aria-hidden="true">
 <svg lucide-arrow-up-from-line/>
 </span>
@@ -4739,33 +4804,15 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 </span>
 <span>denied</span>
 </span>
-<div data-state="closed" data-step="x19">
+<div data-state="closed" data-step="x20">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x19">
+<span data-step="x20">
 <span aria-hidden="true">
 <svg lucide-plug/>
 </span>
 <span>
 <span>Called Harness</span>
 <span>other_tool</span>
-</span>
-</span>
-<span aria-hidden="true">
-<svg lucide-chevron-right/>
-</span>
-</button>
-<div data-state="closed" id="radix-_r_" hidden="">
-</div>
-</div>
-<div data-state="closed" data-step="x20">
-<button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x20">
-<span aria-hidden="true">
-<svg lucide-bot/>
-</span>
-<span>
-<span>Started sub session</span>
-<span>Fix · repo</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -4782,7 +4829,8 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <svg lucide-bot/>
 </span>
 <span>
-<span>Sent to sub session</span>
+<span>Started sub session</span>
+<span>Fix · repo</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -4799,10 +4847,8 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <svg lucide-bot/>
 </span>
 <span>
-<span>Waited for sub session</span>
-<span>Fix</span>
+<span>Sent to sub session</span>
 </span>
-<span>1m 05s</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -4818,10 +4864,10 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <svg lucide-bot/>
 </span>
 <span>
-<span>Checked sub session</span>
+<span>Waited for sub session</span>
 <span>Fix</span>
 </span>
-<span>still working</span>
+<span>1m 05s</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -4837,9 +4883,10 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <svg lucide-bot/>
 </span>
 <span>
-<span>Listed sub sessions</span>
+<span>Checked sub session</span>
+<span>Fix</span>
 </span>
-<span>2 sub sessions</span>
+<span>still working</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -4857,7 +4904,7 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <span>
 <span>Listed sub sessions</span>
 </span>
-<span>0 sub sessions</span>
+<span>2 sub sessions</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -4868,7 +4915,25 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 </div>
 <div data-state="closed" data-step="x26">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-status="error" data-step="x26">
+<span data-step="x26">
+<span aria-hidden="true">
+<svg lucide-bot/>
+</span>
+<span>
+<span>Listed sub sessions</span>
+</span>
+<span>0 sub sessions</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x27">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-status="error" data-step="x27">
 <span aria-hidden="true">
 <svg lucide-circle-x/>
 </span>
@@ -4884,24 +4949,6 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x27">
-<button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x27">
-<span aria-hidden="true">
-<svg lucide-blocks/>
-</span>
-<span>
-<span>Loaded 2 tools</span>
-<span>a b, Read</span>
-</span>
-</span>
-<span aria-hidden="true">
-<svg lucide-chevron-right/>
-</span>
-</button>
-<div data-state="closed" id="radix-_r_" hidden="">
-</div>
-</div>
 <div data-state="closed" data-step="x28">
 <button type="button" aria-expanded="false" data-state="closed">
 <span data-step="x28">
@@ -4909,8 +4956,8 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <svg lucide-blocks/>
 </span>
 <span>
-<span>Loaded 1 tool</span>
-<span>"slack send"</span>
+<span>Loaded 2 tools</span>
+<span>a b, Read</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -4927,8 +4974,8 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <svg lucide-blocks/>
 </span>
 <span>
-<span>Searched tools</span>
-<span>"nothing"</span>
+<span>Loaded 1 tool</span>
+<span>"slack send"</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -4940,7 +4987,25 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 </div>
 <div data-state="closed" data-step="x30">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-status="pending" data-step="x30">
+<span data-step="x30">
+<span aria-hidden="true">
+<svg lucide-blocks/>
+</span>
+<span>
+<span>Searched tools</span>
+<span>"nothing"</span>
+</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x31">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-status="pending" data-step="x31">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>
@@ -6247,6 +6312,25 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <button type="button" aria-expanded="false" data-state="closed">
 <span data-step="x15">
 <span aria-hidden="true">
+<svg lucide-git-pull-request/>
+</span>
+<span>
+<span>Opened PR</span>
+<span>Add x</span>
+</span>
+<span>#176</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x16">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-step="x16">
+<span aria-hidden="true">
 <svg lucide-circle-dot/>
 </span>
 <span>
@@ -6260,9 +6344,9 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x16">
+<div data-state="closed" data-step="x17">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x16">
+<span data-step="x17">
 <span aria-hidden="true">
 <svg lucide-file-diff/>
 </span>
@@ -6281,9 +6365,9 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x17">
+<div data-state="closed" data-step="x18">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x17">
+<span data-step="x18">
 <span aria-hidden="true">
 <svg lucide-git-branch/>
 </span>
@@ -6298,7 +6382,7 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<span data-status="pending" data-step="x18">
+<span data-status="pending" data-step="x19">
 <span aria-hidden="true">
 <svg lucide-arrow-up-from-line/>
 </span>
@@ -6307,33 +6391,15 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 </span>
 <span>denied</span>
 </span>
-<div data-state="closed" data-step="x19">
+<div data-state="closed" data-step="x20">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x19">
+<span data-step="x20">
 <span aria-hidden="true">
 <svg lucide-plug/>
 </span>
 <span>
 <span>Called Harness</span>
 <span>other_tool</span>
-</span>
-</span>
-<span aria-hidden="true">
-<svg lucide-chevron-right/>
-</span>
-</button>
-<div data-state="closed" id="radix-_r_" hidden="">
-</div>
-</div>
-<div data-state="closed" data-step="x20">
-<button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x20">
-<span aria-hidden="true">
-<svg lucide-bot/>
-</span>
-<span>
-<span>Started sub session</span>
-<span>Fix · repo</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -6350,7 +6416,8 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <svg lucide-bot/>
 </span>
 <span>
-<span>Sent to sub session</span>
+<span>Started sub session</span>
+<span>Fix · repo</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -6367,10 +6434,8 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <svg lucide-bot/>
 </span>
 <span>
-<span>Waited for sub session</span>
-<span>Fix</span>
+<span>Sent to sub session</span>
 </span>
-<span>1m 05s</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6386,10 +6451,10 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <svg lucide-bot/>
 </span>
 <span>
-<span>Checked sub session</span>
+<span>Waited for sub session</span>
 <span>Fix</span>
 </span>
-<span>still working</span>
+<span>1m 05s</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6405,9 +6470,10 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <svg lucide-bot/>
 </span>
 <span>
-<span>Listed sub sessions</span>
+<span>Checked sub session</span>
+<span>Fix</span>
 </span>
-<span>2 sub sessions</span>
+<span>still working</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6425,7 +6491,7 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <span>
 <span>Listed sub sessions</span>
 </span>
-<span>0 sub sessions</span>
+<span>2 sub sessions</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6436,7 +6502,25 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 </div>
 <div data-state="closed" data-step="x26">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-status="error" data-step="x26">
+<span data-step="x26">
+<span aria-hidden="true">
+<svg lucide-bot/>
+</span>
+<span>
+<span>Listed sub sessions</span>
+</span>
+<span>0 sub sessions</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x27">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-status="error" data-step="x27">
 <span aria-hidden="true">
 <svg lucide-circle-x/>
 </span>
@@ -6452,24 +6536,6 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x27">
-<button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x27">
-<span aria-hidden="true">
-<svg lucide-blocks/>
-</span>
-<span>
-<span>Loaded 2 tools</span>
-<span>a b, Read</span>
-</span>
-</span>
-<span aria-hidden="true">
-<svg lucide-chevron-right/>
-</span>
-</button>
-<div data-state="closed" id="radix-_r_" hidden="">
-</div>
-</div>
 <div data-state="closed" data-step="x28">
 <button type="button" aria-expanded="false" data-state="closed">
 <span data-step="x28">
@@ -6477,8 +6543,8 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <svg lucide-blocks/>
 </span>
 <span>
-<span>Loaded 1 tool</span>
-<span>"slack send"</span>
+<span>Loaded 2 tools</span>
+<span>a b, Read</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -6495,8 +6561,8 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <svg lucide-blocks/>
 </span>
 <span>
-<span>Searched tools</span>
-<span>"nothing"</span>
+<span>Loaded 1 tool</span>
+<span>"slack send"</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -6508,7 +6574,25 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 </div>
 <div data-state="closed" data-step="x30">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-status="running" data-step="x30">
+<span data-step="x30">
+<span aria-hidden="true">
+<svg lucide-blocks/>
+</span>
+<span>
+<span>Searched tools</span>
+<span>"nothing"</span>
+</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x31">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-status="running" data-step="x31">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>
@@ -7814,6 +7898,25 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <button type="button" aria-expanded="false" data-state="closed">
 <span data-step="x15">
 <span aria-hidden="true">
+<svg lucide-git-pull-request/>
+</span>
+<span>
+<span>Opened PR</span>
+<span>Add x</span>
+</span>
+<span>#176</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x16">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-step="x16">
+<span aria-hidden="true">
 <svg lucide-circle-dot/>
 </span>
 <span>
@@ -7827,9 +7930,9 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x16">
+<div data-state="closed" data-step="x17">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x16">
+<span data-step="x17">
 <span aria-hidden="true">
 <svg lucide-file-diff/>
 </span>
@@ -7848,9 +7951,9 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x17">
+<div data-state="closed" data-step="x18">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x17">
+<span data-step="x18">
 <span aria-hidden="true">
 <svg lucide-git-branch/>
 </span>
@@ -7865,7 +7968,7 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<span data-status="pending" data-step="x18">
+<span data-status="pending" data-step="x19">
 <span aria-hidden="true">
 <svg lucide-arrow-up-from-line/>
 </span>
@@ -7874,33 +7977,15 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 </span>
 <span>denied</span>
 </span>
-<div data-state="closed" data-step="x19">
+<div data-state="closed" data-step="x20">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x19">
+<span data-step="x20">
 <span aria-hidden="true">
 <svg lucide-plug/>
 </span>
 <span>
 <span>Called Harness</span>
 <span>other_tool</span>
-</span>
-</span>
-<span aria-hidden="true">
-<svg lucide-chevron-right/>
-</span>
-</button>
-<div data-state="closed" id="radix-_r_" hidden="">
-</div>
-</div>
-<div data-state="closed" data-step="x20">
-<button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x20">
-<span aria-hidden="true">
-<svg lucide-bot/>
-</span>
-<span>
-<span>Started sub session</span>
-<span>Fix · repo</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -7917,7 +8002,8 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <svg lucide-bot/>
 </span>
 <span>
-<span>Sent to sub session</span>
+<span>Started sub session</span>
+<span>Fix · repo</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -7934,10 +8020,8 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <svg lucide-bot/>
 </span>
 <span>
-<span>Waited for sub session</span>
-<span>Fix</span>
+<span>Sent to sub session</span>
 </span>
-<span>1m 05s</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -7953,10 +8037,10 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <svg lucide-bot/>
 </span>
 <span>
-<span>Checked sub session</span>
+<span>Waited for sub session</span>
 <span>Fix</span>
 </span>
-<span>still working</span>
+<span>1m 05s</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -7972,9 +8056,10 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <svg lucide-bot/>
 </span>
 <span>
-<span>Listed sub sessions</span>
+<span>Checked sub session</span>
+<span>Fix</span>
 </span>
-<span>2 sub sessions</span>
+<span>still working</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -7992,7 +8077,7 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <span>
 <span>Listed sub sessions</span>
 </span>
-<span>0 sub sessions</span>
+<span>2 sub sessions</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -8003,7 +8088,25 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 </div>
 <div data-state="closed" data-step="x26">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-status="error" data-step="x26">
+<span data-step="x26">
+<span aria-hidden="true">
+<svg lucide-bot/>
+</span>
+<span>
+<span>Listed sub sessions</span>
+</span>
+<span>0 sub sessions</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x27">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-status="error" data-step="x27">
 <span aria-hidden="true">
 <svg lucide-circle-x/>
 </span>
@@ -8019,24 +8122,6 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <div data-state="closed" id="radix-_r_" hidden="">
 </div>
 </div>
-<div data-state="closed" data-step="x27">
-<button type="button" aria-expanded="false" data-state="closed">
-<span data-step="x27">
-<span aria-hidden="true">
-<svg lucide-blocks/>
-</span>
-<span>
-<span>Loaded 2 tools</span>
-<span>a b, Read</span>
-</span>
-</span>
-<span aria-hidden="true">
-<svg lucide-chevron-right/>
-</span>
-</button>
-<div data-state="closed" id="radix-_r_" hidden="">
-</div>
-</div>
 <div data-state="closed" data-step="x28">
 <button type="button" aria-expanded="false" data-state="closed">
 <span data-step="x28">
@@ -8044,8 +8129,8 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <svg lucide-blocks/>
 </span>
 <span>
-<span>Loaded 1 tool</span>
-<span>"slack send"</span>
+<span>Loaded 2 tools</span>
+<span>a b, Read</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -8062,8 +8147,8 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <svg lucide-blocks/>
 </span>
 <span>
-<span>Searched tools</span>
-<span>"nothing"</span>
+<span>Loaded 1 tool</span>
+<span>"slack send"</span>
 </span>
 </span>
 <span aria-hidden="true">
@@ -8075,7 +8160,25 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 </div>
 <div data-state="closed" data-step="x30">
 <button type="button" aria-expanded="false" data-state="closed">
-<span data-status="running" data-step="x30">
+<span data-step="x30">
+<span aria-hidden="true">
+<svg lucide-blocks/>
+</span>
+<span>
+<span>Searched tools</span>
+<span>"nothing"</span>
+</span>
+</span>
+<span aria-hidden="true">
+<svg lucide-chevron-right/>
+</span>
+</button>
+<div data-state="closed" id="radix-_r_" hidden="">
+</div>
+</div>
+<div data-state="closed" data-step="x31">
+<button type="button" aria-expanded="false" data-state="closed">
+<span data-status="running" data-step="x31">
 <span aria-hidden="true">
 <svg lucide-blocks/>
 </span>

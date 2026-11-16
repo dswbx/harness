@@ -541,6 +541,18 @@ function mockGitSteps(ev: (kind: EventKind) => Event): Event[] {
          raw_output: failure,
          text: `\`\`\`\n${failure}\n\`\`\``,
       }),
+      call("mock-pr-create", "pr_create"),
+      update("mock-pr-create", {
+         raw_input: {
+            title: "Rename hello.txt to hello.ts",
+            body: "## Summary\n\n- Move the file and update its imports\n- Keep the build green\n\n## Test plan\n\n- `bun run typecheck`",
+            base: "main",
+         },
+      }),
+      done(
+         "mock-pr-create",
+         "Opened PR #176: https://github.com/example/harness/pull/176\nBase main, head feat/rename.",
+      ),
       call("mock-git-push-2", "git_push"),
       update("mock-git-push-2", { status: "in_progress" }),
       ev({

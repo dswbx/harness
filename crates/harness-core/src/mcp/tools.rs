@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::frontend_tools;
 use super::info::{info, shared_info, ui_get};
 use crate::api::{GitActor, ThreadId};
-use crate::session::Session;
+use crate::session::{PrPlan, Session};
 
 /// Tools that read other Threads, not offered to a Side Thread started without the Main Thread's
 /// conversation (its point is an independent view).
@@ -78,6 +78,18 @@ pub(super) fn primitives() -> Vec<Primitive> {
             |s, t, a| Box::pin(run_git_commit(s, t, a)),
         ),
         Primitive::run("git_push", "Push the current branch to origin (sets upstream).", empty.clone(), "git_push", |s, t, a| Box::pin(run_git_push(s, t, a))),
+        Primitive::run(
+            "pr_create",
+            "Open a GitHub pull request from the Session's current branch (push it first with git_push). Prefer it over `gh pr create`. If the branch already has an open PR, returns that one. Returns the PR number and URL.",
+            json!({ "type": "object", "properties": {
+                "title": { "type": "string" },
+                "body": { "type": "string", "description": "Markdown description" },
+                "base": { "type": "string", "description": "Branch to merge into (default: the Session's base branch, else the repository's default)" },
+                "draft": { "type": "boolean", "description": "Open as a draft" }
+            }, "required": ["title"] }),
+            "pr_create",
+            |s, t, a| Box::pin(run_pr_create(s, t, a)),
+        ),
         Primitive::run(
             "state_get",
             "Read the Session State: one JSON document the user's UI can show and change (e.g. a score, answers). Omit `statePath` for all of it. With `artifact`, read that attached Shared Artifact's own state instead.",
@@ -251,12 +263,27 @@ pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, 
             "{name} is not available: the user started this Side Thread without the Main Thread's conversation"
         );
         let s = arg_str(&args);
+        // A PR that cannot be opened, or is open already, is answered before the user is asked.
+        let plan = if name == "pr_create" {
+            anyhow::ensure!(s("title").is_some_and(|t| !t.trim().is_empty()), "title is required");
+            let plan = session.pr_plan(s("base")).await?;
+            if let PrPlan::Existing { pr, .. } = &plan {
+                return Ok(vec![ContentBlock::text(existing_text(pr))]);
+            }
+            Some(plan)
+        } else {
+            None
+        };
         let title = match name {
+            "pr_create" => format!("Open PR: {}", s("title").unwrap_or_default()),
             "git_commit" => format!("Commit: {}", s("message").unwrap_or_default()),
             "git_push" => "Push branch to origin".to_owned(),
             _ => p.description.to_owned(),
         };
         crate::acp::authorize(session, thread, name, &title, p.kind, &args).await?;
+        if let Some(plan) = plan {
+            return Ok(vec![ContentBlock::text(open_pr(session, &plan, &args).await?)]);
+        }
         return Ok(vec![ContentBlock::text(run(session, thread, &args).await?)]);
     }
     frontend_tools::call(session, thread, name, args).await
@@ -291,6 +318,28 @@ async fn run_git_commit(session: &Arc<Session>, _: &ThreadId, args: &Value) -> a
 async fn run_git_push(session: &Arc<Session>, _: &ThreadId, _: &Value) -> anyhow::Result<String> {
     let branch = session.git_push(GitActor::Agent).await?;
     Ok(super::results::pushed_text(&branch))
+}
+
+/// `pr_create` is run by `call` (it plans before the user is asked): this is only the table's entry.
+async fn run_pr_create(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
+    let plan = session.pr_plan(arg_str(args)("base")).await?;
+    match &plan {
+        PrPlan::Existing { pr, .. } => Ok(existing_text(pr)),
+        PrPlan::New { .. } => open_pr(session, &plan, args).await,
+    }
+}
+
+fn existing_text(pr: &crate::api::PrInfo) -> String {
+    super::results::pr_created_text(pr.number, &pr.url, pr.state == crate::api::PrState::Draft, true, None)
+}
+
+async fn open_pr(session: &Arc<Session>, plan: &PrPlan, args: &Value) -> anyhow::Result<String> {
+    let s = arg_str(args);
+    let title = s("title").unwrap_or_default();
+    let draft = args.get("draft").and_then(Value::as_bool).unwrap_or(false);
+    let created = session.pr_create(plan, title.trim(), &s("body").unwrap_or_default(), draft).await?;
+    let PrPlan::New { branch, base, .. } = plan else { anyhow::bail!("a PR is already open") };
+    Ok(super::results::pr_created_text(created.number, &created.url, draft, false, Some((base, branch))))
 }
 
 async fn run_state_get(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {

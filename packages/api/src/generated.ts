@@ -750,6 +750,8 @@ export type HarnessResult =
 { type: "git_commit"; hash: string } | 
 /**  `git_push`: the branch pushed. */
 { type: "git_push"; branch: string } | 
+/**  `pr_create`: the PR opened, or the open one of the branch (`existing`). `base` and `head` only for a new PR. */
+{ type: "pr_create"; number: number; url: string; draft: boolean; existing: boolean; base?: string | null; head?: string | null } | 
 /**  `git_status`: the current branch and how many files changed. */
 { type: "git_status"; branch?: string | null; changed?: number | null } | 
 /**  `git_diff`: added and removed lines of the patch. */

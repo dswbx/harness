@@ -1,5 +1,5 @@
 import { cn, Tooltip, useCopied } from "@harness/ui";
-import { Check, Copy, WrapText } from "lucide-react";
+import { Check, Copy, ExternalLink, WrapText } from "lucide-react";
 import type { ReactNode } from "react";
 import { localPref } from "../../lib/localPref";
 
@@ -29,6 +29,23 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
       >
          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       </button>
+   );
+}
+
+/** Opens `href` in the browser (links open outside the app). */
+export function LinkButton({ href, label = "Open" }: { href: string; label?: string }) {
+   return (
+      <Tooltip content={label}>
+         <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={label}
+            className={cn(BUTTON, "text-inherit")}
+         >
+            <ExternalLink className="size-3.5" />
+         </a>
+      </Tooltip>
    );
 }
 

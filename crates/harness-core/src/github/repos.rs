@@ -71,13 +71,17 @@ pub(crate) fn valid_repo(r: &RepoId) -> bool {
 /// GitHub repository of the `upstream` remote, else `origin`. None without one on github.com.
 pub async fn origin_repo(dir: &Path) -> Option<RepoId> {
     for remote in ["upstream", "origin"] {
-        if let Ok(url) = crate::git::git(dir, &["remote", "get-url", remote]).await
-            && let Some(repo) = parse_github_remote(url.trim())
-        {
+        if let Some(repo) = remote_repo(dir, remote).await {
             return Some(repo);
         }
     }
     None
+}
+
+/// GitHub repository of one remote.
+pub(crate) async fn remote_repo(dir: &Path, remote: &str) -> Option<RepoId> {
+    let url = crate::git::git(dir, &["remote", "get-url", remote]).await.ok()?;
+    parse_github_remote(url.trim())
 }
 
 /// `git@github.com:o/r.git`, `ssh://git@github.com/o/r`, `https://github.com/o/r.git`, ...

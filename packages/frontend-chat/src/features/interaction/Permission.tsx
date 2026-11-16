@@ -31,7 +31,7 @@ import { type Item, permissionTitle } from "../../state/reducer";
 import { Block, PlusMinus } from "../toolDisplay/blocks";
 import { CodeFrame } from "../toolDisplay/CodeFrame";
 import type { Tool } from "../toolDisplay/group";
-import { askVerb } from "../toolDisplay/label";
+import { askVerb, gitSummary } from "../toolDisplay/label";
 import { inputOf, json, present } from "../toolDisplay/raw";
 import { STEP_ICONS } from "../toolDisplay/stepIcons";
 import { stepView } from "../toolDisplay/stepView";
@@ -39,7 +39,7 @@ import { stepView } from "../toolDisplay/stepView";
 type Perm = Extract<Item, { type: "permission" }>;
 
 /** Requests whose title says what is asked (Harness tools, mode switches): not the kind's question. */
-const OWN_TITLE = new Set(["git_commit", "git_push", "frontend_tool", "switch_mode"]);
+const OWN_TITLE = new Set(["git_commit", "git_push", "pr_create", "frontend_tool", "switch_mode"]);
 
 /** A pending approval of a step stands in for it (plans have their own note). */
 export const isStepApproval = (item: Perm) => !!item.stepId && !item.plan;
@@ -157,6 +157,15 @@ function Clamp({ children }: { children: ReactNode }) {
 function preview(tool: Tool, item: Perm): ReactNode {
    const message = item.commitMessage ?? tool.commitMessage;
    if (message) return <CodeFrame label="commit message" code={message} />;
+   const pr = gitSummary(tool);
+   if (pr?.prTitle)
+      return (
+         <CodeFrame
+            label="pull request"
+            meta={pr.base}
+            code={pr.prBody ? `${pr.prTitle}\n\n${pr.prBody}` : pr.prTitle}
+         />
+      );
    const command = toolDetail(tool).command;
    if (command) return <CodeFrame label="command" code={command} lang="bash" />;
    if (tool.content.length > 0)

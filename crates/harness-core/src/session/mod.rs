@@ -17,7 +17,7 @@ pub use frontend::{FrontendErrorEntry, FrontendItem, MAX_FRONTEND_ERROR_LEN, MAX
 pub(crate) use meta::title_from_text;
 pub use meta::{BranchPrMeta, PrStatusMeta, QUICK_TITLE, SessionMeta, SideOrigin, WorkspaceMeta};
 pub use shared::Shared;
-pub use workspace::PrWatch;
+pub use workspace::{PrPlan, PrWatch};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

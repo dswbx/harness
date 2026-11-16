@@ -66,6 +66,19 @@ describe("stepLabel", () => {
       expect(label(commit, "running")).toBe("Committing | Fix it");
       expect(label(commit)).toBe("Committed | Fix it");
       expect(label(commit, "failed")).toBe("Commit failed | Fix it");
+      const pr = git("pr_create", { title: "Fix it", body: "b" }, [
+         { type: "text", text: "Opened PR #12: https://x/pull/12\nBase main, head feat/x." },
+      ]);
+      expect(label(pr, "running")).toBe("Opening pull request | main ← feat/x");
+      expect(label(git("pr_create", { title: "Fix it" }), "running")).toBe(
+         "Opening pull request | Fix it",
+      );
+      expect(label(pr)).toBe("Opened PR | Fix it");
+      expect(label(pr, "failed")).toBe("PR failed | Fix it");
+      const found = git("pr_create", { title: "Fix it" }, [
+         { type: "text", text: "PR #12 is already open: https://x/pull/12" },
+      ]);
+      expect(label(found)).toBe("Found PR | Fix it");
       const push = git("git_push", {}, [{ type: "text", text: "Pushed feat/x." }]);
       expect(label(push)).toBe("Pushed | feat/x → origin");
       expect(label(git("git_push", {}), "running")).toBe("Pushing | ");
