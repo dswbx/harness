@@ -63,12 +63,14 @@ function TraceIcon({ className, ...props }: React.ComponentProps<"span">) {
 /**
  * Mono; holds a verb and a detail. The verb shimmers while running; the detail truncates first. Never
  * narrower than the verb (its min-content), so a long description beside it cannot draw over it.
+ * A grid, not flex: an `auto` column honours the detail's `min-w-0`, so a long unbroken path (no
+ * spaces) does not set the title's min-content and push the line past its caret.
  */
 function TraceTitle({ className, ...props }: React.ComponentProps<"span">) {
    return (
       <span
          data-slot="trace-title"
-         className={cn("flex items-baseline gap-2 font-mono", className)}
+         className={cn("grid grid-flow-col items-baseline gap-2 font-mono", className)}
          {...props}
       />
    );
@@ -79,7 +81,7 @@ function TraceVerb({ className, ...props }: React.ComponentProps<"span">) {
       <span
          data-slot="trace-verb"
          className={cn(
-            "shrink-0 text-foreground/80 in-[button:hover]:text-foreground in-data-[status=error]:text-destructive",
+            "shrink-0 whitespace-nowrap text-foreground/80 in-[button:hover]:text-foreground in-data-[status=error]:text-destructive",
             className,
          )}
          {...props}
