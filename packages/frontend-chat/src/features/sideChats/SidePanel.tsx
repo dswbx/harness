@@ -113,6 +113,7 @@ export function SidePanel({
                         api={api}
                         thread={state.threads[id]!}
                         threadId={id}
+                        mainCommands={state.commands}
                         env={env}
                         onOpenDiff={onOpenDiff}
                         focusKey={focus.id === id ? focus.n : 0}

@@ -1,4 +1,10 @@
-import type { AgentSwitch, AttachmentInput, PromptContext, SessionApi } from "@harness/api";
+import type {
+   AgentSwitch,
+   AttachmentInput,
+   PromptContext,
+   SessionApi,
+   SlashCommand,
+} from "@harness/api";
 import { errText } from "@harness/api";
 import { cn, Tooltip } from "@harness/ui";
 import { Paperclip } from "lucide-react";
@@ -52,6 +58,7 @@ export function PromptBox({
    elevated = false,
    menuSide = "top",
    context,
+   commands = state.commands,
    ref: handle,
 }: {
    api: SessionApi;
@@ -71,6 +78,8 @@ export function PromptBox({
    menuSide?: MenuSide;
    /** Quick overlay: a removable context chip; each message sends its attachment while it shows. */
    context?: PromptContext;
+   /** The slash commands offered (default `state.commands`; a Side Thread falls back to the Main Thread's). */
+   commands?: SlashCommand[];
    ref?: Ref<PromptBoxHandle>;
 }) {
    const [text, setText] = useState("");
@@ -95,7 +104,7 @@ export function PromptBox({
       onTextChange,
    } = usePromptMenus({
       text,
-      commands: state.commands,
+      commands,
       threadId,
       onSideThread,
       editor: ref,
