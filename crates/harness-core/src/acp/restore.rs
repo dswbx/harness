@@ -80,6 +80,15 @@ pub async fn warm_up(session: Arc<Session>, thread: ThreadId) -> anyhow::Result<
 /// Sets a config option. Agents answer with the full option list and may not also send an
 /// update notification (Codex doesn't), so the answer is logged.
 pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
+    set_config(session, thread, config_id, value, true).await
+}
+
+/// Sets a Main Thread config option without remembering it for new Sessions (a Sub Session's start).
+pub(crate) async fn set_initial_config(session: Arc<Session>, thread: ThreadId, config_id: String, value: String) -> anyhow::Result<()> {
+    set_config(session, thread, config_id, value, false).await
+}
+
+async fn set_config(session: Arc<Session>, thread: ThreadId, config_id: String, value: String, remember: bool) -> anyhow::Result<()> {
     let mode = session.is_main(Some(&thread)) || {
         session.log().thread_config_options(&thread)?.is_some_and(|o| o.iter().any(|o| o["id"] == config_id.as_str() && is_mode(o)))
     };
@@ -89,7 +98,10 @@ pub async fn set_config_option(session: Arc<Session>, thread: ThreadId, config_i
     let main = session.is_main(Some(&thread));
     session.log().append(Some(thread), EventKind::config_options(serde_json::to_value(&r.config_options)?))?;
     // A Side Thread's mode is a detour, not the user's choice for new Sessions.
-    if main && let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value) {
+    if main
+        && remember
+        && let Err(e) = session.shared().agents.remember_config(&session.meta().agent.id, &config_id, &value)
+    {
         tracing::warn!("could not remember config option: {e:#}");
     }
     Ok(())

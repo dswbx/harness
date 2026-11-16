@@ -213,7 +213,7 @@ impl Harness {
 
     /// Deletes a Session and, first, its Sub Sessions. A child that cannot be deleted (unmerged
     /// work, without `force`) stops it before the parent is touched.
-    async fn delete_session(&self, session_id: &SessionId, force: bool) -> anyhow::Result<()> {
+    pub(crate) async fn delete_session(&self, session_id: &SessionId, force: bool) -> anyhow::Result<()> {
         for child in self.children(session_id) {
             Box::pin(self.delete_session(&child.id(), force)).await?;
         }
