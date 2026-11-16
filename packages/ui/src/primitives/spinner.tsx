@@ -2,7 +2,7 @@ import { LoaderCircle } from "lucide-react";
 import type * as React from "react";
 import { cn } from "../lib/utils";
 
-/** shadcn Spinner. Spins smoothly via `.animate-spin` in styles.css (own compositing layer). */
+/** shadcn Spinner. `svg.animate-spin` in styles.css rotates the shapes around the viewBox center (exact pivot, no wobble). */
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
    return (
       <LoaderCircle
