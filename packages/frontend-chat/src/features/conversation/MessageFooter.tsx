@@ -4,7 +4,9 @@ import type { ReactNode } from "react";
 import { formatDuration, formatRelativeTime, fullMessageTime, useNow } from "../../lib/time";
 
 /**
- * Actions under a message. Shown while the message is hovered or has focus (parent needs `group`).
+ * Actions under a message. Shown while the message is hovered or keyboard focus is inside (parent
+ * needs `group`). Not `focus-within`: a clicked copy button keeps focus and the footer stayed shown;
+ * no opacity transition: WebKit left it painted after the hover ended, until the next re-render.
  * `hidden` (a message still streaming in) keeps its space so the layout doesn't shift when it ends.
  * `children`: extra actions after the time.
  */
@@ -30,7 +32,7 @@ export function MessageFooter({
    return (
       <div
          className={cn(
-            "mt-1 flex h-6 items-center gap-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+            "mt-1 flex h-6 items-center gap-1 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100",
             align === "end" && "flex-row-reverse",
             hidden && "invisible",
          )}
@@ -51,7 +53,7 @@ export function MessageFooter({
          </Tooltip>
          {durationMs !== undefined && (
             <Tooltip content="Turn duration">
-               <span className="px-1 tabular-nums">· {formatDuration(durationMs)}</span>
+               <span className="-ml-1 pr-1 tabular-nums">· {formatDuration(durationMs)}</span>
             </Tooltip>
          )}
          {children}
