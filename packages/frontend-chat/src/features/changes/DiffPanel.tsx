@@ -84,7 +84,13 @@ function FileRow({
    const slash = file.path.lastIndexOf("/");
    return (
       <div>
-         <div className="group flex h-8 items-center gap-1.5 pr-2 pl-2 text-sm hover:bg-accent/50">
+         {/* Sticky while its diff scrolls by, so the file in view stays named. Opaque bg under the hover tint. */}
+         <div
+            className={cn(
+               "group flex h-8 items-center gap-1.5 bg-background pr-2 pl-2 text-sm hover:bg-[color-mix(in_oklab,var(--accent)_50%,var(--background))]",
+               open && "sticky top-0 z-10 border-b",
+            )}
+         >
             <button
                className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left"
                aria-expanded={open}
@@ -111,7 +117,7 @@ function FileRow({
             <FileMenu path={file.path} root={root} />
          </div>
          {open && (
-            <div className="mb-2 border-y">
+            <div className="mb-2 border-b">
                <DiffViewer
                   sessionId={api.sessionId}
                   file={file}
