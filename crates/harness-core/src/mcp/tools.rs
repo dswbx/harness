@@ -193,13 +193,14 @@ pub(super) fn primitives() -> Vec<Primitive> {
         ),
         Primitive::sub(
             "session_start",
-            "Start a Sub Session: another Session with its own agent, shown to the user under this one. Only for work the user asked to run separately (for example in another repository). It works in a new worktree when the folder is in a git repository, unless `worktree` is false. Returns once its first Turn started, as JSON: session_id, title, folder, repo, branch, model, effort. When a Turn you started there ends, or it waits for the user, you get a message from the Harness, so you can end your Turn instead of waiting; use session_wait only when you need its reply before you go on.",
+            "Start a Sub Session: another Session with its own agent, shown to the user under this one. Only for work the user asked to run separately (for example in another repository). It works in a new worktree when the folder is in a git repository, unless `worktree` is false. Returns once its first Turn started, as JSON: session_id, title, folder, repo, branch, agent, model, effort. When a Turn you started there ends, or it waits for the user, you get a message from the Harness, so you can end your Turn instead of waiting; use session_wait only when you need its reply before you go on.",
             json!({ "type": "object", "properties": {
                 "prompt": { "type": "string", "description": "The first message to its agent" },
                 "folder": { "type": "string", "description": "Folder to work in (default: this Session's folder, outside its worktree)" },
                 "title": { "type": "string" },
-                "model": { "type": "string", "description": "Model value or name (default: this Session's model)" },
-                "effort": { "type": "string", "description": "Effort value or name (default: this Session's effort)" },
+                "agent": { "type": "string", "description": "Installed agent, for example for an independent review: its id, its name, or the first word of either, in any case (default: this Session's agent)" },
+                "model": { "type": "string", "description": "Model value or name (default: this Session's model; with another agent, that agent's last model)" },
+                "effort": { "type": "string", "description": "Effort value or name (default: this Session's effort; with another agent, that agent's last effort)" },
                 "worktree": { "type": "boolean", "description": "Work in a new worktree (default: true in a git repository)" },
                 "branch": { "type": "string", "description": "Branch to cut the worktree from (default: the current branch). Needs a worktree." },
                 "notify": { "type": "boolean", "description": "Get a message when a Turn you started there ends or it waits for the user (default true)" }

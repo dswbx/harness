@@ -67,7 +67,7 @@ export const sessionsHandlers = {
    },
    CreateQuickSession: (mock, cmd) => {
       const id = `mock-${++mock.n + 1}`;
-      mock.addQuickSession(id, cmd.title ?? "New Quick Session", cmd.frontend_id);
+      mock.addQuickSession(id, cmd.title ?? "New Quick Session", cmd.frontend_id, cmd.agent_id);
       mock.session(id).unused = true;
       mock.emitApp({ type: "SessionsChanged" });
       return { type: "SessionCreated", session_id: id };

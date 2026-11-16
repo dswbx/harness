@@ -2516,7 +2516,7 @@ body
 <span>
 <span>Commit failed</span>
 </span>
-<span>nothing to commit</span>
+<span title="nothing to commit">nothing to commit</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -2928,7 +2928,7 @@ body
 <span>
 <span>Send failed</span>
 </span>
-<span>session not found</span>
+<span title="session not found">session not found</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -3371,7 +3371,7 @@ body
 <span>Ran subagent</span>
 <span>Failed one</span>
 </span>
-<span>1 tool call</span>
+<span title="1 tool call">1 tool call</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -4648,7 +4648,7 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <span>
 <span>Commit failed</span>
 </span>
-<span>nothing to commit</span>
+<span title="nothing to commit">nothing to commit</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -4875,7 +4875,7 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <span>
 <span>Send failed</span>
 </span>
-<span>session not found</span>
+<span title="session not found">session not found</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -5005,7 +5005,7 @@ exports[`Trace display (recorded before the step view model) > idle, steps close
 <span>Ran subagent</span>
 <span>Failed one</span>
 </span>
-<span>1 tool call</span>
+<span title="1 tool call">1 tool call</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6216,7 +6216,7 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <span>
 <span>Commit failed</span>
 </span>
-<span>nothing to commit</span>
+<span title="nothing to commit">nothing to commit</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6443,7 +6443,7 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <span>
 <span>Send failed</span>
 </span>
-<span>session not found</span>
+<span title="session not found">session not found</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -6572,7 +6572,7 @@ exports[`Trace display (recorded before the step view model) > turn active but w
 <span>Ran subagent</span>
 <span>Failed one</span>
 </span>
-<span>1 tool call</span>
+<span title="1 tool call">1 tool call</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -7783,7 +7783,7 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <span>
 <span>Commit failed</span>
 </span>
-<span>nothing to commit</span>
+<span title="nothing to commit">nothing to commit</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -8010,7 +8010,7 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <span>
 <span>Send failed</span>
 </span>
-<span>session not found</span>
+<span title="session not found">session not found</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>
@@ -8139,7 +8139,7 @@ exports[`Trace display (recorded before the step view model) > turn active, step
 <span>Ran subagent</span>
 <span>Failed one</span>
 </span>
-<span>1 tool call</span>
+<span title="1 tool call">1 tool call</span>
 </span>
 <span aria-hidden="true">
 <svg lucide-chevron-right/>

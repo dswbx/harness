@@ -30,6 +30,8 @@ pub(crate) struct SubSessionStarted {
     pub folder: Option<String>,
     pub repo: Option<String>,
     pub branch: Option<String>,
+    /// The Agent's name.
+    pub agent: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
 }
@@ -284,10 +286,19 @@ mod tests {
     fn the_answers_keep_their_wire_text() {
         let text = |v: Value| serde_json::to_string_pretty(&v).unwrap();
         let s = |v: &str| Some(v.to_owned());
-        let started = SubSessionStarted { session_id: s("s2"), title: s("T"), folder: s("/w/t"), repo: None, branch: s("b"), model: None, effort: s("high") };
+        let started = SubSessionStarted {
+            session_id: s("s2"),
+            title: s("T"),
+            folder: s("/w/t"),
+            repo: None,
+            branch: s("b"),
+            agent: s("Codex"),
+            model: None,
+            effort: s("high"),
+        };
         assert_eq!(
             text(serde_json::to_value(started).unwrap()),
-            text(json!({ "session_id": "s2", "title": "T", "folder": "/w/t", "repo": null, "branch": "b", "model": null, "effort": "high" }))
+            text(json!({ "session_id": "s2", "title": "T", "folder": "/w/t", "repo": null, "branch": "b", "agent": "Codex", "model": null, "effort": "high" }))
         );
         let sent = SubSessionSent { session_id: s("s2"), title: s("T") };
         assert_eq!(text(serde_json::to_value(sent).unwrap()), text(json!({ "session_id": "s2", "title": "T" })));

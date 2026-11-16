@@ -32,7 +32,9 @@ fn harness(data: &Path, flags: &[&str]) -> Arc<Harness> {
         mcp_shim: Some((env!("CARGO_BIN_EXE_harness-mcp-shim").to_owned(), vec![])),
         ..Default::default()
     };
-    let h = Harness::with_options(data.to_owned(), vec![agent], options).unwrap();
+    // A second Agent, for Sub Sessions on another Agent.
+    let other = AgentInfo { id: "other".into(), name: "Other".into(), ..agent.clone() };
+    let h = Harness::with_options(data.to_owned(), vec![agent, other], options).unwrap();
     h.register_frontend(FrontendManifest {
         id: "chat".into(),
         name: "Chat".into(),
@@ -1459,6 +1461,36 @@ async fn sub_session_model_overrides_remembered_config_without_saving_it() {
     let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi","notify":false}"#).await;
     assert_eq!(started["model"], "b", "defaults to the parent's model");
     assert_eq!(saved(), before, "agent-config.json is unchanged");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sub_session_on_another_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = harness(&data, &[]);
+    let sid = create(&h, dir.path(), vec![]).await;
+    let refused = ask(&h, &sid, r#"mcp session_start {"prompt":"x","agent":"nope"}"#, None).await;
+    assert!(refused.contains(r#"unknown agent "nope". Installed: Fake (fake), Other (other)"#), "{refused}");
+
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"hi","agent":"OTHER","model":"B","notify":false}"#).await;
+    assert_eq!((started["agent"].as_str(), started["model"].as_str()), (Some("Other"), Some("b")), "{started}");
+    let child = started["session_id"].as_str().unwrap().to_owned();
+    assert_eq!(summary(&h, &child).unwrap().agent_id, "other");
+    assert!(!data.join("agent-config.json").exists(), "the model is not remembered");
+
+    // A model the other Agent lacks: the child is removed again.
+    let ids = || {
+        let CommandResult::Sessions { sessions } =
+            tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(h.execute(Command::ListSessions))).unwrap()
+        else {
+            panic!()
+        };
+        sessions.into_iter().map(|s| s.id).collect::<Vec<_>>()
+    };
+    let before = ids();
+    let refused = ask(&h, &sid, r#"mcp session_start {"prompt":"x","agent":"other","model":"gpt"}"#, None).await;
+    assert!(refused.contains(r#"unknown model "gpt""#), "{refused}");
+    assert_eq!(ids(), before);
 }
 
 #[tokio::test(flavor = "multi_thread")]

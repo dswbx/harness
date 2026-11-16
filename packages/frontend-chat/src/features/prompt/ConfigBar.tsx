@@ -60,7 +60,7 @@ export function ConfigBar({
    compact?: boolean;
    /** Only the Mode picker (Side Threads own just their mode). */
    modeOnly?: boolean;
-   /** Quick overlay: one Agent > model menu, then the Mode chip (same before and after send). */
+   /** A Quick Session not used yet: one Agent > model menu, then the Mode chip. */
    agentSwitch?: AgentSwitch;
    side?: MenuSide;
 }) {

@@ -20,6 +20,7 @@ use crate::session::Session;
 pub use jobs::JobWatchers;
 pub use permission::{OUTSIDE_FILE_KIND, authorize, authorize_at};
 pub use process::AgentSlot;
+pub(crate) use restore::set_initial_config;
 pub use restore::{continue_with_summary, set_config_option, set_mode, warm_up};
 
 #[cfg(test)]

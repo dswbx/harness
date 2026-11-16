@@ -59,7 +59,7 @@ pub async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, args: &
 fn usage(tool: &str) -> &'static str {
     match tool {
         "session_start" => {
-            r#"session_start needs "prompt" (the first message to its agent); optional: "folder", "title", "model", "effort", "worktree", "branch", "notify"."#
+            r#"session_start needs "prompt" (the first message to its agent); optional: "agent", "folder", "title", "model", "effort", "worktree", "branch", "notify"."#
         }
         "session_send" => r#"session_send needs "id" (the session_id from session_start) and "text"."#,
         "session_wait" => r#"session_wait needs "id" (the session_id from session_start); optional: "timeout_s" (0 only checks)."#,
@@ -104,17 +104,21 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
     anyhow::ensure!(branch.is_none() || worktree, "branch needs a worktree: omit worktree or pass worktree: true");
     anyhow::ensure!(!worktree || is_repo, "{folder} is not in a git repository: pass worktree: false");
     ensure_capacity(host, session)?;
-    let config = Config::choose(&main_config(session)?, text_arg(args, "model").as_deref(), text_arg(args, "effort").as_deref())?;
+    let meta = session.meta();
+    let agent = pick_agent(session, &meta.agent.id, text_arg(args, "agent").as_deref())?;
+    let (model, effort) = (text_arg(args, "model"), text_arg(args, "effort"));
+    // Another Agent's options are known only once it runs: chosen after it started (below).
+    let same_agent = agent.id == meta.agent.id;
+    let config = if same_agent { Config::choose(&main_config(session)?, model.as_deref(), effort.as_deref())? } else { Config::default() };
     let title = text_arg(args, "title")
         .or_else(|| crate::session::title_from_text(&prompt))
         .unwrap_or_else(|| Path::new(&folder).file_name().map_or_else(|| folder.clone(), |n| n.to_string_lossy().into_owned()));
     crate::acp::authorize(session, thread, "session_start", &format!("Start sub session: {title} in {folder}"), "session", args).await?;
     ensure_capacity(host, session)?;
-    let meta = session.meta();
     let child = host
         .create_session(NewSession {
             folder,
-            agent_id: meta.agent.id.clone(),
+            agent_id: agent.id.clone(),
             frontend_id: meta.frontend_id.clone(),
             title: Some(title),
             branch,
@@ -133,6 +137,21 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
         .await?;
     session.shared().app_events.emit(AppEvent::SessionsChanged);
     let id = child.id();
+    let config = if same_agent {
+        config
+    } else {
+        match other_agent_config(&child, model.as_deref(), effort.as_deref()).await {
+            Ok(c) => c,
+            Err(e) => {
+                // Nothing ran in it yet: remove it, so a retry starts clean.
+                if let Err(d) = host.delete_session(&id, true).await {
+                    tracing::warn!("could not remove Sub Session {id}: {d:#}");
+                }
+                session.shared().app_events.emit(AppEvent::SessionsChanged);
+                return Err(e);
+            }
+        }
+    };
     // Returns once the Turn started, so the child's log has the prompt before the parent goes on.
     if let Err(e) = child.prompt(None, prompt, Vec::new(), Some(origin(session))).await {
         anyhow::bail!("started Sub Session {id}, but its first prompt failed: {e:#}");
@@ -145,9 +164,55 @@ async fn start(host: &Arc<Harness>, session: &Arc<Session>, thread: &ThreadId, a
         folder: Some(m.folder.clone()),
         repo: m.repo_folder().map(|p| p.display().to_string()),
         branch,
+        agent: Some(agent.name),
         model: config.model,
         effort: config.effort,
     })?)
+}
+
+/// The installed Agent named by `asked`, else the parent's.
+fn pick_agent(session: &Session, parent: &str, asked: Option<&str>) -> anyhow::Result<crate::api::AgentInfo> {
+    let agents = session.shared().agents.list();
+    match asked {
+        None => agents.into_iter().find(|a| a.id == parent).ok_or_else(|| anyhow::anyhow!("this Session's agent {parent} is not installed")),
+        Some(asked) => find_agent(&agents, asked).cloned(),
+    }
+}
+
+/// An Agent by how people name it: its id or name in any case, else the first words of either
+/// ("codex" for `codex-acp`, "claude" for "Claude Agent"). More than one hit errors with them.
+fn find_agent<'a>(agents: &'a [crate::api::AgentInfo], asked: &str) -> anyhow::Result<&'a crate::api::AgentInfo> {
+    let label = |a: &crate::api::AgentInfo| if a.id == a.name { a.id.clone() } else { format!("{} ({})", a.name, a.id) };
+    if let Some(a) =
+        agents.iter().find(|a| a.id == asked).or_else(|| agents.iter().find(|a| a.id.eq_ignore_ascii_case(asked) || a.name.eq_ignore_ascii_case(asked)))
+    {
+        return Ok(a);
+    }
+    let words = |s: &str| s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let want = words(asked);
+    let leads = |s: &str| !want.is_empty() && words(s).starts_with(&want);
+    let hits: Vec<&crate::api::AgentInfo> = agents.iter().filter(|a| leads(&a.id) || leads(&a.name)).collect();
+    match hits.as_slice() {
+        [a] => Ok(a),
+        [] => anyhow::bail!("unknown agent {asked:?}. Installed: {}", agents.iter().map(label).collect::<Vec<_>>().join(", ")),
+        many => anyhow::bail!("agent {asked:?} matches more than one: {}. Pass its id.", many.iter().map(|a| label(a)).collect::<Vec<_>>().join(", ")),
+    }
+}
+
+/// A child on another Agent than its parent: starts that Agent, then sets the asked model and
+/// effort from its own options (else keeps its current ones). Not remembered for new Sessions.
+async fn other_agent_config(child: &Arc<Session>, model: Option<&str>, effort: Option<&str>) -> anyhow::Result<Config> {
+    let main = child.meta().main_thread_id;
+    crate::acp::warm_up(child.clone(), main.clone()).await?;
+    let options = child.log().thread_config_options(&main)?.unwrap_or_default();
+    let config = Config::choose(&options, model, effort)?;
+    for (config_id, value) in &config.values {
+        let current = options.iter().find(|o| o["id"] == config_id.as_str()).and_then(|o| o["currentValue"].as_str());
+        if current != Some(value.as_str()) {
+            crate::acp::set_initial_config(child.clone(), main.clone(), config_id.clone(), value.clone()).await?;
+        }
+    }
+    Ok(config)
 }
 
 /// A Sub Session of `parent` by id; any other Session is refused.
@@ -631,6 +696,25 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn agent(id: &str, name: &str) -> crate::api::AgentInfo {
+        serde_json::from_value(json!({ "id": id, "name": name, "command": "x", "args": [], "version": null, "icon": null })).unwrap()
+    }
+
+    #[test]
+    fn agents_are_found_as_people_name_them() {
+        let agents = [agent("claude-acp", "Claude Agent"), agent("codex-acp", "Codex"), agent("custom-codex-fork", "Codex Fork")];
+        let id = |asked: &str| find_agent(&agents, asked).map(|a| a.id.clone()).map_err(|e| e.to_string());
+        assert_eq!(id("claude").unwrap(), "claude-acp");
+        assert_eq!(id("Claude Agent").unwrap(), "claude-acp");
+        assert_eq!(id("CLAUDE-ACP").unwrap(), "claude-acp");
+        assert_eq!(id("codex").unwrap(), "codex-acp", "the exact name wins over the word match");
+        assert_eq!(id("codex fork").unwrap(), "custom-codex-fork");
+        assert!(id("cod").unwrap_err().starts_with(r#"unknown agent "cod". Installed: Claude Agent (claude-acp), Codex (codex-acp)"#));
+        let agents = [agent("claude-acp", "Claude Agent"), agent("claude-custom", "My Claude")];
+        let err = find_agent(&agents, "claude").unwrap_err().to_string();
+        assert_eq!(err, r#"agent "claude" matches more than one: Claude Agent (claude-acp), My Claude (claude-custom). Pass its id."#);
+    }
 
     fn options() -> Vec<Value> {
         serde_json::from_value(json!([

@@ -60,12 +60,15 @@ function TraceIcon({ className, ...props }: React.ComponentProps<"span">) {
    );
 }
 
-/** Mono; holds a verb and a detail. The verb shimmers while running; the detail truncates first. */
+/**
+ * Mono; holds a verb and a detail. The verb shimmers while running; the detail truncates first. Never
+ * narrower than the verb (its min-content), so a long description beside it cannot draw over it.
+ */
 function TraceTitle({ className, ...props }: React.ComponentProps<"span">) {
    return (
       <span
          data-slot="trace-title"
-         className={cn("flex min-w-0 items-baseline gap-2 font-mono", className)}
+         className={cn("flex items-baseline gap-2 font-mono", className)}
          {...props}
       />
    );

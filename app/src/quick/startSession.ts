@@ -13,6 +13,7 @@ import { quickAgent } from "../composer/composer";
  * | entry point                    | Agent                                                  | Frontend                                      |
  * | ------------------------------ | ------------------------------------------------------ | --------------------------------------------- |
  * | Quick group's + (`startQuick`) | newest Session's Agent, else the first installed       | "chat", else the first                        |
+ * | its Agent menu (unused draft)  | the one picked (`agentId`), else as the +              | "chat", else the first                        |
  * | Quick Overlay draft            | last Agent sent from the overlay (localStorage), else as the + | "chat", else the first                |
  * | Composer dialog                | the one picked in the dialog, else as the +            | the one picked in the dialog, else "chat", else the first |
  *
@@ -70,7 +71,7 @@ export type StartedQuick = {
  */
 export async function startQuickSession(
    client: HarnessClient,
-   o: { sessions?: SessionSummary[]; useSavedAgent?: boolean } = {},
+   o: { sessions?: SessionSummary[]; useSavedAgent?: boolean; agentId?: string } = {},
 ): Promise<StartedQuick | null> {
    const [agents, frontends, sessions] = await Promise.all([
       client.listAgents(),
@@ -81,7 +82,7 @@ export async function startQuickSession(
       agents,
       frontends,
       sessions,
-      preferredAgentId: o.useSavedAgent ? savedAgent() : null,
+      preferredAgentId: o.agentId ?? (o.useSavedAgent ? savedAgent() : null),
       fallback: "newest",
    });
    if (!agent || !frontendId) return null;

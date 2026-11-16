@@ -34,7 +34,7 @@ function setup(
 describe("useQuickLifecycle", () => {
    it("startQuick creates a Quick Session with the newest Session's Agent, selects it and refreshes", async () => {
       const { props, hook, create } = setup([session("s1")]);
-      await act(() => hook.result.current());
+      await act(() => hook.result.current.startQuick());
       expect(create).toHaveBeenCalledWith({ agentId: "a1", frontendId: "chat" });
       expect(props.setSelected).toHaveBeenCalledWith("q1");
       expect(props.refresh).toHaveBeenCalledTimes(1);
@@ -48,7 +48,7 @@ describe("useQuickLifecycle", () => {
          ],
          [{ id: "a1" } as AgentInfo, { id: "a2" } as AgentInfo],
       );
-      await act(() => hook.result.current());
+      await act(() => hook.result.current.startQuick());
       expect(create).toHaveBeenCalledWith({ agentId: "a1", frontendId: "chat" });
    });
 
@@ -58,14 +58,14 @@ describe("useQuickLifecycle", () => {
          undefined,
          "q0",
       );
-      await act(() => hook.result.current());
+      await act(() => hook.result.current.startQuick());
       expect(create).not.toHaveBeenCalled();
       expect(props.setSelected).not.toHaveBeenCalled();
    });
 
    it("without an Agent, startQuick opens the Composer instead", async () => {
       const { props, hook, create } = setup([], []);
-      await act(() => hook.result.current());
+      await act(() => hook.result.current.startQuick());
       expect(props.setComposer).toHaveBeenCalledWith(true);
       expect(create).not.toHaveBeenCalled();
    });
@@ -73,7 +73,7 @@ describe("useQuickLifecycle", () => {
    it("a failed start is reported", async () => {
       const { props, hook, create } = setup([session("s1")]);
       create.mockRejectedValue(new Error("no"));
-      await act(() => hook.result.current());
+      await act(() => hook.result.current.startQuick());
       expect(props.report).toHaveBeenCalledWith(
          "Could not start a Quick Session",
          expect.anything(),
@@ -104,5 +104,35 @@ describe("useQuickLifecycle", () => {
             expect.anything(),
          ),
       );
+   });
+
+   it("an unused Quick Session gets the Agent menu; picking another Agent starts a new one", async () => {
+      const agents = [
+         { id: "a1", name: "One" } as AgentInfo,
+         { id: "a2", name: "Two" } as AgentInfo,
+      ];
+      const { hook, create, props } = setup(
+         [session("q0", { quick: true, unused: true })],
+         agents,
+         "q0",
+      );
+      await waitFor(() => expect(hook.result.current.agentSwitch?.agents).toHaveLength(2));
+      expect(hook.result.current.agentSwitch?.current).toBe("a1");
+      await act(async () => hook.result.current.agentSwitch?.onPick("a2"));
+      await waitFor(() =>
+         expect(create).toHaveBeenCalledWith({ agentId: "a2", frontendId: "chat" }),
+      );
+      expect(props.setSelected).toHaveBeenCalledWith("q1");
+   });
+
+   it("no Agent menu once the Quick Session is used, or for other Sessions", async () => {
+      const { hook, props } = setup(
+         [session("q0", { quick: true }), session("s1")],
+         undefined,
+         "q0",
+      );
+      hook.rerender({ ...props, selected: "s1" });
+      await act(async () => {});
+      expect(hook.result.current.agentSwitch).toBeUndefined();
    });
 });

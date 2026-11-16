@@ -144,7 +144,7 @@ export class MockTransport implements Transport {
    }
 
    /** @internal */
-   addQuickSession(id: string, title: string, frontend_id: string) {
+   addQuickSession(id: string, title: string, frontend_id: string, agent_id = "codex") {
       const workspace: WorkspaceInfo = {
          repo_root: null,
          source_folder: `/Users/me/.harness/quick/${id}`,
@@ -156,7 +156,9 @@ export class MockTransport implements Transport {
          pr_checks: null,
       };
       this.addSession(id, title, frontend_id, false, `/Users/me/.harness/quick/${id}`, workspace);
-      this.sessions.at(-1)!.quick = true;
+      const s = this.sessions.at(-1)!;
+      s.quick = true;
+      s.agent_id = agent_id;
    }
 
    /** @internal */
