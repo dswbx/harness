@@ -17,6 +17,7 @@ import { SessionList } from "../sessions/SessionList";
 import { hideUnusedQuick } from "../sessions/sessionGroups";
 import { useMarkSeen } from "../sessions/useMarkSeen";
 import { useSessions } from "../sessions/useSessions";
+import { useTurnNotices } from "../sessions/useTurnNotices";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog";
 import { AttachDialog } from "../shared-artifacts/AttachDialog";
 import { SharedArtifactsSection } from "../shared-artifacts/SharedArtifactsSection";
@@ -114,6 +115,7 @@ export function Shell({ transport }: { transport: Transport }) {
 
    const current = sessions.find((s) => s.id === selected) ?? null;
    useMarkSeen(client, current);
+   useTurnNotices(client, sessions, selected, setSelected);
    const currentParent = current?.parent
       ? sessions.find((s) => s.id === current.parent?.session_id)
       : undefined;
