@@ -75,7 +75,7 @@ function Picture({
    if (!onOpen) return <div className={cn("bg-muted", className)}>{el}</div>;
    return (
       <button
-         className={cn("block bg-muted", className)}
+         className={cn("block cursor-zoom-in bg-muted", className)}
          onClick={onOpen}
          aria-label={`Open ${img.alt}`}
       >

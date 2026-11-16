@@ -1,7 +1,8 @@
 import type { Attachment, SessionApi } from "@harness/api";
-import { Dialog, DialogContent, DialogTitle, Tooltip } from "@harness/ui";
+import { Tooltip } from "@harness/ui";
 import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ImageDialog } from "../../../lib/ImageDialog";
 import { cachedImage } from "../../../lib/imageCache";
 
 function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
@@ -25,25 +26,14 @@ function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
       <>
          <Tooltip content={a.name}>
             <button
-               className="size-20 overflow-hidden rounded-lg border bg-muted"
+               className="size-20 cursor-zoom-in overflow-hidden rounded-lg border bg-muted"
                aria-label={`Open ${a.name}`}
                onClick={() => setOpen(true)}
             >
                {url && <img src={url} alt={a.name} className="size-full object-cover" />}
             </button>
          </Tooltip>
-         <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent className="w-auto max-w-[90vw] p-2">
-               <DialogTitle className="sr-only">{a.name}</DialogTitle>
-               {url && (
-                  <img
-                     src={url}
-                     alt={a.name}
-                     className="max-h-[85vh] max-w-full rounded object-contain"
-                  />
-               )}
-            </DialogContent>
-         </Dialog>
+         <ImageDialog src={url} alt={a.name} open={open} onOpenChange={setOpen} />
       </>
    );
 }
