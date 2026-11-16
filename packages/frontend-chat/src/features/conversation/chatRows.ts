@@ -85,7 +85,14 @@ export function stabilizeRows(prev: Rows | null, next: Rows): Rows {
          byId ??= new Map(prev.rows.map((x) => [x.id, x]));
          p = byId.get(r.id);
       }
-      if (p && p !== r && p.type === "tools" && r.type === "tools" && sameItems(p.steps, r.steps))
+      if (
+         p &&
+         p !== r &&
+         p.type === "tools" &&
+         r.type === "tools" &&
+         sameItems(p.steps, r.steps) &&
+         sameItems(p.approvals, r.approvals)
+      )
          return p;
       return r;
    });

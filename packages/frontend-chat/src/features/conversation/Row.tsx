@@ -15,7 +15,7 @@ import { quotableAttrs } from "../review/SelectionComment";
 import { SideReplyFooter } from "../sideChats/SideReplyFooter";
 import type { ChatSubagent, ToolGroup, ToolGroupProps } from "../toolDisplay";
 import { subagentsOf } from "../toolDisplay/group";
-import { TraceDisplay } from "../toolDisplay/TraceDisplay";
+import { TraceGroup } from "../toolDisplay/TraceGroup";
 import { ChangesRow } from "./items/ChangesRow";
 import { AgentNotice, Notice } from "./items/Notices";
 import { UserMessage } from "./items/UserMessage";
@@ -114,6 +114,8 @@ function RowView({
          return (
             <ToolGroupRow
                steps={item.steps}
+               approvals={item.approvals}
+               api={api}
                subagents={subagents}
                active={active}
                streaming={streaming}
@@ -172,5 +174,5 @@ export function sameRow(a: RowProps, b: RowProps): boolean {
 export const Row = memo(RowView, sameRow);
 
 function ToolGroupRow(props: ToolGroupProps) {
-   return <TraceDisplay {...props} />;
+   return <TraceGroup {...props} />;
 }

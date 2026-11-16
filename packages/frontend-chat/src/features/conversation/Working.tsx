@@ -24,7 +24,8 @@ export function Working({ since, waiting = false }: { since: number | null; wait
          )}
          {since !== null && !waiting && (
             <>
-               <WorkingLoader /> Working...{" "}
+               <WorkingLoader />
+               <span className="sr-only">Working</span>
                <span className="tabular-nums">{formatDuration(now - since)}</span>
             </>
          )}

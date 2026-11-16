@@ -1,6 +1,8 @@
-import type { ChatSubagent, Step } from "./group";
+import type { SessionApi } from "@harness/api";
+import type { Approval, ChatSubagent, Step } from "./group";
 
 export type {
+   Approval,
    ChatSubagent,
    Step,
    ToolGroup,
@@ -14,4 +16,8 @@ export type ToolGroupProps = {
    active: boolean;
    /** The group is the Thread's last row while a Turn runs: its last thought is still streaming. */
    streaming?: boolean;
+   /** Pending step approvals of the group: shown after its steps, with their answers. */
+   approvals?: Approval[];
+   /** For the approvals' answers. */
+   api?: SessionApi;
 };
