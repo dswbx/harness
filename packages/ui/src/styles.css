@@ -330,10 +330,22 @@
    background-color: color-mix(in oklch, Highlight 70%, transparent);
 }
 
-/* Spinning icons: own compositing layer, so WebKit rotates one bitmap instead of repainting the SVG snapped to pixels each frame (wobble). */
-.animate-spin {
-   will-change: transform;
-   backface-visibility: hidden;
+/* Spinning SVG icons: rotate the icon's shapes around the viewBox center, not the <svg> box.
+   WebKit snaps the <svg> box (and any compositing layer) to device pixels, so a rotated box
+   pivots up to ~1px off the drawn center and the icon orbits (wobble). Inside the SVG the
+   rotation is a float matrix around (12,12), so the pivot is exact. */
+svg.animate-spin {
+   animation: none;
+}
+svg.animate-spin > * {
+   animation: icon-spin 1s linear infinite;
+   transform-box: view-box;
+   transform-origin: 50% 50%;
+}
+@keyframes icon-spin {
+   to {
+      transform: rotate(360deg);
+   }
 }
 
 /* WorkingLoader: 4 squares (box-shadows) of a 2x2 grid, 35 units wide; --size scales it to 16px. a/b = -/+ offset. */
