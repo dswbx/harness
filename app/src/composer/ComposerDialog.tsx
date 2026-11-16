@@ -16,7 +16,7 @@ import {
 } from "@harness/ui";
 import { useState } from "react";
 import { AgentField } from "./AgentField";
-import { rememberFolder } from "./composer";
+import { loadWorktreePref, rememberFolder } from "./composer";
 import { FolderField } from "./FolderField";
 import { FrontendField } from "./FrontendField";
 import { MoreOptions } from "./MoreOptions";
@@ -105,7 +105,7 @@ export function ComposerDialog({
       setError,
       onLoaded: (b) => {
          setTarget(defaultTarget(b));
-         setWorktree(false);
+         setWorktree(loadWorktreePref());
       },
    });
 

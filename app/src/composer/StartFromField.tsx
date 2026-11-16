@@ -10,7 +10,7 @@ import {
 import { cn, Tooltip } from "@harness/ui";
 import { GitBranch, Plus } from "lucide-react";
 import { useMemo } from "react";
-import { branchChoices, matchesWords } from "./composer";
+import { branchChoices, loadWorktreePref, matchesWords, saveWorktreePref } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
 import { AheadBehind, Label, Pill, PrIcon, UpdateBranch } from "./parts";
 import { type Target, targetInfo, worktreeAfterPick, worktreeSwitch } from "./startPoint";
@@ -89,6 +89,7 @@ export function StartFromField({
             current: branches?.current ?? null,
             info: t.kind === "local" ? local.get(t.name) : undefined,
             worktree,
+            preferred: loadWorktreePref(),
          }),
       );
    };
@@ -381,7 +382,11 @@ export function StartFromField({
                role="switch"
                aria-checked={wtOn}
                disabled={wtLocked}
-               onClick={() => (mode === "pr" ? setPrWorktree((w) => !w) : setWorktree((w) => !w))}
+               onClick={() => {
+                  if (mode === "pr") return setPrWorktree((w) => !w);
+                  saveWorktreePref(!worktree);
+                  setWorktree(!worktree);
+               }}
                className={cn(
                   "relative h-4 w-7 shrink-0 rounded-full transition-colors",
                   wtOn ? "bg-primary" : "bg-muted-foreground/30",

@@ -47,15 +47,22 @@ export function worktreeSwitch(o: {
 
 /**
  * The Worktree state after picking `t`. Switching the folder to another branch would need a clean
- * tree; a Worktree avoids that. A new branch keeps the choice as it was.
+ * tree; a Worktree avoids that. A new branch keeps the choice as it was; the folder's own branch
+ * takes the user's remembered choice (`preferred`).
  */
 export function worktreeAfterPick(
    t: Target,
-   o: { current: string | null; info: BranchInfo | undefined; worktree: boolean },
+   o: {
+      current: string | null;
+      info: BranchInfo | undefined;
+      worktree: boolean;
+      preferred?: boolean;
+   },
 ): boolean {
    return (
       t.kind === "remote" ||
-      (t.kind === "local" && (t.name !== o.current || !!o.info?.worktree)) ||
+      (t.kind === "local" &&
+         (t.name !== o.current || !!o.info?.worktree || (o.preferred ?? false))) ||
       (t.kind === "new" && o.worktree)
    );
 }

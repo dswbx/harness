@@ -47,6 +47,17 @@ export function rememberFolder(path: string, now = Date.now()) {
    recentStore.set(mergeRecent([{ path, at: now }], loadRecent()));
 }
 
+/** The last Worktree switch the user set by hand (branch mode): the default for the folder's own branch. */
+const worktreeStore = storedValue<boolean>({
+   key: "harness.composer.worktree",
+   scope: "app",
+   parse: (raw) => raw === "true",
+   sync: false,
+});
+
+export const loadWorktreePref = (): boolean => worktreeStore.get();
+export const saveWorktreePref = (on: boolean) => worktreeStore.set(on);
+
 /** Newest first, one entry per path (its newest use), at most MAX_RECENT. */
 export function mergeRecent(...lists: RecentFolder[][]): RecentFolder[] {
    const best = new Map<string, number>();
