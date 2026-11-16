@@ -1,6 +1,8 @@
+import type { SessionApi } from "@harness/api";
+import { TooltipProvider } from "@harness/ui";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Step, Tool } from "./group";
+import type { Approval, Step, Tool } from "./group";
 import { groupSummary, TraceGroup, VISIBLE_STEPS } from "./TraceGroup";
 
 let n = 0;
@@ -69,5 +71,39 @@ describe("TraceGroup", () => {
       expect(lines()).toBe(0);
       fireEvent.click(screen.getByText("Ran 3 tool calls"));
       expect(lines()).toBe(3);
+   });
+
+   it("a pending approval keeps the group open, its card last", () => {
+      const step = tool({ status: "pending" });
+      const approval = {
+         type: "permission",
+         id: "p1",
+         requestId: "r1",
+         toolCall: { toolCallId: step.id, kind: "execute", title: "ls" },
+         harnessTool: null,
+         plan: null,
+         commitMessage: null,
+         frontendTool: null,
+         stepId: step.id,
+         step,
+         options: [{ option_id: "a", name: "Allow", kind: "allow_once" }],
+         resolved: false,
+      } as unknown as Approval;
+      render(
+         <TooltipProvider>
+            <TraceGroup
+               steps={[tool(), tool()]}
+               approvals={[approval]}
+               api={{} as SessionApi}
+               subagents={new Map()}
+               active
+               streaming={false}
+            />
+         </TooltipProvider>,
+      );
+      expect(screen.getByText("Waiting for you")).toBeTruthy();
+      expect(screen.getByText("3 tool calls")).toBeTruthy();
+      expect(lines()).toBe(2);
+      expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
    });
 });

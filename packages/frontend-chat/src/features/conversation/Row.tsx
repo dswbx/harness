@@ -114,6 +114,8 @@ function RowView({
          return (
             <ToolGroupRow
                steps={item.steps}
+               approvals={item.approvals}
+               api={api}
                subagents={subagents}
                active={active}
                streaming={streaming}

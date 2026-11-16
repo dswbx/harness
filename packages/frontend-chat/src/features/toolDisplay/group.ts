@@ -8,20 +8,37 @@ export type Thought = Extract<Item, { type: "thought" }>;
 /** One line of a run: a tool call, or a thought between them. */
 export type Step = Tool | Thought;
 
-/** Consecutive tool calls and thoughts, shown together. Keyed by its first step, so the key holds while it grows. */
-export type ToolGroup = { type: "tools"; id: string; steps: Step[] };
+/**
+ * A pending request to run a tool call, answered in the chat (not a plan, not the policy's answer).
+ * With `step` (set by `chatRows`) it stands in for that step until answered.
+ */
+export type Approval = Extract<Item, { type: "permission" }>;
 
-/** Folds each run of consecutive tool calls and thoughts into one group; other items pass through. */
+const isApproval = (i: Item): i is Approval =>
+   i.type === "permission" && !i.resolved && !i.auto && !i.plan;
+
+/**
+ * Consecutive tool calls and thoughts, shown together, with the pending approvals among them (shown
+ * last, so the run is not split while the user answers). Keyed by its first entry, so the key holds while it grows.
+ */
+export type ToolGroup = { type: "tools"; id: string; steps: Step[]; approvals: Approval[] };
+
+/** Folds each run of consecutive tool calls, thoughts and pending step approvals into one group; other items pass through. */
 export function groupTools(items: Item[]): (Item | ToolGroup)[] {
    const out: (Item | ToolGroup)[] = [];
    for (const i of items) {
-      if (i.type !== "tool" && i.type !== "thought") {
+      const approval = isApproval(i);
+      if (!approval && i.type !== "tool" && i.type !== "thought") {
          out.push(i);
          continue;
       }
-      const last = out.at(-1);
-      if (last?.type === "tools") last.steps.push(i);
-      else out.push({ type: "tools", id: i.id, steps: [i] });
+      let last = out.at(-1);
+      if (last?.type !== "tools") {
+         last = { type: "tools", id: i.id, steps: [], approvals: [] };
+         out.push(last);
+      }
+      if (approval) last.approvals.push(i);
+      else last.steps.push(i as Step);
    }
    return out;
 }
