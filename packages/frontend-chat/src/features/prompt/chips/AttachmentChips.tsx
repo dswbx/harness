@@ -14,10 +14,13 @@ export function AttachmentChips({
 }) {
    const [open, setOpen] = useState<PendingAttachment | null>(null);
    return (
-      <div className="flex flex-wrap items-center gap-1.5 pb-2" aria-label="Attachments">
-         {items.map((a) => (
-            <Tooltip key={a.id} content={a.input.type === "path" ? a.input.path : a.name}>
-               <span className="group/att relative flex max-w-56 items-center gap-1.5 rounded-md border bg-muted text-xs">
+      <div className="flex flex-wrap items-center gap-1.5 px-1 pb-2" aria-label="Attachments">
+         {items.map((a) => {
+            const chip = (
+               <span
+                  key={a.id}
+                  className="group/att relative flex max-w-56 items-center gap-1.5 rounded-md border bg-muted text-xs"
+               >
                   {a.preview ? (
                      <button
                         type="button"
@@ -25,10 +28,12 @@ export function AttachmentChips({
                         aria-label={`Open ${a.name}`}
                         onClick={() => setOpen(a)}
                      >
+                        {/* Not hit-testable: else WebKit's Live Text boxes text inside the image. */}
                         <img
                            src={a.preview}
                            alt={a.name}
-                           className="size-20 rounded-md object-cover"
+                           draggable={false}
+                           className="pointer-events-none size-20 select-none rounded-md object-cover"
                         />
                      </button>
                   ) : (
@@ -46,8 +51,16 @@ export function AttachmentChips({
                      <X className="size-3" />
                   </button>
                </span>
-            </Tooltip>
-         ))}
+            );
+            // Image thumbnails need no tooltip; file chips show their full path.
+            return a.preview ? (
+               chip
+            ) : (
+               <Tooltip key={a.id} content={a.input.type === "path" ? a.input.path : a.name}>
+                  {chip}
+               </Tooltip>
+            );
+         })}
          <ImageDialog
             src={open?.preview ?? null}
             alt={open?.name ?? "Image"}

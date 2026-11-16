@@ -24,15 +24,21 @@ function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
    if (failed) return <FileChip a={a} />;
    return (
       <>
-         <Tooltip content={a.name}>
-            <button
-               className="size-20 cursor-zoom-in overflow-hidden rounded-lg border bg-muted"
-               aria-label={`Open ${a.name}`}
-               onClick={() => setOpen(true)}
-            >
-               {url && <img src={url} alt={a.name} className="size-full object-cover" />}
-            </button>
-         </Tooltip>
+         <button
+            className="size-20 cursor-zoom-in overflow-hidden rounded-lg border bg-muted"
+            aria-label={`Open ${a.name}`}
+            onClick={() => setOpen(true)}
+         >
+            {/* Not hit-testable: else WebKit's Live Text boxes text inside the image. */}
+            {url && (
+               <img
+                  src={url}
+                  alt={a.name}
+                  draggable={false}
+                  className="pointer-events-none size-full select-none object-cover"
+               />
+            )}
+         </button>
          <ImageDialog src={url} alt={a.name} open={open} onOpenChange={setOpen} />
       </>
    );
