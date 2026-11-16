@@ -1,4 +1,4 @@
-import type { AttachmentInput, SessionApi } from "@harness/api";
+import type { AttachmentInput, SessionApi, SlashCommand } from "@harness/api";
 import { ScrollArea, ToggleGroup, ToggleGroupItem } from "@harness/ui";
 import { MessagesSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +16,7 @@ export function ThreadView({
    api,
    thread,
    threadId,
+   mainCommands,
    env,
    onOpenDiff,
    focusKey,
@@ -23,6 +24,8 @@ export function ThreadView({
    api: SessionApi;
    thread: ChatState;
    threadId: string;
+   /** The Main Thread's slash commands: the Agent announces them there, not per Side Thread. */
+   mainCommands: SlashCommand[];
    env: UiEnv;
    onOpenDiff: (s: DiffScope) => void;
    /** Changes when the prompt box should take focus (the chat was just created). */
@@ -45,7 +48,15 @@ export function ThreadView({
          aria-label="Side chat"
       >
          <ScrollUnder
-            bottom={<PromptBox ref={prompt} api={api} state={thread} threadId={threadId} />}
+            bottom={
+               <PromptBox
+                  ref={prompt}
+                  api={api}
+                  state={thread}
+                  threadId={threadId}
+                  commands={thread.commands.length ? thread.commands : mainCommands}
+               />
+            }
          >
             {(inset) => (
                <MessageList
@@ -130,9 +141,10 @@ export function SideDraft({
    const draft = useMemo<ChatState>(
       () => ({
          ...initialState(),
+         commands: main.commands,
          configOptions: mainMode && mode ? [{ ...mainMode, currentValue: mode }] : [],
       }),
-      [mainMode, mode],
+      [mainMode, mode, main.commands],
    );
    useEffect(() => {
       if (focusKey) prompt.current?.focus();
