@@ -33,7 +33,7 @@ export function AttachmentChips({
                            src={a.preview}
                            alt={a.name}
                            draggable={false}
-                           className="pointer-events-none size-20 select-none rounded-md object-cover"
+                           className="pointer-events-none h-32 w-auto min-w-16 max-w-64 select-none rounded-md bg-black/40 object-contain"
                         />
                      </button>
                   ) : (
