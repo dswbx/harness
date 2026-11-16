@@ -8,6 +8,7 @@ import type { DiffScope } from "../changes/DiffPanel";
 import { MessageList, useRows } from "../conversation/MessageList";
 import { ScrollUnder } from "../conversation/ScrollUnder";
 import { PromptBox, type PromptBoxHandle } from "../prompt/PromptBox";
+import type { PendingMessage } from "../prompt/pendingMessages";
 import type { UiEnv } from "../renderUi/RenderUi";
 
 /** A Side Thread in the right panel: its messages (opening with how it started) and its own prompt box. */
@@ -110,7 +111,12 @@ export function SideDraft({
    /** The Main Thread: its mode option and the Agent's asking mode (the default here). */
    main: ChatState;
    draftId: string;
-   onSend: (text: string, attachments: AttachmentInput[], start: SideStart) => Promise<void>;
+   onSend: (
+      text: string,
+      attachments: AttachmentInput[],
+      start: SideStart,
+      item: PendingMessage,
+   ) => Promise<void>;
    focusKey: number;
 }) {
    const prompt = useRef<PromptBoxHandle>(null);
@@ -172,7 +178,9 @@ export function SideDraft({
             api={api}
             state={draft}
             threadId={draftId}
-            onSend={(text, files) => onSend(text, files, { source, ...(mode && { mode }) })}
+            onSend={(text, files, item) =>
+               onSend(text, files, { source, ...(mode && { mode }) }, item)
+            }
             onConfigChange={(_, value) => setPicked(value)}
          />
       </aside>

@@ -1,10 +1,12 @@
 import type { AttachmentInput } from "@harness/api";
-import { errText } from "@harness/api";
+import { errText, threadTitle } from "@harness/api";
 import { MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { changesPanel } from "../changes/panel";
 import { clearDraft } from "../prompt/drafts";
+import type { PendingMessage } from "../prompt/pendingMessages";
+import { deliverPending } from "../prompt/usePendingSend";
 import { useEnv } from "../renderUi/runtime";
 import { addReviewComment, composerKey, setReviewComments } from "../review/reviewComments";
 import { SidePanel } from "./SidePanel";
@@ -37,13 +39,14 @@ export type SideChatsModel = {
    newThread: () => string;
    /**
     * Starts a Side Thread now (forked from Main when the Agent can; `start` from a draft tab can pick fresh and a
-    * mode), in place of tab `draft` or as a new tab, and sends it `text`.
+    * mode), in place of tab `draft` or as a new tab, and sends it `text`. With `item`, that message shows in the
+    * new tab at once (pending until the Agent is up) and a failed send stays there to retry: the promise rejects
+    * only when the Thread did not start.
     */
    start: (
       text: string,
       attachments: AttachmentInput[],
-      draft?: string,
-      start?: SideStart,
+      opts?: { draft?: string; start?: SideStart; item?: PendingMessage },
    ) => Promise<void>;
    /** "Ask in side thread": a new side chat with the selected text as a quote chip in its prompt box. */
    ask: (quote: string) => void;
@@ -74,8 +77,14 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
       selfRef.current = self;
       const [focus, setFocus] = useState<{ id: string; n: number }>({ id: "", n: 0 });
       const [error, setError] = useState<string | null>(null);
+      // Tabs sent from here, by id (draft, then its Thread): their title until the Thread has one. A Thread
+      // in it shows before its replay arrives, so the panel neither closes nor waits for it.
+      const [sent, setSent] = useState<Record<string, string>>({});
 
-      const open = useMemo(() => openThreadIds(tabs.threads, state.threads), [tabs, state.threads]);
+      const open = useMemo(
+         () => openThreadIds(tabs.threads, state.threads, sent),
+         [tabs, state.threads, sent],
+      );
       const active = activeThreadId(tabs.thread, open);
       const sideThreads = useMemo(
          () => state.threadList.filter((t) => !t.main),
@@ -83,10 +92,10 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
       );
       const titleOf = useCallback(
          (id: string) =>
-            isDraftThread(id)
-               ? "New chat"
-               : (sideThreads.find((x) => x.id === id)?.title ?? "Side chat"),
-         [sideThreads],
+            sideThreads.find((x) => x.id === id)?.title ??
+            sent[id] ??
+            (isDraftThread(id) ? "New chat" : "Side chat"),
+         [sideThreads, sent],
       );
 
       const select = useCallback((id: string) => apply((t) => selectThread(t, id)), [apply]);
@@ -109,21 +118,50 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
          return id;
       }, [apply, tabsRef]);
       const start = useCallback(
-         async (text: string, attachments: AttachmentInput[], draft?: string, s?: SideStart) => {
+         async (
+            text: string,
+            attachments: AttachmentInput[],
+            {
+               draft,
+               start: s,
+               item,
+            }: { draft?: string; start?: SideStart; item?: PendingMessage } = {},
+         ) => {
             setError(null);
+            const title = threadTitle(text) ?? "Side chat";
+            // The tab takes its title at once, in place.
+            if (draft) setSent((m) => ({ ...m, [draft]: title }));
             let thread_id: string;
             try {
                ({ thread_id } = await api.startSideThread(s));
             } catch (e) {
                setError(errText(e));
+               if (draft)
+                  setSent((m) => {
+                     const { [draft]: _, ...rest } = m;
+                     return rest;
+                  });
                throw e;
             }
+            // The message shows in the new tab right away: starting the Agent (and forking) takes a while.
+            const key = composerKey(api.sessionId, thread_id);
+            const send = item
+               ? deliverPending(
+                    key,
+                    item,
+                    0,
+                    () => api.prompt(text, attachments, thread_id),
+                    // Its row says it was not sent, with Retry.
+                    () => {},
+                 )
+               : api.prompt(text, attachments, thread_id);
             // A draft tab that closed meanwhile does not take it: a new tab opens, and shows the panel.
             const own = takesDraftTab(tabsRef.current, draft);
+            setSent((m) => ({ ...m, [thread_id]: title }));
             apply((t) => threadStarted(t, draft, thread_id));
             if (!own) selfRef.current.show();
             setFocus((f) => ({ id: thread_id, n: f.n + 1 }));
-            await api.prompt(text, attachments, thread_id);
+            await send;
          },
          [api, apply, tabsRef],
       );
@@ -205,7 +243,9 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             onSelect={model.select}
             onClose={model.close}
             onNew={model.newThread}
-            onSendDraft={(id, text, files, start) => model.start(text, files, id, start)}
+            onSendDraft={(id, text, files, start, item) =>
+               model.start(text, files, { draft: id, start, item })
+            }
             onOpenDiff={(scope) => ctx.open(changesPanel, scope)}
          />
       );

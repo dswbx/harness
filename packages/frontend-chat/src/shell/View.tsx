@@ -25,7 +25,7 @@ import { filesPanel } from "../features/files/panel";
 import { ShareBlock } from "../features/markdown/Expandable";
 import { planPanel } from "../features/plan/panel";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
-import { usePendingMessages } from "../features/prompt/pendingMessages";
+import { type PendingMessage, usePendingMessages } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
 import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { Env } from "../features/renderUi/runtime";
@@ -170,7 +170,8 @@ function ChatBody({
    const side = panelHost.models.side as SideChatsModel;
    const { start: startSideThread, ask: askSideThread } = side;
    const btw = useCallback(
-      (text: string, attachments: AttachmentInput[]) => startSideThread(text, attachments),
+      (text: string, attachments: AttachmentInput[], item: PendingMessage) =>
+         startSideThread(text, attachments, { item }),
       [startSideThread],
    );
 

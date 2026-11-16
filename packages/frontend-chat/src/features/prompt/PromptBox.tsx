@@ -57,10 +57,17 @@ export function PromptBox({
    api: SessionApi;
    state: ChatState;
    threadId?: string | null;
-   /** Starts a Side Thread and sends it `text` (Main Thread only). */
-   onSideThread?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
-   /** Sends instead of `api.prompt` (a side chat not started yet). */
-   onSend?: (text: string, attachments: AttachmentInput[]) => Promise<void>;
+   /**
+    * Starts a Side Thread and sends it `text` (Main Thread only). `item` is the message to show as pending in
+    * that Thread once it started; a rejection means it did not start (the prompt box gets the message back).
+    */
+   onSideThread?: (
+      text: string,
+      attachments: AttachmentInput[],
+      item: PendingMessage,
+   ) => Promise<void>;
+   /** Sends instead of `api.prompt` (a side chat not started yet), like `onSideThread`. */
+   onSend?: (text: string, attachments: AttachmentInput[], item: PendingMessage) => Promise<void>;
    /** A config change stays local instead of `api.setConfigOption` (a side chat not started yet). */
    onConfigChange?: (id: string, value: string) => void;
    /** Quick overlay: an Agent > model menu in the footer (other Agents disabled once `locked`). */
@@ -153,26 +160,24 @@ export function PromptBox({
       const btw = threadId || !onSideThread ? null : btwQuestion(t);
       // The window context goes as an attachment: the message stays as typed.
       const inputs = [...files.map((a) => a.input), ...(context ? [context.attachment] : [])];
-      const prompt = withReviewComments(t, sent);
+      const prompt = btw ? withReviewComments(btw, sent) : withReviewComments(t, sent);
+      const item: PendingMessage = {
+         id: crypto.randomUUID(),
+         prompt,
+         inputs,
+         files,
+         comments: sent,
+         snap,
+         status: "sending",
+         base: 0,
+      };
       if (!btw && !onSend) {
-         void deliver(
-            {
-               id: crypto.randomUUID(),
-               prompt,
-               inputs,
-               files,
-               comments: sent,
-               snap,
-               status: "sending",
-               base: 0,
-            },
-            () => api.prompt(prompt, inputs, threadId),
-         );
+         void deliver(item, () => api.prompt(prompt, inputs, threadId));
          return;
       }
       (btw && onSideThread
-         ? onSideThread(withReviewComments(btw, sent), inputs)
-         : (onSend as NonNullable<typeof onSend>)(prompt, inputs)
+         ? onSideThread(prompt, inputs, item)
+         : (onSend as NonNullable<typeof onSend>)(prompt, inputs, item)
       ).catch((err) => {
          setError(errText(err));
          ref.current?.restore(snap);
