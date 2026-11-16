@@ -7,7 +7,6 @@ import {
    TraceLine,
    TraceTitle,
    TraceVerb,
-   WorkingLoader,
 } from "@harness/ui";
 import { ChevronRight, CircleDot } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
@@ -101,16 +100,10 @@ export function TraceGroup(props: ToolGroupProps) {
             className="group/trace-trigger flex w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
          >
             <TraceLine status={live && !waiting ? "running" : undefined}>
-               {waiting ? (
+               {waiting && (
                   <TraceIcon className="text-amber-500">
                      <CircleDot />
                   </TraceIcon>
-               ) : (
-                  live && (
-                     <TraceIcon>
-                        <WorkingLoader />
-                     </TraceIcon>
-                  )
                )}
                <TraceTitle>
                   <TraceVerb className={waiting ? "text-amber-500" : undefined}>
