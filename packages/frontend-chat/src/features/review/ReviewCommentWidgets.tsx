@@ -125,22 +125,27 @@ function CommentRow({
             <button
                type="button"
                aria-expanded={expanded}
-               className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground"
+               className={cn(
+                  "flex w-full min-w-0 gap-1.5 text-left hover:text-foreground",
+                  expanded ? "items-start" : "items-center",
+               )}
                onClick={() => setExpanded((v) => !v)}
             >
-               <CheckCheck className="size-3 shrink-0" />
-               <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
-                  {expanded ? "" : c.text}
+               <CheckCheck className={cn("size-3 shrink-0", expanded && "mt-0.5")} />
+               <span
+                  className={cn(
+                     "min-w-0 flex-1",
+                     expanded ? "whitespace-pre-wrap break-words" : "truncate",
+                  )}
+               >
+                  {c.text}
                </span>
                <Pill>Resolved</Pill>
             </button>
             {expanded && (
-               <div className="mt-0.5 space-y-0.5 pl-[18px]">
-                  <div className="whitespace-pre-wrap break-words">{c.text}</div>
-                  <div className="italic">
-                     Resolved by {by}
-                     {c.note && `: ${c.note}`}
-                  </div>
+               <div className="mt-0.5 pl-[18px] italic">
+                  Resolved by {by}
+                  {c.note && `: ${c.note}`}
                </div>
             )}
          </div>
