@@ -5,9 +5,11 @@ import {
    groupSessions,
    hideUnusedQuick,
    highlight,
+   moveFolder,
    nestSubSessions,
    sessionMatches,
    viewChanges,
+   withNewFolders,
 } from "./sessionGroups";
 
 const H = 3_600_000;
@@ -65,6 +67,32 @@ describe("groupSessions", () => {
          ["folder:harness", ["c", "a"]],
          ["quick", []],
       ]);
+   });
+   it("keeps the stored folder order, unknown folders on top", () => {
+      const l = [...list, s("e", "/p/new", 500, 500)];
+      const g = groupSessions(
+         l,
+         { sort: "recent", group: "folder", folderOrder: ["folder:jsonv", "folder:harness"] },
+         NOW,
+      );
+      expect(g.map((x) => x.id)).toEqual(["folder:new", "folder:jsonv", "folder:harness", "quick"]);
+      expect(withNewFolders(["folder:jsonv", "folder:harness"], g)).toEqual([
+         "folder:new",
+         "folder:jsonv",
+         "folder:harness",
+      ]);
+      const same = ["folder:new", "folder:jsonv", "folder:harness"];
+      expect(withNewFolders(same, g)).toBe(same);
+   });
+   it("moves a folder before another or to the end, keeping absent ones in place", () => {
+      const order = ["a", "gone", "b", "c"];
+      const shown = ["a", "b", "c"];
+      expect(moveFolder(order, shown, "c", "a")).toEqual(["c", "a", "gone", "b"]);
+      expect(moveFolder(order, shown, "a", null)).toEqual(["gone", "b", "c", "a"]);
+      expect(moveFolder(order, shown, "a", "c")).toEqual(["gone", "b", "a", "c"]);
+      expect(moveFolder(order, shown, "b", "c")).toBeNull();
+      expect(moveFolder(order, shown, "b", "b")).toBeNull();
+      expect(moveFolder(order, shown, "c", null)).toBeNull();
    });
    it("groups by date of the sort field, skipping empty groups", () => {
       const g = groupSessions(list, { sort: "recent", group: "date" }, NOW);
