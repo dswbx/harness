@@ -40,6 +40,10 @@ const replies: Partial<Record<Command["type"], CommandResult>> = {
    FrontendList: { type: "Files", files: [] },
    ListTerminals: { type: "Terminals", terminals: [] },
    TerminalOpen: { type: "TerminalOpened", terminal_id: 2 },
+   AddComment: {
+      type: "Comment",
+      comment: { id: "c1", path: "f", line: 1, side: null, code: "c", text: "t", by: "user" },
+   },
    ShareArtifact: { type: "SharedArtifactInfo", meta },
    ShareMarkdown: { type: "SharedArtifactInfo", meta },
    AttachSharedArtifact: { type: "SharedArtifactInfo", meta },
@@ -136,6 +140,10 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    listShared: (a) => a.listShared(),
    readShared: (a) => a.readShared("a"),
    patchArtifactState: (a) => a.patchArtifactState("a", []),
+   addComment: (a) => a.addComment({ path: "f", line: 1, side: null, code: "c", text: "t" }),
+   editComment: (a) => a.editComment("c1", "t"),
+   deleteComment: (a) => a.deleteComment("c1"),
+   resolveComment: (a) => a.resolveComment("c1"),
 };
 
 describe("createSessionApi wire shape", () => {

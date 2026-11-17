@@ -53,7 +53,9 @@ async fn main() -> anyhow::Result<()> {
     let from_seq = h.session_events(&session_id).map_err(anyhow::Error::msg)?.len() as u64;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
     h.subscribe_session(&session_id, from_seq, Box::new(move |e: &Event| tx.send(e.clone()).is_ok())).map_err(anyhow::Error::msg)?;
-    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: prompt, attachments: vec![] }).await.map_err(anyhow::Error::msg)?;
+    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: prompt, attachments: vec![], comment_ids: vec![] })
+        .await
+        .map_err(anyhow::Error::msg)?;
     loop {
         let Ok(Some(e)) = tokio::time::timeout(Duration::from_secs(180), rx.recv()).await else { break };
         let line = serde_json::to_string(&e.kind)?;
@@ -77,9 +79,15 @@ async fn main() -> anyhow::Result<()> {
             unreachable!()
         };
         println!("side thread {thread_id} (fork tried: {forked})");
-        h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: Some(thread_id.clone()), text: question, attachments: vec![] })
-            .await
-            .map_err(anyhow::Error::msg)?;
+        h.execute(Command::Prompt {
+            session_id: session_id.clone(),
+            thread_id: Some(thread_id.clone()),
+            text: question,
+            attachments: vec![],
+            comment_ids: vec![],
+        })
+        .await
+        .map_err(anyhow::Error::msg)?;
         loop {
             let Ok(Some(e)) = tokio::time::timeout(Duration::from_secs(180), rx.recv()).await else { break };
             let side = e.thread_id.as_ref() == Some(&thread_id);

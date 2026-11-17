@@ -48,7 +48,7 @@ async fn session(h: &Harness, folder: &std::path::Path) -> String {
 }
 
 fn prompt(session_id: &str, thread_id: Option<&str>) -> Command {
-    Command::Prompt { session_id: session_id.into(), thread_id: thread_id.map(Into::into), text: "hi".into(), attachments: vec![] }
+    Command::Prompt { session_id: session_id.into(), thread_id: thread_id.map(Into::into), text: "hi".into(), attachments: vec![], comment_ids: vec![] }
 }
 
 #[tokio::test]

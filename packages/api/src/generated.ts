@@ -331,7 +331,17 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  */
 { type: "Prompt"; session_id: string; thread_id: string | null; text: string; 
 /**  Sent after `text`, in order. `text` may be empty when there are attachments. */
-attachments?: AttachmentInput[] } | { type: "Cancel"; session_id: string; thread_id: string | null } | 
+attachments?: AttachmentInput[]; 
+/**  Pending Review Comments this prompt carries: they become open once it is accepted. */
+comment_ids?: string[] } | 
+/**  Adds a pending Review Comment (ADR 0027) as the user. Returns it. */
+{ type: "AddComment"; session_id: string; path: string; line: number; side: CommentSide | null; code: string; text: string } | 
+/**  Changes a pending comment's text. */
+{ type: "EditComment"; session_id: string; id: string; text: string } | 
+/**  Deletes a pending comment. */
+{ type: "DeleteComment"; session_id: string; id: string } | 
+/**  Resolves an open comment as the user. */
+{ type: "ResolveComment"; session_id: string; id: string } | { type: "Cancel"; session_id: string; thread_id: string | null } | 
 /**
  *  Starts the Agent and the Main Thread's Agent Session in the background, so its config
  *  options (models, modes) arrive before the first prompt. Returns at once; failures show up
@@ -396,7 +406,9 @@ origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; i
  */
 { type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null };
 
-export type CommandResult = { type: "Ok" } | { type: "Notices"; notices: StartupNotice[] } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | 
+export type CommandResult = { type: "Ok" } | 
+/**  `AddComment`. */
+{ type: "Comment"; comment: LineComment } | { type: "Notices"; notices: StartupNotice[] } | { type: "Agents"; agents: AgentInfo[] } | { type: "Registry"; agents: RegistryAgent[] } | { type: "AgentInstalled"; agent: AgentInfo } | { type: "Frontends"; frontends: FrontendManifest[] } | { type: "Sessions"; sessions: SessionSummary[] } | { type: "SessionCreated"; session_id: string } | 
 /**
  *  `forked`: the Agent Session will be a fork of the Main Thread's. The Thread's
  *  `AgentSessionStarted` boundary tells how it started (a fork can fall back to a seed).
@@ -435,6 +447,9 @@ export type CommandResult = { type: "Ok" } | { type: "Notices"; notices: Startup
 { type: "SharedArtifact"; meta: SharedArtifactMeta; content: string; hash: string; mtime_ms: number; state: unknown; 
 /**  The artifact's folder (absolute). */
 dir: string };
+
+/**  The side of a diff a comment is on. */
+export type CommentSide = "old" | "new";
 
 export type Commit = {
 	sha: string,
@@ -660,7 +675,15 @@ files?: { [key in string]: string } } |
  *  This Session changed a Shared Artifact's state. Not replayed into any state: Views read the
  *  artifact's current state with `SharedArtifactRead` (ADR 0024 addendum).
  */
-{ type: "ArtifactStateChanged"; id: string; ops: StatePatchOp[]; by: StateWriter } | { type: "GitCommitted"; commit: string; message: string; by?: GitActor } | { type: "GitPushed"; branch: string; by?: GitActor } | { type: "SessionArchived"; archived: boolean } | 
+{ type: "ArtifactStateChanged"; id: string; ops: StatePatchOp[]; by: StateWriter } | 
+/**  A Review Comment was added (ADR 0027): pending when the user made it, open when the Agent did. */
+{ type: "CommentAdded"; comment: LineComment } | 
+/**  A pending comment's text changed. */
+{ type: "CommentEdited"; id: string; text: string } | 
+/**  A pending comment was deleted. */
+{ type: "CommentDeleted"; id: string } | 
+/**  These pending comments went out with a prompt: they are open from now on. */
+{ type: "CommentsSent"; ids: string[] } | { type: "CommentResolved"; id: string; by: StateWriter; note?: string | null } | { type: "GitCommitted"; commit: string; message: string; by?: GitActor } | { type: "GitPushed"; branch: string; by?: GitActor } | { type: "SessionArchived"; archived: boolean } | 
 /**
  *  An ACP session notice: information for the user outside the Agent's reply (e.g. hook
  *  output). `severity` is `info`, `warning`, `error` or a custom value.
@@ -797,6 +820,21 @@ export type KnownRepo = {
  */
 export type Lagged = {
 	last_seq: number | null,
+};
+
+/**  A comment on one line. `side`: `Some` for a diff comment, `None` for a file comment. */
+export type LineComment = {
+	/**  `c1`, `c2`, ...: never reused in a Session. */
+	id: string,
+	/**  Workspace-relative. */
+	path: string,
+	/**  1-based. */
+	line: number,
+	side: CommentSide | null,
+	/**  The commented line's text. */
+	code: string,
+	text: string,
+	by: StateWriter,
 };
 
 /**  One Sub Session of a `session_list` result. */

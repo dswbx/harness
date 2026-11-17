@@ -368,6 +368,34 @@ pub enum Command {
         /// Sent after `text`, in order. `text` may be empty when there are attachments.
         #[serde(default)]
         attachments: Vec<AttachmentInput>,
+        /// Pending Review Comments this prompt carries: they become open once it is accepted.
+        #[serde(default)]
+        comment_ids: Vec<String>,
+    },
+    /// Adds a pending Review Comment (ADR 0027) as the user. Returns it.
+    AddComment {
+        session_id: SessionId,
+        path: String,
+        line: u32,
+        side: Option<CommentSide>,
+        code: String,
+        text: String,
+    },
+    /// Changes a pending comment's text.
+    EditComment {
+        session_id: SessionId,
+        id: String,
+        text: String,
+    },
+    /// Deletes a pending comment.
+    DeleteComment {
+        session_id: SessionId,
+        id: String,
+    },
+    /// Resolves an open comment as the user.
+    ResolveComment {
+        session_id: SessionId,
+        id: String,
     },
     Cancel {
         session_id: SessionId,

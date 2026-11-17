@@ -1,3 +1,4 @@
+import { anchorLine, type LineCommentState, type SessionApi } from "@harness/api";
 import { cn } from "@harness/ui";
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -5,7 +6,6 @@ import { useCodeFontSize } from "../changes/DiffViewer";
 import { WRAP } from "../markdown/CodeBlock";
 import { highlightLines, languageOf, type Run } from "../markdown/highlight";
 import { CommentForm, CommentList } from "../review/ReviewCommentWidgets";
-import { addReviewComment, type FileComment } from "../review/reviewComments";
 
 /** Above this many lines the file shows plain: highlighting it would block the window. */
 export const MAX_HIGHLIGHT_LINES = 5000;
@@ -15,11 +15,12 @@ export type LineRange = { start: number; end: number };
 
 /**
  * One whole file with line numbers, highlighted. `mode: "comment"`: hover a line's number and click "+" to comment;
- * comments go to the Session's prompt box (reviewComments.ts) and show under their lines. (An edit mode can come
+ * comments are core Review Comments (ADR 0027) that wait in the prompt box until sent, and show under their lines
+ * (a comment follows its line's code when the file changed, and says so when it cannot). (An edit mode can come
  * later.) `target` lines are marked and scrolled into view.
  */
 export function FileView({
-   sessionId,
+   api,
    path,
    lines,
    comments,
@@ -28,11 +29,11 @@ export function FileView({
    mode,
    className,
 }: {
-   sessionId: string;
+   api: SessionApi;
    path: string;
    lines: readonly string[];
-   /** This Session's file comments; the ones for `path` show under their lines. */
-   comments: FileComment[];
+   /** This Session's comments on working-tree lines; the ones for `path` show under their lines. */
+   comments: readonly LineCommentState[];
    target?: LineRange | null;
    wrap?: boolean;
    mode: "comment";
@@ -48,10 +49,17 @@ export function FileView({
       [path, lines],
    );
    const byLine = useMemo(() => {
-      const m = new Map<number, FileComment[]>();
-      for (const c of comments) if (c.path === path) m.set(c.line, [...(m.get(c.line) ?? []), c]);
+      const m = new Map<number, { comments: LineCommentState[]; outdated: Set<string> }>();
+      for (const c of comments) {
+         if (c.path !== path) continue;
+         const at = anchorLine(lines, c.line, c.code);
+         const t = m.get(at.line) ?? { comments: [], outdated: new Set<string>() };
+         t.comments.push(c);
+         if (at.outdated) t.outdated.add(c.id);
+         m.set(at.line, t);
+      }
       return m;
-   }, [comments, path]);
+   }, [comments, path, lines]);
 
    useEffect(() => {
       const el = box.current;
@@ -137,16 +145,19 @@ export function FileView({
                         {!runs.length && " "}
                      </span>
                   </div>
-                  {cs && widget(<CommentList sessionId={sessionId} comments={cs} />)}
+                  {cs &&
+                     widget(
+                        <CommentList api={api} comments={cs.comments} outdated={cs.outdated} />,
+                     )}
                   {form === n &&
                      widget(
                         <CommentForm
                            onCancel={() => setForm(null)}
-                           onSubmit={(text) => {
-                              addReviewComment(sessionId, {
-                                 kind: "file",
+                           onSubmit={async (text) => {
+                              await api.addComment({
                                  path,
                                  line: n,
+                                 side: null,
                                  code: lines[n - 1] ?? "",
                                  text: text.trim(),
                               });

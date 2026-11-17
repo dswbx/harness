@@ -100,6 +100,10 @@ struct Projections {
     titles: HashMap<Option<ThreadId>, (u64, String)>,
     /// Attached Shared Artifact ids, in order of attaching (`ArtifactAttached` / `ArtifactDetached`).
     attached: Vec<String>,
+    /// Review Comments in the order added, with their state (ADR 0027).
+    comments: Vec<crate::api::CommentState>,
+    /// `CommentAdded` events seen, deleted comments included.
+    comments_added: usize,
     /// Thread -> whether its newest `TurnStarted` / `TurnEnded` is a start.
     open_turn: HashMap<ThreadId, bool>,
     /// Thread -> `seq` of its newest `TurnStarted`.
@@ -222,6 +226,30 @@ impl Projections {
             }
             EventKind::ArtifactAttached { id, .. } if !self.attached.contains(id) => self.attached.push(id.clone()),
             EventKind::ArtifactDetached { id, .. } => self.attached.retain(|x| x != id),
+            EventKind::CommentAdded { comment } => {
+                use crate::api::{CommentState, CommentStatus};
+                let status = if comment.by == crate::api::StateWriter::User { CommentStatus::Pending } else { CommentStatus::Open };
+                self.comments_added += 1;
+                self.comments.push(CommentState { comment: comment.clone(), status, resolved_by: None, note: None });
+            }
+            EventKind::CommentEdited { id, text } => {
+                if let Some(c) = self.comments.iter_mut().find(|c| c.comment.id == *id) {
+                    c.comment.text = text.clone();
+                }
+            }
+            EventKind::CommentDeleted { id } => self.comments.retain(|c| c.comment.id != *id),
+            EventKind::CommentsSent { ids } => {
+                for c in self.comments.iter_mut().filter(|c| ids.contains(&c.comment.id) && c.status == crate::api::CommentStatus::Pending) {
+                    c.status = crate::api::CommentStatus::Open;
+                }
+            }
+            EventKind::CommentResolved { id, by, note } => {
+                if let Some(c) = self.comments.iter_mut().find(|c| c.comment.id == *id) {
+                    c.status = crate::api::CommentStatus::Resolved;
+                    c.resolved_by = Some(*by);
+                    c.note = note.clone();
+                }
+            }
             EventKind::TurnStarted { .. } | EventKind::TurnEnded { .. } => {
                 if let Some(t) = &e.thread_id {
                     let started = matches!(e.kind, EventKind::TurnStarted { .. });
@@ -1257,6 +1285,16 @@ impl SessionLog {
     /// Attached Shared Artifact ids, in order of attaching. Projection, no scan.
     pub fn attached_shared(&self) -> anyhow::Result<Vec<String>> {
         self.project(|i| i.proj.attached.clone())
+    }
+
+    /// Review Comments in the order added, with their state. Projection, no scan.
+    pub fn comments(&self) -> anyhow::Result<Vec<crate::api::CommentState>> {
+        self.project(|i| i.proj.comments.clone())
+    }
+
+    /// How many `CommentAdded` the log holds (deleted ones too): ids are never reused.
+    pub fn comments_added(&self) -> anyhow::Result<usize> {
+        self.project(|i| i.proj.comments_added)
     }
 
     /// Live Frontend Tool items (calls that named an `id`, not removed since), first seen first. Projection, no scan.

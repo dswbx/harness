@@ -9,6 +9,7 @@ export function seedSessions(mock: MockTransport): void {
       for (const a of mock.shared.values())
          if (a.meta.attached?.includes("mock-1"))
             mock.emit("mock-1", { type: "ArtifactAttached", id: a.meta.id, by: "user" }, null);
+   if (mock.fixture.length > 0) seedComments(mock);
    // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
    const h = 3600e3;
    const ws = (folder: string, o: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
@@ -256,4 +257,54 @@ export function seedSessions(mock: MockTransport): void {
       s.created_ms = Date.now() - age * h;
       s.updated_ms = s.created_ms;
    });
+}
+
+/** Review Comments (ADR 0027) on the fixture diff: sent, Agent, resolved and pending. */
+function seedComments(mock: MockTransport): void {
+   const add = (
+      id: string,
+      path: string,
+      line: number,
+      side: "old" | "new",
+      code: string,
+      text: string,
+      by: "user" | "agent" = "user",
+   ) =>
+      mock.emit(
+         "mock-1",
+         { type: "CommentAdded", comment: { id, path, line, side, code, text, by } },
+         null,
+      );
+   add(
+      "c1",
+      "src/hello.ts",
+      2,
+      "new",
+      '  const name = "world";',
+      "Why hardcode the name? Take it as a parameter.",
+   );
+   add(
+      "c2",
+      "src/hello.ts",
+      5,
+      "new",
+      "export const answer = 42;",
+      "Unused export. Remove it or document why it exists.",
+      "agent",
+   );
+   add("c3", "src/hello.ts", 2, "old", '  return "hi";', "Keep the greeting configurable.");
+   add(
+      "c4",
+      "src/server/router.ts",
+      114,
+      "new",
+      "  const m = method.toUpperCase();",
+      "Normalize once at registration instead.",
+   );
+   mock.emit("mock-1", { type: "CommentsSent", ids: ["c1", "c3"] }, null);
+   mock.emit(
+      "mock-1",
+      { type: "CommentResolved", id: "c3", by: "agent", note: "Greeting now uses the name." },
+      null,
+   );
 }

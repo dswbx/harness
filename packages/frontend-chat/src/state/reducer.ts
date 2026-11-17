@@ -89,6 +89,11 @@ const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    ArtifactAttached: NONE,
    ArtifactDetached: NONE,
    ArtifactStateChanged: NONE,
+   CommentAdded: NONE,
+   CommentEdited: NONE,
+   CommentDeleted: NONE,
+   CommentsSent: NONE,
+   CommentResolved: NONE,
    AgentUpdate: NONE,
    FrontendError: NONE,
    ModeChanged: [configSlice],
@@ -104,7 +109,12 @@ function apply(c: Ctx, e: Event) {
       type === "StateChanged" ||
       type === "ArtifactAttached" ||
       type === "ArtifactDetached" ||
-      type === "ArtifactStateChanged"
+      type === "ArtifactStateChanged" ||
+      type === "CommentAdded" ||
+      type === "CommentEdited" ||
+      type === "CommentDeleted" ||
+      type === "CommentsSent" ||
+      type === "CommentResolved"
    ) {
       sessionLevel(c, e);
       return;

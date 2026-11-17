@@ -17,7 +17,8 @@ import { CommentCount } from "../changes/DiffViewer";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
 import { useWrapCode, WrapButton } from "../markdown/CodeBlock";
-import { useFileComments } from "../review/reviewComments";
+import { activeCommentsOn, fileViewComments } from "../review/reviewComments";
+import { useLineComments } from "../review/useLineComments";
 import { FileView, type LineRange } from "./FileView";
 
 /** A file to show, with the lines to mark (a code lens, a comment chip). A new object shows it again. */
@@ -134,7 +135,8 @@ export function FilesPanel({
    /** Bumped by Refresh and by a git status change: the list and the open file load again. */
    const [tick, setTick] = useState(0);
    const git = useGitStatus(api, { enabled: !!workspace?.repo_root, refreshKey: tick });
-   const comments = useFileComments(sessionId);
+   const allComments = useLineComments(api);
+   const comments = useMemo(() => fileViewComments(allComments), [allComments]);
    const wrap = useWrapCode();
    const sidebar = useResizableWidth({
       store: treeWidth,
@@ -252,7 +254,7 @@ export function FilesPanel({
       () => folderStatus(git.status?.files ?? [], prefix),
       [git.status, prefix],
    );
-   const commentsOn = (p: string) => comments.filter((c) => c.path === p).length;
+   const commentsOn = (p: string) => activeCommentsOn(comments, p);
 
    const select = (path: string) => {
       setSelected(path);
@@ -351,7 +353,7 @@ export function FilesPanel({
                ) : (
                   <FileView
                      key={file.path}
-                     sessionId={sessionId}
+                     api={api}
                      path={file.path}
                      lines={file.lines}
                      comments={comments}

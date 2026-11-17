@@ -105,7 +105,7 @@ fn kinds(events: &[Event]) -> Vec<String> {
 async fn turn_streams_into_session_log() {
     let (h, sid, _dir) = setup().await;
     let (all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "use a tool".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "use a tool".into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     let k = kinds(&all.lock().unwrap());
     for expected in [
@@ -134,7 +134,9 @@ async fn title_of(h: &Harness) -> String {
 async fn agent_title_becomes_session_title() {
     let (h, sid, dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     assert_eq!(title_of(&h).await, "Fake title");
     drop(h);
@@ -156,7 +158,9 @@ async fn explicit_title_wins_over_agent_titles() {
     h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: "  Fix the\nlogin bug ".into() }).await.unwrap();
     assert_eq!(title_of(&h).await, "Fix the login bug");
     assert!(h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: " ".into() }).await.is_err());
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     assert_eq!(title_of(&h).await, "Fix the login bug", "the Agent's title is dropped");
     let titles: Vec<Option<String>> = all
@@ -181,7 +185,9 @@ async fn ended_turn_is_unseen_until_marked_seen() {
     let (h, sid, _dir) = setup().await;
     assert!(!unseen_of(&h).await);
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
     // Set right after `TurnFinished`.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -197,7 +203,9 @@ async fn ended_turn_is_unseen_until_marked_seen() {
 async fn permission_first_answer_wins_and_late_view_replays() {
     let (h, sid, _dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     assert_eq!(status_of(&h).await, SessionStatus::NeedsAttention);
@@ -224,7 +232,7 @@ async fn permission_first_answer_wins_and_late_view_replays() {
 async fn harness_looking_titles_do_not_skip_the_policy() {
     let (h, sid, _dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![] };
+    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] };
 
     h.execute(prompt("spoof execute mcp__harness__x")).await.unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
@@ -276,7 +284,9 @@ fn rule(scope: RuleScope, pattern: &str, decision: Decision) -> Command {
 async fn permission_turn(h: &Harness, sid: &str) -> (Resolver, Option<String>, String) {
     let (_all, mut rx) = collect(h, sid);
     let start = _all.lock().unwrap().len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     // Skip the replayed history of earlier Turns.
     for _ in 0..start {
         rx.recv().await.unwrap();
@@ -309,7 +319,9 @@ async fn policy_rules_answer_without_a_view() {
 async fn always_allow_is_remembered_for_the_session() {
     let (h, sid, _dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()), global: false }).await.unwrap();
@@ -327,7 +339,9 @@ async fn always_allow_is_remembered_for_the_session() {
 async fn global_always_allow_applies_to_other_sessions() {
     let (h, sid, dir) = setup().await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("always".into()), global: true }).await.unwrap();
@@ -374,7 +388,7 @@ async fn turn(h: &Harness, sid: &str, thread_id: Option<String>, text: &str) -> 
 
 async fn turn_with(h: &Harness, sid: &str, thread_id: Option<String>, text: &str, attachments: Vec<AttachmentInput>) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: thread_id.clone(), text: text.into(), attachments }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: thread_id.clone(), text: text.into(), attachments, comment_ids: vec![] }).await.unwrap();
     // The end of the Turn this prompt started: another Turn of the Thread may run beside it.
     let ended = |evs: &[Event]| {
         let evs = &evs[before..];
@@ -479,7 +493,7 @@ async fn agent_without_resume_or_load_reports_at_once_until_continued_with_summa
     turn(&h, &sid, None, "remember the word banana").await;
     drop(h);
     let h2 = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
-    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![] };
+    let prompt = |text: &str| Command::Prompt { session_id: sid.clone(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] };
     assert!(h2.execute(prompt("again")).await.is_err());
     assert!(h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::ThreadReadOnly { retryable: false, .. })));
     assert!(!h_events(&h2, &sid).iter().any(|k| matches!(k, EventKind::AgentSessionRestoring { .. })), "no retries");
@@ -518,7 +532,7 @@ async fn resume_that_keeps_failing_can_be_tried_again_later() {
     // 4 tries fail in this process; the prompt after them succeeds.
     drop(h);
     let h2 = harness(&dir.path().join("data"), &["--resume", "--resume-fails=4"], Duration::from_secs(900));
-    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "back".into(), attachments: vec![] };
+    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "back".into(), attachments: vec![], comment_ids: vec![] };
     assert!(h2.execute(prompt).await.is_err());
     let report = h_events(&h2, &sid)
         .into_iter()
@@ -770,7 +784,9 @@ async fn main_thread_mid_turn_falls_back_to_a_seed() {
     let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
     turn(&h, &sid, None, "main").await;
     let (_all, mut rx) = collect(&h, &sid);
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
 
@@ -967,7 +983,10 @@ async fn agent_that_fails_to_start_reports_its_stderr() {
         mcp_servers: vec![],
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
-    let err = h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.unwrap_err();
+    let err = h
+        .execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "hi".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap_err();
     assert!(err.message.contains("exited during startup") && err.message.contains("config missing: API_KEY"), "{err}");
     assert!(h_events(&h, &session_id).iter().any(|k| matches!(k,
         EventKind::AgentProcessState { state: ProcessState::Failed, message: Some(m) } if m.contains("config missing"))));
@@ -996,7 +1015,9 @@ async fn app_events_announce_list_changes_and_attention() {
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
     let (_all, mut rx) = collect(&h, &session_id);
-    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: session_id.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
     let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
     until(&mut rx, |k| matches!(k, EventKind::SessionStatusChanged { status: SessionStatus::NeedsAttention })).await;
@@ -1058,7 +1079,7 @@ async fn warm_up_racing_the_first_prompt_opens_one_agent_session() {
     let (h, sid, _dir) = setup().await;
     let (a, b) = tokio::join!(
         h.execute(Command::WarmUp { session_id: sid.clone() }),
-        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] })
+        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![], comment_ids: vec![] })
     );
     a.unwrap();
     b.unwrap();
@@ -1111,7 +1132,10 @@ async fn pasted_image_is_stored_and_sent() {
 async fn image_is_refused_when_the_agent_does_not_accept_images() {
     let (h, sid, dir) = setup().await;
     let image = AttachmentInput::Data { name: "a.png".into(), mime: "image/png".into(), data: b64(b"png") };
-    let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "look".into(), attachments: vec![image] }).await.unwrap_err();
+    let err = h
+        .execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "look".into(), attachments: vec![image], comment_ids: vec![] })
+        .await
+        .unwrap_err();
     assert!(err.message.contains("Fake does not accept images."), "{err}");
     assert!(!h_events(&h, &sid).iter().any(|k| matches!(k, EventKind::TurnStarted { .. })));
     assert!(!dir.path().join("data/sessions").join(&sid).join("attachments").exists());
@@ -1136,7 +1160,10 @@ async fn files_are_linked_inside_the_folder_and_embedded_outside() {
     assert_eq!(got[0].mime, "text/markdown");
 
     let missing = AttachmentInput::Path { path: dir.path().join("nope.txt").display().to_string() };
-    let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "x".into(), attachments: vec![missing] }).await.unwrap_err();
+    let err = h
+        .execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "x".into(), attachments: vec![missing], comment_ids: vec![] })
+        .await
+        .unwrap_err();
     assert!(err.message.contains("nope.txt"), "{err}");
 }
 
@@ -1419,7 +1446,7 @@ async fn malformed_json_from_the_agent_ends_the_turn_and_the_session_recovers() 
 #[tokio::test(flavor = "multi_thread")]
 async fn cancel_ends_a_turn_the_agent_never_answers() {
     let (h, sid, _dir) = setup_with(&["--resume"], Duration::from_secs(900)).await;
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "fault-hang".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "fault-hang".into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
     wait_for(&h, &sid, "the Turn to be under way", |l| l.iter().any(|k| matches!(k, EventKind::AgentMessageChunk { .. }))).await;
     assert_eq!(status_of(&h).await, SessionStatus::Working);
     h.execute(Command::Cancel { session_id: sid.clone(), thread_id: None }).await.unwrap();
@@ -1451,7 +1478,9 @@ async fn huge_tool_output_is_logged_and_the_session_stays_responsive() {
 #[tokio::test(flavor = "multi_thread")]
 async fn permission_request_after_cancel_does_not_stay_pending() {
     let (h, sid, _dir) = setup().await;
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "fault-late-permission".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "fault-late-permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     wait_for(&h, &sid, "the tool call", |l| l.iter().any(|k| matches!(k, EventKind::ToolCall { .. }))).await;
     h.execute(Command::Cancel { session_id: sid.clone(), thread_id: None }).await.unwrap();
     // The Agent asks only now. Nobody is left to answer: the Harness answers "cancelled" itself.
@@ -1523,7 +1552,7 @@ async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
     assert!(sessions.iter().any(|s| s.id == sid), "the Session is still listed");
     assert_eq!(events(&h2, &sid).len(), next + 2, "and its Events can be read");
 
-    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "again".into(), attachments: vec![] };
+    let prompt = Command::Prompt { session_id: sid.clone(), thread_id: None, text: "again".into(), attachments: vec![], comment_ids: vec![] };
     let e = h2.execute(prompt).await.unwrap_err();
     assert_eq!(e.code, harness_core::api::ErrorCode::Conflict, "{e}");
     assert!(e.message.contains("newer version"), "{e}");
@@ -1539,7 +1568,15 @@ async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
 /// Asks a plan approval (`spoof switch_mode`) and rejects it; returns its `mode_before`.
 async fn plan_mode_before(h: &Harness, sid: &str) -> Option<String> {
     let (_all, mut rx) = collect(h, sid);
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: "spoof switch_mode Ready to code?".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt {
+        session_id: sid.into(),
+        thread_id: None,
+        text: "spoof switch_mode Ready to code?".into(),
+        attachments: vec![],
+        comment_ids: vec![],
+    })
+    .await
+    .unwrap();
     // Earlier plan requests replay: take the one still pending.
     let pending = |k: &EventKind| match k {
         EventKind::PermissionRequested { plan: Some(_), request_id, .. } => {

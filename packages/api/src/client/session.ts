@@ -1,5 +1,6 @@
 import type {
    AttachmentInput,
+   CommentSide,
    Commit,
    Diff,
    Editor,
@@ -7,6 +8,7 @@ import type {
    FrontendAnswer,
    GitStatus,
    KnownRepo,
+   LineComment,
    PrInfo,
    PrRefKey,
    RepoId,
@@ -18,6 +20,7 @@ import type {
    WorkspaceInfo,
 } from "../generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "../transport/transport";
+import { commentsApi } from "./session/comments";
 import { coreApi } from "./session/core";
 import { filesApi } from "./session/files";
 import { frontendFilesApi } from "./session/frontendFiles";
@@ -36,7 +39,27 @@ export interface SessionApi {
     * `attachments`: files by path (picker, drop) or pasted bytes (base64). `threadId`: a Side Thread
     * (default: the Main Thread). Same for `cancel`, `setConfigOption`, `setMode`, `continueWithSummary`.
     */
-   prompt(text: string, attachments?: AttachmentInput[], threadId?: string | null): Promise<void>;
+   prompt(
+      text: string,
+      attachments?: AttachmentInput[],
+      threadId?: string | null,
+      /** Pending Review Comments this prompt carries: the core marks them sent (ADR 0027). */
+      commentIds?: string[],
+   ): Promise<void>;
+   /** Adds a line comment as the user (pending until a prompt carrying it is sent). */
+   addComment(c: {
+      path: string;
+      line: number;
+      side: CommentSide | null;
+      code: string;
+      text: string;
+   }): Promise<LineComment>;
+   /** Edits a pending comment; the core refuses a sent one. */
+   editComment(id: string, text: string): Promise<void>;
+   /** Deletes a pending comment; the core refuses a sent one. */
+   deleteComment(id: string): Promise<void>;
+   /** Resolves an open comment (the Agent can too, through the Harness MCP). */
+   resolveComment(id: string): Promise<void>;
    /** A stored attachment (`attachments/` in the Session Directory) as base64. */
    readAttachment(path: string): Promise<{ mime: string; data: string }>;
    /** An image file picked or dropped in the prompt box as base64 (image files only). */
@@ -207,5 +230,6 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       ...frontendFilesApi(transport, sessionId),
       ...terminalApi(transport, sessionId),
       ...sharedApi(transport, sessionId),
+      ...commentsApi(transport, sessionId),
    };
 }

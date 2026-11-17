@@ -7,6 +7,7 @@
 mod agents;
 mod app_event;
 mod command;
+mod comments;
 mod error;
 mod event;
 mod frontend;
@@ -20,6 +21,7 @@ mod shared;
 pub use agents::*;
 pub use app_event::*;
 pub use command::*;
+pub use comments::*;
 pub use error::*;
 pub use event::*;
 pub use frontend::*;
