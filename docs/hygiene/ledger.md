@@ -1,11 +1,13 @@
 # Hygiene ledger
 
-The weekly hygiene routine reads this file and keeps it up to date. It holds what the routine must remember from one run to the next: which area to look at this week, the findings that are already known, and what the routine may do without asking. The routine edits this file in its own PR, and that PR follows the rules below like any other.
+The weekly hygiene routine reads this file and keeps it up to date. It holds what the routine must remember from one run to the next: the steps it takes, the area to look at this week, the findings already known, and what the routine may do without asking.
+
+The routine may edit only the [Known findings](#known-findings) table, and only in the ways that table allows. Every other part of this file changes only through a PR the owner merges.
 
 ## Run
 
-1. **Scope.** The commits on `main` since the newest issue labelled `weekly-hygiene` (open or closed), plus this week's rotating area. If no such issue exists, use the last 7 days.
-2. **Measure.** Collect the numbers from the table in the last issue and compare them with that issue.
+1. **Scope.** The commits on `main` since the newest issue labelled `weekly-hygiene` (open or closed), plus this week's [rotating area](#rotating-area). With no earlier issue, use the last 7 days.
+2. **Measure.** Collect the [numbers](#numbers) and compare them with the previous issue's table.
 3. **Find.** Look for:
    - duplicated logic
    - modules that grew past one responsibility
@@ -13,73 +15,117 @@ The weekly hygiene routine reads this file and keeps it up to date. It holds wha
    - docs that name paths or commands that no longer exist
    - deprecation warnings in the last CI and Release runs
 
-   Report a finding only if you verified it in the code, with `file:line`. Skip every finding listed under [Known findings](#known-findings). Use an independent subagent to verify each finding before you report it.
-4. **Fix.** Open up to 2 PRs, on the session's branch or branches, for fixes in the [auto-merge classes](#auto-merge). Each PR fixes only one class of problem.
-5. **Review.** Each PR gets an independent subagent review. Give the reviewer the diff, not your conclusion, and ask it to check behaviour, layout, keyboard and focus, and the AGENTS.md rules. Run the browser mock for UI changes.
-6. **Merge or ask.**
-   - Merge the PR yourself when all three hold:
-     - CI is green on the PR's head.
-     - The review says SAFE with no blocking items.
-     - The PR stays inside the auto-merge rules.
-   - Otherwise leave the PR open and put it under "Needs you" in the issue.
-7. **Record.** Add every finding that you did not fix to [Known findings](#known-findings), with its status. Do this in the run's ledger PR. That PR may be one of the 2 PRs, and an auto-merge PR may include the ledger update.
+   Report a finding only if it was verified in the code, with `file:line`. Skip findings already in [Known findings](#known-findings). An independent subagent checks each finding before it is reported.
+4. **Fix.** Open at most 2 fix PRs. Each one covers one [auto-merge class](#auto-merge), or picks up one `open` finding from the table. A fix PR never also changes this file.
+5. **Review.** Every fix PR gets a review from an independent subagent:
+   - Give it the diff, not your conclusion.
+   - Ask for a verdict, `SAFE` or `NOT SAFE`, and a list of blocking items.
+   - Ask it to check behaviour, layout, keyboard and focus, and the AGENTS.md rules.
+   - For UI changes, also run the browser mock.
+6. **Merge or leave.**
+   - Merge a fix PR yourself only when all of these hold:
+     - Every CI check on its head completed and passed.
+     - The verdict is `SAFE` with no blocking items.
+     - The PR fits the [auto-merge](#auto-merge) rules.
+   - Otherwise leave it open for the owner.
+7. **Record.** After step 6, open one ledger PR that changes only the Known findings table:
+   - Add each new finding that was not fixed.
+   - Set fixed rows to `fixed (#PR)`.
+
+   Merge it yourself when its diff touches only table rows and sets no `wontfix`, and CI passed. If a fix PR is still open, its finding goes in as `open` with the PR number.
 8. **Report.**
-   - Open the issue "Weekly hygiene YYYY-MM-DD" with the label `weekly-hygiene`. It holds up to 5 ranked findings, the PRs with their outcome (merged, or open with the reason), and the numbers table.
-   - If nothing needs the owner, close the issue at the end of the run.
-   - If the previous run's issue is still open and nothing in it is open any more, close it.
-9. **Notify.** Send a push notification only when something needs the owner: an open PR, a finding marked `decide`, or a run that failed. A run where everything went well stays silent.
-10. **Security.** File a security finding as a private draft advisory only, and put one neutral line in the issue. Never fix a security finding in an auto-merge PR.
+   - Open the issue "Weekly hygiene YYYY-MM-DD", labelled `weekly-hygiene`. It holds up to 5 ranked new findings, each PR with its outcome (merged, or open and why), and the numbers table.
+   - If a run finds nothing, say so in one line.
+   - Close the issue at the end of the run if the run has no open PR and no new `decide` finding.
+   - Close the previous run's issue once all its PRs are merged or closed.
+9. **Notify.** Send a push notification only for:
+   - a PR left open for the owner
+   - a new `decide` finding
+   - a step that failed, such as access denied or a red check that could not be fixed
+
+   Findings that were already `decide` before this run never trigger a notification. A clean run stays silent.
+10. **Security.** File a security finding only as a private draft advisory, and put one neutral line in the issue. Security findings never go into this file and are never fixed in an auto-merge PR.
 
 ## Auto-merge
 
-The routine may merge its own PR without asking only when the PR does nothing but the following:
+The routine may merge its own fix PR only if the PR does nothing but the following:
 
-- fixes a doc path or command that no longer exists, or updates this ledger
-- bumps a GitHub Action whose new major only changes the runtime, in workflows that CI runs (`ci.yml`); not `release.yml`
-- swaps native code for the rule's version under an AGENTS.md rule (`ScrollArea`, shadcn `Tooltip`, `storedValue`, ...) with the same behaviour, and the browser mock was checked
-- replaces copies of a helper with one shared helper that gives the same output; it may add the helper to `HOMES` in `scripts/boundaries.ts`
-- removes dead code that knip or Biome reports (unused exports, suppressions that have no effect)
+- fixes a path or command that no longer exists in `README.md`, `docs/plans/`, `docs/explorations/` or a package README
+- under an AGENTS.md rule, swaps native code for the rule's version with the same behaviour: `ScrollArea`/`VirtualList` for native scroll, the shadcn `Tooltip` for `title=`, or a shadcn primitive for a native control. Check UI swaps in the browser mock.
+- replaces copies of a helper with one shared helper that gives the same output for every caller (checked by reading each copy), inside one package
+- removes dead code that is internal to a file: suppressions that have no effect, unused local functions or variables
 
-It never merges:
+It never merges a PR that:
 
-- behaviour changes in `crates/`
-- changes to the Event/Command API or `generated.ts`
-- dependency bumps
-- changes to `release.yml`
-- deletions of tests
-- a PR with more than about 150 changed lines
+- changes behaviour anywhere (Rust or TS), or any public export of `@harness/api` or `@harness/ui`
+- touches:
+  - `crates/` (except the doc-only fixes above)
+  - `generated.ts`, `api/`, manifests
+  - dependencies or lockfiles
+  - GitHub Actions versions
+  - `.github/workflows/`, workflow permissions
+  - Tauri config or capabilities
+  - `agents.rs`, `toolchain.rs`
+  - `prompts/`, `instructions.md`
+  - `AGENTS.md`, `GLOSSARY.md`, ADRs
+  - `scripts/boundaries.ts`, `scripts/check-boundaries.ts`, `biome.json`, `knip.json`
+  - storage keys, stored formats, Panel ids
+- deletes, skips or loosens a test or snapshot, or updates a snapshot
+- has more than 150 changed lines (insertions plus deletions in `git diff --shortstat` against `main`)
 
-Anything outside these rules stays open for the owner.
+Everything else stays open for the owner.
+
+## Numbers
+
+Put these in each issue's table, with the previous value next to each:
+
+- Biome warnings and infos (`biome check .`)
+- Clippy warnings (the CI result)
+- knip findings, `knip.json` ignore entries, and the number of `@internal` tags
+- Boundary exceptions: entries in the `*_ALLOWED` maps in `scripts/check-boundaries.ts`
+- Tests: vitest (normal and bench) and Rust (passed and ignored, from the CI log)
+- CI duration per job, from the last `main` run of `ci.yml`
+- Reruns: runs with an attempt above 1 among the last 40
+- Cache: rust-cache hit and size
+- The 10 largest source files (no generated files, fixtures or `spikes/`)
 
 ## Rotating area
 
-The area is the ISO week number modulo 6.
+The area is the ISO week number modulo 6. The paths are from the repo root.
 
 | Week mod 6 | Area |
 | --- | --- |
-| 0 | `crates/harness-core/src/session/`, `acp/`, `log.rs` |
-| 1 | `crates/harness-core/src/git/`, `github/`, `mcp/`, `sub_sessions.rs` |
-| 2 | `crates/harness-tauri/` |
-| 3 | `packages/api/`, `packages/ui/` |
+| 0 | `crates/harness-core/src/`: `session/`, `acp/`, `log.rs`, `persist.rs`, `state.rs`, `agent_quirks.rs` |
+| 1 | `crates/harness-core/src/`: `host/`, `api/`, `git/`, `github/`, `mcp/`, `sub_sessions.rs`, `shared.rs` |
+| 2 | `crates/harness-core/src/`: the other top-level files (`agents.rs`, `toolchain.rs`, `permissions.rs`, `terminal.rs`, `proc.rs`, `http.rs`, ...), `prompts/`, `tests/`, `crates/fake-agent/` |
+| 3 | `crates/harness-tauri/`, `packages/api/`, `packages/ui/` |
 | 4 | `packages/frontend-chat/`, `packages/frontend-inspector/` |
-| 5 | `app/`, `scripts/`, `.github/`, docs (AGENTS.md, README, ADRs) |
+| 5 | `app/`, `scripts/`, `.github/`, root config, docs (AGENTS.md, README, ADRs) |
 
 ## Known findings
 
-The routine skips these. To retire an entry, set its status to `fixed (#PR)` or `wontfix (reason)`. The routine removes `fixed` entries once they are older than 4 weeks.
+The routine skips these.
+
+The routine may:
+
+- add a row with status `open` or `decide`
+- set a row to `fixed (#PR)` once that PR is merged
+- remove `fixed` rows that are more than 4 weeks old
+
+Only the owner sets `wontfix` or edits a finding's text.
 
 Status values:
 
-- **`open`**: a fix with no decision needed that is not done yet. The routine may pick it up as one of its PRs.
-- **`decide`**: needs the owner (a design or a split).
+- **`open`**: a fix that needs no decision and is not done yet. The routine may pick it up as a fix PR.
+- **`decide`**: needs the owner (a design, a split, or a change to behaviour).
 - **`fixed`** and **`wontfix`**: closed.
 
 | ID | First seen | Finding | Where | Status |
 | --- | --- | --- | --- | --- |
-| H1 | 2026-11-17 (#185) | Config-option choices are parsed twice. `option_values` and `ModeInfo::of_option` ignore grouped choices, but `sub_sessions` flattens them, so the mode name and plan-mode detection miss grouped values. | `crates/harness-core/src/api/event.rs:401-410`, `sub_sessions.rs:676-692` | decide (behaviour change in core) |
-| H2 | 2026-11-17 (#185) | The list and inspector keyboard controllers are copied between the two panels. | `features/artifacts/ArtifactsPanel.tsx:216-232,753-770`, `features/references/ReferencesPanel.tsx:431-447,653-670` | open |
-| H3 | 2026-11-17 (#185) | Rust helpers are duplicated: `slug`, `~` expansion, and the osascript timeout loop, which re-implements `proc::run`. | `shared.rs:49`/`git/parse.rs:102`; `permissions.rs:183`/`git/worktree.rs:202`; `harness-tauri/src/context.rs:436` | decide (core behaviour) |
-| H4 | 2026-11-17 (#185) | `log.rs` has about 6 jobs (projections, scan, health, writer, fan-out, API). `sub_sessions.rs` has 3. | `crates/harness-core/src/log.rs`, `sub_sessions.rs` | decide (module split) |
-| H5 | 2026-11-17 (#185) | Native `title=` tooltips; in `FilesPanel` the path shows twice, next to the `PanelHeader` tooltip. | `features/files/FilesPanel.tsx:278`, `features/toolDisplay/TraceDisplay.tsx:88` | open |
-| H6 | 2026-11-17 (#185) | `upload-artifact@v4` and `download-artifact@v4` run on Node 20. The fix is v6 and v7, but CI does not exercise `release.yml`. | `.github/workflows/release.yml` | decide (release workflow) |
-| H7 | 2026-11-17 (#185) | `actions/checkout@v4` on Node 20, README `src/api.rs`, three `plural` copies, native scroll in PlanNote, toast, UserMessage, disclosure and FileTreeList, and an unused `biome-ignore` in slotPanels. | | fixed (#184, #186) |
+| H1 | 2026-11-17 (#185) | Config-option choices are parsed twice. `option_values` and `ModeInfo::of_option` ignore grouped choices, but `sub_sessions` flattens them, so the mode name and plan-mode detection miss grouped values. | `crates/harness-core/src/api/event.rs:400-410`, `crates/harness-core/src/sub_sessions.rs:676-692` | decide (behaviour change in core) |
+| H2 | 2026-11-17 (#185) | The list and inspector keyboard controllers are copied between the two panels. The copies differ: Enter does something different in each, and one checks `e.target`. | `packages/frontend-chat/src/features/artifacts/ArtifactsPanel.tsx:216-232,753-768`, `packages/frontend-chat/src/features/references/ReferencesPanel.tsx:431-447,653-669` | decide (shared hook, behaviour differs) |
+| H3 | 2026-11-17 (#185) | Rust helpers are duplicated: `slug`, `~` expansion, and the osascript timeout loop, which re-implements `proc::run`. | `crates/harness-core/src/shared.rs:49` and `crates/harness-core/src/git/parse.rs:102`; `crates/harness-core/src/permissions.rs:183` and `crates/harness-core/src/git/worktree.rs:202`; `crates/harness-tauri/src/context.rs:436` | decide (core) |
+| H4 | 2026-11-17 (#185) | `log.rs` has about 6 jobs (projections, scan, health, writer, fan-out, API). `sub_sessions.rs` has 3. | `crates/harness-core/src/log.rs`, `crates/harness-core/src/sub_sessions.rs` | decide (module split) |
+| H5 | 2026-11-17 (#185) | Native `title=` tooltips. In `FilesPanel` the path shows in two tooltips, the native one and the `PanelHeader` one. | `packages/frontend-chat/src/features/files/FilesPanel.tsx:278`, `packages/frontend-chat/src/features/toolDisplay/TraceDisplay.tsx:88` | open |
+| H6 | 2026-11-17 (#185) | `upload-artifact@v4` and `download-artifact@v4` run on Node 20. The fix is v6 and v7, but CI does not exercise `release.yml`. | `.github/workflows/release.yml:131,151` | decide (release workflow) |
+| H7 | 2026-11-17 (#185) | Fixed: `actions/checkout@v4` on Node 20, the README path `src/api.rs`, three `plural` copies, native scroll in PlanNote, toast, UserMessage, disclosure and FileTreeList, and an unused `biome-ignore` in slotPanels. | | fixed (#184, #186) |
