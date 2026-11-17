@@ -170,13 +170,19 @@ function CommentRow({
       <div className="space-y-0.5">
          <div className="flex items-start gap-1.5 text-xs">
             <MessageSquare className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{c.text}</span>
+            <span
+               className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+               // Double-click edits a pending comment (the pencil does the same).
+               onDoubleClick={c.status === "pending" ? () => setEditing(true) : undefined}
+            >
+               {c.text}
+            </span>
             {outdated && <Pill tip="The line changed since this comment">Outdated</Pill>}
             {c.by === "agent" && <Pill>Agent</Pill>}
             {c.status === "pending" ? (
                <>
-                  <Pill tip="In the prompt box until you send it">Pending</Pill>
-                  <Tooltip content="Edit comment">
+                  {/* Before the pill: keeps edit away from remove. */}
+                  <Tooltip content="Edit comment (or double-click it)">
                      <button
                         className={iconButton}
                         aria-label="Edit comment"
@@ -185,6 +191,7 @@ function CommentRow({
                         <Pencil className="size-3" />
                      </button>
                   </Tooltip>
+                  <Pill tip="In the prompt box until you send it">Pending</Pill>
                   <Tooltip content="Remove comment">
                      <button
                         className={iconButton}
