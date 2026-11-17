@@ -10,3 +10,9 @@
 {"v":1,"seq":9,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001233,"kind":{"type":"ArtifactStateChanged","id":"release-checklist-3f9a1c","ops":[{"op":"replace","path":"/done/ship","value":true}],"by":"user"}}
 {"v":1,"seq":10,"session_id":"golden-session-0003","thread_id":"golden-thread-main","ts_ms":1790000001370,"kind":{"type":"ArtifactStateChanged","id":"release-checklist-3f9a1c","ops":[{"op":"add","path":"/done/tag","value":false}],"by":"agent"}}
 {"v":1,"seq":11,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001507,"kind":{"type":"ArtifactDetached","id":"architecture-map-a1b2c3","by":"user"}}
+{"v":1,"seq":12,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001600,"kind":{"type":"CommentAdded","comment":{"id":"c1","path":"src/a.ts","line":12,"side":"new","code":"const x = 1;","text":"rename x","by":"user"}}}
+{"v":1,"seq":13,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001700,"kind":{"type":"CommentEdited","id":"c1","text":"rename x to count"}}
+{"v":1,"seq":14,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001800,"kind":{"type":"CommentsSent","ids":["c1"]}}
+{"v":1,"seq":15,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001900,"kind":{"type":"CommentAdded","comment":{"id":"c2","path":"src/a.ts","line":3,"side":null,"code":"import a","text":"unused","by":"user"}}}
+{"v":1,"seq":16,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000002000,"kind":{"type":"CommentDeleted","id":"c2"}}
+{"v":1,"seq":17,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000002100,"kind":{"type":"CommentResolved","id":"c1","by":"agent","note":"renamed"}}

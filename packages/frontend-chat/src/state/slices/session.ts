@@ -1,4 +1,4 @@
-import { applyStatePatch, type Event, stepThreads } from "@harness/api";
+import { applyStatePatch, type Event, stepLineComments, stepThreads } from "@harness/api";
 import { type Ctx, notice } from "../draft";
 
 /**
@@ -22,6 +22,16 @@ export function sessionLevel(c: Ctx, e: Event): boolean {
       const rest = d.sharedAttached.filter((x) => x.id !== k.id);
       d.sharedAttached =
          k.type === "ArtifactAttached" ? [...rest, { id: k.id, ts: e.ts_ms }] : rest;
+      return true;
+   }
+   if (
+      k.type === "CommentAdded" ||
+      k.type === "CommentEdited" ||
+      k.type === "CommentDeleted" ||
+      k.type === "CommentsSent" ||
+      k.type === "CommentResolved"
+   ) {
+      d.lineComments = stepLineComments(d.lineComments, e);
       return true;
    }
    return k.type === "ArtifactStateChanged";

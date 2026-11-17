@@ -621,3 +621,31 @@ describe("MockTransport unused Quick Sessions", () => {
       await expect(client.discardEmptySession("nope")).resolves.toBeUndefined();
    });
 });
+
+describe("MockTransport Review Comments", () => {
+   it("follows the core's lifecycle: pending, sent by a prompt, immutable, resolved", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const id = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const api = createSessionApi(transport, id);
+      const log: Event[] = [];
+      await api.subscribe((e) => log.push(e));
+      const c = await api.addComment({ path: "a.ts", line: 2, side: "new", code: "x", text: "t" });
+      expect(c.id).toBe("c1");
+      await api.editComment(c.id, "t2");
+      await expect(api.resolveComment(c.id)).rejects.toBeInstanceOf(CommandError);
+      await api.prompt("go", [], null, [c.id]);
+      await expect(api.editComment(c.id, "t3")).rejects.toBeInstanceOf(CommandError);
+      await expect(api.deleteComment(c.id)).rejects.toBeInstanceOf(CommandError);
+      await api.resolveComment(c.id);
+      const kinds = log.map((e) => e.kind.type).filter((t) => t.startsWith("Comment"));
+      expect(kinds).toEqual(["CommentAdded", "CommentEdited", "CommentsSent", "CommentResolved"]);
+      expect(
+         (await api.addComment({ path: "a.ts", line: 1, side: null, code: "y", text: "u" })).id,
+      ).toBe("c2");
+   });
+});

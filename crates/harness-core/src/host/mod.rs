@@ -366,7 +366,13 @@ impl Harness {
             Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
                 self.cmd_create_quick_session(agent_id, frontend_id, title, mcp_servers).await
             }
-            Command::Prompt { session_id, thread_id, text, attachments } => self.cmd_prompt(session_id, thread_id, text, attachments).await,
+            Command::Prompt { session_id, thread_id, text, attachments, comment_ids } => {
+                self.cmd_prompt(session_id, thread_id, text, attachments, comment_ids).await
+            }
+            Command::AddComment { session_id, path, line, side, code, text } => self.cmd_add_comment(session_id, path, line, side, code, text),
+            Command::EditComment { session_id, id, text } => self.cmd_edit_comment(session_id, id, text),
+            Command::DeleteComment { session_id, id } => self.cmd_delete_comment(session_id, id),
+            Command::ResolveComment { session_id, id } => self.cmd_resolve_comment(session_id, id),
             Command::ReadAttachment { session_id, path } => self.cmd_read_attachment(session_id, path),
             Command::ReadImageFile { path } => self.cmd_read_image_file(path),
             Command::Cancel { session_id, thread_id } => self.cmd_cancel(session_id, thread_id).await,

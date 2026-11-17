@@ -143,6 +143,18 @@ const table: Record<Command["type"], () => Command> = {
    RenameSharedArtifact: () => ({ type: "RenameSharedArtifact", id: ART, title: "New" }),
    DeleteSharedArtifact: () => ({ type: "DeleteSharedArtifact", id: ART }),
    OpenSharedInEditor: () => ({ type: "OpenSharedInEditor", id: ART }),
+   AddComment: () => ({
+      type: "AddComment",
+      session_id: S,
+      path: "a.ts",
+      line: 1,
+      side: null,
+      code: "c",
+      text: "t",
+   }),
+   EditComment: () => ({ type: "EditComment", session_id: S, id: "c1", text: "t" }),
+   DeleteComment: () => ({ type: "DeleteComment", session_id: S, id: "c1" }),
+   ResolveComment: () => ({ type: "ResolveComment", session_id: S, id: "c1" }),
    PatchArtifactState: () => ({ type: "PatchArtifactState", id: ART, ops: [] }),
 };
 

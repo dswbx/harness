@@ -9,6 +9,10 @@ use super::*;
 #[serde(tag = "type")]
 pub enum CommandResult {
     Ok,
+    /// `AddComment`.
+    Comment {
+        comment: LineComment,
+    },
     Notices {
         notices: Vec<StartupNotice>,
     },

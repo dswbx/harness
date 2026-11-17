@@ -39,7 +39,7 @@ fn events(h: &Harness, sid: &str) -> Vec<Event> {
 /// Runs a Turn, allowing every permission request; returns its events.
 async fn turn(h: &Harness, sid: &str, text: &str) -> Vec<Event> {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
     let mut answered = std::collections::HashSet::new();
     for _ in 0..(240 * 10) {
         let evs = events(h, sid);

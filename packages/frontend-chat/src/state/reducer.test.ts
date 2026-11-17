@@ -1649,6 +1649,32 @@ describe("Shared Artifacts (ADR 0024)", () => {
    });
 });
 
+describe("Review Comments", () => {
+   const comment = (id: string, by: "user" | "agent" = "user") => ({
+      id,
+      path: "a.ts",
+      line: 2,
+      side: "new" as const,
+      code: "x",
+      text: id,
+      by,
+   });
+   it("folds Session-level comment Events into lineComments, in any Thread", () => {
+      const s = fold([
+         ev({ type: "CommentAdded", comment: comment("c1") }, null, 10),
+         ev({ type: "CommentAdded", comment: comment("c2", "agent") }, null, 11),
+         ev({ type: "CommentEdited", id: "c1", text: "edited" }, null, 12),
+         ev({ type: "CommentsSent", ids: ["c1"] }, null, 13),
+         ev({ type: "CommentResolved", id: "c2", by: "user", note: null }, null, 14),
+      ]);
+      expect(s.lineComments.map((c) => [c.id, c.status, c.text])).toEqual([
+         ["c1", "open", "edited"],
+         ["c2", "resolved", "c2"],
+      ]);
+      expect(s.items).toEqual([]);
+   });
+});
+
 describe("background jobs", () => {
    const call = (id: string, title: string, thread = "main") =>
       ev(

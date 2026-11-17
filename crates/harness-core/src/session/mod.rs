@@ -1,6 +1,7 @@
 //! A Session: its Session Directory, Session Log, and the Agent connection backing its Threads.
 
 mod artifacts;
+mod comments;
 mod frontend;
 mod meta;
 mod shared;

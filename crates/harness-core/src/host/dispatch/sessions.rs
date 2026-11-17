@@ -19,8 +19,39 @@ impl Harness {
         thread_id: Option<ThreadId>,
         text: String,
         attachments: Vec<AttachmentInput>,
+        comment_ids: Vec<String>,
     ) -> anyhow::Result<CommandResult> {
-        self.session(&session_id)?.prompt(thread_id, text, attachments, None).await?;
+        let session = self.session(&session_id)?;
+        session.prompt(thread_id, text, attachments, None).await?;
+        // The Turn started: the comments it carries are sent.
+        session.mark_comments_sent(&comment_ids)?;
+        Ok(CommandResult::Ok)
+    }
+
+    pub(in crate::host) fn cmd_add_comment(
+        &self,
+        session_id: SessionId,
+        path: String,
+        line: u32,
+        side: Option<CommentSide>,
+        code: String,
+        text: String,
+    ) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::Comment { comment: self.session(&session_id)?.add_comment(path, line, side, code, text, StateWriter::User)? })
+    }
+
+    pub(in crate::host) fn cmd_edit_comment(&self, session_id: SessionId, id: String, text: String) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.edit_comment(&id, text)?;
+        Ok(CommandResult::Ok)
+    }
+
+    pub(in crate::host) fn cmd_delete_comment(&self, session_id: SessionId, id: String) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.delete_comment(&id)?;
+        Ok(CommandResult::Ok)
+    }
+
+    pub(in crate::host) fn cmd_resolve_comment(&self, session_id: SessionId, id: String) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.resolve_comment(&id, StateWriter::User, None)?;
         Ok(CommandResult::Ok)
     }
 

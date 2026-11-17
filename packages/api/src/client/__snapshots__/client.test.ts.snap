@@ -128,6 +128,17 @@ exports[`HarnessClient wire shape > sends these Commands 1`] = `
 
 exports[`createSessionApi wire shape > sends these Commands 1`] = `
 {
+  "addComment": [
+    {
+      "code": "c",
+      "line": 1,
+      "path": "f",
+      "session_id": "s1",
+      "side": null,
+      "text": "t",
+      "type": "AddComment",
+    },
+  ],
   "answerFrontendRequest": [
     {
       "answer": {
@@ -188,11 +199,26 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "DeleteSession",
     },
   ],
+  "deleteComment": [
+    {
+      "id": "c1",
+      "session_id": "s1",
+      "type": "DeleteComment",
+    },
+  ],
   "detachShared": [
     {
       "id": "a",
       "session_id": "s1",
       "type": "DetachSharedArtifact",
+    },
+  ],
+  "editComment": [
+    {
+      "id": "c1",
+      "session_id": "s1",
+      "text": "t",
+      "type": "EditComment",
     },
   ],
   "exportPlan": [
@@ -404,6 +430,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "session_id": "s1",
       "tool": "t",
       "type": "ReportFrontendError",
+    },
+  ],
+  "resolveComment": [
+    {
+      "id": "c1",
+      "session_id": "s1",
+      "type": "ResolveComment",
     },
   ],
   "resolvePermission": [

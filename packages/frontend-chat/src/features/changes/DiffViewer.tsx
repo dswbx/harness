@@ -3,11 +3,10 @@ import { MessageSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import "@git-diff-view/react/styles/diff-view-pure.css";
 import "./diffView.css";
-import { storedNumber } from "@harness/api";
+import { anchorLine, type LineCommentState, type SessionApi, storedNumber } from "@harness/api";
 import { cn, ResizeHandle, Tooltip, useDragDelta } from "@harness/ui";
 import { languageOf } from "../markdown/highlight";
 import { CommentForm, CommentList } from "../review/ReviewCommentWidgets";
-import { addReviewComment, type DiffComment } from "../review/reviewComments";
 import { type FilePatch, hunkLines } from "./diff";
 import { diffHighlighter } from "./diffHighlighter";
 
@@ -102,15 +101,18 @@ export function codeAt(
    return hunkLines(file.text)[side].get(line) ?? "";
 }
 
-const NO_COMMENTS: DiffComment[] = [];
+const NO_COMMENTS: readonly LineCommentState[] = [];
+/** What one line of the diff shows: its comments, and which of them lost their line's code. */
+type LineThread = { comments: LineCommentState[]; outdated: Set<string> };
 const sideName = (s: SplitSide): "old" | "new" => (s === SplitSide.old ? "old" : "new");
 
 /**
  * One file of a git diff, rendered by git-diff-view. Hover a changed line's gutter and click "+" to comment;
- * comments go to the Session's prompt box (reviewComments.ts).
+ * comments are core Review Comments (ADR 0027) that wait in the Session's prompt box until sent. A comment
+ * follows its line's code when the file changed (`anchorLine`) and says so when it cannot.
  */
 export function DiffViewer({
-   sessionId,
+   api,
    file,
    comments = NO_COMMENTS,
    mode,
@@ -121,10 +123,10 @@ export function DiffViewer({
    className,
 }: {
    /** Absent: read-only, no comments. */
-   sessionId?: string;
+   api?: SessionApi;
    file: FilePatch;
-   /** This Session's comments; the ones for `file` show under their lines. */
-   comments?: DiffComment[];
+   /** This Session's comments; the ones for `file` show under their lines (no side: on the new side). */
+   comments?: readonly LineCommentState[];
    mode: "split" | "unified";
    contents?: FileContents;
    /** px; defaults to the code font size (Appearance). */
@@ -150,16 +152,24 @@ export function DiffViewer({
    );
    const extendData = useMemo(() => {
       const ext: {
-         oldFile: Record<string, { data: DiffComment[] }>;
-         newFile: Record<string, { data: DiffComment[] }>;
+         oldFile: Record<string, { data: LineThread }>;
+         newFile: Record<string, { data: LineThread }>;
       } = { oldFile: {}, newFile: {} };
+      const split = {
+         old: contents?.old.split("\n") ?? null,
+         new: contents?.new.split("\n") ?? null,
+      };
       for (const c of comments) {
          if (c.path !== file.path) continue;
-         const m = c.side === "old" ? ext.oldFile : ext.newFile;
-         (m[String(c.line)] ??= { data: [] }).data.push(c);
+         const side = c.side ?? "new";
+         const at = anchorLine(split[side], c.line, c.code);
+         const m = side === "old" ? ext.oldFile : ext.newFile;
+         const t = (m[String(at.line)] ??= { data: { comments: [], outdated: new Set() } }).data;
+         t.comments.push(c);
+         if (at.outdated) t.outdated.add(c.id);
       }
       return ext;
-   }, [comments, file.path]);
+   }, [comments, file.path, contents]);
 
    return (
       <div
@@ -183,7 +193,7 @@ export function DiffViewer({
                {...split.handle}
             />
          )}
-         <DiffView<DiffComment[]>
+         <DiffView<LineThread>
             data={data}
             extendData={extendData}
             diffViewMode={mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
@@ -192,17 +202,17 @@ export function DiffViewer({
             diffViewWrap={wrap}
             diffViewHighlight
             registerHighlighter={diffHighlighter}
-            diffViewAddWidget={!!sessionId}
-            renderExtendLine={({ data: cs }) =>
-               sessionId && <CommentList sessionId={sessionId} comments={cs} />
+            diffViewAddWidget={!!api}
+            renderExtendLine={({ data: t }) =>
+               api && <CommentList api={api} comments={t.comments} outdated={t.outdated} />
             }
             renderWidgetLine={({ lineNumber, side, onClose }) =>
-               sessionId && (
+               api && (
                   <CommentForm
                      onCancel={onClose}
-                     onSubmit={(text) => {
+                     onSubmit={async (text) => {
                         const s = sideName(side);
-                        addReviewComment(sessionId, {
+                        await api.addComment({
                            path: file.path,
                            line: lineNumber,
                            side: s,

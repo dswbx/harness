@@ -318,6 +318,29 @@ pub enum EventKind {
         ops: Vec<StatePatchOp>,
         by: StateWriter,
     },
+    /// A Review Comment was added (ADR 0027): pending when the user made it, open when the Agent did.
+    CommentAdded {
+        comment: LineComment,
+    },
+    /// A pending comment's text changed.
+    CommentEdited {
+        id: String,
+        text: String,
+    },
+    /// A pending comment was deleted.
+    CommentDeleted {
+        id: String,
+    },
+    /// These pending comments went out with a prompt: they are open from now on.
+    CommentsSent {
+        ids: Vec<String>,
+    },
+    CommentResolved {
+        id: String,
+        by: StateWriter,
+        #[serde(default)]
+        note: Option<String>,
+    },
     GitCommitted {
         commit: String,
         message: String,

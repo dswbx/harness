@@ -60,7 +60,7 @@ async fn setup_in(dir: &Path, flags: &[&str], timeout: Duration) -> (Arc<Harness
 }
 
 async fn prompt(h: &Harness, sid: &str, text: &str) {
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
 }
 
 fn events(h: &Harness, sid: &str) -> Vec<Event> {
@@ -255,7 +255,9 @@ async fn a_start_in_flight_leaves_no_process() {
     let file = dir.path().join("agent.pids");
     let (h, sid) = setup_in(dir.path(), &[&format!("--pid-file={}", file.display()), "--init-delay-ms=20000"], Duration::from_secs(2)).await;
     let h2 = h.clone();
-    let starting = tokio::spawn(async move { h2.execute(Command::Prompt { session_id: sid, thread_id: None, text: "hi".into(), attachments: vec![] }).await });
+    let starting = tokio::spawn(async move {
+        h2.execute(Command::Prompt { session_id: sid, thread_id: None, text: "hi".into(), attachments: vec![], comment_ids: vec![] }).await
+    });
     // The process exists, and `initialize` has not answered.
     let p = pids(&file, 2).await;
     let started = Instant::now();
@@ -347,7 +349,8 @@ async fn no_session_or_turn_starts_once_shutdown_began() {
     };
     assert_eq!(h.execute(create).await.unwrap_err().code, ErrorCode::Unavailable);
     assert_eq!(sessions(), before);
-    let err = h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.unwrap_err();
+    let err =
+        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![], comment_ids: vec![] }).await.unwrap_err();
     assert_eq!((err.code, err.message.as_str()), (ErrorCode::Unavailable, "the Harness is shutting down"));
     let sub = h.subscribe_session(&sid, 0, Box::new(|_: &Event| true));
     assert_eq!(sub.unwrap_err(), "the Harness is shutting down");

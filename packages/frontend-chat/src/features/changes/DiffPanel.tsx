@@ -1,6 +1,7 @@
 import {
    type Diff,
    errText,
+   type LineCommentState,
    openWindow,
    type SessionApi,
    useGitStatus,
@@ -22,7 +23,8 @@ import {
 import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
-import { type DiffComment, useDiffComments } from "../review/reviewComments";
+import { activeCommentsOn } from "../review/reviewComments";
+import { useLineComments } from "../review/useLineComments";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer } from "./DiffViewer";
 import { diffWindowUrl } from "./DiffWindow";
@@ -76,7 +78,7 @@ function FileRow({
 }: {
    api: SessionApi;
    file: FilePatch;
-   comments: DiffComment[];
+   comments: readonly LineCommentState[];
    root: string | null | undefined;
    open: boolean;
    onToggle: () => void;
@@ -106,7 +108,7 @@ function FileRow({
                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                   {slash > 0 ? file.path.slice(0, slash) : ""}
                </span>
-               <CommentCount n={comments.filter((c) => c.path === file.path).length} />
+               <CommentCount n={activeCommentsOn(comments, file.path)} />
                <span className="shrink-0 font-mono text-xs text-emerald-500">
                   +{file.additions}
                </span>
@@ -118,13 +120,7 @@ function FileRow({
          </div>
          {open && (
             <div className="mb-2 border-b">
-               <DiffViewer
-                  sessionId={api.sessionId}
-                  file={file}
-                  comments={comments}
-                  mode="unified"
-                  wrap
-               />
+               <DiffViewer api={api} file={file} comments={comments} mode="unified" wrap />
             </div>
          )}
       </div>
@@ -150,7 +146,7 @@ export function DiffPanel({
    const [diff, setDiff] = useState<Diff | null>(null);
    const [error, setError] = useState<string | null>(null);
    const [open, setOpen] = useState<Set<string>>(new Set());
-   const comments = useDiffComments(api.sessionId);
+   const comments = useLineComments(api);
    /** Bumped by Refresh and by a status change seen while polling: commits reload too. */
    const [tick, setTick] = useState(0);
    const commits = useCommits(api, `${refreshKey}:${tick}`);

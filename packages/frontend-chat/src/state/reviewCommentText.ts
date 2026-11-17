@@ -44,13 +44,12 @@ export type NewComment =
    | Omit<FileComment, "id">
    | Omit<QuoteComment, "id">;
 
-/** Diff comments saved before `kind` existed have no `kind`. */
-export const isDiffComment = (c: ReviewComment): c is DiffComment =>
-   c.kind === undefined || c.kind === "diff";
-export const isFileComment = (c: ReviewComment): c is FileComment => c.kind === "file";
 /** A comment on a code line (diff or file): the "Review comments:" section. */
 export const isLineComment = (c: ReviewComment): c is DiffComment | FileComment =>
    c.kind !== "quote";
+
+/** Core Review Comment ids (`c1`, `c2`, ...); they go in the prompt so the Agent can resolve them. */
+export const CORE_ID = /^c\d+$/;
 
 /** Fence long enough that no backtick run inside `code` closes it. */
 function fence(code: string) {
@@ -83,7 +82,8 @@ export function formatReviewComments(comments: ReviewComment[]): string {
    const diffs = comments.filter(isLineComment).map((c) => {
       const f = fence(c.code);
       const side = c.kind === "file" ? "" : ` (${c.side})`;
-      return `${c.path}:${c.line}${side}\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
+      const id = CORE_ID.test(c.id) ? ` [${c.id}]` : "";
+      return `${c.path}:${c.line}${side}${id}\n${f}\n${c.code}\n${f}\n${c.text.trim()}`;
    });
    const item = (c: QuoteComment) => [quoted(c.quote), c.text.trim()].filter(Boolean).join("\n\n");
    const quotesOf = (pick: (c: QuoteComment) => boolean) =>
@@ -144,8 +144,8 @@ const parseHeader = (l: string | undefined): Header | null => {
    if (a) return { section: "artifact", label: a[1] };
    return null;
 };
-/** `path:line (side)` for a diff line, `path:line` for a file line. */
-const DIFF_HEAD = /^(.+):(\d+)(?: \((old|new)\))?$/;
+/** `path:line (side)` for a diff line, `path:line` for a file line; a core comment adds ` [c3]`. */
+const DIFF_HEAD = /^(.+):(\d+)(?: \((old|new)\))?(?: \[(c\d+)\])?$/;
 const FENCE = /^`{3,}$/;
 const isHeader = (l: string | undefined) => parseHeader(l) !== null;
 
@@ -193,7 +193,7 @@ export function parseReviewComments(text: string): { comments: ReviewComment[]; 
             const code = lines.slice(i + 2, close).join("\n");
             i = close + 1;
             const t = readText();
-            const id = String(comments.length);
+            const id = m[4] ?? String(comments.length);
             const path = m[1] as string;
             const line = Number(m[2]);
             comments.push(

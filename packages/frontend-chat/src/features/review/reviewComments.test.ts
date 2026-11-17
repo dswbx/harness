@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
    formatReviewComments,
-   isDiffComment,
-   isFileComment,
    parseReviewComments,
    type ReviewComment,
    withReviewComments,
@@ -84,14 +82,6 @@ describe("file comments", () => {
       );
    });
 
-   it("are told apart from diff comments (old diff comments have no kind)", () => {
-      expect(isDiffComment(diff())).toBe(true);
-      expect(isDiffComment(file())).toBe(false);
-      expect(isDiffComment(quote("q", ""))).toBe(false);
-      expect(isFileComment(file())).toBe(true);
-      expect(isFileComment(diff())).toBe(false);
-   });
-
    it("round-trip mixed with diff and quote comments", () => {
       const cs = [
          file(),
@@ -100,6 +90,29 @@ describe("file comments", () => {
          quote("hello", "why?"),
       ];
       expect(roundTrip("Do it", cs)).toEqual({ text: "Do it", comments: noIds(cs) });
+   });
+});
+
+describe("core comment ids", () => {
+   it("go in the head of a diff and a file line, so the Agent can resolve them", () => {
+      const text = formatReviewComments([diff({ id: "c3" }), file({ id: "c4" })]);
+      expect(text).toContain("src/a.ts:12 (new) [c3]\n");
+      expect(text).toContain("src/b.ts:7 [c4]\n");
+   });
+
+   it("are not written for a draft's own id", () => {
+      expect(formatReviewComments([diff({ id: "3f2" })])).toContain("src/a.ts:12 (new)\n");
+   });
+
+   it("parse back with the id, and old messages without one keep parsing", () => {
+      const cs = [diff({ id: "c3" }), file({ id: "c12", path: "x (new).ts" })];
+      const p = parseReviewComments(withReviewComments("go", cs));
+      expect(p.comments).toEqual(cs);
+      expect(p.text).toBe("go");
+      const old = parseReviewComments("Review comments:\n\nsrc/a.ts:12 (new)\n```\nx\n```\nhi");
+      expect(old.comments).toEqual([
+         { id: "0", path: "src/a.ts", line: 12, side: "new", code: "x", text: "hi" },
+      ]);
    });
 });
 

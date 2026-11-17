@@ -78,7 +78,7 @@ fn events(h: &Harness, sid: &str) -> Vec<Event> {
 
 async fn turn(h: &Harness, sid: &str, text: &str) {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
     for _ in 0..400 {
         if events(h, sid)[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
             return;
@@ -138,7 +138,9 @@ async fn worktree_session_lifecycle() {
     assert!(!wt.exists());
     assert!(summary(&h, &sid).await.unwrap().archived);
     assert_eq!(sh(&repo, &["log", "-1", "--format=%s", &branch]), "WIP (archived by Harness)");
-    assert!(h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![] }).await.is_err());
+    assert!(
+        h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "hi".into(), attachments: vec![], comment_ids: vec![] }).await.is_err()
+    );
     let err = h.execute(delete(false)).await.unwrap_err();
     assert!(err.message.contains("1 commit(s) not on main"), "{err}");
 

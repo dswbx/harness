@@ -26,13 +26,14 @@ type Core = Pick<
 /** Prompting, Threads, permissions, Session lifecycle and sign-in. */
 export const coreApi = (transport: Transport, sessionId: string): Core => ({
    subscribe: (onEvent, fromSeq = 0) => subscribeResilient(transport, sessionId, fromSeq, onEvent),
-   prompt: (text, attachments = [], threadId = null) =>
+   prompt: (text, attachments = [], threadId = null, commentIds = []) =>
       run(transport, {
          type: "Prompt",
          session_id: sessionId,
          thread_id: threadId,
          text,
          attachments,
+         ...(commentIds.length > 0 && { comment_ids: commentIds }),
       }),
    continueWithSummary: (text, threadId = null, attachments = []) =>
       run(transport, {

@@ -168,6 +168,37 @@ pub(super) fn primitives() -> Vec<Primitive> {
             |s, t, a| Box::pin(run_artifact_detach(s, t, a)),
         ),
         Primitive::run(
+            "comment_list",
+            "List the user's review comments on lines of diffs and files (id, path, line, side, code, text, by, status, note). The user's comments in prompts carry their id in brackets, e.g. `src/a.ts:12 (new) [c3]`. `status`: open (default: sent and not resolved), resolved, or all. Never lists drafts.",
+            json!({ "type": "object", "properties": {
+                "status": { "type": "string", "enum": ["open", "resolved", "all"], "description": "Default open" }
+            } }),
+            "read",
+            |s, t, a| Box::pin(run_comment_list(s, t, a)),
+        ),
+        Primitive::run(
+            "comment_add",
+            "Leave an inline review comment for the user on a line of a file: `path` relative to the Workspace, `line` 1-based, `side` \"new\" (default: the working tree) or \"old\" (the line at HEAD, for a removed line). The Harness reads the line's code itself. Returns the comment id.",
+            json!({ "type": "object", "properties": {
+                "path": { "type": "string" },
+                "line": { "type": "integer", "minimum": 1 },
+                "side": { "type": "string", "enum": ["old", "new"] },
+                "text": { "type": "string" }
+            }, "required": ["path", "line", "text"] }),
+            "state",
+            |s, t, a| Box::pin(run_comment_add(s, t, a)),
+        ),
+        Primitive::run(
+            "comment_resolve",
+            "Resolve a review comment once you addressed it (or decided not to), with an optional short `note` for the user. Use the id from the prompt or `comment_list`.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string" },
+                "note": { "type": "string" }
+            }, "required": ["id"] }),
+            "state",
+            |s, t, a| Box::pin(run_comment_resolve(s, t, a)),
+        ),
+        Primitive::run(
             "threads_list",
             "The Threads of this Session: the Main Thread and any Side Threads (id, kind, title from the first prompt, Turn count).",
             empty,
@@ -418,6 +449,54 @@ async fn run_set_title(session: &Arc<Session>, _: &ThreadId, args: &Value) -> an
     let title = arg_str(args)("title").unwrap_or_default();
     session.set_title(&title)?;
     Ok(format!("Session titled: {}", session.meta().title))
+}
+
+async fn run_comment_list(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
+    use crate::api::CommentStatus;
+    let want = arg_str(args)("status").unwrap_or_else(|| "open".to_owned());
+    anyhow::ensure!(matches!(want.as_str(), "open" | "resolved" | "all"), "status must be open, resolved or all");
+    let list: Vec<Value> = session
+        .comments()?
+        .into_iter()
+        .filter(|c| c.status != CommentStatus::Pending)
+        .filter(|c| want == "all" || (want == "open") == (c.status == CommentStatus::Open))
+        .map(|c| {
+            json!({
+                "id": c.comment.id, "path": c.comment.path, "line": c.comment.line, "side": c.comment.side, "code": c.comment.code,
+                "text": c.comment.text, "by": c.comment.by,
+                "status": if c.status == CommentStatus::Open { "open" } else { "resolved" }, "note": c.note,
+            })
+        })
+        .collect();
+    Ok(serde_json::to_string_pretty(&list)?)
+}
+
+async fn run_comment_add(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
+    use crate::api::CommentSide;
+    let s = arg_str(args);
+    let path = s("path").ok_or_else(|| anyhow::anyhow!("path is required"))?;
+    let line = args
+        .get("line")
+        .and_then(Value::as_u64)
+        .and_then(|l| u32::try_from(l).ok())
+        .filter(|l| *l >= 1)
+        .ok_or_else(|| anyhow::anyhow!("line is required (1-based)"))?;
+    let side = match s("side").as_deref() {
+        None | Some("new") => CommentSide::New,
+        Some("old") => CommentSide::Old,
+        Some(o) => anyhow::bail!("side must be old or new, not {o}"),
+    };
+    let text = s("text").ok_or_else(|| anyhow::anyhow!("text is required"))?;
+    let code = session.comment_code(&path, line, Some(side)).await?;
+    let c = session.add_comment(path, line, Some(side), code, text, crate::api::StateWriter::Agent)?;
+    Ok(format!("Comment {} added at {}:{}", c.id, c.path, c.line))
+}
+
+async fn run_comment_resolve(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
+    let s = arg_str(args);
+    let id = s("id").ok_or_else(|| anyhow::anyhow!("id is required"))?;
+    session.resolve_comment(&id, crate::api::StateWriter::Agent, s("note"))?;
+    Ok(format!("Comment {id} resolved"))
 }
 
 async fn run_ui_get(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {

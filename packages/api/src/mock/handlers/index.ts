@@ -1,4 +1,5 @@
 import { agentsHandlers } from "./agents";
+import { commentsHandlers } from "./comments";
 import { frontendFilesHandlers } from "./frontendFiles";
 import { gitHandlers } from "./git";
 import { promptHandlers } from "./prompt";
@@ -16,6 +17,7 @@ export const handlers: Handlers = {
    ...gitHandlers,
    ...prsHandlers,
    ...sharedHandlers,
+   ...commentsHandlers,
    ...terminalHandlers,
    ...frontendFilesHandlers,
    ...threadsHandlers,
