@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeTab, type FileTab, isMarkdown, openTab, parseTabs } from "./fileTabs";
+import { closeTab, type FileTab, isMarkdown, moveTab, openTab, parseTabs } from "./fileTabs";
 
 const t = (path: string, pinned = true): FileTab => ({ path, pinned });
 
@@ -48,4 +48,12 @@ it("isMarkdown", () => {
    expect(isMarkdown("docs/README.md")).toBe(true);
    expect(isMarkdown("a.MDX")).toBe(true);
    expect(isMarkdown("Cargo.toml")).toBe(false);
+});
+
+it("moveTab", () => {
+   const tabs = [t("a"), t("b"), t("c")];
+   expect(moveTab(tabs, "a", 2).map((x) => x.path)).toEqual(["b", "c", "a"]);
+   expect(moveTab(tabs, "c", 0).map((x) => x.path)).toEqual(["c", "a", "b"]);
+   expect(moveTab(tabs, "b", 1)).toBe(tabs);
+   expect(moveTab(tabs, "x", 0)).toBe(tabs);
 });

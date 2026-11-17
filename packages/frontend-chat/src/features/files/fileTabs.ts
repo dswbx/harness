@@ -43,3 +43,14 @@ export function parseTabs(v: unknown): FileTab[] {
 }
 
 export const isMarkdown = (path: string) => /\.(md|markdown|mdx)$/i.test(path);
+
+/** Moves the tab of `path` to index `to` (among the tabs, clamped). */
+export function moveTab(tabs: FileTab[], path: string, to: number): FileTab[] {
+   const from = tabs.findIndex((t) => t.path === path);
+   const tab = tabs[from];
+   if (!tab) return tabs;
+   const rest = tabs.filter((_, i) => i !== from);
+   const at = Math.max(0, Math.min(to, rest.length));
+   if (at === from) return tabs;
+   return [...rest.slice(0, at), tab, ...rest.slice(at)];
+}

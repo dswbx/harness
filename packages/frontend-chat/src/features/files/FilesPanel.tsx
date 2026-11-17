@@ -29,7 +29,6 @@ import {
    Maximize2,
    RefreshCw,
    WrapText,
-   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
@@ -39,8 +38,17 @@ import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
 import { setWrapCode, useWrapCode } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
 import { useFileComments } from "../review/reviewComments";
+import { FileTabStrip } from "./FileTabStrip";
 import { FileView, type LineRange } from "./FileView";
-import { closeTab, type FileTab, isMarkdown, openTab, parseTabs, patchTab } from "./fileTabs";
+import {
+   closeTab,
+   type FileTab,
+   isMarkdown,
+   moveTab,
+   openTab,
+   parseTabs,
+   patchTab,
+} from "./fileTabs";
 
 /** A file to show, with the lines to mark (a code lens, a comment chip). A new object shows it again. */
 export type FileTarget = { path: string; start?: number | null; end?: number | null };
@@ -311,11 +319,13 @@ export function FilesPanel({
    const activeKey = cursor && rows.some((r) => r.key === cursor) ? cursor : selectedKey;
 
    const shownPath = file?.path ?? selected;
-   const tab = tabs.find((t) => t.path === selected);
-   const markdown = !!selected && isMarkdown(selected);
+   // The last loaded file stays until the next one loads (no "Loading" flash between files).
+   const view = selected ? file : null;
+   const tab = tabs.find((t) => t.path === view?.req);
+   const markdown = !!view && isMarkdown(view.req);
    const rendered = markdown && !tab?.source;
    const setSource = (source: boolean) =>
-      selected && setTabs((t) => patchTab(t, selected, { source: source || undefined }));
+      view && setTabs((t) => patchTab(t, view.req, { source: source || undefined }));
 
    return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -355,54 +365,18 @@ export function FilesPanel({
                </>
             }
          >
-            <div
-               role="tablist"
-               aria-label="Open files"
-               className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
-            >
-               {tabs.map((t) => {
-                  const on = t.path === selected;
-                  const name = t.path.slice(t.path.lastIndexOf("/") + 1);
-                  return (
-                     <div
-                        key={t.path}
-                        className={cn(
-                           "flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs",
-                           on
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:bg-accent/50",
-                        )}
-                        onAuxClick={(e) => e.button === 1 && close(t.path)}
-                     >
-                        <button
-                           type="button"
-                           role="tab"
-                           aria-selected={on}
-                           aria-label={t.pinned ? t.path : `${t.path} (preview)`}
-                           className={cn("min-w-0 truncate", !t.pinned && "italic")}
-                           ref={on ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-                           onClick={() => {
-                              if (on) return;
-                              setSelected(t.path);
-                              setRange(null);
-                              setCursor(null);
-                           }}
-                           onDoubleClick={() => select(t.path, true)}
-                        >
-                           {name}
-                        </button>
-                        <button
-                           type="button"
-                           className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"
-                           aria-label={`Close ${name}`}
-                           onClick={() => close(t.path)}
-                        >
-                           <X className="size-3" />
-                        </button>
-                     </div>
-                  );
-               })}
-            </div>
+            <FileTabStrip
+               tabs={tabs}
+               active={selected}
+               onShow={(path) => {
+                  setSelected(path);
+                  setRange(null);
+                  setCursor(null);
+               }}
+               onPin={(path) => select(path, true)}
+               onClose={close}
+               onMove={(path, to) => setTabs((t) => moveTab(t, path, to))}
+            />
             <Button
                size="icon"
                variant={showTree ? "secondary" : "ghost"}
@@ -416,7 +390,7 @@ export function FilesPanel({
          </PanelHeader>
          <div className="flex min-h-0 flex-1">
             <div className="relative flex min-w-0 flex-1 flex-col">
-               {markdown && file?.req === selected && file.lines.length > 0 && (
+               {markdown && !fileError && view.lines.length > 0 && (
                   <div
                      role="group"
                      aria-label="View"
@@ -452,22 +426,20 @@ export function FilesPanel({
                   <p role="alert" className="p-4 text-sm text-destructive">
                      Can't show this file: {fileError}
                   </p>
-               ) : !file || file.req !== selected ? (
-                  <p className="p-4 text-xs text-muted-foreground">Loading...</p>
-               ) : file.lines.length === 0 ? (
+               ) : !view ? null : view.lines.length === 0 ? (
                   <p className="p-4 text-sm text-muted-foreground">The file is empty.</p>
                ) : rendered ? (
                   <ScrollArea className="min-h-0 flex-1">
                      <Markdown html className="px-6 py-5">
-                        {file.lines.join("\n")}
+                        {view.lines.join("\n")}
                      </Markdown>
                   </ScrollArea>
                ) : (
                   <FileView
-                     key={file.path}
+                     key={view.path}
                      sessionId={sessionId}
-                     path={file.path}
-                     lines={file.lines}
+                     path={view.path}
+                     lines={view.lines}
                      comments={comments}
                      target={range}
                      wrap={wrap}
