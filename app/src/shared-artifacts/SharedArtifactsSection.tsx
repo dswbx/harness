@@ -1,5 +1,5 @@
 import { formatAge, formatDateTime, type SharedArtifactEntry, storedValue } from "@harness/api";
-import { cn, ScrollArea, Tooltip } from "@harness/ui";
+import { cn, noAutocorrect, ScrollArea, Tooltip } from "@harness/ui";
 import { ChevronDown, Search, Share2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStored } from "../platform/useStored";
@@ -111,6 +111,7 @@ export function SharedArtifactsSection({
                      <label className="flex h-7 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                         <Search className="size-3 shrink-0 opacity-80" />
                         <input
+                           {...noAutocorrect}
                            ref={input}
                            value={query}
                            onChange={(e) => setQuery(e.target.value)}

@@ -1,5 +1,5 @@
 import { displayRef, formatAge, formatDateTime, openExternalUrl, prKey } from "@harness/api";
-import { Button, cn, DropdownMenuItem, ScrollArea, Tooltip } from "@harness/ui";
+import { Button, cn, DropdownMenuItem, noAutocorrect, ScrollArea, Tooltip } from "@harness/ui";
 import {
    ChevronDown,
    ChevronLeft,
@@ -477,6 +477,7 @@ export function ReferencesPanel({
             <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                <Search className="size-3 shrink-0" />
                <input
+                  {...noAutocorrect}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={meta.filter}

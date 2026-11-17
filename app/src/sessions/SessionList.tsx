@@ -1,5 +1,5 @@
 import type { SessionSummary } from "@harness/api";
-import { cn, ScrollArea } from "@harness/ui";
+import { cn, noAutocorrect, ScrollArea } from "@harness/ui";
 import { ChevronRight, Search, X } from "lucide-react";
 import { Fragment, type ReactNode, useMemo, useState } from "react";
 import { useStored } from "../platform/useStored";
@@ -159,6 +159,7 @@ export function SessionList({
             <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                <Search className="size-3 shrink-0 opacity-80 " />
                <input
+                  {...noAutocorrect}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {

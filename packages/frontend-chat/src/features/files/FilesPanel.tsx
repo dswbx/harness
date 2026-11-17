@@ -9,16 +9,38 @@ import {
    useGitStatus,
    type WorkspaceInfo,
 } from "@harness/api";
-import { Button, cn, Input, ResizeHandle, Tooltip, useResizableWidth } from "@harness/ui";
-import { ExternalLink, File, ListTree, Maximize2, RefreshCw } from "lucide-react";
+import {
+   Button,
+   cn,
+   DropdownMenuItem,
+   DropdownMenuSeparator,
+   Input,
+   ResizeHandle,
+   ScrollArea,
+   useResizableWidth,
+} from "@harness/ui";
+import {
+   Check,
+   Code,
+   ExternalLink,
+   Eye,
+   File,
+   ListTree,
+   Maximize2,
+   RefreshCw,
+   WrapText,
+   X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { CommentCount } from "../changes/DiffViewer";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
-import { useWrapCode, WrapButton } from "../markdown/CodeBlock";
+import { setWrapCode, useWrapCode } from "../markdown/CodeBlock";
+import { Markdown } from "../markdown/Markdown";
 import { useFileComments } from "../review/reviewComments";
 import { FileView, type LineRange } from "./FileView";
+import { closeTab, type FileTab, isMarkdown, openTab, parseTabs, patchTab } from "./fileTabs";
 
 /** A file to show, with the lines to mark (a code lens, a comment chip). A new object shows it again. */
 export type FileTarget = { path: string; start?: number | null; end?: number | null };
@@ -41,8 +63,8 @@ export function filesWindowTarget(
    return { path: q.get("path") || null, line: Number.isInteger(line) && line > 0 ? line : null };
 }
 
-/** What the panel remembers per Session (per viewer): the open file, the open folders, the tree's visibility. */
-type Saved = { path?: string; open?: string[]; tree?: boolean };
+/** What the panel remembers per Session (per viewer): the open tabs and file, the open folders, the tree's visibility. */
+type Saved = { path?: string; tabs?: FileTab[]; open?: string[]; tree?: boolean };
 const treeWidth = storedNumber("harness:files-tree-width");
 const savedStores = new Map<string, Stored<Saved>>();
 onSessionForgotten((id) => void savedStores.delete(id));
@@ -78,14 +100,12 @@ function GitLetter({ status }: { status: string | undefined }) {
    if (!status) return null;
    const g = GIT[status] ?? { className: "text-muted-foreground", label: status };
    return (
-      <Tooltip content={g.label}>
-         <span
-            className={cn("w-3 shrink-0 text-center font-mono text-xs font-semibold", g.className)}
-            aria-label={g.label}
-         >
-            {status === "?" ? "U" : status}
-         </span>
-      </Tooltip>
+      <span
+         className={cn("w-3 shrink-0 text-center font-mono text-xs font-semibold", g.className)}
+         aria-label={g.label}
+      >
+         {status === "?" ? "U" : status}
+      </span>
    );
 }
 
@@ -119,6 +139,11 @@ export function FilesPanel({
    const [prefix, setPrefix] = useState("");
    const [listError, setListError] = useState<string | null>(null);
    const [selected, setSelected] = useState<string | null>(target?.path ?? saved.path ?? null);
+   const [tabs, setTabs] = useState<FileTab[]>(() => {
+      const t = parseTabs(saved.tabs);
+      const first = target?.path ?? saved.path;
+      return first ? openTab(t, first) : t;
+   });
    const [range, setRange] = useState<LineRange | null>(null);
    /** The tree row the keyboard is on; null: the open file's row. */
    const [cursor, setCursor] = useState<string | null>(null);
@@ -195,6 +220,7 @@ export function FilesPanel({
 
    useEffect(() => {
       if (!target) return;
+      setTabs((t) => openTab(t, target.path));
       setSelected(target.path);
       setCursor(null);
       setReveal(target.path);
@@ -205,10 +231,11 @@ export function FilesPanel({
       () =>
          writeSaved(sessionId, {
             path: selected ?? undefined,
+            tabs,
             open: [...openDirs],
             tree: showTree,
          }),
-      [sessionId, selected, openDirs, showTree],
+      [sessionId, selected, tabs, openDirs, showTree],
    );
 
    useEffect(() => {
@@ -254,10 +281,21 @@ export function FilesPanel({
    );
    const commentsOn = (p: string) => comments.filter((c) => c.path === p).length;
 
-   const select = (path: string) => {
+   /** Shows `path`: in the preview tab, or a tab of its own when `pin`. */
+   const select = (path: string, pin = false) => {
+      setTabs((t) => openTab(t, path, pin));
       setSelected(path);
       setRange(null);
       setCursor(null);
+   };
+   const close = (path: string) => {
+      const next = closeTab(tabs, path, selected);
+      setTabs(next.tabs);
+      if (next.active !== selected) {
+         setSelected(next.active);
+         setRange(null);
+         setCursor(null);
+      }
    };
    const setOpen = (dir: string, open: boolean) => {
       setOpenDirs((o) => {
@@ -273,71 +311,141 @@ export function FilesPanel({
    const activeKey = cursor && rows.some((r) => r.key === cursor) ? cursor : selectedKey;
 
    const shownPath = file?.path ?? selected;
-   const slash = shownPath?.lastIndexOf("/") ?? -1;
-   const title = shownPath ? (
-      <span className="font-mono text-xs font-normal" title={shownPath}>
-         {slash > 0 && (
-            <span className="text-muted-foreground">
-               {shownPath.slice(0, slash).split("/").join(" / ")} /{" "}
-            </span>
-         )}
-         <span className="font-medium">{shownPath.slice(slash + 1)}</span>
-      </span>
-   ) : (
-      "Files"
-   );
-
-   const iconButton = (
-      label: string,
-      icon: React.ReactNode,
-      onClick: () => void,
-      opts: { pressed?: boolean; disabled?: boolean } = {},
-   ) => (
-      <Tooltip content={label} side="bottom">
-         <Button
-            size="icon"
-            variant={opts.pressed ? "secondary" : "ghost"}
-            className="size-7"
-            aria-label={label}
-            aria-pressed={opts.pressed}
-            disabled={opts.disabled}
-            onClick={onClick}
-         >
-            {icon}
-         </Button>
-      </Tooltip>
-   );
+   const tab = tabs.find((t) => t.path === selected);
+   const markdown = !!selected && isMarkdown(selected);
+   const rendered = markdown && !tab?.source;
+   const setSource = (source: boolean) =>
+      selected && setTabs((t) => patchTab(t, selected, { source: source || undefined }));
 
    return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-         <PanelHeader title={title} titleHint={shownPath ?? undefined}>
-            {shownPath && <GitLetter status={status.get(shownPath)} />}
-            <div className="flex-1" />
-            <WrapButton />
-            {iconButton("Show file tree", <ListTree />, () => setShowTree(!showTree), {
-               pressed: showTree,
-            })}
-            {iconButton(
-               "Open in editor",
-               <ExternalLink />,
-               () => void api.openInEditor(shownPath ?? undefined, range?.start).catch(() => {}),
-               { disabled: !shownPath },
-            )}
-            {iconButton("Refresh", <RefreshCw />, () => setTick((t) => t + 1))}
-            {!popout &&
-               iconButton(
-                  "Open in window",
-                  <Maximize2 />,
-                  () =>
-                     void openWindow(
-                        `files-${sessionId}`,
-                        filesWindowUrl(sessionId, shownPath, range?.start),
-                        { title: shownPath ? `Files: ${shownPath}` : "Files" },
-                     ),
-               )}
+         <PanelHeader
+            className="gap-1"
+            menu={
+               <>
+                  <DropdownMenuItem onSelect={() => setWrapCode(!wrap)}>
+                     <WrapText /> Wrap lines
+                     {wrap && <Check className="ml-auto" />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setTick((t) => t + 1)}>
+                     <RefreshCw /> Refresh
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {!popout && (
+                     <DropdownMenuItem
+                        onSelect={() =>
+                           void openWindow(
+                              `files-${sessionId}`,
+                              filesWindowUrl(sessionId, shownPath, range?.start),
+                              { title: shownPath ? `Files: ${shownPath}` : "Files" },
+                           )
+                        }
+                     >
+                        <Maximize2 /> Open in window
+                     </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                     disabled={!shownPath}
+                     onSelect={() =>
+                        void api.openInEditor(shownPath ?? undefined, range?.start).catch(() => {})
+                     }
+                  >
+                     <ExternalLink /> Open in editor
+                  </DropdownMenuItem>
+               </>
+            }
+         >
+            <div
+               role="tablist"
+               aria-label="Open files"
+               className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
+            >
+               {tabs.map((t) => {
+                  const on = t.path === selected;
+                  const name = t.path.slice(t.path.lastIndexOf("/") + 1);
+                  return (
+                     <div
+                        key={t.path}
+                        className={cn(
+                           "flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs",
+                           on
+                              ? "bg-accent text-accent-foreground"
+                              : "text-muted-foreground hover:bg-accent/50",
+                        )}
+                        onAuxClick={(e) => e.button === 1 && close(t.path)}
+                     >
+                        <button
+                           type="button"
+                           role="tab"
+                           aria-selected={on}
+                           aria-label={t.pinned ? t.path : `${t.path} (preview)`}
+                           className={cn("min-w-0 truncate", !t.pinned && "italic")}
+                           ref={on ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                           onClick={() => {
+                              if (on) return;
+                              setSelected(t.path);
+                              setRange(null);
+                              setCursor(null);
+                           }}
+                           onDoubleClick={() => select(t.path, true)}
+                        >
+                           {name}
+                        </button>
+                        <button
+                           type="button"
+                           className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"
+                           aria-label={`Close ${name}`}
+                           onClick={() => close(t.path)}
+                        >
+                           <X className="size-3" />
+                        </button>
+                     </div>
+                  );
+               })}
+            </div>
+            <Button
+               size="icon"
+               variant={showTree ? "secondary" : "ghost"}
+               className="size-7 shrink-0"
+               aria-label="Show file tree"
+               aria-pressed={showTree}
+               onClick={() => setShowTree(!showTree)}
+            >
+               <ListTree />
+            </Button>
          </PanelHeader>
          <div className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="relative flex min-w-0 flex-1 flex-col">
+               {markdown && file?.req === selected && file.lines.length > 0 && (
+                  <div
+                     role="group"
+                     aria-label="View"
+                     className="absolute top-2 right-3 z-10 flex gap-0.5 rounded-md border bg-background p-0.5 shadow-xs"
+                  >
+                     {(
+                        [
+                           [false, "Preview", Eye],
+                           [true, "Source", Code],
+                        ] as const
+                     ).map(([source, label, Icon]) => (
+                        <button
+                           key={label}
+                           type="button"
+                           aria-label={label}
+                           aria-pressed={!!tab?.source === source}
+                           className={cn(
+                              "grid h-[22px] w-6 place-items-center rounded-[5px]",
+                              !!tab?.source === source
+                                 ? "bg-accent text-accent-foreground"
+                                 : "text-muted-foreground hover:text-foreground",
+                           )}
+                           onClick={() => setSource(source)}
+                        >
+                           <Icon className="size-3.5" />
+                        </button>
+                     ))}
+                  </div>
+               )}
                {!selected ? (
                   <p className="p-4 text-sm text-muted-foreground">Select a file in the list.</p>
                ) : fileError ? (
@@ -348,6 +456,12 @@ export function FilesPanel({
                   <p className="p-4 text-xs text-muted-foreground">Loading...</p>
                ) : file.lines.length === 0 ? (
                   <p className="p-4 text-sm text-muted-foreground">The file is empty.</p>
+               ) : rendered ? (
+                  <ScrollArea className="min-h-0 flex-1">
+                     <Markdown html className="px-6 py-5">
+                        {file.lines.join("\n")}
+                     </Markdown>
+                  </ScrollArea>
                ) : (
                   <FileView
                      key={file.path}
@@ -400,11 +514,14 @@ export function FilesPanel({
                      onSelect={(key) => {
                         setCursor(key);
                         if (key.startsWith("f:")) {
-                           setSelected(key.slice(2));
+                           const path = key.slice(2);
+                           setTabs((t) => openTab(t, path));
+                           setSelected(path);
                            setRange(null);
                         }
                      }}
                      onOpenFile={(r) => select(r.file.path)}
+                     onPinFile={(r) => select(r.file.path, true)}
                      onSetOpen={setOpen}
                      renderFile={(r) => (
                         <>

@@ -1,4 +1,11 @@
-import { cn, Popover, PopoverContent, PopoverTrigger, ScrollArea } from "@harness/ui";
+import {
+   cn,
+   noAutocorrect,
+   Popover,
+   PopoverContent,
+   PopoverTrigger,
+   ScrollArea,
+} from "@harness/ui";
 import { ChevronDown, Search } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
@@ -97,6 +104,7 @@ export function Picker({
                   <div className="flex items-center gap-2 border-b px-2.5">
                      <Search className="size-4 shrink-0 text-muted-foreground" />
                      <input
+                        {...noAutocorrect}
                         autoFocus
                         aria-label={search.placeholder}
                         value={search.value}

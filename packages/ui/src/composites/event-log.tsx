@@ -1,6 +1,7 @@
 import { ArrowDownToLine, ChevronRight, ListFilter, Search } from "lucide-react";
 import * as React from "react";
 import { cn } from "../lib/utils";
+import { noAutocorrect } from "../primitives/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../primitives/popover";
 import { ScrollArea } from "../primitives/scroll-area";
 import {
@@ -145,6 +146,7 @@ export function EventLog({
             <label className="flex h-7 w-full max-w-60 min-w-0 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                <Search className="size-3 shrink-0" />
                <input
+                  {...noAutocorrect}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search"
