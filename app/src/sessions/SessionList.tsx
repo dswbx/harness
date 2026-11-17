@@ -192,7 +192,7 @@ export function SessionList({
             // A lifted copy of the header under the pointer, where it was grabbed.
             createPortal(
                <div
-                  className="pointer-events-none fixed z-50 flex h-7 items-center gap-1.5 rounded-md border px-1.5 text-xs font-medium text-muted-foreground opacity-90 shadow-lg"
+                  className="pointer-events-none fixed z-50 flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium text-muted-foreground opacity-90 shadow-lg"
                   style={{
                      left: drag.x - drag.dx,
                      top: drag.y - drag.dy,
