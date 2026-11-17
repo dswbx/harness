@@ -125,17 +125,17 @@ function CommentRow({
             <button
                type="button"
                aria-expanded={expanded}
-               className={cn(
-                  "flex w-full min-w-0 gap-1.5 text-left hover:text-foreground",
-                  expanded ? "items-start" : "items-center",
-               )}
+               // Same alignment and overflow both ways: only wrapping changes, so the first line does not move.
+               className="flex w-full min-w-0 items-start gap-1.5 text-left hover:text-foreground"
                onClick={() => setExpanded((v) => !v)}
             >
-               <CheckCheck className={cn("size-3 shrink-0", expanded && "mt-0.5")} />
+               <CheckCheck className="mt-0.5 size-3 shrink-0" />
                <span
                   className={cn(
-                     "min-w-0 flex-1",
-                     expanded ? "whitespace-pre-wrap break-words" : "truncate",
+                     "min-w-0 flex-1 overflow-hidden",
+                     expanded
+                        ? "whitespace-pre-wrap break-words"
+                        : "text-ellipsis whitespace-nowrap",
                   )}
                >
                   {c.text}
