@@ -32,11 +32,11 @@ The routine may edit only the [Known findings](#known-findings) table, and only 
    - Add each new finding that was not fixed.
    - Set fixed rows to `fixed (#PR)`.
 
-   Merge it yourself when its diff touches only table rows and sets no `wontfix`, and CI passed. If a fix PR is still open, its finding goes in as `open` with the PR number.
+   Merge it yourself only when CI passed and every change in it is one that [Known findings](#known-findings) lets the routine make (add rows, mark rows fixed, remove old fixed rows). Anything else in the diff leaves it open for the owner. If a fix PR is still open, its finding goes in as `open (#PR)`.
 8. **Report.**
    - Open the issue "Weekly hygiene YYYY-MM-DD", labelled `weekly-hygiene`. It holds up to 5 ranked new findings, each PR with its outcome (merged, or open and why), and the numbers table.
    - If a run finds nothing, say so in one line.
-   - Close the issue at the end of the run if the run has no open PR and no new `decide` finding.
+   - Close the issue at the end of the run if the run has no open PR, no new `decide` finding and no failed step.
    - Close the previous run's issue once all its PRs are merged or closed.
 9. **Notify.** Send a push notification only for:
    - a PR left open for the owner
@@ -50,8 +50,8 @@ The routine may edit only the [Known findings](#known-findings) table, and only 
 
 The routine may merge its own fix PR only if the PR does nothing but the following:
 
-- fixes a path or command that no longer exists in `README.md`, `docs/plans/`, `docs/explorations/` or a package README
-- under an AGENTS.md rule, swaps native code for the rule's version with the same behaviour: `ScrollArea`/`VirtualList` for native scroll, the shadcn `Tooltip` for `title=`, or a shadcn primitive for a native control. Check UI swaps in the browser mock.
+- fixes a path or command that no longer exists in `README.md`, `docs/plans/` or a package README
+- under an AGENTS.md rule, swaps native scrolling for `ScrollArea`/`VirtualList` with the same behaviour. Check the swap in the browser mock. Other swaps (tooltips, controls) change timing or focus, so they stay open for the owner.
 - replaces copies of a helper with one shared helper that gives the same output for every caller (checked by reading each copy), inside one package
 - removes dead code that is internal to a file: suppressions that have no effect, unused local functions or variables
 
@@ -59,8 +59,8 @@ It never merges a PR that:
 
 - changes behaviour anywhere (Rust or TS), or any public export of `@harness/api` or `@harness/ui`
 - touches:
-  - `crates/` (except the doc-only fixes above)
-  - `generated.ts`, `api/`, manifests
+  - `crates/`
+  - `generated.ts`, `crates/harness-core/src/api/`, `packages/api/`, manifests
   - dependencies or lockfiles
   - GitHub Actions versions
   - `.github/workflows/`, workflow permissions
@@ -108,7 +108,7 @@ The routine skips these.
 
 The routine may:
 
-- add a row with status `open` or `decide`
+- add a row with status `open`, `open (#PR)` or `decide`
 - set a row to `fixed (#PR)` once that PR is merged
 - remove `fixed` rows that are more than 4 weeks old
 
@@ -117,6 +117,7 @@ Only the owner sets `wontfix` or edits a finding's text.
 Status values:
 
 - **`open`**: a fix that needs no decision and is not done yet. The routine may pick it up as a fix PR.
+- **`open (#PR)`**: a fix PR exists. The routine does not open another one; the owner reviews that PR.
 - **`decide`**: needs the owner (a design, a split, or a change to behaviour).
 - **`fixed`** and **`wontfix`**: closed.
 
@@ -126,6 +127,6 @@ Status values:
 | H2 | 2026-11-17 (#185) | The list and inspector keyboard controllers are copied between the two panels. The copies differ: Enter does something different in each, and one checks `e.target`. | `packages/frontend-chat/src/features/artifacts/ArtifactsPanel.tsx:216-232,753-768`, `packages/frontend-chat/src/features/references/ReferencesPanel.tsx:431-447,653-669` | decide (shared hook, behaviour differs) |
 | H3 | 2026-11-17 (#185) | Rust helpers are duplicated: `slug`, `~` expansion, and the osascript timeout loop, which re-implements `proc::run`. | `crates/harness-core/src/shared.rs:49` and `crates/harness-core/src/git/parse.rs:102`; `crates/harness-core/src/permissions.rs:183` and `crates/harness-core/src/git/worktree.rs:202`; `crates/harness-tauri/src/context.rs:436` | decide (core) |
 | H4 | 2026-11-17 (#185) | `log.rs` has about 6 jobs (projections, scan, health, writer, fan-out, API). `sub_sessions.rs` has 3. | `crates/harness-core/src/log.rs`, `crates/harness-core/src/sub_sessions.rs` | decide (module split) |
-| H5 | 2026-11-17 (#185) | Native `title=` tooltips. In `FilesPanel` the path shows in two tooltips, the native one and the `PanelHeader` one. | `packages/frontend-chat/src/features/files/FilesPanel.tsx:278`, `packages/frontend-chat/src/features/toolDisplay/TraceDisplay.tsx:88` | open |
+| H5 | 2026-11-17 (#185) | Native `title=` tooltips. In `FilesPanel` the path shows in two tooltips, the native one and the `PanelHeader` one. | `packages/frontend-chat/src/features/files/FilesPanel.tsx:278`, `packages/frontend-chat/src/features/toolDisplay/TraceDisplay.tsx:88` | decide (tooltip timing and focus change) |
 | H6 | 2026-11-17 (#185) | `upload-artifact@v4` and `download-artifact@v4` run on Node 20. The fix is v6 and v7, but CI does not exercise `release.yml`. | `.github/workflows/release.yml:131,151` | decide (release workflow) |
 | H7 | 2026-11-17 (#185) | Fixed: `actions/checkout@v4` on Node 20, the README path `src/api.rs`, three `plural` copies, native scroll in PlanNote, toast, UserMessage, disclosure and FileTreeList, and an unused `biome-ignore` in slotPanels. | | fixed (#184, #186) |
