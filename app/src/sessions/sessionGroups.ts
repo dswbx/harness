@@ -119,15 +119,16 @@ const DATE_GROUPS: [id: string, label: string, maxAge: number][] = [
 ];
 
 /**
- * Newest first by the sort field, then grouped. Folder groups follow their newest Session, then
- * the Quick group, always last and also when empty (its + starts a Quick Session). Date groups use
+ * Newest first by the sort field, then grouped. Folder groups keep the user's `folderOrder` (group
+ * ids, see `withNewFolders`); folders not in it come first, by their newest Session. Then the Quick
+ * group, always last and also when empty (its + starts a Quick Session). Date groups use
  * the sort field's age and skip empty ones. Within each group, Sessions needing attention come
  * first. `none` gives one group with id "all". `list` holds roots only; `children` (from
  * `nestSubSessions`) lends a parent its Sub Sessions' activity and attention.
  */
 export function groupSessions(
    list: SessionSummary[],
-   v: Pick<ViewOptions, "sort" | "group">,
+   v: Pick<ViewOptions, "sort" | "group"> & { folderOrder?: string[] },
    now = Date.now(),
    children?: Children,
 ): Group[] {
@@ -144,8 +145,11 @@ export function groupSessions(
             byName.set(name, { id: `folder:${name}`, label: name, folder: true, sessions: [] });
          byName.get(name)!.sessions.push(s);
       }
+      const rank = new Map((v.folderOrder ?? []).map((id, i) => [id, i]));
+      const folders = [...byName.values()];
       groups = [
-         ...byName.values(),
+         ...folders.filter((g) => !rank.has(g.id)),
+         ...folders.filter((g) => rank.has(g.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!),
          { id: "quick", label: "Quick", quick: true, sessions: sorted.filter((s) => s.quick) },
       ];
    } else if (v.group === "date") {
@@ -159,4 +163,33 @@ export function groupSessions(
       groups = [{ id: "all", label: "", sessions: sorted }];
    }
    return groups.map((g) => ({ ...g, sessions: attentionFirst(g.sessions, children) }));
+}
+
+/**
+ * The stored folder order with folders it does not know yet put first (newly added go on top).
+ * Folders no longer shown keep their place. The same array when nothing is new.
+ */
+export function withNewFolders(order: string[], groups: Group[]): string[] {
+   const known = new Set(order);
+   const added = groups.filter((g) => g.folder && !known.has(g.id)).map((g) => g.id);
+   return added.length ? [...added, ...order] : order;
+}
+
+/**
+ * `order` with folder `id` moved right before folder `before` among the `shown` ones (null: after
+ * the last shown). Null when that changes nothing.
+ */
+export function moveFolder(
+   order: string[],
+   shown: string[],
+   id: string,
+   before: string | null,
+): string[] | null {
+   const i = shown.indexOf(id);
+   const j = before === null ? shown.length : shown.indexOf(before);
+   if (i < 0 || j < 0 || j === i || j === i + 1) return null;
+   const rest = order.filter((x) => x !== id);
+   // Before the target, or right after the last shown folder (absent ones keep their place).
+   const at = before === null ? rest.indexOf(shown.at(-1)!) + 1 : rest.indexOf(before);
+   return [...rest.slice(0, at), id, ...rest.slice(at)];
 }

@@ -1,7 +1,8 @@
 import type { SessionSummary } from "@harness/api";
 import { cn, ScrollArea } from "@harness/ui";
-import { ChevronRight, Search, X } from "lucide-react";
-import { Fragment, type ReactNode, useMemo, useState } from "react";
+import { ChevronRight, Folder, Search, X } from "lucide-react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStored } from "../platform/useStored";
 import { GroupHeader } from "./GroupHeader";
 import { SessionRow } from "./SessionRow";
@@ -12,11 +13,14 @@ import {
    type Display,
    type GroupBy,
    groupSessions,
+   moveFolder,
    nestSubSessions,
    type SortBy,
    sessionMatches,
    type ViewOptions,
+   withNewFolders,
 } from "./sessionGroups";
+import { useFolderDrag } from "./useFolderDrag";
 import { ViewOptionsButton } from "./ViewOptionsButton";
 
 const oneOf =
@@ -75,6 +79,12 @@ export function SessionList({
       [],
       strings,
    );
+   // Folder group ids in the user's order (drag a header to move one; new folders go on top).
+   const [folderOrder, setFolderOrder] = useStored<string[]>(
+      "harness.sessionList.folderOrder",
+      [],
+      strings,
+   );
    const [archivedOpen, setArchivedOpen] = useState(false);
    const view: ViewOptions = { sort, display, group };
    const setView = (v: Partial<ViewOptions>) => {
@@ -92,10 +102,30 @@ export function SessionList({
          q,
       );
       return {
-         groups: groupSessions(n.roots, { sort, group: q ? "none" : group }, undefined, n.children),
+         groups: groupSessions(
+            n.roots,
+            { sort, group: q ? "none" : group, folderOrder },
+            undefined,
+            n.children,
+         ),
          subs: n.children,
       };
-   }, [sessions, q, sort, group]);
+   }, [sessions, q, sort, group, folderOrder]);
+   // Remember where new folders showed up (on top), so the next new one goes above them.
+   useEffect(() => {
+      const next = withNewFolders(folderOrder, groups);
+      if (next !== folderOrder) setFolderOrder(next);
+   }, [groups, folderOrder, setFolderOrder]);
+   const shownFolders = groups.filter((g) => g.folder).map((g) => g.id);
+   const { drag, start: startDrag } = useFolderDrag((id, before) => {
+      const next = moveFolder(withNewFolders(folderOrder, groups), shownFolders, id, before);
+      if (next) setFolderOrder(next);
+   });
+   // The drop line, unless the drop would leave the group where it is.
+   const dropBefore =
+      drag &&
+      moveFolder(shownFolders, shownFolders, drag.id, drag.before) &&
+      (drag.before ?? "quick");
    const archived = sessions.filter((s) => s.archived && sessionMatches(s, q));
    const empty = q !== "" && groups.every((g) => g.sessions.length === 0) && archived.length === 0;
    const toggle = (id: string) =>
@@ -153,8 +183,28 @@ export function SessionList({
       );
    };
 
+   const dragged = drag && groups.find((g) => g.id === drag.id);
+
    return (
       <>
+         {drag &&
+            dragged &&
+            // A lifted copy of the header under the pointer, where it was grabbed.
+            createPortal(
+               <div
+                  className="pointer-events-none fixed z-50 flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium text-muted-foreground opacity-90 shadow-lg"
+                  style={{
+                     left: drag.x - drag.dx,
+                     top: drag.y - drag.dy,
+                     width: drag.width,
+                  }}
+               >
+                  <Folder className="size-3.25 shrink-0" />
+                  <span className="min-w-0 truncate text-foreground">{dragged.label}</span>
+                  <span className="shrink-0 tabular-nums">{dragged.sessions.length}</span>
+               </div>,
+               document.body,
+            )}
          <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2">
             <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                <Search className="size-3 shrink-0 opacity-80 " />
@@ -191,7 +241,17 @@ export function SessionList({
                   const open = g.id === "all" || !collapsed.includes(g.id);
                   return (
                      // Only an open group adds space below it; collapsed headers stack tight.
-                     <div key={g.id} className={cn("flex flex-col", open && "mb-4.5 last:mb-0")}>
+                     <div
+                        key={g.id}
+                        className={cn(
+                           "relative flex flex-col transition-opacity",
+                           open && "mb-4.5 last:mb-0",
+                           drag?.id === g.id && "opacity-40",
+                        )}
+                     >
+                        {dropBefore === g.id && (
+                           <div className="pointer-events-none absolute inset-x-1 -top-0.5 h-0.5 rounded-full bg-primary" />
+                        )}
                         {g.id !== "all" && (
                            <GroupHeader
                               g={g}
@@ -199,6 +259,7 @@ export function SessionList({
                               onToggle={() => toggle(g.id)}
                               onNewInFolder={onNewInFolder}
                               onNewQuick={onNewQuick}
+                              onDragStart={g.folder ? (e) => startDrag(g.id, e) : undefined}
                            />
                         )}
                         {open && (
