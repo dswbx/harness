@@ -104,7 +104,7 @@ fn events(h: &Harness, sid: &str) -> Vec<Event> {
 /// Sends `text`, answering permission prompts with `answer`, and returns the Agent's reply.
 async fn ask(h: &Harness, sid: &str, text: &str, answer: Option<&str>) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
     let mut answered = std::collections::HashSet::new();
     for _ in 0..800 {
         let evs = events(h, sid);
@@ -157,7 +157,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,pr_create,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,pr_create,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,comment_list,comment_add,comment_resolve,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -1278,7 +1278,9 @@ fn summary(h: &Harness, sid: &str) -> Option<harness_core::api::SessionSummary> 
 /// The Agent's reply to a Thread's prompt.
 async fn ask_on(h: &Harness, sid: &str, thread: &str, text: &str) -> String {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: Some(thread.into()), text: text.into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: Some(thread.into()), text: text.into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
     for _ in 0..800 {
         let evs = events(h, sid);
         let mine = || evs[before..].iter().filter(|e| e.thread_id.as_deref() == Some(thread));
@@ -1682,7 +1684,7 @@ async fn a_reply_is_found_when_another_turn_of_the_thread_still_streams() {
 
     // "slow" says "Working on it." at once and then waits: the next prompt runs beside it, and the
     // chunks of both Turns land in the log (chunks carry no turn id).
-    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "slow".into(), attachments: vec![] }).await.unwrap();
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "slow".into(), attachments: vec![], comment_ids: vec![] }).await.unwrap();
     let info = mcp_json(&h, &sid, "harness_info {}").await;
     assert!(info.is_object(), "{info}");
 }

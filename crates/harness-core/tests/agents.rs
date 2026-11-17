@@ -75,7 +75,9 @@ async fn create(h: &Harness, folder: &Path, agent_id: &str) -> String {
 
 async fn turn_ends(h: &Harness, sid: &str, text: &str) -> Result<(), String> {
     let before = events(h, sid).len();
-    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![] }).await.map_err(|e| e.message)?;
+    h.execute(Command::Prompt { session_id: sid.into(), thread_id: None, text: text.into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .map_err(|e| e.message)?;
     for _ in 0..400 {
         if events(h, sid)[before..].iter().any(|e| matches!(e.kind, EventKind::TurnEnded { .. })) {
             return Ok(());

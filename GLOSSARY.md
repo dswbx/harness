@@ -128,6 +128,10 @@ _Avoid_: file panel, live file, source panel
 An artifact (a `render_ui` item, a file-backed panel, or a diagram or table from a message) moved out of its Session into `<data dir>/shared/<id>/` with its own state; any Session can attach it and show it as a Panel, and it can be opened without a Session (ADR 0024).
 _Avoid_: document, global artifact, pinned artifact
 
+**Review Comment**:
+A comment on one line of a diff or a file, kept in the Session Log (`CommentAdded`, ADR 0027). The user's starts pending (a draft, editable and deletable), becomes open when a prompt carrying it is sent (then immutable), and is resolved by the user or the Agent; the Agent can also add and list them (`comment_add`, `comment_list`, `comment_resolve`). Ids `c1`, `c2`, ... No replies. Quotes of chat, plan or artifact text are not Review Comments.
+_Avoid_: annotation, note, thread
+
 **Reference**:
 A PR, file or link named in a Session's user or Agent messages, one per target with its mentions; the chat's References Panel lists those that exist. Derived from the chat Items (`references.ts`).
 _Avoid_: citation, mention (a mention is one place a Reference is named)

@@ -10,14 +10,19 @@ import { cn, Tooltip } from "@harness/ui";
 import { Paperclip } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ChatState } from "../../state/reducer";
+import type { ReviewComment } from "../../state/reviewCommentText";
 import { RecoveryCard } from "../interaction/RecoveryCard";
 import { CommentChips } from "../review/CommentChip";
 import {
    composerKey,
-   getReviewComments,
+   getQuotes,
+   lineCommentIds,
+   lineToReview,
+   migrateStoredLineComments,
+   type QuoteComment,
    removeReviewComment,
-   setReviewComments,
-   useReviewComments,
+   setQuotes,
+   useQuotes,
    withReviewComments,
 } from "../review/reviewComments";
 import { ConfigBar, type MenuSide } from "./ConfigBar";
@@ -40,6 +45,8 @@ import { usePromptMenus } from "./usePromptMenus";
 
 /** Box content width (px) under which the footer's option pickers collapse into one menu. */
 const NARROW_BOX = 460;
+
+const isQuote = (c: ReviewComment): c is QuoteComment => c.kind === "quote";
 
 export type PromptBoxHandle = { focus(): void };
 
@@ -126,13 +133,27 @@ export function PromptBox({
       () => state.items.filter((i) => i.type === "user").length,
       [state.items],
    );
-   const { failed, sending, deliver, retry } = usePendingSend({
+   const { pending, failed, sending, deliver, retry } = usePendingSend({
       key,
       userCount,
-      send: (p) => api.prompt(p.prompt, p.inputs, threadId),
+      send: (p) => api.prompt(p.prompt, p.inputs, threadId, lineCommentIds(p.comments)),
       onError: setError,
    });
-   const comments = useReviewComments(key);
+   // What waits in the box: quotes (stored here) and, in the Main Thread only, the core's pending line comments
+   // (ADR 0027), minus those a message still on its way holds.
+   const quotes = useQuotes(key);
+   const lineChips = useMemo(() => {
+      if (threadId) return [];
+      const held = new Set(pending.flatMap((p) => lineCommentIds(p.comments)));
+      return state.lineComments
+         .filter((c) => c.status === "pending" && !held.has(c.id))
+         .map(lineToReview);
+   }, [threadId, pending, state.lineComments]);
+   const comments = useMemo(() => [...lineChips, ...quotes], [lineChips, quotes]);
+   // Line comments an earlier version kept in this Frontend's storage move into the core, once.
+   useEffect(() => {
+      if (!threadId) void migrateStoredLineComments(api);
+   }, [api, threadId]);
    // Width of the box itself (not the window): a side panel or narrow column collapses the option pickers.
    const [narrow, setNarrow] = useState(false);
    const boxRef = useRef<HTMLDivElement>(null);
@@ -157,12 +178,13 @@ export function PromptBox({
    const send = () => {
       const ed = ref.current;
       const t = ed?.getMarkdown().trim() ?? "";
-      const sent = getReviewComments(key);
+      const sentQuotes = getQuotes(key);
+      const sent = [...lineChips, ...sentQuotes];
       const files = attachments;
       if (!ed || (!t && sent.length === 0 && files.length === 0) || readOnly) return;
       const snap = ed.snapshot();
       ed.clear();
-      setReviewComments(key, []);
+      setQuotes(key, []);
       setAttachments([]);
       setError(null);
       // Our `/btw <question>` wins over an Agent command of the same name (Claude Code has one).
@@ -181,7 +203,7 @@ export function PromptBox({
          base: 0,
       };
       if (!btw && !onSend) {
-         void deliver(item, () => api.prompt(prompt, inputs, threadId));
+         void deliver(item, () => api.prompt(prompt, inputs, threadId, lineCommentIds(sent)));
          return;
       }
       (btw && onSideThread
@@ -191,8 +213,8 @@ export function PromptBox({
          setError(errText(err));
          ref.current?.restore(snap);
          setAttachments((cur) => [...files, ...cur]);
-         // Put them back ahead of any added since.
-         setReviewComments(key, [...sent, ...getReviewComments(key)]);
+         // Put the quotes back ahead of any added since; the line comments are still pending in the core.
+         setQuotes(key, [...sentQuotes, ...getQuotes(key)]);
       });
    };
    const editPending = (item: PendingMessage) => {
@@ -205,7 +227,7 @@ export function PromptBox({
       setError(null);
       ed.restore(item.snap);
       setAttachments((cur) => [...item.files, ...cur]);
-      setReviewComments(key, [...item.comments, ...getReviewComments(key)]);
+      setQuotes(key, [...item.comments.filter(isQuote), ...getQuotes(key)]);
       updatePendingMessages(key, (cur) => cur.filter((p) => p.id !== item.id));
    };
    usePendingActions(key, { retry: () => void retry(), edit: editPending });
@@ -218,7 +240,12 @@ export function PromptBox({
          );
          if (!ok) return;
          for (const p of rest) {
-            if (!(await deliver(p, () => api.prompt(p.prompt, p.inputs, threadId)))) return;
+            if (
+               !(await deliver(p, () =>
+                  api.prompt(p.prompt, p.inputs, threadId, lineCommentIds(p.comments)),
+               ))
+            )
+               return;
          }
          return;
       }
@@ -291,7 +318,10 @@ export function PromptBox({
                <CommentChips
                   className="pb-1.5"
                   comments={comments}
-                  onRemove={(id) => removeReviewComment(key, id)}
+                  onRemove={(id) => {
+                     if (!lineChips.some((c) => c.id === id)) return removeReviewComment(key, id);
+                     api.deleteComment(id).catch((err) => setError(errText(err)));
+                  }}
                />
             )}
             <PromptEditor

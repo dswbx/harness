@@ -37,7 +37,8 @@ import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTre
 import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
 import { setWrapCode, useWrapCode } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
-import { useFileComments } from "../review/reviewComments";
+import { activeCommentsOn, fileViewComments } from "../review/reviewComments";
+import { useLineComments } from "../review/useLineComments";
 import { FileTabStrip } from "./FileTabStrip";
 import { FileView, type LineRange } from "./FileView";
 import {
@@ -167,7 +168,8 @@ export function FilesPanel({
    /** Bumped by Refresh and by a git status change: the list and the open file load again. */
    const [tick, setTick] = useState(0);
    const git = useGitStatus(api, { enabled: !!workspace?.repo_root, refreshKey: tick });
-   const comments = useFileComments(sessionId);
+   const allComments = useLineComments(api);
+   const comments = useMemo(() => fileViewComments(allComments), [allComments]);
    const wrap = useWrapCode();
    const sidebar = useResizableWidth({
       store: treeWidth,
@@ -287,7 +289,7 @@ export function FilesPanel({
       () => folderStatus(git.status?.files ?? [], prefix),
       [git.status, prefix],
    );
-   const commentsOn = (p: string) => comments.filter((c) => c.path === p).length;
+   const commentsOn = (p: string) => activeCommentsOn(comments, p);
 
    /** Shows `path`: in the preview tab, or a tab of its own when `pin`. */
    const select = (path: string, pin = false) => {
@@ -437,7 +439,7 @@ export function FilesPanel({
                ) : (
                   <FileView
                      key={view.path}
-                     sessionId={sessionId}
+                     api={api}
                      path={view.path}
                      lines={view.lines}
                      comments={comments}

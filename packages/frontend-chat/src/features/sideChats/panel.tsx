@@ -8,7 +8,12 @@ import { clearDraft } from "../prompt/drafts";
 import type { PendingMessage } from "../prompt/pendingMessages";
 import { deliverPending } from "../prompt/usePendingSend";
 import { useEnv } from "../renderUi/runtime";
-import { addReviewComment, composerKey, setReviewComments } from "../review/reviewComments";
+import {
+   addReviewComment,
+   composerKey,
+   lineCommentIds,
+   setReviewComments,
+} from "../review/reviewComments";
 import { SidePanel } from "./SidePanel";
 import type { SideStart } from "./ThreadView";
 import {
@@ -150,7 +155,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
                     key,
                     item,
                     0,
-                    () => api.prompt(text, attachments, thread_id),
+                    () => api.prompt(text, attachments, thread_id, lineCommentIds(item.comments)),
                     // Its row says it was not sent, with Retry.
                     () => {},
                  )

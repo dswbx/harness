@@ -24,6 +24,7 @@ export const initialState = (): ChatState => ({
    promptCaps: null,
    uiState: {},
    sharedAttached: [],
+   lineComments: [],
    threads: {},
    threadList: [],
    forkedFrom: null,

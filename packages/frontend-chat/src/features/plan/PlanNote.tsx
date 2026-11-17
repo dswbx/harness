@@ -1,7 +1,17 @@
 import type { SessionApi } from "@harness/api";
-import { cn, Trace, TraceDetail, TraceIcon, TraceLine, TraceTitle, TraceVerb } from "@harness/ui";
+import {
+   cn,
+   ScrollArea,
+   Trace,
+   TraceDetail,
+   TraceIcon,
+   TraceLine,
+   TraceTitle,
+   TraceVerb,
+} from "@harness/ui";
 import { ClipboardCheck, ClipboardList } from "lucide-react";
 import { createContext, useContext, useMemo } from "react";
+import { plural } from "../../lib/plural";
 import type { ConfigOption, Item, PlanEntry } from "../../state/reducer";
 import { Markdown } from "../markdown/Markdown";
 import { continuesIn } from "./ApproveButton";
@@ -18,8 +28,6 @@ export type PlanCtx = {
    open?: (requestId: string) => void;
 };
 export const PlanContext = createContext<PlanCtx>({ plans: [], configOptions: [] });
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /** "Approved · v2 · Auto · 14:05 · context cleared" */
 export function approvedMeta(
@@ -146,7 +154,9 @@ export function PlanNote({ item, api }: { item: Perm; api: SessionApi }) {
          {/* No Plan panel here (a Side Thread, the Quick overlay): the plan and its answers show inline. */}
          {!onOpen && pending && (
             <div className="flex flex-col gap-3 rounded-lg bg-card p-3">
-               <Markdown className="max-h-96 overflow-auto">{entry.markdown}</Markdown>
+               <ScrollArea className="max-h-96" viewportClassName="max-h-[inherit]">
+                  <Markdown>{entry.markdown}</Markdown>
+               </ScrollArea>
                <PlanActions
                   api={api}
                   item={item}

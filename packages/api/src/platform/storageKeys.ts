@@ -41,6 +41,7 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    app("harness.sessionList.display", "app/sessions"),
    app("harness.sessionList.group", "app/sessions"),
    app("harness.sessionList.collapsed", "app/sessions"),
+   app("harness.sessionList.folderOrder", "app/sessions"),
    app("harness.sharedArtifacts.seen", "app/shared-artifacts"),
    app("harness.sharedArtifacts.collapsed", "app/shared-artifacts"),
    app("harness.terminal.optionIsMeta", "frontend-chat/terminal"),

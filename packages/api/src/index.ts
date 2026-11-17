@@ -2,6 +2,7 @@ export * from "./client/client";
 export * from "./client/gitStatusStore";
 export * from "./contract/drafts";
 export * from "./contract/frontend";
+export * from "./derive/comments";
 export * from "./derive/eventFamily";
 export * from "./derive/gitTool";
 export * from "./derive/mode";

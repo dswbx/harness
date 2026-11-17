@@ -1,4 +1,4 @@
-import { cn } from "@harness/ui";
+import { cn, ScrollArea } from "@harness/ui";
 import { ChevronRight, Folder } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef } from "react";
 import type { TreeRow } from "./fileTree";
@@ -157,16 +157,18 @@ export function FileTreeList<T>({
    };
 
    return (
-      <ul
-         ref={list}
-         role="tree"
-         aria-label={label}
-         tabIndex={0}
-         aria-activedescendant={activePos >= 0 ? `${idPrefix}-${activePos}` : undefined}
-         className={cn("min-h-0 flex-1 overflow-auto pb-1 outline-none", className)}
-         onKeyDown={onKeyDown}
-      >
-         {placeholder ?? rows.map(rowItem)}
-      </ul>
+      <ScrollArea className={cn("min-h-0 flex-1", className)}>
+         <ul
+            ref={list}
+            role="tree"
+            aria-label={label}
+            tabIndex={0}
+            aria-activedescendant={activePos >= 0 ? `${idPrefix}-${activePos}` : undefined}
+            className="pb-1 outline-none"
+            onKeyDown={onKeyDown}
+         >
+            {placeholder ?? rows.map(rowItem)}
+         </ul>
+      </ScrollArea>
    );
 }

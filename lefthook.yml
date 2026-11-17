@@ -1,4 +1,4 @@
-# Installed by `bun install` (postinstall). Formats and lints staged files, restaging fixes.
+# Installed by `bun install` (postinstall). pre-commit formats and lints staged files, restaging fixes.
 pre-commit:
    commands:
       biome:
@@ -9,3 +9,8 @@ pre-commit:
          glob: "*.rs"
          run: rustfmt --edition 2024 {staged_files}
          stage_fixed: true
+# New worktree: clone the freshest sibling target/ (copy-on-write) so cargo skips rebuilding deps.
+post-checkout:
+   commands:
+      clone-target:
+         run: bun scripts/clone-target.ts

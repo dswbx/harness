@@ -214,6 +214,7 @@ describe("registry", () => {
          "app harness.sessionList.display",
          "app harness.sessionList.group",
          "app harness.sessionList.collapsed",
+         "app harness.sessionList.folderOrder",
          "app harness.sharedArtifacts.seen",
          "app harness.sharedArtifacts.collapsed",
          "app harness.terminal.optionIsMeta",

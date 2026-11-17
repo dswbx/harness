@@ -24,7 +24,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileTreeList, fileRowKey, type NavRow, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree } from "../fileTree/fileTree";
-import { useDiffComments } from "../review/reviewComments";
+import { activeCommentsOn } from "../review/reviewComments";
+import { useLineComments } from "../review/useLineComments";
 import { CommitInfo, CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer, type FileContents } from "./DiffViewer";
 import { type FilePatch, splitPatch } from "./diff";
@@ -95,7 +96,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    const [wrap, setWrap] = useState(wrapStore.get);
    const [closed, setClosed] = useState<Set<string>>(new Set());
    const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
-   const comments = useDiffComments(api.sessionId);
+   const comments = useLineComments(api);
    const commits = useCommits(api);
    const sidebar = useResizableWidth({
       store: sidebarWidth,
@@ -268,7 +269,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       viewStore.set(v);
    };
 
-   const pathComments = (p: string) => comments.filter((c) => c.path === p).length;
+   const pathComments = (p: string) => activeCommentsOn(comments, p);
    const sum = (k: "additions" | "deletions") => files.reduce((s, f) => s + f[k], 0);
    return (
       <div className="flex h-full flex-col">
@@ -498,7 +499,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                {file ? (
                   <DiffViewer
                      key={file.path}
-                     sessionId={api.sessionId}
+                     api={api}
                      file={file}
                      comments={comments}
                      mode={mode}

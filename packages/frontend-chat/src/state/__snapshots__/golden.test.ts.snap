@@ -804,6 +804,7 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   ],
   "lastMode": "agent",
   "lastTurnErrored": false,
+  "lineComments": [],
   "mainThreadId": "01a177f4-7827-73dc-a5c5-47fc180ce57e",
   "plans": [],
   "process": {
@@ -1109,6 +1110,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
   ],
   "lastMode": "default",
   "lastTurnErrored": false,
+  "lineComments": [],
   "mainThreadId": "golden-thread-main",
   "plans": [],
   "process": {
@@ -1207,6 +1209,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       ],
       "lastMode": null,
       "lastTurnErrored": false,
+      "lineComments": [],
       "mainThreadId": null,
       "plans": [],
       "process": null,
@@ -1601,6 +1604,7 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
   ],
   "lastMode": null,
   "lastTurnErrored": false,
+  "lineComments": [],
   "mainThreadId": "golden-thread-main",
   "modeNames": {
     "acceptEdits": "Accept edits",
@@ -1745,6 +1749,20 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
   ],
   "lastMode": null,
   "lastTurnErrored": false,
+  "lineComments": [
+    {
+      "by": "user",
+      "code": "const x = 1;",
+      "id": "c1",
+      "line": 12,
+      "note": "renamed",
+      "path": "src/a.ts",
+      "resolvedBy": "agent",
+      "side": "new",
+      "status": "resolved",
+      "text": "rename x to count",
+    },
+  ],
   "mainThreadId": "golden-thread-main",
   "plans": [],
   "process": null,

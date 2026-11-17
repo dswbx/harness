@@ -258,7 +258,6 @@ export const slotPanels = definePanelFamily<SlotsModel>({
          .filter((p) => slotDot(p.slot, isOpen(slotRef(p.slot.id)), seen, stamps))
          .map((p) => p.slot.id)
          .join("\n");
-      // biome-ignore lint/correctness/useExhaustiveDependencies: `dotIds` stands for `seen`, `stamps` and the open panels.
       const dots = useMemo(() => new Set(dotIds ? dotIds.split("\n") : []), [dotIds]);
       return useMemo(
          () => ({ placed, byId: new Map(placed.map((p) => [p.slot.id, p.slot])), dots, updatedAt }),

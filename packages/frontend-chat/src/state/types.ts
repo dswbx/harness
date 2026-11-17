@@ -5,6 +5,7 @@ import type {
    FileChange,
    ForkPoint,
    HarnessResult,
+   LineCommentState,
    PermissionOption,
    SlashCommand,
    SubSessionReport,
@@ -294,6 +295,8 @@ export type ChatState = {
     * `ArtifactDetached`. `ts`: when it was attached.
     */
    sharedAttached: readonly { id: string; ts: number }[];
+   /** Review Comments on diff and file lines (ADR 0027), in the order added, from the `Comment*` Events. */
+   lineComments: readonly LineCommentState[];
    /**
     * Side Threads by id (ADR 0018). Each is a full ChatState of its own Thread (`threads` empty), so
     * the message list and prompt box render it like the Main Thread. The Main Thread's state is this
