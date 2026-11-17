@@ -1,4 +1,4 @@
-import { cn, ScrollArea } from "@harness/ui";
+import { cn, noAutocorrect, ScrollArea } from "@harness/ui";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { filterThemes, getThemes, onThemesChange, stepIndex, swatch } from "./appearance";
@@ -135,6 +135,7 @@ export function ThemePicker({
          {open && (
             <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
                <input
+                  {...noAutocorrect}
                   autoFocus
                   role="combobox"
                   aria-expanded

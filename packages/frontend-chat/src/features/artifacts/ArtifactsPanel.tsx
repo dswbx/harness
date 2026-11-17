@@ -7,6 +7,7 @@ import {
    DropdownMenuContent,
    DropdownMenuItem,
    DropdownMenuTrigger,
+   noAutocorrect,
    Popover,
    PopoverContent,
    PopoverTrigger,
@@ -246,6 +247,7 @@ export function ArtifactsPanel({
             <label className="ml-1 flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border pr-0.5 pl-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                <Search className="size-3 shrink-0" />
                <input
+                  {...noAutocorrect}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Filter"
@@ -621,6 +623,7 @@ function AttachPicker({
             <label className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-muted-foreground">
                <Search className="size-3.5 shrink-0" />
                <input
+                  {...noAutocorrect}
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}

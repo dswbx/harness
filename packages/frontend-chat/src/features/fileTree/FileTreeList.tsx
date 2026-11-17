@@ -42,6 +42,7 @@ export function FileTreeList<T>({
    className,
    onSelect,
    onOpenFile,
+   onPinFile,
    onSetOpen,
    renderFile,
 }: {
@@ -60,6 +61,8 @@ export function FileTreeList<T>({
    onSelect: (key: string) => void;
    /** A file row was clicked. */
    onOpenFile: (row: Extract<NavRow<T>, { kind: "file" }>) => void;
+   /** A file row was double-clicked, or Enter pressed on it: keep it open (the Files panel's tabs). */
+   onPinFile?: (row: Extract<NavRow<T>, { kind: "file" }>) => void;
    onSetOpen: (dir: string, open: boolean) => void;
    /** A file row's content: icon, name, badges. */
    renderFile: (row: Extract<NavRow<T>, { kind: "file" }>) => ReactNode;
@@ -96,6 +99,7 @@ export function FileTreeList<T>({
             if (!row.open) onSetOpen(row.dir, true);
             else if ((rows[activePos + 1]?.depth ?? -1) > row.depth) select(rows[activePos + 1]);
          },
+         Enter: onPinFile && row?.kind === "file" ? () => onPinFile(row) : undefined,
       }[e.key];
       if (!act) return;
       e.preventDefault();
@@ -145,6 +149,7 @@ export function FileTreeList<T>({
             style={{ paddingLeft: flat ? 8 : indent(r) }}
             className={base}
             onClick={() => onOpenFile(r)}
+            onDoubleClick={onPinFile && (() => onPinFile(r))}
          >
             {renderFile(r)}
          </li>
