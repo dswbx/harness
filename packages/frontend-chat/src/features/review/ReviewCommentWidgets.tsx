@@ -122,21 +122,19 @@ function CommentRow({
       const by = c.resolvedBy === "agent" ? "Agent" : "you";
       return (
          <div className="text-xs text-muted-foreground">
-            <Tooltip content={c.note ? `Resolved by ${by}: ${c.note}` : `Resolved by ${by}`}>
-               <button
-                  type="button"
-                  aria-expanded={expanded}
-                  className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground"
-                  onClick={() => setExpanded((v) => !v)}
-               >
-                  <CheckCheck className="size-3 shrink-0" />
-                  <span className="shrink-0">Resolved</span>
-                  <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
-                     {expanded ? "" : c.text}
-                  </span>
-                  <span className="shrink-0">by {by}</span>
-               </button>
-            </Tooltip>
+            <button
+               type="button"
+               aria-expanded={expanded}
+               className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground"
+               onClick={() => setExpanded((v) => !v)}
+            >
+               <CheckCheck className="size-3 shrink-0" />
+               <span className="shrink-0">Resolved</span>
+               <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
+                  {expanded ? "" : c.text}
+               </span>
+               <span className="shrink-0">by {by}</span>
+            </button>
             {expanded && (
                <div className="mt-0.5 space-y-0.5 pl-[18px]">
                   <div className="whitespace-pre-wrap break-words">{c.text}</div>
