@@ -195,6 +195,7 @@ const HOMES: [RegExp, string, string][] = [
    [/^(?:formatAge|relativeTime|relTime|timeAgo)$/, "packages/api/src/derive/time.ts", "formatAge"],
    [/^(?:errText|errorMessage|errMsg)$/, "packages/api/src/errors.ts", "errText"],
    [/^openExternal(?:Url|Link)?$/, "packages/api/src/platform/window.ts", "openExternalUrl"],
+   [/^plurali?z?e?$/, "packages/frontend-chat/src/lib/plural.ts", "plural"],
 ];
 
 /** `catch (e) { x(e instanceof Error ? e.message : String(e)) }` and its variants. */

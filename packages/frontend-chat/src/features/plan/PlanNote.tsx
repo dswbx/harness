@@ -11,6 +11,7 @@ import {
 } from "@harness/ui";
 import { ClipboardCheck, ClipboardList } from "lucide-react";
 import { createContext, useContext, useMemo } from "react";
+import { plural } from "../../lib/plural";
 import type { ConfigOption, Item, PlanEntry } from "../../state/reducer";
 import { Markdown } from "../markdown/Markdown";
 import { continuesIn } from "./ApproveButton";
@@ -27,8 +28,6 @@ export type PlanCtx = {
    open?: (requestId: string) => void;
 };
 export const PlanContext = createContext<PlanCtx>({ plans: [], configOptions: [] });
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /** "Approved · v2 · Auto · 14:05 · context cleared" */
 export function approvedMeta(

@@ -1,5 +1,5 @@
 import type { SessionApi } from "@harness/api";
-import { cn, Dialog, DialogContent, DialogTitle, Tooltip } from "@harness/ui";
+import { cn, Dialog, DialogContent, DialogTitle, ScrollArea, Tooltip } from "@harness/ui";
 import { Info } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { OpenSession } from "../../../lib/OpenSession";
@@ -77,9 +77,12 @@ function HarnessContext({ text }: { text: string }) {
                <p className="text-xs text-muted-foreground">
                   Sent to the Agent before this message, inside a {"<harness_context>"} block.
                </p>
-               <Markdown className="max-h-[60vh] overflow-y-auto rounded-md bg-muted p-3 text-sm">
-                  {body}
-               </Markdown>
+               <ScrollArea
+                  className="max-h-[60vh] rounded-md bg-muted"
+                  viewportClassName="max-h-[inherit]"
+               >
+                  <Markdown className="p-3 text-sm">{body}</Markdown>
+               </ScrollArea>
             </DialogContent>
          </Dialog>
       </>

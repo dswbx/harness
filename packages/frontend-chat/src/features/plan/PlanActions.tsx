@@ -1,6 +1,7 @@
 import type { SessionApi } from "@harness/api";
 import { Button } from "@harness/ui";
 import { type RefObject, useEffect, useRef } from "react";
+import { plural } from "../../lib/plural";
 import type { ConfigOption, Item, PlanEntry } from "../../state/reducer";
 import {
    ApproveButton,
@@ -11,8 +12,6 @@ import {
 } from "./ApproveButton";
 
 type Perm = Extract<Item, { type: "permission" }>;
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /**
  * The answers to a pending plan: comment count, where the Agent continues, "Keep planning" (or "Send N

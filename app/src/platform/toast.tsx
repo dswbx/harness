@@ -1,4 +1,5 @@
 import { errText, onStorageFailure } from "@harness/api";
+import { ScrollArea } from "@harness/ui";
 import { AlertTriangle, CircleCheck, X } from "lucide-react";
 import {
    createContext,
@@ -147,9 +148,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
          className="pointer-events-auto flex items-start gap-2 rounded-lg border border-destructive/40 bg-popover p-3 text-sm shadow-lg"
       >
          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-         <p className="max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-words">
-            {t.text}
-         </p>
+         <ScrollArea className="max-h-40 min-w-0 flex-1" viewportClassName="max-h-[inherit]">
+            <p className="whitespace-pre-wrap break-words">{t.text}</p>
+         </ScrollArea>
          {t.action && (
             <button
                className="shrink-0 rounded border px-2 py-0.5 text-xs hover:bg-accent hover:text-accent-foreground"
