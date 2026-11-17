@@ -129,16 +129,18 @@ function CommentRow({
                onClick={() => setExpanded((v) => !v)}
             >
                <CheckCheck className="size-3 shrink-0" />
-               <span className="shrink-0">Resolved</span>
                <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
                   {expanded ? "" : c.text}
                </span>
-               <span className="shrink-0">by {by}</span>
+               <Pill>Resolved</Pill>
             </button>
             {expanded && (
                <div className="mt-0.5 space-y-0.5 pl-[18px]">
                   <div className="whitespace-pre-wrap break-words">{c.text}</div>
-                  {c.note && <div className="italic">{c.note}</div>}
+                  <div className="italic">
+                     Resolved by {by}
+                     {c.note && `: ${c.note}`}
+                  </div>
                </div>
             )}
          </div>
