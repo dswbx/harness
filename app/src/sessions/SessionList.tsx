@@ -1,7 +1,8 @@
 import type { SessionSummary } from "@harness/api";
 import { cn, ScrollArea } from "@harness/ui";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight, Folder, Search, X } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStored } from "../platform/useStored";
 import { GroupHeader } from "./GroupHeader";
 import { SessionRow } from "./SessionRow";
@@ -182,8 +183,28 @@ export function SessionList({
       );
    };
 
+   const dragged = drag && groups.find((g) => g.id === drag.id);
+
    return (
       <>
+         {drag &&
+            dragged &&
+            // A lifted copy of the header under the pointer, where it was grabbed.
+            createPortal(
+               <div
+                  className="pointer-events-none fixed z-50 flex h-7 items-center gap-1.5 rounded-md border bg-popover px-1.5 text-xs font-medium text-muted-foreground opacity-90 shadow-lg"
+                  style={{
+                     left: drag.x - drag.dx,
+                     top: drag.y - drag.dy,
+                     width: drag.width,
+                  }}
+               >
+                  <Folder className="size-3.25 shrink-0" />
+                  <span className="min-w-0 truncate text-foreground">{dragged.label}</span>
+                  <span className="shrink-0 tabular-nums">{dragged.sessions.length}</span>
+               </div>,
+               document.body,
+            )}
          <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2">
             <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
                <Search className="size-3 shrink-0 opacity-80 " />

@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** The folder group being dragged and the folder it would land before (null: after the last). */
-export type FolderDrag = { id: string; before: string | null };
+/**
+ * The folder group being dragged, the folder it would land before (null: after the last), and the
+ * pointer with its offset into the header (where the ghost goes).
+ */
+export type FolderDrag = {
+   id: string;
+   before: string | null;
+   x: number;
+   y: number;
+   dx: number;
+   dy: number;
+   width: number;
+};
 
 /** Distance before a press turns into a drag, so a click (or a shaky one) still folds the group. */
 const THRESHOLD = 6;
@@ -36,6 +47,7 @@ export function useFolderDrag(onDrop: (id: string, before: string | null) => voi
       const pointer = e.pointerId;
       const sy = e.clientY;
       const sx = e.clientX;
+      const r = el.getBoundingClientRect();
       let active = false;
       let before: string | null = null;
       const onMove = (ev: PointerEvent) => {
@@ -47,7 +59,15 @@ export function useFolderDrag(onDrop: (id: string, before: string | null) => voi
             document.body.style.userSelect = "none";
          }
          before = beforeAt(ev.clientY);
-         setDrag({ id, before });
+         setDrag({
+            id,
+            before,
+            x: ev.clientX,
+            y: ev.clientY,
+            dx: sx - r.left,
+            dy: sy - r.top,
+            width: r.width,
+         });
       };
       let done = false;
       const finish = (commit: boolean) => {
