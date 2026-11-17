@@ -27,7 +27,7 @@ jobs:
          version: ${{ steps.version.outputs.version }}
          tag: ${{ steps.version.outputs.tag }}
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
            with:
               fetch-depth: 0
 
@@ -43,7 +43,7 @@ jobs:
       if: github.ref == 'refs/heads/main'
       runs-on: macos-latest
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: oven-sh/setup-bun@v2
            with:
@@ -61,7 +61,7 @@ jobs:
       if: github.ref == 'refs/heads/main'
       runs-on: macos-latest
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: oven-sh/setup-bun@v2
            with:
@@ -91,7 +91,7 @@ jobs:
       env:
          VERSION: ${{ needs.version.outputs.version }}
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: oven-sh/setup-bun@v2
            with:

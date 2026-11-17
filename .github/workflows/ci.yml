@@ -16,7 +16,7 @@ jobs:
    check-ts:
       runs-on: ubuntu-24.04
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: oven-sh/setup-bun@v2
            with:
@@ -34,7 +34,7 @@ jobs:
    check:
       runs-on: macos-latest
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: oven-sh/setup-bun@v2
            with:
@@ -62,7 +62,7 @@ jobs:
    core-linux:
       runs-on: ubuntu-24.04
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: dtolnay/rust-toolchain@master
            with:
@@ -80,7 +80,7 @@ jobs:
    deny:
       runs-on: ubuntu-24.04
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
          - uses: EmbarkStudios/cargo-deny-action@v2
            with:
               command: check advisories bans licenses sources
@@ -89,7 +89,7 @@ jobs:
    machete:
       runs-on: ubuntu-24.04
       steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
 
          - uses: dtolnay/rust-toolchain@master
            with:
