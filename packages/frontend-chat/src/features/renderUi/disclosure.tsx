@@ -1,4 +1,4 @@
-import { Button, cn, Popover, PopoverContent, PopoverTrigger } from "@harness/ui";
+import { Button, cn, Popover, PopoverContent, PopoverTrigger, ScrollArea } from "@harness/ui";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useContext, useState } from "react";
 import { repeatScopes } from "./layout";
@@ -190,14 +190,16 @@ function UiPopover({
                </button>
             )}
          </PopoverTrigger>
-         <PopoverContent
-            className={cn(
-               "max-h-[min(28rem,var(--radix-popover-content-available-height))] space-y-2 overflow-y-auto p-3 text-ui",
-               popoverWidth[p.width ?? "md"],
-            )}
-         >
-            {p.title && <div className="font-semibold">{p.title}</div>}
-            {content}
+         <PopoverContent className={cn("p-0 text-ui", popoverWidth[p.width ?? "md"])}>
+            <ScrollArea
+               className="max-h-[min(28rem,var(--radix-popover-content-available-height))]"
+               viewportClassName="max-h-[inherit]"
+            >
+               <div className="space-y-2 p-3">
+                  {p.title && <div className="font-semibold">{p.title}</div>}
+                  {content}
+               </div>
+            </ScrollArea>
          </PopoverContent>
       </Popover>
    );

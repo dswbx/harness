@@ -30,7 +30,7 @@ First steps in the app: **Agents** → install Claude or Codex → **New Session
 
 | Path                                                    | What                                                                                                                    |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `crates/harness-core`                                   | The core: Commands in, Events out (`src/api.rs`). No Tauri dependency.                                                  |
+| `crates/harness-core`                                   | The core: Commands in, Events out (`src/api/`). No Tauri dependency.                                                    |
 | `crates/harness-tauri`                                  | Tauri adapter: IPC (`execute`, Session and app subscriptions), windows, badge and notifications, `mcp-shim` subcommand. |
 | `crates/fake-agent`                                     | Scripted ACP agent (and MCP client) for deterministic tests.                                                            |
 | `packages/api`                                          | `@harness/api`: generated types, transports (Tauri, mock), client.                                                      |

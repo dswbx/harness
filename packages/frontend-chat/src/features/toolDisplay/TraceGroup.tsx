@@ -10,6 +10,7 @@ import {
 } from "@harness/ui";
 import { ChevronRight, CircleDot } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
+import { plural } from "../../lib/plural";
 import { formatDuration } from "../../lib/time";
 import { PermissionCard } from "../interaction/Permission";
 import type { ToolGroupProps } from ".";
@@ -19,8 +20,6 @@ import { TraceDisplay } from "./TraceDisplay";
 
 /** Steps a running group shows before "Show all"; older ones fade out at the top. */
 export const VISIBLE_STEPS = 4;
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** What a finished group's header says: counts by kind, and how many failed. */
 export function groupSummary(steps: Step[]): {
