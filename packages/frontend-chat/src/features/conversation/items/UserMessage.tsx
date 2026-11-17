@@ -1,7 +1,7 @@
 import type { SessionApi } from "@harness/api";
 import { cn, Dialog, DialogContent, DialogTitle, ScrollArea, Tooltip } from "@harness/ui";
 import { Info } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { OpenSession } from "../../../lib/OpenSession";
 import type { Item } from "../../../state/reducer";
 import { Markdown } from "../../markdown/Markdown";
@@ -25,8 +25,58 @@ export function UserText({ text, fromSession }: { text: string; fromSession?: bo
          {p.comments.length > 0 && (
             <CommentChips comments={p.comments} className={p.text ? "pb-1.5" : undefined} />
          )}
-         {p.text && <Markdown breaks>{p.text}</Markdown>}
+         {p.text && <Collapsible>{p.text}</Collapsible>}
       </div>
+   );
+}
+
+/** Collapsed height of a long prompt (px), and how tall it must be before it collapses (so a prompt just over doesn't hide one line). */
+const COLLAPSED = 168;
+const COLLAPSE_OVER = 260;
+
+/** A long prompt's text, clamped with a fade and "Show more" until expanded. */
+function Collapsible({ children }: { children: string }) {
+   const ref = useRef<HTMLDivElement>(null);
+   const [long, setLong] = useState(false);
+   const [open, setOpen] = useState(false);
+   useLayoutEffect(() => {
+      const el = ref.current;
+      if (!el) return;
+      const measure = () => setLong(el.scrollHeight > COLLAPSE_OVER);
+      measure();
+      if (typeof ResizeObserver === "undefined") return;
+      const ro = new ResizeObserver(measure);
+      // The inner content: its height changes with the bubble's width, the clamp's doesn't.
+      if (el.firstElementChild) ro.observe(el.firstElementChild);
+      return () => ro.disconnect();
+   }, []);
+   const clamped = long && !open;
+   return (
+      <>
+         <div
+            ref={ref}
+            className="overflow-hidden"
+            style={
+               clamped
+                  ? {
+                       maxHeight: COLLAPSED,
+                       maskImage: "linear-gradient(to bottom, black 60%, transparent)",
+                    }
+                  : undefined
+            }
+         >
+            <Markdown breaks>{children}</Markdown>
+         </div>
+         {long && (
+            <button
+               type="button"
+               onClick={() => setOpen((o) => !o)}
+               className="mt-1.5 text-ui-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+               {open ? "Show less" : "Show more"}
+            </button>
+         )}
+      </>
    );
 }
 
