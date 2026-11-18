@@ -66,3 +66,15 @@ describe("threadsOf", () => {
       expect(later[0]).toMatchObject({ title: "Migration format", turns: 2 });
    });
 });
+
+describe("lastAt", () => {
+   it("is the time of the Thread's start or newest Turn", () => {
+      const at = (ts_ms: number, e: Event) => ({ ...e, ts_ms });
+      const list = threadsOf([
+         at(5, ev("s", { type: "ThreadStarted", agent_id: "a", main: false })),
+         at(9, ev("s", { type: "TurnStarted", turn_id: "t", text: "q" })),
+         at(12, ev("s", { type: "SessionInfoUpdated", title: "T" })),
+      ]);
+      expect(list[0]!.lastAt).toBe(9);
+   });
+});

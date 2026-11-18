@@ -58,6 +58,16 @@ export function openThreadIds(
    return threads.filter((id) => isDraftThread(id) || !!known[id] || id in started);
 }
 
+/** Moves tab `id` in front of tab `before` (null: to the end). */
+export function moveThread(t: ThreadTabs, id: string, before: string | null): ThreadTabs {
+   if (id === before || !t.threads.includes(id)) return t;
+   const rest = t.threads.filter((x) => x !== id);
+   const at = before === null ? rest.length : rest.indexOf(before);
+   if (at < 0) return t;
+   const threads = [...rest.slice(0, at), id, ...rest.slice(at)];
+   return threads.every((x, i) => x === t.threads[i]) ? t : { ...t, threads };
+}
+
 /** The Side Thread shown: the selected one if open, else the last open one. */
 export function activeThreadId(selected: string | null, open: readonly string[]): string | null {
    return selected && open.includes(selected) ? selected : (open.at(-1) ?? null);

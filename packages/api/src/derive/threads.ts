@@ -11,6 +11,8 @@ export type ThreadInfo = {
    forkedFrom: ForkPoint | null;
    /** Finished or running Turns started in this Thread. */
    turns: number;
+   /** ms epoch the Thread started or its newest Turn did. */
+   lastAt: number;
 };
 
 const TITLE_MAX = 48;
@@ -41,17 +43,26 @@ export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly Thr
    const prev: ThreadInfo =
       at >= 0
          ? list[at]!
-         : { id, main: false, title: null, agentTitle: null, forkedFrom: null, turns: 0 };
+         : {
+              id,
+              main: false,
+              title: null,
+              agentTitle: null,
+              forkedFrom: null,
+              turns: 0,
+              lastAt: e.ts_ms,
+           };
    let t = prev;
    switch (k.type) {
       case "ThreadStarted": {
-         t = { ...prev, main: k.main, forkedFrom: k.forked_from ?? null };
+         t = { ...prev, main: k.main, forkedFrom: k.forked_from ?? null, lastAt: e.ts_ms };
          break;
       }
       case "TurnStarted": {
          t = {
             ...prev,
             turns: prev.turns + 1,
+            lastAt: e.ts_ms,
             title: prev.agentTitle ?? ((prev.turns === 0 && threadTitle(k.text)) || prev.title),
          };
          break;

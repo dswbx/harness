@@ -274,3 +274,22 @@ describe("Side chat tab status", () => {
       expect(out.model.statusOf("t1")).toBe(null);
    });
 });
+
+describe("Past chats", () => {
+   it("lists every Side Thread, newest activity first, and reopens a closed one", () => {
+      known = ["t1", "t2"];
+      mem.set(
+         "harness.chat.sideThreads.s1",
+         JSON.stringify({ v: 1, threads: ["t1", "t2"], thread: "t2" }),
+      );
+      const { out } = setup();
+      act(() => out.model.close("t1"));
+      expect(out.model.open).toEqual(["t2"]);
+      act(() => out.model.reopen("t1"));
+      expect(out.model.open).toEqual(["t2", "t1"]);
+      expect(out.model.active).toBe("t1");
+      expect(sideOpen(out.lay)).toBe(true);
+      act(() => out.model.move("t1", "t2"));
+      expect(out.model.open).toEqual(["t1", "t2"]);
+   });
+});

@@ -1,4 +1,4 @@
-import type { AttachmentInput } from "@harness/api";
+import type { AttachmentInput, ThreadInfo } from "@harness/api";
 import { errText, threadTitle } from "@harness/api";
 import { MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +20,7 @@ import {
    activeThreadId,
    closeThread,
    isDraftThread,
+   moveThread,
    newThreadTabId,
    openThread,
    openThreadIds,
@@ -43,6 +44,12 @@ export type SideChatsModel = {
    error: string | null;
    select: (id: string) => void;
    close: (id: string) => void;
+   /** Moves tab `id` in front of tab `before` (null: to the end). */
+   move: (id: string, before: string | null) => void;
+   /** Side Threads in the Session, open or closed, newest activity first. */
+   past: ThreadInfo[];
+   /** Opens a Side Thread's tab again (or selects it) and shows the panel. */
+   reopen: (id: string) => void;
    /** A new side chat tab (an open draft is reused); returns its id. Its Side Thread starts with its first message. */
    newThread: () => string;
    /**
@@ -131,6 +138,21 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
       );
 
       const select = useCallback((id: string) => apply((t) => selectThread(t, id)), [apply]);
+      const move = useCallback(
+         (id: string, before: string | null) => apply((t) => moveThread(t, id, before)),
+         [apply],
+      );
+      const past = useMemo(
+         () => [...sideThreads].sort((a, b) => b.lastAt - a.lastAt),
+         [sideThreads],
+      );
+      const reopen = useCallback(
+         (id: string) => {
+            apply((t) => openThread(t, id));
+            selfRef.current.show();
+         },
+         [apply],
+      );
       const close = useCallback(
          (id: string) => {
             if (isDraftThread(id)) {
@@ -231,6 +253,9 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             error,
             select,
             close,
+            move,
+            past,
+            reopen,
             newThread,
             start,
             ask,
@@ -246,6 +271,9 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             error,
             select,
             close,
+            move,
+            past,
+            reopen,
             newThread,
             start,
             ask,
@@ -280,6 +308,9 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             focus={model.focus}
             onSelect={model.select}
             onClose={model.close}
+            onMove={model.move}
+            past={model.past}
+            onReopen={model.reopen}
             onNew={model.newThread}
             onSendDraft={(id, text, files, start, item) =>
                model.start(text, files, { draft: id, start, item })
