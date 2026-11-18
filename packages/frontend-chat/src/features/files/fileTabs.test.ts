@@ -52,8 +52,9 @@ it("isMarkdown", () => {
 
 it("moveTab", () => {
    const tabs = [t("a"), t("b"), t("c")];
-   expect(moveTab(tabs, "a", 2).map((x) => x.path)).toEqual(["b", "c", "a"]);
-   expect(moveTab(tabs, "c", 0).map((x) => x.path)).toEqual(["c", "a", "b"]);
-   expect(moveTab(tabs, "b", 1)).toBe(tabs);
-   expect(moveTab(tabs, "x", 0)).toBe(tabs);
+   expect(moveTab(tabs, "a", null).map((x) => x.path)).toEqual(["b", "c", "a"]);
+   expect(moveTab(tabs, "c", "a").map((x) => x.path)).toEqual(["c", "a", "b"]);
+   expect(moveTab(tabs, "b", "c")).toBe(tabs);
+   expect(moveTab(tabs, "x", "a")).toBe(tabs);
+   expect(moveTab(tabs, "a", "x")).toBe(tabs);
 });

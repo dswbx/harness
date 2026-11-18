@@ -1,8 +1,9 @@
 import type { AttachmentInput, SessionApi, ThreadInfo } from "@harness/api";
 import { Button, cn, DropdownMenuItem, StatusDot, Tooltip } from "@harness/ui";
-import { History, Plus, X } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useRef, useState } from "react";
+import { History, Plus } from "lucide-react";
+import { useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
+import { type PanelTab, PanelTabs } from "../../panels/PanelTabs";
 import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
 import type { PendingMessage } from "../prompt/pendingMessages";
@@ -16,9 +17,6 @@ import { isDraftThread } from "./threadTabs";
  * user, a bold title for a reply that came while the tab was not shown.
  */
 export type SideChatStatus = "working" | "needs_attention" | "unread" | null;
-
-/** How far the pointer moves before a press on a tab becomes a drag. */
-const DRAG_PX = 4;
 
 /** A Side Thread just started here, before its replay arrives. */
 const STARTING: ChatState = { ...initialState(), side: true };
@@ -72,101 +70,43 @@ export function SidePanel({
    onOpenDiff: (s: DiffScope) => void;
 }) {
    const [pastOpen, setPastOpen] = useState(false);
-   const strip = useRef<HTMLDivElement>(null);
-   /** A drag just ended: the click that follows it is not a click on the tab. */
-   const dragged = useRef(false);
-   // Dragging a tab sideways moves it, as in the Files panel.
-   const press = (e: ReactPointerEvent, id: string) => {
-      if (e.button !== 0 || (e.target as Element).closest("[data-tab-close]")) return;
-      // The panel header would start dragging the whole panel.
-      e.stopPropagation();
-      const x0 = e.clientX;
-      let moving = false;
-      dragged.current = false;
-      const move = (m: PointerEvent) => {
-         if (!moving && Math.abs(m.clientX - x0) < DRAG_PX) return;
-         moving = true;
-         dragged.current = true;
-         const others = [
-            ...(strip.current?.querySelectorAll<HTMLElement>("[data-tab]") ?? []),
-         ].filter((el) => el.dataset.tab !== id);
-         const before = others.find((el) => {
-            const r = el.getBoundingClientRect();
-            return r.left + r.width / 2 >= m.clientX;
-         });
-         onMove(id, before?.dataset.tab ?? null);
-      };
-      const up = () => {
-         window.removeEventListener("pointermove", move);
-         window.removeEventListener("pointerup", up);
-         window.removeEventListener("pointercancel", up);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", up);
-   };
    return (
       <>
          <PanelHeader
-            className="gap-1 pl-2.5"
+            className="gap-1"
             menu={
                <DropdownMenuItem onSelect={() => setPastOpen(true)}>
                   <History /> Past chats
                </DropdownMenuItem>
             }
          >
-            <div
-               ref={strip}
-               role="tablist"
-               aria-label="Side chats"
-               className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-            >
-               {threads.map((id) => {
-                  const on = id === active;
-                  const title = titleOf(id);
+            <PanelTabs
+               label="Side chats"
+               tabs={threads.map((id): PanelTab => {
+                  const name = titleOf(id);
                   const status = statusOf(id);
-                  return (
-                     <div
-                        key={id}
-                        data-tab={id}
-                        onPointerDown={(e) => press(e, id)}
-                        onAuxClick={(e) => e.button === 1 && onClose(id)}
-                        className={cn(
-                           "flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs",
-                           on
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:bg-accent/50",
-                           status === "unread" && "font-semibold text-foreground",
-                        )}
-                     >
-                        <button
-                           role="tab"
-                           aria-selected={on}
-                           className="min-w-0 truncate"
-                           onClick={() => {
-                              if (dragged.current) dragged.current = false;
-                              else onSelect(id);
-                           }}
-                        >
-                           {title}
+                  return {
+                     id,
+                     name,
+                     label: (
+                        <>
+                           {name}
                            {status === "unread" && (
                               <span className="sr-only"> (new, not seen)</span>
                            )}
-                        </button>
-                        {(status === "working" || status === "needs_attention") && (
-                           <StatusDot status={status} className="ml-0.5" />
-                        )}
-                        <button
-                           data-tab-close
-                           className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"
-                           aria-label={`Close ${title}`}
-                           onClick={() => onClose(id)}
-                        >
-                           <X className="size-3" />
-                        </button>
-                     </div>
-                  );
+                        </>
+                     ),
+                     className: status === "unread" ? "font-semibold text-foreground" : undefined,
+                     after: (status === "working" || status === "needs_attention") && (
+                        <StatusDot status={status} className="ml-0.5" />
+                     ),
+                  };
                })}
+               active={active}
+               onSelect={onSelect}
+               onClose={onClose}
+               onMove={onMove}
+            >
                <Tooltip content="New side chat" side="bottom">
                   <Button
                      size="icon"
@@ -178,7 +118,7 @@ export function SidePanel({
                      <Plus />
                   </Button>
                </Tooltip>
-            </div>
+            </PanelTabs>
          </PanelHeader>
          <PastChats
             open={pastOpen}

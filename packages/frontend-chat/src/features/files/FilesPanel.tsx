@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
+import { type PanelTab, PanelTabs } from "../../panels/PanelTabs";
 import { CommentCount } from "../changes/DiffViewer";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
@@ -39,7 +40,6 @@ import { setWrapCode, useWrapCode } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
 import { activeCommentsOn, fileViewComments } from "../review/reviewComments";
 import { useLineComments } from "../review/useLineComments";
-import { FileTabStrip } from "./FileTabStrip";
 import { FileView, type LineRange } from "./FileView";
 import {
    closeTab,
@@ -367,18 +367,27 @@ export function FilesPanel({
                </>
             }
          >
-            <FileTabStrip
-               tabs={tabs}
+            <PanelTabs
+               label="Open files"
+               tabs={tabs.map(
+                  (t): PanelTab => ({
+                     id: t.path,
+                     name: t.path.slice(t.path.lastIndexOf("/") + 1),
+                     ariaLabel: t.pinned ? t.path : `${t.path} (preview)`,
+                     labelClassName: t.pinned ? undefined : "italic",
+                     onDoubleClick: () => select(t.path, true),
+                  }),
+               )}
                active={selected}
-               onShow={(path) => {
+               onSelect={(path) => {
                   setSelected(path);
                   setRange(null);
                   setCursor(null);
                }}
-               onPin={(path) => select(path, true)}
                onClose={close}
-               onMove={(path, to) => setTabs((t) => moveTab(t, path, to))}
+               onMove={(path, before) => setTabs((t) => moveTab(t, path, before))}
             />
+            <div className="flex-1" />
             <Button
                size="icon"
                variant={showTree ? "secondary" : "ghost"}
