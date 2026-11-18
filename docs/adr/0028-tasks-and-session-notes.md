@@ -39,6 +39,8 @@ Users keep work items (things to do, bugs, ideas) in many places. They want them
 
 **Concurrency: last write wins**, except the task body and the note. They carry `base_updated_ms` or `base_hash`, and a write fails with a conflict when the value changed. Deleting a task writes the children first and the deleted task last, so a retry after a crash finishes the job.
 
-**Not in v1.** Inline images in the note or body (an asset strip is below the editor). Manual ordering by drag. An Agent tool to delete tasks or write the note. Tasks in the Quick Overlay. Reverting a task status when its Session ends.
+**Not in v1.** Inline images in the note or body (an asset strip is below the editor). Manual ordering by drag. An Agent tool to delete tasks or write the note. Tasks in the Quick Overlay.
+
+**Decided no.** A status set when a Session starts from a task is not reverted when that Session ends.
 
 **Consequences.** Replay shows tasks and notes as they are now. Deleting a Session keeps its tasks. The name "task" is also used by Claude's own todo tools, so the tool text must keep the two apart. This is checked in a smoke run with Claude and Codex.
