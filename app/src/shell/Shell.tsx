@@ -1,10 +1,17 @@
-import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
-import { HarnessClient as Client, errText, forgetSession, useSharedArtifacts } from "@harness/api";
+import type { HarnessClient, SessionSummary, TaskListSource, Transport } from "@harness/api";
+import {
+   HarnessClient as Client,
+   errText,
+   forgetSession,
+   useSharedArtifacts,
+   useTasks,
+} from "@harness/api";
 import { cn, ResizeHandle } from "@harness/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerDialog } from "../composer/ComposerDialog";
+import { useStartFromTask } from "../composer/useStartFromTask";
 import { listenHost } from "../overlay/overlayHost";
-import { sharedView } from "../platform/frontends";
+import { sharedView, tasksView } from "../platform/frontends";
 import { openViewWindow } from "../platform/openWindow";
 import { useReportError } from "../platform/toast";
 import { ViewHost } from "../platform/ViewHost";
@@ -21,14 +28,18 @@ import { useTurnNotices } from "../sessions/useTurnNotices";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog";
 import { AttachDialog } from "../shared-artifacts/AttachDialog";
 import { SharedArtifactsSection } from "../shared-artifacts/SharedArtifactsSection";
+import { TasksEntry } from "../tasks/TasksEntry";
 import { UpdateFooter } from "../updates/UpdateFooter";
 import { useUpdate } from "../updates/updates";
 import { needsEditor } from "./editorError";
 import { useSidebarOpen, useSidebarWidth } from "./useSidebar";
 import { DevBadge, WindowControls } from "./WindowControls";
 
-/** What the main pane shows: a Session, or a Shared Artifact without a Session (ADR 0024). */
-type Selection = { session: string } | { shared: string } | null;
+/**
+ * What the main pane shows: a Session, a Shared Artifact without a Session (ADR 0024), or All tasks with the
+ * task in its preview (null: none; ADR 0028).
+ */
+type Selection = { session: string } | { shared: string } | { tasks: string | null } | null;
 
 export function Shell({ transport }: { transport: Transport }) {
    const client = useMemo<HarnessClient>(() => new Client(transport), [transport]);
@@ -43,6 +54,9 @@ export function Shell({ transport }: { transport: Transport }) {
       [],
    );
    const openShared = useCallback((id: string) => setSelection({ shared: id }), []);
+   const inTasks = selection !== null && "tasks" in selection;
+   const taskId = selection && "tasks" in selection ? selection.tasks : null;
+   const openTasks = useCallback((id?: string | null) => setSelection({ tasks: id ?? null }), []);
    const [attachOpen, setAttachOpen] = useState(false);
    /** "New Session with it": the Shared Artifact to attach once the Composer created the Session. */
    const attachOnCreate = useRef<string | null>(null);
@@ -60,6 +74,19 @@ export function Shell({ transport }: { transport: Transport }) {
       [client],
    );
    const sharedList = useSharedArtifacts(sharedSource);
+   const taskSource = useMemo<TaskListSource>(
+      () => ({ list: () => client.listTasks(), onChanged: (f) => client.tasksChanged(f) }),
+      [client],
+   );
+   const tasks = useTasks(taskSource);
+   const fromTask = useStartFromTask({
+      client,
+      onCreated: (id) => {
+         setSelected(id);
+         client.listSessions().then(setSessions, (e) => report("Could not load sessions", e));
+      },
+      agentsVersion,
+   });
    const [composer, setComposerOpen] = useState(false);
    /** Opens the Composer; `attach`: a Shared Artifact to attach to the new Session. */
    const setComposer = useCallback((o: boolean, attach: string | null = null) => {
@@ -85,6 +112,7 @@ export function Shell({ transport }: { transport: Transport }) {
 
    const report = useReportError();
    const SharedView = sharedView();
+   const TasksView = tasksView();
    const update = useUpdate();
 
    // Cmd+, opens Settings (macOS convention). Capture phase, so the terminal or an editor never eats it.
@@ -226,6 +254,9 @@ export function Shell({ transport }: { transport: Transport }) {
                      </p>
                   )}
                </SessionList>
+               {TasksView && (
+                  <TasksEntry tasks={tasks} selected={inTasks} onOpen={() => openTasks(null)} />
+               )}
                <SharedArtifactsSection
                   list={sharedList}
                   selected={sharedId}
@@ -235,7 +266,17 @@ export function Shell({ transport }: { transport: Transport }) {
             </aside>
          )}
          <main className="flex min-w-0 flex-1 flex-col">
-            {sharedId ? (
+            {inTasks && TasksView ? (
+               <TasksView
+                  client={client}
+                  selected={taskId}
+                  onSelect={openTasks}
+                  sessions={sessions}
+                  onOpenSession={setSelected}
+                  onStartFromTask={fromTask.start}
+                  leading={leading}
+               />
+            ) : sharedId ? (
                SharedView && (
                   <SharedView
                      key={sharedId}
@@ -289,6 +330,8 @@ export function Shell({ transport }: { transport: Transport }) {
                         agentSwitch={agentSwitch}
                         onOpenShared={openShared}
                         onOpenSession={setSelected}
+                        onOpenTasks={TasksView ? openTasks : undefined}
+                        onStartFromTask={fromTask.start}
                      />
                   </div>
                </>
@@ -327,6 +370,7 @@ export function Shell({ transport }: { transport: Transport }) {
                }
             />
          )}
+         {fromTask.dialog}
          <SettingsDialog
             client={client}
             open={settingsSection !== null}

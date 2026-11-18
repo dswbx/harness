@@ -1,7 +1,13 @@
 import type { ComponentType, ReactNode } from "react";
 import type { HarnessClient } from "../client/app";
 import type { SessionApi } from "../client/client";
-import type { AppEvent, AttachmentInput, FrontendManifest, SharedArtifactMeta } from "../generated";
+import type {
+   AppEvent,
+   AttachmentInput,
+   FrontendManifest,
+   SessionStatus,
+   SharedArtifactMeta,
+} from "../generated";
 
 /** A call of a Frontend Tool with `replies`: the Frontend answers it, and the Agent gets the answer. */
 export type FrontendRequest = Extract<AppEvent, { type: "FrontendRequest" }>;
@@ -79,6 +85,24 @@ export type SharedViewProps = {
 };
 
 /**
+ * The host's All tasks view (ADR 0028) in its main pane: every task, filtered and grouped, with the selected
+ * one in a preview. The selection is the host's (it opens the view at a task); the rest is the Frontend's.
+ */
+export type TasksViewProps = {
+   client: HarnessClient;
+   /** The task in the preview; null: none, the list takes the full width. */
+   selected: string | null;
+   onSelect: (taskId: string | null) => void;
+   /** For origin Session titles and their status dot; a Session not listed shows as deleted. */
+   sessions: readonly { id: string; title: string; status?: SessionStatus }[];
+   onOpenSession: (sessionId: string) => void;
+   /** Starts a Session from a task (the host's dialog). Absent: the view offers none. */
+   onStartFromTask?: (taskId: string) => void;
+   /** Before the title in the header, e.g. the host's window controls when its sidebar is hidden. */
+   leading?: ReactNode;
+};
+
+/**
  * A preference of a Frontend, drawn by the host's Settings > Appearance as a switch row in `group`:
  * `chat` (how Sessions read) or `terminal`. The value lives in the Frontend (`useValue`, `set`).
  */
@@ -147,6 +171,8 @@ export interface Frontend {
    Request?: ComponentType<FrontendRequestProps>;
    /** Renders a Shared Artifact in the host's main pane. Absent: the host opens none with this Frontend. */
    SharedView?: ComponentType<SharedViewProps>;
+   /** Renders the All tasks view in the host's main pane. Absent: the host has no such view. */
+   TasksView?: ComponentType<TasksViewProps>;
    /** Its preferences, as rows in Settings > Appearance. Absent: none. */
    toggles?: FrontendToggle[];
    /** A catalog page of what the Agent can render (Settings > UI components). Absent: no such page. */

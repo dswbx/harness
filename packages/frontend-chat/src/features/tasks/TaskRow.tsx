@@ -29,8 +29,8 @@ export function TaskRow({
    progress: { done: number; total: number } | null;
    /** `YYYY-MM-DD`, for overdue dates. */
    today: string;
-   /** The Session the list is in. */
-   sessionId: string;
+   /** The Session the list is in (null: none). */
+   sessionId: string | null;
    onOpen: () => void;
    onStatus: (status: TaskStatus) => void;
    className?: string;

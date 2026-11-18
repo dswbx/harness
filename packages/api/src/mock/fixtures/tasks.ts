@@ -7,8 +7,9 @@ const DAY = 86_400_000;
 const day = (days: number) => localDay(new Date(Date.now() + days * DAY));
 
 /**
- * The mock's Tasks (ADR 0028): two topics with subtasks, one upstream link, one overdue Task and
- * some loose ones. Origins are fixture Sessions; `t3` was started in `mock-1`, which also has a done task.
+ * The mock's Tasks (ADR 0028): three topics with subtasks (one nested two deep), upstream links, overdue
+ * Tasks, a cancelled one and some loose ones. Origins are fixture Sessions (`t18`'s was deleted); `t3` was
+ * started in `mock-1`, which also has a done task.
  */
 export function mockTasks(): Task[] {
    const now = Date.now();
@@ -26,7 +27,7 @@ export function mockTasks(): Task[] {
          age?: number;
       } = {},
    ): Task => {
-      const created = now - (o.age ?? 10 - n) * DAY;
+      const created = now - (o.age ?? Math.abs(10 - n)) * DAY;
       return {
          v: 1,
          id: `t${n}`,
@@ -56,6 +57,8 @@ export function mockTasks(): Task[] {
       };
    };
    const s1: [string, string] = ["mock-s1", "Compact header layout"];
+   const s2: [string, string] = ["mock-s2", "Schema refs"];
+   const s3: [string, string] = ["mock-s3", "Ping and pong greeting"];
    const m1: [string, string] = ["mock-1", "Mock session (fixture replay)"];
    const tasks = [
       task(1, "Release v2026.12", {
@@ -92,9 +95,81 @@ export function mockTasks(): Task[] {
          status: "done",
          origin: m1,
       }),
+      // A third topic with a nested subtask, Sessions in other states and a deleted origin.
+      task(11, "Worktree reliability", {
+         status: "in_progress",
+         priority: "high",
+         due: day(10),
+         body: "Make fresh worktrees fast and safe: shared build cache, fewer reinstalls, no orphan folders.",
+      }),
+      task(12, "Cache `target/` across worktrees", {
+         parent: 11,
+         order: 1,
+         status: "in_progress",
+         priority: "high",
+         due: day(5),
+         origin: s1,
+         body: "Each worktree builds from cold. Point all worktrees of a repo at one shared `CARGO_TARGET_DIR`.",
+      }),
+      task(13, "Measure cold vs warm build", {
+         parent: 12,
+         order: 1,
+         status: "done",
+         origin: s1,
+      }),
+      task(14, "Shared `CARGO_TARGET_DIR` in the dev script", {
+         parent: 12,
+         order: 2,
+         status: "in_review",
+         priority: "high",
+         origin: s2,
+      }),
+      task(15, "Check disk use after a week", { parent: 12, order: 3, due: day(7), origin: s1 }),
+      task(16, "Skip `bun install` when the lockfile is unchanged", {
+         parent: 11,
+         order: 2,
+         priority: "medium",
+         due: day(2),
+         origin: s1,
+      }),
+      task(17, "Investigate `SQLITE_BUSY` on parallel builds", {
+         parent: 11,
+         order: 3,
+         status: "blocked",
+         priority: "high",
+         origin: s2,
+      }),
+      task(18, "Clean up orphan worktrees on app exit", {
+         parent: 11,
+         order: 4,
+         status: "in_review",
+         priority: "medium",
+         due: day(-1),
+         origin: ["mock-gone", "Old worktree cleanup"],
+      }),
+      task(19, "Write an ADR for a shared build cache", {
+         status: "backlog",
+         priority: "low",
+         origin: s3,
+      }),
+      task(20, "Show attached artifacts in the session header", {
+         priority: "medium",
+         due: day(13),
+      }),
+      task(21, "Try sccache for CI", { status: "cancelled", origin: s1 }),
    ];
    const t1 = tasks[0] as Task;
    t1.upstream = { url: "https://linear.app/harness/issue/HAR-42/release-v2026-12", label: null };
+   const link = (n: number, url: string) => {
+      (tasks[n - 1] as Task).upstream = { url, label: null };
+   };
+   link(11, "https://linear.app/harness/issue/HAR-480/worktree-reliability");
+   link(12, "https://linear.app/harness/issue/HAR-482/cache-target");
+   link(14, "https://github.com/dswbx/harness/pull/201");
+   link(17, "https://linear.app/harness/issue/HAR-487/sqlite-busy");
+   (tasks[16] as Task).sessions = [
+      { session_id: "mock-p1-b", title: "Check supalite RLS cases", started_ms: now - DAY / 2 },
+   ];
    const t3 = tasks[2] as Task;
    t3.sessions = [
       { session_id: "mock-1", title: "Mock session (fixture replay)", started_ms: now - DAY },

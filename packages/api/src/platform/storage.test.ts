@@ -231,6 +231,8 @@ describe("registry", () => {
          "app harness:diff-sidebar-width",
          "app harness:commits-pane-height",
          "app harness:files-tree-width",
+         "app harness.tasks.view",
+         "app harness:tasks-preview-width",
          "app harness:window-frame:{name}",
          "session harness.chat.layout.{session}",
          "session harness.chat.sideThreads.{session}",

@@ -123,3 +123,324 @@ export function taskFromText(text: string): { title: string; body: string | null
       .trim();
    return { title, body: body || null };
 }
+
+// The All tasks view (ADR 0028): filters, groups and the rows of its list.
+
+/** `open`: open tasks, the closed ones in a folded group at the end; `all`; `done`: closed tasks only. */
+export type StatusFilter = "open" | "all" | "done";
+/** `today`: due today or before. `week`: due in the next 7 days or before. `none`: no due date. */
+export type DueFilter = "any" | "overdue" | "today" | "week" | "none";
+
+/** The `session` filter value for tasks created outside a Session. */
+export const NO_SESSION = "none";
+
+export type TaskFilter = {
+   status: StatusFilter;
+   /** Empty: any. */
+   priorities: readonly TaskPriority[];
+   /** The origin Session; `NO_SESSION`: created outside one; null: any. */
+   session: string | null;
+   due: DueFilter;
+   /** Only tasks with an upstream link. */
+   upstream: boolean;
+   /** Text in the title, or the task id. */
+   query: string;
+};
+
+export const DEFAULT_FILTER: TaskFilter = {
+   status: "open",
+   priorities: [],
+   session: null,
+   due: "any",
+   upstream: false,
+   query: "",
+};
+
+/** Any filter other than the status one is set. */
+export const hasFilters = (f: TaskFilter): boolean =>
+   f.priorities.length > 0 ||
+   f.session !== null ||
+   f.due !== "any" ||
+   f.upstream ||
+   f.query.trim() !== "";
+
+type Filterable = Pick<
+   TaskSummary,
+   "id" | "title" | "status" | "priority" | "due" | "upstream" | "origin_session_id"
+>;
+
+/** `YYYY-MM-DD` plus `n` days. */
+function addDays(day: string, n: number): string {
+   const [y = 1970, m = 1, d = 1] = day.split("-").map(Number);
+   const at = new Date(y, m - 1, d + n);
+   const p = (x: number) => String(x).padStart(2, "0");
+   return `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}`;
+}
+
+/** Whether the task passes every filter but the status one. `today`: `YYYY-MM-DD`. */
+export function matchesFilter(t: Filterable, f: TaskFilter, today: string): boolean {
+   if (f.priorities.length > 0 && !f.priorities.includes(t.priority)) return false;
+   if (f.session !== null && (t.origin_session_id ?? NO_SESSION) !== f.session) return false;
+   if (f.upstream && !t.upstream) return false;
+   const due = t.due;
+   if (f.due === "overdue" && !(due !== null && due < today)) return false;
+   if (f.due === "today" && !(due !== null && due <= today)) return false;
+   if (f.due === "week" && !(due !== null && due <= addDays(today, 7))) return false;
+   if (f.due === "none" && due !== null) return false;
+   const q = f.query.trim().toLowerCase();
+   return !q || t.title.toLowerCase().includes(q) || t.id.toLowerCase() === q;
+}
+
+const statusPasses = (status: TaskStatus, f: StatusFilter) =>
+   f === "all" || (f === "open") === isOpen(status);
+
+export type GroupBy = "topic" | "status" | "session";
+
+type Listable = Filterable & Pick<TaskSummary, "parent_id" | "created_ms" | "origin_title">;
+
+/** One row of the list. */
+export type ListRow<T> = {
+   task: T;
+   /** 0: a topic (or a row of a flat group); 1: its subtask; ... */
+   depth: number;
+   /** Its subtasks, shown or not. */
+   kids: number;
+   /** Its subtasks show. */
+   expanded: boolean;
+   /** It did not pass the filters: it shows only for the subtasks that did. */
+   context: boolean;
+};
+
+/** A group of rows. By topic, `head` is the topic's own row (null: the "No topic" group). */
+export type ListGroup<T> = {
+   key: string;
+   label: string;
+   head: ListRow<T> | null;
+   rows: ListRow<T>[];
+   /** The rows hide (the group, or its topic, is folded). */
+   folded: boolean;
+   /** Tasks in it that passed the filters (also when folded). */
+   count: number;
+};
+
+export type TaskList<T> = {
+   groups: ListGroup<T>[];
+   /** With the `open` status filter: the closed tasks that passed the other filters (shown last, folded). */
+   closed: T[];
+};
+
+/** The group key of the tasks without a topic, Session or status group. */
+export const NONE_GROUP = "none";
+
+/**
+ * Whether the row (task id) or group (`group:<key>`) shows its contents: topics and groups do by default,
+ * subtasks with subtasks do not. `flipped` holds the ids the user turned the other way.
+ */
+export const isExpanded = (key: string, depth: number, flipped: ReadonlySet<string>): boolean =>
+   (depth === 0) !== flipped.has(key);
+
+/**
+ * The list of the All tasks view. By topic: one group per topic (a top-level task with subtasks) with its
+ * subtasks below, indented, then "No topic" with the top-level tasks without subtasks. A task that fails the
+ * filters still shows when one of its subtasks passes. By status or Session: flat groups.
+ */
+export function buildList<T extends Listable>(
+   tasks: readonly T[],
+   o: {
+      filter: TaskFilter;
+      groupBy: GroupBy;
+      today: string;
+      flipped: ReadonlySet<string>;
+      /** A Session's title (null: not known), for the Session groups. */
+      sessionTitle?: (id: string) => string | null;
+   },
+): TaskList<T> {
+   const { filter, flipped } = o;
+   const rest = (t: T) => matchesFilter(t, filter, o.today);
+   const passes = (t: T) => statusPasses(t.status, filter.status) && rest(t);
+   const ids = new Set(tasks.map((t) => t.id));
+   const kidsOf = new Map<string | null, T[]>();
+   for (const t of tasks) {
+      const p = t.parent_id && ids.has(t.parent_id) ? t.parent_id : null;
+      kidsOf.set(p, [...(kidsOf.get(p) ?? []), t]);
+   }
+   for (const [k, l] of kidsOf) kidsOf.set(k, sortTasks(l));
+   const kids = (id: string) => kidsOf.get(id) ?? [];
+   // Shown: it passes, or a subtask below it does.
+   const shownMemo = new Map<string, boolean>();
+   const shown = (t: T, seen = new Set<string>()): boolean => {
+      const hit = shownMemo.get(t.id);
+      if (hit !== undefined) return hit;
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      const v = passes(t) || kids(t.id).some((k) => shown(k, seen));
+      shownMemo.set(t.id, v);
+      return v;
+   };
+   const row = (t: T, depth: number): ListRow<T> => ({
+      task: t,
+      depth,
+      kids: kids(t.id).length,
+      expanded: isExpanded(t.id, depth, flipped),
+      context: !passes(t),
+   });
+   const closed =
+      filter.status === "open"
+         ? sortTasks(tasks.filter((t) => !isOpen(t.status) && rest(t) && !shown(t)))
+         : [];
+
+   if (o.groupBy !== "topic") {
+      const keyOf = (t: T) =>
+         o.groupBy === "status" ? t.status : (t.origin_session_id ?? NONE_GROUP);
+      const byKey = new Map<string, T[]>();
+      for (const t of sortTasks(tasks.filter(passes)))
+         byKey.set(keyOf(t), [...(byKey.get(keyOf(t)) ?? []), t]);
+      const label = (key: string, first: T) =>
+         o.groupBy === "status"
+            ? key
+            : key === NONE_GROUP
+              ? "No session"
+              : (o.sessionTitle?.(key) ?? first.origin_title ?? "Session");
+      const groups = [...byKey].map(([key, list]): ListGroup<T> => {
+         const folded = !isExpanded(`group:${key}`, 0, flipped);
+         return {
+            key,
+            label: label(key, list[0] as T),
+            head: null,
+            rows: folded ? [] : list.map((t) => ({ ...row(t, 0), expanded: false })),
+            folded,
+            count: list.length,
+         };
+      });
+      // Statuses come in their order (sortTasks); Sessions by name, "No session" last.
+      if (o.groupBy === "session")
+         groups.sort(
+            (a, b) =>
+               Number(a.key === NONE_GROUP) - Number(b.key === NONE_GROUP) ||
+               a.label.localeCompare(b.label),
+         );
+      return { groups, closed };
+   }
+
+   const groups: ListGroup<T>[] = [];
+   const loose: T[] = [];
+   for (const top of kidsOf.get(null) ?? []) {
+      if (!shown(top)) continue;
+      if (kids(top.id).length === 0) {
+         loose.push(top);
+         continue;
+      }
+      const rows: ListRow<T>[] = [];
+      let count = 0;
+      const walk = (parent: string, depth: number, seen: Set<string>) => {
+         for (const k of kids(parent)) {
+            if (!shown(k) || seen.has(k.id)) continue;
+            seen.add(k.id);
+            if (passes(k)) count++;
+            const r = row(k, depth);
+            rows.push(r);
+            if (r.expanded) walk(k.id, depth + 1, seen);
+            else countBelow(k.id, seen);
+         }
+      };
+      const countBelow = (parent: string, seen: Set<string>) => {
+         for (const k of kids(parent)) {
+            if (seen.has(k.id)) continue;
+            seen.add(k.id);
+            if (passes(k)) count++;
+            countBelow(k.id, seen);
+         }
+      };
+      const head = row(top, 0);
+      const seen = new Set([top.id]);
+      if (head.expanded) walk(top.id, 1, seen);
+      else countBelow(top.id, seen);
+      groups.push({
+         key: top.id,
+         label: top.title,
+         head,
+         rows,
+         folded: !head.expanded,
+         count,
+      });
+   }
+   if (loose.length > 0) {
+      const folded = !isExpanded(`group:${NONE_GROUP}`, 0, flipped);
+      groups.push({
+         key: NONE_GROUP,
+         label: "No topic",
+         head: null,
+         rows: folded ? [] : loose.map((t) => row(t, 0)),
+         folded,
+         count: loose.length,
+      });
+   }
+   return { groups, closed };
+}
+
+/**
+ * The topics `id` can move under from the row menu: top-level tasks with subtasks, not the task itself, not
+ * one below it and not its parent now; sorted.
+ */
+export function moveTargets<T extends Sortable & Pick<TaskSummary, "id" | "parent_id">>(
+   tasks: readonly T[],
+   id: string,
+): T[] {
+   const self = tasks.find((t) => t.id === id);
+   const below = descendantIds(tasks, id);
+   const parents = new Set(tasks.map((t) => t.parent_id));
+   return sortTasks(
+      tasks.filter(
+         (t) =>
+            t.parent_id === null &&
+            parents.has(t.id) &&
+            t.id !== id &&
+            t.id !== self?.parent_id &&
+            !below.has(t.id),
+      ),
+   );
+}
+
+/** Whether `id` can be dropped on `target` (null: the top level): a move that changes something and makes no loop. */
+export function canNest(
+   tasks: readonly Pick<TaskSummary, "id" | "parent_id">[],
+   id: string,
+   target: string | null,
+): boolean {
+   const self = tasks.find((t) => t.id === id);
+   if (!self || self.parent_id === target) return false;
+   return target === null || (target !== id && !descendantIds(tasks, id).has(target));
+}
+
+/**
+ * The tasks of `selected`'s ancestors that must be expanded to show its row, as `flipped` after (the same
+ * set when nothing changes).
+ */
+export function reveal(
+   tasks: ReadonlyMap<string, Pick<TaskSummary, "id" | "parent_id">>,
+   id: string,
+   flipped: ReadonlySet<string>,
+): ReadonlySet<string> {
+   const up = ancestors(tasks, id);
+   let next: Set<string> | null = null;
+   up.forEach((t, depth) => {
+      if (isExpanded(t.id, depth, flipped)) return;
+      next ??= new Set(flipped);
+      if (depth === 0) next.delete(t.id);
+      else next.add(t.id);
+   });
+   return next ?? flipped;
+}
+
+/** How many Sessions the open tasks come from or were started in. */
+export function sessionCount(
+   tasks: readonly Pick<TaskSummary, "status" | "origin_session_id" | "sessions">[],
+): number {
+   const ids = new Set<string>();
+   for (const t of tasks) {
+      if (!isOpen(t.status)) continue;
+      if (t.origin_session_id) ids.add(t.origin_session_id);
+      for (const l of t.sessions) ids.add(l.session_id);
+   }
+   return ids.size;
+}

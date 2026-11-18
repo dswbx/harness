@@ -7,7 +7,6 @@ import {
    isCommandError,
    isOpen,
    localDay,
-   type SessionApi,
    type Task,
    type TaskActivity,
    type TaskPatch,
@@ -23,11 +22,23 @@ import {
    DialogFooter,
    DialogHeader,
    DialogTitle,
+   DropdownMenu,
+   DropdownMenuContent,
    DropdownMenuItem,
+   DropdownMenuTrigger,
    ScrollArea,
    Tooltip,
 } from "@harness/ui";
-import { ArrowLeft, ChevronRight, MoveUpRight, Play, Plus, Trash2 } from "lucide-react";
+import {
+   ArrowLeft,
+   ChevronRight,
+   MoreHorizontal,
+   MoveUpRight,
+   Play,
+   Plus,
+   Trash2,
+   X,
+} from "lucide-react";
 import {
    type ReactNode,
    useCallback,
@@ -51,6 +62,7 @@ import { PriorityMenu } from "./PriorityMenu";
 import { QuickAdd } from "./QuickAdd";
 import { STATUS_LABEL, StatusMenu } from "./StatusMenu";
 import { TaskRow } from "./TaskRow";
+import type { TaskApi } from "./taskApi";
 import { UpstreamField } from "./UpstreamField";
 import { useAutosave } from "./useAutosave";
 
@@ -60,7 +72,7 @@ const SECTION =
    "flex items-center gap-1.5 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
 
 /** The task, read in full, and read again whenever it changes (any window). `missing`: it was deleted. */
-function useTask(api: SessionApi, id: string) {
+function useTask(api: TaskApi, id: string) {
    const [task, setTask] = useState<Task | null>(null);
    const [missing, setMissing] = useState(false);
    const [error, setError] = useState<string | null>(null);
@@ -103,14 +115,17 @@ export function TaskDetail({
    host,
    onBack,
    onOpen,
+   onClose,
 }: {
-   api: SessionApi;
+   api: TaskApi;
    id: string;
    /** All tasks (null while loading): parent, breadcrumb and subtasks. */
    tasks: readonly TaskSummary[] | null;
    host: PanelCtx["host"];
    onBack: () => void;
    onOpen: (id: string) => void;
+   /** A preview beside a list (the All tasks view): a close button and its own menu instead of Back. */
+   onClose?: () => void;
 }) {
    const { task, put, missing, error, setError } = useTask(api, id);
    const [confirmDelete, setConfirmDelete] = useState(false);
@@ -130,28 +145,29 @@ export function TaskDetail({
       api.deleteTask(id).then(onBack, fail);
    };
 
-   const header = (
-      <PanelHeader
-         menu={
-            <DropdownMenuItem
-               className="text-destructive focus:text-destructive"
-               onSelect={() => setConfirmDelete(true)}
-            >
-               <Trash2 /> Delete task
-            </DropdownMenuItem>
-         }
+   const deleteItem = (
+      <DropdownMenuItem
+         className="text-destructive focus:text-destructive"
+         onSelect={() => setConfirmDelete(true)}
       >
-         <Tooltip content="Back to tasks" side="bottom">
-            <Button
-               size="icon"
-               variant="ghost"
-               className="size-7 shrink-0"
-               aria-label="Back to tasks"
-               onClick={onBack}
-            >
-               <ArrowLeft />
-            </Button>
-         </Tooltip>
+         <Trash2 /> Delete task
+      </DropdownMenuItem>
+   );
+   const header = (
+      <PanelHeader menu={deleteItem}>
+         {!onClose && (
+            <Tooltip content="Back to tasks" side="bottom">
+               <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 shrink-0"
+                  aria-label="Back to tasks"
+                  onClick={onBack}
+               >
+                  <ArrowLeft />
+               </Button>
+            </Tooltip>
+         )}
          <nav
             aria-label="Breadcrumb"
             className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground"
@@ -185,6 +201,36 @@ export function TaskDetail({
                </Button>
             </Tooltip>
          )}
+         {onClose && (
+            <>
+               <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                     <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0 data-[state=open]:bg-accent"
+                        aria-label="Task options"
+                     >
+                        <MoreHorizontal />
+                     </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                     {deleteItem}
+                  </DropdownMenuContent>
+               </DropdownMenu>
+               <Tooltip content="Close preview" side="bottom">
+                  <Button
+                     size="icon"
+                     variant="ghost"
+                     className="size-7 shrink-0"
+                     aria-label="Close preview"
+                     onClick={onClose}
+                  >
+                     <X />
+                  </Button>
+               </Tooltip>
+            </>
+         )}
       </PanelHeader>
    );
 
@@ -195,7 +241,7 @@ export function TaskDetail({
             <div className="flex flex-col items-start gap-2 p-4 text-sm text-muted-foreground">
                This task was deleted.
                <Button size="sm" variant="outline" onClick={onBack}>
-                  Back to tasks
+                  {onClose ? "Close" : "Back to tasks"}
                </Button>
             </div>
          ) : (
@@ -380,7 +426,7 @@ function BodyEditor({
    onError,
    onAddFiles,
 }: {
-   api: SessionApi;
+   api: TaskApi;
    task: Task;
    put: (t: Task) => void;
    onError: (message: string | null) => void;
@@ -494,7 +540,7 @@ function Assets({
    onRemove,
    onError,
 }: {
-   api: SessionApi;
+   api: TaskApi;
    task: Task;
    onAdd: (files: AttachmentInput[]) => void;
    onRemove: (name: string) => void;
@@ -535,7 +581,7 @@ function Subtasks({
    onOpen,
    onError,
 }: {
-   api: SessionApi;
+   api: TaskApi;
    id: string;
    tasks: readonly TaskSummary[];
    today: string;
@@ -602,7 +648,7 @@ function SessionChip({
 }: {
    sessionId: string | null;
    title: string | null;
-   current: string;
+   current: string | null;
 }) {
    const openSession = useContext(OpenSession);
    if (!sessionId) return <span className="text-muted-foreground">Outside a Session</span>;
@@ -638,7 +684,7 @@ function Sessions({
    host,
 }: {
    task: Task;
-   current: string;
+   current: string | null;
    now: number;
    host: PanelCtx["host"];
 }) {
