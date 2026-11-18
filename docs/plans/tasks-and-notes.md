@@ -98,19 +98,19 @@ Rules in `crates/harness-core/src/tasks.rs` (a `Tasks` store on `Shared`, next t
 
 New `crates/harness-core/src/host/dispatch/tasks.rs` (listed in `dispatch/mod.rs`). Commands:
 
-| Command | Result |
-| --- | --- |
-| `ListTasks` | `Tasks { tasks: Vec<TaskSummary> }` |
-| `ReadTask { id }` | `Task { task }` |
-| `CreateTask { title, body?, parent_id?, session_id?, status?, priority?, due?, upstream? }` | `Task` |
-| `UpdateTask { id, patch: TaskPatch, base_updated_ms? }` | `Task` (conflict error when `body` changed after `base_updated_ms`) |
-| `MoveTask { id, parent_id: Option<String>, before: Option<String> }` | `Task` |
-| `DeleteTask { id }` | `Ok` |
-| `AddTaskAssets { id, files: Vec<AttachmentInput> }` / `RemoveTaskAsset { id, name }` | `Task` |
-| `ReadTaskAsset { id, name }` | `(mime, data)`, same shape as the `ReadAttachment` result |
-| `ReadNote { session_id }` | `Note { content, hash, updated_ms, images: Vec<String> }` |
-| `WriteNote { session_id, content, base_hash: Option<String> }` | `Note` (conflict error when the hash changed) |
-| `AddNoteImages { session_id, files: Vec<AttachmentInput> }` | `Note` |
+| Command                                                                                     | Result                                                              |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `ListTasks`                                                                                 | `Tasks { tasks: Vec<TaskSummary> }`                                 |
+| `ReadTask { id }`                                                                           | `Task { task }`                                                     |
+| `CreateTask { title, body?, parent_id?, session_id?, status?, priority?, due?, upstream? }` | `Task`                                                              |
+| `UpdateTask { id, patch: TaskPatch, base_updated_ms? }`                                     | `Task` (conflict error when `body` changed after `base_updated_ms`) |
+| `MoveTask { id, parent_id: Option<String>, before: Option<String> }`                        | `Task`                                                              |
+| `DeleteTask { id }`                                                                         | `Ok`                                                                |
+| `AddTaskAssets { id, files: Vec<AttachmentInput> }` / `RemoveTaskAsset { id, name }`        | `Task`                                                              |
+| `ReadTaskAsset { id, name }`                                                                | `(mime, data)`, same shape as the `ReadAttachment` result           |
+| `ReadNote { session_id }`                                                                   | `Note { content, hash, updated_ms, images: Vec<String> }`           |
+| `WriteNote { session_id, content, base_hash: Option<String> }`                              | `Note` (conflict error when the hash changed)                       |
+| `AddNoteImages { session_id, files: Vec<AttachmentInput> }`                                 | `Note`                                                              |
 
 `TaskPatch` has optional fields plus `clear: Vec<TaskField>` (`Due`, `Upstream`). This avoids `Option<Option<T>>` in specta. A status change appends `StatusChanged`.
 
