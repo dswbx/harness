@@ -70,15 +70,23 @@ export type ListActions = {
 };
 
 /**
- * Title, priority, due, origin Session, upstream, menu. Narrow (a preview open, a small window): the origin
- * Session goes first, then the upstream.
+ * Title, priority, due, origin Session, upstream, menu. The title keeps at least 10rem and takes the free
+ * space. Narrower (a preview open, a small window) columns hide, by list width: Upstream (< 48rem), Created in
+ * (< 36rem), Priority (< 24rem), Due (< 20rem). The header row and the body rows share this.
  */
 const COLS = cn(
    "grid items-center gap-x-3 px-4",
-   "grid-cols-[minmax(0,1fr)_1.5rem_4rem_1.75rem]",
-   "@xl:grid-cols-[minmax(0,1fr)_1.5rem_4rem_5rem_1.75rem]",
-   "@3xl:grid-cols-[minmax(0,1fr)_1.5rem_4rem_12rem_5rem_1.75rem]",
+   "grid-cols-[minmax(10rem,1fr)_1.75rem]",
+   "@xs:grid-cols-[minmax(10rem,1fr)_4rem_1.75rem]",
+   "@sm:grid-cols-[minmax(10rem,1fr)_1.5rem_4rem_1.75rem]",
+   "@xl:grid-cols-[minmax(10rem,1fr)_1.5rem_4rem_12rem_1.75rem]",
+   "@3xl:grid-cols-[minmax(10rem,1fr)_1.5rem_4rem_12rem_5rem_1.75rem]",
 );
+/** Visibility of the optional columns; used by the header and the rows alike. */
+const COL_PRI = "hidden @sm:flex";
+const COL_DUE = "hidden @xs:block";
+const COL_ORIGIN = "hidden @xl:flex";
+const COL_UPSTREAM = "hidden @3xl:block";
 /** Indent per level, px. */
 const INDENT = 20;
 
@@ -231,10 +239,10 @@ export function ListView({
             )}
          >
             <span className="pl-[22px]">Title</span>
-            <span>Pri</span>
-            <span>Due</span>
-            <span className="hidden @3xl:block">Created in</span>
-            <span className="hidden @xl:block">Upstream</span>
+            <span className={COL_PRI}>Pri</span>
+            <span className={COL_DUE}>Due</span>
+            <span className={COL_ORIGIN}>Created in</span>
+            <span className={COL_UPSTREAM}>Upstream</span>
             <span />
          </div>
          {top && <div className="shrink-0">{top}</div>}
@@ -422,11 +430,11 @@ function TaskLine({
             </button>
             {progress && progress.total > 0 && (
                <span
-                  className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground tabular-nums"
+                  className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground tabular-nums @max-xs:hidden"
                   title="Subtasks done"
                >
                   {topic && (
-                     <span className="h-1 w-12 overflow-hidden rounded-full bg-muted">
+                     <span className="h-1 w-12 overflow-hidden rounded-full bg-muted @max-md:hidden">
                         <span
                            className="block h-full bg-emerald-500"
                            style={{ width: `${(progress.done / progress.total) * 100}%` }}
@@ -437,24 +445,31 @@ function TaskLine({
                </span>
             )}
             {task.sessions.length > 0 && (
-               <span className={cn(META_CHIP, "shrink-0")} title="Sessions started from it">
+               <span
+                  className={cn(META_CHIP, "shrink-0 @max-md:hidden")}
+                  title="Sessions started from it"
+               >
                   <Link2 className="size-2.5" />
                   {task.sessions.length} {task.sessions.length === 1 ? "session" : "sessions"}
                </span>
             )}
          </div>
-         <span className="flex">
+         <span className={COL_PRI}>
             {task.priority !== "none" && <PriorityIcon priority={task.priority} />}
          </span>
          <span
-            className={cn("truncate text-xs text-muted-foreground", dueTone(task.due, today, open))}
+            className={cn(
+               "truncate text-xs text-muted-foreground",
+               COL_DUE,
+               dueTone(task.due, today, open),
+            )}
          >
             {task.due ? shortDue(task.due, today) : "—"}
          </span>
-         <span className="hidden min-w-0 @3xl:flex">
+         <span className={cn("min-w-0", COL_ORIGIN)}>
             <Origin task={task} sessions={sessions} />
          </span>
-         <span className="hidden min-w-0 truncate text-xs @xl:block">
+         <span className={cn("min-w-0 truncate text-xs", COL_UPSTREAM)}>
             {task.upstream ? (
                <a
                   href={task.upstream.url}
