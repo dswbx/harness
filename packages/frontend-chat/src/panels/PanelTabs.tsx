@@ -43,6 +43,7 @@ export function PanelTabs<Id extends string | number = string>({
    onClose,
    onMove,
    children,
+   dragRegion = false,
 }: {
    tabs: PanelTab<Id>[];
    active: Id | null;
@@ -52,6 +53,8 @@ export function PanelTabs<Id extends string | number = string>({
    onClose: (id: Id) => void;
    onMove?: (id: Id, before: Id | null) => void;
    children?: ReactNode;
+   /** The strip's empty part drags the window (a window's own title bar). */
+   dragRegion?: boolean;
 }) {
    const strip = useRef<HTMLDivElement>(null);
    /** A drag just ended: the click that follows it is not a click on the tab. */
@@ -119,6 +122,7 @@ export function PanelTabs<Id extends string | number = string>({
             ref={strip}
             role="tablist"
             aria-label={label}
+            data-tauri-drag-region={dragRegion || undefined}
             // Out to the header's left edge (its `pl-2.5`), with the same padding inside.
             className="relative -ml-2.5 flex min-w-0 items-center gap-1 self-stretch overflow-x-auto overscroll-x-none pl-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onWheel={(e) => {
