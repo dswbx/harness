@@ -49,7 +49,7 @@ export const overlayHost = {
       inTauri() ? invoke<void>("overlay_merge", { sessionId }) : Promise.resolve(),
 };
 
-/** `select-session` (main window), `overlay-shown`, `overlay-shortcut` and `overlay-context` (overlay). */
+/** `select-session` and `nav` (main window), `overlay-shown`, `overlay-shortcut` and `overlay-context` (overlay). */
 export function listenHost(
    event: string,
    cb: (payload: unknown) => void,
