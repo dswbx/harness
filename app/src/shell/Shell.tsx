@@ -170,6 +170,8 @@ export function Shell({ transport }: { transport: Transport }) {
    const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
    const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
+   // A Turn is in flight somewhere: updating now would cut it off on restart.
+   const busy = sessions.some((s) => s.status !== "idle");
    const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
 
    useEffect(() => {
@@ -281,7 +283,7 @@ export function Shell({ transport }: { transport: Transport }) {
                   selected={sharedId}
                   onSelect={openShared}
                />
-               <UpdateFooter update={update} />
+               <UpdateFooter update={update} busy={busy} />
             </aside>
          )}
          <main className="flex min-w-0 flex-1 flex-col">
@@ -384,6 +386,7 @@ export function Shell({ transport }: { transport: Transport }) {
             section={settingsSection ?? "appearance"}
             onSectionChange={setSettingsSection}
             sessionId={selected}
+            busy={busy}
             agentsVersion={agentsVersion}
             onAgentsChanged={() => setAgentsVersion((v) => v + 1)}
             onMcpChanged={() => setMcpVersion((v) => v + 1)}

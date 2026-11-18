@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::api::{AgentInfo, AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, PrRefKey, SessionId};
+use crate::api::{AgentInfo, AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, PrRefKey, SessionId, SessionStatus};
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared};
@@ -236,6 +236,11 @@ impl Harness {
     pub async fn shutdown(&self) {
         self.shared.closing.store(true, std::sync::atomic::Ordering::SeqCst);
         self.shut_down.get_or_init(|| self.shutdown_once()).await;
+    }
+
+    /// How many Sessions have a Turn in flight now (working, or waiting on the user mid-Turn).
+    pub fn busy_sessions(&self) -> usize {
+        self.sessions.read().values().filter(|s| s.agent_slot().status() != SessionStatus::Idle).count()
     }
 
     /// The most `shutdown` takes.

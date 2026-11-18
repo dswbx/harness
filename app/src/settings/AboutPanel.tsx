@@ -1,11 +1,12 @@
 import { openExternalLink } from "@harness/api";
 import { Button } from "@harness/ui";
 import { ArrowUpRight } from "lucide-react";
+import { BusyTip } from "../updates/UpdateFooter";
 import { releaseUrl, useAppVersion, useUpdate, useUpdateCheck } from "../updates/updates";
 import { SectionHeader } from "./SectionHeader";
 
 /** Version, and the same opt-in update flow as the sidebar footer. */
-export function AboutPanel() {
+export function AboutPanel({ busy }: { busy: boolean }) {
    const version = useAppVersion();
    const { state, restarting, install, restart } = useUpdate();
    const { checking, result, check } = useUpdateCheck();
@@ -43,9 +44,12 @@ export function AboutPanel() {
                )}
                {(state.kind === "available" || state.kind === "failed") && (
                   <>
-                     <Button size="sm" onClick={install}>
-                        {state.kind === "failed" ? "Retry update to" : "Update to"} {state.version}
-                     </Button>
+                     <BusyTip busy={busy}>
+                        <Button size="sm" disabled={busy} onClick={install}>
+                           {state.kind === "failed" ? "Retry update to" : "Update to"}{" "}
+                           {state.version}
+                        </Button>
+                     </BusyTip>
                      <a
                         href={releaseUrl(state.version)}
                         target="_blank"
@@ -80,9 +84,11 @@ export function AboutPanel() {
                )}
                {state.kind === "ready" && (
                   <>
-                     <Button size="sm" disabled={restarting} onClick={restart}>
-                        {restarting ? "Restarting…" : `Restart to finish (${state.version})`}
-                     </Button>
+                     <BusyTip busy={busy}>
+                        <Button size="sm" disabled={restarting || busy} onClick={restart}>
+                           {restarting ? "Restarting…" : `Restart to finish (${state.version})`}
+                        </Button>
+                     </BusyTip>
                      <span className="text-muted-foreground">Installed, applies on restart.</span>
                   </>
                )}

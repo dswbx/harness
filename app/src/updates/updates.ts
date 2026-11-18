@@ -69,6 +69,9 @@ export function useUpdateCheck() {
    return { checking, result, check };
 }
 
+/** Why update buttons are off while an Agent is working. */
+export const BUSY_HINT = "Wait until no Agent is working";
+
 /** The running app's version ("dev" outside Tauri). */
 export function useAppVersion() {
    const [version, setVersion] = useState<string | null>(null);

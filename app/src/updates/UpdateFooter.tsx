@@ -1,16 +1,38 @@
 import { openExternalLink } from "@harness/api";
-import { Button, Spinner, Tooltip } from "@harness/ui";
+import { Button, cn, Spinner, Tooltip } from "@harness/ui";
 import { ArrowUpRight, Check, RefreshCw } from "lucide-react";
-import { releaseUrl, type useUpdate } from "./updates";
+import type { ReactNode } from "react";
+import { BUSY_HINT, releaseUrl, type useUpdate } from "./updates";
 
 const link =
    "inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground [&_svg]:size-3";
 
-/** Sidebar footer for an opt-in update; renders nothing while there is none. */
+/** While `busy`, explains why the wrapped (disabled) button is off. A span: a disabled button gets no hover. */
+export function BusyTip({
+   busy,
+   className,
+   children,
+}: {
+   busy: boolean;
+   className?: string;
+   children: ReactNode;
+}) {
+   if (!busy) return children;
+   return (
+      <Tooltip content={BUSY_HINT}>
+         <span className={cn("inline-flex", className)}>{children}</span>
+      </Tooltip>
+   );
+}
+
+/** Sidebar footer for an opt-in update; renders nothing while there is none. Update and restart
+ * are off while `busy` (an Agent is working). */
 export function UpdateFooter({
    update: { state, restarting, install, restart },
+   busy,
 }: {
    update: ReturnType<typeof useUpdate>;
+   busy: boolean;
 }) {
    if (state.kind === "idle") return null;
    const changes = (
@@ -34,9 +56,11 @@ export function UpdateFooter({
                   <span className="tabular-nums text-muted-foreground">{state.version}</span>
                </div>
                <div className="flex items-center gap-2.5">
-                  <Button size="sm" className="h-7 flex-1" onClick={install}>
-                     Update
-                  </Button>
+                  <BusyTip busy={busy} className="flex-1 [&>button]:flex-1">
+                     <Button size="sm" className="h-7 flex-1" disabled={busy} onClick={install}>
+                        Update
+                     </Button>
+                  </BusyTip>
                   {changes}
                </div>
             </>
@@ -74,9 +98,11 @@ export function UpdateFooter({
                      {restarting ? "Restarting…" : `${state.version} installed`}
                   </span>
                </div>
-               <Button size="sm" className="h-7" disabled={restarting} onClick={restart}>
-                  <RefreshCw /> Restart to finish
-               </Button>
+               <BusyTip busy={busy} className="flex-1 [&>button]:flex-1">
+                  <Button size="sm" className="h-7" disabled={restarting || busy} onClick={restart}>
+                     <RefreshCw /> Restart to finish
+                  </Button>
+               </BusyTip>
             </>
          )}
          {state.kind === "failed" && (
@@ -88,9 +114,17 @@ export function UpdateFooter({
                   </Tooltip>
                </div>
                <div className="flex items-center gap-2.5">
-                  <Button size="sm" variant="outline" className="h-7 flex-1" onClick={install}>
-                     Retry
-                  </Button>
+                  <BusyTip busy={busy} className="flex-1 [&>button]:flex-1">
+                     <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 flex-1"
+                        disabled={busy}
+                        onClick={install}
+                     >
+                        Retry
+                     </Button>
+                  </BusyTip>
                   {changes}
                </div>
             </>
