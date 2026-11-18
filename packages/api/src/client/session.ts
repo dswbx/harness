@@ -9,6 +9,7 @@ import type {
    GitStatus,
    KnownRepo,
    LineComment,
+   Note,
    PrInfo,
    PrRefKey,
    RepoId,
@@ -28,6 +29,7 @@ import { coreApi } from "./session/core";
 import { filesApi } from "./session/files";
 import { frontendFilesApi } from "./session/frontendFiles";
 import { gitApi } from "./session/git";
+import { noteApi } from "./session/note";
 import { prsApi } from "./session/prs";
 import { sharedApi } from "./session/shared";
 import { tasksApi } from "./session/tasks";
@@ -238,6 +240,17 @@ export interface SessionApi {
    readTaskAsset(id: string, name: string): Promise<{ mime: string; data: string }>;
    /** Calls back with the ids of the Tasks that changed (any window, any Session). */
    tasksChanged(onChange: (ids: string[]) => void): Promise<Unsubscribe>;
+   /** This Session's Session Note (ADR 0028); empty when never written. */
+   readNote(): Promise<Note>;
+   /**
+    * Replaces the note. `baseHash`: the `hash` the editor loaded; refused (`conflict`) when the note
+    * changed since. Without it the write always wins.
+    */
+   writeNote(content: string, baseHash?: string | null): Promise<Note>;
+   /** Copies images into the note's `attachments/note/`; `readAttachment` reads them back. */
+   addNoteImages(files: AttachmentInput[]): Promise<Note>;
+   /** Calls back when this Session's note was written (any window). */
+   noteChanged(onChange: () => void): Promise<Unsubscribe>;
 }
 
 /** The Session's facade: one object composed of per-domain method groups. */
@@ -252,6 +265,7 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       ...terminalApi(transport, sessionId),
       ...sharedApi(transport, sessionId),
       ...tasksApi(transport, sessionId),
+      ...noteApi(transport, sessionId),
       ...commentsApi(transport, sessionId),
    };
 }

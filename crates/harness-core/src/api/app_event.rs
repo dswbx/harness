@@ -50,6 +50,8 @@ pub enum AppEvent {
     /// Tasks were created, changed, moved, deleted or linked: reload the list and re-read the open
     /// ones among `ids`. Live only, not logged.
     TasksChanged { ids: Vec<String> },
+    /// A Session's Session Note was written or got images: re-read it. Live only, not logged.
+    NoteChanged { session_id: SessionId },
     /// A Session's Log could not be written (`error`: why) or can be again (`error` null). While
     /// it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
     /// Live only, not logged. Also `SessionSummary::log_error`.

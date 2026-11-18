@@ -314,6 +314,11 @@ impl Harness {
             Command::RenameSharedArtifact { id, .. } | Command::DeleteSharedArtifact { id } | Command::PatchArtifactState { id, .. } => Some(id.clone()),
             _ => None,
         };
+        // Other windows re-read the note.
+        let note = match &cmd {
+            Command::WriteNote { session_id, .. } | Command::AddNoteImages { session_id, .. } => Some(session_id.clone()),
+            _ => None,
+        };
         // Tasks the Command changes, known before it runs (`CreateTask` adds its new id after).
         let tasks = match &cmd {
             Command::CreateTask { .. } => Some(Vec::new()),
@@ -338,6 +343,9 @@ impl Harness {
         }
         if let (Ok(_), Some(id)) = (&result, changed) {
             self.shared.app_events.emit(AppEvent::SharedArtifactChanged { id });
+        }
+        if let (Ok(_), Some(session_id)) = (&result, note) {
+            self.shared.app_events.emit(AppEvent::NoteChanged { session_id });
         }
         // A settings file loaded by this Command did not load.
         if crate::persist::has_problems(&self.data_dir) {
@@ -482,6 +490,9 @@ impl Harness {
             Command::AddTaskAssets { id, files } => self.cmd_add_task_assets(id, files).await,
             Command::RemoveTaskAsset { id, name } => self.cmd_remove_task_asset(id, name),
             Command::ReadTaskAsset { id, name } => self.cmd_read_task_asset(id, name).await,
+            Command::ReadNote { session_id } => self.cmd_read_note(session_id),
+            Command::WriteNote { session_id, content, base_hash } => self.cmd_write_note(session_id, content, base_hash),
+            Command::AddNoteImages { session_id, files } => self.cmd_add_note_images(session_id, files).await,
         }
     }
 

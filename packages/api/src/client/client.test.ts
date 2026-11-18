@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CommandError } from "../errors";
-import type { Command, CommandResult, Task } from "../generated";
+import type { Command, CommandResult, Note, Task } from "../generated";
 import type { Transport } from "../transport/transport";
 import { createSessionApi, HarnessClient, type SessionApi } from "./client";
 
@@ -35,6 +35,8 @@ const task: Task = {
    activity: [],
 };
 
+const note: Note = { content: "", hash: "h", updated_ms: null, images: [] };
+
 /** What each Command gets back, so methods that check the result type succeed. Others get `Ok`. */
 const replies: Partial<Record<Command["type"], CommandResult>> = {
    ReadAttachment: { type: "Attachment", mime: "text/plain", data: "eA==" },
@@ -46,6 +48,9 @@ const replies: Partial<Record<Command["type"], CommandResult>> = {
    MoveTask: { type: "Task", task },
    AddTaskAssets: { type: "Task", task },
    RemoveTaskAsset: { type: "Task", task },
+   ReadNote: { type: "Note", note },
+   WriteNote: { type: "Note", note },
+   AddNoteImages: { type: "Note", note },
    ReadImageFile: { type: "Attachment", mime: "image/png", data: "eA==" },
    FrontendReadImage: { type: "Attachment", mime: "image/png", data: "eA==" },
    StartSideThread: { type: "ThreadStarted", thread_id: "t2", forked: false },
@@ -112,6 +117,7 @@ type Plain = Exclude<
    | "sharedChanged"
    | "sharedListChanged"
    | "tasksChanged"
+   | "noteChanged"
 >;
 
 /** One call per Command-sending method; a new method fails the typecheck until it has a row. */
@@ -183,6 +189,9 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    addTaskAssets: (a) => a.addTaskAssets("t1", []),
    removeTaskAsset: (a) => a.removeTaskAsset("t1", "a.txt"),
    readTaskAsset: (a) => a.readTaskAsset("t1", "a.txt"),
+   readNote: (a) => a.readNote(),
+   writeNote: (a) => a.writeNote("# n", "h"),
+   addNoteImages: (a) => a.addNoteImages([]),
 };
 
 describe("createSessionApi wire shape", () => {

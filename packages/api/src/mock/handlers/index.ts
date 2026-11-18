@@ -2,6 +2,7 @@ import { agentsHandlers } from "./agents";
 import { commentsHandlers } from "./comments";
 import { frontendFilesHandlers } from "./frontendFiles";
 import { gitHandlers } from "./git";
+import { noteHandlers } from "./note";
 import { promptHandlers } from "./prompt";
 import { prsHandlers } from "./prs";
 import { sessionsHandlers } from "./sessions";
@@ -19,6 +20,7 @@ export const handlers: Handlers = {
    ...prsHandlers,
    ...sharedHandlers,
    ...tasksHandlers,
+   ...noteHandlers,
    ...commentsHandlers,
    ...terminalHandlers,
    ...frontendFilesHandlers,

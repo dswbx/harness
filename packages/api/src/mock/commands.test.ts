@@ -169,6 +169,13 @@ const table: Record<Command["type"], () => Command> = {
    }),
    RemoveTaskAsset: () => ({ type: "RemoveTaskAsset", id: "t1", name: "a.txt" }),
    ReadTaskAsset: () => ({ type: "ReadTaskAsset", id: "t1", name: "a.txt" }),
+   ReadNote: () => ({ type: "ReadNote", session_id: S }),
+   WriteNote: () => ({ type: "WriteNote", session_id: S, content: "# Note" }),
+   AddNoteImages: () => ({
+      type: "AddNoteImages",
+      session_id: S,
+      files: [{ type: "data", name: "a.png", mime: "image/png", data: "eA==" }],
+   }),
 };
 
 describe("MockTransport handles every Command", () => {

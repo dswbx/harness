@@ -109,3 +109,21 @@ export function mockTasks(): Task[] {
    );
    return tasks;
 }
+
+/** Session Notes by Session id: `mock-1` has one, written 12 minutes ago. */
+export function mockNotes(): [
+   string,
+   { content: string; updated_ms: number | null; images: string[] },
+][] {
+   return [
+      [
+         "mock-1",
+         {
+            content:
+               "**Build timings**\n\n- `cargo build` cold 3m12s, warm 41s\n- `bun install` 38s, lockfile unchanged\n- sccache is not set up\n\nAsk about a shared `CARGO_TARGET_DIR` per repo. Check disk use first.",
+            updated_ms: Date.now() - 12 * 60_000,
+            images: [],
+         },
+      ],
+   ];
+}

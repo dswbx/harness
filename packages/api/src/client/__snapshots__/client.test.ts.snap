@@ -171,6 +171,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "AddComment",
     },
   ],
+  "addNoteImages": [
+    {
+      "files": [],
+      "session_id": "s1",
+      "type": "AddNoteImages",
+    },
+  ],
   "addTaskAssets": [
     {
       "files": [],
@@ -479,6 +486,12 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ReadImageFile",
     },
   ],
+  "readNote": [
+    {
+      "session_id": "s1",
+      "type": "ReadNote",
+    },
+  ],
   "readSessionFile": [
     {
       "end": null,
@@ -668,6 +681,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
   "workspace": [
     {
       "type": "ListSessions",
+    },
+  ],
+  "writeNote": [
+    {
+      "base_hash": "h",
+      "content": "# n",
+      "session_id": "s1",
+      "type": "WriteNote",
     },
   ],
 }

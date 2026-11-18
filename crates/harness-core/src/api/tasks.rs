@@ -194,3 +194,18 @@ pub struct TaskPatch {
     #[serde(default)]
     pub clear: Vec<TaskField>,
 }
+
+/// A Session's Session Note (ADR 0028): `<session dir>/note.md`, with images in
+/// `<session dir>/attachments/note/`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Note {
+    /// Markdown; empty when the note was never written.
+    pub content: String,
+    /// sha256 (hex) of `content`; `WriteNote` takes it back as `base_hash`.
+    pub hash: String,
+    /// When `note.md` was last written; none when it does not exist.
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub updated_ms: Option<i64>,
+    /// Absolute paths of the note's images, oldest first. `ReadAttachment` reads them.
+    pub images: Vec<String>,
+}

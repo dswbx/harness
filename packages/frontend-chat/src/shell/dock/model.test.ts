@@ -36,7 +36,7 @@ describe("defaultLayout", () => {
       const { zones } = defaultLayout();
       expect(zones.leftTop).toEqual(["artifacts"]);
       expect(zones.leftBottom).toEqual(["references", "subagents"]);
-      expect(zones.rightTop).toEqual(["changes", "files", "side", "plan"]);
+      expect(zones.rightTop).toEqual(["changes", "files", "side", "plan", "tasks"]);
    });
 });
 
@@ -163,7 +163,7 @@ describe("reconcile", () => {
          zones: {
             ...empty.zones,
             leftBottom: ["artifacts", "references", "subagents"] as string[],
-            rightTop: ["side", "plan"] as string[],
+            rightTop: ["side", "plan", "tasks"] as string[],
          },
       };
       expect(reconcile(full, registered)).toBe(full);
@@ -172,13 +172,13 @@ describe("reconcile", () => {
       const l = { ...empty, zones: { ...empty.zones, bottomRight: [], leftTop: [] } };
       const r = reconcile(l, registered);
       expect(r.zones.bottomRight).toEqual(["events"]);
-      expect(r.zones.rightTop).toEqual(["side", "changes", "plan"]);
+      expect(r.zones.rightTop).toEqual(["side", "changes", "plan", "tasks"]);
    });
    it("adds the Files panel to an old saved layout, next to Changes", () => {
       const old = defaultLayout();
       old.zones.rightTop = ["changes", "side"];
       const r = reconcile(old, registered);
-      expect(r.zones.rightTop).toEqual(["changes", "side", "files", "plan"]);
+      expect(r.zones.rightTop).toEqual(["changes", "side", "files", "plan", "tasks"]);
       expect(zoneOf(r, "files")).toBe("rightTop");
    });
    it("keeps an unknown id in its place, drops duplicates, and still places a known panel that is missing", () => {
@@ -212,7 +212,7 @@ describe("reconcile", () => {
          { id: "slot:a", zone: "rightTop" },
          { id: "slot:b", zone: "leftTop" },
       ]);
-      expect(l.zones.rightTop).toEqual(["side", "plan", "slot:a"]);
+      expect(l.zones.rightTop).toEqual(["side", "plan", "tasks", "slot:a"]);
       expect(l.zones.leftTop).toEqual(["changes", "slot:b"]);
       l = move(l, "slot:a", "bottomRight");
       const again = reconcile(l, [

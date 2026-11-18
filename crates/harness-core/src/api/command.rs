@@ -584,6 +584,23 @@ pub enum Command {
         id: String,
         name: String,
     },
+    /// A Session's Session Note (ADR 0028).
+    ReadNote {
+        session_id: SessionId,
+    },
+    /// Replaces the Session Note. Refused (`conflict`) when `base_hash` is set and the note's
+    /// hash is no longer it (another window wrote it); without it the write always wins.
+    WriteNote {
+        session_id: SessionId,
+        content: String,
+        #[serde(default)]
+        base_hash: Option<String>,
+    },
+    /// Copies images into the Session Note's `attachments/note/`.
+    AddNoteImages {
+        session_id: SessionId,
+        files: Vec<AttachmentInput>,
+    },
 }
 
 /// One Session State patch operation (lenient JSON Patch, see `state.rs`).

@@ -1,4 +1,4 @@
-//! Commands: Tasks (ADR 0028).
+//! Commands: Tasks and the Session Note (ADR 0028).
 
 use crate::api::*;
 use crate::host::Harness;
@@ -61,5 +61,19 @@ impl Harness {
         let shared = self.shared.clone();
         let (mime, data) = tokio::task::spawn_blocking(move || shared.tasks.read_asset(&id, &name)).await??;
         Ok(CommandResult::Attachment { mime, data })
+    }
+
+    pub(in crate::host) fn cmd_read_note(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::Note { note: self.session(&session_id)?.read_note()? })
+    }
+
+    pub(in crate::host) fn cmd_write_note(&self, session_id: SessionId, content: String, base_hash: Option<String>) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::Note { note: self.session(&session_id)?.write_note(&content, base_hash.as_deref())? })
+    }
+
+    pub(in crate::host) async fn cmd_add_note_images(&self, session_id: SessionId, files: Vec<AttachmentInput>) -> anyhow::Result<CommandResult> {
+        let session = self.session(&session_id)?;
+        let note = tokio::task::spawn_blocking(move || session.add_note_images(files)).await??;
+        Ok(CommandResult::Note { note })
     }
 }

@@ -7,6 +7,7 @@ import { referencesPanel } from "../features/references/panel";
 import { slotPanels } from "../features/renderUi/slotPanels";
 import { sideChatsPanel } from "../features/sideChats/panel";
 import { subagentsPanel } from "../features/subagents/panel";
+import { tasksPanel } from "../features/tasks/panel";
 import { terminalPanel } from "../features/terminal/panel";
 import type { PanelDef, PanelFamily, PlacementHint } from "../panels/contract";
 import type { Zone } from "./dock/model";
@@ -23,6 +24,7 @@ export const PANELS: readonly PanelDef<any, any>[] = [
    terminalPanel,
    eventsPanel,
    subagentsPanel,
+   tasksPanel,
 ];
 
 /** The panel families: panels the Agent creates at runtime. */

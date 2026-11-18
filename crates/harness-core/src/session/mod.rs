@@ -4,6 +4,7 @@ mod artifacts;
 mod comments;
 mod frontend;
 mod meta;
+mod note;
 mod shared;
 mod workspace;
 
@@ -42,6 +43,8 @@ pub struct Session {
     shared: Arc<Shared>,
     /// Serializes Session State writes (`state.json` + `StateChanged`).
     state_lock: parking_lot::Mutex<()>,
+    /// Serializes Session Note writes (check `base_hash`, then write).
+    note_lock: parking_lot::Mutex<()>,
     frontend_requests: FrontendRequests,
     /// Watches `panels/` once a window read a source file from it (ADR 0023).
     panels_watch: parking_lot::Mutex<Option<crate::panels::Watcher>>,
@@ -174,6 +177,7 @@ impl Session {
             jobs: Default::default(),
             shared,
             state_lock: Default::default(),
+            note_lock: Default::default(),
             frontend_requests: Default::default(),
             panels_watch: Default::default(),
         }

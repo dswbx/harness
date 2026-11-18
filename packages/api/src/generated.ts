@@ -57,6 +57,8 @@ unseen: boolean } |
  *  ones among `ids`. Live only, not logged.
  */
 { type: "TasksChanged"; ids: string[] } | 
+/**  A Session's Session Note was written or got images: re-read it. Live only, not logged. */
+{ type: "NoteChanged"; session_id: string } | 
 /**
  *  A Session's Log could not be written (`error`: why) or can be again (`error` null). While
  *  it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
@@ -431,7 +433,16 @@ due?: string | null; upstream?: TaskUpstream | null } |
 /**  Copies files into the Task's `files/`. */
 { type: "AddTaskAssets"; id: string; files: AttachmentInput[] } | { type: "RemoveTaskAsset"; id: string; name: string } | 
 /**  A Task asset (base64), as `ReadAttachment`. */
-{ type: "ReadTaskAsset"; id: string; name: string };
+{ type: "ReadTaskAsset"; id: string; name: string } | 
+/**  A Session's Session Note (ADR 0028). */
+{ type: "ReadNote"; session_id: string } | 
+/**
+ *  Replaces the Session Note. Refused (`conflict`) when `base_hash` is set and the note's
+ *  hash is no longer it (another window wrote it); without it the write always wins.
+ */
+{ type: "WriteNote"; session_id: string; content: string; base_hash?: string | null } | 
+/**  Copies images into the Session Note's `attachments/note/`. */
+{ type: "AddNoteImages"; session_id: string; files: AttachmentInput[] };
 
 export type CommandResult = { type: "Ok" } | 
 /**  `AddComment`. */
@@ -473,7 +484,7 @@ export type CommandResult = { type: "Ok" } |
  */
 { type: "SharedArtifact"; meta: SharedArtifactMeta; content: string; hash: string; mtime_ms: number; state: unknown; 
 /**  The artifact's folder (absolute). */
-dir: string } | { type: "Tasks"; tasks: TaskSummary[] } | { type: "Task"; task: Task };
+dir: string } | { type: "Tasks"; tasks: TaskSummary[] } | { type: "Task"; task: Task } | { type: "Note"; note: Note };
 
 /**  The side of a diff a comment is on. */
 export type CommentSide = "old" | "new";
@@ -905,6 +916,21 @@ export type NewPermissionRule = {
 	tool_kind: string | null,
 	pattern: string | null,
 	decision: Decision,
+};
+
+/**
+ *  A Session's Session Note (ADR 0028): `<session dir>/note.md`, with images in
+ *  `<session dir>/attachments/note/`.
+ */
+export type Note = {
+	/**  Markdown; empty when the note was never written. */
+	content: string,
+	/**  sha256 (hex) of `content`; `WriteNote` takes it back as `base_hash`. */
+	hash: string,
+	/**  When `note.md` was last written; none when it does not exist. */
+	updated_ms: number | null,
+	/**  Absolute paths of the note's images, oldest first. `ReadAttachment` reads them. */
+	images: string[],
 };
 
 /**  Why a settings file was reset. */

@@ -1277,6 +1277,32 @@ async fn task_commands_send_tasks_changed_with_the_changed_ids() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_session_note_sends_note_changed_and_goes_with_its_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::NoteChanged { session_id } = e {
+            s.lock().unwrap().push(session_id.clone());
+        }
+        true
+    }));
+    let CommandResult::Note { note } = h.execute(Command::ReadNote { session_id: a.clone() }).await.unwrap() else { panic!() };
+    let write = Command::WriteNote { session_id: a.clone(), content: "notes".into(), base_hash: Some(note.hash) };
+    let CommandResult::Note { note } = h.execute(write).await.unwrap() else { panic!() };
+    assert_eq!(note.content, "notes");
+    let session_dir = data.join("sessions").join(&a);
+    assert!(session_dir.join("note.md").is_file());
+    assert_eq!(*seen.lock().unwrap(), std::slice::from_ref(&a));
+    h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
+    assert!(!session_dir.join("note.md").exists(), "the note is deleted with its Session");
+    assert!(h.execute(Command::ReadNote { session_id: a.clone() }).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_watcher_reports_shared_artifact_changes() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");

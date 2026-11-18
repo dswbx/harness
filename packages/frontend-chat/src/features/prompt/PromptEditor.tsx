@@ -17,7 +17,12 @@ import { config } from "./editor/config";
 import { handle } from "./editor/handle";
 import { type MenuKey, registerPromptKeys } from "./editor/keymap";
 import { registerCodeHighlight } from "./promptCodeHighlight";
-import { $exportMarkdown, PROMPT_TRANSFORMERS, type PromptSnapshot } from "./promptMarkdown";
+import {
+   $exportMarkdown,
+   INLINE_TRANSFORMERS,
+   PROMPT_TRANSFORMERS,
+   type PromptSnapshot,
+} from "./promptMarkdown";
 
 export type { CaretToken };
 
@@ -32,6 +37,8 @@ export type PromptEditorHandle = {
    restore(snapshot: PromptSnapshot): void;
    /** Replace the content with a snapshot (empty for `null`), e.g. a saved draft. Does not move focus. */
    load(snapshot: PromptSnapshot | null): void;
+   /** Replace the content with Markdown (as `getMarkdown` writes it), e.g. a saved note. Not undoable; does not move focus. */
+   loadMarkdown(markdown: string): void;
    /** Empty the editor; keeps the caret only if the editor has focus. */
    clear(): void;
    focus(): void;
@@ -62,6 +69,13 @@ type Props = {
    maxHeightClassName?: string;
    /** Replaces the default min height of the content (`min-h-10`). */
    minHeightClassName?: string;
+   /**
+    * One line, for titles: every Enter calls `onSubmit`, pasted lines are joined with spaces, and typed Markdown
+    * makes only inline formatting (no lists, quotes or code blocks).
+    */
+   singleLine?: boolean;
+   /** A document, not a prompt: Enter makes a new line as Shift+Enter does; only Mod+Enter calls `onSubmit`. */
+   newlineOnEnter?: boolean;
 };
 
 export function PromptEditor(props: Props) {
@@ -123,7 +137,9 @@ export function PromptEditor(props: Props) {
          </div>
          <HistoryPlugin />
          <ListPlugin />
-         <MarkdownShortcutPlugin transformers={PROMPT_TRANSFORMERS} />
+         <MarkdownShortcutPlugin
+            transformers={props.singleLine ? INLINE_TRANSFORMERS : PROMPT_TRANSFORMERS}
+         />
          <Behavior {...props} onUpdate={measure} />
       </LexicalComposer>
    );

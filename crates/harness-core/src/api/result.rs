@@ -174,4 +174,7 @@ pub enum CommandResult {
     Task {
         task: Task,
     },
+    Note {
+        note: Note,
+    },
 }

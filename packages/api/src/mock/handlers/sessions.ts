@@ -144,6 +144,7 @@ export const sessionsHandlers = {
       }
       mock.emitApp({ type: "SessionsChanged" });
       if (detached) mock.emitApp({ type: "SharedArtifactsChanged" });
+      mock.notes.delete(cmd.session_id);
       const unlinked = forgetSessionTasks(mock, cmd.session_id);
       if (unlinked.length) mock.emitApp({ type: "TasksChanged", ids: unlinked });
       return { type: "Ok" };
