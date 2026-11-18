@@ -284,12 +284,15 @@ export function buildList<T extends Listable>(
       expanded: isExpanded(t.id, depth, flipped),
       context: !passes(t),
    });
-   const closed =
+   // With the `open` filter, the closed tasks that passed the other filters and show nowhere else.
+   const closedOf = (elsewhere: (t: T) => boolean) =>
       filter.status === "open"
-         ? sortTasks(tasks.filter((t) => !isOpen(t.status) && rest(t) && !shown(t)))
+         ? sortTasks(tasks.filter((t) => !isOpen(t.status) && rest(t) && !elsewhere(t)))
          : [];
 
    if (o.groupBy !== "topic") {
+      // Flat groups take only the tasks that pass: a closed task with open subtasks goes here too.
+      const closed = closedOf(() => false);
       const keyOf = (t: T) =>
          o.groupBy === "status" ? t.status : (t.origin_session_id ?? NONE_GROUP);
       const byKey = new Map<string, T[]>();
@@ -322,6 +325,8 @@ export function buildList<T extends Listable>(
       return { groups, closed };
    }
 
+   // By topic, a closed task with open subtasks shows as their context row.
+   const closed = closedOf(shown);
    const groups: ListGroup<T>[] = [];
    const loose: T[] = [];
    for (const top of kidsOf.get(null) ?? []) {

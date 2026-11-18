@@ -8,7 +8,7 @@ import {
 } from "@harness/api";
 import { Button, cn, ScrollArea } from "@harness/ui";
 import { Check, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import { type ReactNode, useEffect, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { dueTone, formatDue } from "./DuePicker";
 import type { SessionInfo } from "./ListView";
@@ -71,8 +71,16 @@ export function TreeView({
    const setCollapsed = (c: ReadonlySet<string>) => treeStore.set({ ...state, collapsed: [...c] });
 
    // A task selected elsewhere (the list, a subtask in the preview): unfold to it and bring it into view.
+   // Once per selection (also when it first loads), so a tasks reload keeps the user's folds.
+   const revealed = useRef<string | null>(null);
    useEffect(() => {
-      if (!selected || !byId.has(selected)) return;
+      if (selected === revealed.current) return;
+      if (!selected) {
+         revealed.current = null;
+         return;
+      }
+      if (!byId.has(selected)) return;
+      revealed.current = selected;
       const now = new Set(treeStore.get().collapsed);
       const next = revealNode(byId, selected, now);
       if (next !== now) treeStore.set({ ...treeStore.get(), collapsed: [...next] });

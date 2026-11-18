@@ -188,16 +188,21 @@ pub(super) async fn run_task_update(session: &Arc<Session>, _: &ThreadId, args: 
     let fields =
         patch.title.is_some() || patch.body.is_some() || patch.status.is_some() || patch.priority.is_some() || patch.due.is_some() || !patch.clear.is_empty();
     anyhow::ensure!(fields || parent.is_some(), "nothing to change: give status, title, body, priority, due or parent");
+    // Check the whole patch before any write, so a bad call changes nothing.
+    crate::tasks::Tasks::check_patch(&patch)?;
     let actor = actor(session);
-    // The move first: it is the change most likely refused (a loop), and then nothing changed.
-    let mut task = match &parent {
-        Some(p) if *p != task.parent_id => tasks.move_to(&id, p.as_deref(), None, &actor)?,
-        _ => task,
+    // The move first: of the rest, it is the change most likely refused (a loop), and then
+    // nothing changed.
+    let moved = match &parent {
+        Some(p) if *p != task.parent_id => Some(tasks.move_to(&id, p.as_deref(), None, &actor)?),
+        _ => None,
     };
-    if fields {
-        task = tasks.update(&id, patch, None, &actor)?;
+    let updated = if fields { tasks.update(&id, patch, None, &actor).map(Some) } else { Ok(None) };
+    // Tell the windows whenever something was written, also when the update after a move failed.
+    if moved.is_some() || matches!(updated, Ok(Some(_))) {
+        changed(session, vec![id]);
     }
-    changed(session, vec![id]);
+    let task = updated?.or(moved).unwrap_or(task);
     answer(&[task])
 }
 

@@ -30,7 +30,7 @@ import {
    noAutocorrect,
 } from "@harness/ui";
 import { ChevronDown, ListTodo, Plus, Search, X } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OpenSession } from "../../lib/OpenSession";
 import { Segmented } from "../../lib/Segmented";
 import { useNow } from "../../lib/time";
@@ -124,8 +124,16 @@ export function TasksView({
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
 
    // Opened at a task (the host's "Open in All tasks"): unfold its topic and bring its row into view.
+   // Once per selection (also when it first loads), so a tasks reload keeps the user's folds.
+   const revealed = useRef<string | null>(null);
    useEffect(() => {
-      if (!selected || !byId.has(selected)) return;
+      if (selected === revealed.current) return;
+      if (!selected) {
+         revealed.current = null;
+         return;
+      }
+      if (!byId.has(selected)) return;
+      revealed.current = selected;
       setFlipped((f) => reveal(byId, selected, f));
       requestAnimationFrame(() =>
          document

@@ -47,7 +47,7 @@ async function setup(first: string | null = null) {
    );
    fireEvent.click(screen.getByRole("tab", { name: "Tree" }));
    await waitFor(() => node("t1"));
-   return { onSelect };
+   return { onSelect, client };
 }
 
 const node = (id: string) => {
@@ -126,5 +126,15 @@ describe("All tasks tree", () => {
       await setup("t14");
       await waitFor(() => expect(node("t14").getAttribute("aria-current")).toBe("true"));
       expect(screen.getByRole("complementary", { name: "Task preview" })).toBeTruthy();
+   });
+
+   it("a tasks change keeps the folded topic of the selected task folded", async () => {
+      const { client } = await setup("t14");
+      await waitFor(() => expect(node("t14").getAttribute("aria-current")).toBe("true"));
+      fireEvent.click(screen.getByRole("button", { name: "Collapse Worktree reliability" }));
+      expect(shownIds()).not.toContain("t14");
+      await client.updateTask("t5", { title: "Header polish done" });
+      await waitFor(() => screen.getByRole("button", { name: "Header polish done" }));
+      expect(shownIds()).not.toContain("t14");
    });
 });

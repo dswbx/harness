@@ -165,6 +165,15 @@ impl Tasks {
         Ok(task)
     }
 
+    /// Checks the fields of `patch` without writing, so a caller can refuse a bad patch before it
+    /// writes anything else.
+    pub fn check_patch(patch: &TaskPatch) -> anyhow::Result<()> {
+        patch.title.as_deref().map(clean_title).transpose()?;
+        patch.due.as_deref().map(check_due).transpose()?;
+        patch.upstream.clone().map(check_upstream).transpose()?;
+        Ok(())
+    }
+
     /// Applies `patch`. A body change is refused when the body changed after `base_updated_ms`.
     pub fn update(&self, id: &str, patch: TaskPatch, base_updated_ms: Option<i64>, actor: &Actor) -> anyhow::Result<Task> {
         let title = patch.title.as_deref().map(clean_title).transpose()?;

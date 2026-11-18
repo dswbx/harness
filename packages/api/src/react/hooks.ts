@@ -106,17 +106,20 @@ export type TaskListSource = {
 
 /**
  * All Tasks (ADR 0028), oldest first (null while loading). Loaded once and again on each
- * `TasksChanged`. `source` must be stable (memoize it).
+ * `TasksChanged`. A list that started before a newer one is dropped. `source` must be stable (memoize it).
  */
 export function useTasks(source: TaskListSource): TaskSummary[] | null {
    const [list, setList] = useState<TaskSummary[] | null>(null);
    useEffect(() => {
       let live = true;
-      const load = () =>
-         source.list().then(
-            (l) => live && setList(l),
+      let seq = 0;
+      const load = () => {
+         const mine = ++seq;
+         return source.list().then(
+            (l) => live && mine === seq && setList(l),
             (e) => console.error("list tasks failed", e),
          );
+      };
       void load();
       const off = source.onChanged(() => void load());
       return () => {

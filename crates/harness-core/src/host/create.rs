@@ -153,8 +153,12 @@ impl Harness {
             initial_config: Default::default(),
         };
         let session = self.create_session(spec).await?;
-        if let Some(t) = task {
-            self.start_from_task(&session, t)?;
+        // The Session exists now: a failed link must not fail the Command, or the windows are not
+        // told about the Session and the user may create a second one.
+        if let Some(t) = task
+            && let Err(e) = self.start_from_task(&session, t)
+        {
+            tracing::warn!("linking session {} to its task: {e:#}", session.id());
         }
         Ok(CommandResult::SessionCreated { session_id: session.id() })
     }

@@ -239,6 +239,24 @@ describe("All tasks list", () => {
       ]);
    });
 
+   it("puts each task in one place in flat groups, also a closed task with open subtasks", () => {
+      // x is done but its subtask x1 is open.
+      const mixed = [
+         t("x", { status: "done", origin_session_id: "s1" }),
+         t("x1", { parent_id: "x", origin_session_id: "s1" }),
+         t("y"),
+      ];
+      for (const groupBy of ["status", "session"] as const) {
+         const l = buildList(mixed, { filter: DEFAULT_FILTER, groupBy, today, flipped: new Set() });
+         const placed = [
+            ...l.groups.flatMap((g) => g.rows.map((r) => r.task.id)),
+            ...ids(l.closed),
+         ];
+         expect(placed.sort(), groupBy).toEqual(["x", "x1", "y"]);
+         expect(ids(l.closed), groupBy).toEqual(["x"]);
+      }
+   });
+
    it("filters by priority, Session, due date, upstream and text", () => {
       const f = (o: Partial<TaskFilter>) =>
          tasks.filter((x) => matchesFilter(x, { ...DEFAULT_FILTER, ...o }, today)).map((x) => x.id);

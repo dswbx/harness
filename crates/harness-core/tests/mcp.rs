@@ -1324,6 +1324,12 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     assert_eq!(read("t2").parent_id.as_deref(), Some("t1"));
     let cycle = ask(&h, &a, r#"mcp task_update {"id":"t1","parent":"t2"}"#, None).await;
     assert!(cycle.contains("mcp error:") && cycle.contains("subtasks"), "{cycle}");
+    // A bad field refuses the whole call: the move in it is not done either, and no event is sent.
+    let sent = seen.lock().unwrap().len();
+    let bad_due = ask(&h, &a, r#"mcp task_update {"id":"t2","parent":null,"due":"tomorrow"}"#, None).await;
+    assert!(bad_due.contains("mcp error:") && bad_due.contains("not a date"), "{bad_due}");
+    assert_eq!(read("t2").parent_id.as_deref(), Some("t1"), "the move is not done");
+    assert_eq!(seen.lock().unwrap().len(), sent);
     let get = mcp_json(&h, &a, r#"task_get {"id":"t1"}"#).await;
     assert_eq!((get["can_update"].clone(), get["subtasks"][0]["id"].clone()), (serde_json::json!(true), serde_json::json!("t2")));
 

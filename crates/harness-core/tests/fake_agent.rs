@@ -1843,6 +1843,29 @@ async fn session_from_an_unknown_task_is_not_created() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_failed_task_link_still_creates_the_session_and_tells_the_windows() {
+    use harness_core::api::{TaskContextParts, TaskStart};
+    use std::os::unix::fs::PermissionsExt;
+    let (h, origin, dir) = setup().await;
+    let task = task_fixture(&h, &origin).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        s.lock().unwrap().push(serde_json::to_value(e).unwrap());
+        true
+    }));
+    // The task passes the check up front, but writing the link fails.
+    let task_dir = dir.path().join("data").join("tasks").join(&task);
+    std::fs::set_permissions(&task_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let start = TaskStart { id: task.clone(), include: TaskContextParts { summary: true, ..Default::default() }, set_status: None };
+    let sid = start_from(&h, &dir.path().display().to_string(), start).await;
+    std::fs::set_permissions(&task_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(summary(&h, &sid).await.is_some(), "the Session is created");
+    assert_eq!(summary(&h, &sid).await.unwrap().task_id, None, "not linked");
+    assert!(seen.lock().unwrap().iter().any(|e| e["type"] == "SessionsChanged"), "{:?}", seen.lock().unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn transcript_size_counts_the_main_thread() {
     let (h, sid, _dir) = setup().await;
     turn(&h, &sid, None, "one").await;

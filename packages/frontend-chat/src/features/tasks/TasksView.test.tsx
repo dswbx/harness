@@ -86,6 +86,17 @@ describe("All tasks view", () => {
       expect(row.closest("[data-task-row]")?.getAttribute("aria-current")).toBe("true");
    });
 
+   it("a tasks change keeps the folded topic of the selected task folded", async () => {
+      const { client } = setup("t14");
+      const name = "Shared CARGO_TARGET_DIR in the dev script";
+      await waitFor(() => screen.getByRole("button", { name }));
+      fireEvent.click(screen.getByRole("button", { name: "Fold Worktree reliability" }));
+      expect(screen.queryByRole("button", { name })).toBeNull();
+      await client.updateTask("t9", { title: "Read the RFC" });
+      await waitFor(() => title("Read the RFC"));
+      expect(screen.queryByRole("button", { name })).toBeNull();
+   });
+
    it("Move under puts the task under the topic", async () => {
       const { mock, client } = setup();
       const move = vi.spyOn(client, "moveTask");
