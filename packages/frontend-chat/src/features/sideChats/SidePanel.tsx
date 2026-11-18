@@ -1,14 +1,23 @@
 import type { AttachmentInput, SessionApi, ThreadInfo } from "@harness/api";
-import { Button, cn, DropdownMenuItem, StatusDot, Tooltip } from "@harness/ui";
+import { formatAge } from "@harness/api";
+import {
+   Button,
+   cn,
+   DropdownMenuItem,
+   DropdownMenuSub,
+   DropdownMenuSubContent,
+   DropdownMenuSubTrigger,
+   ScrollArea,
+   StatusDot,
+   Tooltip,
+} from "@harness/ui";
 import { History, Plus } from "lucide-react";
-import { useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { type PanelTab, PanelTabs } from "../../panels/PanelTabs";
 import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
 import type { PendingMessage } from "../prompt/pendingMessages";
 import type { UiEnv } from "../renderUi/RenderUi";
-import { PastChats } from "./PastChats";
 import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
 import { isDraftThread } from "./threadTabs";
 
@@ -55,7 +64,7 @@ export function SidePanel({
    onClose: (id: string) => void;
    /** Moves tab `id` in front of tab `before` (null: to the end). */
    onMove: (id: string, before: string | null) => void;
-   /** Every Side Thread, for Past chats. */
+   /** Every Side Thread, newest activity first: Past chats lists the closed ones. */
    past: ThreadInfo[];
    onReopen: (id: string) => void;
    onNew: () => void;
@@ -69,15 +78,37 @@ export function SidePanel({
    ) => Promise<void>;
    onOpenDiff: (s: DiffScope) => void;
 }) {
-   const [pastOpen, setPastOpen] = useState(false);
+   const closed = past.filter((c) => !threads.includes(c.id));
+   const now = Date.now();
    return (
       <>
          <PanelHeader
             className="gap-1"
             menu={
-               <DropdownMenuItem onSelect={() => setPastOpen(true)}>
-                  <History /> Past chats
-               </DropdownMenuItem>
+               <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={closed.length === 0}>
+                     <History /> Past chats
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64 p-0">
+                     <ScrollArea
+                        className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))]"
+                        viewportClassName="max-h-[inherit]"
+                     >
+                        <div className="p-1">
+                           {closed.map((c) => (
+                              <DropdownMenuItem key={c.id} onSelect={() => onReopen(c.id)}>
+                                 <span className="min-w-0 flex-1 truncate">
+                                    {c.title ?? "Side chat"}
+                                 </span>
+                                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
+                                    {formatAge(c.lastAt, now)}
+                                 </span>
+                              </DropdownMenuItem>
+                           ))}
+                        </div>
+                     </ScrollArea>
+                  </DropdownMenuSubContent>
+               </DropdownMenuSub>
             }
          >
             <PanelTabs
@@ -120,13 +151,6 @@ export function SidePanel({
                </Tooltip>
             </PanelTabs>
          </PanelHeader>
-         <PastChats
-            open={pastOpen}
-            onOpenChange={setPastOpen}
-            chats={past}
-            openIds={threads}
-            onPick={onReopen}
-         />
          <div className="relative min-h-0 flex-1">
             {threads.map((id) => (
                <div key={id} className={cn("h-full", id !== active && "hidden")}>
