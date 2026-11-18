@@ -20,9 +20,13 @@ const api = {
 
 // Threads the Session Log has replayed (an open tab shows once its Thread did).
 let known: string[] = [];
+// Fields of a known Thread's state.
+let threadOf: Record<string, Partial<ChatState>> = {};
 const stateWith = (): ChatState => ({
    ...initialState(),
-   threads: Object.fromEntries(known.map((id) => [id, {}])) as ChatState["threads"],
+   threads: Object.fromEntries(
+      known.map((id) => [id, { ...initialState(), ...threadOf[id] }]),
+   ) as ChatState["threads"],
 });
 
 function setup(variant: ViewVariant = "full") {
@@ -65,6 +69,7 @@ beforeEach(() => {
       clear: () => mem.clear(),
    });
    known = [];
+   threadOf = {};
 });
 afterEach(() => {
    cleanup();
@@ -229,5 +234,43 @@ describe("Side chats panel", () => {
       act(() => void out.model.newThread());
       expect(out.model.open).toHaveLength(1);
       expect(stored()).toBeNull();
+   });
+});
+
+describe("Side chat tab status", () => {
+   it("working while a Turn runs; unread when it ends in a tab not shown, until that tab is shown", () => {
+      known = ["t1", "t2"];
+      mem.set(
+         "harness.chat.sideThreads.s1",
+         JSON.stringify({ v: 1, threads: ["t1", "t2"], thread: "t2" }),
+      );
+      const { out, again } = setup();
+      act(() => void out.model.newThread());
+      act(() => out.model.select("t2"));
+      threadOf = { t1: { turnId: "x" } };
+      again(1);
+      expect(out.model.statusOf("t1")).toBe("working");
+      expect(out.model.unread).toBe(0);
+      threadOf = { t1: { turnEndedAt: Date.now() + 1000 }, t2: { turnEndedAt: Date.now() + 1000 } };
+      again(2);
+      // t2 is shown: nothing new to see there.
+      expect([out.model.statusOf("t1"), out.model.statusOf("t2")]).toEqual(["unread", null]);
+      expect(out.model.unread).toBe(1);
+      expect(out.host.statuses.get("side")?.dot).toBe(true);
+      act(() => out.model.select("t1"));
+      act(() => out.model.select("t2"));
+      expect(out.model.statusOf("t1")).toBe(null);
+      expect(out.model.unread).toBe(0);
+   });
+
+   it("a Turn that ended before the View opened is not unread", () => {
+      known = ["t1"];
+      threadOf = { t1: { turnEndedAt: Date.now() - 1000 } };
+      mem.set(
+         "harness.chat.sideThreads.s1",
+         JSON.stringify({ v: 1, threads: ["t1"], thread: "t1" }),
+      );
+      const { out } = setup();
+      expect(out.model.statusOf("t1")).toBe(null);
    });
 });

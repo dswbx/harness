@@ -1,6 +1,6 @@
 import type { AttachmentInput, SessionApi } from "@harness/api";
 import { Button, cn, Tooltip } from "@harness/ui";
-import { Plus, X } from "lucide-react";
+import { LoaderCircle, Plus, X } from "lucide-react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
@@ -8,6 +8,9 @@ import type { PendingMessage } from "../prompt/pendingMessages";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
 import { isDraftThread } from "./threadTabs";
+
+/** What a side chat tab shows next to its title: its Agent is working, or a reply came while it was not shown. */
+export type SideChatStatus = "working" | "unread" | null;
 
 /** A Side Thread just started here, before its replay arrives. */
 const STARTING: ChatState = { ...initialState(), side: true };
@@ -22,6 +25,7 @@ export function SidePanel({
    threads,
    active,
    titleOf,
+   statusOf,
    env,
    focus,
    onSelect,
@@ -35,6 +39,7 @@ export function SidePanel({
    threads: string[];
    active: string | null;
    titleOf: (id: string) => string;
+   statusOf: (id: string) => SideChatStatus;
    env: UiEnv;
    focus: { id: string; n: number };
    onSelect: (id: string) => void;
@@ -61,6 +66,7 @@ export function SidePanel({
                {threads.map((id) => {
                   const on = id === active;
                   const title = titleOf(id);
+                  const status = statusOf(id);
                   return (
                      <div
                         key={id}
@@ -69,8 +75,21 @@ export function SidePanel({
                            on
                               ? "bg-accent text-accent-foreground"
                               : "text-muted-foreground hover:bg-accent/50",
+                           status === "unread" && "font-semibold text-foreground",
                         )}
                      >
+                        {status === "working" && (
+                           <LoaderCircle
+                              aria-label="Working"
+                              className="size-3 shrink-0 animate-spin text-sky-500"
+                           />
+                        )}
+                        {status === "unread" && (
+                           <span
+                              aria-label="New reply"
+                              className="size-1.5 shrink-0 rounded-full bg-sky-500"
+                           />
+                        )}
                         <button
                            role="tab"
                            aria-selected={on}

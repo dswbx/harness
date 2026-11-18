@@ -18,6 +18,7 @@ export function turnSlice(c: Ctx, e: Event) {
       case "TurnEnded":
          d.turnId = null;
          d.turnStartedAt = null;
+         if (k.stop_reason !== "cancelled") d.turnEndedAt = e.ts_ms;
          d.lastTurnErrored = k.stop_reason === "error";
          return;
       case "UsageUpdated": {

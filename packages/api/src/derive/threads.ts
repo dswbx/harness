@@ -4,8 +4,10 @@ import type { Event, ForkPoint } from "../generated";
 export type ThreadInfo = {
    id: string;
    main: boolean;
-   /** First prompt (truncated), else null (nothing asked yet). */
+   /** The Agent's title for the Thread (`SessionInfoUpdated`), else its first prompt (truncated), else null. */
    title: string | null;
+   /** The Agent's newest title for the Thread; null until it sends one. */
+   agentTitle: string | null;
    forkedFrom: ForkPoint | null;
    /** Finished or running Turns started in this Thread. */
    turns: number;
@@ -13,7 +15,7 @@ export type ThreadInfo = {
 
 const TITLE_MAX = 48;
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
-const cut = (s: string) => (s.length > TITLE_MAX ? s.slice(0, TITLE_MAX - 1).trimEnd() + "…" : s);
+const cut = (s: string) => (s.length > TITLE_MAX ? `${s.slice(0, TITLE_MAX - 1).trimEnd()}…` : s);
 
 /** A Thread's title from its first prompt (null when that has no text). */
 export function threadTitle(prompt: string): string | null {
@@ -27,11 +29,19 @@ export function threadTitle(prompt: string): string | null {
  */
 export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly ThreadInfo[] {
    const k = e.kind;
-   if (!e.thread_id || (k.type !== "ThreadStarted" && k.type !== "TurnStarted")) return list;
-   const id = e.thread_id;
+   if (k.type !== "ThreadStarted" && k.type !== "TurnStarted" && k.type !== "SessionInfoUpdated")
+      return list;
+   // A Session-level title names the Main Thread.
+   const id =
+      e.thread_id ?? (k.type === "SessionInfoUpdated" ? list.find((x) => x.main)?.id : null);
+   if (!id) return list;
    const at = list.findIndex((t) => t.id === id);
+   // Titles only for Threads that started.
+   if (at < 0 && k.type === "SessionInfoUpdated") return list;
    const prev: ThreadInfo =
-      at >= 0 ? list[at]! : { id, main: false, title: null, forkedFrom: null, turns: 0 };
+      at >= 0
+         ? list[at]!
+         : { id, main: false, title: null, agentTitle: null, forkedFrom: null, turns: 0 };
    let t = prev;
    switch (k.type) {
       case "ThreadStarted": {
@@ -42,8 +52,17 @@ export function stepThreads(list: readonly ThreadInfo[], e: Event): readonly Thr
          t = {
             ...prev,
             turns: prev.turns + 1,
-            title: (prev.turns === 0 && threadTitle(k.text)) || prev.title,
+            title: prev.agentTitle ?? ((prev.turns === 0 && threadTitle(k.text)) || prev.title),
          };
+         break;
+      }
+      case "SessionInfoUpdated": {
+         const title = k.title ? oneLine(k.title) : "";
+         if (!title || title === prev.agentTitle) return list;
+         // A fork can carry the Main Thread's title over: that names the Main Thread, not this one.
+         const main = list.find((x) => x.main);
+         if (prev.forkedFrom && main && main.id !== id && title === main.agentTitle) return list;
+         t = { ...prev, agentTitle: title, title: cut(title) };
          break;
       }
    }

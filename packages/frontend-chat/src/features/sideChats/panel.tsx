@@ -14,7 +14,7 @@ import {
    lineCommentIds,
    setReviewComments,
 } from "../review/reviewComments";
-import { SidePanel } from "./SidePanel";
+import { type SideChatStatus, SidePanel } from "./SidePanel";
 import type { SideStart } from "./ThreadView";
 import {
    activeThreadId,
@@ -34,6 +34,9 @@ export type SideChatsModel = {
    open: string[];
    active: string | null;
    titleOf: (id: string) => string;
+   statusOf: (id: string) => SideChatStatus;
+   /** Open tabs with a reply not seen yet. */
+   unread: number;
    /** A prompt box takes focus in the chat that was just created. */
    focus: { id: string; n: number };
    /** Why the last Side Thread could not start. */
@@ -101,6 +104,30 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             sent[id] ??
             (isDraftThread(id) ? "New chat" : "Side chat"),
          [sideThreads, sent],
+      );
+
+      // Unread: a Turn ended (`turnEndedAt`) after the tab was last shown, or after this View mounted.
+      const [mountedAt] = useState(() => Date.now());
+      const [seenAt, setSeenAt] = useState<Record<string, number>>({});
+      const shown = self.open ? active : null;
+      const shownEnd = shown ? state.threads[shown]?.turnEndedAt : null;
+      useEffect(() => {
+         if (shown && shownEnd)
+            setSeenAt((m) => (m[shown] === shownEnd ? m : { ...m, [shown]: shownEnd }));
+      }, [shown, shownEnd]);
+      const statusOf = useCallback(
+         (id: string): SideChatStatus => {
+            const t = state.threads[id];
+            if (!t) return null;
+            if (t.turnId) return "working";
+            const end = t.turnEndedAt;
+            return id !== shown && end && end > (seenAt[id] ?? mountedAt) ? "unread" : null;
+         },
+         [state.threads, shown, seenAt, mountedAt],
+      );
+      const unread = useMemo(
+         () => open.filter((id) => statusOf(id) === "unread").length,
+         [open, statusOf],
       );
 
       const select = useCallback((id: string) => apply((t) => selectThread(t, id)), [apply]);
@@ -198,6 +225,8 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             open,
             active,
             titleOf,
+            statusOf,
+            unread,
             focus,
             error,
             select,
@@ -211,6 +240,8 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             open,
             active,
             titleOf,
+            statusOf,
+            unread,
             focus,
             error,
             select,
@@ -225,6 +256,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
    status: (m) => ({
       presence: m.open.length > 0 ? "ready" : "icon",
       badge: m.count,
+      dot: m.unread > 0,
       tip: "Side chats (⇧⌘B new)",
    }),
    // The icon: hides the panel when shown, else shows the last chat, else starts a new one.
@@ -243,6 +275,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             threads={model.open}
             active={model.active}
             titleOf={model.titleOf}
+            statusOf={model.statusOf}
             env={env}
             focus={model.focus}
             onSelect={model.select}

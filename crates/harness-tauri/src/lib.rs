@@ -200,14 +200,19 @@ fn watch_attention(app: &tauri::AppHandle, harness: &Harness) {
             return true;
         }
         let focused = || app.webview_windows().values().any(|w| w.is_focused().unwrap_or(false));
-        if let AppEvent::TurnFinished { title, stop_reason, .. } = e {
+        if let AppEvent::TurnFinished { title, stop_reason, main, .. } = e {
             if !focused() {
-                let body = match stop_reason.as_str() {
-                    "end_turn" => "Finished",
-                    "cancelled" => "Stopped",
-                    "error" => "Failed",
-                    "auth_required" => "Needs you to sign in",
-                    _ => "Turn ended",
+                let body = match (stop_reason.as_str(), *main) {
+                    ("end_turn", true) => "Finished",
+                    ("end_turn", false) => "Side chat finished",
+                    ("cancelled", true) => "Stopped",
+                    ("cancelled", false) => "Side chat stopped",
+                    ("error", true) => "Failed",
+                    ("error", false) => "Side chat failed",
+                    ("auth_required", true) => "Needs you to sign in",
+                    ("auth_required", false) => "Side chat needs you to sign in",
+                    (_, true) => "Turn ended",
+                    (_, false) => "Side chat turn ended",
                 };
                 let _ = app.notification().builder().title(title.as_str()).body(body).show();
             }
