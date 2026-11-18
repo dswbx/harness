@@ -4,12 +4,26 @@ import { TooltipProvider } from "@harness/ui";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { $createParagraphNode, $createTextNode, $getRoot, type LexicalEditor } from "lexical";
 import type { ComponentType } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PanelBodyProps, PanelCtx, PanelSelf } from "../../panels/contract";
 import { initialState } from "../../state/reducer";
 import { type TasksModel, tasksPanel } from "./panel";
 
-afterEach(cleanup);
+// The row density and the note height are stored values: give them a storage.
+const mem = new Map<string, string>();
+beforeEach(() => {
+   mem.clear();
+   vi.stubGlobal("localStorage", {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, String(v)),
+      removeItem: (k: string) => void mem.delete(k),
+      clear: () => mem.clear(),
+   });
+});
+afterEach(() => {
+   cleanup();
+   vi.unstubAllGlobals();
+});
 
 const Body = tasksPanel.Body as ComponentType<PanelBodyProps<TasksModel, string>>;
 
@@ -190,5 +204,100 @@ describe("Tasks panel", () => {
       );
       // A top-level task has no Sub-task of line.
       expect(screen.queryByText("Sub-task of")).toBeNull();
+   });
+
+   it("condensed rows hide the facts under the title, and the choice is kept", async () => {
+      setup();
+      await waitFor(() => group(/^Created here · 4$/));
+      const detail = row("Read the ACP registry RFC");
+      expect(within(detail).getByRole("img", { name: "Medium priority" })).toBeTruthy();
+      const toggle = screen.getByRole("button", { name: "Condensed list" });
+      expect(toggle.getAttribute("aria-pressed")).toBe("false");
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-pressed")).toBe("true");
+      const line = row("Read the ACP registry RFC");
+      expect(within(line).queryByRole("img", { name: "Medium priority" })).toBeNull();
+      // Due today: only a calendar mark is left.
+      expect(within(line).getByRole("img", { name: /^Due / })).toBeTruthy();
+      // Nesting stays.
+      expect(indent(row("Align the session title baseline"))).toBe("18px");
+      expect(localStorage.getItem("harness.tasks.panelDensity")).toBe("condensed");
+      // A new panel starts condensed.
+      cleanup();
+      setup();
+      await waitFor(() => group(/^Created here · 4$/));
+      expect(
+         screen.getByRole("button", { name: "Condensed list" }).getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect(
+         within(row("Read the ACP registry RFC")).queryByRole("img", { name: "Medium priority" }),
+      ).toBeNull();
+   });
+
+   it("hovering a row shows its summary on the left", async () => {
+      setup();
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      fireEvent.pointerMove(row("Header polish", created), { pointerType: "mouse" });
+      const card = await screen.findByRole("tooltip", {}, { timeout: 2000 });
+      expect(card.textContent).toContain("Header polish");
+      expect(card.textContent).toContain("StatusTodo");
+      expect(card.textContent).toContain("Subtasks1/3 done");
+      expect(card.textContent).toContain("Created inThis Session");
+      // The description is read when the card opens.
+      await waitFor(() =>
+         expect(screen.getByRole("tooltip").textContent).toContain(
+            "Small fixes found while reviewing the header.",
+         ),
+      );
+      const content = document.querySelector<HTMLElement>("[data-side]");
+      expect(content?.getAttribute("data-side")).toBe("left");
+   });
+
+   it("shows a subtask's parent, priority and due date in its summary", async () => {
+      setup();
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      fireEvent.pointerMove(row("Align the session title baseline", created), {
+         pointerType: "mouse",
+      });
+      const card = await screen.findByRole("tooltip", {}, { timeout: 2000 });
+      expect(card.textContent).toContain("Sub-task ofHeader polish");
+      cleanup();
+      setup();
+      fireEvent.pointerMove(
+         row("Read the ACP registry RFC", await waitFor(() => group(/^Created here/))),
+         {
+            pointerType: "mouse",
+         },
+      );
+      const other = await screen.findByRole("tooltip", {}, { timeout: 2000 });
+      expect(other.textContent).toContain("PriorityMedium");
+      expect(other.textContent).toContain("Due");
+   });
+
+   it("docks the session note below the list, with a resize handle", async () => {
+      setup();
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      const note = screen.getByRole("region", { name: "Session note" });
+      const handle = screen.getByRole("separator", { name: "Resize session note" });
+      // Below the list and outside its scroll area.
+      expect(created.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+         created.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      const list = created.closest("[data-radix-scroll-area-viewport]");
+      expect(list?.contains(note)).toBe(false);
+      expect(handle.getAttribute("aria-orientation")).toBe("horizontal");
+      const dock = handle.parentElement as HTMLElement;
+      expect(dock.contains(note)).toBe(true);
+      expect(dock.style.height).toBe("300px");
+      // Dragging the handle down makes the note shorter and remembers it.
+      fireEvent.pointerDown(handle, { clientY: 500, pointerId: 1 });
+      fireEvent.pointerMove(window, { clientY: 600, pointerId: 1 });
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(dock.style.height).toBe("200px");
+      expect(localStorage.getItem("harness:tasks-note-height")).toBe("200");
+      // Double-click resets.
+      fireEvent.doubleClick(handle);
+      expect(dock.style.height).toBe("300px");
    });
 });

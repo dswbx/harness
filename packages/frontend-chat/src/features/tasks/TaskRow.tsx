@@ -10,7 +10,8 @@ import { upstreamText } from "./UpstreamField";
 
 /**
  * One task in a list: the status (a menu), the title, and under it the priority, due date, parent, subtask count,
- * upstream id and the last Session started from it (other than this one). A click opens the task.
+ * upstream id and the last Session started from it (other than this one). `condensed`: one line, no facts under the
+ * title, only a calendar mark when an open task is due today or overdue. A click opens the task.
  */
 export function TaskRow({
    task,
@@ -20,6 +21,7 @@ export function TaskRow({
    sessionId,
    onOpen,
    onStatus,
+   condensed = false,
    className,
 }: {
    task: TaskSummary;
@@ -33,9 +35,12 @@ export function TaskRow({
    sessionId: string | null;
    onOpen: () => void;
    onStatus: (status: TaskStatus) => void;
+   /** One line: the status and the title. */
+   condensed?: boolean;
    className?: string;
 }) {
    const open = isOpen(task.status);
+   const dueMark = condensed && task.due ? dueTone(task.due, today, open) : "";
    const link = task.sessions.filter((l) => l.session_id !== sessionId).at(-1);
    const meta = [
       task.priority !== "none" && <PriorityIcon key="p" priority={task.priority} />,
@@ -70,6 +75,38 @@ export function TaskRow({
          </span>
       ),
    ].filter(Boolean);
+   if (condensed)
+      return (
+         <div
+            className={cn(
+               "group/task flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/60",
+               className,
+            )}
+         >
+            <StatusMenu status={task.status} variant="icon" onChange={onStatus} />
+            <button
+               type="button"
+               className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:underline"
+               onClick={onOpen}
+            >
+               <span
+                  className={cn(
+                     "min-w-0 flex-1 truncate text-[13px] leading-5",
+                     !open && "text-muted-foreground line-through",
+                  )}
+               >
+                  <InlineMarkdown variant="quiet">{task.title}</InlineMarkdown>
+               </span>
+               {dueMark && task.due && (
+                  <CalendarDays
+                     role="img"
+                     aria-label={`Due ${formatDue(task.due, today)}`}
+                     className={cn("size-3 shrink-0", dueMark)}
+                  />
+               )}
+            </button>
+         </div>
+      );
    return (
       <div
          className={cn(

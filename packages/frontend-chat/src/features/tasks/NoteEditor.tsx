@@ -6,7 +6,7 @@ import {
    type SessionApi,
    useNote,
 } from "@harness/api";
-import { Button, cn } from "@harness/ui";
+import { Button, cn, ScrollArea } from "@harness/ui";
 import { ListPlus } from "lucide-react";
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNow } from "../../lib/time";
@@ -154,7 +154,7 @@ export function NoteEditor({ api }: { api: SessionApi }) {
             <div
                ref={box}
                className={cn(
-                  "flex min-h-56 flex-1 flex-col rounded-xl border bg-card px-3 pb-1.5 pt-2.5 transition-colors",
+                  "flex min-h-0 flex-1 flex-col rounded-xl border bg-card px-3 pb-1.5 pt-2.5 transition-colors",
                   "focus-within:border-ring/50 dark:focus-within:border-border",
                   drop.over && "border-ring bg-accent/40",
                )}
@@ -171,27 +171,29 @@ export function NoteEditor({ api }: { api: SessionApi }) {
                }}
                {...drop.handlers}
             >
-               {note ? (
-                  <PromptEditor
-                     ref={editor}
-                     label="Session note"
-                     placeholder="Notes for this session…"
-                     newlineOnEnter
-                     menuOpen={false}
-                     onMenuKey={noop}
-                     onSubmit={() => void autosave.flush()}
-                     onChange={(_, md) => {
-                        if (lastMd.current === null || md === lastMd.current) return;
-                        lastMd.current = md;
-                        autosave.change(md);
-                     }}
-                     maxHeightClassName="max-h-none"
-                     minHeightClassName="min-h-40"
-                  />
-               ) : (
-                  <div className="min-h-40 px-1 text-sm text-muted-foreground/50">Loading…</div>
-               )}
-               <AssetStrip assets={images} />
+               <ScrollArea className="min-h-0 flex-1">
+                  {note ? (
+                     <PromptEditor
+                        ref={editor}
+                        label="Session note"
+                        placeholder="Notes for this session…"
+                        newlineOnEnter
+                        menuOpen={false}
+                        onMenuKey={noop}
+                        onSubmit={() => void autosave.flush()}
+                        onChange={(_, md) => {
+                           if (lastMd.current === null || md === lastMd.current) return;
+                           lastMd.current = md;
+                           autosave.change(md);
+                        }}
+                        maxHeightClassName="max-h-none"
+                        minHeightClassName="min-h-40"
+                     />
+                  ) : (
+                     <div className="min-h-40 px-1 text-sm text-muted-foreground/50">Loading…</div>
+                  )}
+                  <AssetStrip assets={images} />
+               </ScrollArea>
                <div className="mt-auto flex items-center gap-1 border-t pt-1.5">
                   <AddFilesButton
                      label="Attach images"
