@@ -1,7 +1,9 @@
 import {
    errText,
+   inTauri,
    onSessionForgotten,
    openWindow,
+   rememberWindowFrame,
    type SessionApi,
    type Stored,
    storedNumber,
@@ -13,10 +15,10 @@ import {
    Button,
    cn,
    DropdownMenuItem,
-   DropdownMenuSeparator,
    Input,
    ResizeHandle,
    ScrollArea,
+   Tooltip,
    useResizableWidth,
 } from "@harness/ui";
 import {
@@ -30,7 +32,7 @@ import {
    RefreshCw,
    WrapText,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { CommentCount } from "../changes/DiffViewer";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTreeList";
@@ -125,6 +127,42 @@ function readError(path: string, e: unknown) {
 }
 
 const NO_FOLDERS: ReadonlySet<string> = new Set();
+/** While the window is visible, the open file is read again this often, so outside edits show. */
+const FILE_POLL_MS = 3_000;
+
+const sameLines = (a: string[], b: string[]) =>
+   a.length === b.length && a.every((l, i) => l === b[i]);
+
+/** An icon button with a tooltip, for the header. */
+function HeaderButton({
+   label,
+   onClick,
+   disabled,
+   pressed,
+   children,
+}: {
+   label: string;
+   onClick: () => void;
+   disabled?: boolean;
+   pressed?: boolean;
+   children: ReactNode;
+}) {
+   return (
+      <Tooltip content={label} side="bottom">
+         <Button
+            size="icon"
+            variant={pressed ? "secondary" : "ghost"}
+            className="size-7 shrink-0"
+            aria-label={label}
+            aria-pressed={pressed}
+            disabled={disabled}
+            onClick={onClick}
+         >
+            {children}
+         </Button>
+      </Tooltip>
+   );
+}
 type Change = { path: string; additions: number; deletions: number };
 
 /**
@@ -167,6 +205,8 @@ export function FilesPanel({
    const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
    /** Bumped by Refresh and by a git status change: the list and the open file load again. */
    const [tick, setTick] = useState(0);
+   /** Bumped by the poll: only the open file loads again. */
+   const [fileTick, setFileTick] = useState(0);
    const git = useGitStatus(api, { enabled: !!workspace?.repo_root, refreshKey: tick });
    const allComments = useLineComments(api);
    const comments = useMemo(() => fileViewComments(allComments), [allComments]);
@@ -193,6 +233,22 @@ export function FilesPanel({
       if (git.changes) setTick((t) => t + 1);
    }, [git.changes]);
 
+   // Outside edits (an editor, a terminal): back to the window loads all again, and while visible the open file
+   // is read again every few seconds.
+   useEffect(() => {
+      const back = () => !document.hidden && setTick((t) => t + 1);
+      const poll = setInterval(() => !document.hidden && setFileTick((t) => t + 1), FILE_POLL_MS);
+      window.addEventListener("focus", back);
+      document.addEventListener("visibilitychange", back);
+      return () => {
+         clearInterval(poll);
+         window.removeEventListener("focus", back);
+         document.removeEventListener("visibilitychange", back);
+      };
+   }, []);
+
+   useEffect(() => (popout ? rememberWindowFrame("files") : undefined), [popout]);
+
    // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` only triggers a reload.
    useEffect(() => {
       let off = false;
@@ -210,13 +266,21 @@ export function FilesPanel({
       };
    }, [api, tick]);
 
-   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` only triggers a reload.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` and `fileTick` only trigger a reload.
    useEffect(() => {
       if (!selected) return;
       let off = false;
-      setFileError(null);
       api.readSessionFile(selected).then(
-         (r) => !off && setFile({ req: selected, path: r.path, lines: r.lines }),
+         (r) => {
+            if (off) return;
+            setFileError(null);
+            // The same text keeps the same object: a poll that found no change renders nothing.
+            setFile((f) =>
+               f && f.req === selected && f.path === r.path && sameLines(f.lines, r.lines)
+                  ? f
+                  : { req: selected, path: r.path, lines: r.lines },
+            );
+         },
          (e) => {
             if (off) return;
             setFile(null);
@@ -226,7 +290,7 @@ export function FilesPanel({
       return () => {
          off = true;
       };
-   }, [api, selected, tick]);
+   }, [api, selected, tick, fileTick]);
 
    useEffect(() => {
       if (!target) return;
@@ -329,67 +393,91 @@ export function FilesPanel({
    const setSource = (source: boolean) =>
       view && setTabs((t) => patchTab(t, view.req, { source: source || undefined }));
 
+   const openInEditor = () =>
+      void api.openInEditor(shownPath ?? undefined, range?.start).catch(() => {});
+   const openPopout = () =>
+      void openWindow(`files-${sessionId}`, filesWindowUrl(sessionId, shownPath, range?.start), {
+         title: shownPath ? `Files: ${shownPath}` : "Files",
+         remember: "files",
+         overlayTitleBar: true,
+      });
+   const tabStrip = (
+      <FileTabStrip
+         tabs={tabs}
+         active={selected}
+         dragRegion={popout}
+         onShow={(path) => {
+            setSelected(path);
+            setRange(null);
+            setCursor(null);
+         }}
+         onPin={(path) => select(path, true)}
+         onClose={close}
+         onMove={(path, to) => setTabs((t) => moveTab(t, path, to))}
+      />
+   );
+   const refreshButton = (
+      <HeaderButton label="Refresh" onClick={() => setTick((t) => t + 1)}>
+         <RefreshCw />
+      </HeaderButton>
+   );
+   const editorButton = (
+      <HeaderButton label="Open in editor" disabled={!shownPath} onClick={openInEditor}>
+         <ExternalLink />
+      </HeaderButton>
+   );
+   const treeButton = (
+      <HeaderButton
+         label="Show file tree"
+         pressed={showTree}
+         onClick={() => setShowTree(!showTree)}
+      >
+         <ListTree />
+      </HeaderButton>
+   );
+
    return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-         <PanelHeader
-            className="gap-1"
-            menu={
-               <>
-                  <DropdownMenuItem onSelect={() => setWrapCode(!wrap)}>
-                     <WrapText /> Wrap lines
-                     {wrap && <Check className="ml-auto" />}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setTick((t) => t + 1)}>
-                     <RefreshCw /> Refresh
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {!popout && (
-                     <DropdownMenuItem
-                        onSelect={() =>
-                           void openWindow(
-                              `files-${sessionId}`,
-                              filesWindowUrl(sessionId, shownPath, range?.start),
-                              { title: shownPath ? `Files: ${shownPath}` : "Files" },
-                           )
-                        }
-                     >
-                        <Maximize2 /> Open in window
-                     </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem
-                     disabled={!shownPath}
-                     onSelect={() =>
-                        void api.openInEditor(shownPath ?? undefined, range?.start).catch(() => {})
-                     }
-                  >
-                     <ExternalLink /> Open in editor
-                  </DropdownMenuItem>
-               </>
-            }
-         >
-            <FileTabStrip
-               tabs={tabs}
-               active={selected}
-               onShow={(path) => {
-                  setSelected(path);
-                  setRange(null);
-                  setCursor(null);
-               }}
-               onPin={(path) => select(path, true)}
-               onClose={close}
-               onMove={(path, to) => setTabs((t) => moveTab(t, path, to))}
-            />
-            <Button
-               size="icon"
-               variant={showTree ? "secondary" : "ghost"}
-               className="size-7 shrink-0"
-               aria-label="Show file tree"
-               aria-pressed={showTree}
-               onClick={() => setShowTree(!showTree)}
+         {popout ? (
+            <div
+               data-tauri-drag-region
+               className={cn(
+                  "flex h-13 shrink-0 items-center gap-1 border-b pr-2",
+                  // Room for the traffic lights (overlay title bar).
+                  inTauri() ? "pl-[92px]" : "pl-2",
+               )}
             >
-               <ListTree />
-            </Button>
-         </PanelHeader>
+               {tabStrip}
+               <HeaderButton label="Wrap lines" pressed={wrap} onClick={() => setWrapCode(!wrap)}>
+                  <WrapText />
+               </HeaderButton>
+               {refreshButton}
+               {editorButton}
+               {treeButton}
+            </div>
+         ) : (
+            <PanelHeader
+               className="gap-1"
+               menu={
+                  <>
+                     <DropdownMenuItem onSelect={() => setWrapCode(!wrap)}>
+                        <WrapText /> Wrap lines
+                        {wrap && <Check className="ml-auto" />}
+                     </DropdownMenuItem>
+                     <DropdownMenuItem disabled={!shownPath} onSelect={openInEditor}>
+                        <ExternalLink /> Open in editor
+                     </DropdownMenuItem>
+                  </>
+               }
+            >
+               {tabStrip}
+               {refreshButton}
+               <HeaderButton label="Open in window" onClick={openPopout}>
+                  <Maximize2 />
+               </HeaderButton>
+               {treeButton}
+            </PanelHeader>
+         )}
          <div className="flex min-h-0 flex-1">
             <div className="relative flex min-w-0 flex-1 flex-col">
                {markdown && !fileError && view.lines.length > 0 && (

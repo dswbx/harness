@@ -17,6 +17,7 @@ export function FileTabStrip({
    onPin,
    onClose,
    onMove,
+   dragRegion = false,
 }: {
    tabs: FileTab[];
    active: string | null;
@@ -24,6 +25,8 @@ export function FileTabStrip({
    onPin: (path: string) => void;
    onClose: (path: string) => void;
    onMove: (path: string, to: number) => void;
+   /** The strip's empty part drags the window (a window's own title bar). */
+   dragRegion?: boolean;
 }) {
    const strip = useRef<HTMLDivElement>(null);
    /** A drag just ended: the click that follows it is not a click on the tab. */
@@ -64,6 +67,7 @@ export function FileTabStrip({
          ref={strip}
          role="tablist"
          aria-label="Open files"
+         data-tauri-drag-region={dragRegion || undefined}
          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
       >
          {tabs.map((t) => {
