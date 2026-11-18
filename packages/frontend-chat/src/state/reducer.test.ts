@@ -127,6 +127,26 @@ describe("turns", () => {
       expect(s.items.at(-1)).toMatchObject({ type: "notice", text: "Turn stopped: cancelled" });
    });
 
+   it("a message sent mid-Turn: the older Turn's end does not stop the newer one", () => {
+      let s = fold([
+         started(),
+         ev({ type: "TurnStarted", turn_id: "t1", text: "first" }, "main", 1000),
+         ev({ type: "AgentMessageChunk", text: "a" }),
+         ev({ type: "TurnStarted", turn_id: "t2", text: "also this" }, "main", 2000),
+         ev({ type: "AgentMessageChunk", text: "b" }),
+         ev({ type: "TurnEnded", turn_id: "t1", stop_reason: "end_turn" }, "main", 3000),
+      ]);
+      expect(s.turnId).toBe("t2");
+      expect(s.turnStartedAt).toBe(2000);
+      expect(s.items.some((i) => i.type === "agent" && i.durationMs !== undefined)).toBe(false);
+      s = reduce(
+         s,
+         ev({ type: "TurnEnded", turn_id: "t2", stop_reason: "end_turn" }, "main", 5000),
+      );
+      expect(s.turnId).toBeNull();
+      expect(s.items.at(-1)).toMatchObject({ type: "agent", text: "b", durationMs: 3000 });
+   });
+
    it("a log repaired after a kill mid-Turn shows no running Turn and no open permission", () => {
       // What the core appends when it opens a log that ends mid-Turn with an unanswered request.
       const s = fold([

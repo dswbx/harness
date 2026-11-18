@@ -7,7 +7,7 @@ import {
    toolFactsOfCall,
 } from "@harness/api";
 import { groupConfigOptions, valueName } from "../configGroups";
-import { type Ctx, notice, own, permIndex, push, toolIndex } from "../draft";
+import { type Ctx, endsRunningTurn, notice, own, permIndex, push, toolIndex } from "../draft";
 import type { ChatState, ContentBlock, Item, SubagentMeta, Tool, ToolCallRef } from "../types";
 import { addPlan, resolvePlan } from "./plans";
 
@@ -142,7 +142,9 @@ export function timelineSlice(c: Ctx, e: Event) {
          });
          return;
       case "TurnEnded":
-         if (d.turnStartedAt !== null) stampDuration(c, e.ts_ms - d.turnStartedAt);
+         // An older Turn that ended under a newer one: `turnStartedAt` and the last message are the newer one's.
+         if (d.turnStartedAt !== null && endsRunningTurn(d, k.turn_id))
+            stampDuration(c, e.ts_ms - d.turnStartedAt);
          if (k.stop_reason !== "end_turn")
             notice(
                c,

@@ -108,3 +108,11 @@ export function sideCtx(c: Ctx, threadId: string): Ctx {
    c.d.threads[threadId] = sc.d;
    return sc;
 }
+
+/**
+ * Whether a `TurnEnded` ends the running Turn. A message sent while a Turn runs starts a second
+ * Turn on the same Thread; the first one may end after that (ACP answers both prompts). Its end
+ * must not stop the newer Turn.
+ */
+export const endsRunningTurn = (d: ChatState, turnId: string) =>
+   d.turnId === null || d.turnId === turnId;
