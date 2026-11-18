@@ -43,6 +43,7 @@ export function SettingsDialog({
    section,
    onSectionChange,
    sessionId,
+   busy,
    agentsVersion,
    onAgentsChanged,
    onMcpChanged,
@@ -54,6 +55,8 @@ export function SettingsDialog({
    onSectionChange: (s: SettingsSection) => void;
    /** Currently selected Session, if any (enables the "this session" rule scope). */
    sessionId: string | null;
+   /** An Agent is working: restarting to update is blocked. */
+   busy: boolean;
    agentsVersion: number;
    onAgentsChanged: () => void;
    onMcpChanged: () => void;
@@ -130,7 +133,7 @@ export function SettingsDialog({
                      )}
                      {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} />}
                      {section === "components" && Gallery && <Gallery />}
-                     {section === "about" && <AboutPanel />}
+                     {section === "about" && <AboutPanel busy={busy} />}
                   </div>
                </ScrollArea>
             </div>
