@@ -35,6 +35,25 @@ export type VirtualListHandle = { scrollToKey: (key: React.Key) => boolean };
 
 const noAdjust = () => false;
 
+type CanWrite = { _canWriteScroll?: () => boolean; __holdsWhileScrolling?: true };
+
+/**
+ * A row above the view that turns out taller than its estimate (it mounts as the user scrolls up)
+ * pushes the visible rows down; the virtualizer then writes `scrollTop` to put them back. WebKit
+ * (the app's webview) has no scroll anchoring and can paint a frame between the two during a
+ * trackpad scroll: the content jumps for a moment. The virtualizer already avoids that on iOS by
+ * holding the correction in the rows' offsets (our top spacer, redrawn in the same frame) and
+ * writing `scrollTop` once the scroll is at rest. Do that on every platform while the user scrolls.
+ * Uses a private member of @tanstack/virtual-core (a test pins it).
+ */
+export function holdCorrectionsWhileScrolling(v: { isScrolling: boolean }) {
+   const p = v as unknown as CanWrite;
+   const canWrite = p._canWriteScroll;
+   if (p.__holdsWhileScrolling || typeof canWrite !== "function") return;
+   p._canWriteScroll = () => !v.isScrolling && canWrite();
+   p.__holdsWhileScrolling = true;
+}
+
 /** Windowed list with dynamic row heights and stick-to-bottom while streaming. */
 export function VirtualList({
    count,
@@ -66,6 +85,7 @@ export function VirtualList({
       overscan,
       paddingStart,
    });
+   holdCorrectionsWhileScrolling(v);
    // While following the bottom, the effects below pin it. The virtualizer's own shift for a resized row
    // starts from its cached offset, which is stale after we set scrollTop, and can leave the view short of
    // the bottom. Not following: the library default.
