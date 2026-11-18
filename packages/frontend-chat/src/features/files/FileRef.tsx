@@ -322,7 +322,7 @@ function FileLines({
             className="max-h-[min(320px,calc(var(--radix-popover-content-available-height)-80px))]"
             viewportClassName="max-h-[inherit]"
          >
-            <div className={cn("py-1.5", !wrap && "overflow-x-auto")}>
+            <div className={cn("select-text py-1.5", !wrap && "overflow-x-auto")}>
                {rows.map((runs, i) => {
                   const n = first + i;
                   const marked = n >= from && n <= to;

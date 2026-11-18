@@ -85,7 +85,7 @@ export function Frame({
       <div
          className={cn("overflow-hidden rounded-lg border bg-card text-card-foreground", className)}
       >
-         <div className="flex min-w-0 items-center gap-2 border-b py-0.5 pr-1 pl-2.5 font-mono text-ui-sm text-muted-foreground">
+         <div className="flex min-w-0 select-none items-center gap-2 border-b py-0.5 pr-1 pl-2.5 font-mono text-ui-sm text-muted-foreground">
             <span className="min-w-0 truncate">{label}</span>
             {meta && <span className="shrink-0">{meta}</span>}
             {action && <span className="ml-auto flex shrink-0 items-center gap-0.5">{action}</span>}

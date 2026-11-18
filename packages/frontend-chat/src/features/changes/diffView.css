@@ -90,3 +90,11 @@
 .harness-diff-resizable .split-diff-view-wrap col.diff-table-old-content-col {
    width: calc(var(--harness-split-left) - var(--diff-aside-width--));
 }
+
+/* The app is not selectable by default (ui styles.css); a diff line's code is. */
+.harness-diff .diff-line-content,
+.harness-diff .diff-line-old-content,
+.harness-diff .diff-line-new-content {
+   -webkit-user-select: text;
+   user-select: text;
+}
