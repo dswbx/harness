@@ -7,7 +7,6 @@ import {
    DropdownMenuSub,
    DropdownMenuSubContent,
    DropdownMenuSubTrigger,
-   ScrollArea,
    StatusDot,
    Tooltip,
 } from "@harness/ui";
@@ -89,24 +88,15 @@ export function SidePanel({
                   <DropdownMenuSubTrigger disabled={closed.length === 0}>
                      <History /> Past chats
                   </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-64 p-0">
-                     <ScrollArea
-                        className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))]"
-                        viewportClassName="max-h-[inherit]"
-                     >
-                        <div className="p-1">
-                           {closed.map((c) => (
-                              <DropdownMenuItem key={c.id} onSelect={() => onReopen(c.id)}>
-                                 <span className="min-w-0 flex-1 truncate">
-                                    {c.title ?? "Side chat"}
-                                 </span>
-                                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
-                                    {formatAge(c.lastAt, now)}
-                                 </span>
-                              </DropdownMenuItem>
-                           ))}
-                        </div>
-                     </ScrollArea>
+                  <DropdownMenuSubContent className="w-64">
+                     {closed.map((c) => (
+                        <DropdownMenuItem key={c.id} onSelect={() => onReopen(c.id)}>
+                           <span className="min-w-0 flex-1 truncate">{c.title ?? "Side chat"}</span>
+                           <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
+                              {formatAge(c.lastAt, now)}
+                           </span>
+                        </DropdownMenuItem>
+                     ))}
                   </DropdownMenuSubContent>
                </DropdownMenuSub>
             }
