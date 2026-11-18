@@ -114,8 +114,17 @@ export function Shell({ transport }: { transport: Transport }) {
       return () => window.removeEventListener("keydown", onKey, true);
    }, []);
 
-   // Back/forward: Cmd+[ / Cmd+] (not while typing) and the mouse's back/forward buttons.
    const { back, forward } = nav;
+   // Back/forward from the app menu (View > Back / Forward, Opt+Cmd+Left / Right).
+   useEffect(
+      () =>
+         listenHost("nav", (dir) => {
+            if (dir === "back") back();
+            else if (dir === "forward") forward();
+         }),
+      [back, forward],
+   );
+   // Back/forward: Cmd+[ / Cmd+] (not while typing) and the mouse's back/forward buttons.
    useEffect(() => {
       const typing = (t: EventTarget | null) =>
          t instanceof HTMLElement &&

@@ -16,6 +16,7 @@ use tauri::{Manager, Webview};
 mod context;
 pub mod host_types;
 mod links;
+mod menu;
 mod overlay;
 mod subscriptions;
 mod updates;
@@ -303,6 +304,8 @@ pub fn run() {
                 .with_filter(|label| label == "main")
                 .build(),
         )
+        .menu(menu::build)
+        .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))
         .manage(Subscriptions::default())
         .manage(updates::Updates::default())
         .setup(|app| {

@@ -27,7 +27,7 @@ export function WindowControls({
    const btn = "size-7 text-muted-foreground hover:text-foreground";
    return (
       <div className="flex items-center gap-0.5">
-         <Tooltip content="Back (⌘[)" side="bottom">
+         <Tooltip content="Back (⌥⌘←)" side="bottom">
             <Button
                size="icon"
                variant="ghost"
@@ -39,7 +39,7 @@ export function WindowControls({
                <ChevronLeft />
             </Button>
          </Tooltip>
-         <Tooltip content="Forward (⌘])" side="bottom">
+         <Tooltip content="Forward (⌥⌘→)" side="bottom">
             <Button
                size="icon"
                variant="ghost"
