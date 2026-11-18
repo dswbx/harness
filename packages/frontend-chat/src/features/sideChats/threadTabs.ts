@@ -24,11 +24,11 @@ export const openThread = (t: ThreadTabs, id: string): ThreadTabs => ({
    thread: id,
 });
 
-/** The draft tab became Side Thread `to`: same place in the tabs, still active if it was. */
+/** The draft tab became Side Thread `to`: same place in the tabs, still active if it was. A tab `to` had already goes. */
 export const replaceThread = (t: ThreadTabs, from: string, to: string): ThreadTabs =>
    t.threads.includes(from)
       ? {
-           threads: t.threads.map((x) => (x === from ? to : x)),
+           threads: t.threads.filter((x) => x !== to).map((x) => (x === from ? to : x)),
            thread: t.thread === from ? to : t.thread,
         }
       : t;

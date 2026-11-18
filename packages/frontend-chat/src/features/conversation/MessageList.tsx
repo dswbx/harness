@@ -2,6 +2,7 @@ import type { SessionApi } from "@harness/api";
 import { VirtualList, type VirtualListHandle } from "@harness/ui";
 import { type Ref, useMemo, useRef } from "react";
 import type { ChatState, Item } from "../../state/reducer";
+import { waitsForUser } from "../../state/waiting";
 import type { DiffScope } from "../changes/DiffPanel";
 import { PlanContext, type PlanCtx } from "../plan/PlanNote";
 import { PendingRow } from "../prompt/pending/PendingRow";
@@ -64,11 +65,8 @@ export function MessageList({
    inset?: number;
 }) {
    const running = state.turnId !== null;
-   // A permission (or plan) waits for the user: the Turn is open but the Agent is not working.
-   const waiting = useMemo(
-      () => running && state.items.some((i) => i.type === "permission" && !i.resolved && !i.auto),
-      [running, state.items],
-   );
+   const { turnId, items } = state;
+   const waiting = useMemo(() => waitsForUser({ turnId, items }), [turnId, items]);
    const composer = composerKey(api.sessionId, side ? threadId : null);
    const userCount = useMemo(
       () => state.items.filter((i) => i.type === "user").length,

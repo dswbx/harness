@@ -251,6 +251,14 @@ describe("Side chat tab status", () => {
       again(1);
       expect(out.model.statusOf("t1")).toBe("working");
       expect(out.model.unread).toBe(0);
+      threadOf = {
+         t1: {
+            turnId: "x",
+            items: [{ type: "permission", resolved: false } as ChatState["items"][number]],
+         },
+      };
+      again(3);
+      expect(out.model.statusOf("t1")).toBe("needs_attention");
       threadOf = { t1: { turnEndedAt: Date.now() + 1000 }, t2: { turnEndedAt: Date.now() + 1000 } };
       again(2);
       // t2 is shown: nothing new to see there.

@@ -1,6 +1,6 @@
 import type { AttachmentInput, SessionApi, ThreadInfo } from "@harness/api";
-import { Button, cn, DropdownMenuItem, Tooltip } from "@harness/ui";
-import { History, LoaderCircle, Plus, X } from "lucide-react";
+import { Button, cn, DropdownMenuItem, StatusDot, Tooltip } from "@harness/ui";
+import { History, Plus, X } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useRef, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { type ChatState, initialState } from "../../state/reducer";
@@ -11,8 +11,11 @@ import { PastChats } from "./PastChats";
 import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
 import { isDraftThread } from "./threadTabs";
 
-/** What a side chat tab shows next to its title: its Agent is working, or a reply came while it was not shown. */
-export type SideChatStatus = "working" | "unread" | null;
+/**
+ * What a side chat tab shows, as the sidebar does for Sessions: a dot while its Agent works or waits for the
+ * user, a bold title for a reply that came while the tab was not shown.
+ */
+export type SideChatStatus = "working" | "needs_attention" | "unread" | null;
 
 /** How far the pointer moves before a press on a tab becomes a drag. */
 const DRAG_PX = 4;
@@ -136,18 +139,6 @@ export function SidePanel({
                            status === "unread" && "font-semibold text-foreground",
                         )}
                      >
-                        {status === "working" && (
-                           <LoaderCircle
-                              aria-label="Working"
-                              className="size-3 shrink-0 animate-spin text-sky-500"
-                           />
-                        )}
-                        {status === "unread" && (
-                           <span
-                              aria-label="New reply"
-                              className="size-1.5 shrink-0 rounded-full bg-sky-500"
-                           />
-                        )}
                         <button
                            role="tab"
                            aria-selected={on}
@@ -158,7 +149,13 @@ export function SidePanel({
                            }}
                         >
                            {title}
+                           {status === "unread" && (
+                              <span className="sr-only"> (new, not seen)</span>
+                           )}
                         </button>
+                        {(status === "working" || status === "needs_attention") && (
+                           <StatusDot status={status} className="ml-0.5" />
+                        )}
                         <button
                            data-tab-close
                            className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"

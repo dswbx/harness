@@ -3,6 +3,7 @@ import { errText, threadTitle } from "@harness/api";
 import { MessagesSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
+import { waitsForUser } from "../../state/waiting";
 import { changesPanel } from "../changes/panel";
 import { clearDraft } from "../prompt/drafts";
 import type { PendingMessage } from "../prompt/pendingMessages";
@@ -126,6 +127,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
          (id: string): SideChatStatus => {
             const t = state.threads[id];
             if (!t) return null;
+            if (waitsForUser(t)) return "needs_attention";
             if (t.turnId) return "working";
             const end = t.turnEndedAt;
             return id !== shown && end && end > (seenAt[id] ?? mountedAt) ? "unread" : null;

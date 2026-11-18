@@ -143,3 +143,10 @@ describe("moveThread", () => {
       expect(moveThread(t, "a", "x")).toBe(t);
    });
 });
+
+describe("replaceThread", () => {
+   test("never lists a Thread twice", () => {
+      const t: ThreadTabs = { threads: ["a", "draft:x"], thread: "draft:x" };
+      expect(replaceThread(t, "draft:x", "a")).toEqual({ threads: ["a"], thread: "a" });
+   });
+});
