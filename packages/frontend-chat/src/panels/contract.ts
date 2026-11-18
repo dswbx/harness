@@ -41,6 +41,10 @@ export type PanelCtx = {
       sharedMetas?: ReadonlyMap<string, SharedArtifactMeta>;
       /** Shows the panel of the Shared Artifact `id` (when one of the Session's panels shows it). */
       showShared?: (id: string) => void;
+      /** Opens the dialog that starts a Session from task `taskId` (ADR 0028). Absent: no such button. */
+      startFromTask?: (taskId: string) => void;
+      /** Opens the host's All tasks view, at task `taskId` when given. Absent: no such button. */
+      openTasks?: (taskId?: string) => void;
    };
 };
 

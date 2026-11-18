@@ -8,7 +8,7 @@ const day = (days: number) => localDay(new Date(Date.now() + days * DAY));
 
 /**
  * The mock's Tasks (ADR 0028): two topics with subtasks, one upstream link, one overdue Task and
- * some loose ones. Origins are fixture Sessions; `t3` was started in `mock-1`.
+ * some loose ones. Origins are fixture Sessions; `t3` was started in `mock-1`, which also has a done task.
  */
 export function mockTasks(): Task[] {
    const now = Date.now();
@@ -86,6 +86,12 @@ export function mockTasks(): Task[] {
       }),
       task(8, "Try the new Biome rules", { status: "backlog", priority: "low" }),
       task(9, "Read the ACP registry RFC", { due: day(0), priority: "medium", origin: m1 }),
+      task(10, "Measure the header render time", {
+         parent: 5,
+         order: 3,
+         status: "done",
+         origin: m1,
+      }),
    ];
    const t1 = tasks[0] as Task;
    t1.upstream = { url: "https://linear.app/harness/issue/HAR-42/release-v2026-12", label: null };

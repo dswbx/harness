@@ -135,6 +135,10 @@ export interface Frontend {
        * "from" label). Absent: those show as plain text.
        */
       onOpenSession?: (sessionId: string) => void;
+      /** Opens the host's All tasks view (ADR 0028), at a task when given. Absent: the View offers none. */
+      onOpenTasks?: (taskId?: string) => void;
+      /** Starts a Session from a task (the host's dialog). Absent: the View offers none. */
+      onStartFromTask?: (taskId: string) => void;
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

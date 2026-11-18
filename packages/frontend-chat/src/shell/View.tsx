@@ -66,6 +66,8 @@ export type ChatProps = {
    overlayFrame?: OverlayFrame;
    context?: PromptContext;
    onOpenShared?: (id: string) => void;
+   onOpenTasks?: (taskId?: string) => void;
+   onStartFromTask?: (taskId: string) => void;
 };
 
 /**
@@ -97,6 +99,8 @@ function ChatBody({
    overlayFrame,
    context,
    onOpenShared,
+   onOpenTasks,
+   onStartFromTask,
 }: ChatProps) {
    const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
@@ -132,8 +136,15 @@ function ChatBody({
       [jumpToRow, jumpToStep],
    );
    const panelHostApi = useMemo(
-      () => ({ openShared: onOpenShared, gitRefresh: onGitRefresh, sharedMetas, showShared }),
-      [onOpenShared, onGitRefresh, sharedMetas, showShared],
+      () => ({
+         openShared: onOpenShared,
+         gitRefresh: onGitRefresh,
+         sharedMetas,
+         showShared,
+         openTasks: onOpenTasks,
+         startFromTask: onStartFromTask,
+      }),
+      [onOpenShared, onGitRefresh, sharedMetas, showShared, onOpenTasks, onStartFromTask],
    );
    const panelHost = usePanelHost({
       api,

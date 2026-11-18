@@ -7,13 +7,36 @@ import {
    useNote,
 } from "@harness/api";
 import { Button, cn } from "@harness/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ListPlus } from "lucide-react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNow } from "../../lib/time";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, filesToInputs, type StripAsset } from "./AssetStrip";
+import { taskFromText } from "./listModel";
 import { type AutosaveStatus, useAutosave } from "./useAutosave";
 
 const noop = () => {};
+
+/** The text selected inside `box` ("" when the selection is empty or elsewhere). */
+function useSelectedText(box: RefObject<HTMLElement | null>): string {
+   const [text, setText] = useState("");
+   useEffect(() => {
+      const update = () => {
+         const sel = document.getSelection();
+         const el = box.current;
+         const inside =
+            !!sel &&
+            !sel.isCollapsed &&
+            !!el &&
+            el.contains(sel.anchorNode) &&
+            el.contains(sel.focusNode);
+         setText(inside ? sel.toString() : "");
+      };
+      document.addEventListener("selectionchange", update);
+      return () => document.removeEventListener("selectionchange", update);
+   }, [box]);
+   return text;
+}
 
 /** A stored note image's name without the id the core puts in front (`<uuid>-shot.png` → `shot.png`). */
 const noteImageName = (path: string) =>
@@ -39,6 +62,15 @@ export function NoteEditor({ api }: { api: SessionApi }) {
    const lastMd = useRef<string | null>(null);
    const [error, setError] = useState<string | null>(null);
    const now = useNow();
+   const box = useRef<HTMLDivElement>(null);
+   const selected = useSelectedText(box);
+   const fromSelection = selected ? taskFromText(selected) : null;
+   const makeTask = () => {
+      if (!fromSelection) return;
+      setError(null);
+      api.createTask(fromSelection).catch((e) => setError(errText(e)));
+      document.getSelection()?.collapseToEnd();
+   };
 
    const autosave = useAutosave<string>(async (md) => {
       const saved = await api.writeNote(md, base.current);
@@ -117,6 +149,7 @@ export function NoteEditor({ api }: { api: SessionApi }) {
          )}
          <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-2.5">
             <div
+               ref={box}
                className={cn(
                   "flex min-h-56 flex-1 flex-col rounded-xl border bg-card px-3 pb-1.5 pt-2.5 transition-colors",
                   "focus-within:border-ring/50 dark:focus-within:border-border",
@@ -168,7 +201,25 @@ export function NoteEditor({ api }: { api: SessionApi }) {
                      onAdd={addImages}
                      onError={setError}
                   />
-                  <span className="text-[11px] text-muted-foreground">Markdown · autosaves</span>
+                  <span className="flex-1 text-[11px] text-muted-foreground">
+                     Markdown · autosaves
+                  </span>
+                  {fromSelection ? (
+                     <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 gap-1 px-2 text-xs"
+                        // Keeps the selection (and the editor's focus) while clicking.
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={makeTask}
+                     >
+                        <ListPlus className="size-3" /> Make task
+                     </Button>
+                  ) : (
+                     <span className="text-[11px] text-muted-foreground/70">
+                        Select text → Make task
+                     </span>
+                  )}
                </div>
             </div>
          </div>

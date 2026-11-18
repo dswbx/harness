@@ -1,7 +1,7 @@
 import { type AttachmentInput, errText, pickFiles } from "@harness/api";
 import { Tooltip } from "@harness/ui";
-import { FileText, Paperclip } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { FileText, Paperclip, X } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ImageDialog } from "../../lib/ImageDialog";
 import { cachedImage } from "../../lib/imageCache";
 import { fromFile } from "../prompt/attachments";
@@ -12,7 +12,28 @@ export type StripAsset = {
    name: string;
    image: boolean;
    read: () => Promise<{ mime: string; data: string }>;
+   /** Shows a remove button on hover. */
+   remove?: () => void;
 };
+
+/** The asset with its remove button (if any) in the top right corner, shown on hover. */
+function Removable({ asset, children }: { asset: StripAsset; children: ReactNode }) {
+   return (
+      <span className="group/asset relative flex">
+         {children}
+         {asset.remove && (
+            <button
+               type="button"
+               aria-label={`Remove ${asset.name}`}
+               onClick={asset.remove}
+               className="absolute -right-1.5 -top-1.5 hidden size-4 place-items-center rounded-full border bg-background text-muted-foreground shadow-xs hover:text-foreground group-hover/asset:grid focus-visible:grid"
+            >
+               <X className="size-2.5" />
+            </button>
+         )}
+      </span>
+   );
+}
 
 function Thumb({ asset, onOpen }: { asset: StripAsset; onOpen: (src: string) => void }) {
    const [src, setSrc] = useState<string | null>(null);
@@ -59,19 +80,20 @@ export function AssetStrip({ assets }: { assets: StripAsset[] }) {
       <div className="flex flex-wrap items-center gap-1.5 pt-2" aria-label="Files">
          {assets.map((a) =>
             a.image ? (
-               <Tooltip key={a.key} content={a.name}>
-                  <span className="flex rounded-md border">
-                     <Thumb asset={a} onOpen={(src) => setOpen({ src, name: a.name })} />
-                  </span>
-               </Tooltip>
+               <Removable key={a.key} asset={a}>
+                  <Tooltip content={a.name}>
+                     <span className="flex rounded-md border">
+                        <Thumb asset={a} onOpen={(src) => setOpen({ src, name: a.name })} />
+                     </span>
+                  </Tooltip>
+               </Removable>
             ) : (
-               <span
-                  key={a.key}
-                  className="flex max-w-56 items-center gap-1.5 rounded-md border bg-muted px-1.5 py-1 text-xs"
-               >
-                  <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{a.name}</span>
-               </span>
+               <Removable key={a.key} asset={a}>
+                  <span className="flex max-w-56 items-center gap-1.5 rounded-md border bg-muted px-1.5 py-1 text-xs">
+                     <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                     <span className="truncate">{a.name}</span>
+                  </span>
+               </Removable>
             ),
          )}
          <ImageDialog
