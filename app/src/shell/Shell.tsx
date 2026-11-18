@@ -24,28 +24,20 @@ import { SharedArtifactsSection } from "../shared-artifacts/SharedArtifactsSecti
 import { UpdateFooter } from "../updates/UpdateFooter";
 import { useUpdate } from "../updates/updates";
 import { needsEditor } from "./editorError";
+import { useNavHistory } from "./useNavHistory";
 import { useSidebarOpen, useSidebarWidth } from "./useSidebar";
 import { DevBadge, WindowControls } from "./WindowControls";
 
 /** What the main pane shows: a Session, or a Shared Artifact without a Session (ADR 0024). */
 type Selection = { session: string } | { shared: string } | null;
+const selectionKey = (s: Selection) =>
+   !s ? "" : "session" in s ? `session:${s.session}` : `shared:${s.shared}`;
 
 export function Shell({ transport }: { transport: Transport }) {
    const client = useMemo<HarnessClient>(() => new Client(transport), [transport]);
    const [agentsVersion, setAgentsVersion] = useState(0);
    const bumpAgents = useCallback(() => setAgentsVersion((v) => v + 1), []);
    const { sessions, setSessions } = useSessions(client, bumpAgents);
-   const [selection, setSelection] = useState<Selection>(null);
-   const selected = selection && "session" in selection ? selection.session : null;
-   const sharedId = selection && "shared" in selection ? selection.shared : null;
-   const setSelected = useCallback(
-      (id: string | null) => setSelection(id ? { session: id } : null),
-      [],
-   );
-   const openShared = useCallback((id: string) => setSelection({ shared: id }), []);
-   const [attachOpen, setAttachOpen] = useState(false);
-   /** "New Session with it": the Shared Artifact to attach once the Composer created the Session. */
-   const attachOnCreate = useRef<string | null>(null);
    const sharedSource = useMemo(
       () => ({
          list: () => client.listSharedArtifacts(),
@@ -60,6 +52,28 @@ export function Shell({ transport }: { transport: Transport }) {
       [client],
    );
    const sharedList = useSharedArtifacts(sharedSource);
+   // Back/forward skip what was deleted since (the shared list still loading: keep it).
+   const canShow = useCallback(
+      (s: Selection) =>
+         !!s &&
+         ("session" in s
+            ? sessions.some((x) => x.id === s.session)
+            : !sharedList || sharedList.some((e) => e.meta.id === s.shared)),
+      [sessions, sharedList],
+   );
+   const nav = useNavHistory<Selection>(null, selectionKey, canShow);
+   const selection = nav.current;
+   const setSelection = nav.go;
+   const selected = selection && "session" in selection ? selection.session : null;
+   const sharedId = selection && "shared" in selection ? selection.shared : null;
+   const setSelected = useCallback(
+      (id: string | null) => setSelection(id ? { session: id } : null),
+      [setSelection],
+   );
+   const openShared = useCallback((id: string) => setSelection({ shared: id }), [setSelection]);
+   const [attachOpen, setAttachOpen] = useState(false);
+   /** "New Session with it": the Shared Artifact to attach once the Composer created the Session. */
+   const attachOnCreate = useRef<string | null>(null);
    const [composer, setComposerOpen] = useState(false);
    /** Opens the Composer; `attach`: a Shared Artifact to attach to the new Session. */
    const setComposer = useCallback((o: boolean, attach: string | null = null) => {
@@ -99,6 +113,31 @@ export function Shell({ transport }: { transport: Transport }) {
       window.addEventListener("keydown", onKey, true);
       return () => window.removeEventListener("keydown", onKey, true);
    }, []);
+
+   // Back/forward: Cmd+[ / Cmd+] (not while typing) and the mouse's back/forward buttons.
+   const { back, forward } = nav;
+   useEffect(() => {
+      const typing = (t: EventTarget | null) =>
+         t instanceof HTMLElement &&
+         (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+      const onKey = (e: KeyboardEvent) => {
+         if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || typing(e.target)) return;
+         if (e.key === "[") back();
+         else if (e.key === "]") forward();
+         else return;
+         e.preventDefault();
+      };
+      const onMouse = (e: MouseEvent) => {
+         if (e.button === 3) back();
+         else if (e.button === 4) forward();
+      };
+      window.addEventListener("keydown", onKey);
+      window.addEventListener("mouseup", onMouse);
+      return () => {
+         window.removeEventListener("keydown", onKey);
+         window.removeEventListener("mouseup", onMouse);
+      };
+   }, [back, forward]);
 
    // The Quick overlay's "Open in main window" (ADR 0022).
    useEffect(
@@ -175,6 +214,8 @@ export function Shell({ transport }: { transport: Transport }) {
       <WindowControls
          sidebarOpen={sidebarOpen}
          onToggleSidebar={toggleSidebar}
+         onBack={nav.canBack ? nav.back : undefined}
+         onForward={nav.canForward ? nav.forward : undefined}
          onNew={() => setComposer(true)}
       />
    );
