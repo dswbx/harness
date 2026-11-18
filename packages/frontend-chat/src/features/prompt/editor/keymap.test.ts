@@ -1,8 +1,11 @@
 import { createHeadlessEditor } from "@lexical/headless";
-import { $convertFromMarkdownString } from "@lexical/markdown";
+import { registerList } from "@lexical/list";
+import { $convertFromMarkdownString, registerMarkdownShortcuts } from "@lexical/markdown";
 import { registerRichText } from "@lexical/rich-text";
 import {
    $getRoot,
+   $getSelection,
+   $isRangeSelection,
    KEY_BACKSPACE_COMMAND,
    KEY_ENTER_COMMAND,
    KEY_TAB_COMMAND,
@@ -140,3 +143,79 @@ function hasChip() {
       n.getChildren().some((c) => $isPrRefNode(c) || ("getChildren" in c && walk(c as never)));
    return walk($getRoot());
 }
+
+describe("newlineOnEnter: typing Markdown after Enter", () => {
+   /** A headless editor with the live Markdown shortcuts; `type` inserts one character at a time, as a keyboard does. */
+   function typing() {
+      const editor = createHeadlessEditor({
+         nodes: PROMPT_NODES,
+         onError: (e) => {
+            throw e;
+         },
+      });
+      registerRichText(editor);
+      registerList(editor);
+      registerMarkdownShortcuts(editor, PROMPT_TRANSFORMERS);
+      registerPromptKeys(editor, () => ({
+         menuOpen: false,
+         onMenuKey: vi.fn(),
+         onSubmit: vi.fn(),
+         newlineOnEnter: true,
+      }));
+      editor.update(() => $getRoot().selectEnd(), { discrete: true });
+      const type = (s: string) => {
+         for (const c of s)
+            editor.update(
+               () => {
+                  const sel = $getSelection();
+                  if ($isRangeSelection(sel)) sel.insertText(c);
+               },
+               { discrete: true },
+            );
+      };
+      const enter = (init: Partial<KeyboardEvent> = {}) =>
+         press(editor, KEY_ENTER_COMMAND, key(init));
+      const types = () =>
+         editor.getEditorState().read(() =>
+            $getRoot()
+               .getChildren()
+               .map((n) => n.getType()),
+         );
+      return { editor, type, enter, types };
+   }
+
+   it("Enter starts a new paragraph, so `- ` becomes a list live", () => {
+      const { editor, type, enter, types } = typing();
+      type("hello");
+      enter();
+      type("- a");
+      expect(types()).toEqual(["paragraph", "list"]);
+      enter();
+      type("b");
+      expect(md(editor)).toBe("hello\n\n- a\n- b");
+   });
+
+   it("`1. ` and `> ` also convert after Enter", () => {
+      const { editor, type, enter, types } = typing();
+      type("x");
+      enter();
+      type("1. q");
+      enter();
+      type("r");
+      enter();
+      enter();
+      type("> quote");
+      expect(types()).toEqual(["paragraph", "list", "quote"]);
+      expect(md(editor)).toBe("x\n\n1. q\n2. r\n\n> quote");
+   });
+
+   it("Enter on an empty list item leaves the list", () => {
+      const { editor, type, enter, types } = typing();
+      type("- a");
+      enter();
+      enter();
+      type("tail");
+      expect(types()).toEqual(["list", "paragraph"]);
+      expect(md(editor)).toBe("- a\n\ntail");
+   });
+});
