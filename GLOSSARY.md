@@ -128,6 +128,18 @@ _Avoid_: file panel, live file, source panel
 An artifact (a `render_ui` item, a file-backed panel, or a diagram or table from a message) moved out of its Session into `<data dir>/shared/<id>/` with its own state; any Session can attach it and show it as a Panel, and it can be opened without a Session (ADR 0024).
 _Avoid_: document, global artifact, pinned artifact
 
+**Task**:
+A work item of the user, kept across Sessions in `<data dir>/tasks/<id>/` and not part of the Session Log; it records the Session it was created in and can be linked to others. Not the Agent's Task List (ADR 0028).
+_Avoid_: todo, ticket, issue (for a Task), Task List
+
+**Topic**:
+A Task that has subtasks; not a separate thing, only a Task with children (ADR 0028).
+_Avoid_: project, epic, folder
+
+**Session Note**:
+The one Markdown note of a Session, typed by the user and stored as `note.md` in the Session Directory; not part of the Session Log, and the Agent reads it but does not write it (ADR 0028).
+_Avoid_: scratchpad, memo, Plan
+
 **Review Comment**:
 A comment on one line of a diff or a file, kept in the Session Log (`CommentAdded`, ADR 0027). The user's starts pending (a draft, editable and deletable), becomes open when a prompt carrying it is sent (then immutable), and is resolved by the user or the Agent; the Agent can also add and list them (`comment_add`, `comment_list`, `comment_resolve`). Ids `c1`, `c2`, ... No replies. Quotes of chat, plan or artifact text are not Review Comments.
 _Avoid_: annotation, note, thread
