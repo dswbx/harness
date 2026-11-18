@@ -37,9 +37,11 @@ import {
    Play,
    Plus,
    Trash2,
+   Upload,
    X,
 } from "lucide-react";
 import {
+   type DragEvent,
    type ReactNode,
    useCallback,
    useContext,
@@ -56,11 +58,10 @@ import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, filesToInputs, type StripAsset } from "./AssetStrip";
 import { DuePicker } from "./DuePicker";
-import { ancestors } from "./listModel";
 import { ParentPicker } from "./ParentPicker";
 import { PriorityMenu } from "./PriorityMenu";
 import { QuickAdd } from "./QuickAdd";
-import { STATUS_LABEL, StatusMenu } from "./StatusMenu";
+import { STATUS_LABEL, StatusIcon, StatusMenu } from "./StatusMenu";
 import { TaskRow } from "./TaskRow";
 import type { TaskApi } from "./taskApi";
 import { UpstreamField } from "./UpstreamField";
@@ -105,8 +106,8 @@ function useTask(api: TaskApi, id: string) {
 }
 
 /**
- * One task in full (board "TaskDetail"): breadcrumb, title, fields, description (autosaved), assets, subtasks,
- * Sessions and activity. Every change saves at once; the description saves like the note.
+ * One task in full (board "TaskDetail"): title (with the parent under it), fields, description (autosaved), assets,
+ * subtasks, Sessions and activity. Every change saves at once; the description saves like the note.
  */
 export function TaskDetail({
    api,
@@ -119,12 +120,12 @@ export function TaskDetail({
 }: {
    api: TaskApi;
    id: string;
-   /** All tasks (null while loading): parent, breadcrumb and subtasks. */
+   /** All tasks (null while loading): parent and subtasks. */
    tasks: readonly TaskSummary[] | null;
    host: PanelCtx["host"];
    onBack: () => void;
    onOpen: (id: string) => void;
-   /** A preview beside a list (the All tasks view): a close button and its own menu instead of Back. */
+   /** A preview beside a list (the All tasks view): its menu and a close button on the title row, no Back. */
    onClose?: () => void;
 }) {
    const { task, put, missing, error, setError } = useTask(api, id);
@@ -132,7 +133,8 @@ export function TaskDetail({
    const now = useNow();
    const today = localDay(new Date(now));
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
-   const trail = useMemo(() => ancestors(byId, id), [byId, id]);
+   const parentId = task?.parent_id ?? byId.get(id)?.parent_id ?? null;
+   const parent = parentId ? (byId.get(parentId) ?? null) : null;
 
    const fail = (e: unknown) => setError(errText(e));
    const patch = (p: TaskPatch) => {
@@ -153,193 +155,201 @@ export function TaskDetail({
          <Trash2 /> Delete task
       </DropdownMenuItem>
    );
-   const header = (
-      <PanelHeader menu={deleteItem}>
-         {!onClose && (
-            <Tooltip content="Back to tasks" side="bottom">
-               <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 shrink-0"
-                  aria-label="Back to tasks"
-                  onClick={onBack}
-               >
-                  <ArrowLeft />
-               </Button>
-            </Tooltip>
-         )}
-         <nav
-            aria-label="Breadcrumb"
-            className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground"
+   const openInAll = host.openTasks && (
+      <Tooltip content="Open in All tasks" side="bottom">
+         <Button
+            size="icon"
+            variant="ghost"
+            className="size-7 shrink-0"
+            aria-label="Open in All tasks"
+            onClick={() => host.openTasks?.(id)}
          >
-            {trail.map((t) => (
-               <span key={t.id} className="flex min-w-0 shrink items-center gap-1">
-                  <button
-                     type="button"
-                     className="min-w-0 truncate hover:text-foreground"
-                     onClick={() => onOpen(t.id)}
-                  >
-                     <InlineMarkdown variant="quiet">{t.title}</InlineMarkdown>
-                  </button>
-                  <ChevronRight className="size-3 shrink-0" />
-               </span>
-            ))}
-            <span className="min-w-0 truncate text-foreground">
-               {task ? <InlineMarkdown variant="quiet">{task.title}</InlineMarkdown> : id}
-            </span>
-         </nav>
-         {host.openTasks && (
-            <Tooltip content="Open in All tasks" side="bottom">
+            <MoveUpRight />
+         </Button>
+      </Tooltip>
+   );
+   // The panel: Back and the panel's own controls. A preview: its controls sit on the title row instead.
+   const header = !onClose && (
+      <PanelHeader menu={deleteItem}>
+         <Tooltip content="Back to tasks" side="bottom">
+            <Button
+               size="icon"
+               variant="ghost"
+               className="size-7 shrink-0"
+               aria-label="Back to tasks"
+               onClick={onBack}
+            >
+               <ArrowLeft />
+            </Button>
+         </Tooltip>
+         <span className="flex-1" />
+         {openInAll}
+      </PanelHeader>
+   );
+   const controls = onClose && (
+      <div className="-mr-1.5 flex shrink-0 items-center gap-0.5">
+         {openInAll}
+         <DropdownMenu>
+            <DropdownMenuTrigger asChild>
                <Button
                   size="icon"
                   variant="ghost"
-                  className="size-7 shrink-0"
-                  aria-label="Open in All tasks"
-                  onClick={() => host.openTasks?.(id)}
+                  className="size-7 shrink-0 data-[state=open]:bg-accent"
+                  aria-label="Task options"
                >
-                  <MoveUpRight />
+                  <MoreHorizontal />
                </Button>
-            </Tooltip>
-         )}
-         {onClose && (
-            <>
-               <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                     <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-7 shrink-0 data-[state=open]:bg-accent"
-                        aria-label="Task options"
-                     >
-                        <MoreHorizontal />
-                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
-                     {deleteItem}
-                  </DropdownMenuContent>
-               </DropdownMenu>
-               <Tooltip content="Close preview" side="bottom">
-                  <Button
-                     size="icon"
-                     variant="ghost"
-                     className="size-7 shrink-0"
-                     aria-label="Close preview"
-                     onClick={onClose}
-                  >
-                     <X />
-                  </Button>
-               </Tooltip>
-            </>
-         )}
-      </PanelHeader>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+               {deleteItem}
+            </DropdownMenuContent>
+         </DropdownMenu>
+         <Tooltip content="Close preview" side="bottom">
+            <Button
+               size="icon"
+               variant="ghost"
+               className="size-7 shrink-0"
+               aria-label="Close preview"
+               onClick={onClose}
+            >
+               <X />
+            </Button>
+         </Tooltip>
+      </div>
    );
 
    return (
       <div className="flex h-full min-h-0 flex-col">
          {header}
          {missing ? (
-            <div className="flex flex-col items-start gap-2 p-4 text-sm text-muted-foreground">
-               This task was deleted.
-               <Button size="sm" variant="outline" onClick={onBack}>
-                  {onClose ? "Close" : "Back to tasks"}
-               </Button>
+            <div className="flex items-start gap-2 p-4">
+               <div className="flex flex-1 flex-col items-start gap-2 text-sm text-muted-foreground">
+                  This task was deleted.
+                  <Button size="sm" variant="outline" onClick={onBack}>
+                     {onClose ? "Close" : "Back to tasks"}
+                  </Button>
+               </div>
+               {controls}
             </div>
          ) : (
-            <ScrollArea className="min-h-0 flex-1">
-               {error && (
-                  <div role="alert" className="px-4 pt-3 text-xs text-destructive">
-                     {error}
-                  </div>
-               )}
-               {task ? (
-                  <div className="flex flex-col gap-5 px-4 pb-6 pt-3">
-                     <TitleEditor task={task} onSave={(title) => patch({ title })} />
-                     <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-xs">
-                        <Label>Status</Label>
-                        <div>
-                           <StatusMenu
-                              status={task.status}
-                              onChange={(status) => patch({ status })}
-                           />
-                        </div>
-                        <Label>Priority</Label>
-                        <div>
-                           <PriorityMenu
-                              priority={task.priority}
-                              onChange={(priority) => patch({ priority })}
-                           />
-                        </div>
-                        <Label>Due</Label>
-                        <div>
-                           <DuePicker
-                              due={task.due}
-                              open={isOpen(task.status)}
-                              onChange={(due) => patch(due ? { due } : { clear: ["due"] })}
-                           />
-                        </div>
-                        <Label>Parent</Label>
-                        <div className="min-w-0">
-                           <ParentPicker
-                              taskId={id}
-                              parentId={task.parent_id}
-                              tasks={tasks ?? []}
-                              onChange={(parent) => {
-                                 setError(null);
-                                 api.moveTask(id, parent).then(put, fail);
-                              }}
-                           />
-                        </div>
-                        <Label>Upstream</Label>
-                        <UpstreamField
-                           upstream={task.upstream}
-                           onChange={(upstream) =>
-                              patch(upstream ? { upstream } : { clear: ["upstream"] })
-                           }
-                        />
-                        <Label>Created in</Label>
-                        <div className="min-w-0">
-                           <SessionChip
-                              sessionId={task.origin_session_id}
-                              title={task.origin_title}
-                              current={api.sessionId}
-                           />
-                        </div>
+            <>
+               <div
+                  className={cn(
+                     "flex shrink-0 flex-col gap-1 px-4 pb-2",
+                     onClose ? "pt-2.5" : "pt-3",
+                  )}
+               >
+                  <div className="flex items-start gap-2">
+                     <div className="min-w-0 flex-1 pt-0.5">
+                        {task ? (
+                           <TitleEditor task={task} onSave={(title) => patch({ title })} />
+                        ) : (
+                           <div className="h-6 text-sm text-muted-foreground/60">Loading…</div>
+                        )}
                      </div>
-                     <BodyEditor
-                        api={api}
-                        task={task}
-                        put={put}
-                        onError={setError}
-                        onAddFiles={(files) => api.addTaskAssets(id, files).then(put, fail)}
-                     />
-                     <Assets
-                        api={api}
-                        task={task}
-                        onAdd={(files) => {
-                           setError(null);
-                           api.addTaskAssets(id, files).then(put, fail);
-                        }}
-                        onRemove={(name) => {
-                           setError(null);
-                           api.removeTaskAsset(id, name).then(put, fail);
-                        }}
-                        onError={setError}
-                     />
-                     <Subtasks
-                        api={api}
-                        id={id}
-                        tasks={tasks ?? []}
-                        today={today}
-                        onOpen={onOpen}
-                        onError={setError}
-                     />
-                     <Sessions task={task} current={api.sessionId} now={now} host={host} />
-                     <Activity activity={task.activity} byId={byId} task={task} now={now} />
+                     {controls}
                   </div>
-               ) : (
-                  <div className="p-4 text-sm text-muted-foreground/60">Loading…</div>
-               )}
-            </ScrollArea>
+                  {parent && (
+                     <ParentLine
+                        parent={parent}
+                        progress={topicProgress(tasks ?? [], parent.id)}
+                        onOpen={() => onOpen(parent.id)}
+                     />
+                  )}
+               </div>
+               <ScrollArea className="min-h-0 flex-1">
+                  {error && (
+                     <div role="alert" className="px-4 pb-2 text-xs text-destructive">
+                        {error}
+                     </div>
+                  )}
+                  {task && (
+                     <div className="flex flex-col gap-5 px-4 pb-6 pt-1">
+                        <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-xs">
+                           <Label>Status</Label>
+                           <div>
+                              <StatusMenu
+                                 status={task.status}
+                                 onChange={(status) => patch({ status })}
+                              />
+                           </div>
+                           <Label>Priority</Label>
+                           <div>
+                              <PriorityMenu
+                                 priority={task.priority}
+                                 onChange={(priority) => patch({ priority })}
+                              />
+                           </div>
+                           <Label>Due</Label>
+                           <div>
+                              <DuePicker
+                                 due={task.due}
+                                 open={isOpen(task.status)}
+                                 onChange={(due) => patch(due ? { due } : { clear: ["due"] })}
+                              />
+                           </div>
+                           <Label>Parent</Label>
+                           <div className="min-w-0">
+                              <ParentPicker
+                                 taskId={id}
+                                 parentId={task.parent_id}
+                                 tasks={tasks ?? []}
+                                 onChange={(parent) => {
+                                    setError(null);
+                                    api.moveTask(id, parent).then(put, fail);
+                                 }}
+                              />
+                           </div>
+                           <Label>Upstream</Label>
+                           <UpstreamField
+                              upstream={task.upstream}
+                              onChange={(upstream) =>
+                                 patch(upstream ? { upstream } : { clear: ["upstream"] })
+                              }
+                           />
+                           <Label>Created in</Label>
+                           <div className="min-w-0">
+                              <SessionChip
+                                 sessionId={task.origin_session_id}
+                                 title={task.origin_title}
+                                 current={api.sessionId}
+                              />
+                           </div>
+                        </div>
+                        <BodyEditor
+                           api={api}
+                           task={task}
+                           put={put}
+                           onError={setError}
+                           onAddFiles={(files) => api.addTaskAssets(id, files).then(put, fail)}
+                        />
+                        <Assets
+                           api={api}
+                           task={task}
+                           onAdd={(files) => {
+                              setError(null);
+                              api.addTaskAssets(id, files).then(put, fail);
+                           }}
+                           onRemove={(name) => {
+                              setError(null);
+                              api.removeTaskAsset(id, name).then(put, fail);
+                           }}
+                           onError={setError}
+                        />
+                        <Subtasks
+                           api={api}
+                           id={id}
+                           tasks={tasks ?? []}
+                           today={today}
+                           onOpen={onOpen}
+                           onError={setError}
+                        />
+                        <Sessions task={task} current={api.sessionId} now={now} host={host} />
+                        <Activity activity={task.activity} byId={byId} task={task} now={now} />
+                     </div>
+                  )}
+               </ScrollArea>
+            </>
          )}
          <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
             <DialogContent>
@@ -367,6 +377,38 @@ export function TaskDetail({
 const Label = ({ children }: { children: ReactNode }) => (
    <span className="flex h-6 items-center text-muted-foreground">{children}</span>
 );
+
+/** Linear's "Sub-task of" line under the title: the direct parent with its status and progress; a click opens it. */
+function ParentLine({
+   parent,
+   progress,
+   onOpen,
+}: {
+   parent: TaskSummary;
+   progress: { done: number; total: number };
+   onOpen: () => void;
+}) {
+   return (
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+         <span className="shrink-0">Sub-task of</span>
+         <button
+            type="button"
+            className="-mx-1 flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-foreground/80 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onOpen}
+         >
+            <StatusIcon status={parent.status} />
+            <span className="min-w-0 truncate">
+               <InlineMarkdown variant="quiet">{parent.title}</InlineMarkdown>
+            </span>
+            {progress.total > 0 && (
+               <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {progress.done}/{progress.total}
+               </span>
+            )}
+         </button>
+      </div>
+   );
+}
 
 /** The title, one line of Markdown: saved on Enter and on blur. A title changed elsewhere loads in unless typing. */
 function TitleEditor({ task, onSave }: { task: Task; onSave: (title: string) => void }) {
@@ -560,16 +602,65 @@ function Assets({
             <span className="flex-1">
                Assets{task.assets.length > 0 && ` · ${task.assets.length}`}
             </span>
-            <AddFilesButton label="Add files" onAdd={onAdd} onError={onError} />
          </div>
-         {task.assets.length === 0 ? (
-            <p className="text-xs text-muted-foreground/70">
-               No files. Paste or drop them on the description.
-            </p>
-         ) : (
-            <AssetStrip assets={assets} />
-         )}
+         <AssetStrip assets={assets} className="pb-2 pt-0" />
+         <DropZone compact={task.assets.length > 0} onAdd={onAdd} onError={onError} />
       </section>
+   );
+}
+
+/**
+ * Where files go: a dashed area that takes dropped files and opens the picker on click (the native one in the app).
+ * `compact`: one short line, when the task already has files.
+ */
+function DropZone({
+   compact,
+   onAdd,
+   onError,
+}: {
+   compact: boolean;
+   onAdd: (files: AttachmentInput[]) => void;
+   onError: (message: string) => void;
+}) {
+   const [over, setOver] = useState(false);
+   const depth = useRef(0);
+   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
+   return (
+      <AddFilesButton label="Add files" onAdd={onAdd} onError={onError}>
+         {(pick) => (
+            <button
+               type="button"
+               aria-label="Add files"
+               onClick={pick}
+               onDragEnter={(e) => {
+                  if (!hasFiles(e)) return;
+                  depth.current++;
+                  setOver(true);
+               }}
+               onDragLeave={() => {
+                  depth.current = Math.max(0, depth.current - 1);
+                  if (depth.current === 0) setOver(false);
+               }}
+               onDragOver={(e) => hasFiles(e) && e.preventDefault()}
+               onDrop={(e) => {
+                  depth.current = 0;
+                  setOver(false);
+                  const list = [...e.dataTransfer.files];
+                  if (!list.length) return;
+                  e.preventDefault();
+                  filesToInputs(list).then(onAdd, (err) => onError(errText(err)));
+               }}
+               className={cn(
+                  "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed text-xs text-muted-foreground outline-none transition-colors hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  compact ? "h-8" : "h-16 flex-col gap-1",
+                  over && "border-ring bg-accent/60 text-foreground",
+               )}
+            >
+               <Upload className={compact ? "size-3.5" : "size-4"} />
+               Drop files here or click to add
+            </button>
+         )}
+      </AddFilesButton>
    );
 }
 
@@ -706,7 +797,19 @@ function Sessions({
       });
    return (
       <section aria-label="Sessions">
-         <div className={SECTION}>Sessions</div>
+         <div className={SECTION}>
+            <span className="flex-1">Sessions</span>
+            {host.startFromTask && (
+               <Button
+                  size="sm"
+                  variant="ghost"
+                  className="-my-1 h-6 gap-1 px-1.5 text-xs font-normal normal-case tracking-normal text-muted-foreground hover:text-foreground [&_svg]:size-3"
+                  onClick={() => host.startFromTask?.(task.id)}
+               >
+                  <Play className="fill-current" /> Start session
+               </Button>
+            )}
+         </div>
          <div className="flex flex-col gap-1.5">
             {rows.length === 0 && (
                <p className="text-xs text-muted-foreground/70">No Session started from it yet.</p>
@@ -745,11 +848,6 @@ function Sessions({
                );
             })}
          </div>
-         {host.startFromTask && (
-            <Button className="mt-2.5 w-full" onClick={() => host.startFromTask?.(task.id)}>
-               <Play className="fill-current" /> Start session with this task
-            </Button>
-         )}
       </section>
    );
 }

@@ -1,5 +1,5 @@
 import { type AttachmentInput, errText, pickFiles } from "@harness/api";
-import { Tooltip } from "@harness/ui";
+import { cn, Tooltip } from "@harness/ui";
 import { FileText, Paperclip, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ImageDialog } from "../../lib/ImageDialog";
@@ -72,12 +72,18 @@ function Thumb({ asset, onOpen }: { asset: StripAsset; onOpen: (src: string) => 
    );
 }
 
-/** Stored files under an editor (note images, task assets): thumbnails for images, name chips for the rest. */
-export function AssetStrip({ assets }: { assets: StripAsset[] }) {
+/**
+ * Stored files under an editor (note images, task assets): thumbnails for images, name chips for the rest.
+ * `className` replaces the top padding.
+ */
+export function AssetStrip({ assets, className }: { assets: StripAsset[]; className?: string }) {
    const [open, setOpen] = useState<{ src: string; name: string } | null>(null);
    if (assets.length === 0) return null;
    return (
-      <div className="flex flex-wrap items-center gap-1.5 pt-2" aria-label="Files">
+      <div
+         className={cn("flex flex-wrap items-center gap-1.5", className ?? "pt-2")}
+         aria-label="Files"
+      >
          {assets.map((a) =>
             a.image ? (
                <Removable key={a.key} asset={a}>
@@ -112,25 +118,28 @@ export const filesToInputs = (files: File[]): Promise<AttachmentInput[]> =>
 
 /**
  * The paperclip: the native file picker (paths) in the app, a file input in the browser. `accept` filters the
- * browser input only; the core checks what it takes.
+ * browser input only; the core checks what it takes. `children` renders another trigger in place of the paperclip.
  */
 export function AddFilesButton({
    label,
    accept,
    onAdd,
    onError,
+   children,
 }: {
    label: string;
    accept?: string;
    onAdd: (files: AttachmentInput[]) => void;
    onError: (message: string) => void;
+   children?: (pick: () => void) => ReactNode;
 }) {
    const input = useRef<HTMLInputElement>(null);
-   const pick = async () => {
+   const pickPaths = async () => {
       const paths = await pickFiles();
       if (paths === null) input.current?.click();
       else if (paths.length) onAdd(paths.map((path) => ({ type: "path", path })));
    };
+   const pick = () => void pickPaths().catch((err) => onError(errText(err)));
    return (
       <>
          <input
@@ -145,16 +154,20 @@ export function AddFilesButton({
                if (files.length) filesToInputs(files).then(onAdd, (err) => onError(errText(err)));
             }}
          />
-         <Tooltip content={label}>
-            <button
-               type="button"
-               className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-               aria-label={label}
-               onClick={() => void pick().catch((err) => onError(errText(err)))}
-            >
-               <Paperclip className="size-3.5" />
-            </button>
-         </Tooltip>
+         {children ? (
+            children(pick)
+         ) : (
+            <Tooltip content={label}>
+               <button
+                  type="button"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  aria-label={label}
+                  onClick={pick}
+               >
+                  <Paperclip className="size-3.5" />
+               </button>
+            </Tooltip>
+         )}
       </>
    );
 }

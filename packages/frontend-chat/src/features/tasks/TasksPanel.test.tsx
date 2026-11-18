@@ -70,6 +70,10 @@ const group = (name: RegExp) => screen.getByRole("region", { name });
 const row = (title: string, within_: HTMLElement = document.body) =>
    within(within_).getByRole("button", { name: new RegExp(`^${title}`) });
 
+/** A nested row's indent (its wrapper's left padding); null: top level. */
+const indent = (el: HTMLElement) =>
+   el.closest<HTMLElement>("[style*='padding-left']")?.style.paddingLeft ?? null;
+
 describe("Tasks panel", () => {
    it("lists the open tasks created here, with Done folded", async () => {
       setup();
@@ -110,7 +114,7 @@ describe("Tasks panel", () => {
       // The detail's own status chip comes first, before the subtask rows.
       expect(screen.getAllByRole("button", { name: "Status: Todo" })[0]?.textContent).toBe("Todo");
       // No host callbacks: no "Start session" and no "Open in All tasks".
-      expect(screen.queryByText("Start session with this task")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Start session/ })).toBeNull();
       expect(screen.queryByRole("button", { name: "Open in All tasks" })).toBeNull();
       // A subtask opens in place.
       fireEvent.click(row("Truncate long branch names", subtasks));
@@ -133,5 +137,58 @@ describe("Tasks panel", () => {
       await waitFor(() => expect(row("Note the open questions", group(/^Subtasks/))).toBeTruthy());
       const added = [...mock.tasks.values()].find((t) => t.title === "Note the open questions");
       expect(added?.parent_id).toBe("t9");
+   });
+
+   it("nests subtasks under their parent in the same group, without a parent chip", async () => {
+      setup();
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      const kid = row("Align the session title baseline", created);
+      // Nested under "Header polish": indented one level, no chip naming the parent.
+      expect(kid.textContent).not.toContain("Header polish");
+      expect(indent(kid)).toBe("18px");
+      expect(indent(row("Truncate long branch names", created))).toBe("18px");
+      // Subtasks follow their parent, in the usual order.
+      const order = within(created)
+         .getAllByRole("button", { name: /^(Header polish|Align|Truncate|Read)/ })
+         .map((b) => b.textContent?.slice(0, 12));
+      expect(order).toEqual(["Read the ACP", "Header polis", "Truncate lon", "Align the se"]);
+      // The top-level parent has no indent.
+      expect(indent(row("Header polish", created))).toBeNull();
+      // The pinned task's parent is not in the panel: it keeps its parent chip.
+      expect(row("Fix the updater signature check", group(/^Started from$/)).textContent).toContain(
+         "Release v2026.12",
+      );
+      // A done subtask of an open parent goes to Done, at the top level, with its parent chip.
+      fireEvent.click(screen.getByRole("button", { name: "Done · 1" }));
+      const done = row("Measure the header render time", group(/^Done/));
+      expect(done.textContent).toContain("Header polish");
+      expect(indent(done)).toBeNull();
+   });
+
+   it("shows the task title once, with the parent as a Sub-task of line", async () => {
+      setup();
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      fireEvent.click(row("Align the session title baseline", created));
+      await waitFor(() =>
+         expect(screen.getByRole("textbox", { name: "Task title" }).textContent).toBe(
+            "Align the session title baseline",
+         ),
+      );
+      // The panel header has Back, not the title or a breadcrumb.
+      const back = screen.getByRole("button", { name: "Back to tasks" });
+      const header = back.closest<HTMLElement>(".border-b");
+      expect(header?.textContent).not.toContain("Align the session title baseline");
+      expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
+      const line = screen.getByText("Sub-task of").parentElement as HTMLElement;
+      const parent = within(line).getByRole("button", { name: /Header polish/ });
+      expect(parent.textContent).toContain("1/3");
+      fireEvent.click(parent);
+      await waitFor(() =>
+         expect(screen.getByRole("textbox", { name: "Task title" }).textContent).toBe(
+            "Header polish",
+         ),
+      );
+      // A top-level task has no Sub-task of line.
+      expect(screen.queryByText("Sub-task of")).toBeNull();
    });
 });
