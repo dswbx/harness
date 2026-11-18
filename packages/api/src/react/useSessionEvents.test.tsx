@@ -61,6 +61,18 @@ it("renders a replay that comes in over several frames at once", async () => {
    expect(renders).toEqual([0, 250]);
 });
 
+it("a frame with no Event between two parts of the replay does not end the wait", async () => {
+   const { send, frames, renders } = setup();
+   await frames(1);
+   send(50);
+   // Two frames back to back after a long task: the second sees no new Event.
+   await frames(2);
+   expect(renders).toEqual([0]);
+   send(50);
+   await frames(4);
+   expect(renders).toEqual([0, 100]);
+});
+
 it("renders live Events in the next frame once the replay is shown", async () => {
    const { send, frames, renders } = setup();
    await frames(1);

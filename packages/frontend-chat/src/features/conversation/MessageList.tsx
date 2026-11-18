@@ -59,7 +59,8 @@ export function MessageList({
    onOpenDiff: (s: DiffScope) => void;
    /** Opens the Plan panel at a plan version. Without it, plans show inline (no panel). */
    onOpenPlan?: (requestId: string) => void;
-   empty: string;
+   /** Shown when there are no rows. Null: nothing (the Session Log is not here yet). */
+   empty: string | null;
    handle?: Ref<VirtualListHandle>;
    /** Height of the bar over the list's bottom (`ScrollUnder`), kept free at the end. */
    inset?: number;
@@ -106,6 +107,7 @@ export function MessageList({
                scrollbarClassName="z-10 [&>*]:bg-[color-mix(in_oklch,var(--border),var(--foreground)_6%)]"
                innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
                empty={
+                  empty !== null &&
                   pending.length === 0 && (
                      <p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>
                   )

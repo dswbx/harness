@@ -69,6 +69,30 @@ describe("golden: codex-basic (recorded with Codex)", () => {
    });
 });
 
+describe("loaded", () => {
+   it("is false before any Event and true from the first one (every log starts with SessionCreated)", () => {
+      expect(initialState().loaded).toBe(false);
+      const created = ev(
+         { type: "SessionCreated", title: "t", frontend_id: "chat", agent_id: "a", folder: "/f" },
+         null,
+      );
+      const s = fold([created]);
+      expect(s.loaded).toBe(true);
+      expect(s.items).toEqual([]);
+      expect(reduceBatch(initialState(), [created]).loaded).toBe(true);
+      // No Events: still not loaded.
+      expect(reduceBatch(initialState(), []).loaded).toBe(false);
+   });
+
+   it("a Side Thread's state is loaded once it exists", () => {
+      const s = fold([
+         started(),
+         ev({ type: "ThreadStarted", agent_id: "a", main: false }, "side"),
+      ]);
+      expect(threadState(s, "side")?.loaded).toBe(true);
+   });
+});
+
 describe("turns", () => {
    it("keeps the Harness context sent with a prompt (null without one)", () => {
       const s = fold([

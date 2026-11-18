@@ -10,6 +10,12 @@ import type { Unsubscribe } from "../transport/transport";
 const REPLAY_WAIT_MS = 1000;
 /** An Event this recent is live, not replay: the log has caught up. */
 const LIVE_MS = 500;
+/**
+ * No Event for this long: the replay is done. A frame without one is not enough: after a long task
+ * (the view of the last Session unmounts) two frames run back to back, 1ms apart, between two
+ * batches of the replay, and the log showed in parts.
+ */
+const QUIET_MS = 40;
 
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
@@ -32,18 +38,18 @@ export function useSessionEvents<S>(
       let raf = 0;
       // The replay comes in over several frames. Shown as it comes, a part of the log renders first
       // (a Turn without its end looks running: its tool calls open, then collapse) and the rows
-      // shift as the rest lands. So the first render waits until a frame passes with no new Event
+      // shift as the rest lands. So the first render waits until no Event came for `QUIET_MS`
       // (the replay is done), at most `REPLAY_WAIT_MS`. An Event from just now also ends the wait:
       // the replay has reached the present, and a running Agent sends Events every frame.
       let replaying = true;
-      let arrived = false;
+      let lastAt = 0;
       const started = performance.now();
       const flush = () => {
          raf = 0;
          if (cancelled || pending.length === 0) return;
          const caughtUp = Date.now() - (pending.at(-1)?.ts_ms ?? 0) < LIVE_MS;
-         if (replaying && arrived && !caughtUp && performance.now() - started < REPLAY_WAIT_MS) {
-            arrived = false;
+         const now = performance.now();
+         if (replaying && !caughtUp && now - lastAt < QUIET_MS && now - started < REPLAY_WAIT_MS) {
             raf = requestAnimationFrame(flush);
             return;
          }
@@ -56,7 +62,7 @@ export function useSessionEvents<S>(
       api.subscribe((e) => {
          if (cancelled) return;
          pending.push(e);
-         arrived = true;
+         lastAt = performance.now();
          if (!raf) raf = requestAnimationFrame(flush);
       })
          .then((u) => {

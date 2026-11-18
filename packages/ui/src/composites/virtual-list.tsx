@@ -106,8 +106,10 @@ export function VirtualList({
    const stick = React.useRef(stickToBottom);
    // Time of the last user scroll input (wheel, touch, key) and whether a pointer is down (scrollbar
    // drag, text selection). Only these may stop following the bottom.
-   const userInput = React.useRef(0);
+   // Starts at "never": 0 counted as input in the page's first 1.5s (`performance.now()` starts at 0).
+   const userInput = React.useRef(Number.NEGATIVE_INFINITY);
    const pointerDown = React.useRef(false);
+   const byUser = () => pointerDown.current || performance.now() - userInput.current < 1500;
    const pin = React.useMemo(
       () =>
          pinBottomOnResize(
@@ -168,6 +170,20 @@ export function VirtualList({
       if (el && stick.current) el.scrollTop = el.scrollHeight;
    }, [total, count, footer, stickToBottom]);
 
+   // The rendered range moved with no change in total size (the first scroll event after the first
+   // pin: the rows above the view leave, the top spacer grows by their cached size). Seen in WebKit:
+   // scrollTop then drops by the height of the rows that left, as if the content was laid out without
+   // them before the spacer grew, and nothing pinned again (same total): the view sat that far above
+   // the bottom for a frame. Pin again before paint. Not while the user scrolls: every wheel step
+   // near the bottom would be pulled back.
+   const first = items[0]?.index;
+   const last = items.at(-1)?.index;
+   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the range changes.
+   React.useLayoutEffect(() => {
+      const el = scroller.current;
+      if (el && stick.current && !byUser()) el.scrollTop = el.scrollHeight;
+   }, [first, last]);
+
    // Keep the bottom when the viewport changes size (window resize, a panel or terminal that opens
    // after the Session view mounts).
    React.useLayoutEffect(() => {
@@ -211,8 +227,7 @@ export function VirtualList({
             if (atBottom) return setStick(true);
             // A scroll the user did not make (layout change, clamping, a late row measure) never stops
             // following: put the bottom back in view.
-            const byUser = pointerDown.current || performance.now() - userInput.current < 1500;
-            if (byUser) setStick(false);
+            if (byUser()) setStick(false);
             else if (stick.current) el.scrollTop = el.scrollHeight;
          }}
       >

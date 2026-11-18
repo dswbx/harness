@@ -100,16 +100,13 @@ function ChatBody({
 }: ChatProps) {
    const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
-   // A Session with nothing in it yet is waiting for a message. The short wait lets the replay arrive.
+   // A Session with nothing in it yet is waiting for a message. Known once its log is here.
    const prompt = useRef<PromptBoxHandle>(null);
    const hasItems = useRef(false);
    hasItems.current = state.items.length > 0;
    useEffect(() => {
-      const t = setTimeout(() => {
-         if (!hasItems.current) prompt.current?.focus();
-      }, 150);
-      return () => clearTimeout(t);
-   }, []);
+      if (state.loaded && !hasItems.current) prompt.current?.focus();
+   }, [state.loaded]);
    const { ui, rows, subagents } = useRows(state.items, state.sharedAttached);
 
    const sharedMetas = useSharedMetas(api);
@@ -284,7 +281,8 @@ function ChatBody({
                         subagents={subagents}
                         onOpenDiff={openDiff}
                         onOpenPlan={overlay ? undefined : openPlan}
-                        empty="Send a message to start."
+                        // Not before the log is here: a Session with messages showed this for a moment.
+                        empty={state.loaded ? "Send a message to start." : null}
                         inset={inset}
                      />
                   </OpenStep>
