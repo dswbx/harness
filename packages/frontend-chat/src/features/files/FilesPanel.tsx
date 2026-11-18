@@ -400,6 +400,7 @@ export function FilesPanel({
          title: shownPath ? `Files: ${shownPath}` : "Files",
          remember: "files",
          overlayTitleBar: true,
+         titleBarHeight: 44,
       });
    const tabStrip = (
       <FileTabStrip
@@ -442,7 +443,7 @@ export function FilesPanel({
             <div
                data-tauri-drag-region
                className={cn(
-                  "flex h-13 shrink-0 items-center gap-1 border-b pr-2",
+                  "flex h-11 shrink-0 items-center gap-1 border-b pr-2",
                   // Room for the traffic lights (overlay title bar).
                   inTauri() ? "pl-[92px]" : "pl-2",
                )}

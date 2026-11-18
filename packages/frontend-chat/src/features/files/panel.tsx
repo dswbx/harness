@@ -23,6 +23,7 @@ export const filesPanel = definePanel<null, FileTarget>({
             title: `Files: ${ref.path}`,
             remember: "files",
             overlayTitleBar: true,
+            titleBarHeight: 44,
          },
       );
    },
