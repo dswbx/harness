@@ -17,7 +17,7 @@ Users keep work items (things to do, bugs, ideas) in many places. They want them
 
 **Session Note.** The note is `<session dir>/note.md`. Images are in `<session dir>/attachments/note/`, so the existing attachment read serves them. The note goes with its Session.
 
-**Outside the Session Log.** Neither tasks nor notes are Events (ADR 0003, ADR 0021). Views load them with commands and reload them on `TasksChanged` and `NoteChanged` AppEvents. Replaying a Session shows tasks and the note as they are now, not as they were. ADR 0024 and ADR 0023 accepted the same for Shared Artifacts and panel files.
+**Outside the Session Log.** Neither tasks nor notes are Events (ADR 0003, ADR 0021). Views load them with commands. Each window keeps one task list, loaded once and updated from `TasksChanged`, which carries the current summaries of the changed tasks. Views reload the note on `NoteChanged`. Replaying a Session shows tasks and the note as they are now, not as they were. ADR 0024 and ADR 0023 accepted the same for Shared Artifacts and panel files.
 
 **Why files, not SQLite.**
 - Filters run in memory in both designs. The Tree view needs all tasks anyway. A few thousand tasks filter in under 1 ms.
