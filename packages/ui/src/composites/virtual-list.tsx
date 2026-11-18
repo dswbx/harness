@@ -74,6 +74,7 @@ export function VirtualList({
    // drag, text selection). Only these may stop following the bottom.
    const userInput = React.useRef(0);
    const pointerDown = React.useRef(false);
+   const pinnedTotal = React.useRef(0);
    const v = useVirtualizer({
       count,
       getScrollElement: () => scroller.current,
@@ -81,6 +82,16 @@ export function VirtualList({
       getItemKey: getKey,
       overscan,
       paddingStart,
+      // A row measured a new size (an Html frame's height, an image) while following the bottom: pin
+      // it now, before paint. The layout effect below pins only after the next render, a frame later,
+      // and the rows shift down for that frame. Only on a size change, never on a scroll.
+      onChange: (inst) => {
+         const el = scroller.current;
+         const size = inst.getTotalSize();
+         if (!el || !stick.current || size === pinnedTotal.current) return;
+         pinnedTotal.current = size;
+         el.scrollTop = el.scrollHeight;
+      },
    });
    // While following the bottom, the effects below pin it. The virtualizer's own shift for a resized row
    // starts from its cached offset, which is stale after we set scrollTop, and can leave the view short of

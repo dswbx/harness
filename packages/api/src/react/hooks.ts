@@ -6,10 +6,13 @@ import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
 import type { Unsubscribe } from "../transport/transport";
 
+/** Longest wait for a Session's replay to finish before its first render. */
+const REPLAY_WAIT_MS = 1000;
+
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
  * (replay and live share one path), and unsubscribes on unmount. Events are batched per
- * animation frame so replays of large logs don't re-render per event. Once subscribed, it asks
+ * animation frame so replays of large logs don't re-render per event; the replay renders at once. Once subscribed, it asks
  * the core to warm the Agent up so config options (models, modes) arrive before the first prompt.
  */
 export function useSessionEvents<S>(
@@ -25,9 +28,22 @@ export function useSessionEvents<S>(
       let unsub: (() => void) | undefined;
       let pending: Event[] = [];
       let raf = 0;
+      // The replay comes in over several frames. Shown as it comes, a part of the log renders first
+      // (a Turn without its end looks running: its tool calls open, then collapse) and the rows
+      // shift as the rest lands. So the first render waits until a frame passes with no new Event
+      // (the replay is done), at most `REPLAY_WAIT_MS`.
+      let replaying = true;
+      let arrived = false;
+      const started = performance.now();
       const flush = () => {
          raf = 0;
          if (cancelled || pending.length === 0) return;
+         if (replaying && arrived && performance.now() - started < REPLAY_WAIT_MS) {
+            arrived = false;
+            raf = requestAnimationFrame(flush);
+            return;
+         }
+         replaying = false;
          const batch = pending;
          pending = [];
          setState((s) => (batchReducer ? batchReducer(s, batch) : batch.reduce(reducer, s)));
@@ -36,6 +52,7 @@ export function useSessionEvents<S>(
       api.subscribe((e) => {
          if (cancelled) return;
          pending.push(e);
+         arrived = true;
          if (!raf) raf = requestAnimationFrame(flush);
       })
          .then((u) => {
