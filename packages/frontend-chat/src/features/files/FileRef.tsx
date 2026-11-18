@@ -197,7 +197,8 @@ function FileRefView({
                aria-haspopup="dialog"
                aria-expanded={open}
                className={cn(
-                  "cursor-pointer rounded-[0.35em] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  // `select-text`: part of the message text (a copy keeps the path), though a `role="button"`.
+                  "cursor-pointer select-text rounded-[0.35em] outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   // On the code itself: its box would hide a decoration drawn by this span.
                   "*:underline *:decoration-sky-500/60 *:decoration-dotted *:decoration-1 *:underline-offset-[3px] hover:*:decoration-sky-500",
                )}
