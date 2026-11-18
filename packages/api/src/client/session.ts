@@ -35,6 +35,7 @@ import { sharedApi } from "./session/shared";
 import { tasksApi } from "./session/tasks";
 import { terminalApi } from "./session/terminal";
 import type { SharedArtifactData } from "./shared";
+import type { TaskStore } from "./taskStore";
 import type { NewTask } from "./tasks";
 
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
@@ -238,8 +239,13 @@ export interface SessionApi {
    addTaskAssets(id: string, files: AttachmentInput[]): Promise<Task>;
    removeTaskAsset(id: string, name: string): Promise<Task>;
    readTaskAsset(id: string, name: string): Promise<{ mime: string; data: string }>;
-   /** Calls back with the ids of the Tasks that changed (any window, any Session). */
-   tasksChanged(onChange: (ids: string[]) => void): Promise<Unsubscribe>;
+   /**
+    * Calls back with the ids of the Tasks that changed (any window, any Session) and the current
+    * summaries of those that still exist (an id without one was deleted).
+    */
+   tasksChanged(onChange: (ids: string[], tasks: TaskSummary[]) => void): Promise<Unsubscribe>;
+   /** The window's one Task list (`useTasks`), shared by every Session and the app. */
+   readonly taskStore: TaskStore;
    /** This Session's Session Note (ADR 0028); empty when never written. */
    readNote(): Promise<Note>;
    /**

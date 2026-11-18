@@ -102,6 +102,8 @@ export const readTaskAsset = async (
    return { mime: r.mime, data: r.data };
 };
 
-/** Calls back with the ids of the Tasks that changed (the list should reload too). */
-export const tasksChanged = (transport: Transport, onChange: (ids: string[]) => void) =>
-   transport.subscribeApp((e) => e.type === "TasksChanged" && onChange(e.ids));
+/** Calls back with the ids of the Tasks that changed and the current summaries of those that still exist. */
+export const tasksChanged = (
+   transport: Transport,
+   onChange: (ids: string[], tasks: TaskSummary[]) => void,
+) => transport.subscribeApp((e) => e.type === "TasksChanged" && onChange(e.ids, e.tasks));

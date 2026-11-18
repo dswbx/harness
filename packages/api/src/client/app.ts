@@ -43,6 +43,7 @@ import {
    sharedChanged,
    sharedListChanged,
 } from "./shared";
+import { type TaskStore, taskStore } from "./taskStore";
 import {
    addTaskAssets,
    createTask,
@@ -369,9 +370,13 @@ export class HarnessClient {
    readTaskAsset(id: string, name: string): Promise<{ mime: string; data: string }> {
       return readTaskAsset(this.transport, id, name);
    }
-   /** Calls back with the ids of the Tasks that changed; the list should reload too. */
-   tasksChanged(onChange: (ids: string[]) => void): Promise<Unsubscribe> {
+   /** Calls back with the ids of the Tasks that changed and the current summaries of those that still exist. */
+   tasksChanged(onChange: (ids: string[], tasks: TaskSummary[]) => void): Promise<Unsubscribe> {
       return tasksChanged(this.transport, onChange);
+   }
+   /** The window's one Task list (`useTasks`). */
+   get taskStore(): TaskStore {
+      return taskStore(this.transport);
    }
    sessionApi(sessionId: string): SessionApi {
       return createSessionApi(this.transport, sessionId);

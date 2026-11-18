@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::results::TasksAnswer;
-use crate::api::{AppEvent, ListedTask, StateWriter, Task, TaskField, TaskPatch, TaskPriority, TaskStatus, TaskSummary, TaskUpstream, ThreadId};
+use crate::api::{ListedTask, StateWriter, Task, TaskField, TaskPatch, TaskPriority, TaskStatus, TaskSummary, TaskUpstream, ThreadId};
 use crate::session::Session;
 use crate::tasks::{Actor, NewTask};
 
@@ -25,7 +25,8 @@ fn actor(session: &Session) -> Actor {
 
 /// Tells every window which Tasks changed.
 fn changed(session: &Session, ids: Vec<String>) {
-    session.shared().app_events.emit(AppEvent::TasksChanged { ids });
+    let shared = session.shared();
+    shared.tasks.emit_changed(&shared.app_events, ids);
 }
 
 /// The answer of `task_add` and `task_update`: `{"tasks": [{id, title, status}]}`, which

@@ -64,8 +64,13 @@ function descendsFrom(mock: MockTransport, id: string, ancestor: string): boolea
    return false;
 }
 
+/** `TasksChanged` with the current summaries of the `ids` that still exist. */
 function changed(mock: MockTransport, ids: string[]) {
-   mock.emitApp({ type: "TasksChanged", ids });
+   const tasks = ids.flatMap((id) => {
+      const t = mock.tasks.get(id);
+      return t ? [summary(t)] : [];
+   });
+   mock.emitApp({ type: "TasksChanged", ids, tasks });
 }
 
 const mimeOf = (name: string) =>
@@ -109,15 +114,15 @@ export function linkSessionTask(
    changed(mock, [id]);
 }
 
-/** Removes a deleted Session from every Task's `sessions`; the ids of the Tasks that changed. */
-export function forgetSessionTasks(mock: MockTransport, sessionId: string): string[] {
+/** Removes a deleted Session from every Task's `sessions`, and tells which Tasks changed. */
+export function forgetSessionTasks(mock: MockTransport, sessionId: string) {
    const ids: string[] = [];
    for (const t of mock.tasks.values()) {
       if (!t.sessions.some((l) => l.session_id === sessionId)) continue;
       t.sessions = t.sessions.filter((l) => l.session_id !== sessionId);
       ids.push(t.id);
    }
-   return ids;
+   if (ids.length) changed(mock, ids);
 }
 
 export const tasksHandlers = {

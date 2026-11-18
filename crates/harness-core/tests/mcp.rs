@@ -1242,15 +1242,20 @@ async fn harness_info_lists_shared_artifacts_and_deleting_a_session_detaches_it(
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn task_commands_send_tasks_changed_with_the_changed_ids() {
+async fn task_commands_send_tasks_changed_with_the_changed_ids_and_summaries() {
+    use harness_core::api::{TaskPatch, TaskStatus};
     let dir = tempfile::tempdir().unwrap();
     let h = shared_harness(&dir.path().join("data"));
     let a = create(&h, dir.path(), vec![]).await;
-    let seen = Arc::new(Mutex::new(Vec::new()));
+    // Per event: the ids, then (id, title, status, parent) of each summary.
+    type Row = (String, String, TaskStatus, Option<String>);
+    type Seen = Vec<(Vec<String>, Vec<Row>)>;
+    let seen: Arc<Mutex<Seen>> = Arc::new(Mutex::new(Vec::new()));
     let s = seen.clone();
     h.subscribe_app(Box::new(move |e: &AppEvent| {
-        if let AppEvent::TasksChanged { ids } = e {
-            s.lock().unwrap().push(ids.clone());
+        if let AppEvent::TasksChanged { ids, tasks } = e {
+            let rows = tasks.iter().map(|t| (t.id.clone(), t.title.clone(), t.status, t.parent_id.clone())).collect();
+            s.lock().unwrap().push((ids.clone(), rows));
         }
         true
     }));
@@ -1264,15 +1269,33 @@ async fn task_commands_send_tasks_changed_with_the_changed_ids() {
         due: None,
         upstream: None,
     };
+    let row = |id: &str, title: &str, status: TaskStatus, parent: Option<&str>| (id.to_owned(), title.to_owned(), status, parent.map(Into::into));
     let CommandResult::Task { task: topic } = h.execute(new_task("Topic", None, Some(&a))).await.unwrap() else { panic!() };
     assert_eq!(topic.origin_session_id.as_deref(), Some(a.as_str()));
     assert!(topic.origin_title.is_some(), "the origin title is cached");
     let CommandResult::Task { task: child } = h.execute(new_task("Child", Some(&topic.id), None)).await.unwrap() else { panic!() };
+    let CommandResult::Task { task: other } = h.execute(new_task("Other", None, None)).await.unwrap() else { panic!() };
+    let patch = TaskPatch { title: Some("Topic 2".into()), status: Some(TaskStatus::Done), ..Default::default() };
+    h.execute(Command::UpdateTask { id: topic.id.clone(), patch, base_updated_ms: None }).await.unwrap();
+    h.execute(Command::MoveTask { id: other.id.clone(), parent_id: Some(topic.id.clone()), before: None }).await.unwrap();
     h.execute(Command::DeleteTask { id: topic.id.clone() }).await.unwrap();
     assert!(h.execute(Command::ReadTask { id: "t99".into() }).await.is_err());
     let CommandResult::Tasks { tasks } = h.execute(Command::ListTasks).await.unwrap() else { panic!() };
-    assert_eq!(tasks.iter().map(|t| (t.id.as_str(), t.parent_id.as_deref())).collect::<Vec<_>>(), [(child.id.as_str(), None)]);
-    assert_eq!(*seen.lock().unwrap(), [vec![topic.id.clone()], vec![child.id.clone()], vec![topic.id.clone(), child.id.clone()]]);
+    assert_eq!(tasks.iter().map(|t| (t.id.as_str(), t.parent_id.as_deref())).collect::<Vec<_>>(), [(child.id.as_str(), None), (other.id.as_str(), None)]);
+    let (t, c, o) = (topic.id.as_str(), child.id.as_str(), other.id.as_str());
+    let todo = TaskStatus::Todo;
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [
+            (vec![t.to_owned()], vec![row(t, "Topic", todo, None)]),
+            (vec![c.to_owned()], vec![row(c, "Child", todo, Some(t))]),
+            (vec![o.to_owned()], vec![row(o, "Other", todo, None)]),
+            (vec![t.to_owned()], vec![row(t, "Topic 2", TaskStatus::Done, None)]),
+            (vec![o.to_owned()], vec![row(o, "Other", todo, Some(t))]),
+            // The deleted Task has no summary; its children moved to its parent (top level).
+            (vec![t.to_owned(), c.to_owned(), o.to_owned()], vec![row(c, "Child", todo, None), row(o, "Other", todo, None)]),
+        ]
+    );
     // A deleted Session cannot be an origin.
     h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
     assert!(h.execute(new_task("Gone", None, Some(&a))).await.is_err(), "an unknown Session");
@@ -1287,8 +1310,8 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let s = seen.clone();
     h.subscribe_app(Box::new(move |e: &AppEvent| {
-        if let AppEvent::TasksChanged { ids } = e {
-            s.lock().unwrap().push(ids.clone());
+        if let AppEvent::TasksChanged { ids, tasks } = e {
+            s.lock().unwrap().push((ids.clone(), tasks.iter().map(|t| (t.id.clone(), t.status)).collect::<Vec<_>>()));
         }
         true
     }));
@@ -1307,7 +1330,9 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let t1 = read("t1");
     assert_eq!(t1.origin_session_id.as_deref(), Some(a.as_str()), "the origin is the calling Session");
     assert_eq!((t1.activity[0].by, t1.activity[0].session_id.as_deref()), (StateWriter::Agent, Some(a.as_str())));
-    assert_eq!(*seen.lock().unwrap(), [vec!["t1".to_owned(), "t2".to_owned()]]);
+    use harness_core::api::TaskStatus;
+    let ids = vec!["t1".to_owned(), "t2".to_owned()];
+    assert_eq!(*seen.lock().unwrap(), [(ids, vec![("t1".to_owned(), TaskStatus::Todo), ("t2".to_owned(), TaskStatus::InProgress)])]);
     // A bad item creates none.
     let bad = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":" "}]}"#, None).await;
     assert!(bad.contains("mcp error:") && bad.contains("task 2"), "{bad}");
@@ -1322,6 +1347,7 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let updated = mcp_json(&h, &a, r#"task_update {"id":"t2","status":"done","parent":"t1"}"#).await;
     assert_eq!(updated, serde_json::json!({ "tasks": [{ "id": "t2", "title": "Skip install", "status": "done" }] }));
     assert_eq!(read("t2").parent_id.as_deref(), Some("t1"));
+    assert_eq!(seen.lock().unwrap().last().unwrap().1, [("t2".to_owned(), TaskStatus::Done)]);
     let cycle = ask(&h, &a, r#"mcp task_update {"id":"t1","parent":"t2"}"#, None).await;
     assert!(cycle.contains("mcp error:") && cycle.contains("subtasks"), "{cycle}");
     // A bad field refuses the whole call: the move in it is not done either, and no event is sent.

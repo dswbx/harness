@@ -1793,7 +1793,14 @@ async fn session_from_a_task_is_linked_and_seeded_with_the_chosen_parts() {
     assert_eq!(t.status, TaskStatus::InProgress);
     assert_eq!(t.sessions.iter().map(|l| l.session_id.as_str()).collect::<Vec<_>>(), vec![sid.as_str()]);
     assert!(t.activity.iter().any(|a| a.kind == TaskActivityKind::SessionStarted { session_id: sid.clone() }));
-    assert!(seen.lock().unwrap().iter().any(|e| e["type"] == "TasksChanged" && e["ids"] == serde_json::json!([task])));
+    let linked = |sid: &str| {
+        seen.lock().unwrap().iter().rev().find(|e| e["type"] == "TasksChanged" && e["ids"] == serde_json::json!([task])).map(|e| {
+            let t = &e["tasks"][0];
+            assert_eq!(t["id"], serde_json::json!(task));
+            (t["status"].clone(), t["sessions"].as_array().unwrap().iter().any(|l| l["session_id"] == sid))
+        })
+    };
+    assert_eq!(linked(&sid), Some((serde_json::json!("in_progress"), true)), "the event has the linked summary");
 
     let reply = first_reply(&h, &sid).await;
     assert!(reply.contains(&format!("Task {task}: Fix the cache")), "{reply}");
@@ -1819,6 +1826,10 @@ async fn session_from_a_task_is_linked_and_seeded_with_the_chosen_parts() {
     let sid3 = start_from(&h, &folder, TaskStart { id: task.clone(), include: TaskContextParts::default(), set_status: None }).await;
     let reply = first_reply(&h, &sid3).await;
     assert!(!reply.contains("seeded") && reply.contains(&format!("Started from task {task}")), "{reply}");
+
+    // Deleting a Session unlinks it: the event has the summary without it.
+    h.execute(Command::DeleteSession { session_id: sid3.clone(), force: true }).await.unwrap();
+    assert_eq!(linked(&sid3), Some((serde_json::json!("in_progress"), false)));
 }
 
 #[tokio::test(flavor = "multi_thread")]

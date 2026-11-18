@@ -3,7 +3,6 @@ import {
    localDay,
    openCount,
    storedValue,
-   type TaskListSource,
    type TaskPriority,
    type TaskSummary,
    type TasksViewProps,
@@ -91,11 +90,7 @@ export function TasksView({
    leading,
 }: TasksViewProps) {
    const api = useMemo(() => appTaskApi(client), [client]);
-   const source = useMemo<TaskListSource>(
-      () => ({ list: () => client.listTasks(), onChanged: (f) => client.tasksChanged(f) }),
-      [client],
-   );
-   const tasks = useTasks(source);
+   const tasks = useTasks(client);
    const today = localDay(new Date(useNow()));
    const view = useStoredValue(viewStore);
    const [filter, setFilter] = useState<TaskFilter>(DEFAULT_FILTER);

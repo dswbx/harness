@@ -115,7 +115,7 @@ New `crates/harness-core/src/host/dispatch/tasks.rs` (listed in `dispatch/mod.rs
 `TaskPatch` has optional fields plus `clear: Vec<TaskField>` (`Due`, `Upstream`). This avoids `Option<Option<T>>` in specta. A status change appends `StatusChanged`.
 
 AppEvents (`api/app_event.rs`):
-- `TasksChanged { ids: Vec<String> }`. Sent on every create, update, move, delete or link. The sidebar, the panel and the global view reload the list and re-read the open ids.
+- `TasksChanged { ids: Vec<String>, tasks: Vec<TaskSummary> }`. Sent on every create, update, move, delete or link. `tasks` holds the current summaries of the `ids` that still exist; an id without one was deleted. The window's one list applies them in place; open Tasks among `ids` are re-read.
 - `NoteChanged { session_id }`. Other windows reload the note.
 
 Emit both in `execute` after success (copy the `changes` match at `host/mod.rs:290`). Also emit them from the MCP handlers (copy `run_artifact_attach`).
@@ -141,7 +141,7 @@ Emit both in `execute` after success (copy the `changes` match at `host/mod.rs:2
 
 **Shared data (`packages/api`):**
 - `src/client/tasks.ts` (functions for the whole app) and `src/client/session/tasks.ts` (the SessionApi part, like `session/shared.ts`). Add the methods to `HarnessClient`.
-- `useTasks(source)` in `src/react/hooks.ts`, a copy of `useSharedArtifacts`. Each window keeps one list and reloads it on `TasksChanged`.
+- `useTasks(api)` in `src/react/hooks.ts`, over `taskStore` (`src/client/taskStore.ts`): one store per Transport, so every caller in a window shares one list, one `ListTasks` load and one subscription. It patches the list from `TasksChanged`, and loads again only after a failed load.
 - Pure helpers in `src/derive/tasks.ts`: `dueCount`, `openCount`, `childrenOf`, `topicProgress`, `upstreamId(url)` (Linear `ABC-123`, GitHub `#123`) and `isOverdue(due, today)`. They go here because the sidebar and the Frontend both need them (ADR 0012).
 - `src/derive/taskTool.ts` parses `task_add` and `task_update` calls. Copy `subSessionTool.ts`.
 - Mock: `mock/handlers/tasks.ts` and `mock/fixtures/tasks.ts` (two topics, subtasks, one upstream link, one overdue task), plus rows in `mock/commands.test.ts`.

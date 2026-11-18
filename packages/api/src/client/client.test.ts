@@ -117,6 +117,7 @@ type Plain = Exclude<
    | "sharedChanged"
    | "sharedListChanged"
    | "tasksChanged"
+   | "taskStore"
    | "noteChanged"
 >;
 

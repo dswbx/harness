@@ -229,7 +229,7 @@ impl Harness {
         }
         let ids = self.shared.tasks.forget_session(session_id);
         if !ids.is_empty() {
-            self.shared.app_events.emit(AppEvent::TasksChanged { ids });
+            self.shared.tasks.emit_changed(&self.shared.app_events, ids);
         }
         self.shared.policy.forget_session(session_id)
     }
@@ -338,7 +338,7 @@ impl Harness {
             {
                 ids.push(task.id.clone());
             }
-            self.shared.app_events.emit(AppEvent::TasksChanged { ids });
+            self.shared.tasks.emit_changed(&self.shared.app_events, ids);
         }
         if let (Ok(_), Some(event)) = (&result, changes) {
             self.shared.app_events.emit(event);

@@ -1,4 +1,4 @@
-import type { HarnessClient, SessionSummary, TaskListSource, Transport } from "@harness/api";
+import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
 import {
    HarnessClient as Client,
    errText,
@@ -74,11 +74,7 @@ export function Shell({ transport }: { transport: Transport }) {
       [client],
    );
    const sharedList = useSharedArtifacts(sharedSource);
-   const taskSource = useMemo<TaskListSource>(
-      () => ({ list: () => client.listTasks(), onChanged: (f) => client.tasksChanged(f) }),
-      [client],
-   );
-   const tasks = useTasks(taskSource);
+   const tasks = useTasks(client);
    const fromTask = useStartFromTask({
       client,
       onCreated: (id) => {

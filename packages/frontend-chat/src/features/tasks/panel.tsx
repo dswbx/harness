@@ -1,4 +1,4 @@
-import { type TaskListSource, type TaskSummary, useTasks } from "@harness/api";
+import { type TaskSummary, useTasks } from "@harness/api";
 import { ListTodo } from "lucide-react";
 import { useMemo, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
@@ -31,11 +31,7 @@ export const tasksPanel = definePanel<TasksModel, string>({
    mount: "afterFirstOpen",
    overlay: false,
    useModel: ({ api }, self) => {
-      const source = useMemo<TaskListSource>(
-         () => ({ list: () => api.listTasks(), onChanged: (f) => api.tasksChanged(f) }),
-         [api],
-      );
-      const tasks = useTasks(source);
+      const tasks = useTasks(api);
       const [detail, setDetail] = useState<string | null>(null);
       usePanelTarget(self, setDetail);
       const sessionId = api.sessionId;

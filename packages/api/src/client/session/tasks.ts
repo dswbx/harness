@@ -1,5 +1,6 @@
 import type { Transport } from "../../transport/transport";
 import type { SessionApi } from "../session";
+import { taskStore } from "../taskStore";
 import {
    addTaskAssets,
    createTask,
@@ -25,6 +26,7 @@ type Tasks = Pick<
    | "removeTaskAsset"
    | "readTaskAsset"
    | "tasksChanged"
+   | "taskStore"
 >;
 
 /** Tasks (ADR 0028) as seen from one Session: new Tasks have it as their origin. */
@@ -39,4 +41,5 @@ export const tasksApi = (transport: Transport, sessionId: string): Tasks => ({
    removeTaskAsset: (id, name) => removeTaskAsset(transport, id, name),
    readTaskAsset: (id, name) => readTaskAsset(transport, id, name),
    tasksChanged: (onChange) => tasksChanged(transport, onChange),
+   taskStore: taskStore(transport),
 });

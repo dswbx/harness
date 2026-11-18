@@ -94,6 +94,16 @@ impl Tasks {
         tasks
     }
 
+    /// Tells every window that the Tasks `ids` changed, with their summaries read as the event is
+    /// queued (see `AppEvents::emit_with`). A deleted id has no summary.
+    pub fn emit_changed(&self, events: &crate::app_events::AppEvents, ids: Vec<String>) {
+        events.emit_with(|| {
+            let index = self.index.read();
+            let tasks = ids.iter().filter_map(|id| index.get(id)).map(TaskSummary::from).collect();
+            crate::api::AppEvent::TasksChanged { ids, tasks }
+        });
+    }
+
     /// The ids of a Task's direct children.
     pub fn children_ids(&self, id: &str) -> Vec<String> {
         self.index.read().values().filter(|t| t.parent_id.as_deref() == Some(id)).map(|t| t.id.clone()).collect()

@@ -53,10 +53,11 @@ unseen: boolean } |
 /**  Shared Artifacts were added, removed, renamed, attached or detached: reload the list. */
 { type: "SharedArtifactsChanged" } | 
 /**
- *  Tasks were created, changed, moved, deleted or linked: reload the list and re-read the open
- *  ones among `ids`. Live only, not logged.
+ *  Tasks were created, changed, moved, deleted or linked: re-read the open ones among `ids`.
+ *  `tasks` holds the current summaries of the `ids` that still exist; an id without one was
+ *  deleted. A list applies them in place. Live only, not logged.
  */
-{ type: "TasksChanged"; ids: string[] } | 
+{ type: "TasksChanged"; ids: string[]; tasks: TaskSummary[] } | 
 /**  A Session's Session Note was written or got images: re-read it. Live only, not logged. */
 { type: "NoteChanged"; session_id: string } | 
 /**
