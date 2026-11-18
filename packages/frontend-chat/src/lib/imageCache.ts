@@ -14,6 +14,9 @@ export function cachedImageNow(key: string): { url: string; ratio?: number } | u
    return p && settled.get(p);
 }
 
+/** Longest wait for a decode: one that never settles must not keep the image from showing. */
+const DECODE_WAIT_MS = 3000;
+
 /**
  * Decodes the image before its URL is handed out: an `<img>` of a decoded image has its size when it
  * is laid out. Else WebKit lays it out empty and grows it a frame later, and in the chat's virtual
@@ -23,10 +26,16 @@ async function decode(url: string): Promise<number | undefined> {
    if (typeof Image === "undefined") return undefined;
    const img = new Image();
    img.src = url;
+   let timer: ReturnType<typeof setTimeout> | undefined;
    try {
-      await img.decode();
+      const late = new Promise<false>((r) => {
+         timer = setTimeout(() => r(false), DECODE_WAIT_MS);
+      });
+      if ((await Promise.race([img.decode(), late])) === false) return undefined;
    } catch {
       return undefined;
+   } finally {
+      clearTimeout(timer);
    }
    return img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : undefined;
 }

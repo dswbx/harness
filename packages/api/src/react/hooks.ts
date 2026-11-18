@@ -8,6 +8,8 @@ import type { Unsubscribe } from "../transport/transport";
 
 /** Longest wait for a Session's replay to finish before its first render. */
 const REPLAY_WAIT_MS = 1000;
+/** An Event this recent is live, not replay: the log has caught up. */
+const LIVE_MS = 500;
 
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
@@ -31,14 +33,16 @@ export function useSessionEvents<S>(
       // The replay comes in over several frames. Shown as it comes, a part of the log renders first
       // (a Turn without its end looks running: its tool calls open, then collapse) and the rows
       // shift as the rest lands. So the first render waits until a frame passes with no new Event
-      // (the replay is done), at most `REPLAY_WAIT_MS`.
+      // (the replay is done), at most `REPLAY_WAIT_MS`. An Event from just now also ends the wait:
+      // the replay has reached the present, and a running Agent sends Events every frame.
       let replaying = true;
       let arrived = false;
       const started = performance.now();
       const flush = () => {
          raf = 0;
          if (cancelled || pending.length === 0) return;
-         if (replaying && arrived && performance.now() - started < REPLAY_WAIT_MS) {
+         const caughtUp = Date.now() - (pending.at(-1)?.ts_ms ?? 0) < LIVE_MS;
+         if (replaying && arrived && !caughtUp && performance.now() - started < REPLAY_WAIT_MS) {
             arrived = false;
             raf = requestAnimationFrame(flush);
             return;

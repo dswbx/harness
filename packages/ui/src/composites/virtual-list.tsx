@@ -1,4 +1,4 @@
-import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type Virtualizer, type VirtualizerOptions } from "@tanstack/react-virtual";
 import * as React from "react";
 import { cn } from "../lib/utils";
 import { ScrollArea } from "../primitives/scroll-area";
@@ -51,6 +51,40 @@ export const keepRowsAbove: NonNullable<
    return item.start < top && !v.itemSizeCache.has(item.key);
 };
 
+/**
+ * The virtualizer's scroll write. A correction for a resized row (`adjustments`) is a relative
+ * `scrollBy`, not the library's absolute "known offset + correction": WebKit scrolls wheel and
+ * trackpad gestures on its own thread, ahead of the offset the page knows, so the absolute write set
+ * the view back by what was scrolled since (one wheel step, tens to hundreds of px in a flick) for
+ * every row measured above the view. A relative scroll is added to the thread's own position.
+ */
+export const scrollByCorrection: NonNullable<
+   VirtualizerOptions<HTMLDivElement, Element>["scrollToFn"]
+> = (offset, { adjustments, behavior }, inst) => {
+   const el = inst.scrollElement;
+   if (!el) return;
+   if (adjustments && el.scrollBy) el.scrollBy({ top: adjustments, behavior });
+   else el.scrollTo?.({ top: offset + (adjustments ?? 0), behavior });
+};
+
+/**
+ * The virtualizer's `onChange` while following the bottom: a row measured a new size (an Html frame's
+ * height, an image), so pin the bottom now, before paint. The layout effect in `VirtualList` pins
+ * only after the next render, a frame later, and the rows shift down for that frame. Only when the
+ * total size changed: never on a scroll, nor for a change that came while not following (the user
+ * scrolling back down into the bottom zone is not pulled the rest of the way).
+ */
+export function pinBottomOnResize(el: () => HTMLElement | null, following: () => boolean) {
+   let last = -1;
+   return (inst: Virtualizer<HTMLDivElement, Element>) => {
+      const size = inst.getTotalSize();
+      const changed = size !== last;
+      last = size;
+      const e = el();
+      if (e && changed && following()) e.scrollTop = e.scrollHeight;
+   };
+}
+
 /** Windowed list with dynamic row heights and stick-to-bottom while streaming. */
 export function VirtualList({
    count,
@@ -74,7 +108,14 @@ export function VirtualList({
    // drag, text selection). Only these may stop following the bottom.
    const userInput = React.useRef(0);
    const pointerDown = React.useRef(false);
-   const pinnedTotal = React.useRef(0);
+   const pin = React.useMemo(
+      () =>
+         pinBottomOnResize(
+            () => scroller.current,
+            () => stick.current,
+         ),
+      [],
+   );
    const v = useVirtualizer({
       count,
       getScrollElement: () => scroller.current,
@@ -82,16 +123,8 @@ export function VirtualList({
       getItemKey: getKey,
       overscan,
       paddingStart,
-      // A row measured a new size (an Html frame's height, an image) while following the bottom: pin
-      // it now, before paint. The layout effect below pins only after the next render, a frame later,
-      // and the rows shift down for that frame. Only on a size change, never on a scroll.
-      onChange: (inst) => {
-         const el = scroller.current;
-         const size = inst.getTotalSize();
-         if (!el || !stick.current || size === pinnedTotal.current) return;
-         pinnedTotal.current = size;
-         el.scrollTop = el.scrollHeight;
-      },
+      scrollToFn: scrollByCorrection,
+      onChange: pin,
    });
    // While following the bottom, the effects below pin it. The virtualizer's own shift for a resized row
    // starts from its cached offset, which is stale after we set scrollTop, and can leave the view short of
