@@ -132,8 +132,10 @@
       user-select: text;
    }
    /* WebKit fills a selection's "gaps" (beside lines, between blocks) out to the nearest selection root, here the wide
-      scroll area. An identity `translate` makes the text its own root, so the highlight covers only the text. */
-   .typeset {
+      scroll area. An identity `translate` makes the text its own root, so the highlight covers only the text.
+      A scrolling `pre` is a root already but still fills beside each line; the transform stops that too. */
+   .typeset,
+   pre {
       translate: 0 0;
    }
    /* Controls inside selectable text stay out of a selection. */
