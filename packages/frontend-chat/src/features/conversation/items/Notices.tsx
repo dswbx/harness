@@ -14,7 +14,9 @@ export function Notice({ item }: { item: Extract<Item, { type: "notice" }> }) {
          >
             <div className="flex items-start gap-2">
                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-               <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{head}</span>
+               <span className="min-w-0 flex-1 select-text whitespace-pre-wrap break-words">
+                  {head}
+               </span>
             </div>
             {details && (
                <details className="mt-1.5 pl-5">
@@ -72,7 +74,7 @@ export function AgentNotice({ item }: { item: Extract<Item, { type: "agent_notic
          )}
       >
          <Icon className="mt-0.5 size-3.5 shrink-0" />
-         <div className="min-w-0 flex-1">
+         <div className="min-w-0 flex-1 select-text">
             <div className="font-medium">{item.title}</div>
             {item.description && (
                <div className="mt-0.5 whitespace-pre-wrap break-words">{item.description}</div>

@@ -117,6 +117,38 @@
       font-family: var(--font-sans);
       font-size: 0.875rem;
       letter-spacing: var(--letter-spacing, normal);
+      /* Like a native app: chrome (padding, rows, headers, handles) is not selectable. Real text opts in below or with `select-text`. */
+      -webkit-user-select: none;
+      user-select: none;
+   }
+   /* Text a user reads or copies: fields, rendered Markdown (messages, plans), code, popover and dialog text. */
+   input,
+   textarea,
+   [contenteditable]:not([contenteditable="false"]),
+   .typeset,
+   pre,
+   [role="dialog"] {
+      -webkit-user-select: text;
+      user-select: text;
+   }
+   /* WebKit fills a selection's "gaps" (beside lines, between blocks) out to the nearest selection root, here the wide
+      scroll area. An identity `translate` makes the text its own root, so the highlight covers only the text.
+      A scrolling `pre` is a root already but still fills beside each line; the transform stops that too. */
+   .typeset,
+   pre {
+      translate: 0 0;
+   }
+   /* Controls inside selectable text stay out of a selection, and so does a shell prompt (`$ ` of highlight.js
+      `console`), so a selection holds only the command. */
+   .hljs-meta.prompt_,
+   button,
+   summary,
+   [role="button"],
+   [role="menuitem"],
+   [role="option"],
+   [role="tab"] {
+      -webkit-user-select: none;
+      user-select: none;
    }
 
    /* ScrollArea: hide the native scrollbar here too. Radix injects this as an inline <style>, which the built app's CSP blocks (Tauri adds hashes to style-src, so 'unsafe-inline' is ignored). */
