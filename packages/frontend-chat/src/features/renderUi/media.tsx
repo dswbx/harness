@@ -1,7 +1,9 @@
 import { cn, Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
+import { hashText } from "../../lib/hash";
 import { cachedImage, cachedImageNow } from "../../lib/imageCache";
+import { lru } from "../../lib/lru";
 import { Env, type Renderers, runActions } from "./runtime";
 import { SourceView } from "./source";
 import type { UiAction } from "./tools";
@@ -12,21 +14,20 @@ export * from "./media.spec";
 /** Renderers of this group; its specs (schema, description, example) are in `media.spec.ts`. */
 type Img = { src: string; alt: string; caption?: string };
 
-function useImage(src: string): { url: string | null; failed: boolean } {
+function useImage(src: string): { url: string | null; failed: boolean; ratio?: number } {
    const env = useContext(Env);
    const copy = env?.files[src];
    const read = env?.readImage;
-   const key = `${env?.scope ?? ""}:${copy}`;
-   // Read before: show it at once, so a remounted row keeps its height.
-   const [state, setState] = useState<{ url: string | null; failed: boolean }>(() => ({
-      url:
-         copy && read
-            ? (cachedImageNow(`ui:${key}`) ?? null)
-            : /^(https:|data:image\/)/.test(src)
-              ? src
-              : null,
-      failed: false,
-   }));
+   const key = `ui:${env?.scope ?? ""}:${copy}`;
+   // Read before: show it at once, at its size, so a remounted row keeps its height.
+   const [state, setState] = useState<{ url: string | null; failed: boolean; ratio?: number }>(
+      () => {
+         if (!copy || !read)
+            return { url: /^(https:|data:image\/)/.test(src) ? src : null, failed: false };
+         const now = cachedImageNow(key);
+         return { url: now?.url ?? null, ratio: now?.ratio, failed: false };
+      },
+   );
    useEffect(() => {
       if (!copy || !read) {
          setState(
@@ -36,10 +37,10 @@ function useImage(src: string): { url: string | null; failed: boolean } {
          );
          return;
       }
-      const p = cachedImage(`ui:${key}`, () => read(copy));
+      const p = cachedImage(key, () => read(copy));
       let live = true;
       p.then(
-         (url) => live && setState({ url, failed: false }),
+         (url) => live && setState({ url, ratio: cachedImageNow(key)?.ratio, failed: false }),
          () => live && setState({ url: null, failed: true }),
       );
       return () => {
@@ -48,6 +49,14 @@ function useImage(src: string): { url: string | null; failed: boolean } {
    }, [copy, read, src, key]);
    return state;
 }
+
+/**
+ * Width/height of each image shown before, by its src. A row the chat's virtual list remounts then
+ * lays the image out at its size at once, before it decodes; else the row grows a frame later and the
+ * rows below jump.
+ */
+const ratios = lru<number>({ maxEntries: 2000, maxBytes: Number.POSITIVE_INFINITY });
+const ratioKey = (src: string) => (src.length > 512 ? hashText(src) : src);
 
 /** `imgClassName` sizes the image itself; by default it fills the box `className` sizes. */
 function Picture({
@@ -61,7 +70,7 @@ function Picture({
    imgClassName?: string;
    onOpen?: () => void;
 }) {
-   const { url, failed } = useImage(img.src);
+   const { url, failed, ratio: known } = useImage(img.src);
    const [broken, setBroken] = useState(false);
    if (failed || broken) {
       return (
@@ -75,8 +84,19 @@ function Picture({
          </div>
       );
    }
+   const ratio = known ?? ratios.get(ratioKey(img.src));
    const el = url ? (
-      <img src={url} alt={img.alt} onError={() => setBroken(true)} className={imgClassName} />
+      <img
+         src={url}
+         alt={img.alt}
+         onError={() => setBroken(true)}
+         onLoad={(e) => {
+            const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+            if (w && h) ratios.set(ratioKey(img.src), w / h);
+         }}
+         className={imgClassName}
+         style={ratio ? { aspectRatio: ratio } : undefined}
+      />
    ) : null;
    if (!onOpen) return <div className={cn("bg-muted", className)}>{el}</div>;
    return (

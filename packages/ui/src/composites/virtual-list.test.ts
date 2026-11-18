@@ -1,47 +1,42 @@
 import { Virtualizer } from "@tanstack/react-virtual";
 import { describe, expect, it, vi } from "vitest";
-import { holdCorrectionsWhileScrolling } from "./virtual-list";
+import { keepRowsAbove } from "./virtual-list";
 
-function make() {
+/** Ten rows of 80px, the view scrolled to `offset` and the user scrolling up. */
+function make(offset = 400) {
    const scrollToFn = vi.fn();
-   const v = new Virtualizer<HTMLDivElement, HTMLDivElement>({
+   const v = new Virtualizer<HTMLDivElement, Element>({
       count: 10,
       estimateSize: () => 80,
       getScrollElement: () => null,
       scrollToFn,
       observeElementRect: () => {},
       observeElementOffset: () => {},
-      initialOffset: 400,
+      initialOffset: offset,
       initialRect: { width: 300, height: 300 },
    });
+   v.shouldAdjustScrollPositionOnItemSizeChange = keepRowsAbove;
    v.getTotalSize(); // builds the measurements
+   v.isScrolling = true;
+   v.scrollDirection = "backward";
    return { v, scrollToFn };
 }
 
-describe("holdCorrectionsWhileScrolling", () => {
-   it("relies on a private member of @tanstack/virtual-core that still exists", () => {
-      const { v } = make();
-      expect(typeof (v as unknown as { _canWriteScroll: unknown })._canWriteScroll).toBe(
-         "function",
-      );
-   });
-
-   it("holds a row above the view in the offsets while the user scrolls, not in scrollTop", () => {
+describe("keepRowsAbove", () => {
+   it("keeps the view still when a measured row above it changes size while the user scrolls up", () => {
       const { v, scrollToFn } = make();
-      holdCorrectionsWhileScrolling(v);
-      v.isScrolling = true;
-      // Row 1 (start 80, above the offset 400) measures 50px taller than its estimate.
-      v.resizeItem(1, 130);
-      expect(scrollToFn).not.toHaveBeenCalled();
-      // Held in the offsets: the rows' layout loses the 50px again, so the rows below stay on screen.
-      expect(v.getTotalSize()).toBe(800);
-   });
-
-   it("writes scrollTop at once when the user is not scrolling", () => {
-      const { v, scrollToFn } = make();
-      holdCorrectionsWhileScrolling(v);
-      v.resizeItem(1, 130);
+      v.resizeItem(1, 130); // first measure (rows 0-1 end at 210, above 400)
+      scrollToFn.mockClear();
+      // It remounts at another height (a placeholder while it loads): the library default skips this.
+      v.resizeItem(1, 90);
       expect(scrollToFn).toHaveBeenCalled();
-      expect(v.getTotalSize()).toBe(850);
+   });
+
+   it("does not move the view for a later change of a row that reaches into it", () => {
+      const { v, scrollToFn } = make(350);
+      v.resizeItem(4, 120); // row 4 starts at 320, above the view, and reaches into it
+      scrollToFn.mockClear();
+      v.resizeItem(4, 200); // grows at its bottom, in view (a streaming message)
+      expect(scrollToFn).not.toHaveBeenCalled();
    });
 });

@@ -3,10 +3,10 @@ import { Tooltip } from "@harness/ui";
 import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ImageDialog } from "../../../lib/ImageDialog";
-import { cachedImage } from "../../../lib/imageCache";
+import { cachedImage, cachedImageNow } from "../../../lib/imageCache";
 
 function AttachmentImage({ api, a }: { api: SessionApi; a: Attachment }) {
-   const [url, setUrl] = useState<string | null>(null);
+   const [url, setUrl] = useState(() => cachedImageNow(`attachment:${a.path}`)?.url ?? null);
    const [failed, setFailed] = useState(false);
    const [open, setOpen] = useState(false);
    useEffect(() => {
