@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::api::{
-    AttachmentInput, SessionId, StateWriter, Task, TaskActivity, TaskActivityKind, TaskAsset, TaskField, TaskPatch, TaskPriority, TaskStatus, TaskSummary,
-    TaskUpstream,
+    AttachmentInput, SessionId, StateWriter, Task, TaskActivity, TaskActivityKind, TaskAsset, TaskField, TaskPatch, TaskPriority, TaskSessionLink, TaskStatus,
+    TaskSummary, TaskUpstream,
 };
 
 /// The folder in the data dir.
@@ -304,6 +304,24 @@ impl Tasks {
         let asset = &task.assets[asset_at(&task, name)?];
         let bytes = std::fs::read(self.folder(id)?.join(FILES).join(name))?;
         Ok((asset.mime.clone(), crate::attachments::encode(&bytes)))
+    }
+
+    /// Links a Session started from the Task (`SessionStarted`), and sets `status` once if given.
+    pub fn link_session(&self, id: &str, session_id: &str, title: &str, status: Option<TaskStatus>, actor: &Actor) -> anyhow::Result<Task> {
+        let _guard = self.write_lock.lock();
+        let mut task = self.get(id)?;
+        let now = stamp(&task);
+        task.sessions.push(TaskSessionLink { session_id: session_id.to_owned(), title: title.to_owned(), started_ms: now });
+        record(&mut task, actor, now, TaskActivityKind::SessionStarted { session_id: session_id.to_owned() });
+        if let Some(s) = status
+            && s != task.status
+        {
+            let kind = TaskActivityKind::StatusChanged { from: task.status, to: s };
+            record(&mut task, actor, now, kind);
+            task.status = s;
+        }
+        task.updated_ms = now;
+        self.save(task)
     }
 
     /// Removes a deleted Session from every Task's `sessions`. The origin stays. Returns the ids

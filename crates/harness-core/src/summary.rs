@@ -193,6 +193,16 @@ pub fn transcript_size(events: &[Arc<Event>], thread: &ThreadId) -> TranscriptSi
     TranscriptSize { kept_turns: kept.len() as u32, total_turns: turns.len() as u32 }
 }
 
+/// Another Session's Main Thread as a transcript, for a Session started from a task. `None` when it
+/// has no Turns.
+pub fn session_transcript(events: &[Arc<Event>], thread: &ThreadId, title: &str) -> Option<String> {
+    let turns = turns(events, thread, None);
+    if turns.is_empty() {
+        return None;
+    }
+    Some(seed_of(&turns, &format!("Transcript of the Session \"{title}\", where the task was created:")))
+}
+
 /// Seed for a Side Thread that could not fork: the Main Thread up to `upto_seq`. `None` when the
 /// Main Thread has no Turns to show.
 pub fn side_thread_seed(events: &[Arc<Event>], main: &ThreadId, upto_seq: u64) -> Option<String> {

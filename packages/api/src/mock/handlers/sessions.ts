@@ -3,7 +3,7 @@ import type { WorkspaceInfo } from "../../generated";
 import { MOCK_PRS } from "../fixtures/branches";
 import type { MockTransport } from "../mock";
 import { MOCK_NEW } from "../mockRepo";
-import { forgetSessionTasks } from "./tasks";
+import { forgetSessionTasks, linkSessionTask, mockTask } from "./tasks";
 import type { Handlers } from "./types";
 
 /** Like `Session::archive`/`unarchive`: logs the change, and refuses a no-op with `conflict`. */
@@ -28,6 +28,7 @@ export const sessionsHandlers = {
       return { type: "Sessions", sessions: mock.sessions.map((s) => structuredClone(s)) };
    },
    CreateSession: (mock, cmd) => {
+      if (cmd.task) mockTask(mock, cmd.task.id);
       const id = `mock-${++mock.n + 1}`;
       const isRepo = !cmd.folder.includes("norepo");
       if (!isRepo && (cmd.worktree || cmd.branch))
@@ -64,6 +65,10 @@ export const sessionsHandlers = {
       const title =
          cmd.title ?? (pr ? `#${pr.number} ${pr.title}` : (cmd.folder.split("/").pop() ?? id));
       mock.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
+      if (cmd.task) {
+         mock.session(id).task_id = cmd.task.id;
+         linkSessionTask(mock, cmd.task.id, id, title, cmd.task.set_status ?? null);
+      }
       mock.emitApp({ type: "SessionsChanged" });
       return { type: "SessionCreated", session_id: id };
    },

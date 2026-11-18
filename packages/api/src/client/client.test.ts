@@ -296,6 +296,7 @@ describe("unexpected results", () => {
       ["getEditor", () => c.getEditor()],
       ["listBranches", () => c.listBranches("/f")],
       ["getWorktreeDir", () => c.getWorktreeDir()],
+      ["transcriptSize", () => c.transcriptSize("s1")],
       ["workspace", () => api.workspace()],
       ["session getEditor", () => api.getEditor()],
       ["listShared", () => api.listShared()],

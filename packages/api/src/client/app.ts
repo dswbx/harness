@@ -19,7 +19,9 @@ import type {
    StatePatchOp,
    Task,
    TaskPatch,
+   TaskStart,
    TaskSummary,
+   TranscriptSize,
 } from "../generated";
 import type { Transport, Unsubscribe } from "../transport/transport";
 import {
@@ -173,6 +175,8 @@ export class HarnessClient {
       pr?: number | null;
       /** MCP Library server ids to give the Agent. */
       mcpServers?: string[];
+      /** Start from this task: the core links the Session to it and seeds the first prompt (ADR 0028). */
+      task?: TaskStart | null;
    }): Promise<string> {
       const r = await expectResult(
          this.transport,
@@ -187,6 +191,7 @@ export class HarnessClient {
             new_branch: args.newBranch ?? null,
             pr: args.pr ?? null,
             mcp_servers: args.mcpServers ?? [],
+            task: args.task ?? null,
          },
          "SessionCreated",
       );
@@ -326,6 +331,15 @@ export class HarnessClient {
    /** All Tasks (ADR 0028), oldest first. */
    listTasks(): Promise<TaskSummary[]> {
       return listTasks(this.transport);
+   }
+   /** How much of a Session's Main Thread a transcript keeps; `chars`: its length. */
+   async transcriptSize(sessionId: string): Promise<{ size: TranscriptSize; chars: number }> {
+      const r = await expectResult(
+         this.transport,
+         { type: "ReadTranscriptSize", session_id: sessionId },
+         "TranscriptSize",
+      );
+      return { size: r.size, chars: r.chars };
    }
    readTask(id: string): Promise<Task> {
       return readTask(this.transport, id);

@@ -4,6 +4,12 @@ import {
    type BranchInfo,
    type SessionSummary,
    storedValue,
+   type Task,
+   type TaskContextParts,
+   type TaskStart,
+   type TaskStatus,
+   type TranscriptSize,
+   upstreamId,
 } from "@harness/api";
 
 /** Title of a Quick Session until its first prompt (the core's `QUICK_TITLE`). */
@@ -121,5 +127,127 @@ export function branchChoices(b: Branches | null, q: string) {
       defaultRemote: pick(remote.find(isDefault)),
       local: local.filter(shown),
       remote: remote.filter(shown),
+   };
+}
+
+// ---- Start Session from a task (ADR 0028)
+
+/** What the Start dialog needs of a task (`startTaskOf`). */
+export type StartTask = {
+   id: string;
+   title: string;
+   /** The prompt the dialog starts with (`taskPrompt`). */
+   prompt: string;
+   status: TaskStatus;
+   /** Under the title: the parent and the upstream id. */
+   detail: string;
+   assets: number;
+   hasBody: boolean;
+   hasParent: boolean;
+   /** The Session the task was created in, if it still exists. */
+   origin: { sessionId: string; title: string; folder: string | null } | null;
+};
+
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+   backlog: "Backlog",
+   todo: "Todo",
+   in_progress: "In progress",
+   in_review: "In review",
+   done: "Done",
+   blocked: "Blocked",
+   cancelled: "Cancelled",
+};
+
+/** The task context checkboxes, all set. */
+export type TaskParts = Required<TaskContextParts>;
+
+const PROMPT_BODY_LINES = 6;
+
+/** The task's title, its upstream link and the first lines of its body. */
+export function taskPrompt(t: Pick<Task, "title" | "upstream" | "body">): string {
+   const body = t.body.trim().split("\n").slice(0, PROMPT_BODY_LINES).join("\n").trim();
+   return [[t.title, t.upstream?.url].filter(Boolean).join("\n"), body]
+      .filter(Boolean)
+      .join("\n\n");
+}
+
+/** The dialog's view of `task`. The folder is the origin Session's source folder (none for a Quick Session). */
+export function startTaskOf(
+   task: Task,
+   parent: Pick<Task, "title"> | null,
+   sessions: SessionSummary[],
+): StartTask {
+   const o = sessions.find((s) => s.id === task.origin_session_id);
+   const up = task.upstream && (upstreamId(task.upstream.url) ?? task.upstream.label);
+   return {
+      id: task.id,
+      title: task.title,
+      prompt: taskPrompt(task),
+      status: task.status,
+      detail: [parent?.title, up].filter(Boolean).join(" · "),
+      assets: task.assets.length,
+      hasBody: task.body.trim() !== "",
+      hasParent: !!task.parent_id,
+      origin: o
+         ? {
+              sessionId: o.id,
+              title: o.title,
+              folder: o.quick ? null : o.workspace.source_folder || o.folder,
+           }
+         : null,
+   };
+}
+
+/** The parts ticked when the dialog opens: what the task has, without the origin Session's note and chat. */
+export function defaultTaskParts(t: StartTask): TaskParts {
+   return {
+      summary: true,
+      body_and_assets: t.hasBody || t.assets > 0,
+      parent_and_siblings: t.hasParent,
+      origin_note: false,
+      origin_transcript: false,
+   };
+}
+
+/** "Set status": In progress for a task not started yet, else no change. */
+export const defaultSetStatus = (s: TaskStatus): TaskStatus | null =>
+   s === "backlog" || s === "todo" ? "in_progress" : null;
+
+/** "12 turns, ~8k chars", or "last 10 of 40 turns, ~24k chars" when the cap drops some. */
+export function transcriptLabel(size: TranscriptSize, chars: number): string {
+   const k = chars >= 1000 ? `~${Math.round(chars / 1000)}k chars` : `${chars} chars`;
+   const turns =
+      size.kept_turns < size.total_turns
+         ? `last ${size.kept_turns} of ${size.total_turns} turns`
+         : `${size.total_turns} turn${size.total_turns === 1 ? "" : "s"}`;
+   return `${turns}, ${k}`;
+}
+
+/**
+ * The `createSession` arguments of a Session started from `task`, and the first prompt (null: none).
+ * Parts the task cannot give (no parent, no origin Session) are left out. The title defaults to the task's.
+ */
+export function startFromTaskArgs(o: {
+   task: StartTask;
+   include: TaskParts;
+   setStatus: TaskStatus | null;
+   title: string;
+   prompt: string;
+}): { title: string; task: TaskStart; prompt: string | null } {
+   const { task, include } = o;
+   return {
+      title: o.title.trim() || task.title,
+      task: {
+         id: task.id,
+         include: {
+            summary: include.summary,
+            body_and_assets: include.body_and_assets,
+            parent_and_siblings: include.parent_and_siblings && task.hasParent,
+            origin_note: include.origin_note && !!task.origin,
+            origin_transcript: include.origin_transcript && !!task.origin,
+         },
+         set_status: o.setStatus !== task.status ? o.setStatus : null,
+      },
+      prompt: o.prompt.trim() || null,
    };
 }

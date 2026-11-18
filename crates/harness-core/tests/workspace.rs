@@ -63,6 +63,7 @@ async fn create(h: &Harness, folder: &Path, branch: Option<&str>, worktree: bool
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .map_err(|e| e.message)?
@@ -272,6 +273,7 @@ async fn create_new_branch(h: &Harness, folder: &Path, base: Option<&str>, new_b
             new_branch: Some(new_branch.into()),
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .map_err(|e| e.message)?

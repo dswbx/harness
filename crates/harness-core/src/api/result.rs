@@ -177,4 +177,9 @@ pub enum CommandResult {
     Note {
         note: Note,
     },
+    /// `chars`: the length of the transcript text.
+    TranscriptSize {
+        size: TranscriptSize,
+        chars: u32,
+    },
 }

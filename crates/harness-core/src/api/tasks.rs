@@ -195,6 +195,38 @@ pub struct TaskPatch {
     pub clear: Vec<TaskField>,
 }
 
+/// "Start Session from a task": the Session is linked to the task, and the chosen parts of the
+/// task go into its first prompt as context (ADR 0028).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TaskStart {
+    pub id: String,
+    #[serde(default)]
+    pub include: TaskContextParts,
+    /// Set once when the Session starts; never set back.
+    #[serde(default)]
+    pub set_status: Option<TaskStatus>,
+}
+
+/// The parts of a task given to the new Session's Agent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TaskContextParts {
+    /// Id, title, status, priority, due date and upstream link.
+    #[serde(default)]
+    pub summary: bool,
+    /// The body, and the asset files as paths.
+    #[serde(default)]
+    pub body_and_assets: bool,
+    /// The parent task and the other tasks under it.
+    #[serde(default)]
+    pub parent_and_siblings: bool,
+    /// The Session Note of the Session the task was created in.
+    #[serde(default)]
+    pub origin_note: bool,
+    /// A transcript of that Session's Main Thread (`summary::summarize`, capped).
+    #[serde(default)]
+    pub origin_transcript: bool,
+}
+
 /// A Session's Session Note (ADR 0028): `<session dir>/note.md`, with images in
 /// `<session dir>/attachments/note/`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

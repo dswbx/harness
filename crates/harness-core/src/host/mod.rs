@@ -3,6 +3,7 @@
 mod boot;
 mod create;
 mod dispatch;
+mod task_start;
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -322,6 +323,7 @@ impl Harness {
         // Tasks the Command changes, known before it runs (`CreateTask` adds its new id after).
         let tasks = match &cmd {
             Command::CreateTask { .. } => Some(Vec::new()),
+            Command::CreateSession { task: Some(t), .. } => Some(vec![t.id.clone()]),
             Command::UpdateTask { id, .. } | Command::MoveTask { id, .. } | Command::AddTaskAssets { id, .. } | Command::RemoveTaskAsset { id, .. } => {
                 Some(vec![id.clone()])
             }
@@ -391,8 +393,8 @@ impl Harness {
             Command::OpenAuthTerminal { session_id, method_id } => self.cmd_open_auth_terminal(session_id, method_id).await,
             Command::ListFrontends => self.cmd_list_frontends(),
             Command::ListSessions => self.cmd_list_sessions(),
-            Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
-                self.cmd_create_session(folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers).await
+            Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, task } => {
+                self.cmd_create_session(folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, task).await
             }
             Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
                 self.cmd_create_quick_session(agent_id, frontend_id, title, mcp_servers).await
@@ -490,6 +492,7 @@ impl Harness {
             Command::AddTaskAssets { id, files } => self.cmd_add_task_assets(id, files).await,
             Command::RemoveTaskAsset { id, name } => self.cmd_remove_task_asset(id, name),
             Command::ReadTaskAsset { id, name } => self.cmd_read_task_asset(id, name).await,
+            Command::ReadTranscriptSize { session_id } => self.cmd_read_transcript_size(session_id),
             Command::ReadNote { session_id } => self.cmd_read_note(session_id),
             Command::WriteNote { session_id, content, base_hash } => self.cmd_write_note(session_id, content, base_hash),
             Command::AddNoteImages { session_id, files } => self.cmd_add_note_images(session_id, files).await,

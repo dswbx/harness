@@ -88,6 +88,9 @@ pub enum Command {
         /// MCP Library servers (ids) to give the Agent, besides the Harness MCP.
         #[serde(default)]
         mcp_servers: Vec<String>,
+        /// Start from this task: link the Session to it and seed its first prompt (ADR 0028).
+        #[serde(default)]
+        task: Option<TaskStart>,
     },
     /// Creates a Quick Session: a Session with no folder from the user. The core makes an empty
     /// folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
@@ -583,6 +586,11 @@ pub enum Command {
     ReadTaskAsset {
         id: String,
         name: String,
+    },
+    /// How much of a Session's Main Thread a transcript keeps (the Start Session dialog shows it
+    /// for the origin transcript).
+    ReadTranscriptSize {
+        session_id: SessionId,
     },
     /// A Session's Session Note (ADR 0028).
     ReadNote {

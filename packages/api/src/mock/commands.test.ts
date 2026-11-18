@@ -169,6 +169,7 @@ const table: Record<Command["type"], () => Command> = {
    }),
    RemoveTaskAsset: () => ({ type: "RemoveTaskAsset", id: "t1", name: "a.txt" }),
    ReadTaskAsset: () => ({ type: "ReadTaskAsset", id: "t1", name: "a.txt" }),
+   ReadTranscriptSize: () => ({ type: "ReadTranscriptSize", session_id: S }),
    ReadNote: () => ({ type: "ReadNote", session_id: S }),
    WriteNote: () => ({ type: "WriteNote", session_id: S, content: "# Note" }),
    AddNoteImages: () => ({

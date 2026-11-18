@@ -649,3 +649,36 @@ describe("MockTransport Review Comments", () => {
       ).toBe("c2");
    });
 });
+
+describe("MockTransport Start Session from a task", () => {
+   it("links the Session, sets the status once and keeps task_id", async () => {
+      const mock = new MockTransport([], []);
+      const c = new HarnessClient(mock);
+      const id = await c.createSession({
+         folder: "/Users/me/harness",
+         agentId: "codex",
+         frontendId: "chat",
+         task: { id: "t4", include: { summary: true }, set_status: "in_progress" },
+      });
+      const task = await c.readTask("t4");
+      expect(task.status).toBe("in_progress");
+      expect(task.sessions.map((l) => l.session_id)).toEqual([id]);
+      expect(task.activity.map((a) => a.kind.type)).toContain("session_started");
+      expect((await c.listSessions()).find((s) => s.id === id)?.task_id).toBe("t4");
+   });
+
+   it("refuses an unknown task without making a Session", async () => {
+      const mock = new MockTransport([], []);
+      const c = new HarnessClient(mock);
+      const before = (await c.listSessions()).length;
+      await expect(
+         c.createSession({
+            folder: "/f",
+            agentId: "codex",
+            frontendId: "chat",
+            task: { id: "t99" },
+         }),
+      ).rejects.toMatchObject({ code: "not_found" });
+      expect(await c.listSessions()).toHaveLength(before);
+   });
+});

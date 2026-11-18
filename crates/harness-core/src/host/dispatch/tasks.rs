@@ -63,6 +63,18 @@ impl Harness {
         Ok(CommandResult::Attachment { mime, data })
     }
 
+    pub(in crate::host) fn cmd_read_transcript_size(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
+        let session = self.session(&session_id)?;
+        let (main, title) = {
+            let m = session.meta();
+            (m.main_thread_id, m.title)
+        };
+        let events = session.log().events()?;
+        let size = crate::summary::transcript_size(&events, &main);
+        let chars = crate::summary::session_transcript(&events, &main, &title).map_or(0, |t| t.chars().count());
+        Ok(CommandResult::TranscriptSize { size, chars: u32::try_from(chars).unwrap_or(u32::MAX) })
+    }
+
     pub(in crate::host) fn cmd_read_note(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
         Ok(CommandResult::Note { note: self.session(&session_id)?.read_note()? })
     }

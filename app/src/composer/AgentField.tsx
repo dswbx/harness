@@ -83,9 +83,11 @@ export function AgentField({
          {agents.length === 0 ? (
             <div className="flex h-9 items-center gap-2 rounded-md border pl-3 pr-1">
                <span className="flex-1 text-muted-foreground">No Agents installed yet</span>
-               <Button size="sm" variant="ghost" className="h-7" onClick={onManageAgents}>
-                  Open Agents
-               </Button>
+               {onManageAgents && (
+                  <Button size="sm" variant="ghost" className="h-7" onClick={onManageAgents}>
+                     Open Agents
+                  </Button>
+               )}
             </div>
          ) : (
             <Picker

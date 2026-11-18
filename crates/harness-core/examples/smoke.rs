@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
                     new_branch: None,
                     pr: None,
                     mcp_servers: vec![],
+                    task: None,
                 })
                 .await
                 .map_err(anyhow::Error::msg)?

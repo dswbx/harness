@@ -4,6 +4,7 @@ import type {
    Task,
    TaskActivityKind,
    TaskAsset,
+   TaskStatus,
    TaskSummary,
 } from "../../generated";
 import type { MockTransport } from "../mock";
@@ -86,6 +87,26 @@ function freeName(assets: TaskAsset[], raw: string): string {
    const dot = name.lastIndexOf(".");
    const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
    for (let n = 2; ; n++) if (!taken(`${stem}-${n}${ext}`)) return `${stem}-${n}${ext}`;
+}
+
+/** "Start Session from a task" (`Tasks::link_session`): the link, and the status set once. */
+export function linkSessionTask(
+   mock: MockTransport,
+   id: string,
+   sessionId: string,
+   title: string,
+   status: TaskStatus | null,
+) {
+   const t = mockTask(mock, id);
+   const now = stamp(t);
+   t.sessions.push({ session_id: sessionId, title, started_ms: now });
+   record(t, now, { type: "session_started", session_id: sessionId });
+   if (status && status !== t.status) {
+      record(t, now, { type: "status_changed", from: t.status, to: status });
+      t.status = status;
+   }
+   t.updated_ms = now;
+   changed(mock, [id]);
 }
 
 /** Removes a deleted Session from every Task's `sessions`; the ids of the Tasks that changed. */

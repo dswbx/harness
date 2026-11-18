@@ -74,10 +74,30 @@ fn row(session_id: &str, t: &TaskSummary) -> Value {
     Value::Object(m)
 }
 
-/// This Session's Tasks for `harness_info`: created here or started from, oldest first.
+/// This Session's Tasks for `harness_info`: created here or the one it started from
+/// (`SessionMeta::task_id`), oldest first.
 pub(super) fn session_tasks(session: &Session) -> Vec<Value> {
     let id = session.id();
-    session.shared().tasks.list().iter().filter(|t| relation_of(&id, t).is_some()).take(MAX_ROWS).map(|t| row(&id, t)).collect()
+    let started = session.meta().task_id;
+    session
+        .shared()
+        .tasks
+        .list()
+        .iter()
+        .filter_map(|t| {
+            let rel = if t.origin_session_id.as_deref() == Some(id.as_str()) {
+                "created_here"
+            } else if started.as_deref() == Some(t.id.as_str()) {
+                "started_from"
+            } else {
+                return None;
+            };
+            let mut r = row(&id, t);
+            r["session"] = json!(rel);
+            Some(r)
+        })
+        .take(MAX_ROWS)
+        .collect()
 }
 
 /// Refuses a Task the Agent may not change: one not created in this Session and not linked to it.

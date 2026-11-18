@@ -189,7 +189,9 @@ new_branch?: string | null;
  */
 pr?: number | null; 
 /**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
-mcp_servers?: string[] } | 
+mcp_servers?: string[]; 
+/**  Start from this task: link the Session to it and seed its first prompt (ADR 0028). */
+task?: TaskStart | null } | 
 /**
  *  Creates a Quick Session: a Session with no folder from the user. The core makes an empty
  *  folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
@@ -434,6 +436,11 @@ due?: string | null; upstream?: TaskUpstream | null } |
 { type: "AddTaskAssets"; id: string; files: AttachmentInput[] } | { type: "RemoveTaskAsset"; id: string; name: string } | 
 /**  A Task asset (base64), as `ReadAttachment`. */
 { type: "ReadTaskAsset"; id: string; name: string } | 
+/**
+ *  How much of a Session's Main Thread a transcript keeps (the Start Session dialog shows it
+ *  for the origin transcript).
+ */
+{ type: "ReadTranscriptSize"; session_id: string } | 
 /**  A Session's Session Note (ADR 0028). */
 { type: "ReadNote"; session_id: string } | 
 /**
@@ -484,7 +491,9 @@ export type CommandResult = { type: "Ok" } |
  */
 { type: "SharedArtifact"; meta: SharedArtifactMeta; content: string; hash: string; mtime_ms: number; state: unknown; 
 /**  The artifact's folder (absolute). */
-dir: string } | { type: "Tasks"; tasks: TaskSummary[] } | { type: "Task"; task: Task } | { type: "Note"; note: Note };
+dir: string } | { type: "Tasks"; tasks: TaskSummary[] } | { type: "Task"; task: Task } | { type: "Note"; note: Note } | 
+/**  `chars`: the length of the transcript text. */
+{ type: "TranscriptSize"; size: TranscriptSize; chars: number };
 
 /**  The side of a diff a comment is on. */
 export type CommentSide = "old" | "new";
@@ -1140,6 +1149,8 @@ export type SessionSummary = {
 	parent?: SessionParent | null,
 	/**  Why new Events are not being saved to the Session Log right now (disk full, no permission, ...). */
 	log_error?: string | null,
+	/**  The task the Session was started from (ADR 0028). */
+	task_id?: string | null,
 };
 
 /**  One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search. */
@@ -1284,6 +1295,20 @@ export type TaskAsset = {
 	size: number,
 };
 
+/**  The parts of a task given to the new Session's Agent. */
+export type TaskContextParts = {
+	/**  Id, title, status, priority, due date and upstream link. */
+	summary?: boolean,
+	/**  The body, and the asset files as paths. */
+	body_and_assets?: boolean,
+	/**  The parent task and the other tasks under it. */
+	parent_and_siblings?: boolean,
+	/**  The Session Note of the Session the task was created in. */
+	origin_note?: boolean,
+	/**  A transcript of that Session's Main Thread (`summary::summarize`, capped). */
+	origin_transcript?: boolean,
+};
+
 export type TaskEntry = {
 	content: string,
 	priority: string,
@@ -1313,6 +1338,17 @@ export type TaskSessionLink = {
 	session_id: string,
 	title: string,
 	started_ms: number,
+};
+
+/**
+ *  "Start Session from a task": the Session is linked to the task, and the chosen parts of the
+ *  task go into its first prompt as context (ADR 0028).
+ */
+export type TaskStart = {
+	id: string,
+	include?: TaskContextParts,
+	/**  Set once when the Session starts; never set back. */
+	set_status?: TaskStatus | null,
 };
 
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "blocked" | "cancelled";

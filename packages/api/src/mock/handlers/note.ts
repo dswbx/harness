@@ -32,6 +32,22 @@ function changed(mock: MockTransport, sessionId: string): Note {
 
 export const noteHandlers = {
    ReadNote: (mock, cmd) => ({ type: "Note", note: note(mock, cmd.session_id) }),
+   // The core counts the Main Thread's Turns that fit the transcript cap; the mock keeps them all.
+   ReadTranscriptSize: (mock, cmd) => {
+      mock.session(cmd.session_id);
+      const main = mock.logs
+         .get(cmd.session_id)
+         ?.find((e) => e.kind.type === "ThreadStarted" && e.kind.main)?.thread_id;
+      const turns = (mock.logs.get(cmd.session_id) ?? []).filter(
+         (e) => e.kind.type === "TurnStarted" && e.thread_id === main,
+      );
+      const chars = turns.reduce(
+         (n, e) => n + (e.kind.type === "TurnStarted" ? e.kind.text.length : 0) + 200,
+         0,
+      );
+      const total = turns.length;
+      return { type: "TranscriptSize", size: { kept_turns: total, total_turns: total }, chars };
+   },
    WriteNote: (mock, cmd) => {
       const cur = note(mock, cmd.session_id);
       if (cmd.base_hash != null && cmd.base_hash !== cur.hash)

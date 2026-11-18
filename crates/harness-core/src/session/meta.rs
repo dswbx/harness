@@ -70,6 +70,9 @@ pub struct SessionMeta {
     /// ones (a Sub Session's model and effort). Never written to the remembered config.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub initial_config: std::collections::BTreeMap<String, String>,
+    /// The task the Session was started from (ADR 0028).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
 }
 
 /// Title of a Quick Session until its first prompt.
