@@ -44,12 +44,9 @@ export function AboutPanel({ busy }: { busy: boolean }) {
                )}
                {(state.kind === "available" || state.kind === "failed") && (
                   <>
-                     <BusyTip busy={busy}>
-                        <Button size="sm" disabled={busy} onClick={install}>
-                           {state.kind === "failed" ? "Retry update to" : "Update to"}{" "}
-                           {state.version}
-                        </Button>
-                     </BusyTip>
+                     <Button size="sm" onClick={install}>
+                        {state.kind === "failed" ? "Retry update to" : "Update to"} {state.version}
+                     </Button>
                      <a
                         href={releaseUrl(state.version)}
                         target="_blank"

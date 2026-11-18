@@ -170,7 +170,7 @@ export function Shell({ transport }: { transport: Transport }) {
    const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
    const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
-   // A Turn is in flight somewhere: updating now would cut it off on restart.
+   // A Turn is in flight somewhere: a restart to update would cut it off.
    const busy = sessions.some((s) => s.status !== "idle");
    const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
 

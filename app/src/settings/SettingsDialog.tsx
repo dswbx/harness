@@ -55,7 +55,7 @@ export function SettingsDialog({
    onSectionChange: (s: SettingsSection) => void;
    /** Currently selected Session, if any (enables the "this session" rule scope). */
    sessionId: string | null;
-   /** An Agent is working: updating is blocked. */
+   /** An Agent is working: restarting to update is blocked. */
    busy: boolean;
    agentsVersion: number;
    onAgentsChanged: () => void;

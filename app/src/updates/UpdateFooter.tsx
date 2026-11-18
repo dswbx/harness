@@ -25,8 +25,8 @@ export function BusyTip({
    );
 }
 
-/** Sidebar footer for an opt-in update; renders nothing while there is none. Update and restart
- * are off while `busy` (an Agent is working). */
+/** Sidebar footer for an opt-in update; renders nothing while there is none. Downloading is
+ * always allowed; the restart is off while `busy` (an Agent is working). */
 export function UpdateFooter({
    update: { state, restarting, install, restart },
    busy,
@@ -56,11 +56,9 @@ export function UpdateFooter({
                   <span className="tabular-nums text-muted-foreground">{state.version}</span>
                </div>
                <div className="flex items-center gap-2.5">
-                  <BusyTip busy={busy} className="flex-1 [&>button]:flex-1">
-                     <Button size="sm" className="h-7 flex-1" disabled={busy} onClick={install}>
-                        Update
-                     </Button>
-                  </BusyTip>
+                  <Button size="sm" className="h-7 flex-1" onClick={install}>
+                     Update
+                  </Button>
                   {changes}
                </div>
             </>
@@ -98,7 +96,7 @@ export function UpdateFooter({
                      {restarting ? "Restarting…" : `${state.version} installed`}
                   </span>
                </div>
-               <BusyTip busy={busy} className="flex-1 [&>button]:flex-1">
+               <BusyTip busy={busy} className="[&>button]:flex-1">
                   <Button size="sm" className="h-7" disabled={restarting || busy} onClick={restart}>
                      <RefreshCw /> Restart to finish
                   </Button>
@@ -114,17 +112,9 @@ export function UpdateFooter({
                   </Tooltip>
                </div>
                <div className="flex items-center gap-2.5">
-                  <BusyTip busy={busy} className="flex-1 [&>button]:flex-1">
-                     <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 flex-1"
-                        disabled={busy}
-                        onClick={install}
-                     >
-                        Retry
-                     </Button>
-                  </BusyTip>
+                  <Button size="sm" variant="outline" className="h-7 flex-1" onClick={install}>
+                     Retry
+                  </Button>
                   {changes}
                </div>
             </>
