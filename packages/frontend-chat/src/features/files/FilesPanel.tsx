@@ -479,7 +479,7 @@ export function FilesPanel({
             </PanelHeader>
          )}
          <div className="flex min-h-0 flex-1">
-            <div className="relative flex min-w-0 flex-1 flex-col">
+            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                {markdown && !fileError && view.lines.length > 0 && (
                   <div
                      role="group"
@@ -539,7 +539,7 @@ export function FilesPanel({
             </div>
             {showTree && (
                <div
-                  className="relative flex shrink-0 flex-col border-l"
+                  className="relative flex shrink-0 flex-col border-l bg-background"
                   style={{ width: sidebar.width }}
                >
                   <ResizeHandle label="Resize file tree" {...sidebar.handle} />
