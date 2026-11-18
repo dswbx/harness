@@ -34,7 +34,7 @@ _Avoid_: prompt turn (in prose), exchange, round
 
 **Task List**:
 The Agent's live list of steps and their statuses for the work it is currently doing in a Thread; owned and updated by the Agent.
-_Avoid_: plan, todo list, tasks
+_Avoid_: plan, todo list, tasks (a **Task** is a different thing: the user's own work item)
 
 **Plan**:
 A proposal the Agent drafts for the user to review before it acts.
