@@ -5,7 +5,7 @@ import {
    type SessionSummary,
    useSessionHasDraft,
 } from "@harness/api";
-import { cn, Tooltip } from "@harness/ui";
+import { cn, StatusDot, Tooltip } from "@harness/ui";
 import {
    AppWindow,
    Archive,
@@ -23,7 +23,6 @@ import {
 import { useState } from "react";
 import { prStyle } from "./prStyle";
 import { SessionDetails } from "./SessionDetails";
-import { StatusDot } from "./StatusDot";
 import { branchOf, type Display, highlight } from "./sessionGroups";
 
 /** One row's detail line: folder, then branch / Worktree / PR, then the last activity. */

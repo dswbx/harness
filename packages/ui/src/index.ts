@@ -1,6 +1,7 @@
 export * from "./composites/event-log";
 export * from "./composites/resizable";
 export * from "./composites/stat";
+export * from "./composites/status-dot";
 export * from "./composites/trace";
 export * from "./composites/virtual-list";
 export * from "./composites/working-loader";

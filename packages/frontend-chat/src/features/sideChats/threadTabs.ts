@@ -24,11 +24,11 @@ export const openThread = (t: ThreadTabs, id: string): ThreadTabs => ({
    thread: id,
 });
 
-/** The draft tab became Side Thread `to`: same place in the tabs, still active if it was. */
+/** The draft tab became Side Thread `to`: same place in the tabs, still active if it was. A tab `to` had already goes. */
 export const replaceThread = (t: ThreadTabs, from: string, to: string): ThreadTabs =>
    t.threads.includes(from)
       ? {
-           threads: t.threads.map((x) => (x === from ? to : x)),
+           threads: t.threads.filter((x) => x !== to).map((x) => (x === from ? to : x)),
            thread: t.thread === from ? to : t.thread,
         }
       : t;
@@ -56,6 +56,16 @@ export function openThreadIds(
    started: Record<string, unknown> = {},
 ): string[] {
    return threads.filter((id) => isDraftThread(id) || !!known[id] || id in started);
+}
+
+/** Moves tab `id` in front of tab `before` (null: to the end). */
+export function moveThread(t: ThreadTabs, id: string, before: string | null): ThreadTabs {
+   if (id === before || !t.threads.includes(id)) return t;
+   const rest = t.threads.filter((x) => x !== id);
+   const at = before === null ? rest.length : rest.indexOf(before);
+   if (at < 0) return t;
+   const threads = [...rest.slice(0, at), id, ...rest.slice(at)];
+   return threads.every((x, i) => x === t.threads[i]) ? t : { ...t, threads };
 }
 
 /** The Side Thread shown: the selected one if open, else the last open one. */

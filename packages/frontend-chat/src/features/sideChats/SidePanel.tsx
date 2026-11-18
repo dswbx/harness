@@ -1,13 +1,30 @@
-import type { AttachmentInput, SessionApi } from "@harness/api";
-import { Button, cn, Tooltip } from "@harness/ui";
-import { Plus, X } from "lucide-react";
+import type { AttachmentInput, SessionApi, ThreadInfo } from "@harness/api";
+import { formatAge } from "@harness/api";
+import {
+   Button,
+   cn,
+   DropdownMenuItem,
+   DropdownMenuSub,
+   DropdownMenuSubContent,
+   DropdownMenuSubTrigger,
+   StatusDot,
+   Tooltip,
+} from "@harness/ui";
+import { History, Plus } from "lucide-react";
 import { PanelHeader } from "../../panels/PanelHeader";
+import { type PanelTab, PanelTabs } from "../../panels/PanelTabs";
 import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
 import type { PendingMessage } from "../prompt/pendingMessages";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { SideDraft, type SideStart, ThreadView } from "./ThreadView";
 import { isDraftThread } from "./threadTabs";
+
+/**
+ * What a side chat tab shows, as the sidebar does for Sessions: a dot while its Agent works or waits for the
+ * user, a bold title for a reply that came while the tab was not shown.
+ */
+export type SideChatStatus = "working" | "needs_attention" | "unread" | null;
 
 /** A Side Thread just started here, before its replay arrives. */
 const STARTING: ChatState = { ...initialState(), side: true };
@@ -22,10 +39,14 @@ export function SidePanel({
    threads,
    active,
    titleOf,
+   statusOf,
    env,
    focus,
    onSelect,
    onClose,
+   onMove,
+   past,
+   onReopen,
    onNew,
    onSendDraft,
    onOpenDiff,
@@ -35,10 +56,16 @@ export function SidePanel({
    threads: string[];
    active: string | null;
    titleOf: (id: string) => string;
+   statusOf: (id: string) => SideChatStatus;
    env: UiEnv;
    focus: { id: string; n: number };
    onSelect: (id: string) => void;
    onClose: (id: string) => void;
+   /** Moves tab `id` in front of tab `before` (null: to the end). */
+   onMove: (id: string, before: string | null) => void;
+   /** Every Side Thread, newest activity first: Past chats lists the closed ones. */
+   past: ThreadInfo[];
+   onReopen: (id: string) => void;
    onNew: () => void;
    /** First message of a draft tab: starts its Side Thread. */
    onSendDraft: (
@@ -50,45 +77,57 @@ export function SidePanel({
    ) => Promise<void>;
    onOpenDiff: (s: DiffScope) => void;
 }) {
+   const closed = past.filter((c) => !threads.includes(c.id));
+   const now = Date.now();
    return (
       <>
-         <PanelHeader className="gap-1 pl-2.5">
-            <div
-               role="tablist"
-               aria-label="Side chats"
-               className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-            >
-               {threads.map((id) => {
-                  const on = id === active;
-                  const title = titleOf(id);
-                  return (
-                     <div
-                        key={id}
-                        className={cn(
-                           "flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs",
-                           on
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:bg-accent/50",
-                        )}
-                     >
-                        <button
-                           role="tab"
-                           aria-selected={on}
-                           className="min-w-0 truncate"
-                           onClick={() => onSelect(id)}
-                        >
-                           {title}
-                        </button>
-                        <button
-                           className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"
-                           aria-label={`Close ${title}`}
-                           onClick={() => onClose(id)}
-                        >
-                           <X className="size-3" />
-                        </button>
-                     </div>
-                  );
+         <PanelHeader
+            className="gap-1"
+            menu={
+               <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={closed.length === 0}>
+                     <History /> Past chats
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64">
+                     {closed.map((c) => (
+                        <DropdownMenuItem key={c.id} onSelect={() => onReopen(c.id)}>
+                           <span className="min-w-0 flex-1 truncate">{c.title ?? "Side chat"}</span>
+                           <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">
+                              {formatAge(c.lastAt, now)}
+                           </span>
+                        </DropdownMenuItem>
+                     ))}
+                  </DropdownMenuSubContent>
+               </DropdownMenuSub>
+            }
+         >
+            <PanelTabs
+               label="Side chats"
+               tabs={threads.map((id): PanelTab => {
+                  const name = titleOf(id);
+                  const status = statusOf(id);
+                  return {
+                     id,
+                     name,
+                     label: (
+                        <>
+                           {name}
+                           {status === "unread" && (
+                              <span className="sr-only"> (new, not seen)</span>
+                           )}
+                        </>
+                     ),
+                     className: status === "unread" ? "font-semibold text-foreground" : undefined,
+                     after: (status === "working" || status === "needs_attention") && (
+                        <StatusDot status={status} className="ml-0.5" />
+                     ),
+                  };
                })}
+               active={active}
+               onSelect={onSelect}
+               onClose={onClose}
+               onMove={onMove}
+            >
                <Tooltip content="New side chat" side="bottom">
                   <Button
                      size="icon"
@@ -100,7 +139,7 @@ export function SidePanel({
                      <Plus />
                   </Button>
                </Tooltip>
-            </div>
+            </PanelTabs>
          </PanelHeader>
          <div className="relative min-h-0 flex-1">
             {threads.map((id) => (
