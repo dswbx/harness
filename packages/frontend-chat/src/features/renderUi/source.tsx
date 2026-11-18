@@ -1,8 +1,16 @@
 import { type ReactNode, useEffect, useState } from "react";
+import { lru } from "../../lib/lru";
 import { Markdown } from "../markdown/Markdown";
 import { type UiEnv, useEnv } from "./runtime";
 
-type Shown = { content: string; hash: string; path?: string } | { missing: true } | null;
+type Read = { content: string; hash: string; path?: string };
+type Shown = Read | { missing: true } | null;
+
+/**
+ * Last read of each file by Session and name. The chat's virtual list remounts rows as they scroll
+ * back in; starting from the placeholder again would change the row's height under the reader.
+ */
+const lastRead = lru<Read>({ maxEntries: 200, maxBytes: 16 * 1024 * 1024 });
 
 /**
  * A file-backed panel's file (ADR 0023): `name` in the Session's `panels/` folder, read through the
@@ -11,18 +19,25 @@ type Shown = { content: string; hash: string; path?: string } | { missing: true 
  * loads or with no reader.
  */
 export function usePanelSource(
-   env: Pick<UiEnv, "readSource" | "watchSources">,
+   env: Pick<UiEnv, "readSource" | "watchSources" | "scope">,
    name: string | null,
 ): Shown {
-   const { readSource, watchSources } = env;
-   const [shown, setShown] = useState<Shown>(null);
+   const { readSource, watchSources, scope } = env;
+   const key = `${scope ?? ""}:${name}`;
+   const [shown, setShown] = useState<Shown>(() => (name ? (lastRead.get(key) ?? null) : null));
    useEffect(() => {
       if (!readSource || !name) return;
       let live = true;
       const read = () =>
          readSource(name).then(
-            (r) => live && setShown((s) => (s && "hash" in s && s.hash === r.hash ? s : r)),
-            () => live && setShown({ missing: true }),
+            (r) => {
+               lastRead.set(key, r, r.content.length);
+               if (live) setShown((s) => (s && "hash" in s && s.hash === r.hash ? s : r));
+            },
+            () => {
+               lastRead.delete(key);
+               if (live) setShown({ missing: true });
+            },
          );
       void read();
       const onFocus = () => void read();
@@ -35,7 +50,7 @@ export function usePanelSource(
          window.removeEventListener("focus", onFocus);
          void off?.then((f) => f());
       };
-   }, [name, readSource, watchSources]);
+   }, [key, name, readSource, watchSources]);
    return shown;
 }
 

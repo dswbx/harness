@@ -5,6 +5,40 @@ import { lru } from "./lru";
  * in memory, while a gallery of many small ones is not read again.
  */
 const images = lru<Promise<string>>({ maxEntries: 512, maxBytes: 48 * 1024 * 1024 });
+/** Settled reads, so a remounted row (the chat's virtual list) shows its image at once, at its height. */
+const settled = new WeakMap<Promise<string>, { url: string; ratio?: number }>();
+
+/** The data URL of `key` and its width/height if its read has already settled, else undefined. */
+export function cachedImageNow(key: string): { url: string; ratio?: number } | undefined {
+   const p = images.peek(key);
+   return p && settled.get(p);
+}
+
+/** Longest wait for a decode: one that never settles must not keep the image from showing. */
+const DECODE_WAIT_MS = 3000;
+
+/**
+ * Decodes the image before its URL is handed out: an `<img>` of a decoded image has its size when it
+ * is laid out. Else WebKit lays it out empty and grows it a frame later, and in the chat's virtual
+ * list the rows below jump. Also gives the width/height ratio. Nothing in a non-browser test.
+ */
+async function decode(url: string): Promise<number | undefined> {
+   if (typeof Image === "undefined") return undefined;
+   const img = new Image();
+   img.src = url;
+   let timer: ReturnType<typeof setTimeout> | undefined;
+   try {
+      const late = new Promise<false>((r) => {
+         timer = setTimeout(() => r(false), DECODE_WAIT_MS);
+      });
+      if ((await Promise.race([img.decode(), late])) === false) return undefined;
+   } catch {
+      return undefined;
+   } finally {
+      clearTimeout(timer);
+   }
+   return img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : undefined;
+}
 
 /** The data URL of an image, read once while it is among the recent ones. A failed read is not kept. */
 export function cachedImage(
@@ -13,7 +47,12 @@ export function cachedImage(
 ): Promise<string> {
    let p = images.get(key);
    if (!p) {
-      const mine: Promise<string> = read().then((r) => `data:${r.mime};base64,${r.data}`);
+      const mine: Promise<string> = read().then(async (r) => {
+         const url = `data:${r.mime};base64,${r.data}`;
+         const ratio = await decode(url);
+         settled.set(mine, { url, ratio });
+         return url;
+      });
       p = mine;
       images.set(key, mine);
       // Settling touches the entry only while it is still this read (it may be evicted and read again).

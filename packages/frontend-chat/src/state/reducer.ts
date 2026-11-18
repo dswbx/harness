@@ -34,7 +34,7 @@ export function createReducer({ decodeTool }: { decodeTool: ToolDecoder }) {
     */
    function reduceBatch(state: ChatState, events: readonly Event[]): ChatState {
       if (events.length === 0) return state;
-      const c = newCtx({ ...state }, decodeTool);
+      const c = newCtx({ ...state, loaded: true }, decodeTool);
       for (const e of events) apply(c, e);
       return c.d;
    }

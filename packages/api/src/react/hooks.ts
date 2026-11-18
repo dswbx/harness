@@ -6,10 +6,21 @@ import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
 import type { Unsubscribe } from "../transport/transport";
 
+/** Longest wait for a Session's replay to finish before its first render. */
+const REPLAY_WAIT_MS = 1000;
+/** An Event this recent is live, not replay: the log has caught up. */
+const LIVE_MS = 500;
+/**
+ * No Event for this long: the replay is done. A frame without one is not enough: after a long task
+ * (the view of the last Session unmounts) two frames run back to back, 1ms apart, between two
+ * batches of the replay, and the log showed in parts.
+ */
+const QUIET_MS = 40;
+
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
  * (replay and live share one path), and unsubscribes on unmount. Events are batched per
- * animation frame so replays of large logs don't re-render per event. Once subscribed, it asks
+ * animation frame so replays of large logs don't re-render per event; the replay renders at once. Once subscribed, it asks
  * the core to warm the Agent up so config options (models, modes) arrive before the first prompt.
  */
 export function useSessionEvents<S>(
@@ -25,9 +36,24 @@ export function useSessionEvents<S>(
       let unsub: (() => void) | undefined;
       let pending: Event[] = [];
       let raf = 0;
+      // The replay comes in over several frames. Shown as it comes, a part of the log renders first
+      // (a Turn without its end looks running: its tool calls open, then collapse) and the rows
+      // shift as the rest lands. So the first render waits until no Event came for `QUIET_MS`
+      // (the replay is done), at most `REPLAY_WAIT_MS`. An Event from just now also ends the wait:
+      // the replay has reached the present, and a running Agent sends Events every frame.
+      let replaying = true;
+      let lastAt = 0;
+      const started = performance.now();
       const flush = () => {
          raf = 0;
          if (cancelled || pending.length === 0) return;
+         const caughtUp = Date.now() - (pending.at(-1)?.ts_ms ?? 0) < LIVE_MS;
+         const now = performance.now();
+         if (replaying && !caughtUp && now - lastAt < QUIET_MS && now - started < REPLAY_WAIT_MS) {
+            raf = requestAnimationFrame(flush);
+            return;
+         }
+         replaying = false;
          const batch = pending;
          pending = [];
          setState((s) => (batchReducer ? batchReducer(s, batch) : batch.reduce(reducer, s)));
@@ -36,6 +62,7 @@ export function useSessionEvents<S>(
       api.subscribe((e) => {
          if (cancelled) return;
          pending.push(e);
+         lastAt = performance.now();
          if (!raf) raf = requestAnimationFrame(flush);
       })
          .then((u) => {

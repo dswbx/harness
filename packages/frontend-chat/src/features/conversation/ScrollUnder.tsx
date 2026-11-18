@@ -1,4 +1,5 @@
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 /**
  * A message list that scrolls under its bottom bar (the prompt box), which fades the content out
@@ -17,7 +18,9 @@ export function ScrollUnder({
    useLayoutEffect(() => {
       const el = bar.current;
       if (!el) return;
-      const ro = new ResizeObserver(() => setInset(el.offsetHeight));
+      // Rendered now, before this frame is painted: the bar grows when the Session's log is here (its
+      // options show), and a frame later the end of the list sat under it, then moved up.
+      const ro = new ResizeObserver(() => flushSync(() => setInset(el.offsetHeight)));
       ro.observe(el);
       return () => ro.disconnect();
    }, []);

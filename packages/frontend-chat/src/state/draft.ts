@@ -1,6 +1,7 @@
 import type { ChatState, Item, ToolDecoder } from "./types";
 
 export const initialState = (): ChatState => ({
+   loaded: false,
    items: [],
    turnId: null,
    turnStartedAt: null,
@@ -98,7 +99,7 @@ export function sideCtx(c: Ctx, threadId: string): Ctx {
    c.sides ??= new Map();
    let sc = c.sides.get(threadId);
    if (!sc) {
-      sc = newCtx({ ...(c.d.threads[threadId] ?? initialState()) }, c.decodeTool);
+      sc = newCtx({ ...(c.d.threads[threadId] ?? initialState()), loaded: true }, c.decodeTool);
       c.sides.set(threadId, sc);
    }
    if (!c.threadsOwned) {
