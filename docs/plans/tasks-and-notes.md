@@ -1,6 +1,6 @@
 # Tasks and Notes plan
 
-Status: proposed. ADR 0028 (Tasks and Session Notes) and the glossary entries must exist before step 2 merges.
+Status: accepted (2026-11-18). ADR 0028 (Tasks and Session Notes) and the glossary entries must exist before step 2 merges.
 
 **Directories:**
 - `crates/harness-core`: new `tasks.rs`, `api/tasks.rs`, `host/dispatch/tasks.rs`, `session/note.rs`, MCP tools, prompt text, Create Session.
@@ -49,6 +49,14 @@ Facts from the code (2026-11-18):
 - The scan skips bad folders with a warning (copy `shared.rs::scan`).
 - Ids are `t<n>` (`t1`, `t2`, ...). The next number is the highest found by the scan, plus 1. This is safe because the data dir lock (`fsutil::lock_dir`) allows only one Harness at a time.
 - The Agent and the user can type short ids easily.
+
+**Why files, not SQLite** (decided 2026-11-18, goes into ADR 0028):
+- Filters run on tasks in memory in both designs. The Tree view and topic counts need all tasks anyway, and a few thousand tasks filter in under 1 ms.
+- A new field is a struct field with `serde(default)`. SQLite needs a migration for each one.
+- Assets and the note are files in both designs. SQLite would add a second store to keep in step with the asset folders.
+- The app has no SQLite today (ADR 0010, amended by ADR 0021). The store pattern in `shared.rs` already exists to copy.
+- All file access stays in `tasks.rs`, so a later move to SQLite changes one module and is a one-time import of the JSON files.
+- Move to SQLite when one of these is needed: full-text search over bodies and notes, task history queries, custom user fields or saved views, or more than about 10,000 tasks.
 
 New `crates/harness-core/src/api/tasks.rs` (re-exported in `api/mod.rs`):
 
@@ -224,6 +232,7 @@ Each phase is one PR and ships alone. Every phase runs `bun run check:rust`, `bu
 - **Lexical round trip.** Markdown import followed by export may not give back the same text (escapes, nested lists). `PromptEditor` also has prompt-only behavior (slash menu keys, PR chips). Make sure `singleLine` and the new props do not change the prompt box.
 - **Missing UI primitives.** Checkbox, Calendar (adds `react-day-picker`) and maybe a context menu go into `@harness/ui` first. There is no library for drag to nest, so copy the pointer pattern.
 - **Concurrency.** If two windows edit the same body, the last write wins. The exception is the body and the note, which the `base_updated_ms` and `base_hash` checks protect.
+- **Multi-task writes are not atomic.** Delete moves children to the parent and writes one file per child. A crash in the middle leaves each file valid but the tree half changed. Write children first and the deleted task last, so a retry finishes the job.
 - **Seed size.** The origin transcript can be up to 24k chars. Show its size in the dialog, as `TranscriptSize` does for side threads.
 
 ## Unresolved questions
