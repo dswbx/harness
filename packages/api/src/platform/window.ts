@@ -76,8 +76,8 @@ export async function openWindow(
       ...(opts.overlayTitleBar && {
          titleBarStyle: "overlay" as const,
          hiddenTitle: true,
-         // 28 centers the lights in a 52px bar.
-         trafficLightPosition: new LogicalPosition(18, 28 - (52 - (opts.titleBarHeight ?? 52)) / 2),
+         // 28 centers the lights in a 52px bar; each px less moves them up a full px (measured at 44px: 20).
+         trafficLightPosition: new LogicalPosition(18, 28 - (52 - (opts.titleBarHeight ?? 52))),
       }),
    });
    w.once("tauri://error", (e) => console.error("window create failed", e));
