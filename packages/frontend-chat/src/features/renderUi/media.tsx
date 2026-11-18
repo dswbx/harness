@@ -1,7 +1,7 @@
 import { cn, Dialog, DialogContent, DialogTitle } from "@harness/ui";
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
-import { cachedImage } from "../../lib/imageCache";
+import { cachedImage, cachedImageNow } from "../../lib/imageCache";
 import { Env, type Renderers, runActions } from "./runtime";
 import { SourceView } from "./source";
 import type { UiAction } from "./tools";
@@ -16,10 +16,17 @@ function useImage(src: string): { url: string | null; failed: boolean } {
    const env = useContext(Env);
    const copy = env?.files[src];
    const read = env?.readImage;
-   const [state, setState] = useState<{ url: string | null; failed: boolean }>({
-      url: null,
+   const key = `${env?.scope ?? ""}:${copy}`;
+   // Read before: show it at once, so a remounted row keeps its height.
+   const [state, setState] = useState<{ url: string | null; failed: boolean }>(() => ({
+      url:
+         copy && read
+            ? (cachedImageNow(`ui:${key}`) ?? null)
+            : /^(https:|data:image\/)/.test(src)
+              ? src
+              : null,
       failed: false,
-   });
+   }));
    useEffect(() => {
       if (!copy || !read) {
          setState(
@@ -29,7 +36,6 @@ function useImage(src: string): { url: string | null; failed: boolean } {
          );
          return;
       }
-      const key = `${env?.scope ?? ""}:${copy}`;
       const p = cachedImage(`ui:${key}`, () => read(copy));
       let live = true;
       p.then(
@@ -39,7 +45,7 @@ function useImage(src: string): { url: string | null; failed: boolean } {
       return () => {
          live = false;
       };
-   }, [copy, read, src, env?.scope]);
+   }, [copy, read, src, key]);
    return state;
 }
 

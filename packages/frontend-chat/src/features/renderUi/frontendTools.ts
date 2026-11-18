@@ -15,7 +15,7 @@ export const frontendTools: {
    {
       name: VIEW_ARTIFACT,
       description:
-         "See an artifact as the user sees it, as a PNG image, to check your work: a diagram, table or render_ui item shown in this conversation, or Mermaid or HTML you pass here, which the user does not see. " +
+         "See an artifact as the user sees it, as a PNG image, to check your work (the PNG is for you only; never show it to the user, show the item itself): a diagram, table or render_ui item shown in this conversation, or Mermaid or HTML you pass here, which the user does not see. " +
          "Without arguments: the newest artifact. `id`: a render_ui id (see harness_info) or an artifact key. `kind`: the newest of that kind. " +
          "The result also has Mermaid syntax errors and the script errors of Html frames. Uses the app's current theme. The app window must be open.",
       schema: s.object({
@@ -33,7 +33,7 @@ export const frontendTools: {
       name: RENDER_UI,
       description:
          "Show rich, optionally interactive content to the user: cards, grids, lists, tables, charts, diffs, file links, timelines, traces, logs, images, stats, tabs, steppers, accordions, choices, checkboxes, inputs, buttons. " +
-         `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}, or "source" instead of "root": the name of a file you wrote in panels_dir (harness_info) that updates when you edit it; use it for panels you change often. A .md file shows as Markdown (<details>/<summary> work), a .html file as an Html node (same frame and bridge), a .json file as a tree: {"root": node}, the same root you would pass here (no local images; check errors in harness_info after edits). A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
+         `Input: {"root": node, "placement"?, "id"?, "title"?, "icon"?}, or "source" instead of "root": the name of a file you wrote in panels_dir (harness_info) that updates when you edit it; use it for any Html beyond a few lines and for items you will change. A .md file shows as Markdown (<details>/<summary> work), a .html file as an Html node (same frame and bridge), a .json file as a tree: {"root": node}, the same root you would pass here (no local images; check errors in harness_info after edits). A node is {"type", "props", "children"?, "on"?, "visible"?}; only ${andList(parents)} take children.\n` +
          "Placement: inline in the chat (default) or a live area: top, bottom, or a panel at the left or right (needs an id and a title, an icon is optional; right opens in the top right zone, left in the top left; the user can move it). " +
          'A call with the same id replaces that item; {"id", "remove": true} removes it.\n' +
          'Session State: any prop can be {"$state": "/path"}, {"$template": "Branch: ${/setup/branch}"} or {"$computed": "count", "args": {"values": {"$state": "/checks"}, "eq": true}} (also "length" and "sum") and updates when the state changes (change it with state_patch). ' +

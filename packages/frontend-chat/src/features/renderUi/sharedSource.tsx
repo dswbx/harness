@@ -1,6 +1,7 @@
 import type { SharedArtifactData, StatePatchOp } from "@harness/api";
 import { errText } from "@harness/api";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { lru } from "../../lib/lru";
 import { Markdown } from "../markdown/Markdown";
 import { runActions, type UiEnv, useEnv } from "./runtime";
 import type { RawNode, UiAction } from "./tools";
@@ -8,6 +9,9 @@ import { UiHtml } from "./UiHtml";
 
 /** A Shared Artifact as shown: null while it loads. */
 export type SharedShown = { data: SharedArtifactData } | { missing: true } | null;
+
+/** Last read of each artifact: rows the chat's virtual list remounts keep their height (no placeholder). */
+const lastRead = lru<SharedShown>({ maxEntries: 100, maxBytes: 16 * 1024 * 1024 });
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -39,15 +43,25 @@ export function useSharedArtifact(
    read: UiEnv["readShared"],
    watch: UiEnv["watchShared"],
 ): SharedShown {
-   const [shown, setShown] = useState<SharedShown>(null);
+   const [shown, setShown] = useState<SharedShown>(() => lastRead.get(id) ?? null);
    useEffect(() => {
       if (!read) return;
       let live = true;
-      setShown(null);
+      setShown(lastRead.get(id) ?? null);
       const load = () =>
          read(id).then(
-            (r) => live && setShown((s) => merge(s, r)),
-            () => live && setShown({ missing: true }),
+            (r) => {
+               if (!live) return;
+               setShown((s) => {
+                  const next = merge(s, r);
+                  lastRead.set(id, next, r.content.length);
+                  return next;
+               });
+            },
+            () => {
+               lastRead.delete(id);
+               if (live) setShown({ missing: true });
+            },
          );
       void load();
       const onFocus = () => void load();
