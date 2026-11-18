@@ -138,7 +138,9 @@
    pre {
       translate: 0 0;
    }
-   /* Controls inside selectable text stay out of a selection. */
+   /* Controls inside selectable text stay out of a selection, and so does a shell prompt (`$ ` of highlight.js
+      `console`), so a selection holds only the command. */
+   .hljs-meta.prompt_,
    button,
    summary,
    [role="button"],
