@@ -1240,6 +1240,43 @@ async fn harness_info_lists_shared_artifacts_and_deleting_a_session_detaches_it(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn task_commands_send_tasks_changed_with_the_changed_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = shared_harness(&dir.path().join("data"));
+    let a = create(&h, dir.path(), vec![]).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::TasksChanged { ids } = e {
+            s.lock().unwrap().push(ids.clone());
+        }
+        true
+    }));
+    let new_task = |title: &str, parent: Option<&str>, session: Option<&str>| Command::CreateTask {
+        title: title.into(),
+        body: None,
+        parent_id: parent.map(Into::into),
+        session_id: session.map(Into::into),
+        status: None,
+        priority: None,
+        due: None,
+        upstream: None,
+    };
+    let CommandResult::Task { task: topic } = h.execute(new_task("Topic", None, Some(&a))).await.unwrap() else { panic!() };
+    assert_eq!(topic.origin_session_id.as_deref(), Some(a.as_str()));
+    assert!(topic.origin_title.is_some(), "the origin title is cached");
+    let CommandResult::Task { task: child } = h.execute(new_task("Child", Some(&topic.id), None)).await.unwrap() else { panic!() };
+    h.execute(Command::DeleteTask { id: topic.id.clone() }).await.unwrap();
+    assert!(h.execute(Command::ReadTask { id: "t99".into() }).await.is_err());
+    let CommandResult::Tasks { tasks } = h.execute(Command::ListTasks).await.unwrap() else { panic!() };
+    assert_eq!(tasks.iter().map(|t| (t.id.as_str(), t.parent_id.as_deref())).collect::<Vec<_>>(), [(child.id.as_str(), None)]);
+    assert_eq!(*seen.lock().unwrap(), [vec![topic.id.clone()], vec![child.id.clone()], vec![topic.id.clone(), child.id.clone()]]);
+    // A deleted Session cannot be an origin.
+    h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
+    assert!(h.execute(new_task("Gone", None, Some(&a))).await.is_err(), "an unknown Session");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_watcher_reports_shared_artifact_changes() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");

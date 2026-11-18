@@ -134,6 +134,7 @@ impl Harness {
             prompts_dir: data_dir.join("prompts"),
             pr_refs: Default::default(),
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
+            tasks: crate::tasks::Tasks::open(data_dir.join(crate::tasks::DIR))?,
             host: Default::default(),
             notices: Default::default(),
             closing: Default::default(),
@@ -225,6 +226,10 @@ impl Harness {
         if self.shared.artifacts.forget_session(session_id) {
             self.shared.app_events.emit(AppEvent::SharedArtifactsChanged);
         }
+        let ids = self.shared.tasks.forget_session(session_id);
+        if !ids.is_empty() {
+            self.shared.app_events.emit(AppEvent::TasksChanged { ids });
+        }
         self.shared.policy.forget_session(session_id)
     }
 
@@ -309,7 +314,25 @@ impl Harness {
             Command::RenameSharedArtifact { id, .. } | Command::DeleteSharedArtifact { id } | Command::PatchArtifactState { id, .. } => Some(id.clone()),
             _ => None,
         };
+        // Tasks the Command changes, known before it runs (`CreateTask` adds its new id after).
+        let tasks = match &cmd {
+            Command::CreateTask { .. } => Some(Vec::new()),
+            Command::UpdateTask { id, .. } | Command::MoveTask { id, .. } | Command::AddTaskAssets { id, .. } | Command::RemoveTaskAsset { id, .. } => {
+                Some(vec![id.clone()])
+            }
+            // Its children move to its parent.
+            Command::DeleteTask { id } => Some(std::iter::once(id.clone()).chain(self.shared.tasks.children_ids(id)).collect()),
+            _ => None,
+        };
         let result = self.execute_inner(cmd).await.map_err(HarnessError::from);
+        if let (Ok(r), Some(mut ids)) = (&result, tasks) {
+            if let CommandResult::Task { task } = r
+                && !ids.contains(&task.id)
+            {
+                ids.push(task.id.clone());
+            }
+            self.shared.app_events.emit(AppEvent::TasksChanged { ids });
+        }
         if let (Ok(_), Some(event)) = (&result, changes) {
             self.shared.app_events.emit(event);
         }
@@ -448,6 +471,17 @@ impl Harness {
             Command::DeleteSharedArtifact { id } => self.cmd_delete_shared_artifact(id).await,
             Command::OpenSharedInEditor { id } => self.cmd_open_shared_in_editor(id).await,
             Command::PatchArtifactState { id, ops, session_id } => self.cmd_patch_artifact_state(id, ops, session_id),
+            Command::ListTasks => self.cmd_list_tasks(),
+            Command::ReadTask { id } => self.cmd_read_task(id),
+            Command::CreateTask { title, body, parent_id, session_id, status, priority, due, upstream } => {
+                self.cmd_create_task(title, body, parent_id, session_id, status, priority, due, upstream)
+            }
+            Command::UpdateTask { id, patch, base_updated_ms } => self.cmd_update_task(id, patch, base_updated_ms),
+            Command::MoveTask { id, parent_id, before } => self.cmd_move_task(id, parent_id, before),
+            Command::DeleteTask { id } => self.cmd_delete_task(id),
+            Command::AddTaskAssets { id, files } => self.cmd_add_task_assets(id, files).await,
+            Command::RemoveTaskAsset { id, name } => self.cmd_remove_task_asset(id, name),
+            Command::ReadTaskAsset { id, name } => self.cmd_read_task_asset(id, name).await,
         }
     }
 

@@ -17,6 +17,7 @@ mod rules;
 mod session;
 mod settings;
 mod shared;
+mod tasks;
 
 pub use agents::*;
 pub use app_event::*;
@@ -31,6 +32,7 @@ pub use rules::*;
 pub use session::*;
 pub use settings::*;
 pub use shared::*;
+pub use tasks::*;
 
 pub(crate) use event::option_values;
 

@@ -123,6 +123,38 @@ exports[`HarnessClient wire shape > sends these Commands 1`] = `
     "rule_id": "r",
     "type": "RemovePermissionRule",
   },
+  {
+    "type": "ListTasks",
+  },
+  {
+    "body": null,
+    "due": "2026-12-01",
+    "parent_id": "t1",
+    "priority": null,
+    "session_id": null,
+    "status": null,
+    "title": "T",
+    "type": "CreateTask",
+    "upstream": null,
+  },
+  {
+    "base_updated_ms": 5,
+    "id": "t1",
+    "patch": {
+      "body": "b",
+    },
+    "type": "UpdateTask",
+  },
+  {
+    "before": "t3",
+    "id": "t2",
+    "parent_id": "t1",
+    "type": "MoveTask",
+  },
+  {
+    "id": "t1",
+    "type": "DeleteTask",
+  },
 ]
 `;
 
@@ -137,6 +169,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "side": null,
       "text": "t",
       "type": "AddComment",
+    },
+  ],
+  "addTaskAssets": [
+    {
+      "files": [],
+      "id": "t1",
+      "type": "AddTaskAssets",
     },
   ],
   "answerFrontendRequest": [
@@ -192,6 +231,19 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ContinueWithSummary",
     },
   ],
+  "createTask": [
+    {
+      "body": null,
+      "due": null,
+      "parent_id": null,
+      "priority": null,
+      "session_id": "s1",
+      "status": null,
+      "title": "T",
+      "type": "CreateTask",
+      "upstream": null,
+    },
+  ],
   "delete": [
     {
       "force": false,
@@ -204,6 +256,12 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "id": "c1",
       "session_id": "s1",
       "type": "DeleteComment",
+    },
+  ],
+  "deleteTask": [
+    {
+      "id": "t1",
+      "type": "DeleteTask",
     },
   ],
   "detachShared": [
@@ -323,6 +381,11 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ListSharedArtifacts",
     },
   ],
+  "listTasks": [
+    {
+      "type": "ListTasks",
+    },
+  ],
   "lookupPrs": [
     {
       "refs": [
@@ -336,6 +399,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       ],
       "session_id": "s1",
       "type": "LookupPrs",
+    },
+  ],
+  "moveTask": [
+    {
+      "before": null,
+      "id": "t1",
+      "parent_id": null,
+      "type": "MoveTask",
     },
   ],
   "openAuthTerminal": [
@@ -421,6 +492,26 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
     {
       "id": "a",
       "type": "SharedArtifactRead",
+    },
+  ],
+  "readTask": [
+    {
+      "id": "t1",
+      "type": "ReadTask",
+    },
+  ],
+  "readTaskAsset": [
+    {
+      "id": "t1",
+      "name": "a.txt",
+      "type": "ReadTaskAsset",
+    },
+  ],
+  "removeTaskAsset": [
+    {
+      "id": "t1",
+      "name": "a.txt",
+      "type": "RemoveTaskAsset",
     },
   ],
   "reportFrontendError": [
@@ -556,6 +647,16 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
     {
       "session_id": "s1",
       "type": "UnarchiveSession",
+    },
+  ],
+  "updateTask": [
+    {
+      "base_updated_ms": null,
+      "id": "t1",
+      "patch": {
+        "status": "done",
+      },
+      "type": "UpdateTask",
     },
   ],
   "warmUp": [

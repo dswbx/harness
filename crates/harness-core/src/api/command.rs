@@ -524,6 +524,66 @@ pub enum Command {
         #[serde(default)]
         session_id: Option<SessionId>,
     },
+    /// All Tasks (ADR 0028), oldest first.
+    ListTasks,
+    ReadTask {
+        id: String,
+    },
+    /// A new Task, last among its siblings. With `session_id`, that Session is its origin.
+    CreateTask {
+        title: String,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        parent_id: Option<String>,
+        #[serde(default)]
+        session_id: Option<SessionId>,
+        #[serde(default)]
+        status: Option<TaskStatus>,
+        #[serde(default)]
+        priority: Option<TaskPriority>,
+        /// `YYYY-MM-DD`.
+        #[serde(default)]
+        due: Option<String>,
+        #[serde(default)]
+        upstream: Option<TaskUpstream>,
+    },
+    /// Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
+    /// `base_updated_ms` (the `updated_ms` the editor loaded).
+    UpdateTask {
+        id: String,
+        patch: TaskPatch,
+        #[serde(default)]
+        #[specta(type = Option<specta_typescript::Number>)]
+        base_updated_ms: Option<i64>,
+    },
+    /// Puts a Task under `parent_id` (`None`: top level), before its sibling `before` (`None`: last).
+    /// Refuses the Task itself or one of its descendants as the parent.
+    MoveTask {
+        id: String,
+        #[serde(default)]
+        parent_id: Option<String>,
+        #[serde(default)]
+        before: Option<String>,
+    },
+    /// Deletes a Task; its children move to its parent.
+    DeleteTask {
+        id: String,
+    },
+    /// Copies files into the Task's `files/`.
+    AddTaskAssets {
+        id: String,
+        files: Vec<AttachmentInput>,
+    },
+    RemoveTaskAsset {
+        id: String,
+        name: String,
+    },
+    /// A Task asset (base64), as `ReadAttachment`.
+    ReadTaskAsset {
+        id: String,
+        name: String,
+    },
 }
 
 /// One Session State patch operation (lenient JSON Patch, see `state.rs`).

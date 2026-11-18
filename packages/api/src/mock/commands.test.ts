@@ -156,6 +156,19 @@ const table: Record<Command["type"], () => Command> = {
    DeleteComment: () => ({ type: "DeleteComment", session_id: S, id: "c1" }),
    ResolveComment: () => ({ type: "ResolveComment", session_id: S, id: "c1" }),
    PatchArtifactState: () => ({ type: "PatchArtifactState", id: ART, ops: [] }),
+   ListTasks: () => ({ type: "ListTasks" }),
+   ReadTask: () => ({ type: "ReadTask", id: "t1" }),
+   CreateTask: () => ({ type: "CreateTask", title: "New", session_id: S }),
+   UpdateTask: () => ({ type: "UpdateTask", id: "t1", patch: { status: "done" } }),
+   MoveTask: () => ({ type: "MoveTask", id: "t8", parent_id: "t1" }),
+   DeleteTask: () => ({ type: "DeleteTask", id: "t5" }),
+   AddTaskAssets: () => ({
+      type: "AddTaskAssets",
+      id: "t1",
+      files: [{ type: "data", name: "a.txt", mime: "text/plain", data: "eA==" }],
+   }),
+   RemoveTaskAsset: () => ({ type: "RemoveTaskAsset", id: "t1", name: "a.txt" }),
+   ReadTaskAsset: () => ({ type: "ReadTaskAsset", id: "t1", name: "a.txt" }),
 };
 
 describe("MockTransport handles every Command", () => {

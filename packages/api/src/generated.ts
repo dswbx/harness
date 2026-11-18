@@ -53,6 +53,11 @@ unseen: boolean } |
 /**  Shared Artifacts were added, removed, renamed, attached or detached: reload the list. */
 { type: "SharedArtifactsChanged" } | 
 /**
+ *  Tasks were created, changed, moved, deleted or linked: reload the list and re-read the open
+ *  ones among `ids`. Live only, not logged.
+ */
+{ type: "TasksChanged"; ids: string[] } | 
+/**
  *  A Session's Log could not be written (`error`: why) or can be again (`error` null). While
  *  it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
  *  Live only, not logged. Also `SessionSummary::log_error`.
@@ -404,7 +409,29 @@ origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; i
  *  Changes a Shared Artifact's state as the user. With `session_id`, that Session logs
  *  `ArtifactStateChanged`; without, nothing is logged (the no-Session view).
  */
-{ type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null };
+{ type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null } | 
+/**  All Tasks (ADR 0028), oldest first. */
+{ type: "ListTasks" } | { type: "ReadTask"; id: string } | 
+/**  A new Task, last among its siblings. With `session_id`, that Session is its origin. */
+{ type: "CreateTask"; title: string; body?: string | null; parent_id?: string | null; session_id?: string | null; status?: TaskStatus | null; priority?: TaskPriority | null; 
+/**  `YYYY-MM-DD`. */
+due?: string | null; upstream?: TaskUpstream | null } | 
+/**
+ *  Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
+ *  `base_updated_ms` (the `updated_ms` the editor loaded).
+ */
+{ type: "UpdateTask"; id: string; patch: TaskPatch; base_updated_ms?: number | null } | 
+/**
+ *  Puts a Task under `parent_id` (`None`: top level), before its sibling `before` (`None`: last).
+ *  Refuses the Task itself or one of its descendants as the parent.
+ */
+{ type: "MoveTask"; id: string; parent_id?: string | null; before?: string | null } | 
+/**  Deletes a Task; its children move to its parent. */
+{ type: "DeleteTask"; id: string } | 
+/**  Copies files into the Task's `files/`. */
+{ type: "AddTaskAssets"; id: string; files: AttachmentInput[] } | { type: "RemoveTaskAsset"; id: string; name: string } | 
+/**  A Task asset (base64), as `ReadAttachment`. */
+{ type: "ReadTaskAsset"; id: string; name: string };
 
 export type CommandResult = { type: "Ok" } | 
 /**  `AddComment`. */
@@ -446,7 +473,7 @@ export type CommandResult = { type: "Ok" } |
  */
 { type: "SharedArtifact"; meta: SharedArtifactMeta; content: string; hash: string; mtime_ms: number; state: unknown; 
 /**  The artifact's folder (absolute). */
-dir: string };
+dir: string } | { type: "Tasks"; tasks: TaskSummary[] } | { type: "Task"; task: Task };
 
 /**  The side of a diff a comment is on. */
 export type CommentSide = "old" | "new";
@@ -1171,10 +1198,113 @@ export type SubagentInfo = {
 	model?: string | null,
 };
 
+/**  `tasks/<id>/task.json` (`v: 1`). Fields added later take `serde(default)`; there are no migrations. */
+export type Task = {
+	v: number,
+	/**  `t<n>`; never changes. */
+	id: string,
+	/**  One line of Markdown. */
+	title: string,
+	/**  Markdown. */
+	body: string,
+	status: TaskStatus,
+	priority: TaskPriority,
+	/**  `YYYY-MM-DD`, a local date. */
+	due: string | null,
+	upstream: TaskUpstream | null,
+	parent_id: string | null,
+	/**  Position among its siblings (ascending). */
+	order: number,
+	/**  The Session it was created in; kept after that Session is deleted. */
+	origin_session_id: string | null,
+	/**  The origin Session's title when the task was created. */
+	origin_title: string | null,
+	sessions: TaskSessionLink[],
+	assets: TaskAsset[],
+	created_ms: number,
+	/**  Last change of any field. */
+	updated_ms: number,
+	/**  Last change of `body`: `UpdateTask` checks `base_updated_ms` against it. */
+	body_updated_ms: number,
+	/**  The last 100 entries, oldest first. */
+	activity: TaskActivity[],
+};
+
+export type TaskActivity = {
+	at_ms: number,
+	by: StateWriter,
+	/**  The Session it happened in, if any. */
+	session_id: string | null,
+	kind: TaskActivityKind,
+};
+
+export type TaskActivityKind = { type: "created" } | 
+/**  The parent changed (`None`: no parent). */
+{ type: "moved"; from: string | null; to: string | null } | { type: "status_changed"; from: TaskStatus; to: TaskStatus } | { type: "session_started"; session_id: string };
+
+/**  A file in the task's `files/` folder; `name` is its file name there. */
+export type TaskAsset = {
+	name: string,
+	mime: string,
+	size: number,
+};
+
 export type TaskEntry = {
 	content: string,
 	priority: string,
 	status: string,
+};
+
+/**  A field `TaskPatch::clear` sets to none. */
+export type TaskField = "due" | "upstream";
+
+/**  The fields `UpdateTask` changes; a missing field stays. The parent changes with `MoveTask`. */
+export type TaskPatch = {
+	title?: string | null,
+	body?: string | null,
+	status?: TaskStatus | null,
+	priority?: TaskPriority | null,
+	/**  `YYYY-MM-DD`. */
+	due?: string | null,
+	upstream?: TaskUpstream | null,
+	/**  Fields set to none (applied before the values above). */
+	clear?: TaskField[],
+};
+
+export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
+
+/**  A Session started from the task. `title` is cached for when the Session is gone. */
+export type TaskSessionLink = {
+	session_id: string,
+	title: string,
+	started_ms: number,
+};
+
+export type TaskStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "blocked" | "cancelled";
+
+/**  One row of `ListTasks`: a `Task` without `body` and `activity`. */
+export type TaskSummary = {
+	id: string,
+	title: string,
+	has_body: boolean,
+	status: TaskStatus,
+	priority: TaskPriority,
+	due: string | null,
+	upstream: TaskUpstream | null,
+	parent_id: string | null,
+	order: number,
+	origin_session_id: string | null,
+	origin_title: string | null,
+	sessions: TaskSessionLink[],
+	assets: TaskAsset[],
+	created_ms: number,
+	updated_ms: number,
+};
+
+/**  The task's item in another tracker (Linear, GitHub, ...). */
+export type TaskUpstream = {
+	url: string,
+	label?: string | null,
 };
 
 /**  One Terminal tab of a Session (ADR 0017). */

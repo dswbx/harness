@@ -168,4 +168,10 @@ pub enum CommandResult {
         /// The artifact's folder (absolute).
         dir: String,
     },
+    Tasks {
+        tasks: Vec<TaskSummary>,
+    },
+    Task {
+        task: Task,
+    },
 }

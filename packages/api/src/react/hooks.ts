@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionApi } from "../client/client";
 import { type GitStatusSnapshot, gitStatusStore } from "../client/gitStatusStore";
-import type { Event, PrRefKey, SharedArtifactEntry } from "../generated";
+import type { Event, PrRefKey, SharedArtifactEntry, TaskSummary } from "../generated";
 import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
 import type { Unsubscribe } from "../transport/transport";
@@ -90,6 +90,35 @@ export function useSharedArtifacts(source: SharedListSource): SharedArtifactEntr
          );
       void load();
       const off = source.onListChanged(() => void load());
+      return () => {
+         live = false;
+         void off.then((f) => f());
+      };
+   }, [source]);
+   return list;
+}
+
+/** Where `useTasks` reads from: a `SessionApi` or a `HarnessClient`'s functions. */
+export type TaskListSource = {
+   list: () => Promise<TaskSummary[]>;
+   onChanged: (onChange: (ids: string[]) => void) => Promise<Unsubscribe>;
+};
+
+/**
+ * All Tasks (ADR 0028), oldest first (null while loading). Loaded once and again on each
+ * `TasksChanged`. `source` must be stable (memoize it).
+ */
+export function useTasks(source: TaskListSource): TaskSummary[] | null {
+   const [list, setList] = useState<TaskSummary[] | null>(null);
+   useEffect(() => {
+      let live = true;
+      const load = () =>
+         source.list().then(
+            (l) => live && setList(l),
+            (e) => console.error("list tasks failed", e),
+         );
+      void load();
+      const off = source.onChanged(() => void load());
       return () => {
          live = false;
          void off.then((f) => f());

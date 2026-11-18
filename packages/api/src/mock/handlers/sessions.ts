@@ -3,6 +3,7 @@ import type { WorkspaceInfo } from "../../generated";
 import { MOCK_PRS } from "../fixtures/branches";
 import type { MockTransport } from "../mock";
 import { MOCK_NEW } from "../mockRepo";
+import { forgetSessionTasks } from "./tasks";
 import type { Handlers } from "./types";
 
 /** Like `Session::archive`/`unarchive`: logs the change, and refuses a no-op with `conflict`. */
@@ -143,6 +144,8 @@ export const sessionsHandlers = {
       }
       mock.emitApp({ type: "SessionsChanged" });
       if (detached) mock.emitApp({ type: "SharedArtifactsChanged" });
+      const unlinked = forgetSessionTasks(mock, cmd.session_id);
+      if (unlinked.length) mock.emitApp({ type: "TasksChanged", ids: unlinked });
       return { type: "Ok" };
    },
    ListSessionFiles: () => {

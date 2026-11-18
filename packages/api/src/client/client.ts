@@ -1,3 +1,4 @@
 export { HarnessClient } from "./app";
 export { createSessionApi, type SessionApi } from "./session";
 export type { SharedArtifactData } from "./shared";
+export type { NewTask } from "./tasks";
