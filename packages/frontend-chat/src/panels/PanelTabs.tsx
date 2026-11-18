@@ -89,7 +89,7 @@ export function PanelTabs<Id extends string | number = string>({
             role="tablist"
             aria-label={label}
             // Out to the header's left edge (its `pl-2.5`), with the same padding inside.
-            className="-ml-2.5 flex min-w-0 items-center gap-1 self-stretch overflow-x-auto pl-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="-ml-2.5 flex min-w-0 items-center gap-1 self-stretch overflow-x-auto overscroll-x-none pl-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onWheel={(e) => {
                const el = e.currentTarget;
                if (e.deltaX === 0 && e.deltaY !== 0 && el.scrollWidth > el.clientWidth)
