@@ -118,6 +118,7 @@ function turnEnded(
          thread_id: thread,
          title: s.title,
          stop_reason: "end_turn",
+         main: thread === mock.mainThread(sid),
       });
    // Like the core, after `TurnFinished`: a Main Thread Turn that ended marks the Session unseen.
    if (s && thread === mock.mainThread(sid) && !s.unseen) {

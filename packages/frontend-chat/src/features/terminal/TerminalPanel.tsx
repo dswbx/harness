@@ -17,6 +17,7 @@ import { Check, ChevronDown, Plus, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { PanelHeader } from "../../panels/PanelHeader";
+import { type PanelTab, PanelTabs } from "../../panels/PanelTabs";
 import { onOptionIsMetaChange, readOptionIsMeta } from "./terminalOptions";
 
 /** Acknowledge drawn output in batches of this size, or after `ACK_DELAY` (core flow control, ADR 0017). */
@@ -398,93 +399,73 @@ export default function TerminalPanel({ api, active }: { api: SessionApi; active
       </>
    );
 
+   const newTerminal = (
+      <Tooltip content="New terminal (Cmd+T)" side="bottom">
+         <Button
+            size="icon"
+            variant="ghost"
+            className="size-7 shrink-0"
+            aria-label="New terminal"
+            onClick={open}
+         >
+            <Plus />
+         </Button>
+      </Tooltip>
+   );
+
    return (
       <>
-         <PanelHeader className="pl-1.5">
+         <PanelHeader>
             {narrow ? (
-               <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                     <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 min-w-0 gap-1 px-2 text-xs data-[state=open]:bg-accent"
-                        aria-label="Terminals"
-                     >
-                        {tabs.some((t) => t.id !== cur && unread.has(t.id)) && (
-                           <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                        )}
-                        <span className="truncate">
-                           {tabs[index]
-                              ? `${tabs[index].title} ${index + 1}/${tabs.length}`
-                              : "Terminal"}
-                        </span>
-                        <ChevronDown className="shrink-0" />
-                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-48">
-                     {tabs.map((t) => (
-                        <DropdownMenuItem key={t.id} onSelect={() => setSel(t.id)}>
-                           <span className="truncate">{t.title}</span>
-                           {dots(t)}
-                           {t.id === cur && <Check className="ml-auto" />}
-                        </DropdownMenuItem>
-                     ))}
-                     <DropdownMenuSeparator />
-                     <DropdownMenuItem onSelect={() => cur != null && close(cur)}>
-                        <X /> Close terminal
-                     </DropdownMenuItem>
-                  </DropdownMenuContent>
-               </DropdownMenu>
-            ) : (
-               <div
-                  role="tablist"
-                  aria-label="Terminals"
-                  className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
-               >
-                  {tabs.map((t) => (
-                     <div
-                        key={t.id}
-                        className={cn(
-                           "group flex h-7 shrink-0 items-center rounded-md text-xs",
-                           t.id === cur
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:bg-accent/50",
-                        )}
-                     >
-                        <button
-                           role="tab"
-                           aria-selected={t.id === cur}
-                           className="flex h-full max-w-32 items-center gap-1.5 pr-1 pl-2"
-                           onClick={() => setSel(t.id)}
+               <>
+                  <DropdownMenu>
+                     <DropdownMenuTrigger asChild>
+                        <Button
+                           variant="ghost"
+                           size="sm"
+                           className="h-7 min-w-0 gap-1 px-2 text-xs data-[state=open]:bg-accent"
+                           aria-label="Terminals"
                         >
-                           {dots(t)}
-                           <span className="truncate">{t.title}</span>
-                        </button>
-                        <button
-                           aria-label={`Close ${t.title}`}
-                           className={cn(
-                              "mr-1 flex size-4 items-center justify-center rounded hover:bg-foreground/10",
-                              t.id !== cur && "opacity-0 group-hover:opacity-100",
+                           {tabs.some((t) => t.id !== cur && unread.has(t.id)) && (
+                              <span className="size-1.5 shrink-0 rounded-full bg-primary" />
                            )}
-                           onClick={() => close(t.id)}
-                        >
-                           <X className="size-3" />
-                        </button>
-                     </div>
-                  ))}
-               </div>
-            )}
-            <Tooltip content="New terminal (Cmd+T)" side="bottom">
-               <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 shrink-0"
-                  aria-label="New terminal"
-                  onClick={open}
+                           <span className="truncate">
+                              {tabs[index]
+                                 ? `${tabs[index].title} ${index + 1}/${tabs.length}`
+                                 : "Terminal"}
+                           </span>
+                           <ChevronDown className="shrink-0" />
+                        </Button>
+                     </DropdownMenuTrigger>
+                     <DropdownMenuContent align="start" className="w-48">
+                        {tabs.map((t) => (
+                           <DropdownMenuItem key={t.id} onSelect={() => setSel(t.id)}>
+                              <span className="truncate">{t.title}</span>
+                              {dots(t)}
+                              {t.id === cur && <Check className="ml-auto" />}
+                           </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => cur != null && close(cur)}>
+                           <X /> Close terminal
+                        </DropdownMenuItem>
+                     </DropdownMenuContent>
+                  </DropdownMenu>
+                  {newTerminal}
+               </>
+            ) : (
+               <PanelTabs
+                  label="Terminals"
+                  tabs={tabs.map(
+                     (t): PanelTab<number> => ({ id: t.id, name: t.title, after: dots(t) }),
+                  )}
+                  active={cur}
+                  onSelect={setSel}
+                  onClose={close}
                >
-                  <Plus />
-               </Button>
-            </Tooltip>
+                  {newTerminal}
+               </PanelTabs>
+            )}
             <div className="flex-1" />
             <Tooltip content="Restart shell" side="bottom">
                <Button

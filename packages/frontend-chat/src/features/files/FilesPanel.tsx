@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
+import { type PanelTab, PanelTabs } from "../../panels/PanelTabs";
 import { CommentCount } from "../changes/DiffViewer";
 import { dirRowKey, FileTreeList, fileRowKey, navRow } from "../fileTree/FileTreeList";
 import { ancestorKeys, fileTree, folderStatus } from "../fileTree/fileTree";
@@ -41,7 +42,6 @@ import { setWrapCode, useWrapCode } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
 import { activeCommentsOn, fileViewComments } from "../review/reviewComments";
 import { useLineComments } from "../review/useLineComments";
-import { FileTabStrip } from "./FileTabStrip";
 import { FileView, type LineRange } from "./FileView";
 import {
    closeTab,
@@ -403,19 +403,31 @@ export function FilesPanel({
          titleBarHeight: 44,
       });
    const tabStrip = (
-      <FileTabStrip
-         tabs={tabs}
-         active={selected}
-         dragRegion={popout}
-         onShow={(path) => {
-            setSelected(path);
-            setRange(null);
-            setCursor(null);
-         }}
-         onPin={(path) => select(path, true)}
-         onClose={close}
-         onMove={(path, to) => setTabs((t) => moveTab(t, path, to))}
-      />
+      <>
+         <PanelTabs
+            label="Open files"
+            dragRegion={popout}
+            tabs={tabs.map(
+               (t): PanelTab => ({
+                  id: t.path,
+                  name: t.path.slice(t.path.lastIndexOf("/") + 1),
+                  ariaLabel: t.pinned ? t.path : `${t.path} (preview)`,
+                  labelClassName: t.pinned ? undefined : "italic",
+                  onDoubleClick: () => select(t.path, true),
+               }),
+            )}
+            active={selected}
+            onSelect={(path) => {
+               setSelected(path);
+               setRange(null);
+               setCursor(null);
+            }}
+            onClose={close}
+            onMove={(path, before) => setTabs((t) => moveTab(t, path, before))}
+         />
+         {/* PanelTabs takes only its tabs' room: the rest pushes the buttons right (and drags a window). */}
+         <div className="flex-1 self-stretch" data-tauri-drag-region={popout || undefined} />
+      </>
    );
    const refreshButton = (
       <HeaderButton label="Refresh" onClick={() => setTick((t) => t + 1)}>
@@ -445,7 +457,7 @@ export function FilesPanel({
                className={cn(
                   "flex h-11 shrink-0 items-center gap-1 border-b pr-2",
                   // Room for the traffic lights (overlay title bar).
-                  inTauri() ? "pl-[92px]" : "pl-2",
+                  inTauri() ? "pl-[92px]" : "pl-2.5",
                )}
             >
                {tabStrip}

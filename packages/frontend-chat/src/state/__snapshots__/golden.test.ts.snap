@@ -824,8 +824,10 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   "taskListTurn": null,
   "threadList": [
     {
+      "agentTitle": "Create hello.txt containing 'hi' using a shell command, then reply with one short sentence. Use a task list.",
       "forkedFrom": null,
       "id": "01a177f4-7827-73dc-a5c5-47fc180ce57e",
+      "lastAt": 1793013875615,
       "main": true,
       "title": "Create hello.txt containing 'hi' using a shell…",
       "turns": 1,
@@ -833,6 +835,7 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   ],
   "threads": {},
   "title": "Create hello.txt containing 'hi' using a shell command, then reply with one short sentence. Use a task list.",
+  "turnEndedAt": 1793013890997,
   "turnId": null,
   "turnStartedAt": null,
   "uiState": {},
@@ -1153,19 +1156,23 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
   "taskListTurn": null,
   "threadList": [
     {
+      "agentTitle": "Add a greeting",
       "forkedFrom": null,
       "id": "golden-thread-main",
+      "lastAt": 1790000005206,
       "main": true,
-      "title": "Add a greeting to main.rs",
+      "title": "Add a greeting",
       "turns": 2,
     },
     {
+      "agentTitle": null,
       "forkedFrom": {
         "seq": 24,
         "thread_id": "golden-thread-main",
         "turn": 1,
       },
       "id": "golden-thread-side",
+      "lastAt": 1790000004795,
       "main": false,
       "title": "btw, what does println do?",
       "turns": 1,
@@ -1227,6 +1234,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "threadList": [],
       "threads": {},
       "title": null,
+      "turnEndedAt": 1790000005069,
       "turnId": null,
       "turnStartedAt": null,
       "uiState": {},
@@ -1234,6 +1242,7 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
     },
   },
   "title": "Add a greeting",
+  "turnEndedAt": 1790000003425,
   "turnId": null,
   "turnStartedAt": null,
   "uiState": {
@@ -1642,8 +1651,10 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
   "taskListTurn": null,
   "threadList": [
     {
+      "agentTitle": null,
       "forkedFrom": null,
       "id": "golden-thread-main",
+      "lastAt": 1790000014110,
       "main": true,
       "title": "Review the change, run the tests in the backgro…",
       "turns": 3,
@@ -1651,6 +1662,7 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
   ],
   "threads": {},
   "title": null,
+  "turnEndedAt": 1790000013973,
   "turnId": null,
   "turnStartedAt": null,
   "uiState": {},
@@ -1784,8 +1796,10 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
   "taskListTurn": null,
   "threadList": [
     {
+      "agentTitle": null,
       "forkedFrom": null,
       "id": "golden-thread-main",
+      "lastAt": 1790000000274,
       "main": true,
       "title": "Make the release checklist shared",
       "turns": 1,
@@ -1793,6 +1807,7 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
   ],
   "threads": {},
   "title": null,
+  "turnEndedAt": 1790000000959,
   "turnId": null,
   "turnStartedAt": null,
   "uiState": {},

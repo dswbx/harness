@@ -244,6 +244,8 @@ export type ChatState = {
    turnId: string | null;
    /** ms epoch the running Turn started. */
    turnStartedAt: number | null;
+   /** ms epoch the last Turn ended, unless the user stopped it (nothing new to see then). */
+   turnEndedAt: number | null;
    mainThreadId: string | null;
    taskList: TaskEntry[];
    /**

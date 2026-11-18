@@ -20,8 +20,8 @@ pub enum AppEvent {
         /// As `SessionSummary::unseen`.
         unseen: bool,
     },
-    /// A Turn ended (`stop_reason` as in `TurnEnded`).
-    TurnFinished { session_id: SessionId, thread_id: ThreadId, title: String, stop_reason: String },
+    /// A Turn ended (`stop_reason` as in `TurnEnded`). `main`: true for the Main Thread, false for a Side Thread.
+    TurnFinished { session_id: SessionId, thread_id: ThreadId, title: String, stop_reason: String, main: bool },
     /// Agents were installed, updated or removed.
     AgentsChanged,
     /// A Session's Terminal tabs opened, closed, or a shell started or ended: re-list them.
