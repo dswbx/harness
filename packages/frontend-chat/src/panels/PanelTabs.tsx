@@ -1,6 +1,11 @@
 import { cn } from "@harness/ui";
 import { X } from "lucide-react";
-import { type ReactNode, type PointerEvent as ReactPointerEvent, useRef } from "react";
+import {
+   type ReactNode,
+   type PointerEvent as ReactPointerEvent,
+   useLayoutEffect,
+   useRef,
+} from "react";
 
 /** How far the pointer moves before a press on a tab becomes a drag. */
 const DRAG_PX = 4;
@@ -52,6 +57,32 @@ export function PanelTabs<Id extends string | number = string>({
    /** A drag just ended: the click that follows it is not a click on the tab. */
    const dragged = useRef(false);
 
+   // The active tab shows in full: when it changes, and when any tab or the strip changes size (a title
+   // arriving, a status dot coming or going, the panel resized). Only the strip scrolls, never the panel.
+   const order = tabs.map((t) => t.id).join("\n");
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `order`: a tab added or moved shifts the active one.
+   useLayoutEffect(() => {
+      const s = strip.current;
+      const tab =
+         active === null
+            ? null
+            : s?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(String(active))}"]`);
+      if (!s || !tab) return;
+      const reveal = () => {
+         const pad = Number.parseFloat(getComputedStyle(s).paddingLeft) || 0;
+         // The strip is the tab's offset parent (`relative`): its own content coordinates.
+         const left = tab.offsetLeft;
+         const right = left + tab.offsetWidth;
+         if (left - pad < s.scrollLeft) s.scrollLeft = left - pad;
+         else if (right > s.scrollLeft + s.clientWidth) s.scrollLeft = right - s.clientWidth;
+      };
+      reveal();
+      const ro = new ResizeObserver(reveal);
+      ro.observe(s);
+      for (const el of s.querySelectorAll("[data-tab]")) ro.observe(el);
+      return () => ro.disconnect();
+   }, [active, order]);
+
    const press = (e: ReactPointerEvent, id: Id) => {
       if (!onMove || e.button !== 0 || (e.target as Element).closest("[data-tab-close]")) return;
       // The panel header would start dragging the whole panel.
@@ -89,7 +120,7 @@ export function PanelTabs<Id extends string | number = string>({
             role="tablist"
             aria-label={label}
             // Out to the header's left edge (its `pl-2.5`), with the same padding inside.
-            className="-ml-2.5 flex min-w-0 items-center gap-1 self-stretch overflow-x-auto overscroll-x-none pl-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="relative -ml-2.5 flex min-w-0 items-center gap-1 self-stretch overflow-x-auto overscroll-x-none pl-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onWheel={(e) => {
                const el = e.currentTarget;
                if (e.deltaX === 0 && e.deltaY !== 0 && el.scrollWidth > el.clientWidth)
@@ -118,7 +149,6 @@ export function PanelTabs<Id extends string | number = string>({
                         aria-selected={on}
                         aria-label={t.ariaLabel}
                         className={cn("min-w-0 truncate", t.labelClassName)}
-                        ref={on ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                         onClick={() => {
                            if (dragged.current) dragged.current = false;
                            else if (!on) onSelect(t.id);
