@@ -41,7 +41,30 @@ export function pickTarget(targets: TargetRects[], point: DropPoint | undefined)
    return targets.length ? 0 : -1;
 }
 
+/** An element other than a prompt box that takes files dropped on it (a task, the Session note). */
+export type DropZone = {
+   el: () => HTMLElement | null;
+   /** The drag is over this zone. */
+   over: (on: boolean) => void;
+   drop: (paths: string[]) => void;
+};
+
+/**
+ * Which zone takes a drop on `hit` (the element under the pointer): the innermost zone that holds it. -1: none,
+ * then a prompt box takes it.
+ */
+export function pickZone(zones: (HTMLElement | null)[], hit: Element | null): number {
+   let best = -1;
+   zones.forEach((el, i) => {
+      if (!el || !hit || !el.contains(hit)) return;
+      const cur = best >= 0 ? zones[best] : null;
+      if (!cur || cur.contains(el)) best = i;
+   });
+   return best;
+}
+
 const targets: DropTarget[] = [];
+const zones: DropZone[] = [];
 let stop: (() => void) | null = null;
 /** Bumped on every subscribe and unsubscribe, so a late `onFileDrop` answer knows it is stale. */
 let run = 0;
@@ -55,30 +78,52 @@ function chosen(point: DropPoint | undefined): DropTarget | undefined {
    return targets[pickTarget(rects, point)];
 }
 
-/**
- * Registers a prompt box for file drops (Tauri delivers them to the window, not to an element).
- * One window listener serves all of them. Returns the unregister function.
- */
-export function registerDropTarget(target: DropTarget): () => void {
-   targets.push(target);
-   if (targets.length === 1) {
+/** The zone under `point`. Hit-tested, so a zone covered by something else (a popover, a preview) is not taken. */
+function zoneAt(point: DropPoint | undefined): DropZone | undefined {
+   if (!point || !zones.length) return undefined;
+   const hit = document.elementFromPoint?.(point.x, point.y) ?? null;
+   return zones[
+      pickZone(
+         zones.map((z) => z.el()),
+         hit,
+      )
+   ];
+}
+
+/** One window listener serves every target and zone: on while there is at least one. */
+function listen<T>(list: T[], item: T): () => void {
+   list.push(item);
+   if (targets.length + zones.length === 1) {
       const mine = ++run;
       void onFileDrop((e) => {
-         const to = e.type === "leave" ? undefined : chosen(e.position);
-         for (const t of targets) t.over(e.type === "over" && t === to);
-         if (e.type === "drop") to?.drop(e.paths);
+         const point = e.type === "leave" ? undefined : e.position;
+         const zone = e.type === "leave" ? undefined : zoneAt(point);
+         const to = e.type === "leave" || zone ? undefined : chosen(point);
+         const over = e.type === "over";
+         for (const z of zones) z.over(over && z === zone);
+         for (const t of targets) t.over(over && t === to);
+         if (e.type === "drop") (zone ?? to)?.drop(e.paths);
       }).then((u) => {
          if (mine === run) stop = u;
          else u?.();
       });
    }
    return () => {
-      const i = targets.indexOf(target);
-      if (i >= 0) targets.splice(i, 1);
-      if (targets.length === 0) {
+      const i = list.indexOf(item);
+      if (i >= 0) list.splice(i, 1);
+      if (targets.length + zones.length === 0) {
          run++;
          stop?.();
          stop = null;
       }
    };
 }
+
+/**
+ * Registers a prompt box for file drops (Tauri delivers them to the window, not to an element).
+ * Returns the unregister function.
+ */
+export const registerDropTarget = (target: DropTarget): (() => void) => listen(targets, target);
+
+/** Registers a drop zone: a drop over it goes to it, not to a prompt box. Returns the unregister function. */
+export const registerDropZone = (zone: DropZone): (() => void) => listen(zones, zone);

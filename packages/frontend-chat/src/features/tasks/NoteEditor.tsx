@@ -14,6 +14,7 @@ import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, filesToInputs, type StripAsset } from "./AssetStrip";
 import { taskFromText } from "./listModel";
 import { type AutosaveStatus, useAutosave } from "./useAutosave";
+import { useFileDrop } from "./useFileDrop";
 
 const noop = () => {};
 
@@ -111,6 +112,8 @@ export function NoteEditor({ api }: { api: SessionApi }) {
       setError(null);
       api.addNoteImages(files).then(setNote, (e) => setError(errText(e)));
    };
+   // Files dropped on the note go to its images (not to a prompt box).
+   const drop = useFileDrop(box, addImages, setError);
 
    const images = useMemo<StripAsset[]>(
       () =>
@@ -153,6 +156,7 @@ export function NoteEditor({ api }: { api: SessionApi }) {
                className={cn(
                   "flex min-h-56 flex-1 flex-col rounded-xl border bg-card px-3 pb-1.5 pt-2.5 transition-colors",
                   "focus-within:border-ring/50 dark:focus-within:border-border",
+                  drop.over && "border-ring bg-accent/40",
                )}
                onBlur={(e) => {
                   if (!e.currentTarget.contains(e.relatedTarget as Node | null))
@@ -165,13 +169,7 @@ export function NoteEditor({ api }: { api: SessionApi }) {
                   e.stopPropagation();
                   filesToInputs(files).then(addImages, (err) => setError(errText(err)));
                }}
-               onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
-               onDrop={(e) => {
-                  const files = [...e.dataTransfer.files];
-                  if (!files.length) return;
-                  e.preventDefault();
-                  filesToInputs(files).then(addImages, (err) => setError(errText(err)));
-               }}
+               {...drop.handlers}
             >
                {note ? (
                   <PromptEditor

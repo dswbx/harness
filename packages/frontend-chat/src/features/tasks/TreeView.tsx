@@ -11,6 +11,7 @@ import { Check, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { dueTone, formatDue } from "./DuePicker";
+import { PREVIEW_SPACE } from "./FloatingPreview";
 import type { SessionInfo } from "./ListView";
 import type { TaskFilter } from "./listModel";
 import { PriorityIcon } from "./PriorityMenu";
@@ -49,7 +50,8 @@ const treeStore = storedValue<TreeState>({
  * The All tasks tree (board "AllTasksTree"): the topics as a mind map, left to right, with their subtasks.
  * Top-level tasks without subtasks do not show (a note links to the list). A large tree starts collapsed.
  * The tree scrolls both ways and is centered when it is shorter than the area. `preview` floats over the tree
- * area (it does not scroll), so the nodes do not move when it opens.
+ * area (it does not scroll), so the nodes do not move when it opens. While it is open the tree gets room on its
+ * right, so every node can be scrolled out from under it.
  */
 export function TreeView({
    tasks,
@@ -101,11 +103,7 @@ export function TreeView({
       revealed.current = selected;
       const next = revealNode(byId, selected, collapsed);
       if (next !== collapsed) treeStore.set({ ...treeStore.get(), collapsed: [...next] });
-      requestAnimationFrame(() =>
-         document
-            .querySelector(`[data-tree-node="${CSS.escape(selected)}"]`)
-            ?.scrollIntoView?.({ block: "nearest", inline: "nearest" }),
-      );
+      requestAnimationFrame(() => bringIntoView(selected));
    }, [selected, byId, collapsed]);
 
    const toggle = (id: string) => {
@@ -174,7 +172,11 @@ export function TreeView({
                   <div className="flex h-full flex-col">
                      <div
                         className="relative my-auto shrink-0"
-                        style={{ width: layout.width, height: layout.height }}
+                        data-tree-box
+                        style={{
+                           width: layout.width + (preview ? PREVIEW_SPACE : 0),
+                           height: layout.height,
+                        }}
                      >
                         <Edges edges={layout.edges} width={layout.width} height={layout.height} />
                         <div
@@ -216,6 +218,19 @@ export function TreeView({
          </div>
       </div>
    );
+}
+
+/** Scrolls node `id` into view, and out from under the floating preview when it is behind it. */
+function bringIntoView(id: string) {
+   const el = document.querySelector<HTMLElement>(`[data-tree-node="${CSS.escape(id)}"]`);
+   if (!el) return;
+   el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+   const area = el.closest("[data-tree-area]");
+   const card = area?.querySelector("[data-floating-preview]");
+   const viewport = el.closest<HTMLElement>("[data-radix-scroll-area-viewport]");
+   if (!card || !viewport) return;
+   const behind = el.getBoundingClientRect().right - (card.getBoundingClientRect().left - 12);
+   if (behind > 0) viewport.scrollBy?.({ left: behind });
 }
 
 /** The connectors, one curve from a parent's right edge to each child's left edge. */

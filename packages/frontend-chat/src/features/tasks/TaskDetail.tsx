@@ -41,7 +41,6 @@ import {
    X,
 } from "lucide-react";
 import {
-   type DragEvent,
    type ReactNode,
    useCallback,
    useContext,
@@ -66,6 +65,7 @@ import { TaskRow } from "./TaskRow";
 import type { TaskApi } from "./taskApi";
 import { UpstreamField } from "./UpstreamField";
 import { useAutosave } from "./useAutosave";
+import { useFileDrop } from "./useFileDrop";
 
 const noop = () => {};
 
@@ -141,6 +141,15 @@ export function TaskDetail({
       setError(null);
       api.updateTask(id, p).then(put, fail);
    };
+
+   const addFiles = (files: AttachmentInput[]) => {
+      if (!task) return;
+      setError(null);
+      api.addTaskAssets(id, files).then(put, fail);
+   };
+   // Files dropped anywhere on the task go to its assets (not to a prompt box).
+   const root = useRef<HTMLDivElement>(null);
+   const drop = useFileDrop(root, addFiles, setError);
 
    const remove = () => {
       setConfirmDelete(false);
@@ -219,7 +228,7 @@ export function TaskDetail({
    );
 
    return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div ref={root} className="flex h-full min-h-0 flex-col" {...drop.handlers}>
          {header}
          {missing ? (
             <div className="flex items-start gap-2 p-4">
@@ -321,15 +330,13 @@ export function TaskDetail({
                            task={task}
                            put={put}
                            onError={setError}
-                           onAddFiles={(files) => api.addTaskAssets(id, files).then(put, fail)}
+                           onAddFiles={addFiles}
                         />
                         <Assets
                            api={api}
                            task={task}
-                           onAdd={(files) => {
-                              setError(null);
-                              api.addTaskAssets(id, files).then(put, fail);
-                           }}
+                           dragOver={drop.over}
+                           onAdd={addFiles}
                            onRemove={(name) => {
                               setError(null);
                               api.removeTaskAsset(id, name).then(put, fail);
@@ -546,13 +553,6 @@ function BodyEditor({
                e.stopPropagation();
                void files(list);
             }}
-            onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
-            onDrop={(e) => {
-               const list = [...e.dataTransfer.files];
-               if (!list.length) return;
-               e.preventDefault();
-               void files(list);
-            }}
          >
             <PromptEditor
                ref={editor}
@@ -578,12 +578,15 @@ function BodyEditor({
 function Assets({
    api,
    task,
+   dragOver,
    onAdd,
    onRemove,
    onError,
 }: {
    api: TaskApi;
    task: Task;
+   /** Files are dragged over the task: they would land here. */
+   dragOver: boolean;
    onAdd: (files: AttachmentInput[]) => void;
    onRemove: (name: string) => void;
    onError: (message: string) => void;
@@ -604,52 +607,40 @@ function Assets({
             </span>
          </div>
          <AssetStrip assets={assets} className="pb-2 pt-0" />
-         <DropZone compact={task.assets.length > 0} onAdd={onAdd} onError={onError} />
+         <DropZone
+            compact={task.assets.length > 0}
+            over={dragOver}
+            onAdd={onAdd}
+            onError={onError}
+         />
       </section>
    );
 }
 
 /**
- * Where files go: a dashed area that takes dropped files and opens the picker on click (the native one in the app).
+ * Where files go: a dashed area that opens the picker on click (the native one in the app). Drops are taken by the
+ * whole task (`useFileDrop`); `over` lights it up while files are dragged over the task.
  * `compact`: one short line, when the task already has files.
  */
 function DropZone({
    compact,
+   over,
    onAdd,
    onError,
 }: {
    compact: boolean;
+   over: boolean;
    onAdd: (files: AttachmentInput[]) => void;
    onError: (message: string) => void;
 }) {
-   const [over, setOver] = useState(false);
-   const depth = useRef(0);
-   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
    return (
       <AddFilesButton label="Add files" onAdd={onAdd} onError={onError}>
          {(pick) => (
             <button
                type="button"
                aria-label="Add files"
+               data-over={over || undefined}
                onClick={pick}
-               onDragEnter={(e) => {
-                  if (!hasFiles(e)) return;
-                  depth.current++;
-                  setOver(true);
-               }}
-               onDragLeave={() => {
-                  depth.current = Math.max(0, depth.current - 1);
-                  if (depth.current === 0) setOver(false);
-               }}
-               onDragOver={(e) => hasFiles(e) && e.preventDefault()}
-               onDrop={(e) => {
-                  depth.current = 0;
-                  setOver(false);
-                  const list = [...e.dataTransfer.files];
-                  if (!list.length) return;
-                  e.preventDefault();
-                  filesToInputs(list).then(onAdd, (err) => onError(errText(err)));
-               }}
                className={cn(
                   "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed text-xs text-muted-foreground outline-none transition-colors hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
                   compact ? "h-8" : "h-16 flex-col gap-1",

@@ -4,6 +4,7 @@ import { TooltipProvider } from "@harness/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_SPACE } from "./FloatingPreview";
 import { TasksView } from "./TasksView";
 
 // The List / Tree switch and the fold state are stored values: give them a storage.
@@ -59,6 +60,9 @@ const node = (id: string) => {
 };
 const shownIds = () =>
    [...document.querySelectorAll<HTMLElement>("[data-tree-node]")].map((n) => n.dataset.treeNode);
+/** The scrolled content's width: the tree, plus room on the right while the preview is open. */
+const treeWidth = () =>
+   Number.parseFloat((document.querySelector("[data-tree-box]") as HTMLElement).style.width);
 const boxes = () =>
    [...document.querySelectorAll<HTMLElement>("[data-tree-node]")].map((n) =>
       n.getAttribute("style"),
@@ -97,6 +101,7 @@ describe("All tasks tree", () => {
    it("the preview floats over the tree area and the nodes do not move", async () => {
       const { onSelect } = await setup();
       const before = boxes();
+      const width = treeWidth();
       const area = document.querySelector("[data-tree-area]") as HTMLElement;
       expect(screen.queryByRole("complementary", { name: "Task preview" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Header polish" }));
@@ -107,6 +112,8 @@ describe("All tasks tree", () => {
       expect(preview.className).toMatch(/\babsolute\b/);
       expect(preview.style.width).toBe("");
       expect(boxes()).toEqual(before);
+      // Room on the right, so the nodes under the preview can be scrolled out from under it.
+      expect(treeWidth()).toBe(width + PREVIEW_SPACE);
       expect(node("t5").getAttribute("aria-current")).toBe("true");
       await waitFor(() =>
          expect(within(preview).getByRole("textbox", { name: "Task title" }).textContent).toBe(
@@ -117,6 +124,33 @@ describe("All tasks tree", () => {
       expect(onSelect).toHaveBeenLastCalledWith(null);
       expect(screen.queryByRole("complementary", { name: "Task preview" })).toBeNull();
       expect(boxes()).toEqual(before);
+      expect(treeWidth()).toBe(width);
+   });
+
+   it("a selected node behind the preview is scrolled out from under it", async () => {
+      // Layout stand-ins: the preview's left edge at 600, the node t5 ends at 700 (100px behind it).
+      const rect = (left: number, right: number) => ({ left, right }) as DOMRect;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+         this: HTMLElement,
+      ) {
+         if (this.hasAttribute("data-floating-preview")) return rect(600, 1000);
+         if (this.dataset.treeNode === "t5") return rect(500, 700);
+         return rect(0, 0);
+      });
+      const scrollBy = vi.fn();
+      const own = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollBy");
+      HTMLElement.prototype.scrollBy = scrollBy;
+      try {
+         await setup();
+         fireEvent.click(screen.getByRole("button", { name: "Header polish" }));
+         // The gap is 12px: 700 - (600 - 12).
+         await waitFor(() => expect(scrollBy).toHaveBeenCalledWith({ left: 112 }));
+         expect(scrollBy.mock.contexts[0]).toHaveProperty("dataset.radixScrollAreaViewport");
+      } finally {
+         vi.restoreAllMocks();
+         if (own) Object.defineProperty(HTMLElement.prototype, "scrollBy", own);
+         else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollBy;
+      }
    });
 
    it("keeps the selected task and unfolds to it", async () => {
