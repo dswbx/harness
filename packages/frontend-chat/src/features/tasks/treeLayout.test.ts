@@ -1,7 +1,15 @@
 import type { TaskSummary } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FILTER } from "./listModel";
-import { type Box, collapseAll, layoutTree, revealNode, type TreeOptions } from "./treeLayout";
+import {
+   type Box,
+   collapseAll,
+   defaultCollapsed,
+   LARGE_TREE,
+   layoutTree,
+   revealNode,
+   type TreeOptions,
+} from "./treeLayout";
 
 const t = (id: string, o: Partial<TaskSummary> = {}): TaskSummary => ({
    id,
@@ -155,5 +163,34 @@ describe("revealNode", () => {
    it("returns the same set when nothing is folded above it", () => {
       const same = new Set(["b"]);
       expect(revealNode(byId, "a1x", same)).toBe(same);
+   });
+});
+
+describe("defaultCollapsed", () => {
+   const { collapsed: _, ...o } = opts();
+   /** One topic with `n` subtasks: `n + 1` nodes expanded. */
+   const topic = (n: number) => [
+      t("big"),
+      ...Array.from({ length: n }, (_, i) => t(`k${i}`, { parent_id: "big" })),
+   ];
+
+   it("expands a small tree", () => {
+      expect(defaultCollapsed(TASKS, o).size).toBe(0);
+      expect(defaultCollapsed(topic(LARGE_TREE - 1), o).size).toBe(0);
+   });
+
+   it("collapses a tree of more than LARGE_TREE nodes to its topics", () => {
+      const tasks = [...TASKS, ...topic(LARGE_TREE)];
+      const folds = defaultCollapsed(tasks, o);
+      expect(folds).toEqual(collapseAll(tasks));
+      expect(shown({ collapsed: folds }, tasks)).toEqual(["a", "b", "big"]);
+   });
+
+   it("counts what the filters show", () => {
+      const tasks = topic(LARGE_TREE + 10).map((x) =>
+         x.parent_id ? { ...x, status: "done" as const } : x,
+      );
+      expect(defaultCollapsed(tasks, o).size).toBe(1);
+      expect(defaultCollapsed(tasks, { ...o, hideDone: true }).size).toBe(0);
    });
 });

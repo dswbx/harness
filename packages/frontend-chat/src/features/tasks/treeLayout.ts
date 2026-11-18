@@ -84,7 +84,9 @@ export function layoutTree<T extends Layoutable>(
    const kidsOf = new Map<string | null, T[]>();
    for (const t of tasks) {
       const p = t.parent_id && ids.has(t.parent_id) ? t.parent_id : null;
-      kidsOf.set(p, [...(kidsOf.get(p) ?? []), t]);
+      const l = kidsOf.get(p);
+      if (l) l.push(t);
+      else kidsOf.set(p, [t]);
    }
    for (const [k, l] of kidsOf) kidsOf.set(k, sortTasks(l));
    const allKids = (id: string) => kidsOf.get(id) ?? [];
@@ -177,6 +179,21 @@ function edge(from: string | null, a: Box, to: string, b: Box): TreeEdge {
       x2: b.x,
       y2: b.y + b.h / 2,
    };
+}
+
+/** More nodes than this when expanded: the tree starts collapsed. */
+export const LARGE_TREE = 100;
+
+/**
+ * The folds before the user sets any: none, or Collapse all when the expanded tree would show more than
+ * `LARGE_TREE` nodes.
+ */
+export function defaultCollapsed<T extends Layoutable>(
+   tasks: readonly T[],
+   o: Omit<TreeOptions, "collapsed">,
+): ReadonlySet<string> {
+   const expanded = layoutTree(tasks, { ...o, collapsed: new Set() });
+   return expanded.nodes.length > LARGE_TREE ? collapseAll(tasks) : new Set();
 }
 
 /** Collapse all: every task with subtasks is folded (only the topics show). */

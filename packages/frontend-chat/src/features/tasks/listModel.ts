@@ -262,7 +262,9 @@ export function buildList<T extends Listable>(
    const kidsOf = new Map<string | null, T[]>();
    for (const t of tasks) {
       const p = t.parent_id && ids.has(t.parent_id) ? t.parent_id : null;
-      kidsOf.set(p, [...(kidsOf.get(p) ?? []), t]);
+      const l = kidsOf.get(p);
+      if (l) l.push(t);
+      else kidsOf.set(p, [t]);
    }
    for (const [k, l] of kidsOf) kidsOf.set(k, sortTasks(l));
    const kids = (id: string) => kidsOf.get(id) ?? [];
@@ -296,8 +298,11 @@ export function buildList<T extends Listable>(
       const keyOf = (t: T) =>
          o.groupBy === "status" ? t.status : (t.origin_session_id ?? NONE_GROUP);
       const byKey = new Map<string, T[]>();
-      for (const t of sortTasks(tasks.filter(passes)))
-         byKey.set(keyOf(t), [...(byKey.get(keyOf(t)) ?? []), t]);
+      for (const t of sortTasks(tasks.filter(passes))) {
+         const l = byKey.get(keyOf(t));
+         if (l) l.push(t);
+         else byKey.set(keyOf(t), [t]);
+      }
       const label = (key: string, first: T) =>
          o.groupBy === "status"
             ? key

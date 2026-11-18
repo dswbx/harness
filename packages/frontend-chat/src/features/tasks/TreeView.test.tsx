@@ -1,4 +1,4 @@
-import { HarnessClient } from "@harness/api";
+import { HarnessClient, type Task } from "@harness/api";
 import { MockTransport } from "@harness/api/mock";
 import { TooltipProvider } from "@harness/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -22,8 +22,10 @@ afterEach(() => {
    vi.unstubAllGlobals();
 });
 
-async function setup(first: string | null = null) {
-   const client = new HarnessClient(new MockTransport([], []));
+async function setup(first: string | null = null, seed?: (tasks: Map<string, Task>) => void) {
+   const mock = new MockTransport([], []);
+   seed?.(mock.tasks);
+   const client = new HarnessClient(mock);
    const onSelect = vi.fn();
    function Host() {
       const [selected, setSelected] = useState(first);
@@ -72,7 +74,6 @@ describe("All tasks tree", () => {
       expect(screen.getByText(/5 top-level tasks without subtasks hidden/)).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Show in List" }));
       expect(screen.getByRole("tab", { name: "List" }).getAttribute("aria-selected")).toBe("true");
-      expect(screen.getByRole("region", { name: "No topic" })).toBeTruthy();
    });
 
    it("folds and unfolds, Collapse all, Expand all and Hide done", async () => {
@@ -136,5 +137,20 @@ describe("All tasks tree", () => {
       await client.updateTask("t5", { title: "Header polish done" });
       await waitFor(() => screen.getByRole("button", { name: "Header polish done" }));
       expect(shownIds()).not.toContain("t14");
+   });
+
+   it("starts collapsed when the tree is large, until the user folds or unfolds", async () => {
+      await setup(null, (tasks) => {
+         const base = tasks.get("t9") as Task;
+         for (let i = 0; i < 120; i++)
+            tasks.set(`big${i}`, { ...base, id: `big${i}`, title: `Bulk ${i}`, parent_id: "t1" });
+      });
+      expect(shownIds().sort()).toEqual(["t1", "t11", "t5"]);
+      fireEvent.click(screen.getByRole("button", { name: "Expand Header polish" }));
+      expect(shownIds()).toContain("t6");
+      expect(shownIds()).not.toContain("big0");
+      expect(
+         JSON.parse(localStorage.getItem("harness.tasks.tree") ?? "{}").collapsed,
+      ).not.toContain("t5");
    });
 });

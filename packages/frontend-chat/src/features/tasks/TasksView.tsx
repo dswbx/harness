@@ -74,6 +74,8 @@ const DUE_FILTER: Record<DueFilter, string> = {
 };
 const GROUP_BY: Record<GroupBy, string> = { topic: "Topic", status: "Status", session: "Session" };
 const PRIORITIES: TaskPriority[] = ["urgent", "high", "medium", "low", "none"];
+/** A filter chip whose filter is set (not its default). */
+const ACTIVE_CHIP = "border-ring/60 bg-accent";
 
 /**
  * All tasks (ADR 0028), the host's main pane: a header with the counts, search and New task, a bar of filters,
@@ -118,7 +120,7 @@ export function TasksView({
    );
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
 
-   // Opened at a task (the host's "Open in All tasks"): unfold its topic and bring its row into view.
+   // Opened at a task (the host's "Open in All tasks"): unfold its topic (the list brings its row into view).
    // Once per selection (also when it first loads), so a tasks reload keeps the user's folds.
    const revealed = useRef<string | null>(null);
    useEffect(() => {
@@ -130,11 +132,6 @@ export function TasksView({
       if (!byId.has(selected)) return;
       revealed.current = selected;
       setFlipped((f) => reveal(byId, selected, f));
-      requestAnimationFrame(() =>
-         document
-            .querySelector(`[data-task-row="${CSS.escape(selected)}"]`)
-            ?.scrollIntoView?.({ block: "nearest" }),
-      );
    }, [selected, byId]);
 
    const fail = useCallback((e: unknown) => setError(errText(e)), []);
@@ -224,7 +221,7 @@ export function TasksView({
             <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-4 py-2">
                <FilterMenu
                   label={`Status: ${STATUS_FILTER[filter.status].toLowerCase()}`}
-                  active
+                  active={filter.status !== DEFAULT_FILTER.status}
                   // The tree has Hide done instead.
                   disabled={view === "tree"}
                >
@@ -307,7 +304,7 @@ export function TasksView({
                   size="sm"
                   variant="outline"
                   aria-pressed={filter.upstream}
-                  className={cn("h-7", filter.upstream && "border-ring/60 bg-accent")}
+                  className={cn("h-7", filter.upstream && ACTIVE_CHIP)}
                   onClick={() => set({ upstream: !filter.upstream })}
                >
                   Has upstream
@@ -434,7 +431,7 @@ export function TasksView({
    );
 }
 
-/** A filter bar button that opens its menu. `active`: the filter is set (shown filled). */
+/** A filter bar button that opens its menu. `active`: the filter is not its default (shown filled). */
 function FilterMenu({
    label,
    active,
@@ -452,10 +449,7 @@ function FilterMenu({
             <Button
                size="sm"
                variant="outline"
-               className={cn(
-                  "h-7 max-w-64 data-[state=open]:bg-accent",
-                  active && "border-ring/60",
-               )}
+               className={cn("h-7 max-w-64 data-[state=open]:bg-accent", active && ACTIVE_CHIP)}
             >
                <span className="truncate">{label}</span>
                <ChevronDown className="size-3 text-muted-foreground" />

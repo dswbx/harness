@@ -1,15 +1,46 @@
-import { HarnessClient } from "@harness/api";
+import { HarnessClient, type Task } from "@harness/api";
 import { MockTransport } from "@harness/api/mock";
 import { TooltipProvider } from "@harness/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TasksView } from "./TasksView";
 
-afterEach(cleanup);
+// happy-dom has no layout: give the list's scroll viewport a height (and room to scroll: the virtual list
+// clamps a scroll to it) and each virtual row one, so the list renders the rows in view (all of the
+// fixture's, a part of a large list).
+const VIEWPORT = 800;
+const ROW = 36;
+const viewport = (el: HTMLElement) => el.hasAttribute("data-radix-scroll-area-viewport");
+const SIZES: Record<string, (el: HTMLElement) => number> = {
+   clientHeight: (el) => (viewport(el) ? VIEWPORT : 0),
+   scrollHeight: (el) => (viewport(el) ? 100 * VIEWPORT : 0),
+   offsetHeight: (el) => (el.hasAttribute("data-index") ? ROW : 0),
+};
+const saved = new Map<string, PropertyDescriptor | undefined>();
+beforeEach(() => {
+   for (const [key, size] of Object.entries(SIZES)) {
+      saved.set(key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key));
+      Object.defineProperty(HTMLElement.prototype, key, {
+         configurable: true,
+         get(this: HTMLElement) {
+            return size(this);
+         },
+      });
+   }
+});
+afterEach(() => {
+   cleanup();
+   for (const [key, d] of saved) {
+      if (d) Object.defineProperty(HTMLElement.prototype, key, d);
+      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+   }
+   vi.restoreAllMocks();
+});
 
-function setup(first: string | null = null) {
+function setup(first: string | null = null, seed?: (tasks: Map<string, Task>) => void) {
    const mock = new MockTransport([], []);
+   seed?.(mock.tasks);
    const client = new HarnessClient(mock);
    const onSelect = vi.fn();
    const onOpenSession = vi.fn();
@@ -38,23 +69,30 @@ function setup(first: string | null = null) {
 
 /** A row's title button (its name is the title). */
 const title = (text: string) => screen.getByRole("button", { name: text });
-const topic = (name: string) => screen.getByRole("region", { name: `Topic ${name}` });
+const row = (text: string) => title(text).closest<HTMLElement>("[data-task-row]") as HTMLElement;
+/** The group a row is in: its topic's id, "none" (No topic), "closed" (Done and cancelled), ... */
+const groupOf = (text: string) => row(text).dataset.group;
+/** A topic's row (it heads its group). */
+const topic = (name: string) => {
+   const r = row(name);
+   expect(r.dataset.group).toBe(r.dataset.taskRow);
+   return r;
+};
+const noTopic = () => document.querySelector('[data-group-head="No topic"]');
 
 describe("All tasks view", () => {
    it("groups the open tasks by topic, then No topic, with the closed ones folded", async () => {
       setup();
       const release = await waitFor(() => topic("Release v2026.12"));
-      expect(
-         within(release).getByRole("button", { name: "Tag and publish the build" }),
-      ).toBeTruthy();
+      expect(groupOf("Tag and publish the build")).toBe(release.dataset.taskRow);
       // Done subtasks are not in their topic; they wait in the folded group.
-      expect(within(release).queryByText("Write the changelog")).toBeNull();
-      const loose = screen.getByRole("region", { name: "No topic" });
-      expect(within(loose).getByRole("button", { name: "Read the ACP registry RFC" })).toBeTruthy();
+      expect(screen.queryByText("Write the changelog")).toBeNull();
+      expect(noTopic()).toBeTruthy();
+      expect(groupOf("Read the ACP registry RFC")).toBe("none");
       const closed = screen.getByRole("button", { name: /^Done and cancelled · \d+$/ });
       expect(closed.getAttribute("aria-expanded")).toBe("false");
       fireEvent.click(closed);
-      expect(title("Write the changelog")).toBeTruthy();
+      expect(groupOf("Write the changelog")).toBe("closed");
    });
 
    it("opens the preview beside the list and closes it", async () => {
@@ -109,11 +147,9 @@ describe("All tasks view", () => {
       expect(move).toHaveBeenCalledWith("t9", "t1", undefined);
       await waitFor(() => expect(mock.tasks.get("t9")?.parent_id).toBe("t1"));
       await waitFor(() =>
-         expect(
-            within(topic("Release v2026.12")).getByRole("button", {
-               name: "Read the ACP registry RFC",
-            }),
-         ).toBeTruthy(),
+         expect(groupOf("Read the ACP registry RFC")).toBe(
+            topic("Release v2026.12").dataset.taskRow,
+         ),
       );
    });
 
@@ -123,10 +159,58 @@ describe("All tasks view", () => {
       fireEvent.change(screen.getByRole("textbox", { name: "Search tasks" }), {
          target: { value: "branch names" },
       });
-      expect(
-         within(topic("Header polish")).getByRole("button", { name: "Truncate long branch names" }),
-      ).toBeTruthy();
-      expect(screen.queryByRole("region", { name: "Topic Release v2026.12" })).toBeNull();
-      expect(screen.queryByRole("region", { name: "No topic" })).toBeNull();
+      expect(groupOf("Truncate long branch names")).toBe(topic("Header polish").dataset.taskRow);
+      expect(screen.queryByRole("button", { name: "Release v2026.12" })).toBeNull();
+      expect(noTopic()).toBeNull();
+   });
+
+   it("a click anywhere on a row selects it; its controls do not", async () => {
+      const { onSelect } = setup();
+      await waitFor(() => title("Read the ACP registry RFC"));
+      const r = row("Read the ACP registry RFC");
+      // The due column, not the title.
+      fireEvent.click(r.children[2] as HTMLElement);
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenLastCalledWith("t9");
+      expect(row("Read the ACP registry RFC").getAttribute("aria-current")).toBe("true");
+      // The status menu, the row menu and a topic's fold button do their own thing.
+      fireEvent.click(within(r).getByRole("button", { name: /^Status: / }));
+      fireEvent.click(
+         within(r).getByRole("button", { name: "Actions for Read the ACP registry RFC" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Fold Release v2026.12" }));
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      // The title (the row's button, for the keyboard) selects once: here it unselects.
+      fireEvent.click(title("Read the ACP registry RFC"));
+      expect(onSelect).toHaveBeenCalledTimes(2);
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+   });
+
+   it("renders only the rows in view of a large list, and scrolls to the selected one", async () => {
+      const N = 1000;
+      const scrollTo = vi.spyOn(HTMLElement.prototype, "scrollTo");
+      setup("big900", (tasks) => {
+         const base = tasks.get("t9") as Task;
+         for (let i = 0; i < N; i++)
+            tasks.set(`big${i}`, {
+               ...base,
+               id: `big${i}`,
+               title: `Bulk task ${i}`,
+               order: 1000 + i,
+            });
+      });
+      await waitFor(() => title("Bulk task 0"));
+      // The list scrolls down to the selected row (happy-dom does not scroll: only the call shows).
+      await waitFor(() =>
+         expect(scrollTo).toHaveBeenCalledWith(
+            expect.objectContaining({ top: expect.any(Number) }),
+         ),
+      );
+      const top = (scrollTo.mock.lastCall?.[0] as ScrollToOptions | undefined)?.top ?? 0;
+      expect(top).toBeGreaterThan(900 * ROW - VIEWPORT);
+      const rendered = document.querySelectorAll("[data-task-row]").length;
+      expect(rendered).toBeGreaterThan(VIEWPORT / ROW / 2);
+      expect(rendered).toBeLessThan(100);
+      expect(screen.queryByRole("button", { name: `Bulk task ${N - 1}` })).toBeNull();
    });
 });

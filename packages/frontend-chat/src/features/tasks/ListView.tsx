@@ -14,7 +14,8 @@ import {
    DropdownMenuLabel,
    DropdownMenuSeparator,
    DropdownMenuTrigger,
-   ScrollArea,
+   VirtualList,
+   type VirtualListHandle,
 } from "@harness/ui";
 import {
    ArrowUpToLine,
@@ -27,11 +28,26 @@ import {
    Play,
    Plus,
 } from "lucide-react";
-import { type PointerEvent, type ReactNode, useMemo, useState } from "react";
+import {
+   type PointerEvent,
+   type ReactNode,
+   useCallback,
+   useEffect,
+   useMemo,
+   useRef,
+   useState,
+} from "react";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { META_CHIP } from "./chips";
 import { dayDate, dueTone } from "./DuePicker";
-import { canNest, type GroupBy, type ListRow, moveTargets, type TaskList } from "./listModel";
+import {
+   canNest,
+   type GroupBy,
+   type ListGroup,
+   type ListRow,
+   moveTargets,
+   type TaskList,
+} from "./listModel";
 import { PriorityIcon } from "./PriorityMenu";
 import { STATUS_LABEL, StatusMenu } from "./StatusMenu";
 import { upstreamText } from "./UpstreamField";
@@ -82,10 +98,35 @@ function shortDue(day: string, today: string): string {
    });
 }
 
+/** One line of the virtual list: a group header (not by topic, or "No topic"), a task row, the Done header. */
+type Item =
+   | { kind: "group"; key: string; group: ListGroup<TaskSummary> }
+   | { kind: "task"; key: string; row: ListRow<TaskSummary>; topic: boolean; group: string }
+   | { kind: "closed"; key: string; count: number };
+
+/** The groups as lines, in order; the closed tasks only when their group is open. */
+function listItems(list: TaskList<TaskSummary>, closedOpen: boolean): Item[] {
+   const items: Item[] = [];
+   const task = (row: ListRow<TaskSummary>, group: string, topic = false) =>
+      items.push({ kind: "task", key: `task:${row.task.id}`, row, topic, group });
+   for (const g of list.groups) {
+      if (g.head) task(g.head, g.key, true);
+      else items.push({ kind: "group", key: `group:${g.key}`, group: g });
+      for (const r of g.rows) task(r, g.key);
+   }
+   if (list.closed.length > 0) {
+      items.push({ kind: "closed", key: "closed", count: list.closed.length });
+      if (closedOpen)
+         for (const t of list.closed)
+            task({ task: t, depth: 0, kids: 0, expanded: false, context: false }, "closed");
+   }
+   return items;
+}
+
 /**
  * The All tasks list (board "AllTasks"): column header, then the groups. By topic each topic heads its group,
  * with its subtasks indented on guide lines; then "No topic". Closed tasks fold into a group at the end. A row
- * dragged onto another row (or onto "No topic") moves there.
+ * dragged onto another row (or onto "No topic") moves there. Only the rows in view render (virtual list).
  */
 export function ListView({
    tasks,
@@ -105,7 +146,7 @@ export function ListView({
    today: string;
    sessions: ReadonlyMap<string, SessionInfo>;
    actions: ListActions;
-   /** Above the groups (the New task line). */
+   /** Above the groups (the New task line); stays in view. */
    top?: ReactNode;
    /** Shown when no group and no closed task shows. */
    empty: ReactNode;
@@ -113,23 +154,73 @@ export function ListView({
    const [closedOpen, setClosedOpen] = useState(false);
    const { drag, start } = useNestDrag(actions.move, (id, target) => canNest(tasks, id, target));
    const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
-   const line = (row: ListRow<TaskSummary>, topic = false) => (
-      <TaskLine
-         key={row.task.id}
-         row={row}
-         topic={topic}
-         foldable={groupBy === "topic" && row.kids > 0}
-         tasks={tasks}
-         selected={row.task.id === selected}
-         dragging={drag?.id === row.task.id}
-         dropping={drag?.target === row.task.id}
-         today={today}
-         sessions={sessions}
-         actions={actions}
-         onPointerDown={(e) => start(row.task.id, e)}
-      />
-   );
-   const nothing = list.groups.length === 0 && list.closed.length === 0;
+   const items = useMemo(() => listItems(list, closedOpen), [list, closedOpen]);
+   const getKey = useCallback((i: number) => items[i]?.key ?? i, [items]);
+   const listRef = useRef<VirtualListHandle>(null);
+
+   // Bring the selected row into view: once per selection, when its row is in the list (it may load later,
+   // or show once its topic unfolds). A row already in view does not move.
+   const shown = useRef<string | null>(null);
+   useEffect(() => {
+      if (!selected) {
+         shown.current = null;
+         return;
+      }
+      if (selected === shown.current || !items.some((it) => it.key === `task:${selected}`)) return;
+      shown.current = selected;
+      listRef.current?.scrollToKey(`task:${selected}`, "auto");
+   }, [selected, items]);
+
+   const renderRow = (i: number) => {
+      const it = items[i];
+      if (!it) return null;
+      if (it.kind === "closed")
+         return (
+            <button
+               type="button"
+               aria-expanded={closedOpen}
+               onClick={() => setClosedOpen(!closedOpen)}
+               className="flex h-9 w-full items-center gap-2 px-4 text-xs text-muted-foreground hover:text-foreground"
+            >
+               <ChevronDown
+                  className={cn("size-3.5 transition-transform", !closedOpen && "-rotate-90")}
+               />
+               Done and cancelled · {it.count}
+            </button>
+         );
+      if (it.kind === "group") {
+         const g = it.group;
+         return (
+            <GroupHeader
+               label={groupLabel(groupBy, g.key, g.label)}
+               count={g.count}
+               folded={g.folded}
+               hint={groupBy === "topic" ? "drag a row onto a topic to nest it" : undefined}
+               // "No topic" takes a dragged row to the top level.
+               nestTarget={groupBy === "topic" ? "" : undefined}
+               dropping={drag?.target === ""}
+               onToggle={() => actions.toggle(`group:${g.key}`)}
+            />
+         );
+      }
+      const { row } = it;
+      return (
+         <TaskLine
+            row={row}
+            group={it.group}
+            topic={it.topic}
+            foldable={groupBy === "topic" && row.kids > 0}
+            tasks={tasks}
+            selected={row.task.id === selected}
+            dragging={drag?.id === row.task.id}
+            dropping={drag?.target === row.task.id}
+            today={today}
+            sessions={sessions}
+            actions={actions}
+            onPointerDown={(e) => start(row.task.id, e)}
+         />
+      );
+   };
 
    return (
       <div className="@container relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -146,53 +237,18 @@ export function ListView({
             <span className="hidden @xl:block">Upstream</span>
             <span />
          </div>
-         <ScrollArea className="min-h-0 flex-1">
-            {top}
-            {nothing && !top && empty}
-            {list.groups.map((g) =>
-               g.head ? (
-                  <section key={g.key} aria-label={`Topic ${g.label}`}>
-                     {line(g.head, true)}
-                     {g.rows.map((r) => line(r))}
-                  </section>
-               ) : (
-                  <section key={g.key} aria-label={groupLabel(groupBy, g.key, g.label)}>
-                     <GroupHeader
-                        label={groupLabel(groupBy, g.key, g.label)}
-                        count={g.count}
-                        folded={g.folded}
-                        hint={
-                           groupBy === "topic" ? "drag a row onto a topic to nest it" : undefined
-                        }
-                        // "No topic" takes a dragged row to the top level.
-                        nestTarget={groupBy === "topic" ? "" : undefined}
-                        dropping={drag?.target === ""}
-                        onToggle={() => actions.toggle(`group:${g.key}`)}
-                     />
-                     {g.rows.map((r) => line(r))}
-                  </section>
-               ),
-            )}
-            {list.closed.length > 0 && (
-               <section aria-label="Done and cancelled">
-                  <button
-                     type="button"
-                     aria-expanded={closedOpen}
-                     onClick={() => setClosedOpen(!closedOpen)}
-                     className="flex h-9 w-full items-center gap-2 px-4 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                     <ChevronDown
-                        className={cn("size-3.5 transition-transform", !closedOpen && "-rotate-90")}
-                     />
-                     Done and cancelled · {list.closed.length}
-                  </button>
-                  {closedOpen &&
-                     list.closed.map((t) =>
-                        line({ task: t, depth: 0, kids: 0, expanded: false, context: false }),
-                     )}
-               </section>
-            )}
-         </ScrollArea>
+         {top && <div className="shrink-0">{top}</div>}
+         <VirtualList
+            handle={listRef}
+            count={items.length}
+            getKey={getKey}
+            renderRow={renderRow}
+            estimateSize={37}
+            paddingStart={0}
+            overscan={10}
+            stickToBottom={false}
+            empty={top ? null : empty}
+         />
          {drag && (
             <div
                aria-hidden
@@ -236,6 +292,7 @@ function GroupHeader({
    return (
       <div
          data-nest-target={nestTarget}
+         data-group-head={label}
          className={cn(
             COLS,
             "min-h-10 border-b bg-muted/40",
@@ -267,6 +324,7 @@ function GroupHeader({
 
 function TaskLine({
    row,
+   group,
    topic,
    foldable,
    tasks,
@@ -279,6 +337,8 @@ function TaskLine({
    onPointerDown,
 }: {
    row: ListRow<TaskSummary>;
+   /** Its group's key (a topic id, "none", a status, ...; "closed": the Done group). */
+   group: string;
    topic: boolean;
    /** Shows the fold button (its subtasks are rows of this list). */
    foldable: boolean;
@@ -297,9 +357,19 @@ function TaskLine({
    return (
       <div
          data-task-row={task.id}
+         data-group={group}
          data-nest-target={task.id}
          aria-current={selected || undefined}
          onPointerDown={onPointerDown}
+         // A click anywhere on the row selects it, except on its controls (and their menus, whose clicks bubble
+         // here through the portal). Keyboard: the title is the row's button (Enter clicks it, the click
+         // bubbles here).
+         onClick={(e) => {
+            const hit = e.target as Element;
+            if (hit.closest("button:not([data-drag]), a, input, [role=menu], [role=menuitem]"))
+               return;
+            actions.select(task.id);
+         }}
          className={cn(
             COLS,
             "group/row relative border-b border-border/50 text-[13px] hover:bg-accent/40",
@@ -341,9 +411,8 @@ function TaskLine({
             <button
                type="button"
                data-drag
-               onClick={() => actions.select(task.id)}
                className={cn(
-                  "min-w-0 truncate text-left outline-none hover:underline hover:decoration-foreground/30 focus-visible:underline",
+                  "min-w-0 truncate rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   topic && "font-semibold",
                   (!open || row.context) && "text-muted-foreground",
                   !open && "line-through",
@@ -478,14 +547,7 @@ function RowMenu({
             <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                Move under…
             </DropdownMenuLabel>
-            {moveTargets(tasks, task.id).map((t) => (
-               <DropdownMenuItem key={t.id} onSelect={() => actions.move(task.id, t.id)}>
-                  <CornerDownRight />
-                  <span className="truncate">
-                     <InlineMarkdown variant="quiet">{t.title}</InlineMarkdown>
-                  </span>
-               </DropdownMenuItem>
-            ))}
+            <MoveItems task={task} tasks={tasks} move={actions.move} />
             {task.parent_id && (
                <DropdownMenuItem onSelect={() => actions.move(task.id, null)}>
                   <ArrowUpToLine /> Top level
@@ -511,4 +573,24 @@ function RowMenu({
          </DropdownMenuContent>
       </DropdownMenu>
    );
+}
+
+/** The topics a task can move under; a component, so they are only found when the menu opens. */
+function MoveItems({
+   task,
+   tasks,
+   move,
+}: {
+   task: TaskSummary;
+   tasks: readonly TaskSummary[];
+   move: ListActions["move"];
+}) {
+   return moveTargets(tasks, task.id).map((t) => (
+      <DropdownMenuItem key={t.id} onSelect={() => move(task.id, t.id)}>
+         <CornerDownRight />
+         <span className="truncate">
+            <InlineMarkdown variant="quiet">{t.title}</InlineMarkdown>
+         </span>
+      </DropdownMenuItem>
+   ));
 }

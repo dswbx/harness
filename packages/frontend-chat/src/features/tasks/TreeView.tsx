@@ -15,29 +15,41 @@ import type { SessionInfo } from "./ListView";
 import type { TaskFilter } from "./listModel";
 import { PriorityIcon } from "./PriorityMenu";
 import { StatusIcon } from "./StatusMenu";
-import { collapseAll, layoutTree, revealNode, type TreeEdge, type TreeNode } from "./treeLayout";
+import {
+   collapseAll,
+   defaultCollapsed,
+   layoutTree,
+   revealNode,
+   type TreeEdge,
+   type TreeNode,
+} from "./treeLayout";
 
-type TreeState = { collapsed: string[]; hideDone: boolean };
+/** `collapsed` null: the user has not folded anything yet (the default folds apply). */
+type TreeState = { collapsed: string[] | null; hideDone: boolean };
 
-const isTreeState = (v: unknown): v is TreeState =>
-   typeof v === "object" &&
-   v !== null &&
-   Array.isArray((v as TreeState).collapsed) &&
-   (v as TreeState).collapsed.every((x) => typeof x === "string") &&
-   typeof (v as TreeState).hideDone === "boolean";
+const isTreeState = (v: unknown): v is TreeState => {
+   if (typeof v !== "object" || v === null) return false;
+   const { collapsed, hideDone } = v as TreeState;
+   return (
+      (collapsed === null ||
+         (Array.isArray(collapsed) && collapsed.every((x) => typeof x === "string"))) &&
+      typeof hideDone === "boolean"
+   );
+};
 
 /** Folded tasks and Hide done, per window. */
 const treeStore = storedValue<TreeState>({
    key: "harness.tasks.tree",
    scope: "app",
-   parse: codec.json(isTreeState, { collapsed: [], hideDone: false }),
+   parse: codec.json(isTreeState, { collapsed: null, hideDone: false }),
    sync: false,
 });
 
 /**
  * The All tasks tree (board "AllTasksTree"): the topics as a mind map, left to right, with their subtasks.
- * Top-level tasks without subtasks do not show (a note links to the list). `preview` floats over the tree
- * area, so the nodes do not move when it opens.
+ * Top-level tasks without subtasks do not show (a note links to the list). A large tree starts collapsed.
+ * The tree scrolls both ways and is centered when it is shorter than the area. `preview` floats over the tree
+ * area (it does not scroll), so the nodes do not move when it opens.
  */
 export function TreeView({
    tasks,
@@ -61,8 +73,14 @@ export function TreeView({
    preview?: ReactNode;
 }) {
    const state = useStoredValue(treeStore);
-   const collapsed = useMemo(() => new Set(state.collapsed), [state.collapsed]);
    const all = useMemo(() => tasks ?? [], [tasks]);
+   const collapsed = useMemo(
+      () =>
+         state.collapsed
+            ? new Set(state.collapsed)
+            : defaultCollapsed(all, { filter, today, hideDone: state.hideDone }),
+      [state.collapsed, all, filter, today, state.hideDone],
+   );
    const layout = useMemo(
       () => layoutTree(all, { filter, today, hideDone: state.hideDone, collapsed }),
       [all, filter, today, state.hideDone, collapsed],
@@ -81,15 +99,14 @@ export function TreeView({
       }
       if (!byId.has(selected)) return;
       revealed.current = selected;
-      const now = new Set(treeStore.get().collapsed);
-      const next = revealNode(byId, selected, now);
-      if (next !== now) treeStore.set({ ...treeStore.get(), collapsed: [...next] });
+      const next = revealNode(byId, selected, collapsed);
+      if (next !== collapsed) treeStore.set({ ...treeStore.get(), collapsed: [...next] });
       requestAnimationFrame(() =>
          document
             .querySelector(`[data-tree-node="${CSS.escape(selected)}"]`)
             ?.scrollIntoView?.({ block: "nearest", inline: "nearest" }),
       );
-   }, [selected, byId]);
+   }, [selected, byId, collapsed]);
 
    const toggle = (id: string) => {
       const next = new Set(collapsed);
@@ -148,34 +165,42 @@ export function TreeView({
                </p>
             )}
          </div>
-         <div data-tree-area className="relative min-h-0 flex-1">
+         <div data-tree-area className="relative flex min-h-0 flex-1 flex-col">
             {layout.root ? (
-               <ScrollArea horizontal className="absolute inset-0">
-                  <div className="relative" style={{ width: layout.width, height: layout.height }}>
-                     <Edges edges={layout.edges} width={layout.width} height={layout.height} />
+               // Radix sets the root `position: relative` inline, so it fills the area as a flex item. The content
+               // is as tall as the viewport at least; the tree sits in its middle (auto margins: never above the
+               // top when taller).
+               <ScrollArea horizontal className="min-h-0 flex-1" viewportClassName="[&>div]:h-full">
+                  <div className="flex h-full flex-col">
                      <div
-                        className="absolute flex items-center justify-center rounded-full bg-muted text-xs font-semibold"
-                        style={{
-                           left: layout.root.x,
-                           top: layout.root.y,
-                           width: layout.root.w,
-                           height: layout.root.h,
-                        }}
+                        className="relative my-auto shrink-0"
+                        style={{ width: layout.width, height: layout.height }}
                      >
-                        All topics
+                        <Edges edges={layout.edges} width={layout.width} height={layout.height} />
+                        <div
+                           className="absolute flex items-center justify-center rounded-full bg-muted text-xs font-semibold"
+                           style={{
+                              left: layout.root.x,
+                              top: layout.root.y,
+                              width: layout.root.w,
+                              height: layout.root.h,
+                           }}
+                        >
+                           All topics
+                        </div>
+                        {layout.nodes.map((n) => (
+                           <Node
+                              key={n.task.id}
+                              node={n}
+                              tasks={all}
+                              selected={n.task.id === selected}
+                              today={today}
+                              sessions={sessions}
+                              onSelect={onSelect}
+                              onToggle={toggle}
+                           />
+                        ))}
                      </div>
-                     {layout.nodes.map((n) => (
-                        <Node
-                           key={n.task.id}
-                           node={n}
-                           tasks={all}
-                           selected={n.task.id === selected}
-                           today={today}
-                           sessions={sessions}
-                           onSelect={onSelect}
-                           onToggle={toggle}
-                        />
-                     ))}
                   </div>
                </ScrollArea>
             ) : (
