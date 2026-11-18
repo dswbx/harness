@@ -233,6 +233,7 @@ describe("registry", () => {
          "app harness:files-tree-width",
          "app harness.tasks.view",
          "app harness:tasks-preview-width",
+         "app harness.tasks.tree",
          "app harness:window-frame:{name}",
          "session harness.chat.layout.{session}",
          "session harness.chat.sideThreads.{session}",

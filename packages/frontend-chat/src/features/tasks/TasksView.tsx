@@ -36,6 +36,7 @@ import { Segmented } from "../../lib/Segmented";
 import { useNow } from "../../lib/time";
 import type { PanelCtx } from "../../panels/contract";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
+import { FloatingPreview } from "./FloatingPreview";
 import { type ListActions, ListView, type SessionInfo } from "./ListView";
 import {
    buildList,
@@ -52,6 +53,7 @@ import {
 import { PreviewColumn } from "./PreviewColumn";
 import { PRIORITY_LABEL } from "./PriorityMenu";
 import { QuickAdd } from "./QuickAdd";
+import { TreeView } from "./TreeView";
 import { appTaskApi } from "./taskApi";
 
 type ViewMode = "list" | "tree";
@@ -76,7 +78,8 @@ const PRIORITIES: TaskPriority[] = ["urgent", "high", "medium", "low", "none"];
 
 /**
  * All tasks (ADR 0028), the host's main pane: a header with the counts, search and New task, a bar of filters,
- * group-by and the List / Tree switch, then the list with the selected task in a docked preview.
+ * group-by and the List / Tree switch, then the list with the selected task in a docked preview, or the tree
+ * with it in a floating one.
  */
 export function TasksView({
    client,
@@ -203,13 +206,25 @@ export function TasksView({
                         className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
                      />
                   </label>
-                  <Button size="sm" onClick={() => setAdding(true)}>
+                  <Button
+                     size="sm"
+                     onClick={() => {
+                        // The new task has no subtasks, so the tree would not show it: add it in the list.
+                        viewStore.set("list");
+                        setAdding(true);
+                     }}
+                  >
                      <Plus /> New task
                   </Button>
                </div>
             </header>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-4 py-2">
-               <FilterMenu label={`Status: ${STATUS_FILTER[filter.status].toLowerCase()}`} active>
+               <FilterMenu
+                  label={`Status: ${STATUS_FILTER[filter.status].toLowerCase()}`}
+                  active
+                  // The tree has Hide done instead.
+                  disabled={view === "tree"}
+               >
                   <DropdownMenuRadioGroup
                      value={filter.status}
                      onValueChange={(v) => set({ status: v as StatusFilter })}
@@ -335,9 +350,27 @@ export function TasksView({
             )}
             <div className="flex min-h-0 flex-1">
                {view === "tree" ? (
-                  <div className="grid min-w-0 flex-1 place-items-center text-sm text-muted-foreground">
-                     The tree view is not here yet. Use the list.
-                  </div>
+                  <TreeView
+                     tasks={tasks}
+                     filter={filter}
+                     today={today}
+                     selected={selected}
+                     sessions={sessionInfo}
+                     onSelect={actions.select}
+                     onShowList={() => viewStore.set("list")}
+                     preview={
+                        selected && (
+                           <FloatingPreview
+                              api={api}
+                              id={selected}
+                              tasks={tasks}
+                              host={host}
+                              onClose={() => onSelect(null)}
+                              onOpen={onSelect}
+                           />
+                        )
+                     }
+                  />
                ) : (
                   <ListView
                      tasks={tasks ?? []}
@@ -372,7 +405,7 @@ export function TasksView({
                      }
                   />
                )}
-               {selected && (
+               {selected && view === "list" && (
                   <PreviewColumn
                      api={api}
                      id={selected}

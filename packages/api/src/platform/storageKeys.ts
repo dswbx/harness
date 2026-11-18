@@ -60,6 +60,7 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    app("harness:files-tree-width", "frontend-chat/files"),
    app("harness.tasks.view", "frontend-chat/tasks"),
    app("harness:tasks-preview-width", "frontend-chat/tasks"),
+   app("harness.tasks.tree", "frontend-chat/tasks"),
    app("harness:window-frame:{name}", "api/platform/window"),
    session("harness.chat.layout.{session}", "frontend-chat/shell/dock"),
    session("harness.chat.sideThreads.{session}", "frontend-chat/sideChats"),
