@@ -1,6 +1,27 @@
-import type { TaskStatus, TaskSummary } from "../generated";
+import type { TaskPriority, TaskStatus, TaskSummary } from "../generated";
 
 // Pure helpers over the Task list (ADR 0028), shared by the sidebar and Frontends (ADR 0012).
+
+const STATUSES = new Set<unknown>([
+   "backlog",
+   "todo",
+   "in_progress",
+   "in_review",
+   "done",
+   "blocked",
+   "cancelled",
+] satisfies TaskStatus[]);
+const PRIORITIES = new Set<unknown>([
+   "none",
+   "low",
+   "medium",
+   "high",
+   "urgent",
+] satisfies TaskPriority[]);
+
+/** Whether `v` is a status value (for parsing tool input and output). */
+export const isTaskStatus = (v: unknown): v is TaskStatus => STATUSES.has(v);
+export const isTaskPriority = (v: unknown): v is TaskPriority => PRIORITIES.has(v);
 
 /** Not done and not cancelled. */
 export function isOpen(status: TaskStatus): boolean {

@@ -572,6 +572,16 @@ pub enum HarnessResult {
     },
     /// `session_list`: every Sub Session.
     SubSessionList { sessions: Vec<ListedSubSession> },
+    /// `task_add`, `task_update` (ADR 0028): the Tasks added or changed.
+    Tasks { tasks: Vec<ListedTask> },
+}
+
+/// One Task of a `task_add` or `task_update` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ListedTask {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

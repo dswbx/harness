@@ -538,5 +538,68 @@
          "rawOutput": "done"
       },
       "result": null
+   },
+   {
+      "name": "task_add: the tasks added",
+      "tool": "task_add",
+      "call": {
+         "content": [
+            {
+               "type": "content",
+               "content": {
+                  "type": "text",
+                  "text": "{\n  \"tasks\": [\n    {\n      \"id\": \"t6\",\n      \"title\": \"Cache `target/`\",\n      \"status\": \"todo\"\n    },\n    {\n      \"id\": \"t7\",\n      \"title\": \"Skip install\",\n      \"status\": \"in_progress\"\n    }\n  ]\n}"
+               }
+            }
+         ]
+      },
+      "result": {
+         "type": "tasks",
+         "tasks": [
+            {
+               "id": "t6",
+               "title": "Cache `target/`",
+               "status": "todo"
+            },
+            {
+               "id": "t7",
+               "title": "Skip install",
+               "status": "in_progress"
+            }
+         ]
+      }
+   },
+   {
+      "name": "task_update: one task",
+      "tool": "task_update",
+      "call": {
+         "rawOutput": "{\"tasks\": [{\"id\": \"t3\", \"title\": \"Fix it\", \"status\": \"done\"}]}"
+      },
+      "result": {
+         "type": "tasks",
+         "tasks": [
+            {
+               "id": "t3",
+               "title": "Fix it",
+               "status": "done"
+            }
+         ]
+      }
+   },
+   {
+      "name": "task_update: failure is not a result",
+      "tool": "task_update",
+      "call": {
+         "rawOutput": "```\ntask t1 was not created in this Session\n```"
+      },
+      "result": null
+   },
+   {
+      "name": "task_add: not an object",
+      "tool": "task_add",
+      "call": {
+         "rawOutput": "[1, 2]"
+      },
+      "result": null
    }
 ]

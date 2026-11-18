@@ -99,6 +99,26 @@ impl Tasks {
         self.index.read().values().filter(|t| t.parent_id.as_deref() == Some(id)).map(|t| t.id.clone()).collect()
     }
 
+    /// The folder of a Task's asset files (it may not exist yet).
+    pub fn files_dir(&self, id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.folder(id)?.join(FILES))
+    }
+
+    /// Creates each Task in order. Checks them all first, so a bad one creates none (a write error
+    /// can still stop the batch half way).
+    pub fn create_all(&self, new: Vec<NewTask>, actor: &Actor) -> anyhow::Result<Vec<Task>> {
+        for (i, n) in new.iter().enumerate() {
+            let at = |e: anyhow::Error| crate::error::invalid(format!("task {}: {e:#}", i + 1));
+            clean_title(&n.title).map_err(at)?;
+            n.due.as_deref().map(check_due).transpose().map_err(at)?;
+            n.upstream.clone().map(check_upstream).transpose().map_err(at)?;
+            if let Some(p) = &n.parent_id {
+                self.get(p).map_err(at)?;
+            }
+        }
+        new.into_iter().map(|n| self.create(n, actor)).collect()
+    }
+
     pub fn create(&self, new: NewTask, actor: &Actor) -> anyhow::Result<Task> {
         let title = clean_title(&new.title)?;
         let due = new.due.as_deref().map(check_due).transpose()?;

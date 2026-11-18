@@ -351,6 +351,7 @@ export function mockEvents(): Event[] {
       }),
       ...mockGitSteps(ev),
       ...mockSubSessionSteps(ev),
+      ...mockTaskSteps(ev),
       ev({
          type: "PermissionRequested",
          request_id: "mock-edit",
@@ -672,6 +673,56 @@ function mockSubSessionSteps(ev: (kind: EventKind) => Event): Event[] {
                },
             ],
          },
+      ),
+   ];
+}
+
+/** The Agent adds three Tasks and moves the one this Session started from (ids exist in the mock's Tasks). */
+function mockTaskSteps(ev: (kind: EventKind) => Event): Event[] {
+   const step = (id: string, tool: string, raw_input: unknown, out: unknown) => {
+      const json = JSON.stringify(out, null, 2);
+      return [
+         ev({
+            type: "ToolCall",
+            tool_call_id: id,
+            title: `mcp__harness__${tool}`,
+            kind: null,
+            status: "in_progress",
+            content: [],
+            locations: null,
+            raw_input,
+            harness_tool: tool,
+         }),
+         ev({
+            type: "ToolCallUpdate",
+            tool_call_id: id,
+            title: null,
+            kind: null,
+            status: "completed",
+            content: content(json),
+            locations: null,
+            raw_input: null,
+            raw_output: text(json),
+         }),
+      ];
+   };
+   const added = [
+      { id: "t6", title: "Align the session title baseline", status: "todo" },
+      { id: "t7", title: "Truncate long branch names", status: "in_review" },
+      { id: "t9", title: "Read the ACP registry RFC", status: "todo" },
+   ];
+   return [
+      ...step(
+         "mock-task-add",
+         "task_add",
+         { tasks: added.map(({ title, status }) => ({ title, status })) },
+         { tasks: added },
+      ),
+      ...step(
+         "mock-task-update",
+         "task_update",
+         { id: "t3", status: "in_progress" },
+         { tasks: [{ id: "t3", title: "Fix the updater signature check", status: "in_progress" }] },
       ),
    ];
 }

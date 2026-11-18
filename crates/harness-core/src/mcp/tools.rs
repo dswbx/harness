@@ -7,8 +7,8 @@ use futures_util::future::BoxFuture;
 use rmcp::model::ContentBlock;
 use serde_json::{Value, json};
 
-use super::frontend_tools;
 use super::info::{info, shared_info, ui_get};
+use super::{frontend_tools, task_tools};
 use crate::api::{GitActor, ThreadId};
 use crate::session::{PrPlan, Session};
 
@@ -116,7 +116,7 @@ pub(super) fn primitives() -> Vec<Primitive> {
         ),
         Primitive::run(
             "harness_info",
-            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, `panels_dir`: the folder for the .md, .html or .json files of file-backed panels (render_ui `source`), and `shared`: the Shared Artifacts attached to this Session (id, title, kind, `dir`: their folder, `file`: the content file in it).",
+            "What the user's UI shows now: live Frontend items you placed with an `id` (e.g. render_ui slots: id, placement, title, source, `updated_ms` (when it last changed: its latest call, or a later write of its source file), and `errors` the UI reported, such as script errors or a missing source file), the top-level keys of the Session State, `panels_dir`: the folder for the .md, .html or .json files of file-backed panels (render_ui `source`), `shared`: the Shared Artifacts attached to this Session (id, title, kind, `dir`: their folder, `file`: the content file in it), `tasks`: the user's Tasks created in this Session or that it was started from (`session`: created_here or started_from), and `note_path`: the user's Session Note (Markdown; read it, never write it; it may not exist).",
             empty.clone(),
             "read",
             |s, t, a| Box::pin(run_harness_info(s, t, a)),
@@ -166,6 +166,57 @@ pub(super) fn primitives() -> Vec<Primitive> {
             json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }),
             "state",
             |s, t, a| Box::pin(run_artifact_detach(s, t, a)),
+        ),
+        Primitive::run(
+            "task_add",
+            "Add Tasks: the user's own work items (to-dos, bugs, ideas), kept across Sessions in the app's Tasks list. Not your step list: keep your own steps in your todo or plan tool. Add Tasks only when the user asks or agrees. Each Task records this Session as its origin. `parent`: the id of a Task to put it under. Returns JSON: tasks (id, title, status).",
+            json!({ "type": "object", "properties": {
+                "tasks": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": {
+                    "title": { "type": "string", "description": "One line" },
+                    "body": { "type": "string", "description": "Markdown" },
+                    "status": { "type": "string", "enum": task_tools::STATUSES, "description": "Default todo" },
+                    "priority": { "type": "string", "enum": task_tools::PRIORITIES },
+                    "due": { "type": "string", "description": "YYYY-MM-DD" },
+                    "parent": { "type": "string", "description": "Id of the Task to put it under, e.g. t3" },
+                    "upstream_url": { "type": "string", "description": "The same item in another tracker (Linear, GitHub issue)" },
+                    "upstream_label": { "type": "string" }
+                }, "required": ["title"] } }
+            }, "required": ["tasks"] }),
+            "state",
+            |s, t, a| Box::pin(task_tools::run_task_add(s, t, a)),
+        ),
+        Primitive::run(
+            "task_update",
+            "Change one of the user's Tasks (their work items, kept across Sessions; not your todo list): status, title, body, priority, due, or parent. Only Tasks created in this Session or that it was started from; for any other Task, ask the user to change it. Set the status as the work moves (in_progress, in_review, done). Returns JSON: tasks (id, title, status).",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "The Task's id, e.g. t3" },
+                "status": { "type": "string", "enum": task_tools::STATUSES },
+                "title": { "type": "string" },
+                "body": { "type": "string", "description": "Markdown; replaces the body" },
+                "priority": { "type": "string", "enum": task_tools::PRIORITIES },
+                "due": { "type": "string", "description": "YYYY-MM-DD; empty clears it" },
+                "parent": { "type": ["string", "null"], "description": "Move it under this Task; null for the top level" }
+            }, "required": ["id"] }),
+            "state",
+            |s, t, a| Box::pin(task_tools::run_task_update(s, t, a)),
+        ),
+        Primitive::run(
+            "task_list",
+            "List the user's Tasks (their work items, kept across Sessions; not your todo list), most recently changed first, at most 50. `scope`: session (default: created in this Session or that it was started from) or all. `status`: open (not done or cancelled) or one status. `query`: text in the title.",
+            json!({ "type": "object", "properties": {
+                "scope": { "type": "string", "enum": ["session", "all"] },
+                "status": { "type": "string", "enum": ["open", "backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"] },
+                "query": { "type": "string" }
+            } }),
+            "read",
+            |s, t, a| Box::pin(task_tools::run_task_list(s, t, a)),
+        ),
+        Primitive::run(
+            "task_get",
+            "Read one of the user's Tasks: its fields and Markdown body, parent, subtasks, origin Session, linked Sessions, asset files (with paths), and `can_update` (whether task_update may change it).",
+            json!({ "type": "object", "properties": { "id": { "type": "string", "description": "e.g. t3" } }, "required": ["id"] }),
+            "read",
+            |s, t, a| Box::pin(task_tools::run_task_get(s, t, a)),
         ),
         Primitive::run(
             "comment_list",

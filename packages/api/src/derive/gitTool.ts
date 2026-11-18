@@ -1,4 +1,5 @@
-import type { HarnessResult } from "../generated";
+import type { HarnessResult, ListedTask } from "../generated";
+import { isTaskStatus } from "./tasks";
 
 /**
  * What a Harness git tool call did, read from its raw input and the core's typed `harness_result`
@@ -146,6 +147,9 @@ function deriveResult(tool: GitToolCall): HarnessResult | null {
       case "session_wait":
       case "session_list":
          return deriveSubSession(name, text);
+      case "task_add":
+      case "task_update":
+         return deriveTasks(text);
       default:
          return null;
    }
@@ -155,6 +159,23 @@ const str = (v: unknown): string | undefined =>
    typeof v === "string" && v.trim() ? v.trim() : undefined;
 const stateOf = (v: unknown) =>
    v === "idle" || v === "needs_attention" || v === "working" ? v : undefined;
+
+/** `{"tasks": [{id, title, status}]}`; one bad row fails it all, as in the core. */
+function deriveTasks(text: string): HarnessResult | null {
+   const parsed = parseJson(text);
+   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+   const list = (parsed as Record<string, unknown>).tasks ?? [];
+   if (!Array.isArray(list)) return null;
+   const tasks: ListedTask[] = [];
+   for (const v of list) {
+      const row = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+      const { id, title, status } = row;
+      if (typeof id !== "string" || typeof title !== "string") return null;
+      if (!isTaskStatus(status)) return null;
+      tasks.push({ id, title, status });
+   }
+   return { type: "tasks", tasks };
+}
 
 function deriveSubSession(name: string, text: string): HarnessResult | null {
    const parsed = parseJson(text);

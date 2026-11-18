@@ -18,6 +18,11 @@ const MAX_BYTES: usize = 1024 * 1024;
 const MAX_IMAGE: u64 = 25 * 1024 * 1024;
 
 impl Session {
+    /// `note.md` (it may not exist yet). The Agent reads it; only the user writes it.
+    pub fn note_path(&self) -> PathBuf {
+        self.dir.join(FILE)
+    }
+
     pub fn read_note(&self) -> anyhow::Result<Note> {
         read(&self.dir)
     }

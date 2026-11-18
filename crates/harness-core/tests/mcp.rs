@@ -157,7 +157,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,pr_create,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,comment_list,comment_add,comment_resolve,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,pr_create,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,task_add,task_update,task_list,task_get,comment_list,comment_add,comment_resolve,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -1274,6 +1274,66 @@ async fn task_commands_send_tasks_changed_with_the_changed_ids() {
     // A deleted Session cannot be an origin.
     h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
     assert!(h.execute(new_task("Gone", None, Some(&a))).await.is_err(), "an unknown Session");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = shared_harness(&dir.path().join("data"));
+    let a = create(&h, dir.path(), vec![]).await;
+    let b = create(&h, dir.path(), vec![]).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::TasksChanged { ids } = e {
+            s.lock().unwrap().push(ids.clone());
+        }
+        true
+    }));
+    let added = mcp_json(&h, &a, r#"task_add {"tasks":[{"title":"Cache target","priority":"high"},{"title":"Skip install","status":"in_progress"}]}"#).await;
+    assert_eq!(
+        added,
+        serde_json::json!({ "tasks": [{ "id": "t1", "title": "Cache target", "status": "todo" }, { "id": "t2", "title": "Skip install", "status": "in_progress" }] })
+    );
+    let read = |id: &str| {
+        let rt = tokio::runtime::Handle::current();
+        match tokio::task::block_in_place(|| rt.block_on(h.execute(Command::ReadTask { id: id.into() }))) {
+            Ok(CommandResult::Task { task }) => task,
+            r => panic!("{r:?}"),
+        }
+    };
+    let t1 = read("t1");
+    assert_eq!(t1.origin_session_id.as_deref(), Some(a.as_str()), "the origin is the calling Session");
+    assert_eq!((t1.activity[0].by, t1.activity[0].session_id.as_deref()), (StateWriter::Agent, Some(a.as_str())));
+    assert_eq!(*seen.lock().unwrap(), [vec!["t1".to_owned(), "t2".to_owned()]]);
+    // A bad item creates none.
+    let bad = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":" "}]}"#, None).await;
+    assert!(bad.contains("mcp error:") && bad.contains("task 2"), "{bad}");
+    assert!(h.execute(Command::ReadTask { id: "t3".into() }).await.is_err());
+
+    // Session b cannot change a's Task; a can, and a move under its own subtask is refused.
+    let refused = ask(&h, &b, r#"mcp task_update {"id":"t1","status":"done"}"#, None).await;
+    assert!(refused.contains("mcp error:") && refused.contains("Ask the user"), "{refused}");
+    assert_eq!(read("t1").status, harness_core::api::TaskStatus::Todo);
+    let get = mcp_json(&h, &b, r#"task_get {"id":"t1"}"#).await;
+    assert_eq!(get["can_update"], false);
+    let updated = mcp_json(&h, &a, r#"task_update {"id":"t2","status":"done","parent":"t1"}"#).await;
+    assert_eq!(updated, serde_json::json!({ "tasks": [{ "id": "t2", "title": "Skip install", "status": "done" }] }));
+    assert_eq!(read("t2").parent_id.as_deref(), Some("t1"));
+    let cycle = ask(&h, &a, r#"mcp task_update {"id":"t1","parent":"t2"}"#, None).await;
+    assert!(cycle.contains("mcp error:") && cycle.contains("subtasks"), "{cycle}");
+    let get = mcp_json(&h, &a, r#"task_get {"id":"t1"}"#).await;
+    assert_eq!((get["can_update"].clone(), get["subtasks"][0]["id"].clone()), (serde_json::json!(true), serde_json::json!("t2")));
+
+    // Lists: this Session's by default, all with scope all; harness_info has them and the note path.
+    let mine = mcp_json(&h, &b, "task_list {}").await;
+    assert_eq!(mine["tasks"], serde_json::json!([]));
+    let all = mcp_json(&h, &b, r#"task_list {"scope":"all","status":"open"}"#).await;
+    assert_eq!(all["tasks"].as_array().unwrap().iter().map(|t| t["id"].clone()).collect::<Vec<_>>(), [serde_json::json!("t1")]);
+    let info = mcp_json(&h, &a, "harness_info {}").await;
+    assert_eq!(info["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(info["tasks"][0]["session"], "created_here");
+    assert!(info["note_path"].as_str().unwrap().ends_with(&format!("{a}/note.md")), "{info}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

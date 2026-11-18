@@ -826,7 +826,9 @@ repo?: string | null; branch?: string | null; model?: string | null; effort?: st
 /**  `session_wait`: its last reply, how long its last Turn took, how it ended, its state. */
 reply?: string | null; duration_ms?: number | null; stop_reason?: string | null; status?: SubSessionState | null } | 
 /**  `session_list`: every Sub Session. */
-{ type: "sub_session_list"; sessions: ListedSubSession[] };
+{ type: "sub_session_list"; sessions: ListedSubSession[] } | 
+/**  `task_add`, `task_update` (ADR 0028): the Tasks added or changed. */
+{ type: "tasks"; tasks: ListedTask[] };
 
 /**  What the Harness knows about an installed Agent's files. */
 export type InstallInfo = {
@@ -883,6 +885,13 @@ export type ListedSubSession = {
 	repo?: string | null,
 	status?: SubSessionState | null,
 	archived?: boolean,
+};
+
+/**  One Task of a `task_add` or `task_update` result. */
+export type ListedTask = {
+	id: string,
+	title: string,
+	status: TaskStatus,
 };
 
 /**  An MCP server in the MCP Library. */

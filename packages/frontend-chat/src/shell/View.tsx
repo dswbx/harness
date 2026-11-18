@@ -35,6 +35,8 @@ import { sharedRef } from "../features/renderUi/tools";
 import { useUiEnv } from "../features/renderUi/useUiEnv";
 import { SelectionComment } from "../features/review/SelectionComment";
 import type { SideChatsModel } from "../features/sideChats/panel";
+import { OpenTask } from "../features/tasks/openTask";
+import { tasksPanel } from "../features/tasks/panel";
 import { OpenStep } from "../features/toolDisplay/openStep";
 import { initialState } from "../state/reducer";
 import { DockLayout } from "./dock/DockLayout";
@@ -163,6 +165,12 @@ function ChatBody({
    const openPlan = useCallback(
       (requestId: string) => openPanel(planPanel, requestId),
       [openPanel],
+   );
+   // A task row in the chat (task_add, task_update) opens the Tasks panel at it; the Quick overlay has no
+   // Tasks panel, so there it opens the host's All tasks view, when the host has one.
+   const openTask = useCallback(
+      (id: string) => (overlay ? onOpenTasks?.(id) : openPanel(tasksPanel, id)),
+      [overlay, onOpenTasks, openPanel],
    );
    const { artifacts } = panelHost.models.artifacts as ArtifactsModel;
    const shareBlock = useCallback(
@@ -317,53 +325,55 @@ function ChatBody({
 
    return (
       <Env.Provider value={env}>
-         <FileViewProvider onView={openFile}>
-            {overlay ? (
-               <OverlayDock
-                  draft={overlayDraft}
-                  promptBox={promptBox}
-                  chat={chat}
-                  chatFrame={chatFrame}
-                  onPanelWidth={onPanelWidth}
-                  overlayFrame={overlayFrame}
-                  shown={shown}
-                  left={left}
-                  right={right}
-                  panels={panels}
-                  dock={dock}
-                  onToggle={onToggle}
-                  ghost={ghost}
-               />
-            ) : (
-               <div className="relative flex h-full">
-                  {(!leftEmpty || drag) && (
+         <OpenTask.Provider value={overlay && !onOpenTasks ? null : openTask}>
+            <FileViewProvider onView={openFile}>
+               {overlay ? (
+                  <OverlayDock
+                     draft={overlayDraft}
+                     promptBox={promptBox}
+                     chat={chat}
+                     chatFrame={chatFrame}
+                     onPanelWidth={onPanelWidth}
+                     overlayFrame={overlayFrame}
+                     shown={shown}
+                     left={left}
+                     right={right}
+                     panels={panels}
+                     dock={dock}
+                     onToggle={onToggle}
+                     ghost={ghost}
+                  />
+               ) : (
+                  <div className="relative flex h-full">
+                     {(!leftEmpty || drag) && (
+                        <Stripe
+                           side="left"
+                           groups={left}
+                           drag={drag}
+                           overlay={leftEmpty}
+                           onToggle={onToggle}
+                           onPress={(it, e) => startDrag(it.id, it.label, e)}
+                        />
+                     )}
+                     <DockLayout
+                        {...dock}
+                        layout={shown}
+                        chat={chat}
+                        panels={panels}
+                        leftStripeOverlay={leftEmpty}
+                     />
                      <Stripe
-                        side="left"
-                        groups={left}
+                        side="right"
+                        groups={right}
                         drag={drag}
-                        overlay={leftEmpty}
                         onToggle={onToggle}
                         onPress={(it, e) => startDrag(it.id, it.label, e)}
                      />
-                  )}
-                  <DockLayout
-                     {...dock}
-                     layout={shown}
-                     chat={chat}
-                     panels={panels}
-                     leftStripeOverlay={leftEmpty}
-                  />
-                  <Stripe
-                     side="right"
-                     groups={right}
-                     drag={drag}
-                     onToggle={onToggle}
-                     onPress={(it, e) => startDrag(it.id, it.label, e)}
-                  />
-                  {ghost}
-               </div>
-            )}
-         </FileViewProvider>
+                     {ghost}
+                  </div>
+               )}
+            </FileViewProvider>
+         </OpenTask.Provider>
       </Env.Provider>
    );
 }
