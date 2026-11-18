@@ -1,5 +1,5 @@
 import type { Event, PermissionOption } from "@harness/api";
-import { type Ctx, permIndex } from "../draft";
+import { type Ctx, endsRunningTurn, permIndex } from "../draft";
 import { planSteps, planTitle } from "../planText";
 import { parseReviewComments } from "../reviewCommentText";
 
@@ -11,7 +11,12 @@ export function plansSlice(c: Ctx, e: Event) {
       d.taskList = k.entries;
       d.taskListAt = d.items.length;
       d.taskListTurn = d.turnId;
-   } else if (k.type === "TurnEnded" && d.taskListTurn !== null && d.taskListTurn === d.turnId) {
+   } else if (
+      k.type === "TurnEnded" &&
+      endsRunningTurn(d, k.turn_id) &&
+      d.taskListTurn !== null &&
+      d.taskListTurn === d.turnId
+   ) {
       // Its Turn ended: the list stays before the closing message, which may have started before
       // the list's last change.
       d.taskListTurn = null;
