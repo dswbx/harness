@@ -33,7 +33,17 @@ impl AppEvents {
     }
 
     pub fn emit(&self, event: crate::api::AppEvent) {
-        self.queue.lock().push_back(event);
+        self.emit_with(|| event);
+    }
+
+    /// Emits the event `make` builds while the queue is locked: events built from shared state
+    /// (the changed Tasks) are queued in the order they read it, so the last one is the newest.
+    pub fn emit_with(&self, make: impl FnOnce() -> crate::api::AppEvent) {
+        {
+            let mut queue = self.queue.lock();
+            let event = make();
+            queue.push_back(event);
+        }
         loop {
             {
                 let Some(_delivering) = self.delivering.try_lock() else { return };

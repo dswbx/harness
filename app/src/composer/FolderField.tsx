@@ -27,7 +27,8 @@ export function FolderField({
    folderQuery: string;
    setFolderQuery: (q: string) => void;
    pickFolder: (p: string) => void;
-   pickNoFolder: () => void;
+   /** None: "No folder" (a Quick Session) is not offered. */
+   pickNoFolder?: () => void;
    browse: () => Promise<void>;
 }) {
    // ---- Folder list
@@ -49,7 +50,7 @@ export function FolderField({
               },
            ]
          : []),
-      ...(matchesWords(fq, "no folder", "quick session")
+      ...(pickNoFolder && matchesWords(fq, "no folder", "quick session")
          ? [
               {
                  key: "no-folder",

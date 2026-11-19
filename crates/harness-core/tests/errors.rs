@@ -39,6 +39,7 @@ fn create(folder: &std::path::Path, agent_id: &str) -> Command {
         new_branch: None,
         pr: None,
         mcp_servers: vec![],
+        task: None,
     }
 }
 

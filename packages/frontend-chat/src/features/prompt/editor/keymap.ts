@@ -7,6 +7,7 @@ import {
    $isRangeSelection,
    COMMAND_PRIORITY_HIGH,
    INDENT_CONTENT_COMMAND,
+   INSERT_LINE_BREAK_COMMAND,
    INSERT_PARAGRAPH_COMMAND,
    KEY_ARROW_DOWN_COMMAND,
    KEY_ARROW_LEFT_COMMAND,
@@ -43,6 +44,10 @@ export type PromptKeyProps = {
    menuOpen: boolean;
    onMenuKey(key: MenuKey): void;
    onSubmit(): void;
+   /** One line: every Enter submits, nothing makes a new paragraph, pasted lines are joined. */
+   singleLine?: boolean;
+   /** Enter makes a new line (as Shift+Enter); Mod+Enter submits. */
+   newlineOnEnter?: boolean;
 };
 
 function $block(node: LexicalNode): EnterCtx["block"] {
@@ -153,6 +158,8 @@ export function registerPromptKeys(
                shift: e.shiftKey,
                mod: e.metaKey || e.ctrlKey,
                block,
+               newline: p.newlineOnEnter,
+               singleLine: p.singleLine,
             });
             if (action === "default" || (action === "code" && !$exitCode())) return false;
             e.preventDefault();
@@ -178,13 +185,27 @@ export function registerPromptKeys(
          PASTE_COMMAND,
          (e) => {
             const data = "clipboardData" in e ? e.clipboardData : null;
-            if (data?.types.includes("application/x-lexical-editor")) return false;
+            const single = getProps().singleLine;
+            if (!single && data?.types.includes("application/x-lexical-editor")) return false;
             const t = data?.getData("text/plain");
-            if (!t || !$isRangeSelection($getSelection())) return false;
+            const sel = $getSelection();
+            if (!t || !$isRangeSelection(sel)) return false;
             e.preventDefault();
-            $insertPlainText(t);
+            if (single) sel.insertText(t.trim().replace(/\s*[\r\n]+\s*/g, " "));
+            else $insertPlainText(t);
             return true;
          },
+         COMMAND_PRIORITY_HIGH,
+      ),
+      // A one-line editor never splits: rich-text's own paragraph / line break inserts are dropped.
+      editor.registerCommand(
+         INSERT_PARAGRAPH_COMMAND,
+         () => !!getProps().singleLine,
+         COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+         INSERT_LINE_BREAK_COMMAND,
+         () => !!getProps().singleLine,
          COMMAND_PRIORITY_HIGH,
       ),
    ];

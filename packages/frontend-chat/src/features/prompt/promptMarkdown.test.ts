@@ -23,6 +23,7 @@ import {
    $escapeBlock,
    $exitCode,
    $exportMarkdown,
+   $importMarkdown,
    $indentListItems,
    $insertPlainText,
    $quoteBreak,
@@ -97,6 +98,20 @@ describe("enterAction", () => {
    it("fence line becomes a code block on Enter and Shift+Enter", () => {
       expect(enterAction(ctx({ block: "fence" }))).toBe("fence");
       expect(enterAction(ctx({ block: "fence", shift: true }))).toBe("fence");
+   });
+   it("with newline (a document) Enter makes a new line like Shift+Enter; only mod+Enter sends", () => {
+      expect(enterAction(ctx({ newline: true }))).toBe("paragraph");
+      expect(enterAction(ctx({ newline: true, block: "list" }))).toBe("paragraph");
+      expect(enterAction(ctx({ newline: true, block: "quote" }))).toBe("quote");
+      expect(enterAction(ctx({ newline: true, block: "code" }))).toBe("code");
+      expect(enterAction(ctx({ newline: true, block: "fence" }))).toBe("fence");
+      expect(enterAction(ctx({ newline: true, mod: true }))).toBe("send");
+   });
+   it("singleLine: every Enter sends, Shift and fences included; the menu and composing still win", () => {
+      for (const o of [{}, { shift: true }, { block: "fence" as const }])
+         expect(enterAction(ctx({ singleLine: true, ...o }))).toBe("send");
+      expect(enterAction(ctx({ singleLine: true, menuOpen: true }))).toBe("pick");
+      expect(enterAction(ctx({ singleLine: true, composing: true }))).toBe("default");
    });
 });
 
@@ -180,6 +195,52 @@ describe("markdown round trip", () => {
    it("code keeps its text verbatim", () => {
       expect(roundTrip("`a_b` and a_b").md).toBe("`a_b` and a_b");
       expect(roundTrip("```\nx\\_y *z*\n```").md).toBe("```\nx\\_y *z*\n```");
+   });
+});
+
+describe("$importMarkdown (a saved note loaded back)", () => {
+   const imported = (md: string) => {
+      const editor = createHeadlessEditor({
+         nodes: PROMPT_NODES,
+         onError: (e) => {
+            throw e;
+         },
+      });
+      editor.update(() => $importMarkdown(md), { discrete: true });
+      return editor;
+   };
+   it.each([
+      "",
+      "one line",
+      "line one\nline two",
+      "line one\n\nafter blank\n\n\nafter two",
+      "hello **bold** and *italic* and `code` and ~~gone~~",
+      "see [docs](https://example.com)",
+      "- one\n- two\n\nafter list",
+      "before\n\n1. one\n2. two",
+      "- a\n    - b\n        - c\n- d",
+      "```ts\nconst a = 1;\n\nconst b = 2;\n```\n\nafter code",
+      "> quoted\n> two lines\n\nafter",
+      "- list\n\n- another list",
+      "# not a heading, kept as text",
+      "a_b_c and 2*3 and <ref> & [x]",
+      "**Build timings**\n\n- `cargo build` cold 3m12s\n- sccache is not set up\n\nAsk about `CARGO_TARGET_DIR`.",
+   ])("%j comes back as written", (md) => {
+      expect(mdOf(imported(md))).toBe(md);
+      // And again: a second load and save changes nothing.
+      expect(mdOf(imported(mdOf(imported(md))))).toBe(md);
+   });
+   it("does not keep the blank line around a block as an empty paragraph", () => {
+      expect(kinds(imported("a\n\n- x\n\nb"))).toEqual(["paragraph", "list", "paragraph"]);
+      expect(kinds(imported("a\n\n\n- x"))).toEqual([
+         "paragraph",
+         "paragraph",
+         "paragraph",
+         "list",
+      ]);
+   });
+   it("reads CRLF line ends and drops a trailing newline", () => {
+      expect(mdOf(imported("a\r\nb\r\n"))).toBe("a\nb");
    });
 });
 

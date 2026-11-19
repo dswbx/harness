@@ -10,6 +10,8 @@ export * from "./derive/paths";
 export * from "./derive/state";
 export * from "./derive/subagents";
 export * from "./derive/subSessionTool";
+export * from "./derive/tasks";
+export * from "./derive/taskTool";
 export * from "./derive/threads";
 export * from "./derive/time";
 export * from "./derive/toolFacts";

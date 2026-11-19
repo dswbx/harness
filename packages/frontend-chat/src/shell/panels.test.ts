@@ -18,6 +18,7 @@ describe("persisted ids", () => {
          "terminal",
          "events",
          "subagents",
+         "tasks",
       ]);
       expect(FAMILIES.map((f) => f.prefix)).toEqual(["slot"]);
    });
@@ -74,6 +75,7 @@ describe("registry", () => {
          "terminal",
          "events",
          "subagents",
+         "tasks",
       ]);
       expect(panelDef("subagents")?.label).toBe("Subagents");
       expect(panelDef("side")?.label).toBe("Side chats");
@@ -86,7 +88,7 @@ describe("registry", () => {
          bottomLeft: ["terminal"],
          bottomRight: ["events"],
          rightBottom: [],
-         rightTop: ["changes", "files", "side", "plan"],
+         rightTop: ["changes", "files", "side", "plan", "tasks"],
       });
    });
 
@@ -101,11 +103,16 @@ describe("registry", () => {
          ["terminal", "Terminal", "bottomLeft"],
          ["events", "Events", "bottomRight"],
          ["subagents", "Subagents", "leftBottom"],
+         ["tasks", "Tasks & Notes", "rightTop"],
       ]);
    });
 
-   test("the Terminal stays mounted once opened, Side chats while it has tabs; Events can expand", () => {
-      const mounts: Record<string, string> = { terminal: "afterFirstOpen", side: "whileReady" };
+   test("the Terminal and Tasks & Notes stay mounted once opened, Side chats while it has tabs; Events can expand", () => {
+      const mounts: Record<string, string> = {
+         terminal: "afterFirstOpen",
+         tasks: "afterFirstOpen",
+         side: "whileReady",
+      };
       for (const p of PANELS) expect(p.mount ?? "whenOpen").toBe(mounts[p.id] ?? "whenOpen");
       expect(PANELS.filter((p) => p.expandable).map((p) => p.id)).toEqual(["events"]);
    });
@@ -234,7 +241,7 @@ describe("Side chats status", () => {
 describe("availablePanels", () => {
    test("base panels without git, plans or subagents", () => {
       expect([...availablePanels({ ...none, statuses: registered() })].sort()).toEqual(
-         ["artifacts", "events", "files", "references", "side", "terminal"].sort(),
+         ["artifacts", "events", "files", "references", "side", "tasks", "terminal"].sort(),
       );
    });
    test("git, plans and subagents each add one", () => {

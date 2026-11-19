@@ -9,12 +9,16 @@ import type {
    GitStatus,
    KnownRepo,
    LineComment,
+   Note,
    PrInfo,
    PrRefKey,
    RepoId,
    SharedArtifactEntry,
    SharedArtifactMeta,
    StatePatchOp,
+   Task,
+   TaskPatch,
+   TaskSummary,
    TerminalInfo,
    ThreadStart,
    WorkspaceInfo,
@@ -25,10 +29,14 @@ import { coreApi } from "./session/core";
 import { filesApi } from "./session/files";
 import { frontendFilesApi } from "./session/frontendFiles";
 import { gitApi } from "./session/git";
+import { noteApi } from "./session/note";
 import { prsApi } from "./session/prs";
 import { sharedApi } from "./session/shared";
+import { tasksApi } from "./session/tasks";
 import { terminalApi } from "./session/terminal";
 import type { SharedArtifactData } from "./shared";
+import type { TaskStore } from "./taskStore";
+import type { NewTask } from "./tasks";
 
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
 export interface SessionApi {
@@ -217,6 +225,40 @@ export interface SessionApi {
    sharedChanged(onChange: (id: string) => void): Promise<Unsubscribe>;
    /** Calls back when Shared Artifacts were added, removed, renamed, attached or detached. */
    sharedListChanged(onChange: () => void): Promise<Unsubscribe>;
+   /** All Tasks (ADR 0028), oldest first. */
+   listTasks(): Promise<TaskSummary[]>;
+   readTask(id: string): Promise<Task>;
+   /** A new Task with this Session as its origin. */
+   createTask(t: Omit<NewTask, "sessionId">): Promise<Task>;
+   /** `baseUpdatedMs`: the `updated_ms` the editor loaded; a body edit is refused (`conflict`) when the body changed after it. */
+   updateTask(id: string, patch: TaskPatch, baseUpdatedMs?: number | null): Promise<Task>;
+   /** Puts the Task under `parentId` (null: top level), before its sibling `before` (null: last). */
+   moveTask(id: string, parentId: string | null, before?: string | null): Promise<Task>;
+   /** Deletes the Task; its children move to its parent. */
+   deleteTask(id: string): Promise<void>;
+   addTaskAssets(id: string, files: AttachmentInput[]): Promise<Task>;
+   removeTaskAsset(id: string, name: string): Promise<Task>;
+   readTaskAsset(id: string, name: string): Promise<{ mime: string; data: string }>;
+   /**
+    * Calls back with the ids of the Tasks that changed (any window, any Session) and the current
+    * summaries of those that still exist (an id without one was deleted).
+    */
+   tasksChanged(onChange: (ids: string[], tasks: TaskSummary[]) => void): Promise<Unsubscribe>;
+   /** The window's one Task list (`useTasks`), shared by every Session and the app. */
+   readonly taskStore: TaskStore;
+   /** This Session's Session Note (ADR 0028); empty when never written. */
+   readNote(): Promise<Note>;
+   /**
+    * Replaces the note. `baseHash`: the `hash` the editor loaded; refused (`conflict`) when the note
+    * changed since. Without it the write always wins.
+    */
+   writeNote(content: string, baseHash?: string | null): Promise<Note>;
+   /** Copies images into the note's `attachments/note/`; `readAttachment` reads them back. */
+   addNoteImages(files: AttachmentInput[]): Promise<Note>;
+   /** Deletes one of the note's images: `path` as in `Note.images`. */
+   removeNoteImage(path: string): Promise<Note>;
+   /** Calls back when this Session's note was written (any window). */
+   noteChanged(onChange: () => void): Promise<Unsubscribe>;
 }
 
 /** The Session's facade: one object composed of per-domain method groups. */
@@ -230,6 +272,8 @@ export function createSessionApi(transport: Transport, sessionId: string): Sessi
       ...frontendFilesApi(transport, sessionId),
       ...terminalApi(transport, sessionId),
       ...sharedApi(transport, sessionId),
+      ...tasksApi(transport, sessionId),
+      ...noteApi(transport, sessionId),
       ...commentsApi(transport, sessionId),
    };
 }

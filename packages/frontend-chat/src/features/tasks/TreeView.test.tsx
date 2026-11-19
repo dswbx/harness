@@ -1,0 +1,190 @@
+import { HarnessClient, type Task } from "@harness/api";
+import { MockTransport } from "@harness/api/mock";
+import { TooltipProvider } from "@harness/ui";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_SPACE } from "./FloatingPreview";
+import { TasksView } from "./TasksView";
+
+// The List / Tree switch and the fold state are stored values: give them a storage.
+const mem = new Map<string, string>();
+beforeEach(() => {
+   mem.clear();
+   vi.stubGlobal("localStorage", {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, String(v)),
+      removeItem: (k: string) => void mem.delete(k),
+      clear: () => mem.clear(),
+   });
+});
+afterEach(() => {
+   cleanup();
+   vi.unstubAllGlobals();
+});
+
+async function setup(first: string | null = null, seed?: (tasks: Map<string, Task>) => void) {
+   const mock = new MockTransport([], []);
+   seed?.(mock.tasks);
+   const client = new HarnessClient(mock);
+   const onSelect = vi.fn();
+   function Host() {
+      const [selected, setSelected] = useState(first);
+      return (
+         <TasksView
+            client={client}
+            selected={selected}
+            onSelect={(id) => {
+               onSelect(id);
+               setSelected(id);
+            }}
+            sessions={[{ id: "mock-1", title: "Mock session (fixture replay)", status: "idle" }]}
+            onOpenSession={() => {}}
+         />
+      );
+   }
+   render(
+      <TooltipProvider>
+         <Host />
+      </TooltipProvider>,
+   );
+   fireEvent.click(screen.getByRole("tab", { name: "Tree" }));
+   await waitFor(() => node("t1"));
+   return { onSelect, client };
+}
+
+const node = (id: string) => {
+   const el = document.querySelector<HTMLElement>(`[data-tree-node="${id}"]`);
+   if (!el) throw new Error(`no node ${id}`);
+   return el;
+};
+const shownIds = () =>
+   [...document.querySelectorAll<HTMLElement>("[data-tree-node]")].map((n) => n.dataset.treeNode);
+/** The scrolled content's width: the tree, plus room on the right while the preview is open. */
+const treeWidth = () =>
+   Number.parseFloat((document.querySelector("[data-tree-box]") as HTMLElement).style.width);
+const boxes = () =>
+   [...document.querySelectorAll<HTMLElement>("[data-tree-node]")].map((n) =>
+      n.getAttribute("style"),
+   );
+
+describe("All tasks tree", () => {
+   it("shows the topics with their subtasks; a note links to the list for the rest", async () => {
+      await setup();
+      // Topics and subtasks (closed ones too: the tree has Hide done), not the loose top-level tasks.
+      expect(shownIds()).toContain("t2");
+      expect(shownIds()).toContain("t14");
+      expect(shownIds()).not.toContain("t9");
+      expect(screen.getByText(/5 top-level tasks without subtasks hidden/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Show in List" }));
+      expect(screen.getByRole("tab", { name: "List" }).getAttribute("aria-selected")).toBe("true");
+   });
+
+   it("folds and unfolds, Collapse all, Expand all and Hide done", async () => {
+      await setup();
+      const fold = screen.getByRole("button", { name: "Collapse Release v2026.12" });
+      fireEvent.click(fold);
+      expect(shownIds()).not.toContain("t3");
+      const unfold = screen.getByRole("button", { name: "Expand Release v2026.12" });
+      expect(unfold.textContent).toBe("+3");
+      fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+      expect(shownIds()).toContain("t3");
+      fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+      expect(shownIds().sort()).toEqual(["t1", "t11", "t5"]);
+      fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+      fireEvent.click(screen.getByRole("button", { name: "Hide done" }));
+      expect(shownIds()).not.toContain("t2");
+      expect(shownIds()).not.toContain("t13");
+      expect(shownIds()).toContain("t3");
+   });
+
+   it("the preview floats over the tree area and the nodes do not move", async () => {
+      const { onSelect } = await setup();
+      const before = boxes();
+      const width = treeWidth();
+      const area = document.querySelector("[data-tree-area]") as HTMLElement;
+      expect(screen.queryByRole("complementary", { name: "Task preview" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Header polish" }));
+      expect(onSelect).toHaveBeenLastCalledWith("t5");
+      const preview = screen.getByRole("complementary", { name: "Task preview" });
+      // Inside the tree area, absolute: not a column beside it.
+      expect(preview.parentElement).toBe(area);
+      expect(preview.className).toMatch(/\babsolute\b/);
+      expect(preview.style.width).toBe("");
+      expect(boxes()).toEqual(before);
+      // Room on the right, so the nodes under the preview can be scrolled out from under it.
+      expect(treeWidth()).toBe(width + PREVIEW_SPACE);
+      expect(node("t5").getAttribute("aria-current")).toBe("true");
+      await waitFor(() =>
+         expect(within(preview).getByRole("textbox", { name: "Task title" }).textContent).toBe(
+            "Header polish",
+         ),
+      );
+      fireEvent.click(within(preview).getByRole("button", { name: "Close preview" }));
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+      expect(screen.queryByRole("complementary", { name: "Task preview" })).toBeNull();
+      expect(boxes()).toEqual(before);
+      expect(treeWidth()).toBe(width);
+   });
+
+   it("a selected node behind the preview is scrolled out from under it", async () => {
+      // Layout stand-ins: the preview's left edge at 600, the node t5 ends at 700 (100px behind it).
+      const rect = (left: number, right: number) => ({ left, right }) as DOMRect;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+         this: HTMLElement,
+      ) {
+         if (this.hasAttribute("data-floating-preview")) return rect(600, 1000);
+         if (this.dataset.treeNode === "t5") return rect(500, 700);
+         return rect(0, 0);
+      });
+      const scrollBy = vi.fn();
+      const own = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollBy");
+      HTMLElement.prototype.scrollBy = scrollBy;
+      try {
+         await setup();
+         fireEvent.click(screen.getByRole("button", { name: "Header polish" }));
+         // The gap is 12px: 700 - (600 - 12).
+         await waitFor(() => expect(scrollBy).toHaveBeenCalledWith({ left: 112 }));
+         expect(scrollBy.mock.contexts[0]).toHaveProperty("dataset.radixScrollAreaViewport");
+      } finally {
+         vi.restoreAllMocks();
+         if (own) Object.defineProperty(HTMLElement.prototype, "scrollBy", own);
+         else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollBy;
+      }
+   });
+
+   it("keeps the selected task and unfolds to it", async () => {
+      localStorage.setItem(
+         "harness.tasks.tree",
+         JSON.stringify({ collapsed: ["t11", "t12"], hideDone: false }),
+      );
+      await setup("t14");
+      await waitFor(() => expect(node("t14").getAttribute("aria-current")).toBe("true"));
+      expect(screen.getByRole("complementary", { name: "Task preview" })).toBeTruthy();
+   });
+
+   it("a tasks change keeps the folded topic of the selected task folded", async () => {
+      const { client } = await setup("t14");
+      await waitFor(() => expect(node("t14").getAttribute("aria-current")).toBe("true"));
+      fireEvent.click(screen.getByRole("button", { name: "Collapse Worktree reliability" }));
+      expect(shownIds()).not.toContain("t14");
+      await client.updateTask("t5", { title: "Header polish done" });
+      await waitFor(() => screen.getByRole("button", { name: "Header polish done" }));
+      expect(shownIds()).not.toContain("t14");
+   });
+
+   it("starts collapsed when the tree is large, until the user folds or unfolds", async () => {
+      await setup(null, (tasks) => {
+         const base = tasks.get("t9") as Task;
+         for (let i = 0; i < 120; i++)
+            tasks.set(`big${i}`, { ...base, id: `big${i}`, title: `Bulk ${i}`, parent_id: "t1" });
+      });
+      expect(shownIds().sort()).toEqual(["t1", "t11", "t5"]);
+      fireEvent.click(screen.getByRole("button", { name: "Expand Header polish" }));
+      expect(shownIds()).toContain("t6");
+      expect(shownIds()).not.toContain("big0");
+      expect(
+         JSON.parse(localStorage.getItem("harness.tasks.tree") ?? "{}").collapsed,
+      ).not.toContain("t5");
+   });
+});

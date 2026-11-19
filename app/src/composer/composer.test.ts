@@ -1,14 +1,21 @@
-import type { AgentInfo, Branches, BranchInfo, SessionSummary } from "@harness/api";
+import type { AgentInfo, Branches, BranchInfo, SessionSummary, Task } from "@harness/api";
 import { describe, expect, it } from "vitest";
 import {
    branchChoices,
+   defaultSetStatus,
+   defaultTaskParts,
    matchesWords,
    mergeRecent,
    pathsToRequest,
    quickAgent,
    sessionFolders,
    sourceFolders,
+   startFromTaskArgs,
+   startTaskOf,
+   type TaskParts,
+   taskPrompt,
    tildify,
+   transcriptLabel,
 } from "./composer";
 
 describe("composer helpers", () => {
@@ -173,5 +180,132 @@ describe("branchChoices", () => {
          local: [],
          remote: [],
       });
+   });
+});
+
+describe("Start Session from a task", () => {
+   const task = (o: Partial<Task> = {}) =>
+      ({
+         id: "t12",
+         title: "Fix the cache",
+         body: "",
+         status: "todo",
+         upstream: null,
+         parent_id: null,
+         origin_session_id: "s1",
+         assets: [],
+         ...o,
+      }) as Task;
+   const origin = (o: Partial<SessionSummary> = {}) =>
+      ({
+         id: "s1",
+         title: "Cache work",
+         folder: "/r/.harness/1/r",
+         quick: false,
+         workspace: { source_folder: "/r" },
+         ...o,
+      }) as SessionSummary;
+   const all: TaskParts = {
+      summary: true,
+      body_and_assets: true,
+      parent_and_siblings: true,
+      origin_note: true,
+      origin_transcript: true,
+   };
+
+   it("prompts with the title, the upstream link and the first body lines", () => {
+      const body = ["a", "b", "", "c", "d", "e", "f", "g"].join("\n");
+      const t = task({ body, upstream: { url: "https://linear.app/x/issue/LIN-4", label: null } });
+      expect(taskPrompt(t)).toBe(
+         "Fix the cache\nhttps://linear.app/x/issue/LIN-4\n\na\nb\n\nc\nd\ne",
+      );
+      expect(taskPrompt(task())).toBe("Fix the cache");
+   });
+
+   it("takes the origin Session's source folder, none for a Quick Session or a deleted one", () => {
+      expect(startTaskOf(task(), null, [origin()]).origin?.folder).toBe("/r");
+      expect(startTaskOf(task(), null, [origin({ quick: true })]).origin?.folder).toBeNull();
+      expect(startTaskOf(task(), null, []).origin).toBeNull();
+   });
+
+   it("shows the parent and the upstream id under the title", () => {
+      const t = task({
+         parent_id: "t1",
+         upstream: { url: "https://linear.app/x/issue/LIN-4", label: null },
+      });
+      expect(startTaskOf(t, { title: "Cache topic" }, []).detail).toBe("Cache topic · LIN-4");
+   });
+
+   it("ticks what the task has, never the origin note or chat", () => {
+      const bare = startTaskOf(task(), null, [origin()]);
+      expect(defaultTaskParts(bare)).toEqual({
+         summary: true,
+         body_and_assets: false,
+         parent_and_siblings: false,
+         origin_note: false,
+         origin_transcript: false,
+      });
+      const full = startTaskOf(task({ body: "x", parent_id: "t1" }), { title: "P" }, [origin()]);
+      expect(defaultTaskParts(full)).toMatchObject({
+         body_and_assets: true,
+         parent_and_siblings: true,
+      });
+   });
+
+   it("sets In progress only on a task not started yet", () => {
+      expect([
+         defaultSetStatus("backlog"),
+         defaultSetStatus("todo"),
+         defaultSetStatus("blocked"),
+      ]).toEqual(["in_progress", "in_progress", null]);
+   });
+
+   it("builds the createSession task and the first prompt", () => {
+      const t = startTaskOf(task({ parent_id: "t1" }), { title: "P" }, [origin()]);
+      expect(
+         startFromTaskArgs({
+            task: t,
+            include: all,
+            setStatus: "in_progress",
+            title: "",
+            prompt: " go \n",
+         }),
+      ).toEqual({
+         title: "Fix the cache",
+         task: { id: "t12", include: all, set_status: "in_progress" },
+         prompt: "go",
+      });
+   });
+
+   it("leaves out parts the task cannot give, an empty prompt and an unchanged status", () => {
+      const t = startTaskOf(task({ status: "blocked" }), null, []);
+      const r = startFromTaskArgs({
+         task: t,
+         include: all,
+         setStatus: "blocked",
+         title: " Mine ",
+         prompt: "  ",
+      });
+      expect(r).toEqual({
+         title: "Mine",
+         task: {
+            id: "t12",
+            include: {
+               ...all,
+               parent_and_siblings: false,
+               origin_note: false,
+               origin_transcript: false,
+            },
+            set_status: null,
+         },
+         prompt: null,
+      });
+   });
+
+   it("labels the transcript size", () => {
+      expect(transcriptLabel({ kept_turns: 1, total_turns: 1 }, 640)).toBe("1 turn, 640 chars");
+      expect(transcriptLabel({ kept_turns: 10, total_turns: 40 }, 23_800)).toBe(
+         "last 10 of 40 turns, ~24k chars",
+      );
    });
 });

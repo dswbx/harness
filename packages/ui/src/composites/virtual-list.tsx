@@ -31,7 +31,10 @@ type Props = {
    handle?: React.Ref<VirtualListHandle>;
 };
 
-export type VirtualListHandle = { scrollToKey: (key: React.Key) => boolean };
+export type VirtualListHandle = {
+   /** `align` defaults to center; `auto` scrolls only when the row is not in view. */
+   scrollToKey: (key: React.Key, align?: "center" | "auto") => boolean;
+};
 
 const noAdjust = () => false;
 
@@ -145,12 +148,12 @@ export function VirtualList({
    React.useImperativeHandle(
       handle,
       () => ({
-         scrollToKey(key) {
+         scrollToKey(key, align = "center") {
             for (let i = 0; i < count; i++) {
                if (getKey(i) !== key) continue;
                // Jumping away from the bottom stops following it.
                setStick(false);
-               v.scrollToIndex(i, { align: "center" });
+               v.scrollToIndex(i, { align });
                return true;
             }
             return false;

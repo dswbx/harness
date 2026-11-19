@@ -18,7 +18,9 @@ import type {
 import type { TerminalOutput, Transport, Unsubscribe } from "../transport/transport";
 import { seedSessions } from "./fixtures/sessions";
 import { mockShared } from "./fixtures/shared";
+import { mockNotes, mockTasks } from "./fixtures/tasks";
 import { handlers } from "./handlers";
+import type { MockNote } from "./handlers/note";
 import { withSideMode } from "./sideMode";
 
 declare global {
@@ -75,6 +77,14 @@ export class MockTransport implements Transport {
    appSettings: Record<string, unknown> = {};
    /** Shared Artifacts by id (ADR 0024). @internal */
    shared = new Map(mockShared().map((a) => [a.meta.id, a]));
+   /** Tasks by id (ADR 0028). @internal */
+   tasks = new Map(mockTasks().map((t) => [t.id, t]));
+   /** The number of the next new Task. @internal */
+   taskN = this.tasks.size + 1;
+   /** Task asset bytes by `<task id>/<name>`. @internal */
+   taskAssets = new Map<string, { mime: string; data: string }>();
+   /** Session Notes by Session id (ADR 0028). @internal */
+   notes = new Map<string, MockNote>(mockNotes());
    /** What "Open in editor" was asked to open (tests). */
    opened: { path: string | null; line: number | null }[] = [];
    /** Stored attachment path -> pasted bytes (path inputs have no bytes in the browser). @internal */

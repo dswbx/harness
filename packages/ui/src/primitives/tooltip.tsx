@@ -35,6 +35,7 @@ function Tooltip({
    shortcut,
    ref,
    open,
+   delay,
    className,
    ...trigger
 }: {
@@ -47,6 +48,8 @@ function Tooltip({
    shortcut?: string[];
    /** Controlled: shown while true (e.g. the keyboard-highlighted item of a list), no hover handling. */
    open?: boolean;
+   /** Wait before showing, in ms, instead of the app's default (a hover card over a list row: shorter). */
+   delay?: number;
    className?: string;
 } & Omit<
    React.ComponentProps<typeof TooltipPrimitive.Trigger>,
@@ -71,6 +74,7 @@ function Tooltip({
    return (
       <TooltipPrimitive.Root
          open={open ?? shown}
+         delayDuration={delay}
          onOpenChange={(o) => setShown(o && el.current?.getAttribute("aria-expanded") !== "true")}
       >
          <TooltipPrimitive.Trigger

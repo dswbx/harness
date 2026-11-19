@@ -8,6 +8,7 @@ mod info;
 pub(crate) mod results;
 mod server;
 mod shim;
+mod task_tools;
 mod tools;
 
 pub(crate) use results::result_of;

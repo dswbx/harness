@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CommandError } from "../errors";
-import type { Command, CommandResult } from "../generated";
+import type { Command, CommandResult, Note, Task } from "../generated";
 import type { Transport } from "../transport/transport";
 import { createSessionApi, HarnessClient, type SessionApi } from "./client";
 
@@ -14,9 +14,44 @@ const meta = {
    created_by: { session_id: "s1", session_title: "S" },
 } as const;
 
+const task: Task = {
+   v: 1,
+   id: "t1",
+   title: "T",
+   body: "",
+   status: "todo",
+   priority: "none",
+   due: null,
+   upstream: null,
+   parent_id: null,
+   order: 1,
+   origin_session_id: null,
+   origin_title: null,
+   sessions: [],
+   assets: [],
+   created_ms: 0,
+   updated_ms: 0,
+   body_updated_ms: 0,
+   activity: [],
+};
+
+const note: Note = { content: "", hash: "h", updated_ms: null, images: [] };
+
 /** What each Command gets back, so methods that check the result type succeed. Others get `Ok`. */
 const replies: Partial<Record<Command["type"], CommandResult>> = {
    ReadAttachment: { type: "Attachment", mime: "text/plain", data: "eA==" },
+   ReadTaskAsset: { type: "Attachment", mime: "text/plain", data: "eA==" },
+   ListTasks: { type: "Tasks", tasks: [] },
+   ReadTask: { type: "Task", task },
+   CreateTask: { type: "Task", task },
+   UpdateTask: { type: "Task", task },
+   MoveTask: { type: "Task", task },
+   AddTaskAssets: { type: "Task", task },
+   RemoveTaskAsset: { type: "Task", task },
+   ReadNote: { type: "Note", note },
+   WriteNote: { type: "Note", note },
+   AddNoteImages: { type: "Note", note },
+   RemoveNoteImage: { type: "Note", note },
    ReadImageFile: { type: "Attachment", mime: "image/png", data: "eA==" },
    FrontendReadImage: { type: "Attachment", mime: "image/png", data: "eA==" },
    StartSideThread: { type: "ThreadStarted", thread_id: "t2", forked: false },
@@ -82,6 +117,9 @@ type Plain = Exclude<
    | "terminalAttach"
    | "sharedChanged"
    | "sharedListChanged"
+   | "tasksChanged"
+   | "taskStore"
+   | "noteChanged"
 >;
 
 /** One call per Command-sending method; a new method fails the typecheck until it has a row. */
@@ -144,6 +182,19 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    editComment: (a) => a.editComment("c1", "t"),
    deleteComment: (a) => a.deleteComment("c1"),
    resolveComment: (a) => a.resolveComment("c1"),
+   listTasks: (a) => a.listTasks(),
+   readTask: (a) => a.readTask("t1"),
+   createTask: (a) => a.createTask({ title: "T" }),
+   updateTask: (a) => a.updateTask("t1", { status: "done" }),
+   moveTask: (a) => a.moveTask("t1", null),
+   deleteTask: (a) => a.deleteTask("t1"),
+   addTaskAssets: (a) => a.addTaskAssets("t1", []),
+   removeTaskAsset: (a) => a.removeTaskAsset("t1", "a.txt"),
+   readTaskAsset: (a) => a.readTaskAsset("t1", "a.txt"),
+   readNote: (a) => a.readNote(),
+   writeNote: (a) => a.writeNote("# n", "h"),
+   addNoteImages: (a) => a.addNoteImages([]),
+   removeNoteImage: (a) => a.removeNoteImage("/s/attachments/note/a.png"),
 };
 
 describe("createSessionApi wire shape", () => {
@@ -222,6 +273,11 @@ describe("HarnessClient wire shape", () => {
       await c.deleteSharedArtifact("a");
       await c.removeMcpServer("m");
       await c.removePermissionRule("r");
+      await c.listTasks();
+      await c.createTask({ title: "T", parentId: "t1", due: "2026-12-01" });
+      await c.updateTask("t1", { body: "b" }, 5);
+      await c.moveTask("t2", "t1", "t3");
+      await c.deleteTask("t1");
       expect(sent).toMatchSnapshot();
    });
 });
@@ -243,6 +299,7 @@ describe("unexpected results", () => {
       ["getEditor", () => c.getEditor()],
       ["listBranches", () => c.listBranches("/f")],
       ["getWorktreeDir", () => c.getWorktreeDir()],
+      ["transcriptSize", () => c.transcriptSize("s1")],
       ["workspace", () => api.workspace()],
       ["session getEditor", () => api.getEditor()],
       ["listShared", () => api.listShared()],

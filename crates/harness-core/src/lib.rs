@@ -31,6 +31,7 @@ mod shell;
 mod state;
 mod sub_sessions;
 mod summary;
+pub mod tasks;
 pub mod terminal;
 mod tool_facts;
 pub mod toolchain;

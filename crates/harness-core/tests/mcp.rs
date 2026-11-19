@@ -90,6 +90,7 @@ async fn create(h: &Harness, folder: &Path, mcp_servers: Vec<String>) -> String 
         new_branch: None,
         pr: None,
         mcp_servers,
+        task: None,
     };
     match h.execute(cmd).await {
         Ok(CommandResult::SessionCreated { session_id }) => session_id,
@@ -157,7 +158,7 @@ async fn primitives_over_http() {
     let tools = ask(&h, &sid, "mcp-list", None).await;
     assert_eq!(
         tools,
-        "tools: git_status,git_diff,list_branches,git_commit,git_push,pr_create,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,comment_list,comment_add,comment_resolve,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
+        "tools: git_status,git_diff,list_branches,git_commit,git_push,pr_create,state_get,state_patch,harness_info,set_title,ui_get,artifact_search,artifact_share,artifact_attach,artifact_detach,task_add,task_update,task_list,task_get,comment_list,comment_add,comment_resolve,threads_list,transcript_outline,transcript_read,transcript_search,session_start,session_send,session_wait,session_list,json_render"
     );
 
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -637,6 +638,7 @@ async fn library_servers_are_given_to_the_agent_with_secrets() {
         new_branch: None,
         pr: None,
         mcp_servers: vec!["nope".into()],
+        task: None,
     };
     assert!(h.execute(bad).await.is_err());
 }
@@ -1237,6 +1239,249 @@ async fn harness_info_lists_shared_artifacts_and_deleting_a_session_detaches_it(
     assert!(info["shared"][0]["errors"][0].as_str().unwrap().contains("missing"), "{info}");
     h.execute(Command::DetachSharedArtifact { session_id: b.clone(), id: meta.id.clone() }).await.unwrap();
     assert_eq!(mcp_json(&h, &b, "harness_info {}").await["shared"], serde_json::json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_commands_send_tasks_changed_with_the_changed_ids_and_summaries() {
+    use harness_core::api::{TaskPatch, TaskStatus};
+    let dir = tempfile::tempdir().unwrap();
+    let h = shared_harness(&dir.path().join("data"));
+    let a = create(&h, dir.path(), vec![]).await;
+    // Per event: the ids, then (id, title, status, parent) of each summary.
+    type Row = (String, String, TaskStatus, Option<String>);
+    type Seen = Vec<(Vec<String>, Vec<Row>)>;
+    let seen: Arc<Mutex<Seen>> = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::TasksChanged { ids, tasks } = e {
+            let rows = tasks.iter().map(|t| (t.id.clone(), t.title.clone(), t.status, t.parent_id.clone())).collect();
+            s.lock().unwrap().push((ids.clone(), rows));
+        }
+        true
+    }));
+    let new_task = |title: &str, parent: Option<&str>, session: Option<&str>| Command::CreateTask {
+        title: title.into(),
+        body: None,
+        parent_id: parent.map(Into::into),
+        session_id: session.map(Into::into),
+        status: None,
+        priority: None,
+        due: None,
+        upstream: None,
+    };
+    let row = |id: &str, title: &str, status: TaskStatus, parent: Option<&str>| (id.to_owned(), title.to_owned(), status, parent.map(Into::into));
+    let CommandResult::Task { task: topic } = h.execute(new_task("Topic", None, Some(&a))).await.unwrap() else { panic!() };
+    assert_eq!(topic.origin_session_id.as_deref(), Some(a.as_str()));
+    assert!(topic.origin_title.is_some(), "the origin title is cached");
+    let CommandResult::Task { task: child } = h.execute(new_task("Child", Some(&topic.id), None)).await.unwrap() else { panic!() };
+    let CommandResult::Task { task: other } = h.execute(new_task("Other", None, None)).await.unwrap() else { panic!() };
+    let patch = TaskPatch { title: Some("Topic 2".into()), status: Some(TaskStatus::Done), ..Default::default() };
+    h.execute(Command::UpdateTask { id: topic.id.clone(), patch, base_updated_ms: None }).await.unwrap();
+    h.execute(Command::MoveTask { id: other.id.clone(), parent_id: Some(topic.id.clone()), before: None }).await.unwrap();
+    h.execute(Command::DeleteTask { id: topic.id.clone() }).await.unwrap();
+    assert!(h.execute(Command::ReadTask { id: "t99".into() }).await.is_err());
+    let CommandResult::Tasks { tasks } = h.execute(Command::ListTasks).await.unwrap() else { panic!() };
+    assert_eq!(tasks.iter().map(|t| (t.id.as_str(), t.parent_id.as_deref())).collect::<Vec<_>>(), [(child.id.as_str(), None), (other.id.as_str(), None)]);
+    let (t, c, o) = (topic.id.as_str(), child.id.as_str(), other.id.as_str());
+    let todo = TaskStatus::Todo;
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [
+            (vec![t.to_owned()], vec![row(t, "Topic", todo, None)]),
+            (vec![c.to_owned()], vec![row(c, "Child", todo, Some(t))]),
+            (vec![o.to_owned()], vec![row(o, "Other", todo, None)]),
+            (vec![t.to_owned()], vec![row(t, "Topic 2", TaskStatus::Done, None)]),
+            (vec![o.to_owned()], vec![row(o, "Other", todo, Some(t))]),
+            // The deleted Task has no summary; its children moved to its parent (top level).
+            (vec![t.to_owned(), c.to_owned(), o.to_owned()], vec![row(c, "Child", todo, None), row(o, "Other", todo, None)]),
+        ]
+    );
+    // A deleted Session cannot be an origin.
+    h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
+    assert!(h.execute(new_task("Gone", None, Some(&a))).await.is_err(), "an unknown Session");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = shared_harness(&dir.path().join("data"));
+    let a = create(&h, dir.path(), vec![]).await;
+    let b = create(&h, dir.path(), vec![]).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::TasksChanged { ids, tasks } = e {
+            s.lock().unwrap().push((ids.clone(), tasks.iter().map(|t| (t.id.clone(), t.status)).collect::<Vec<_>>()));
+        }
+        true
+    }));
+    let added = mcp_json(&h, &a, r#"task_add {"tasks":[{"title":"Cache target","priority":"high"},{"title":"Skip install","status":"in_progress"}]}"#).await;
+    assert_eq!(
+        added,
+        serde_json::json!({ "tasks": [{ "id": "t1", "title": "Cache target", "status": "todo" }, { "id": "t2", "title": "Skip install", "status": "in_progress" }] })
+    );
+    let read = |id: &str| {
+        let rt = tokio::runtime::Handle::current();
+        match tokio::task::block_in_place(|| rt.block_on(h.execute(Command::ReadTask { id: id.into() }))) {
+            Ok(CommandResult::Task { task }) => task,
+            r => panic!("{r:?}"),
+        }
+    };
+    let t1 = read("t1");
+    assert_eq!(t1.origin_session_id.as_deref(), Some(a.as_str()), "the origin is the calling Session");
+    assert_eq!((t1.activity[0].by, t1.activity[0].session_id.as_deref()), (StateWriter::Agent, Some(a.as_str())));
+    use harness_core::api::TaskStatus;
+    let ids = vec!["t1".to_owned(), "t2".to_owned()];
+    assert_eq!(*seen.lock().unwrap(), [(ids, vec![("t1".to_owned(), TaskStatus::Todo), ("t2".to_owned(), TaskStatus::InProgress)])]);
+    // A bad item creates none.
+    let bad = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":" "}]}"#, None).await;
+    assert!(bad.contains("mcp error:") && bad.contains("task 2"), "{bad}");
+    assert!(h.execute(Command::ReadTask { id: "t3".into() }).await.is_err());
+
+    // Session b cannot change a's Task; a can, and a move under its own subtask is refused.
+    let refused = ask(&h, &b, r#"mcp task_update {"id":"t1","status":"done"}"#, None).await;
+    assert!(refused.contains("mcp error:") && refused.contains("Ask the user"), "{refused}");
+    assert_eq!(read("t1").status, harness_core::api::TaskStatus::Todo);
+    let get = mcp_json(&h, &b, r#"task_get {"id":"t1"}"#).await;
+    assert_eq!(get["can_update"], false);
+    let updated = mcp_json(&h, &a, r#"task_update {"id":"t2","status":"done","parent":"t1"}"#).await;
+    assert_eq!(updated, serde_json::json!({ "tasks": [{ "id": "t2", "title": "Skip install", "status": "done" }] }));
+    assert_eq!(read("t2").parent_id.as_deref(), Some("t1"));
+    assert_eq!(seen.lock().unwrap().last().unwrap().1, [("t2".to_owned(), TaskStatus::Done)]);
+    let cycle = ask(&h, &a, r#"mcp task_update {"id":"t1","parent":"t2"}"#, None).await;
+    assert!(cycle.contains("mcp error:") && cycle.contains("subtasks"), "{cycle}");
+    // A bad field refuses the whole call: the move in it is not done either, and no event is sent.
+    let sent = seen.lock().unwrap().len();
+    let bad_due = ask(&h, &a, r#"mcp task_update {"id":"t2","parent":null,"due":"tomorrow"}"#, None).await;
+    assert!(bad_due.contains("mcp error:") && bad_due.contains("not a date"), "{bad_due}");
+    assert_eq!(read("t2").parent_id.as_deref(), Some("t1"), "the move is not done");
+    assert_eq!(seen.lock().unwrap().len(), sent);
+    let get = mcp_json(&h, &a, r#"task_get {"id":"t1"}"#).await;
+    assert_eq!((get["can_update"].clone(), get["subtasks"][0]["id"].clone()), (serde_json::json!(true), serde_json::json!("t2")));
+
+    // Lists: this Session's by default, all with scope all; harness_info has them and the note path.
+    let mine = mcp_json(&h, &b, "task_list {}").await;
+    assert_eq!(mine["tasks"], serde_json::json!([]));
+    let all = mcp_json(&h, &b, r#"task_list {"scope":"all","status":"open"}"#).await;
+    assert_eq!(all["tasks"].as_array().unwrap().iter().map(|t| t["id"].clone()).collect::<Vec<_>>(), [serde_json::json!("t1")]);
+    let info = mcp_json(&h, &a, "harness_info {}").await;
+    assert_eq!(info["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(info["tasks"][0]["session"], "created_here");
+    assert!(info["note_path"].as_str().unwrap().ends_with(&format!("{a}/note.md")), "{info}");
+
+    // A Session started from t1: the link decides, for harness_info, task_list and task_update.
+    let start = harness_core::api::TaskStart { id: "t1".into(), include: Default::default(), set_status: None };
+    let cmd = Command::CreateSession {
+        folder: dir.path().display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "chat".into(),
+        title: None,
+        branch: None,
+        worktree: false,
+        new_branch: None,
+        pr: None,
+        mcp_servers: vec![],
+        task: Some(start),
+    };
+    let Ok(CommandResult::SessionCreated { session_id: c }) = h.execute(cmd).await else { panic!() };
+    let info = mcp_json(&h, &c, "harness_info {}").await;
+    assert_eq!(info["tasks"], serde_json::json!([{ "id": "t1", "title": "Cache target", "status": "todo", "priority": "high", "session": "started_from" }]));
+    assert_eq!(mcp_json(&h, &c, "task_list {}").await["tasks"][0]["session"], "started_from");
+    mcp_json(&h, &c, r#"task_update {"id":"t1","status":"in_review"}"#).await;
+    assert_eq!(read("t1").status, TaskStatus::InReview);
+}
+
+/// The ids of each `TasksChanged`, with (id, parent) of each summary.
+type TaskEvents = Arc<Mutex<Vec<(Vec<String>, Vec<(String, Option<String>)>)>>>;
+
+fn task_events(h: &Harness) -> TaskEvents {
+    let seen: TaskEvents = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::TasksChanged { ids, tasks } = e {
+            s.lock().unwrap().push((ids.clone(), tasks.iter().map(|t| (t.id.clone(), t.parent_id.clone())).collect()));
+        }
+        true
+    }));
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_add_stopped_by_a_write_error_tells_the_windows_about_the_tasks_it_created() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let seen = task_events(&h);
+    // A file where the second Task's folder goes: its write fails.
+    std::fs::write(data.join("tasks").join("t2"), "").unwrap();
+    let reply = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"one"},{"title":"two"},{"title":"three"}]}"#, None).await;
+    assert!(reply.contains("mcp error:") && reply.contains("created t1 before this error") && reply.contains("task 2"), "{reply}");
+    assert!(h.execute(Command::ReadTask { id: "t1".into() }).await.is_ok());
+    assert_eq!(*seen.lock().unwrap(), [(vec!["t1".to_owned()], vec![("t1".to_owned(), None)])]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_delete_still_tells_the_windows_about_the_moved_children() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let new_task = |title: &str, parent: Option<&str>| Command::CreateTask {
+        title: title.into(),
+        body: None,
+        parent_id: parent.map(Into::into),
+        session_id: None,
+        status: None,
+        priority: None,
+        due: None,
+        upstream: None,
+    };
+    let CommandResult::Task { task: top } = h.execute(new_task("top", None)).await.unwrap() else { panic!() };
+    let CommandResult::Task { task: child } = h.execute(new_task("child", Some(&top.id))).await.unwrap() else { panic!() };
+    let seen = task_events(&h);
+    // The child's folder stays writable; removing the Task's own folder fails.
+    let tasks_dir = data.join("tasks");
+    std::fs::set_permissions(&tasks_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let deleted = h.execute(Command::DeleteTask { id: top.id.clone() }).await;
+    std::fs::set_permissions(&tasks_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(deleted.is_err());
+    let events = seen.lock().unwrap().clone();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, [top.id.clone(), child.id.clone()]);
+    assert!(events[0].1.contains(&(child.id.clone(), None)), "the child moved to the top level: {events:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_session_note_sends_note_changed_and_goes_with_its_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::NoteChanged { session_id } = e {
+            s.lock().unwrap().push(session_id.clone());
+        }
+        true
+    }));
+    let CommandResult::Note { note } = h.execute(Command::ReadNote { session_id: a.clone() }).await.unwrap() else { panic!() };
+    let write = Command::WriteNote { session_id: a.clone(), content: "notes".into(), base_hash: Some(note.hash) };
+    let CommandResult::Note { note } = h.execute(write).await.unwrap() else { panic!() };
+    assert_eq!(note.content, "notes");
+    let session_dir = data.join("sessions").join(&a);
+    assert!(session_dir.join("note.md").is_file());
+    assert_eq!(*seen.lock().unwrap(), std::slice::from_ref(&a));
+    let png = harness_core::api::AttachmentInput::Data { name: "a.png".into(), mime: "image/png".into(), data: "eA==".into() };
+    let CommandResult::Note { note } = h.execute(Command::AddNoteImages { session_id: a.clone(), files: vec![png] }).await.unwrap() else { panic!() };
+    let remove = Command::RemoveNoteImage { session_id: a.clone(), path: note.images[0].clone() };
+    let CommandResult::Note { note } = h.execute(remove).await.unwrap() else { panic!() };
+    assert!(note.images.is_empty());
+    assert_eq!(seen.lock().unwrap().len(), 3, "written, image added, image removed");
+    h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
+    assert!(!session_dir.join("note.md").exists(), "the note is deleted with its Session");
+    assert!(h.execute(Command::ReadNote { session_id: a.clone() }).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]

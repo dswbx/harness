@@ -69,7 +69,7 @@ describe("migration of the old right panel state", () => {
    });
    it("a slot view opens in right top", () => {
       const l = migratePanel({ threads: [], view: { kind: "slot", id: "notes" } });
-      expect(l.zones.rightTop).toEqual(["changes", "files", "side", "plan", "slot:notes"]);
+      expect(l.zones.rightTop).toEqual(["changes", "files", "side", "plan", "tasks", "slot:notes"]);
       expect(l.open.rightTop).toBe("slot:notes");
    });
    it("no view or garbage opens nothing", () => {

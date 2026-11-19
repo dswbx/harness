@@ -2,6 +2,7 @@ import type {
    AgentInfo,
    AppEvent,
    AppSettingKey,
+   AttachmentInput,
    Branches,
    Editor,
    FrontendManifest,
@@ -16,6 +17,11 @@ import type {
    SharedArtifactMeta,
    StartupNotice,
    StatePatchOp,
+   Task,
+   TaskPatch,
+   TaskStart,
+   TaskSummary,
+   TranscriptSize,
 } from "../generated";
 import type { Transport, Unsubscribe } from "../transport/transport";
 import {
@@ -37,6 +43,20 @@ import {
    sharedChanged,
    sharedListChanged,
 } from "./shared";
+import { type TaskStore, taskStore } from "./taskStore";
+import {
+   addTaskAssets,
+   createTask,
+   deleteTask,
+   listTasks,
+   moveTask,
+   type NewTask,
+   readTask,
+   readTaskAsset,
+   removeTaskAsset,
+   tasksChanged,
+   updateTask,
+} from "./tasks";
 
 /** App-scope operations for the shell (sidebar, Composer). */
 export class HarnessClient {
@@ -156,6 +176,8 @@ export class HarnessClient {
       pr?: number | null;
       /** MCP Library server ids to give the Agent. */
       mcpServers?: string[];
+      /** Start from this task: the core links the Session to it and seeds the first prompt (ADR 0028). */
+      task?: TaskStart | null;
    }): Promise<string> {
       const r = await expectResult(
          this.transport,
@@ -170,6 +192,7 @@ export class HarnessClient {
             new_branch: args.newBranch ?? null,
             pr: args.pr ?? null,
             mcp_servers: args.mcpServers ?? [],
+            task: args.task ?? null,
          },
          "SessionCreated",
       );
@@ -305,6 +328,55 @@ export class HarnessClient {
    /** Calls back when Shared Artifacts were added, removed, renamed, attached or detached. */
    sharedListChanged(onChange: () => void): Promise<Unsubscribe> {
       return sharedListChanged(this.transport, onChange);
+   }
+   /** All Tasks (ADR 0028), oldest first. */
+   listTasks(): Promise<TaskSummary[]> {
+      return listTasks(this.transport);
+   }
+   /** How much of a Session's Main Thread a transcript keeps; `chars`: its length. */
+   async transcriptSize(sessionId: string): Promise<{ size: TranscriptSize; chars: number }> {
+      const r = await expectResult(
+         this.transport,
+         { type: "ReadTranscriptSize", session_id: sessionId },
+         "TranscriptSize",
+      );
+      return { size: r.size, chars: r.chars };
+   }
+   readTask(id: string): Promise<Task> {
+      return readTask(this.transport, id);
+   }
+   /** `sessionId`: the Session it is created in (its origin); none for the Tasks view. */
+   createTask(t: NewTask): Promise<Task> {
+      return createTask(this.transport, t);
+   }
+   /** `baseUpdatedMs`: the `updated_ms` the editor loaded; a body edit is refused (`conflict`) when the body changed after it. */
+   updateTask(id: string, patch: TaskPatch, baseUpdatedMs: number | null = null): Promise<Task> {
+      return updateTask(this.transport, id, patch, baseUpdatedMs);
+   }
+   /** Puts the Task under `parentId` (null: top level), before its sibling `before` (null: last). */
+   moveTask(id: string, parentId: string | null, before: string | null = null): Promise<Task> {
+      return moveTask(this.transport, id, parentId, before);
+   }
+   /** Deletes the Task; its children move to its parent. */
+   deleteTask(id: string): Promise<void> {
+      return deleteTask(this.transport, id);
+   }
+   addTaskAssets(id: string, files: AttachmentInput[]): Promise<Task> {
+      return addTaskAssets(this.transport, id, files);
+   }
+   removeTaskAsset(id: string, name: string): Promise<Task> {
+      return removeTaskAsset(this.transport, id, name);
+   }
+   readTaskAsset(id: string, name: string): Promise<{ mime: string; data: string }> {
+      return readTaskAsset(this.transport, id, name);
+   }
+   /** Calls back with the ids of the Tasks that changed and the current summaries of those that still exist. */
+   tasksChanged(onChange: (ids: string[], tasks: TaskSummary[]) => void): Promise<Unsubscribe> {
+      return tasksChanged(this.transport, onChange);
+   }
+   /** The window's one Task list (`useTasks`). */
+   get taskStore(): TaskStore {
+      return taskStore(this.transport);
    }
    sessionApi(sessionId: string): SessionApi {
       return createSessionApi(this.transport, sessionId);

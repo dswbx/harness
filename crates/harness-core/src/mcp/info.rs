@@ -78,7 +78,8 @@ pub(super) fn shared_info(session: &Session, meta: &crate::api::SharedArtifactMe
 }
 
 /// `harness_info`: live Frontend items (calls with an `id`, with the errors the UI reported for
-/// them, and a missing `source` file; `updated_ms`), the Session State's top-level keys and `panels_dir`.
+/// them, and a missing `source` file; `updated_ms`), the Session State's top-level keys, `panels_dir`,
+/// the attached Shared Artifacts, this Session's Tasks and `note_path` (the Session Note).
 pub(super) fn info(session: &Session) -> anyhow::Result<Value> {
     let errors = session.frontend_errors()?;
     let panels = session.panels_dir();
@@ -128,5 +129,8 @@ pub(super) fn info(session: &Session) -> anyhow::Result<Value> {
             Err(_) => json!({ "id": id, "errors": ["Shared artifact missing: it was deleted"] }),
         })
         .collect();
-    Ok(json!({ "items": items, "state_keys": keys, "panels_dir": panels.display().to_string(), "shared": shared }))
+    Ok(json!({
+        "items": items, "state_keys": keys, "panels_dir": panels.display().to_string(), "shared": shared,
+        "tasks": super::task_tools::session_tasks(session), "note_path": session.note_path().display().to_string(),
+    }))
 }

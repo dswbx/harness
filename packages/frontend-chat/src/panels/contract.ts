@@ -1,4 +1,4 @@
-import type { SessionApi, SharedArtifactMeta, ViewVariant } from "@harness/api";
+import type { SessionApi, SessionStatus, SharedArtifactMeta, ViewVariant } from "@harness/api";
 import type { ComponentType, LazyExoticComponent } from "react";
 import type { ChatState } from "../state/reducer";
 
@@ -41,6 +41,12 @@ export type PanelCtx = {
       sharedMetas?: ReadonlyMap<string, SharedArtifactMeta>;
       /** Shows the panel of the Shared Artifact `id` (when one of the Session's panels shows it). */
       showShared?: (id: string) => void;
+      /** Opens the dialog that starts a Session from task `taskId` (ADR 0028). Absent: no such button. */
+      startFromTask?: (taskId: string) => void;
+      /** Opens the host's All tasks view, at task `taskId` when given. Absent: no such button. */
+      openTasks?: (taskId?: string) => void;
+      /** The host's Sessions by id (live titles); a Session not in it was deleted. Absent: no list (cached titles). */
+      sessions?: ReadonlyMap<string, { title: string; status?: SessionStatus }>;
    };
 };
 

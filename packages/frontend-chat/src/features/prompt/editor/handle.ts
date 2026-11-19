@@ -3,11 +3,12 @@ import {
    $createTextNode,
    $getRoot,
    $setSelection,
+   CLEAR_HISTORY_COMMAND,
    type LexicalEditor,
 } from "lexical";
 import { $importPrRefs, $replaceToken } from "../../prRefs/promptPrRefs";
 import type { PromptEditorHandle } from "../PromptEditor";
-import { $exportMarkdown, restoreSnapshot, snapshot } from "../promptMarkdown";
+import { $exportMarkdown, $importMarkdown, restoreSnapshot, snapshot } from "../promptMarkdown";
 
 function $reset() {
    const para = $createParagraphNode();
@@ -42,6 +43,17 @@ export function handle(editor: LexicalEditor): PromptEditorHandle {
             $reset();
             $setSelection(null);
          });
+      },
+      loadMarkdown: (md) => {
+         // Discrete: committed before the history is cleared, so undo cannot go back past the load.
+         editor.update(
+            () => {
+               $importMarkdown(md);
+               $setSelection(null);
+            },
+            { discrete: true },
+         );
+         editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
       },
       clear: () => {
          const root = editor.getRootElement();

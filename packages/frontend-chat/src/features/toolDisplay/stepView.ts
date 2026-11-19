@@ -2,13 +2,24 @@ import {
    type GitToolSummary,
    type SubSessionToolSummary,
    subagentState,
+   type TaskToolChanges,
+   type TaskToolSummary,
    type ToolRefFacts,
    toolDetail,
 } from "@harness/api";
 import { formatDuration } from "../../lib/time";
 import { diffLines } from "../changes/diff";
+import { PRIORITY_LABEL } from "../tasks/PriorityMenu";
+import { STATUS_LABEL } from "../tasks/StatusMenu";
 import type { ChatSubagent, Tool } from "./group";
-import { gitSummary, type StepState, stepLabel, subSessionSummary, toolSearchTools } from "./label";
+import {
+   gitSummary,
+   type StepState,
+   stepLabel,
+   subSessionSummary,
+   taskSummary,
+   toolSearchTools,
+} from "./label";
 import { hasRaw } from "./raw";
 
 /** Which icon a step shows; the Trace display maps it to a component. */
@@ -32,6 +43,7 @@ export type StepIcon =
    | "think"
    | "fetch"
    | "switch_mode"
+   | "tasks"
    | "wrench";
 
 const GIT_ICONS = new Set<string>([
@@ -72,6 +84,7 @@ export type StepBody =
    | { kind: "none" }
    | { kind: "subagent"; subagent: ChatSubagent }
    | { kind: "subSession"; summary: SubSessionToolSummary }
+   | { kind: "tasks"; summary: TaskToolSummary }
    | { kind: "toolSearch"; tools: ToolRefFacts[] }
    | { kind: "commit"; message: string; hash: string | undefined }
    | { kind: "pr"; title: string; body: string; meta: string | undefined; url: string | undefined }
@@ -119,12 +132,14 @@ function iconOf(
    state: StepState,
    subagent: ChatSubagent | undefined,
    sub: SubSessionToolSummary | null,
+   task: TaskToolSummary | null,
    loaded: ToolRefFacts[] | null,
 ): StepIcon {
    if (subagent) return "bot";
    if (state === "failed") return "failed";
    if (tool.harnessTool && GIT_ICONS.has(tool.harnessTool)) return tool.harnessTool as StepIcon;
    if (sub) return "bot";
+   if (task) return "tasks";
    if (loaded) return "blocks";
    if (tool.harnessTool || toolDetail(tool).mcp) return "plug";
    return KIND_ICONS.has(tool.kind ?? "") ? (tool.kind as StepIcon) : "wrench";
@@ -137,6 +152,7 @@ function metasOf(
    denied: boolean,
    git: GitToolSummary | null,
    sub: SubSessionToolSummary | null,
+   task: TaskToolSummary | null,
 ): StepMeta[] {
    // Live count for a subagent (never its last call: a long one pushed the title out).
    const n = subagent?.calls.length ?? 0;
@@ -144,7 +160,7 @@ function metasOf(
    const metas: (StepMeta | false | null | undefined)[] = subagent
       ? [`${n} tool call${n === 1 ? "" : "s"}`]
       : state === "failed"
-        ? [git?.error ?? sub?.error ?? "failed"]
+        ? [git?.error ?? sub?.error ?? task?.error ?? "failed"]
         : denied
           ? ["denied"]
           : state === "pending"
@@ -159,10 +175,24 @@ function metasOf(
                     `${sub.sessions.length} sub session${sub.sessions.length === 1 ? "" : "s"}`,
                  sub?.status && sub.status !== "idle" && SUB_STATUS[sub.status],
                  sub?.durationMs !== undefined && formatDuration(sub.durationMs),
+                 ...(task?.changes ? changeMetas(task.changes) : []),
                  diffStat(tool),
                  approval,
               ];
    return metas.filter((m): m is StepMeta => !!m);
+}
+
+/** What a `task_update` changed, in words: `In review`, `moved under t3`, `due cleared`. */
+export function changeMetas(c: TaskToolChanges): string[] {
+   return [
+      c.status && STATUS_LABEL[c.status],
+      c.priority &&
+         (c.priority === "none" ? PRIORITY_LABEL.none : `${PRIORITY_LABEL[c.priority]} priority`),
+      c.due !== undefined && (c.due ? `due ${c.due}` : "due cleared"),
+      c.parent !== undefined && (c.parent ? `moved under ${c.parent}` : "moved to top level"),
+      c.title && "renamed",
+      c.body && "description",
+   ].filter((m): m is string => !!m);
 }
 
 /** `#176 · main ← branch`: what a PR step's frame header says. */
@@ -190,6 +220,7 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
               : "pending";
    const git = subagent ? null : gitSummary(tool);
    const sub = subagent ? null : subSessionSummary(tool);
+   const task = subagent ? null : taskSummary(tool);
    const loaded = subagent ? null : toolSearchTools(tool);
    const { verb, detail } = stepLabel(tool, state, !!subagent);
    const message = tool.commitMessage ?? "";
@@ -201,19 +232,21 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
         ? { kind: "subagent", subagent }
         : sub
           ? { kind: "subSession", summary: sub }
-          : loaded?.length
-            ? { kind: "toolSearch", tools: loaded }
-            : message
-              ? { kind: "commit", message, hash: git?.hash }
-              : pr
-                ? {
-                     kind: "pr",
-                     title: pr.prTitle ?? "",
-                     body: pr.prBody ?? "",
-                     meta: prMeta(pr),
-                     url: pr.url,
-                  }
-                : { kind: "call" };
+          : task
+            ? { kind: "tasks", summary: task }
+            : loaded?.length
+              ? { kind: "toolSearch", tools: loaded }
+              : message
+                ? { kind: "commit", message, hash: git?.hash }
+                : pr
+                  ? {
+                       kind: "pr",
+                       title: pr.prTitle ?? "",
+                       body: pr.prBody ?? "",
+                       meta: prMeta(pr),
+                       url: pr.url,
+                    }
+                  : { kind: "call" };
    return {
       state,
       lineStatus:
@@ -224,11 +257,11 @@ export function stepView({ tool, subagent, active, waiting }: StepViewInput): St
               : state === "pending"
                 ? "pending"
                 : undefined,
-      icon: iconOf(tool, state, subagent, sub, loaded),
+      icon: iconOf(tool, state, subagent, sub, task, loaded),
       verb,
       detail,
       hash: git?.hash,
-      metas: metasOf(tool, state, subagent, denied, git, sub),
+      metas: metasOf(tool, state, subagent, denied, git, sub, task),
       body,
    };
 }

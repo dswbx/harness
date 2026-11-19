@@ -6,4 +6,5 @@ mod frontend;
 mod git;
 mod sessions;
 mod settings;
+mod tasks;
 mod terminals;

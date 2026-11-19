@@ -4,6 +4,7 @@ import {
    inTauri,
    pickFolderDialog,
    type SessionSummary,
+   type TaskStatus,
 } from "@harness/api";
 import {
    Button,
@@ -13,21 +14,35 @@ import {
    DialogFooter,
    DialogHeader,
    DialogTitle,
+   ScrollArea,
 } from "@harness/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AgentField } from "./AgentField";
-import { loadWorktreePref, rememberFolder } from "./composer";
+import {
+   defaultSetStatus,
+   defaultTaskParts,
+   loadWorktreePref,
+   rememberFolder,
+   type StartTask,
+   startFromTaskArgs,
+   type TaskParts,
+} from "./composer";
 import { FolderField } from "./FolderField";
 import { FrontendField } from "./FrontendField";
 import { MoreOptions } from "./MoreOptions";
 import { StartFromField } from "./StartFromField";
 import { createArgs, defaultTarget, startPointReady, type Target, targetInfo } from "./startPoint";
+import { PromptField, SetStatusField, TaskCard, TaskContextField } from "./TaskFields";
 import { useBranches } from "./useBranches";
 import { useComposerCatalog } from "./useComposerCatalog";
 import { usePullRequests } from "./usePullRequests";
 import { useRecentFolders } from "./useRecentFolders";
 
-/** The Composer: sets up a new Session (Workspace, start point, Agent, Frontend) before work starts. */
+/**
+ * The Composer: sets up a new Session (Workspace, start point, Agent, Frontend) before work starts.
+ * With `task` it starts the Session from that task (board "StartSession", ADR 0028): the task context
+ * to give the Agent, a status to set once, and a first prompt sent after the Session is made.
+ */
 export function ComposerDialog({
    client,
    open: isOpen,
@@ -38,6 +53,8 @@ export function ComposerDialog({
    mcpVersion = 0,
    onManageAgents,
    folder: presetFolder = null,
+   task = null,
+   onPromptError,
 }: {
    /** Bump to reload the Agent list (after installs/removals). */
    agentsVersion?: number;
@@ -48,15 +65,30 @@ export function ComposerDialog({
    onManageAgents?: () => void;
    /** Folder to open with (the + on a sidebar folder group); null: the most recent one. */
    folder?: string | null;
+   /** Start from this task; the folder defaults to its origin Session's (`folder`). */
+   task?: StartTask | null;
    client: HarnessClient;
    open: boolean;
    onOpenChange: (o: boolean) => void;
    onCreated: (sessionId: string) => void;
+   /** The first prompt of a Session started from a task failed (the Session was made). */
+   onPromptError?: (e: unknown) => void;
 }) {
    const [title, setTitle] = useState("");
    const [more, setMore] = useState(false);
    const [busy, setBusy] = useState(false);
    const [error, setError] = useState<string | null>(null);
+
+   // Start from a task: reset to the task's defaults each time it opens.
+   const [prompt, setPrompt] = useState("");
+   const [parts, setParts] = useState<TaskParts | null>(null);
+   const [setStatus, setSetStatus] = useState<TaskStatus | null>(null);
+   useEffect(() => {
+      if (!isOpen || !task) return;
+      setPrompt(task.prompt);
+      setParts(defaultTaskParts(task));
+      setSetStatus(defaultSetStatus(task.status));
+   }, [isOpen, task]);
 
    // Workspace folder
    const [folderOpen, setFolderOpen] = useState(false);
@@ -151,10 +183,26 @@ export function ComposerDialog({
             prWorktree,
          });
          const common = { agentId, frontendId, title: title.trim() || null, mcpServers: mcpIds };
-         const id = noFolder
-            ? await client.createQuickSession(common)
-            : await client.createSession({ folder: folder.trim(), ...common, ...repoArgs });
+         const fromTask =
+            task && parts
+               ? startFromTaskArgs({ task, include: parts, setStatus, title, prompt })
+               : null;
+         const id =
+            noFolder && !fromTask
+               ? await client.createQuickSession(common)
+               : await client.createSession({
+                    folder: folder.trim(),
+                    ...common,
+                    ...repoArgs,
+                    ...(fromTask && { title: fromTask.title, task: fromTask.task }),
+                 });
          if (!noFolder) rememberFolder(folder.trim());
+         // The Session exists now: a failed prompt is reported, but the dialog still closes on it.
+         if (fromTask?.prompt)
+            await client
+               .sessionApi(id)
+               .prompt(fromTask.prompt)
+               .catch((e) => onPromptError?.(e));
          setTitle("");
          setMcpIds([]);
          setPr(null);
@@ -169,7 +217,7 @@ export function ComposerDialog({
 
    const canCreate =
       !busy &&
-      (noFolder || !!folder.trim()) &&
+      (task ? !!folder.trim() && !noFolder : noFolder || !!folder.trim()) &&
       !!agentId &&
       !!frontendId &&
       startPointReady({ isRepo, mode, pr, target });
@@ -189,94 +237,123 @@ export function ComposerDialog({
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
          <DialogContent className="max-w-[32rem] gap-4 p-0" onKeyDown={onKeyDown}>
             <DialogHeader className="px-5 pt-5">
-               <DialogTitle>New Session</DialogTitle>
+               <DialogTitle>{task ? "Start session from task" : "New Session"}</DialogTitle>
                <DialogDescription className="sr-only">
-                  Pick the Workspace folder, where to start, the Agent and the Frontend.
+                  {task
+                     ? "Pick the task context, the prompt, the Workspace folder and the Agent."
+                     : "Pick the Workspace folder, where to start, the Agent and the Frontend."}
                </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-3 px-5 text-sm">
-               <FolderField
-                  recent={recent}
-                  recentBranch={recentBranch}
-                  folder={folder}
-                  noFolder={noFolder}
-                  folderOpen={folderOpen}
-                  setFolderOpen={setFolderOpen}
-                  folderQuery={folderQuery}
-                  setFolderQuery={setFolderQuery}
-                  pickFolder={pickFolder}
-                  pickNoFolder={pickNoFolder}
-                  browse={browse}
-               />
-
-               {isRepo && (
-                  <StartFromField
-                     branches={branches}
-                     mode={mode}
-                     setMode={setMode}
-                     target={target}
-                     setTarget={setTarget}
-                     worktree={worktree}
-                     setWorktree={setWorktree}
-                     prWorktree={prWorktree}
-                     setPrWorktree={setPrWorktree}
-                     pr={pr}
-                     setPr={setPr}
-                     prs={prs}
-                     prAvailable={prAvailable}
-                     prFilter={prFilter}
-                     setPrFilter={setPrFilter}
-                     updating={updating}
-                     updateBranch={updateBranch}
-                     startOpen={startOpen}
-                     setStartOpen={setStartOpen}
-                     branchQuery={branchQuery}
-                     setBranchQuery={setBranchQuery}
-                     prQuery={prQuery}
-                     setPrQuery={setPrQuery}
+            <ScrollArea className="max-h-[calc(100vh-12rem)]" viewportClassName="max-h-[inherit]">
+               <div className="grid gap-3 px-5 text-sm">
+                  {task && parts && (
+                     <>
+                        <TaskCard task={task} />
+                        <PromptField value={prompt} onChange={setPrompt} />
+                        <TaskContextField
+                           client={client}
+                           task={task}
+                           parts={parts}
+                           setParts={(f) => setParts((p) => p && f(p))}
+                        />
+                     </>
+                  )}
+                  <FolderField
+                     recent={recent}
+                     recentBranch={recentBranch}
+                     folder={folder}
+                     noFolder={noFolder}
+                     folderOpen={folderOpen}
+                     setFolderOpen={setFolderOpen}
+                     folderQuery={folderQuery}
+                     setFolderQuery={setFolderQuery}
+                     pickFolder={pickFolder}
+                     pickNoFolder={task ? undefined : pickNoFolder}
+                     browse={browse}
                   />
+
+                  {isRepo && (
+                     <StartFromField
+                        branches={branches}
+                        mode={mode}
+                        setMode={setMode}
+                        target={target}
+                        setTarget={setTarget}
+                        worktree={worktree}
+                        setWorktree={setWorktree}
+                        prWorktree={prWorktree}
+                        setPrWorktree={setPrWorktree}
+                        pr={pr}
+                        setPr={setPr}
+                        prs={prs}
+                        prAvailable={prAvailable}
+                        prFilter={prFilter}
+                        setPrFilter={setPrFilter}
+                        updating={updating}
+                        updateBranch={updateBranch}
+                        startOpen={startOpen}
+                        setStartOpen={setStartOpen}
+                        branchQuery={branchQuery}
+                        setBranchQuery={setBranchQuery}
+                        prQuery={prQuery}
+                        setPrQuery={setPrQuery}
+                     />
+                  )}
+
+                  <AgentField
+                     agents={agents}
+                     agentId={agentId}
+                     setAgentId={setAgentId}
+                     agentOpen={agentOpen}
+                     setAgentOpen={setAgentOpen}
+                     agentQuery={agentQuery}
+                     setAgentQuery={setAgentQuery}
+                     onManageAgents={onManageAgents}
+                  />
+
+                  <FrontendField
+                     frontends={frontends}
+                     frontendId={frontendId}
+                     setFrontendId={setFrontendId}
+                  />
+
+                  {task && (
+                     <SetStatusField
+                        current={task.status}
+                        value={setStatus}
+                        onChange={setSetStatus}
+                     />
+                  )}
+
+                  <MoreOptions
+                     more={more}
+                     setMore={setMore}
+                     mcpServers={mcpServers}
+                     mcpIds={mcpIds}
+                     setMcpIds={setMcpIds}
+                     title={title}
+                     setTitle={setTitle}
+                     mode={mode}
+                     pr={pr}
+                     noFolder={noFolder}
+                     folder={folder}
+                  />
+                  {error && <p className="whitespace-pre-wrap text-destructive">{error}</p>}
+               </div>
+            </ScrollArea>
+
+            <DialogFooter className="items-center border-t px-5 py-3">
+               {task && (
+                  <p className="mr-auto text-xs text-muted-foreground">
+                     The new session links back to this task.
+                  </p>
                )}
-
-               <AgentField
-                  agents={agents}
-                  agentId={agentId}
-                  setAgentId={setAgentId}
-                  agentOpen={agentOpen}
-                  setAgentOpen={setAgentOpen}
-                  agentQuery={agentQuery}
-                  setAgentQuery={setAgentQuery}
-                  onManageAgents={onManageAgents}
-               />
-
-               <FrontendField
-                  frontends={frontends}
-                  frontendId={frontendId}
-                  setFrontendId={setFrontendId}
-               />
-
-               <MoreOptions
-                  more={more}
-                  setMore={setMore}
-                  mcpServers={mcpServers}
-                  mcpIds={mcpIds}
-                  setMcpIds={setMcpIds}
-                  title={title}
-                  setTitle={setTitle}
-                  mode={mode}
-                  pr={pr}
-                  noFolder={noFolder}
-                  folder={folder}
-               />
-               {error && <p className="whitespace-pre-wrap text-destructive">{error}</p>}
-            </div>
-
-            <DialogFooter className="border-t px-5 py-3">
                <Button variant="outline" onClick={() => onOpenChange(false)}>
                   Cancel
                </Button>
                <Button disabled={!canCreate} onClick={() => void create()}>
-                  Create <span className="text-xs opacity-60">⌘↵</span>
+                  {task ? "Start session" : "Create"} <span className="text-xs opacity-60">⌘↵</span>
                </Button>
             </DialogFooter>
          </DialogContent>

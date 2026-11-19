@@ -40,6 +40,7 @@ exports[`HarnessClient wire shape > sends these Commands 1`] = `
     "mcp_servers": [],
     "new_branch": null,
     "pr": null,
+    "task": null,
     "title": null,
     "type": "CreateSession",
     "worktree": false,
@@ -123,6 +124,38 @@ exports[`HarnessClient wire shape > sends these Commands 1`] = `
     "rule_id": "r",
     "type": "RemovePermissionRule",
   },
+  {
+    "type": "ListTasks",
+  },
+  {
+    "body": null,
+    "due": "2026-12-01",
+    "parent_id": "t1",
+    "priority": null,
+    "session_id": null,
+    "status": null,
+    "title": "T",
+    "type": "CreateTask",
+    "upstream": null,
+  },
+  {
+    "base_updated_ms": 5,
+    "id": "t1",
+    "patch": {
+      "body": "b",
+    },
+    "type": "UpdateTask",
+  },
+  {
+    "before": "t3",
+    "id": "t2",
+    "parent_id": "t1",
+    "type": "MoveTask",
+  },
+  {
+    "id": "t1",
+    "type": "DeleteTask",
+  },
 ]
 `;
 
@@ -137,6 +170,20 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "side": null,
       "text": "t",
       "type": "AddComment",
+    },
+  ],
+  "addNoteImages": [
+    {
+      "files": [],
+      "session_id": "s1",
+      "type": "AddNoteImages",
+    },
+  ],
+  "addTaskAssets": [
+    {
+      "files": [],
+      "id": "t1",
+      "type": "AddTaskAssets",
     },
   ],
   "answerFrontendRequest": [
@@ -192,6 +239,19 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ContinueWithSummary",
     },
   ],
+  "createTask": [
+    {
+      "body": null,
+      "due": null,
+      "parent_id": null,
+      "priority": null,
+      "session_id": "s1",
+      "status": null,
+      "title": "T",
+      "type": "CreateTask",
+      "upstream": null,
+    },
+  ],
   "delete": [
     {
       "force": false,
@@ -204,6 +264,12 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "id": "c1",
       "session_id": "s1",
       "type": "DeleteComment",
+    },
+  ],
+  "deleteTask": [
+    {
+      "id": "t1",
+      "type": "DeleteTask",
     },
   ],
   "detachShared": [
@@ -323,6 +389,11 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ListSharedArtifacts",
     },
   ],
+  "listTasks": [
+    {
+      "type": "ListTasks",
+    },
+  ],
   "lookupPrs": [
     {
       "refs": [
@@ -336,6 +407,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       ],
       "session_id": "s1",
       "type": "LookupPrs",
+    },
+  ],
+  "moveTask": [
+    {
+      "before": null,
+      "id": "t1",
+      "parent_id": null,
+      "type": "MoveTask",
     },
   ],
   "openAuthTerminal": [
@@ -408,6 +487,12 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ReadImageFile",
     },
   ],
+  "readNote": [
+    {
+      "session_id": "s1",
+      "type": "ReadNote",
+    },
+  ],
   "readSessionFile": [
     {
       "end": null,
@@ -421,6 +506,33 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
     {
       "id": "a",
       "type": "SharedArtifactRead",
+    },
+  ],
+  "readTask": [
+    {
+      "id": "t1",
+      "type": "ReadTask",
+    },
+  ],
+  "readTaskAsset": [
+    {
+      "id": "t1",
+      "name": "a.txt",
+      "type": "ReadTaskAsset",
+    },
+  ],
+  "removeNoteImage": [
+    {
+      "path": "/s/attachments/note/a.png",
+      "session_id": "s1",
+      "type": "RemoveNoteImage",
+    },
+  ],
+  "removeTaskAsset": [
+    {
+      "id": "t1",
+      "name": "a.txt",
+      "type": "RemoveTaskAsset",
     },
   ],
   "reportFrontendError": [
@@ -558,6 +670,16 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "UnarchiveSession",
     },
   ],
+  "updateTask": [
+    {
+      "base_updated_ms": null,
+      "id": "t1",
+      "patch": {
+        "status": "done",
+      },
+      "type": "UpdateTask",
+    },
+  ],
   "warmUp": [
     {
       "session_id": "s1",
@@ -567,6 +689,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
   "workspace": [
     {
       "type": "ListSessions",
+    },
+  ],
+  "writeNote": [
+    {
+      "base_hash": "h",
+      "content": "# n",
+      "session_id": "s1",
+      "type": "WriteNote",
     },
   ],
 }

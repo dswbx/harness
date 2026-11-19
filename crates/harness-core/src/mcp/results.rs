@@ -4,14 +4,14 @@
 //! pushed, the Sub Session's id), so the core reads its own text back here when the call's output
 //! arrives and puts the result on the Event. A string that is reworded must be reworded in its
 //! reader too: commit and push share `committed_text` / `pushed_text` with their parsers, the others
-//! are serde types that the tools serialize and `result_of` deserializes (`SubSession*`, and
+//! are serde types that the tools serialize and `result_of` deserializes (`SubSession*`, `TasksAnswer` and
 //! `GitStatus`), so renaming a key changes both. The tests also pin both against `tests/cases/harness_result.json`, which `@harness/api`
 //! (`harnessResult`, the reader for logs recorded before the typed field) runs as well.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::api::{HarnessResult, ListedSubSession, SubSessionState};
+use crate::api::{HarnessResult, ListedSubSession, ListedTask, SubSessionState};
 
 /// The part of the `git_status` answer (the API's `GitStatus`, serialized) a result reads.
 #[derive(Debug, Default, Deserialize)]
@@ -74,6 +74,13 @@ pub(crate) struct SubSessionEntry {
     pub branch: Option<String>,
     pub status: Option<String>,
     pub archived: bool,
+}
+
+/// The `task_add` and `task_update` answer.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct TasksAnswer {
+    pub tasks: Vec<ListedTask>,
 }
 
 /// The `git_commit` answer.
@@ -188,6 +195,10 @@ pub(crate) fn result_of(tool: &str, call: &Value) -> Option<HarnessResult> {
                 })
                 .collect();
             Some(HarnessResult::SubSessionList { sessions })
+        }
+        "task_add" | "task_update" => {
+            let v: TasksAnswer = object(text)?;
+            Some(HarnessResult::Tasks { tasks: v.tasks })
         }
         _ => None,
     }
@@ -357,6 +368,21 @@ mod tests {
                 json!({ "sub_sessions": [{ "session_id": "s2", "title": "T", "folder": "/w", "repo": null, "branch": null, "status": "idle", "archived": true }] })
             )
         );
+    }
+
+    #[test]
+    fn the_tasks_answer_is_read_back() {
+        let task = |id: &str, status| ListedTask { id: id.into(), title: format!("Task {id}"), status };
+        let tasks = vec![task("t1", crate::api::TaskStatus::Todo), task("t2", crate::api::TaskStatus::InProgress)];
+        let text = serde_json::to_string_pretty(&TasksAnswer { tasks: tasks.clone() }).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&text).unwrap(),
+            json!({ "tasks": [{ "id": "t1", "title": "Task t1", "status": "todo" }, { "id": "t2", "title": "Task t2", "status": "in_progress" }] })
+        );
+        for tool in ["task_add", "task_update"] {
+            assert_eq!(result_of(tool, &json!({ "rawOutput": text })), Some(HarnessResult::Tasks { tasks: tasks.clone() }), "{tool}");
+        }
+        assert_eq!(result_of("task_list", &json!({ "rawOutput": text })), None, "a list is not a change");
     }
 
     #[test]

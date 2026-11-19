@@ -59,6 +59,7 @@ async fn setup_with(flags: &[&str], idle: Duration) -> (Arc<Harness>, String, te
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .unwrap()
@@ -362,6 +363,7 @@ async fn global_always_allow_applies_to_other_sessions() {
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .unwrap()
@@ -930,6 +932,7 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .unwrap()
@@ -955,6 +958,7 @@ async fn new_sessions_start_with_the_config_last_picked_for_the_agent() {
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .unwrap()
@@ -981,6 +985,7 @@ async fn agent_that_fails_to_start_reports_its_stderr() {
         new_branch: None,
         pr: None,
         mcp_servers: vec![],
+        task: None,
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
     let err = h
@@ -1012,6 +1017,7 @@ async fn app_events_announce_list_changes_and_attention() {
         new_branch: None,
         pr: None,
         mcp_servers: vec![],
+        task: None,
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
     let (_all, mut rx) = collect(&h, &session_id);
@@ -1715,4 +1721,166 @@ async fn subscribing_to_an_unloaded_log_during_a_turn_sees_every_seq_once() {
     drop(h);
     let reopened = harness(&dir.path().join("data"), &["--resume"], Duration::from_secs(900));
     subscribers_during_turns(&reopened, &sid, 4).await;
+}
+
+/// A task under a topic, with a body, an upstream link, an asset and a sibling; its origin Session
+/// has a note and one Turn.
+async fn task_fixture(h: &Harness, origin: &str) -> String {
+    use harness_core::api::TaskUpstream;
+    turn(h, origin, None, "plan the cache work").await;
+    h.execute(Command::WriteNote { session_id: origin.into(), content: "Note: keep the old API".into(), base_hash: None }).await.unwrap();
+    let create = |title: &str, parent: Option<&str>, body: Option<&str>| Command::CreateTask {
+        title: title.into(),
+        body: body.map(Into::into),
+        parent_id: parent.map(Into::into),
+        session_id: Some(origin.into()),
+        status: None,
+        priority: None,
+        due: None,
+        upstream: (title == "Fix the cache").then(|| TaskUpstream { url: "https://linear.app/x/issue/LIN-487".into(), label: Some("LIN-487".into()) }),
+    };
+    let id = |r: CommandResult| match r {
+        CommandResult::Task { task } => task.id,
+        _ => panic!(),
+    };
+    let topic = id(h.execute(create("Cache topic", None, None)).await.unwrap());
+    let task = id(h.execute(create("Fix the cache", Some(&topic), Some("The cache drops entries."))).await.unwrap());
+    h.execute(create("Sibling work", Some(&topic), None)).await.unwrap();
+    let file = AttachmentInput::Data { name: "trace.log".into(), mime: "text/plain".into(), data: b64(b"trace") };
+    h.execute(Command::AddTaskAssets { id: task.clone(), files: vec![file] }).await.unwrap();
+    task
+}
+
+async fn start_from(h: &Harness, folder: &str, task: harness_core::api::TaskStart) -> String {
+    let cmd = Command::CreateSession {
+        folder: folder.into(),
+        agent_id: "fake".into(),
+        frontend_id: "inspector".into(),
+        title: None,
+        branch: None,
+        worktree: false,
+        new_branch: None,
+        pr: None,
+        mcp_servers: vec![],
+        task: Some(task),
+    };
+    let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
+    session_id
+}
+
+async fn first_reply(h: &Harness, sid: &str) -> String {
+    turn(h, sid, None, "echo-prompt show-context go").await;
+    texts(h, sid).concat()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_from_a_task_is_linked_and_seeded_with_the_chosen_parts() {
+    use harness_core::api::{TaskActivityKind, TaskContextParts, TaskStart, TaskStatus};
+    let (h, origin, dir) = setup().await;
+    let folder = dir.path().display().to_string();
+    let task = task_fixture(&h, &origin).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        s.lock().unwrap().push(serde_json::to_value(e).unwrap());
+        true
+    }));
+
+    let include = TaskContextParts { summary: true, body_and_assets: true, ..Default::default() };
+    let sid = start_from(&h, &folder, TaskStart { id: task.clone(), include, set_status: Some(TaskStatus::InProgress) }).await;
+    let CommandResult::Task { task: t } = h.execute(Command::ReadTask { id: task.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(t.status, TaskStatus::InProgress);
+    assert_eq!(t.sessions.iter().map(|l| l.session_id.as_str()).collect::<Vec<_>>(), vec![sid.as_str()]);
+    assert!(t.activity.iter().any(|a| a.kind == TaskActivityKind::SessionStarted { session_id: sid.clone() }));
+    let linked = |sid: &str| {
+        seen.lock().unwrap().iter().rev().find(|e| e["type"] == "TasksChanged" && e["ids"] == serde_json::json!([task])).map(|e| {
+            let t = &e["tasks"][0];
+            assert_eq!(t["id"], serde_json::json!(task));
+            (t["status"].clone(), t["sessions"].as_array().unwrap().iter().any(|l| l["session_id"] == sid))
+        })
+    };
+    assert_eq!(linked(&sid), Some((serde_json::json!("in_progress"), true)), "the event has the linked summary");
+
+    let reply = first_reply(&h, &sid).await;
+    assert!(reply.contains(&format!("Task {task}: Fix the cache")), "{reply}");
+    assert!(reply.contains("Status: in_progress") && reply.contains("LIN-487"), "{reply}");
+    assert!(reply.contains("The cache drops entries.") && reply.contains("trace.log"), "{reply}");
+    assert!(reply.contains(&format!("Started from task {task} \"Fix the cache\"")), "facts line: {reply}");
+    for left_out in ["Cache topic", "Sibling work", "keep the old API", "plan the cache work"] {
+        assert!(!reply.contains(left_out), "{left_out} was not chosen: {reply}");
+    }
+
+    // The other parts, without a status change: the status stays as it is.
+    let include = TaskContextParts { parent_and_siblings: true, origin_note: true, origin_transcript: true, ..Default::default() };
+    let sid2 = start_from(&h, &folder, TaskStart { id: task.clone(), include, set_status: None }).await;
+    let reply = first_reply(&h, &sid2).await;
+    for part in ["Cache topic", "Sibling work", "Note: keep the old API", "User: plan the cache work"] {
+        assert!(reply.contains(part), "{part}: {reply}");
+    }
+    assert!(!reply.contains("The cache drops entries.") && !reply.contains("Status: in_progress"), "{reply}");
+    let CommandResult::Task { task: t } = h.execute(Command::ReadTask { id: task.clone() }).await.unwrap() else { panic!() };
+    assert_eq!((t.status, t.sessions.len()), (TaskStatus::InProgress, 2));
+
+    // No parts: no seed, but the link and the facts line.
+    let sid3 = start_from(&h, &folder, TaskStart { id: task.clone(), include: TaskContextParts::default(), set_status: None }).await;
+    let reply = first_reply(&h, &sid3).await;
+    assert!(!reply.contains("seeded") && reply.contains(&format!("Started from task {task}")), "{reply}");
+
+    // Deleting a Session unlinks it: the event has the summary without it.
+    h.execute(Command::DeleteSession { session_id: sid3.clone(), force: true }).await.unwrap();
+    assert_eq!(linked(&sid3), Some((serde_json::json!("in_progress"), false)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_from_an_unknown_task_is_not_created() {
+    use harness_core::api::{TaskContextParts, TaskStart};
+    let (h, _origin, dir) = setup().await;
+    let before = h.execute(Command::ListSessions).await.unwrap();
+    let cmd = Command::CreateSession {
+        folder: dir.path().display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "inspector".into(),
+        title: None,
+        branch: None,
+        worktree: false,
+        new_branch: None,
+        pr: None,
+        mcp_servers: vec![],
+        task: Some(TaskStart { id: "t99".into(), include: TaskContextParts::default(), set_status: None }),
+    };
+    assert!(h.execute(cmd).await.is_err());
+    assert_eq!(serde_json::to_value(h.execute(Command::ListSessions).await.unwrap()).unwrap(), serde_json::to_value(before).unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_task_link_still_creates_the_session_and_tells_the_windows() {
+    use harness_core::api::{TaskContextParts, TaskStart};
+    use std::os::unix::fs::PermissionsExt;
+    let (h, origin, dir) = setup().await;
+    let task = task_fixture(&h, &origin).await;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &harness_core::api::AppEvent| {
+        s.lock().unwrap().push(serde_json::to_value(e).unwrap());
+        true
+    }));
+    // The task passes the check up front, but writing the link fails.
+    let task_dir = dir.path().join("data").join("tasks").join(&task);
+    std::fs::set_permissions(&task_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let start = TaskStart { id: task.clone(), include: TaskContextParts { summary: true, ..Default::default() }, set_status: None };
+    let sid = start_from(&h, &dir.path().display().to_string(), start).await;
+    std::fs::set_permissions(&task_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(summary(&h, &sid).await.is_some(), "the Session is created");
+    let CommandResult::Task { task: t } = h.execute(Command::ReadTask { id: task.clone() }).await.unwrap() else { panic!() };
+    assert!(t.sessions.is_empty(), "not linked");
+    assert!(seen.lock().unwrap().iter().any(|e| e["type"] == "SessionsChanged"), "{:?}", seen.lock().unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transcript_size_counts_the_main_thread() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "one").await;
+    let CommandResult::TranscriptSize { size, chars } = h.execute(Command::ReadTranscriptSize { session_id: sid }).await.unwrap() else { panic!() };
+    assert_eq!((size.kept_turns, size.total_turns), (1, 1));
+    assert!(chars > 0);
 }

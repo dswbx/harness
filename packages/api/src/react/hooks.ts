@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionApi } from "../client/client";
 import { type GitStatusSnapshot, gitStatusStore } from "../client/gitStatusStore";
-import type { Event, PrRefKey, SharedArtifactEntry } from "../generated";
+import type { Event, Note, PrRefKey, SharedArtifactEntry, TaskSummary } from "../generated";
 import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
 import type { Unsubscribe } from "../transport/transport";
@@ -123,6 +123,52 @@ export function useSharedArtifacts(source: SharedListSource): SharedArtifactEntr
       };
    }, [source]);
    return list;
+}
+
+/** Where `useTasks` reads from: a `SessionApi` or a `HarnessClient` (both hold the window's one `taskStore`). */
+export type TaskListSource = Pick<SessionApi, "taskStore">;
+
+/**
+ * All Tasks (ADR 0028), oldest first (null while loading). Every caller in a window shares one list:
+ * loaded once, then patched from each `TasksChanged` (see `TaskStore`).
+ */
+export function useTasks(source: TaskListSource): TaskSummary[] | null {
+   const store = source.taskStore;
+   return useSyncExternalStore(store.subscribe, store.peek);
+}
+
+/**
+ * The Session's Session Note (ADR 0028), null while loading. Read once and again on each `NoteChanged`.
+ * `set` puts a Note the caller got back from a write, so it shows before the re-read. A read that
+ * started before a newer one (or a `set`) is dropped.
+ */
+export function useNote(
+   api: Pick<SessionApi, "readNote" | "noteChanged">,
+): [Note | null, (note: Note) => void] {
+   const [note, setNote] = useState<Note | null>(null);
+   const seq = useRef(0);
+   useEffect(() => {
+      let live = true;
+      setNote(null);
+      const load = () => {
+         const mine = ++seq.current;
+         api.readNote().then(
+            (n) => live && mine === seq.current && setNote(n),
+            (e) => console.error("read note failed", e),
+         );
+      };
+      load();
+      const off = api.noteChanged(load);
+      return () => {
+         live = false;
+         void off.then((f) => f());
+      };
+   }, [api]);
+   const set = useCallback((n: Note) => {
+      seq.current++;
+      setNote(n);
+   }, []);
+   return [note, set];
 }
 
 const NO_STATUS: GitStatusSnapshot = { isRepo: null, status: null, error: null, changes: 0 };

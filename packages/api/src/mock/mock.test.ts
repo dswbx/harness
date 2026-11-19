@@ -650,3 +650,74 @@ describe("MockTransport Review Comments", () => {
       ).toBe("c2");
    });
 });
+
+describe("MockTransport Start Session from a task", () => {
+   it("links the Session and sets the status once", async () => {
+      const mock = new MockTransport([], []);
+      const c = new HarnessClient(mock);
+      const id = await c.createSession({
+         folder: "/Users/me/harness",
+         agentId: "codex",
+         frontendId: "chat",
+         task: { id: "t4", include: { summary: true }, set_status: "in_progress" },
+      });
+      const task = await c.readTask("t4");
+      expect(task.status).toBe("in_progress");
+      expect(task.sessions.map((l) => l.session_id)).toEqual([id]);
+      expect(task.activity.map((a) => a.kind.type)).toContain("session_started");
+   });
+
+   it("refuses an unknown task without making a Session", async () => {
+      const mock = new MockTransport([], []);
+      const c = new HarnessClient(mock);
+      const before = (await c.listSessions()).length;
+      await expect(
+         c.createSession({
+            folder: "/f",
+            agentId: "codex",
+            frontendId: "chat",
+            task: { id: "t99" },
+         }),
+      ).rejects.toMatchObject({ code: "not_found" });
+      expect(await c.listSessions()).toHaveLength(before);
+   });
+});
+
+describe("MockTransport Session Note images", () => {
+   it("removes one image and refuses an unknown path", async () => {
+      const transport = new MockTransport([], []);
+      const id = await new HarnessClient(transport).createSession({
+         folder: "/tmp/n",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const api = createSessionApi(transport, id);
+      const png = { type: "data" as const, mime: "image/png", data: "eA==" };
+      const added = await api.addNoteImages([
+         { ...png, name: "a.png" },
+         { ...png, name: "b.png" },
+      ]);
+      const changed = vi.fn();
+      await api.noteChanged(changed);
+      const after = await api.removeNoteImage(added.images[0] ?? "");
+      expect(after.images).toEqual([added.images[1]]);
+      expect(changed).toHaveBeenCalledTimes(1);
+      await expect(api.removeNoteImage(added.images[0] ?? "")).rejects.toThrow("no image");
+   });
+});
+
+describe("MockTransport Task upstream links", () => {
+   it("takes only http(s) links, as the core", async () => {
+      const client = new HarnessClient(new MockTransport([], []));
+      const bad = { url: "javascript:alert(1)", label: null };
+      await expect(client.createTask({ title: "A", upstream: bad })).rejects.toThrow("https://");
+      const t = await client.createTask({
+         title: "A",
+         upstream: { url: " https://x.dev/1 ", label: " " },
+      });
+      expect(t.upstream).toEqual({ url: "https://x.dev/1", label: null });
+      await expect(
+         client.updateTask(t.id, { upstream: { url: "x.dev/2", label: null } }),
+      ).rejects.toThrow("not a web link");
+   });
+});

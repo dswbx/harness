@@ -68,6 +68,7 @@ async fn create(h: &Harness, folder: &Path, agent_id: &str) -> String {
         new_branch: None,
         pr: None,
         mcp_servers: vec![],
+        task: None,
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
     session_id

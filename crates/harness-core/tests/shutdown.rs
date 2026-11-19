@@ -50,6 +50,7 @@ async fn setup_in(dir: &Path, flags: &[&str], timeout: Duration) -> (Arc<Harness
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         })
         .await
         .unwrap()
@@ -346,6 +347,7 @@ async fn no_session_or_turn_starts_once_shutdown_began() {
         new_branch: None,
         pr: None,
         mcp_servers: vec![],
+        task: None,
     };
     assert_eq!(h.execute(create).await.unwrap_err().code, ErrorCode::Unavailable);
     assert_eq!(sessions(), before);

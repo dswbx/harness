@@ -2,6 +2,7 @@ import { $isCodeNode, CodeHighlightNode, CodeNode } from "@lexical/code";
 import { LinkNode } from "@lexical/link";
 import { $isListItemNode, $isListNode, ListItemNode, ListNode } from "@lexical/list";
 import {
+   $convertFromMarkdownString,
    $convertToMarkdownString,
    BOLD_ITALIC_STAR,
    BOLD_ITALIC_UNDERSCORE,
@@ -64,6 +65,11 @@ export const PROMPT_TRANSFORMERS: Transformer[] = [
    PR_REF,
 ];
 
+/** The inline ones (bold, code, links, PR refs): what a one-line editor (`singleLine`) turns typed Markdown into. */
+export const INLINE_TRANSFORMERS: Transformer[] = PROMPT_TRANSFORMERS.filter(
+   (t) => t.type === "text-format" || t.type === "text-match",
+);
+
 /** Markdown of one top-level block. `$convertToMarkdownString(…, node)` exports `node.getChildren()` as top-level blocks, so hand it a one-child stand-in. */
 const $blockMarkdown = (n: LexicalNode) =>
    $convertToMarkdownString(
@@ -93,6 +99,26 @@ export function $exportMarkdown(): string {
    }
    while (lines.at(-1) === "") lines.pop();
    return unescapeMarkdown(lines.join("\n"));
+}
+
+const $isEmptyParagraph = (n: LexicalNode | null) =>
+   $isParagraphNode(n) && n.getTextContentSize() === 0;
+
+/**
+ * Replace the editor's content with Markdown (call inside update), read the way `$exportMarkdown` writes it: each line
+ * its own paragraph, a blank line an empty paragraph. The one blank line export puts between a list, code block or
+ * quote and a line of text is not kept as an empty paragraph: export writes it back. Moves the selection to the start
+ * when there is one.
+ */
+export function $importMarkdown(md: string) {
+   $convertFromMarkdownString(md.replace(/\r\n?/g, "\n"), PROMPT_TRANSFORMERS, undefined, true);
+   for (const n of $getRoot().getChildren()) {
+      const [prev, next] = [n.getPreviousSibling(), n.getNextSibling()];
+      if (!$isEmptyParagraph(n) || !prev || !next) continue;
+      if ($isEmptyParagraph(prev) || $isEmptyParagraph(next)) continue;
+      // Between two blocks it stays: two lists side by side would merge into one.
+      if ($isParagraphNode(prev) !== $isParagraphNode(next)) n.remove();
+   }
 }
 
 /** Paste plain text: each line becomes its own block (paragraph / list item); in a code block lines stay line breaks. */
@@ -298,6 +324,10 @@ export type EnterCtx = {
    shift: boolean;
    mod: boolean;
    block: "list" | "code" | "fence" | "quote" | "text";
+   /** Enter alone makes a new line as Shift+Enter does (a document, not a prompt). */
+   newline?: boolean;
+   /** A one-line editor: every Enter sends. */
+   singleLine?: boolean;
 };
 /**
  * "paragraph": new paragraph / list item (INSERT_PARAGRAPH). "code": leave the block if at its end after 2 empty lines
@@ -305,14 +335,18 @@ export type EnterCtx = {
  */
 export type EnterAction = "pick" | "send" | "fence" | "paragraph" | "code" | "quote" | "default";
 
-/** What Enter does. Enter sends in text, lists and quotes, Shift+Enter makes a new line (block); in code both make a newline. */
-export function enterAction({ menuOpen, composing, shift, mod, block }: EnterCtx): EnterAction {
+/**
+ * What Enter does. Enter sends in text, lists and quotes, Shift+Enter makes a new line (block); in code both make a newline.
+ * With `newline` Enter also makes a new line and only Mod+Enter sends; with `singleLine` every Enter sends.
+ */
+export function enterAction(ctx: EnterCtx): EnterAction {
+   const { menuOpen, composing, shift, mod, block } = ctx;
    if (composing) return "default";
    if (menuOpen) return "pick";
-   if (mod) return "send";
+   if (mod || ctx.singleLine) return "send";
    if (block === "fence") return "fence";
    if (block === "code") return "code";
-   if (!shift) return "send";
+   if (!shift && !ctx.newline) return "send";
    return block === "quote" ? "quote" : "paragraph";
 }
 

@@ -29,6 +29,8 @@ pub struct Shared {
     pub pr_refs: crate::github::PrRefs,
     /// Shared Artifacts (ADR 0024), in `<data dir>/shared/`.
     pub artifacts: crate::shared::SharedArtifacts,
+    /// Tasks (ADR 0028), in `<data dir>/tasks/`.
+    pub tasks: crate::tasks::Tasks,
     /// The Harness, so the Harness MCP can start and reach Sub Sessions. Set once it exists.
     pub host: std::sync::OnceLock<std::sync::Weak<crate::host::Harness>>,
     /// `Harness::shutdown` started: no Agent, Session or Turn starts any more.

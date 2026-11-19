@@ -312,6 +312,73 @@ const rows: Row[] = [
       metas: ["session not found"],
    },
    {
+      name: "task_add, done: the count, rows in the body",
+      tool: mk({
+         title: "mcp__harness__task_add",
+         harnessTool: "task_add",
+         rawInput: { tasks: [{ title: "A" }, { title: "B" }, { title: "C" }] },
+         content: text(
+            JSON.stringify({
+               tasks: ["t1", "t2", "t3"].map((id) => ({ id, title: id, status: "todo" })),
+            }),
+         ),
+      }),
+      state: "done",
+      icon: "tasks",
+      verb: "Added 3 tasks",
+      detail: "",
+      body: "tasks",
+      metas: [],
+   },
+   {
+      name: "task_add, running, one task",
+      tool: mk({
+         title: "mcp__harness__task_add",
+         harnessTool: "task_add",
+         status: "in_progress",
+         rawInput: { tasks: [{ title: "Cache target" }] },
+      }),
+      opts: { active: true },
+      state: "running",
+      icon: "tasks",
+      verb: "Adding 1 task",
+      detail: "Cache target",
+      body: "tasks",
+   },
+   {
+      name: "task_update, done: the title and what changed",
+      tool: mk({
+         title: "mcp__harness__task_update",
+         harnessTool: "task_update",
+         rawInput: { id: "t3", status: "in_review", parent: null, priority: "high" },
+         content: text(
+            JSON.stringify({ tasks: [{ id: "t3", title: "Fix it", status: "in_review" }] }),
+         ),
+      }),
+      state: "done",
+      icon: "tasks",
+      verb: "Updated task",
+      detail: "Fix it",
+      body: "tasks",
+      metas: ["In review", "High priority", "moved to top level"],
+   },
+   {
+      name: "task_update refused",
+      tool: mk({
+         title: "mcp__harness__task_update",
+         harnessTool: "task_update",
+         status: "failed",
+         rawInput: { id: "t1", status: "done" },
+         content: text("```\ntask t1 was not created in this Session\n```"),
+      }),
+      state: "failed",
+      icon: "failed",
+      verb: "Update failed",
+      detail: "t1",
+      body: "tasks",
+      metas: ["task t1 was not created in this Session"],
+   },
+   {
       name: "tool search loaded two",
       tool: mk({
          title: "ToolSearch",

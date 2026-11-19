@@ -3,9 +3,12 @@ import {
    gitToolSummary,
    type SubSessionToolSummary,
    subSessionToolSummary,
+   type TaskToolSummary,
    type ToolRefFacts,
+   taskToolSummary,
    toolDetail,
 } from "@harness/api";
+import { plural } from "../../lib/plural";
 import type { Tool } from "./group";
 
 export type StepState = "running" | "pending" | "done" | "failed";
@@ -71,6 +74,30 @@ const CHECK_VERBS: [string, string, string] = [
    "Check failed",
 ];
 
+/** What a Harness Task step did (`task_add`, `task_update`; null for any other call). */
+export function taskSummary(tool: Tool): TaskToolSummary | null {
+   return taskToolSummary(tool);
+}
+
+/** `Added 3 tasks` / `Updated task`, by state; the detail is the title of a single task. */
+function taskLabel(t: TaskToolSummary, state: StepState): StepLabel {
+   const live = state === "running" || state === "pending";
+   const n = t.tasks.length;
+   const detail = n === 1 ? (t.tasks[0]?.title ?? "") : "";
+   if (t.tool === "task_add") {
+      const verb = live
+         ? n
+            ? `Adding ${plural(n, "task")}`
+            : "Adding tasks"
+         : state === "failed"
+           ? "Add failed"
+           : `Added ${plural(n, "task")}`;
+      return { verb, detail };
+   }
+   const verb = live ? "Updating task" : state === "failed" ? "Update failed" : "Updated task";
+   return { verb, detail };
+}
+
 /** What a Harness sub session step did (null for any other call). */
 export function subSessionSummary(tool: Tool): SubSessionToolSummary | null {
    return subSessionToolSummary(tool);
@@ -125,6 +152,8 @@ export function stepLabel(tool: Tool, state: StepState, subagent = false): StepL
       const verb = live ? session[0] : state === "failed" ? session[2] : session[1];
       return { verb, detail: [s.title, s.repo].filter(Boolean).join(" · ") };
    }
+   const task = taskSummary(tool);
+   if (task) return taskLabel(task, state);
    if (tool.harnessTool)
       return { verb: pick(["Calling Harness", "Called Harness"]), detail: tool.harnessTool };
    const d = toolDetail(tool);

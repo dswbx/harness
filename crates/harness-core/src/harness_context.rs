@@ -112,6 +112,9 @@ fn facts(session: &Session) -> String {
             "- Sub Session: the agent of Session \"{title}\" started it. Prompts with a note that they come from that agent are its instructions; the user can also write here. Your last message of each Turn is returned to that agent, so end with a short, complete answer."
         ));
     }
+    for task in session.shared().tasks.started_from(&meta.id) {
+        lines.push(format!("- Started from task {} \"{}\": update its status with task_update", task.id, task.title));
+    }
     let artifacts = &session.shared().artifacts;
     for id in session.attached_shared().unwrap_or_default() {
         if let (Ok(m), Ok(dir)) = (artifacts.get(&id), artifacts.folder(&id)) {

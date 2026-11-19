@@ -134,7 +134,11 @@ impl Harness {
         new_branch: Option<String>,
         pr: Option<u32>,
         mcp_servers: Vec<String>,
+        task: Option<TaskStart>,
     ) -> anyhow::Result<CommandResult> {
+        if let Some(t) = &task {
+            self.check_task_start(t)?;
+        }
         let spec = NewSession {
             folder,
             agent_id,
@@ -148,7 +152,15 @@ impl Harness {
             parent: None,
             initial_config: Default::default(),
         };
-        Ok(CommandResult::SessionCreated { session_id: self.create_session(spec).await?.id() })
+        let session = self.create_session(spec).await?;
+        // The Session exists now: a failed link must not fail the Command, or the windows are not
+        // told about the Session and the user may create a second one.
+        if let Some(t) = task
+            && let Err(e) = self.start_from_task(&session, t)
+        {
+            tracing::warn!("linking session {} to its task: {e:#}", session.id());
+        }
+        Ok(CommandResult::SessionCreated { session_id: session.id() })
     }
 
     pub(in crate::host) async fn cmd_create_quick_session(

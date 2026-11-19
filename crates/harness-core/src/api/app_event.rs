@@ -47,6 +47,12 @@ pub enum AppEvent {
     SharedArtifactChanged { id: String },
     /// Shared Artifacts were added, removed, renamed, attached or detached: reload the list.
     SharedArtifactsChanged,
+    /// Tasks were created, changed, moved, deleted or linked: re-read the open ones among `ids`.
+    /// `tasks` holds the current summaries of the `ids` that still exist; an id without one was
+    /// deleted. A list applies them in place. Live only, not logged.
+    TasksChanged { ids: Vec<String>, tasks: Vec<TaskSummary> },
+    /// A Session's Session Note was written or got images: re-read it. Live only, not logged.
+    NoteChanged { session_id: SessionId },
     /// A Session's Log could not be written (`error`: why) or can be again (`error` null). While
     /// it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
     /// Live only, not logged. Also `SessionSummary::log_error`.

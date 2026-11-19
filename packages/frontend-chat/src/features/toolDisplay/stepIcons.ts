@@ -12,6 +12,7 @@ import {
    GitCommitHorizontal,
    GitPullRequest,
    Globe,
+   ListTodo,
    Plug,
    Search,
    SquareTerminal,
@@ -43,5 +44,6 @@ export const STEP_ICONS: Record<StepIcon, typeof Wrench> = {
    think: Brain,
    fetch: Globe,
    switch_mode: ToggleRight,
+   tasks: ListTodo,
    wrench: Wrench,
 };

@@ -4,6 +4,7 @@ import type { StepBody } from "../stepView";
 import { CallBody } from "./CallBody";
 import { SubagentBody } from "./SubagentBody";
 import { SubSessionBody } from "./SubSessionBody";
+import { TasksBody } from "./TasksBody";
 import { ToolSearchBody } from "./ToolSearchBody";
 
 /** The body a step opens to, by its kind (`stepView`). */
@@ -33,6 +34,8 @@ export function StepBodyView({
          );
       case "subSession":
          return <SubSessionBody tool={tool} summary={body.summary} />;
+      case "tasks":
+         return <TasksBody tool={tool} summary={body.summary} />;
       case "toolSearch":
          return <ToolSearchBody tool={tool} tools={body.tools} />;
       case "commit":

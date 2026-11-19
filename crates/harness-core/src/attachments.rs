@@ -115,6 +115,38 @@ pub fn read(session_dir: &Path, path: &str) -> anyhow::Result<(String, String)> 
     Ok((guess_mime(&p).to_owned(), B64.encode(std::fs::read(&p)?)))
 }
 
+/// An input's name, mime type and bytes, for stores that copy every file (Task assets). Refuses
+/// files larger than `max` bytes.
+pub(crate) fn load(input: AttachmentInput, max: u64) -> anyhow::Result<(String, String, Vec<u8>)> {
+    let too_big = |name: &str| crate::error::invalid(format!("{name} is larger than {} MB", max / 1024 / 1024));
+    match input {
+        AttachmentInput::Data { name, mime, data } => {
+            let bytes = B64.decode(data.trim()).map_err(|e| crate::error::invalid(format!("{name}: invalid base64 data ({e})")))?;
+            if bytes.len() as u64 > max {
+                return Err(too_big(&name));
+            }
+            Ok((name, mime, bytes))
+        }
+        AttachmentInput::Path { path } => {
+            let p = std::fs::canonicalize(&path).map_err(|e| crate::error::invalid(format!("{path}: {e}")))?;
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+            let meta = std::fs::metadata(&p)?;
+            if !meta.is_file() {
+                return Err(crate::error::invalid(format!("{path} is not a file")));
+            }
+            if meta.len() > max {
+                return Err(too_big(&name));
+            }
+            Ok((name, guess_mime(&p).to_owned(), std::fs::read(&p)?))
+        }
+    }
+}
+
+/// Base64 of `bytes`.
+pub(crate) fn encode(bytes: &[u8]) -> String {
+    B64.encode(bytes)
+}
+
 /// An image file picked or dropped in the prompt box, as `(mime, base64)`, so the box can preview
 /// and scale it like a pasted one. Refuses anything that isn't an image by extension.
 pub fn read_image(path: &str) -> anyhow::Result<(String, String)> {
@@ -139,11 +171,16 @@ pub(crate) fn is_image(mime: &str) -> bool {
 
 /// `<uuid v7>-<name>`, with the name reduced to safe characters.
 pub(crate) fn stored_name(name: &str) -> String {
+    format!("{}-{}", uuid::Uuid::now_v7(), safe_name(name))
+}
+
+/// A file name reduced to safe characters (no leading dot), its last 80 at most; `attachment` when
+/// none is left.
+pub(crate) fn safe_name(name: &str) -> String {
     let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
     let safe = safe.trim_start_matches('.');
-    let safe = if safe.is_empty() { "attachment" } else { safe };
     let skip = safe.len().saturating_sub(80);
-    format!("{}-{}", uuid::Uuid::now_v7(), &safe[skip..])
+    if safe.is_empty() { "attachment".to_owned() } else { safe[skip..].to_owned() }
 }
 
 fn file_uri(path: &Path) -> String {

@@ -82,6 +82,7 @@ async fn smoke(registry_id: &str) {
         new_branch: None,
         pr: None,
         mcp_servers: vec![],
+        task: None,
     };
     let CommandResult::SessionCreated { session_id } = h.execute(cmd).await.unwrap() else { panic!() };
 

@@ -216,6 +216,7 @@ mod tests {
             new_branch: None,
             pr: None,
             mcp_servers: vec![],
+            task: None,
         };
         let CommandResult::SessionCreated { session_id } = h.execute(create).await.unwrap() else { panic!() };
         (h, session_id, dir)

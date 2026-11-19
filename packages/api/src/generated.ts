@@ -53,6 +53,14 @@ unseen: boolean } |
 /**  Shared Artifacts were added, removed, renamed, attached or detached: reload the list. */
 { type: "SharedArtifactsChanged" } | 
 /**
+ *  Tasks were created, changed, moved, deleted or linked: re-read the open ones among `ids`.
+ *  `tasks` holds the current summaries of the `ids` that still exist; an id without one was
+ *  deleted. A list applies them in place. Live only, not logged.
+ */
+{ type: "TasksChanged"; ids: string[]; tasks: TaskSummary[] } | 
+/**  A Session's Session Note was written or got images: re-read it. Live only, not logged. */
+{ type: "NoteChanged"; session_id: string } | 
+/**
  *  A Session's Log could not be written (`error`: why) or can be again (`error` null). While
  *  it cannot, new Events reach Views live but are lost on reload; `dropped` (on recovery) counts them.
  *  Live only, not logged. Also `SessionSummary::log_error`.
@@ -182,7 +190,9 @@ new_branch?: string | null;
  */
 pr?: number | null; 
 /**  MCP Library servers (ids) to give the Agent, besides the Harness MCP. */
-mcp_servers?: string[] } | 
+mcp_servers?: string[]; 
+/**  Start from this task: link the Session to it and seed its first prompt (ADR 0028). */
+task?: TaskStart | null } | 
 /**
  *  Creates a Quick Session: a Session with no folder from the user. The core makes an empty
  *  folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
@@ -404,7 +414,48 @@ origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; i
  *  Changes a Shared Artifact's state as the user. With `session_id`, that Session logs
  *  `ArtifactStateChanged`; without, nothing is logged (the no-Session view).
  */
-{ type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null };
+{ type: "PatchArtifactState"; id: string; ops: StatePatchOp[]; session_id?: string | null } | 
+/**  All Tasks (ADR 0028), oldest first. */
+{ type: "ListTasks" } | { type: "ReadTask"; id: string } | 
+/**  A new Task, last among its siblings. With `session_id`, that Session is its origin. */
+{ type: "CreateTask"; title: string; body?: string | null; parent_id?: string | null; session_id?: string | null; status?: TaskStatus | null; priority?: TaskPriority | null; 
+/**  `YYYY-MM-DD`. */
+due?: string | null; upstream?: TaskUpstream | null } | 
+/**
+ *  Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
+ *  `base_updated_ms` (the `updated_ms` the editor loaded).
+ */
+{ type: "UpdateTask"; id: string; patch: TaskPatch; base_updated_ms?: number | null } | 
+/**
+ *  Puts a Task under `parent_id` (`None`: top level), before its sibling `before` (`None`: last).
+ *  Refuses the Task itself or one of its descendants as the parent.
+ */
+{ type: "MoveTask"; id: string; parent_id?: string | null; before?: string | null } | 
+/**  Deletes a Task; its children move to its parent. */
+{ type: "DeleteTask"; id: string } | 
+/**  Copies files into the Task's `files/`. */
+{ type: "AddTaskAssets"; id: string; files: AttachmentInput[] } | { type: "RemoveTaskAsset"; id: string; name: string } | 
+/**  A Task asset (base64), as `ReadAttachment`. */
+{ type: "ReadTaskAsset"; id: string; name: string } | 
+/**
+ *  How much of a Session's Main Thread a transcript keeps (the Start Session dialog shows it
+ *  for the origin transcript).
+ */
+{ type: "ReadTranscriptSize"; session_id: string } | 
+/**  A Session's Session Note (ADR 0028). */
+{ type: "ReadNote"; session_id: string } | 
+/**
+ *  Replaces the Session Note. Refused (`conflict`) when `base_hash` is set and the note's
+ *  hash is no longer it (another window wrote it); without it the write always wins.
+ */
+{ type: "WriteNote"; session_id: string; content: string; base_hash?: string | null } | 
+/**  Copies images into the Session Note's `attachments/note/`. */
+{ type: "AddNoteImages"; session_id: string; files: AttachmentInput[] } | 
+/**
+ *  Deletes one of the Session Note's images: `path` as in `Note::images`. Only files directly
+ *  in `attachments/note/`.
+ */
+{ type: "RemoveNoteImage"; session_id: string; path: string };
 
 export type CommandResult = { type: "Ok" } | 
 /**  `AddComment`. */
@@ -446,7 +497,9 @@ export type CommandResult = { type: "Ok" } |
  */
 { type: "SharedArtifact"; meta: SharedArtifactMeta; content: string; hash: string; mtime_ms: number; state: unknown; 
 /**  The artifact's folder (absolute). */
-dir: string };
+dir: string } | { type: "Tasks"; tasks: TaskSummary[] } | { type: "Task"; task: Task } | { type: "Note"; note: Note } | 
+/**  `chars`: the length of the transcript text. */
+{ type: "TranscriptSize"; size: TranscriptSize; chars: number };
 
 /**  The side of a diff a comment is on. */
 export type CommentSide = "old" | "new";
@@ -788,7 +841,9 @@ repo?: string | null; branch?: string | null; model?: string | null; effort?: st
 /**  `session_wait`: its last reply, how long its last Turn took, how it ended, its state. */
 reply?: string | null; duration_ms?: number | null; stop_reason?: string | null; status?: SubSessionState | null } | 
 /**  `session_list`: every Sub Session. */
-{ type: "sub_session_list"; sessions: ListedSubSession[] };
+{ type: "sub_session_list"; sessions: ListedSubSession[] } | 
+/**  `task_add`, `task_update` (ADR 0028): the Tasks added or changed. */
+{ type: "tasks"; tasks: ListedTask[] };
 
 /**  What the Harness knows about an installed Agent's files. */
 export type InstallInfo = {
@@ -847,6 +902,13 @@ export type ListedSubSession = {
 	archived?: boolean,
 };
 
+/**  One Task of a `task_add` or `task_update` result. */
+export type ListedTask = {
+	id: string,
+	title: string,
+	status: TaskStatus,
+};
+
 /**  An MCP server in the MCP Library. */
 export type McpServerDef = {
 	/**  Stable id; empty on first save means "derive from name". */
@@ -878,6 +940,21 @@ export type NewPermissionRule = {
 	tool_kind: string | null,
 	pattern: string | null,
 	decision: Decision,
+};
+
+/**
+ *  A Session's Session Note (ADR 0028): `<session dir>/note.md`, with images in
+ *  `<session dir>/attachments/note/`.
+ */
+export type Note = {
+	/**  Markdown; empty when the note was never written. */
+	content: string,
+	/**  sha256 (hex) of `content`; `WriteNote` takes it back as `base_hash`. */
+	hash: string,
+	/**  When `note.md` was last written; none when it does not exist. */
+	updated_ms: number | null,
+	/**  Absolute paths of the note's images, oldest first. `ReadAttachment` reads them. */
+	images: string[],
 };
 
 /**  Why a settings file was reset. */
@@ -1171,10 +1248,138 @@ export type SubagentInfo = {
 	model?: string | null,
 };
 
+/**  `tasks/<id>/task.json` (`v: 1`). Fields added later take `serde(default)`; there are no migrations. */
+export type Task = {
+	v: number,
+	/**  `t<n>`; never changes. */
+	id: string,
+	/**  One line of Markdown. */
+	title: string,
+	/**  Markdown. */
+	body: string,
+	status: TaskStatus,
+	priority: TaskPriority,
+	/**  `YYYY-MM-DD`, a local date. */
+	due: string | null,
+	upstream: TaskUpstream | null,
+	parent_id: string | null,
+	/**  Position among its siblings (ascending). */
+	order: number,
+	/**  The Session it was created in; kept after that Session is deleted. */
+	origin_session_id: string | null,
+	/**  The origin Session's title when the task was created. */
+	origin_title: string | null,
+	sessions: TaskSessionLink[],
+	assets: TaskAsset[],
+	created_ms: number,
+	/**  Last change of any field. */
+	updated_ms: number,
+	/**  Last change of `body`: `UpdateTask` checks `base_updated_ms` against it. */
+	body_updated_ms: number,
+	/**  The last 100 entries, oldest first. */
+	activity: TaskActivity[],
+};
+
+export type TaskActivity = {
+	at_ms: number,
+	by: StateWriter,
+	/**  The Session it happened in, if any. */
+	session_id: string | null,
+	kind: TaskActivityKind,
+};
+
+export type TaskActivityKind = { type: "created" } | 
+/**  The parent changed (`None`: no parent). */
+{ type: "moved"; from: string | null; to: string | null } | { type: "status_changed"; from: TaskStatus; to: TaskStatus } | { type: "session_started"; session_id: string };
+
+/**  A file in the task's `files/` folder; `name` is its file name there. */
+export type TaskAsset = {
+	name: string,
+	mime: string,
+	size: number,
+};
+
+/**  The parts of a task given to the new Session's Agent. */
+export type TaskContextParts = {
+	/**  Id, title, status, priority, due date and upstream link. */
+	summary?: boolean,
+	/**  The body, and the asset files as paths. */
+	body_and_assets?: boolean,
+	/**  The parent task and the other tasks under it. */
+	parent_and_siblings?: boolean,
+	/**  The Session Note of the Session the task was created in. */
+	origin_note?: boolean,
+	/**  A transcript of that Session's Main Thread (`summary::summarize`, capped). */
+	origin_transcript?: boolean,
+};
+
 export type TaskEntry = {
 	content: string,
 	priority: string,
 	status: string,
+};
+
+/**  A field `TaskPatch::clear` sets to none. */
+export type TaskField = "due" | "upstream";
+
+/**  The fields `UpdateTask` changes; a missing field stays. The parent changes with `MoveTask`. */
+export type TaskPatch = {
+	title?: string | null,
+	body?: string | null,
+	status?: TaskStatus | null,
+	priority?: TaskPriority | null,
+	/**  `YYYY-MM-DD`. */
+	due?: string | null,
+	upstream?: TaskUpstream | null,
+	/**  Fields set to none (applied before the values above). */
+	clear?: TaskField[],
+};
+
+export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
+
+/**  A Session started from the task. `title` is cached for when the Session is gone. */
+export type TaskSessionLink = {
+	session_id: string,
+	title: string,
+	started_ms: number,
+};
+
+/**
+ *  "Start Session from a task": the Session is linked to the task, and the chosen parts of the
+ *  task go into its first prompt as context (ADR 0028).
+ */
+export type TaskStart = {
+	id: string,
+	include?: TaskContextParts,
+	/**  Set once when the Session starts; never set back. */
+	set_status?: TaskStatus | null,
+};
+
+export type TaskStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "blocked" | "cancelled";
+
+/**  One row of `ListTasks`: a `Task` without `body` and `activity`. */
+export type TaskSummary = {
+	id: string,
+	title: string,
+	has_body: boolean,
+	status: TaskStatus,
+	priority: TaskPriority,
+	due: string | null,
+	upstream: TaskUpstream | null,
+	parent_id: string | null,
+	order: number,
+	origin_session_id: string | null,
+	origin_title: string | null,
+	sessions: TaskSessionLink[],
+	assets: TaskAsset[],
+	created_ms: number,
+	updated_ms: number,
+};
+
+/**  The task's item in another tracker (Linear, GitHub, ...). */
+export type TaskUpstream = {
+	url: string,
+	label?: string | null,
 };
 
 /**  One Terminal tab of a Session (ADR 0017). */

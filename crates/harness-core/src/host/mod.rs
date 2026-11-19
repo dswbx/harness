@@ -3,6 +3,7 @@
 mod boot;
 mod create;
 mod dispatch;
+mod task_start;
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -134,6 +135,7 @@ impl Harness {
             prompts_dir: data_dir.join("prompts"),
             pr_refs: Default::default(),
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
+            tasks: crate::tasks::Tasks::open(data_dir.join(crate::tasks::DIR))?,
             host: Default::default(),
             notices: Default::default(),
             closing: Default::default(),
@@ -225,6 +227,10 @@ impl Harness {
         if self.shared.artifacts.forget_session(session_id) {
             self.shared.app_events.emit(AppEvent::SharedArtifactsChanged);
         }
+        let ids = self.shared.tasks.forget_session(session_id);
+        if !ids.is_empty() {
+            self.shared.tasks.emit_changed(&self.shared.app_events, ids);
+        }
         self.shared.policy.forget_session(session_id)
     }
 
@@ -314,12 +320,41 @@ impl Harness {
             Command::RenameSharedArtifact { id, .. } | Command::DeleteSharedArtifact { id } | Command::PatchArtifactState { id, .. } => Some(id.clone()),
             _ => None,
         };
+        // Other windows re-read the note.
+        let note = match &cmd {
+            Command::WriteNote { session_id, .. } | Command::AddNoteImages { session_id, .. } | Command::RemoveNoteImage { session_id, .. } => {
+                Some(session_id.clone())
+            }
+            _ => None,
+        };
+        // Tasks the Command changes, known before it runs (`CreateTask` adds its new id after).
+        let tasks = match &cmd {
+            Command::CreateTask { .. } => Some(Vec::new()),
+            Command::CreateSession { task: Some(t), .. } => Some(vec![t.id.clone()]),
+            Command::UpdateTask { id, .. } | Command::MoveTask { id, .. } | Command::AddTaskAssets { id, .. } | Command::RemoveTaskAsset { id, .. } => {
+                Some(vec![id.clone()])
+            }
+            // Its children move to its parent.
+            Command::DeleteTask { id } => Some(std::iter::once(id.clone()).chain(self.shared.tasks.children_ids(id)).collect()),
+            _ => None,
+        };
         let result = self.execute_inner(cmd).await.map_err(HarnessError::from);
+        if let (Ok(r), Some(mut ids)) = (&result, tasks) {
+            if let CommandResult::Task { task } = r
+                && !ids.contains(&task.id)
+            {
+                ids.push(task.id.clone());
+            }
+            self.shared.tasks.emit_changed(&self.shared.app_events, ids);
+        }
         if let (Ok(_), Some(event)) = (&result, changes) {
             self.shared.app_events.emit(event);
         }
         if let (Ok(_), Some(id)) = (&result, changed) {
             self.shared.app_events.emit(AppEvent::SharedArtifactChanged { id });
+        }
+        if let (Ok(_), Some(session_id)) = (&result, note) {
+            self.shared.app_events.emit(AppEvent::NoteChanged { session_id });
         }
         // A settings file loaded by this Command did not load.
         if crate::persist::has_problems(&self.data_dir) {
@@ -365,8 +400,8 @@ impl Harness {
             Command::OpenAuthTerminal { session_id, method_id } => self.cmd_open_auth_terminal(session_id, method_id).await,
             Command::ListFrontends => self.cmd_list_frontends(),
             Command::ListSessions => self.cmd_list_sessions(),
-            Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers } => {
-                self.cmd_create_session(folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers).await
+            Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, task } => {
+                self.cmd_create_session(folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, task).await
             }
             Command::CreateQuickSession { agent_id, frontend_id, title, mcp_servers } => {
                 self.cmd_create_quick_session(agent_id, frontend_id, title, mcp_servers).await
@@ -453,6 +488,22 @@ impl Harness {
             Command::DeleteSharedArtifact { id } => self.cmd_delete_shared_artifact(id).await,
             Command::OpenSharedInEditor { id } => self.cmd_open_shared_in_editor(id).await,
             Command::PatchArtifactState { id, ops, session_id } => self.cmd_patch_artifact_state(id, ops, session_id),
+            Command::ListTasks => self.cmd_list_tasks(),
+            Command::ReadTask { id } => self.cmd_read_task(id),
+            Command::CreateTask { title, body, parent_id, session_id, status, priority, due, upstream } => {
+                self.cmd_create_task(title, body, parent_id, session_id, status, priority, due, upstream)
+            }
+            Command::UpdateTask { id, patch, base_updated_ms } => self.cmd_update_task(id, patch, base_updated_ms),
+            Command::MoveTask { id, parent_id, before } => self.cmd_move_task(id, parent_id, before),
+            Command::DeleteTask { id } => self.cmd_delete_task(id),
+            Command::AddTaskAssets { id, files } => self.cmd_add_task_assets(id, files).await,
+            Command::RemoveTaskAsset { id, name } => self.cmd_remove_task_asset(id, name),
+            Command::ReadTaskAsset { id, name } => self.cmd_read_task_asset(id, name).await,
+            Command::ReadTranscriptSize { session_id } => self.cmd_read_transcript_size(session_id),
+            Command::ReadNote { session_id } => self.cmd_read_note(session_id),
+            Command::WriteNote { session_id, content, base_hash } => self.cmd_write_note(session_id, content, base_hash),
+            Command::AddNoteImages { session_id, files } => self.cmd_add_note_images(session_id, files).await,
+            Command::RemoveNoteImage { session_id, path } => self.cmd_remove_note_image(session_id, path),
         }
     }
 

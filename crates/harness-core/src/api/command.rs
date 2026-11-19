@@ -88,6 +88,9 @@ pub enum Command {
         /// MCP Library servers (ids) to give the Agent, besides the Harness MCP.
         #[serde(default)]
         mcp_servers: Vec<String>,
+        /// Start from this task: link the Session to it and seed its first prompt (ADR 0028).
+        #[serde(default)]
+        task: Option<TaskStart>,
     },
     /// Creates a Quick Session: a Session with no folder from the user. The core makes an empty
     /// folder for it in `<data_dir>/quick/<id>/`, because an Agent needs a folder to start.
@@ -523,6 +526,94 @@ pub enum Command {
         ops: Vec<StatePatchOp>,
         #[serde(default)]
         session_id: Option<SessionId>,
+    },
+    /// All Tasks (ADR 0028), oldest first.
+    ListTasks,
+    ReadTask {
+        id: String,
+    },
+    /// A new Task, last among its siblings. With `session_id`, that Session is its origin.
+    CreateTask {
+        title: String,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        parent_id: Option<String>,
+        #[serde(default)]
+        session_id: Option<SessionId>,
+        #[serde(default)]
+        status: Option<TaskStatus>,
+        #[serde(default)]
+        priority: Option<TaskPriority>,
+        /// `YYYY-MM-DD`.
+        #[serde(default)]
+        due: Option<String>,
+        #[serde(default)]
+        upstream: Option<TaskUpstream>,
+    },
+    /// Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
+    /// `base_updated_ms` (the `updated_ms` the editor loaded).
+    UpdateTask {
+        id: String,
+        patch: TaskPatch,
+        #[serde(default)]
+        #[specta(type = Option<specta_typescript::Number>)]
+        base_updated_ms: Option<i64>,
+    },
+    /// Puts a Task under `parent_id` (`None`: top level), before its sibling `before` (`None`: last).
+    /// Refuses the Task itself or one of its descendants as the parent.
+    MoveTask {
+        id: String,
+        #[serde(default)]
+        parent_id: Option<String>,
+        #[serde(default)]
+        before: Option<String>,
+    },
+    /// Deletes a Task; its children move to its parent.
+    DeleteTask {
+        id: String,
+    },
+    /// Copies files into the Task's `files/`.
+    AddTaskAssets {
+        id: String,
+        files: Vec<AttachmentInput>,
+    },
+    RemoveTaskAsset {
+        id: String,
+        name: String,
+    },
+    /// A Task asset (base64), as `ReadAttachment`.
+    ReadTaskAsset {
+        id: String,
+        name: String,
+    },
+    /// How much of a Session's Main Thread a transcript keeps (the Start Session dialog shows it
+    /// for the origin transcript).
+    ReadTranscriptSize {
+        session_id: SessionId,
+    },
+    /// A Session's Session Note (ADR 0028).
+    ReadNote {
+        session_id: SessionId,
+    },
+    /// Replaces the Session Note. Refused (`conflict`) when `base_hash` is set and the note's
+    /// hash is no longer it (another window wrote it); without it the write always wins.
+    WriteNote {
+        session_id: SessionId,
+        content: String,
+        #[serde(default)]
+        base_hash: Option<String>,
+    },
+    /// Copies images into the Session Note's `attachments/note/`.
+    AddNoteImages {
+        session_id: SessionId,
+        files: Vec<AttachmentInput>,
+    },
+    /// Deletes one of the Session Note's images: `path` as in `Note::images`. Only files directly
+    /// in `attachments/note/`.
+    RemoveNoteImage {
+        session_id: SessionId,
+        path: String,
     },
 }
 

@@ -168,4 +168,18 @@ pub enum CommandResult {
         /// The artifact's folder (absolute).
         dir: String,
     },
+    Tasks {
+        tasks: Vec<TaskSummary>,
+    },
+    Task {
+        task: Task,
+    },
+    Note {
+        note: Note,
+    },
+    /// `chars`: the length of the transcript text.
+    TranscriptSize {
+        size: TranscriptSize,
+        chars: u32,
+    },
 }
