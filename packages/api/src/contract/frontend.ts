@@ -5,6 +5,7 @@ import type {
    AppEvent,
    AttachmentInput,
    FrontendManifest,
+   InstructionsScope,
    SessionStatus,
    SharedArtifactMeta,
 } from "../generated";
@@ -117,6 +118,17 @@ export type FrontendToggle = {
    set: (on: boolean) => void;
 };
 
+/** A Markdown text editor a Frontend lends the host (Settings > Instructions). */
+export type MarkdownEditorProps = {
+   /** The text it starts with; mount it again (a new `key`) to load another. */
+   initial: string;
+   /** Markdown after each change. */
+   onChange: (markdown: string) => void;
+   placeholder?: string;
+   /** Accessible name. */
+   label?: string;
+};
+
 /** What a Frontend package exports: its Manifest and the View that renders a Session. */
 export interface Frontend {
    manifest: FrontendManifest;
@@ -161,6 +173,8 @@ export interface Frontend {
       onOpenSession?: (sessionId: string) => void;
       /** Opens the host's All tasks view (ADR 0028), at a task when given. Absent: the View offers none. */
       onOpenTasks?: (taskId?: string) => void;
+      /** Opens the host's Settings at these Custom Instructions. Absent: the View offers no "Edit instructions". */
+      onOpenInstructions?: (scope: InstructionsScope) => void;
       /** Starts a Session from a task (the host's dialog). Absent: the View offers none. */
       onStartFromTask?: (taskId: string) => void;
       /**
@@ -182,4 +196,6 @@ export interface Frontend {
    toggles?: FrontendToggle[];
    /** A catalog page of what the Agent can render (Settings > UI components). Absent: no such page. */
    Gallery?: ComponentType;
+   /** Its Markdown editor (the prompt box's, Enter makes a new line), for the host's own text fields. Absent: a plain text area. */
+   MarkdownEditor?: ComponentType<MarkdownEditorProps>;
 }

@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use harness_core::Harness;
 use harness_core::api::{
-    AgentInfo, AppEvent, Command, CommandResult, Decision, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, FrontendToolDecl, McpServerDef,
-    McpTransport, NewPermissionRule, Resolver, RuleScope, StatePatchOp, StateWriter,
+    AgentInfo, AppEvent, Command, CommandResult, Decision, Event, EventKind, FrontendAnswer, FrontendImage, FrontendManifest, FrontendToolDecl,
+    InstructionsScope, McpServerDef, McpTransport, NewPermissionRule, Resolver, RuleScope, StatePatchOp, StateWriter,
 };
 use harness_core::host::Options;
 
@@ -595,6 +595,39 @@ async fn harness_context_starts_each_agent_session() {
     h.execute(Command::ContinueWithSummary { session_id: sid.clone(), thread_id: None, text: None, attachments: vec![] }).await.unwrap();
     let again = shown(ask(&h, &sid, "show-context", None).await);
     assert!(again.starts_with("seededcontext: <harness_context>\nCustom core text.\n\n## Frontend: Chat\n\nCustom chat text."), "{again}");
+
+    // Custom Instructions follow the Frontend's part, from the next Agent Session on. A Worktree
+    // of the repository uses the main checkout's.
+    let root = repo.canonicalize().unwrap().display().to_string();
+    let repo_scope = InstructionsScope::Repo { path: root.clone() };
+    h.execute(Command::SetInstructions { scope: InstructionsScope::Global, text: "Answer briefly.".into() }).await.unwrap();
+    h.execute(Command::SetInstructions { scope: repo_scope.clone(), text: "Run the tests first.\n".into() }).await.unwrap();
+    let CommandResult::InstructionsText { text } = h.execute(Command::GetInstructions { scope: repo_scope.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(text, "Run the tests first.");
+    let CommandResult::Instructions { entries } = h.execute(Command::ListInstructions).await.unwrap() else { panic!() };
+    assert_eq!(entries.iter().map(|e| (e.name.as_str(), e.lines, e.folder_exists)).collect::<Vec<_>>(), [("Global", 1, true), ("proj", 1, true)]);
+    assert_eq!(entries[1].scope, repo_scope);
+    let wt = Command::CreateSession {
+        folder: repo.display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "chat".into(),
+        title: None,
+        branch: None,
+        worktree: true,
+        new_branch: None,
+        pr: None,
+        mcp_servers: vec![],
+        task: None,
+    };
+    let CommandResult::SessionCreated { session_id: wt_sid } = h.execute(wt).await.unwrap() else { panic!() };
+    let first = shown(ask(&h, &wt_sid, "show-context", None).await);
+    assert!(
+        first.contains(
+            "Custom chat text.\n\n## Your instructions (global)\n\nAnswer briefly.\n\n## Your instructions (proj)\n\nRun the tests first.\n\n## This Session"
+        ),
+        "{first}"
+    );
+    assert!(first.contains("- Worktree: yes"), "{first}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -1,7 +1,8 @@
-import type { SessionApi } from "@harness/api";
-import { cn, Dialog, DialogContent, DialogTitle, ScrollArea, Tooltip } from "@harness/ui";
-import { Info } from "lucide-react";
+import { contextInstructions, type SessionApi } from "@harness/api";
+import { Button, cn, Dialog, DialogContent, DialogTitle, ScrollArea, Tooltip } from "@harness/ui";
+import { Info, Pencil } from "lucide-react";
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { OpenInstructions } from "../../../lib/OpenInstructions";
 import { OpenSession } from "../../../lib/OpenSession";
 import type { Item } from "../../../state/reducer";
 import { Markdown } from "../../markdown/Markdown";
@@ -110,6 +111,11 @@ function FromSession({
 function HarnessContext({ text }: { text: string }) {
    const [open, setOpen] = useState(false);
    const body = text.replace(/^<harness_context>\n?/, "").replace(/\n?<\/harness_context>$/, "");
+   const openInstructions = useContext(OpenInstructions);
+   const instructions = useMemo(
+      () => (openInstructions ? contextInstructions(text) : []),
+      [openInstructions, text],
+   );
    return (
       <>
          <Tooltip content="Context the Harness sent the Agent with this message">
@@ -133,6 +139,23 @@ function HarnessContext({ text }: { text: string }) {
                >
                   <Markdown className="p-3 text-sm">{body}</Markdown>
                </ScrollArea>
+               {openInstructions && instructions.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                     {instructions.map((i) => (
+                        <Button
+                           key={i.name}
+                           variant="outline"
+                           size="sm"
+                           onClick={() => {
+                              setOpen(false);
+                              openInstructions(i.scope);
+                           }}
+                        >
+                           <Pencil /> Edit {i.name} instructions
+                        </Button>
+                     ))}
+                  </div>
+               )}
             </DialogContent>
          </Dialog>
       </>

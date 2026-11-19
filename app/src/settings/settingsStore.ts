@@ -5,6 +5,7 @@ export const SETTINGS_SECTIONS = [
    "appearance",
    "editor",
    "git",
+   "instructions",
    "overlay",
    "permissions",
    "agents",

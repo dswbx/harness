@@ -227,6 +227,20 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetWorktreeDir" } | 
 /**  `dir`: relative to the repository folder, or absolute (`~` is home). None resets to `.harness`. */
 { type: "SetWorktreeDir"; dir: string | null } | 
+/**
+ *  Custom Instructions scopes: Global, then every repository known from Sessions or saved
+ *  instructions (`Instructions`).
+ */
+{ type: "ListInstructions" } | 
+/**  The saved text of a scope (`InstructionsText`, empty when none). */
+{ type: "GetInstructions"; scope: InstructionsScope } | 
+/**  Saves a scope's text; empty (or only whitespace) deletes it. */
+{ type: "SetInstructions"; scope: InstructionsScope; text: string } | 
+/**
+ *  Moves a repository's instructions to another folder (it was moved); `to` must exist and counts as its main
+ *  checkout when it is a Worktree. Fails when `to` already has some.
+ */
+{ type: "MoveInstructions"; from: string; to: string } | 
 /**  The user's editor for "Open in editor" (None until chosen). */
 { type: "GetEditor" } | { type: "SetEditor"; editor: Editor | null } | 
 /**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
@@ -474,7 +488,7 @@ export type CommandResult = { type: "Ok" } |
  */
 { type: "PanelSource"; content: string; hash: string; path: string; mtime_ms: number } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
-{ type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | 
+{ type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | { type: "Instructions"; entries: InstructionsEntry[] } | { type: "InstructionsText"; text: string } | 
 /**  The file `ExportPlan` wrote (absolute). */
 { type: "PlanFile"; path: string } | 
 /**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
@@ -858,6 +872,23 @@ export type InstallInfo = {
 	/**  The last conformance check (of this version, or of an update that was refused). */
 	check?: ConformanceCheck | null,
 };
+
+/**  One scope in the Custom Instructions list (`ListInstructions`). */
+export type InstructionsEntry = {
+	scope: InstructionsScope,
+	/**  "Global", or the repository's folder name. */
+	name: string,
+	/**  Line count of the saved text; 0 when there is none. */
+	lines: number,
+	/**  False when a repository's folder no longer exists (moved or deleted). Always true for Global. */
+	folder_exists: boolean,
+};
+
+/**
+ *  Whose Custom Instructions: every Session, or the Sessions of one repository. `path` is the
+ *  main checkout's folder (all its Worktrees share it), or the folder of a non-git Session.
+ */
+export type InstructionsScope = { type: "global" } | { type: "repo"; path: string };
 
 /**  A GitHub repository some Sessions work in. `score` adds up each Session's recency (1 now, halving every ~3 weeks). */
 export type KnownRepo = {

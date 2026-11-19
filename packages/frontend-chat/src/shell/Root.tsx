@@ -1,6 +1,8 @@
+import type { InstructionsScope } from "@harness/api";
 import { DiffWindow } from "../features/changes/DiffWindow";
 import { FileRefProvider } from "../features/files/FileRef";
 import { FilesPanel } from "../features/files/FilesPanel";
+import { OpenInstructions } from "../lib/OpenInstructions";
 import { OpenSession } from "../lib/OpenSession";
 import { diffScope, filesWindow, filesWindowFirst } from "./routes";
 import { type ChatProps, ChatView } from "./View";
@@ -11,8 +13,12 @@ import { type ChatProps, ChatView } from "./View";
  */
 export function View({
    onOpenSession,
+   onOpenInstructions,
    ...props
-}: ChatProps & { onOpenSession?: (sessionId: string) => void }) {
+}: ChatProps & {
+   onOpenSession?: (sessionId: string) => void;
+   onOpenInstructions?: (scope: InstructionsScope) => void;
+}) {
    const { api } = props;
    return diffScope ? (
       <DiffWindow api={api} scope={diffScope} />
@@ -22,7 +28,9 @@ export function View({
       </FileRefProvider>
    ) : (
       <OpenSession.Provider value={onOpenSession ?? null}>
-         <ChatView {...props} />
+         <OpenInstructions.Provider value={onOpenInstructions ?? null}>
+            <ChatView {...props} />
+         </OpenInstructions.Provider>
       </OpenSession.Provider>
    );
 }

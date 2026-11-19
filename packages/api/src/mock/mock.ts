@@ -20,6 +20,7 @@ import { seedSessions } from "./fixtures/sessions";
 import { mockShared } from "./fixtures/shared";
 import { mockNotes, mockTasks } from "./fixtures/tasks";
 import { handlers } from "./handlers";
+import { mockInstructions } from "./handlers/instructions";
 import type { MockNote } from "./handlers/note";
 import { withSideMode } from "./sideMode";
 
@@ -75,6 +76,8 @@ export class MockTransport implements Transport {
    worktreeDir = ".harness";
    /** @internal */
    appSettings: Record<string, unknown> = {};
+   /** Custom Instructions by "global" or repository folder. @internal */
+   instructions = mockInstructions();
    /** Shared Artifacts by id (ADR 0024). @internal */
    shared = new Map(mockShared().map((a) => [a.meta.id, a]));
    /** Tasks by id (ADR 0028). @internal */

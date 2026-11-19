@@ -114,6 +114,12 @@ pub enum CommandResult {
     Editor {
         editor: Option<Editor>,
     },
+    Instructions {
+        entries: Vec<InstructionsEntry>,
+    },
+    InstructionsText {
+        text: String,
+    },
     /// The file `ExportPlan` wrote (absolute).
     PlanFile {
         path: String,

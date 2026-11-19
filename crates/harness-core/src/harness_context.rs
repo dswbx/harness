@@ -2,7 +2,8 @@
 //! block before the user's text on the first prompt of each Agent Session, the way agent apps send
 //! their own instruction files. The texts are plain files: `prompts/harness.md` (built in) and the
 //! Frontend's `instructions.md` (in its manifest). `<data dir>/prompts/harness.md` and
-//! `<data dir>/prompts/<frontend id>.md` override them without a rebuild.
+//! `<data dir>/prompts/<frontend id>.md` override them without a rebuild. The user's Custom
+//! Instructions (`instructions.rs`) follow the Frontend's part.
 
 use std::path::Path;
 
@@ -21,6 +22,7 @@ pub fn build(session: &Session, thread: &ThreadId) -> String {
     {
         parts.push(format!("## Frontend: {}\n\n{text}", f.name));
     }
+    parts.extend(instructions(session));
     parts.push(facts(session));
     parts.extend(side_note(session, thread, false));
     format!("<harness_context>\n{}\n</harness_context>", parts.join("\n\n"))
@@ -81,6 +83,22 @@ pub fn origin_note(origin: &crate::api::PromptOrigin) -> String {
         }
     };
     format!("<harness_context>\n{from}\n</harness_context>")
+}
+
+/// The user's Custom Instructions: Global, then the repository's (or folder's).
+fn instructions(session: &Session) -> Vec<String> {
+    use crate::api::InstructionsScope;
+    let store = &session.shared().instructions;
+    let mut parts = vec![];
+    if let Some(text) = store.get(&InstructionsScope::Global) {
+        parts.push(format!("## Your instructions (global)\n\n{text}"));
+    }
+    if let Some(folder) = session.meta().instructions_folder()
+        && let Some(text) = store.get(&InstructionsScope::Repo { path: folder.display().to_string() })
+    {
+        parts.push(format!("## Your instructions ({})\n\n{text}", crate::instructions::folder_name(&folder)));
+    }
+    parts
 }
 
 fn read(dir: &Path, name: &str) -> Option<String> {

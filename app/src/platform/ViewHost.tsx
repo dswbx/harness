@@ -2,6 +2,7 @@ import {
    type AgentSwitch,
    createSessionApi,
    HarnessClient,
+   type InstructionsScope,
    type OverlayFrame,
    type PanelWidth,
    type PromptContext,
@@ -32,6 +33,7 @@ export function ViewHost({
    onOpenShared,
    onOpenSession,
    onOpenTasks,
+   onOpenInstructions,
    onStartFromTask,
    sessions,
 }: {
@@ -53,6 +55,8 @@ export function ViewHost({
    onOpenSession?: (sessionId: string) => void;
    /** Opens the All tasks view, at a task when given (ADR 0028). */
    onOpenTasks?: (taskId?: string) => void;
+   /** Opens Settings at these Custom Instructions. */
+   onOpenInstructions?: (scope: InstructionsScope) => void;
    /** "Start session with this task"; without it, and with `onOpenSession`, ViewHost opens the dialog itself. */
    onStartFromTask?: (taskId: string) => void;
    /** The Sessions the window lists, for live Session titles in the View. */
@@ -84,6 +88,7 @@ export function ViewHost({
             onOpenShared={onOpenShared}
             onOpenSession={onOpenSession}
             onOpenTasks={onOpenTasks}
+            onOpenInstructions={onOpenInstructions}
             onStartFromTask={startFromTask}
             sessions={sessions}
          />

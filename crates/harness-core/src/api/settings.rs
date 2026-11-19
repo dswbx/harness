@@ -53,3 +53,24 @@ pub enum Editor {
     Custom { template: String },
     System,
 }
+
+/// Whose Custom Instructions: every Session, or the Sessions of one repository. `path` is the
+/// main checkout's folder (all its Worktrees share it), or the folder of a non-git Session.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InstructionsScope {
+    Global,
+    Repo { path: String },
+}
+
+/// One scope in the Custom Instructions list (`ListInstructions`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct InstructionsEntry {
+    pub scope: InstructionsScope,
+    /// "Global", or the repository's folder name.
+    pub name: String,
+    /// Line count of the saved text; 0 when there is none.
+    pub lines: u32,
+    /// False when a repository's folder no longer exists (moved or deleted). Always true for Global.
+    pub folder_exists: bool,
+}

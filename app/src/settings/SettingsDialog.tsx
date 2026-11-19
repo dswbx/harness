@@ -1,4 +1,4 @@
-import type { HarnessClient } from "@harness/api";
+import type { HarnessClient, InstructionsScope } from "@harness/api";
 import {
    cn,
    Dialog,
@@ -9,7 +9,18 @@ import {
    ScrollArea,
    useMovableResizable,
 } from "@harness/ui";
-import { Bot, Code, GitBranch, Info, LayoutGrid, Palette, Plug, Shield, Zap } from "lucide-react";
+import {
+   Bot,
+   Code,
+   GitBranch,
+   Info,
+   LayoutGrid,
+   NotebookPen,
+   Palette,
+   Plug,
+   Shield,
+   Zap,
+} from "lucide-react";
 import { useRef } from "react";
 import { AppearancePanel } from "../appearance/AppearancePanel";
 import { gallery } from "../platform/frontends";
@@ -17,6 +28,7 @@ import { AboutPanel } from "./AboutPanel";
 import { AgentsPanel } from "./AgentsPanel";
 import { EditorPanel } from "./EditorPanel";
 import { GitPanel } from "./GitPanel";
+import { InstructionsPanel } from "./InstructionsPanel";
 import { McpPanel } from "./McpPanel";
 import { OverlayPanel } from "./OverlayPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
@@ -36,6 +48,7 @@ const NAV: { id: SettingsSection; label: string; icon: typeof Shield }[] = [
    { id: "appearance", label: "Appearance", icon: Palette },
    { id: "editor", label: "Editor", icon: Code },
    { id: "git", label: "Git", icon: GitBranch },
+   { id: "instructions", label: "Instructions", icon: NotebookPen },
    { id: "overlay", label: "Quick overlay", icon: Zap },
    { id: "permissions", label: "Permissions", icon: Shield },
    { id: "agents", label: "Agents", icon: Bot },
@@ -51,6 +64,7 @@ export function SettingsDialog({
    onOpenChange,
    section: wanted,
    onSectionChange,
+   instructionsScope,
    sessionId,
    busy,
    agentsVersion,
@@ -62,6 +76,8 @@ export function SettingsDialog({
    onOpenChange: (o: boolean) => void;
    section: SettingsSection;
    onSectionChange: (s: SettingsSection) => void;
+   /** Instructions: the scope to show first (else Global). */
+   instructionsScope?: InstructionsScope | null;
    /** Currently selected Session, if any (enables the "this session" rule scope). */
    sessionId: string | null;
    /** An Agent is working: restarting to update is blocked. */
@@ -106,8 +122,8 @@ export function SettingsDialog({
                >
                   <DialogTitle className="w-44 shrink-0 text-base">Settings</DialogTitle>
                   <DialogDescription className="sr-only">
-                     Appearance, Editor, Git, Quick overlay, Permission rules, Agents, MCP servers,
-                     UI components and About.
+                     Appearance, Editor, Git, Instructions, Quick overlay, Permission rules, Agents,
+                     MCP servers, UI components and About.
                   </DialogDescription>
                </div>
                <div className="flex min-h-0 flex-1">
@@ -136,31 +152,37 @@ export function SettingsDialog({
                         Changes save right away.
                      </p>
                   </nav>
-                  <ScrollArea className="min-h-0 min-w-0 flex-1">
-                     <div className="p-6">
-                        {section === "appearance" && <AppearancePanel client={client} />}
-                        {section === "editor" && <EditorPanel client={client} />}
-                        {section === "git" && <GitPanel client={client} />}
-                        {section === "overlay" && <OverlayPanel />}
-                        {section === "permissions" && (
-                           <PermissionsPanel
-                              client={client}
-                              sessionId={sessionId}
-                              agentsVersion={agentsVersion}
-                           />
-                        )}
-                        {section === "agents" && (
-                           <AgentsPanel
-                              client={client}
-                              version={agentsVersion}
-                              onChanged={onAgentsChanged}
-                           />
-                        )}
-                        {section === "mcp" && <McpPanel client={client} onChanged={onMcpChanged} />}
-                        {section === "components" && Gallery && <Gallery />}
-                        {section === "about" && <AboutPanel busy={busy} />}
-                     </div>
-                  </ScrollArea>
+                  {section === "instructions" ? (
+                     <InstructionsPanel client={client} scope={instructionsScope ?? null} />
+                  ) : (
+                     <ScrollArea className="min-h-0 min-w-0 flex-1">
+                        <div className="p-6">
+                           {section === "appearance" && <AppearancePanel client={client} />}
+                           {section === "editor" && <EditorPanel client={client} />}
+                           {section === "git" && <GitPanel client={client} />}
+                           {section === "overlay" && <OverlayPanel />}
+                           {section === "permissions" && (
+                              <PermissionsPanel
+                                 client={client}
+                                 sessionId={sessionId}
+                                 agentsVersion={agentsVersion}
+                              />
+                           )}
+                           {section === "agents" && (
+                              <AgentsPanel
+                                 client={client}
+                                 version={agentsVersion}
+                                 onChanged={onAgentsChanged}
+                              />
+                           )}
+                           {section === "mcp" && (
+                              <McpPanel client={client} onChanged={onMcpChanged} />
+                           )}
+                           {section === "components" && Gallery && <Gallery />}
+                           {section === "about" && <AboutPanel busy={busy} />}
+                        </div>
+                     </ScrollArea>
+                  )}
                </div>
             </div>
          </DialogContent>

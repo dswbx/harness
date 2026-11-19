@@ -18,6 +18,7 @@ mod github;
 mod harness_context;
 pub mod host;
 mod http;
+mod instructions;
 pub mod library;
 pub mod log;
 pub mod mcp;

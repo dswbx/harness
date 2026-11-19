@@ -1,4 +1,4 @@
-import type { HarnessClient, SessionSummary, Transport } from "@harness/api";
+import type { HarnessClient, InstructionsScope, SessionSummary, Transport } from "@harness/api";
 import {
    HarnessClient as Client,
    errText,
@@ -118,6 +118,8 @@ export function Shell({ transport }: { transport: Transport }) {
    /** Folder the Composer opens with (the + on a sidebar folder group); null: its own default. */
    const [composerFolder, setComposerFolder] = useState<string | null>(null);
    const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+   // Settings > Instructions opened from a Session's Harness context: that scope first.
+   const [instructionsScope, setInstructionsScope] = useState<InstructionsScope | null>(null);
    // The next open lands on the last section shown, also after a restart.
    useEffect(() => {
       if (settingsSection) sectionStore.set(settingsSection);
@@ -395,6 +397,10 @@ export function Shell({ transport }: { transport: Transport }) {
                         onOpenShared={openShared}
                         onOpenSession={setSelected}
                         onOpenTasks={TasksView ? openTasks : undefined}
+                        onOpenInstructions={(scope) => {
+                           setInstructionsScope(scope);
+                           setSettingsSection("instructions");
+                        }}
                         onStartFromTask={fromTask.start}
                         sessions={sessions}
                      />
@@ -439,9 +445,14 @@ export function Shell({ transport }: { transport: Transport }) {
          <SettingsDialog
             client={client}
             open={settingsSection !== null}
-            onOpenChange={(o) => !o && setSettingsSection(null)}
+            onOpenChange={(o) => {
+               if (o) return;
+               setSettingsSection(null);
+               setInstructionsScope(null);
+            }}
             section={settingsSection ?? "appearance"}
             onSectionChange={setSettingsSection}
+            instructionsScope={instructionsScope}
             sessionId={selected}
             busy={busy}
             agentsVersion={agentsVersion}
