@@ -11,6 +11,7 @@ import { FolderGit2, Globe } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { markdownEditor } from "../platform/frontends";
 import { useReportError } from "../platform/toast";
+import { repoHints } from "./repoHints";
 
 /** How long typing must pause before the text saves. */
 const SAVE_DELAY_MS = 600;
@@ -104,6 +105,7 @@ export function InstructionsPanel({
 
    if (!entries) return null;
    const repos = entries.filter((e) => e.scope.type === "repo");
+   const hints = repoHints(repos);
    return (
       <div className="flex min-h-0 flex-1">
          <ScrollArea className="w-60 shrink-0 border-r">
@@ -131,6 +133,7 @@ export function InstructionsPanel({
                   <ScopeButton
                      key={keyOf(e.scope)}
                      entry={e}
+                     hint={e.scope.type === "repo" ? hints.get(e.scope.path) : undefined}
                      active={!!entry && keyOf(entry.scope) === keyOf(e.scope)}
                      onClick={() => void open(e.scope)}
                   />
@@ -153,10 +156,13 @@ export function InstructionsPanel({
 
 function ScopeButton({
    entry,
+   hint,
    active,
    onClick,
 }: {
    entry: InstructionsEntry;
+   /** The parent folder, when another repository has the same name. */
+   hint?: string;
    active: boolean;
    onClick: () => void;
 }) {
@@ -180,6 +186,7 @@ function ScopeButton({
          <Icon className="size-4 shrink-0 text-muted-foreground" />
          <span className={cn("min-w-0 flex-1 truncate", active && "font-medium")}>
             {entry.name}
+            {hint && <span className="ml-1.5 font-normal text-muted-foreground">{hint}</span>}
          </span>
          <span
             className={cn(
@@ -299,11 +306,11 @@ function ScopeEditor({
                />
             )}
             <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-               <span className={cn(state === "error" && "text-destructive")}>
+               <span>Applies to new Sessions and Threads.</span>
+               {/* Right side: the changing status does not move the other text. */}
+               <span className={cn("ml-auto", state === "error" && "text-destructive")}>
                   {state === "saving" ? "Saving…" : state === "error" ? "Not saved" : "Saved"}
                </span>
-               <span>·</span>
-               <span>Applies to new Sessions and Threads.</span>
             </div>
          </div>
       </ScrollArea>

@@ -630,6 +630,35 @@ async fn harness_context_starts_each_agent_session() {
     assert!(first.contains("- Worktree: yes"), "{first}");
     assert!(first.contains(&format!("- Instructions folder: {root}\n")), "{first}");
 
+    // A Worktree cut from that Worktree keeps the main checkout's, also once the first is gone.
+    let list = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
+    let wt_dir = String::from_utf8(list.stdout)
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .map(std::path::PathBuf::from)
+        .find(|p| p.canonicalize().unwrap().display().to_string() != root)
+        .unwrap();
+    // Outside the first one, as `~/.harness/worktrees` is, so removing it keeps this one.
+    let outside = dir.path().join("wts");
+    h.execute(Command::SetWorktreeDir { dir: Some(outside.display().to_string()) }).await.unwrap();
+    let nested = Command::CreateSession {
+        folder: wt_dir.display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "chat".into(),
+        title: None,
+        branch: None,
+        worktree: true,
+        new_branch: None,
+        pr: None,
+        mcp_servers: vec![],
+        task: None,
+    };
+    let CommandResult::SessionCreated { session_id: nested_sid } = h.execute(nested).await.unwrap() else { panic!() };
+    git(&repo, &["worktree", "remove", "--force", wt_dir.to_str().unwrap()]);
+    let ctx = shown(ask(&h, &nested_sid, "show-context", None).await);
+    assert!(ctx.contains(&format!("- Instructions folder: {root}\n")), "{ctx}");
+
     // A linked worktree the user made: the Repository line is its own folder, the key line names
     // the main checkout (the UI's "Edit … instructions" link reads it).
     let linked = dir.path().join("proj-side");
@@ -640,6 +669,17 @@ async fn harness_context_starts_each_agent_session() {
     assert!(ctx.contains(&format!("- Repository: {linked_root}\n")), "{ctx}");
     assert!(ctx.contains("## Your instructions (proj)\n\nRun the tests first."), "{ctx}");
     assert!(ctx.contains(&format!("- Instructions folder: {root}\n")), "{ctx}");
+
+    // A Quick Session's folder is scratch space, also for a Session its Agent starts there
+    // (a Sub Session is not Quick itself): no repository instructions, no list entry.
+    let quick = Command::CreateQuickSession { agent_id: "fake".into(), frontend_id: "chat".into(), title: None, mcp_servers: vec![] };
+    let CommandResult::SessionCreated { session_id: quick_sid } = h.execute(quick).await.unwrap() else { panic!() };
+    let quick_folder = data.join("quick").join(&quick_sid).canonicalize().unwrap().display().to_string();
+    let sub_sid = create(&h, Path::new(&quick_folder), vec![]).await;
+    let ctx = shown(ask(&h, &sub_sid, "show-context", None).await);
+    assert!(ctx.contains("## Your instructions for all Sessions") && !ctx.contains("- Instructions folder:"), "{ctx}");
+    let CommandResult::Instructions { entries } = h.execute(Command::ListInstructions).await.unwrap() else { panic!() };
+    assert!(!entries.iter().any(|e| e.scope == InstructionsScope::Repo { path: quick_folder.clone() }), "{entries:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

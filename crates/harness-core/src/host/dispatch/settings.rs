@@ -36,7 +36,7 @@ impl Harness {
     }
 
     pub(in crate::host) fn cmd_list_instructions(&self) -> anyhow::Result<CommandResult> {
-        let known: Vec<_> = self.sessions.read().values().filter_map(|s| s.meta().instructions_folder()).collect();
+        let known: Vec<_> = self.sessions.read().values().filter_map(|s| self.shared.instructions.folder_of(&s.meta())).collect();
         Ok(CommandResult::Instructions { entries: self.shared.instructions.list(known) })
     }
 

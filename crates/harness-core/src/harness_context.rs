@@ -96,7 +96,7 @@ fn instructions(session: &Session) -> (Vec<String>, Option<std::path::PathBuf>) 
         parts.push(format!("## Your instructions for all Sessions\n\n{text}"));
     }
     let mut sent = None;
-    if let Some(folder) = session.meta().instructions_folder()
+    if let Some(folder) = store.folder_of(&session.meta())
         && let Some(text) = store.get(&InstructionsScope::Repo { path: folder.display().to_string() })
     {
         parts.push(format!("## Your instructions ({})\n\n{text}", crate::instructions::folder_name(&folder)));
