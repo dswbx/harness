@@ -74,4 +74,21 @@ describe("Session note", () => {
       await waitFor(() => expect(editor.textContent).toBe("Elsewhere again"));
       expect(screen.queryByText("Changed elsewhere")).toBeNull();
    });
+
+   it("removes a note image", async () => {
+      const { mock, api } = await setup();
+      const png =
+         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+      await act(async () => {
+         await api.addNoteImages([
+            { type: "data", name: "shot.png", mime: "image/png", data: png },
+         ]);
+      });
+      const remove = await waitFor(() => screen.getByRole("button", { name: "Remove shot.png" }));
+      await act(async () => fireEvent.click(remove));
+      await waitFor(() =>
+         expect(screen.queryByRole("button", { name: "Remove shot.png" })).toBeNull(),
+      );
+      expect(mock.notes.get("mock-1")?.images).toEqual([]);
+   });
 });

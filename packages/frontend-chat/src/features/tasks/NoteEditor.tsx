@@ -97,8 +97,12 @@ export function NoteEditor({ api }: { api: SessionApi }) {
             name: noteImageName(path),
             image: true,
             read: () => api.readAttachment(path),
+            remove: () => {
+               setError(null);
+               api.removeNoteImage(path).then(setNote, (e) => setError(errText(e)));
+            },
          })),
-      [note?.images, api],
+      [note?.images, api, setNote],
    );
 
    const status = md.status;
