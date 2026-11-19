@@ -35,7 +35,7 @@ Users keep work items (things to do, bugs, ideas) in many places. They want them
 - The Agent reads the Session Note (`harness_info` gives `note_path`). It does not write it.
 - The tool descriptions and `prompts/harness.md` (ADR 0014) say that tasks are the user's work items and that the Agent keeps its own steps in its todo or plan tool.
 
-**Start Session from a task** (ADR 0014). `CreateSession` takes an optional `task` with the parts of context to include and an optional status to set. The core links the Session to the task, sets the status, stores `task_id` in the Session meta, and builds the context text into the first-prompt seed. The Harness Context names the task so the Agent can update its status.
+**Start Session from a task** (ADR 0014). `CreateSession` takes an optional `task` with the parts of context to include and an optional status to set. The core links the Session to the task (that link is the one record of "started from"), sets the status, and builds the context text into the first-prompt seed. The Harness Context names the task so the Agent can update its status.
 
 **Concurrency: last write wins**, except the task body and the note. They carry `base_updated_ms` or `base_hash`, and a write fails with a conflict when the value changed. Deleting a task writes the children first and the deleted task last, so a retry after a crash finishes the job.
 

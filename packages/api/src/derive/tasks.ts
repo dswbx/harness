@@ -2,15 +2,18 @@ import type { TaskPriority, TaskStatus, TaskSummary } from "../generated";
 
 // Pure helpers over the Task list (ADR 0028), shared by the sidebar and Frontends (ADR 0012).
 
-const STATUSES = new Set<unknown>([
-   "backlog",
-   "todo",
-   "in_progress",
-   "in_review",
-   "done",
-   "blocked",
-   "cancelled",
-] satisfies TaskStatus[]);
+/** Each status as the user reads it, in menu order. */
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+   backlog: "Backlog",
+   todo: "Todo",
+   in_progress: "In progress",
+   in_review: "In review",
+   blocked: "Blocked",
+   done: "Done",
+   cancelled: "Cancelled",
+};
+
+const STATUSES = new Set<unknown>(Object.keys(TASK_STATUS_LABEL));
 const PRIORITIES = new Set<unknown>([
    "none",
    "low",
@@ -74,6 +77,24 @@ export function upstreamId(url: string): string | null {
    );
    if (github?.[1]) return `#${github[1]}`;
    return null;
+}
+
+/**
+ * An upstream link as the core takes it: `http://` or `https://`, with `https://` added when no
+ * scheme is given (`linear.app/x` -> `https://linear.app/x`). Null for another scheme
+ * (`javascript:`, `file:`), an empty host or spaces.
+ */
+export function webLink(input: string): string | null {
+   const url = input.trim();
+   if (!url) return null;
+   const m = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+   // `localhost:3000/x` has no scheme: a number after the colon is a port.
+   const scheme = m && !/^\d/.test(url.slice(m[0].length)) ? m[1]?.toLowerCase() : null;
+   const full = scheme ? url : `https://${url}`;
+   if (scheme && scheme !== "http" && scheme !== "https") return null;
+   const rest = full.replace(/^https?:\/\//i, "");
+   if (rest === full || !rest.replace(/^\/+/, "") || /\s/.test(rest)) return null;
+   return full;
 }
 
 /** A local date as `YYYY-MM-DD`, the format of `due`. */

@@ -205,7 +205,7 @@ pub(super) fn primitives() -> Vec<Primitive> {
             "List the user's Tasks (their work items, kept across Sessions; not your todo list), most recently changed first, at most 50. `scope`: session (default: created in this Session or that it was started from) or all. `status`: open (not done or cancelled) or one status. `query`: text in the title.",
             json!({ "type": "object", "properties": {
                 "scope": { "type": "string", "enum": ["session", "all"] },
-                "status": { "type": "string", "enum": ["open", "backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"] },
+                "status": { "type": "string", "enum": std::iter::once("open").chain(task_tools::STATUSES).collect::<Vec<_>>() },
                 "query": { "type": "string" }
             } }),
             "read",

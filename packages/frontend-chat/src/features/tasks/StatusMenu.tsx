@@ -1,4 +1,4 @@
-import type { TaskStatus } from "@harness/api";
+import { TASK_STATUS_LABEL, type TaskStatus } from "@harness/api";
 import {
    cn,
    DropdownMenu,
@@ -21,15 +21,7 @@ export const STATUSES: TaskStatus[] = [
    "cancelled",
 ];
 
-export const STATUS_LABEL: Record<TaskStatus, string> = {
-   backlog: "Backlog",
-   todo: "Todo",
-   in_progress: "In progress",
-   in_review: "In review",
-   blocked: "Blocked",
-   done: "Done",
-   cancelled: "Cancelled",
-};
+export const STATUS_LABEL = TASK_STATUS_LABEL;
 
 const STATUS_COLOR: Record<TaskStatus, string> = {
    backlog: "text-muted-foreground",

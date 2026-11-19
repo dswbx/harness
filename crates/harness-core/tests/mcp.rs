@@ -1368,6 +1368,88 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     assert_eq!(info["tasks"].as_array().unwrap().len(), 2);
     assert_eq!(info["tasks"][0]["session"], "created_here");
     assert!(info["note_path"].as_str().unwrap().ends_with(&format!("{a}/note.md")), "{info}");
+
+    // A Session started from t1: the link decides, for harness_info, task_list and task_update.
+    let start = harness_core::api::TaskStart { id: "t1".into(), include: Default::default(), set_status: None };
+    let cmd = Command::CreateSession {
+        folder: dir.path().display().to_string(),
+        agent_id: "fake".into(),
+        frontend_id: "chat".into(),
+        title: None,
+        branch: None,
+        worktree: false,
+        new_branch: None,
+        pr: None,
+        mcp_servers: vec![],
+        task: Some(start),
+    };
+    let Ok(CommandResult::SessionCreated { session_id: c }) = h.execute(cmd).await else { panic!() };
+    let info = mcp_json(&h, &c, "harness_info {}").await;
+    assert_eq!(info["tasks"], serde_json::json!([{ "id": "t1", "title": "Cache target", "status": "todo", "priority": "high", "session": "started_from" }]));
+    assert_eq!(mcp_json(&h, &c, "task_list {}").await["tasks"][0]["session"], "started_from");
+    mcp_json(&h, &c, r#"task_update {"id":"t1","status":"in_review"}"#).await;
+    assert_eq!(read("t1").status, TaskStatus::InReview);
+}
+
+/// The ids of each `TasksChanged`, with (id, parent) of each summary.
+type TaskEvents = Arc<Mutex<Vec<(Vec<String>, Vec<(String, Option<String>)>)>>>;
+
+fn task_events(h: &Harness) -> TaskEvents {
+    let seen: TaskEvents = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.subscribe_app(Box::new(move |e: &AppEvent| {
+        if let AppEvent::TasksChanged { ids, tasks } = e {
+            s.lock().unwrap().push((ids.clone(), tasks.iter().map(|t| (t.id.clone(), t.parent_id.clone())).collect()));
+        }
+        true
+    }));
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_add_stopped_by_a_write_error_tells_the_windows_about_the_tasks_it_created() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let a = create(&h, dir.path(), vec![]).await;
+    let seen = task_events(&h);
+    // A file where the second Task's folder goes: its write fails.
+    std::fs::write(data.join("tasks").join("t2"), "").unwrap();
+    let reply = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"one"},{"title":"two"},{"title":"three"}]}"#, None).await;
+    assert!(reply.contains("mcp error:") && reply.contains("created t1 before this error") && reply.contains("task 2"), "{reply}");
+    assert!(h.execute(Command::ReadTask { id: "t1".into() }).await.is_ok());
+    assert_eq!(*seen.lock().unwrap(), [(vec!["t1".to_owned()], vec![("t1".to_owned(), None)])]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_delete_still_tells_the_windows_about_the_moved_children() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let h = shared_harness(&data);
+    let new_task = |title: &str, parent: Option<&str>| Command::CreateTask {
+        title: title.into(),
+        body: None,
+        parent_id: parent.map(Into::into),
+        session_id: None,
+        status: None,
+        priority: None,
+        due: None,
+        upstream: None,
+    };
+    let CommandResult::Task { task: top } = h.execute(new_task("top", None)).await.unwrap() else { panic!() };
+    let CommandResult::Task { task: child } = h.execute(new_task("child", Some(&top.id))).await.unwrap() else { panic!() };
+    let seen = task_events(&h);
+    // The child's folder stays writable; removing the Task's own folder fails.
+    let tasks_dir = data.join("tasks");
+    std::fs::set_permissions(&tasks_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let deleted = h.execute(Command::DeleteTask { id: top.id.clone() }).await;
+    std::fs::set_permissions(&tasks_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(deleted.is_err());
+    let events = seen.lock().unwrap().clone();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, [top.id.clone(), child.id.clone()]);
+    assert!(events[0].1.contains(&(child.id.clone(), None)), "the child moved to the top level: {events:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1391,6 +1473,12 @@ async fn the_session_note_sends_note_changed_and_goes_with_its_session() {
     let session_dir = data.join("sessions").join(&a);
     assert!(session_dir.join("note.md").is_file());
     assert_eq!(*seen.lock().unwrap(), std::slice::from_ref(&a));
+    let png = harness_core::api::AttachmentInput::Data { name: "a.png".into(), mime: "image/png".into(), data: "eA==".into() };
+    let CommandResult::Note { note } = h.execute(Command::AddNoteImages { session_id: a.clone(), files: vec![png] }).await.unwrap() else { panic!() };
+    let remove = Command::RemoveNoteImage { session_id: a.clone(), path: note.images[0].clone() };
+    let CommandResult::Note { note } = h.execute(remove).await.unwrap() else { panic!() };
+    assert!(note.images.is_empty());
+    assert_eq!(seen.lock().unwrap().len(), 3, "written, image added, image removed");
     h.execute(Command::DeleteSession { session_id: a.clone(), force: true }).await.unwrap();
     assert!(!session_dir.join("note.md").exists(), "the note is deleted with its Session");
     assert!(h.execute(Command::ReadNote { session_id: a.clone() }).await.is_err());

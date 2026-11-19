@@ -90,7 +90,6 @@ impl Session {
             title_explicit: false,
             parent: None,
             initial_config: Default::default(),
-            task_id: None,
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
@@ -319,7 +318,6 @@ impl Session {
             },
             parent: m.parent.clone(),
             log_error: self.log.degraded(),
-            task_id: m.task_id.clone(),
         }
     }
 

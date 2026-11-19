@@ -171,11 +171,16 @@ pub(crate) fn is_image(mime: &str) -> bool {
 
 /// `<uuid v7>-<name>`, with the name reduced to safe characters.
 pub(crate) fn stored_name(name: &str) -> String {
+    format!("{}-{}", uuid::Uuid::now_v7(), safe_name(name))
+}
+
+/// A file name reduced to safe characters (no leading dot), its last 80 at most; `attachment` when
+/// none is left.
+pub(crate) fn safe_name(name: &str) -> String {
     let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
     let safe = safe.trim_start_matches('.');
-    let safe = if safe.is_empty() { "attachment" } else { safe };
     let skip = safe.len().saturating_sub(80);
-    format!("{}-{}", uuid::Uuid::now_v7(), &safe[skip..])
+    if safe.is_empty() { "attachment".to_owned() } else { safe[skip..].to_owned() }
 }
 
 fn file_uri(path: &Path) -> String {

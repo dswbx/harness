@@ -8,6 +8,7 @@ import {
    openCount,
    topicProgress,
    upstreamId,
+   webLink,
 } from "./tasks";
 
 const t = (
@@ -79,5 +80,23 @@ describe("upstreamId", () => {
       ["not a url", null],
    ])("%s", (url, id) => {
       expect(upstreamId(url)).toBe(id);
+   });
+});
+
+describe("webLink", () => {
+   it.each([
+      ["https://linear.app/x/issue/ABC-1", "https://linear.app/x/issue/ABC-1"],
+      [" HTTP://localhost:3000/a ", "HTTP://localhost:3000/a"],
+      ["linear.app/x/issue/ABC-1", "https://linear.app/x/issue/ABC-1"],
+      ["localhost:3000/a", "https://localhost:3000/a"],
+      ["javascript:alert(1)", null],
+      ["file:///etc/passwd", null],
+      ["ftp://x", null],
+      ["https://", null],
+      ["https:// a", null],
+      ["two words", null],
+      ["  ", null],
+   ])("%s", (input, out) => {
+      expect(webLink(input)).toBe(out);
    });
 });

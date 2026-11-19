@@ -12,17 +12,15 @@ impl Harness {
         self.shared.tasks.get(&start.id).map(drop)
     }
 
-    /// After `create_session`: the link, the status, `SessionMeta::task_id` and the seed.
+    /// After `create_session`: the link (the one record of "started from"), the status and the seed.
     pub(in crate::host) fn start_from_task(&self, session: &Session, start: TaskStart) -> anyhow::Result<()> {
         let meta = session.meta();
         let task = self.shared.tasks.link_session(&start.id, &meta.id, &meta.title, start.set_status, &Actor::user())?;
-        let seed = self.task_seed(&task, start.include);
-        session.update_meta(|m| {
-            m.task_id = Some(task.id.clone());
-            if let Some(seed) = seed {
+        if let Some(seed) = self.task_seed(&task, start.include) {
+            session.update_meta(|m| {
                 m.seeds.insert(m.main_thread_id.clone(), seed);
-            }
-        })?;
+            })?;
+        }
         Ok(())
     }
 

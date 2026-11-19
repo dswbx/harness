@@ -15,7 +15,7 @@ use crate::tasks::{Actor, NewTask};
 /// Most rows `task_list` and `harness_info` return.
 const MAX_ROWS: usize = 50;
 
-/// The status values, for the schemas.
+/// The status and priority values (`TaskStatus`, `TaskPriority` as JSON), for the schemas.
 pub(super) const STATUSES: [&str; 7] = ["backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"];
 pub(super) const PRIORITIES: [&str; 5] = ["none", "low", "medium", "high", "urgent"];
 
@@ -75,30 +75,11 @@ fn row(session_id: &str, t: &TaskSummary) -> Value {
     Value::Object(m)
 }
 
-/// This Session's Tasks for `harness_info`: created here or the one it started from
-/// (`SessionMeta::task_id`), oldest first.
+/// This Session's Tasks for `harness_info`: created here or linked to it (started from), oldest
+/// first.
 pub(super) fn session_tasks(session: &Session) -> Vec<Value> {
     let id = session.id();
-    let started = session.meta().task_id;
-    session
-        .shared()
-        .tasks
-        .list()
-        .iter()
-        .filter_map(|t| {
-            let rel = if t.origin_session_id.as_deref() == Some(id.as_str()) {
-                "created_here"
-            } else if started.as_deref() == Some(t.id.as_str()) {
-                "started_from"
-            } else {
-                return None;
-            };
-            let mut r = row(&id, t);
-            r["session"] = json!(rel);
-            Some(r)
-        })
-        .take(MAX_ROWS)
-        .collect()
+    session.shared().tasks.list().iter().filter(|t| relation_of(&id, t).is_some()).map(|t| row(&id, t)).take(MAX_ROWS).collect()
 }
 
 /// Refuses a Task the Agent may not change: one not created in this Session and not linked to it.
@@ -150,8 +131,18 @@ pub(super) async fn run_task_add(session: &Arc<Session>, _: &ThreadId, args: &Va
             origin: Some(origin.clone()),
         })
         .collect();
-    let tasks = session.shared().tasks.create_all(new, &actor(session))?;
-    changed(session, tasks.iter().map(|t| t.id.clone()).collect());
+    let (tasks, done) = session.shared().tasks.create_all(new, &actor(session));
+    // Tell the windows also when a write error stopped the batch after some were created.
+    if !tasks.is_empty() {
+        changed(session, tasks.iter().map(|t| t.id.clone()).collect());
+    }
+    if let Err(e) = done {
+        if tasks.is_empty() {
+            return Err(e);
+        }
+        let ids: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
+        return Err(e.context(format!("created {} before this error; the rest were not created", ids.join(", "))));
+    }
     answer(&tasks)
 }
 
@@ -277,4 +268,22 @@ pub(super) async fn run_task_get(session: &Arc<Session>, _: &ThreadId, args: &Va
         "created_ms": t.created_ms, "updated_ms": t.updated_ms,
     });
     Ok(serde_json::to_string_pretty(&out)?)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
+    use super::*;
+
+    #[test]
+    fn the_schema_values_are_the_enums() {
+        for s in STATUSES {
+            let parsed: TaskStatus = serde_json::from_value(json!(s)).unwrap();
+            assert_eq!(json!(parsed), json!(s));
+        }
+        for p in PRIORITIES {
+            let parsed: TaskPriority = serde_json::from_value(json!(p)).unwrap();
+            assert_eq!(json!(parsed), json!(p));
+        }
+    }
 }

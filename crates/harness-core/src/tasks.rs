@@ -104,6 +104,12 @@ impl Tasks {
         });
     }
 
+    /// The Tasks linked to `session` (it was started from them), oldest first. The link in
+    /// `Task::sessions` is the one record of "started from".
+    pub fn started_from(&self, session: &str) -> Vec<TaskSummary> {
+        self.list().into_iter().filter(|t| t.sessions.iter().any(|l| l.session_id == session)).collect()
+    }
+
     /// The ids of a Task's direct children.
     pub fn children_ids(&self, id: &str) -> Vec<String> {
         self.index.read().values().filter(|t| t.parent_id.as_deref() == Some(id)).map(|t| t.id.clone()).collect()
@@ -114,10 +120,10 @@ impl Tasks {
         Ok(self.folder(id)?.join(FILES))
     }
 
-    /// Creates each Task in order. Checks them all first, so a bad one creates none (a write error
-    /// can still stop the batch half way).
-    pub fn create_all(&self, new: Vec<NewTask>, actor: &Actor) -> anyhow::Result<Vec<Task>> {
-        for (i, n) in new.iter().enumerate() {
+    /// Creates each Task in order. Checks them all first, so a bad one creates none. A write error
+    /// can still stop the batch half way: returns the Tasks created, and the error that stopped it.
+    pub fn create_all(&self, new: Vec<NewTask>, actor: &Actor) -> (Vec<Task>, anyhow::Result<()>) {
+        let checked = new.iter().enumerate().try_for_each(|(i, n)| {
             let at = |e: anyhow::Error| crate::error::invalid(format!("task {}: {e:#}", i + 1));
             clean_title(&n.title).map_err(at)?;
             n.due.as_deref().map(check_due).transpose().map_err(at)?;
@@ -125,8 +131,19 @@ impl Tasks {
             if let Some(p) = &n.parent_id {
                 self.get(p).map_err(at)?;
             }
+            Ok(())
+        });
+        let mut created = Vec::new();
+        if let Err(e) = checked {
+            return (created, Err(e));
         }
-        new.into_iter().map(|n| self.create(n, actor)).collect()
+        for (i, n) in new.into_iter().enumerate() {
+            match self.create(n, actor) {
+                Ok(t) => created.push(t),
+                Err(e) => return (created, Err(e.context(format!("task {}", i + 1)))),
+            }
+        }
+        (created, Ok(()))
     }
 
     pub fn create(&self, new: NewTask, actor: &Actor) -> anyhow::Result<Task> {
@@ -296,7 +313,7 @@ impl Tasks {
         let dir = self.folder(id)?.join(FILES);
         std::fs::create_dir_all(&dir)?;
         for (name, mime, bytes) in loaded {
-            let name = free_name(&task.assets, &safe_name(&name));
+            let name = free_name(&task.assets, &crate::attachments::safe_name(&name));
             crate::fsutil::write_atomic(&dir.join(&name), &bytes)?;
             task.assets.push(TaskAsset { name, mime, size: bytes.len() as u64 });
         }
@@ -445,21 +462,18 @@ fn check_due(due: &str) -> anyhow::Result<String> {
     Ok(due.to_owned())
 }
 
+/// A web link (`http://` or `https://`) with an optional label.
 fn check_upstream(u: TaskUpstream) -> anyhow::Result<TaskUpstream> {
     let url = u.url.trim();
     if url.is_empty() {
         return Err(crate::error::invalid("an upstream link needs a url"));
     }
+    let rest = ["https://", "http://"].iter().find_map(|s| url.get(..s.len()).filter(|p| p.eq_ignore_ascii_case(s)).map(|_| &url[s.len()..]));
+    if rest.is_none_or(|r| r.trim_start_matches('/').is_empty() || r.contains(char::is_whitespace)) {
+        return Err(crate::error::invalid(format!("the upstream url {url:?} is not a web link: it must start with https:// or http://")));
+    }
     let label = u.label.map(|l| l.trim().to_owned()).filter(|l| !l.is_empty());
     Ok(TaskUpstream { url: url.to_owned(), label })
-}
-
-/// A file name reduced to safe characters, at most 100 of them.
-fn safe_name(name: &str) -> String {
-    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
-    let safe = safe.trim_start_matches('.');
-    let skip = safe.len().saturating_sub(100);
-    if safe.is_empty() { "file".to_owned() } else { safe[skip..].to_owned() }
 }
 
 /// `name`, or `name-2.ext`, `name-3.ext`, ... when an asset already has it.
@@ -590,6 +604,20 @@ mod tests {
     }
 
     #[test]
+    fn create_all_returns_the_tasks_written_before_a_write_error() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let new = |t: &str| NewTask { title: t.into(), ..Default::default() };
+        let (none, err) = s.create_all(vec![new("a"), new(" ")], &Actor::user());
+        assert!(none.is_empty() && err.unwrap_err().to_string().contains("task 2"), "a bad one creates none");
+        // A file where t2's folder goes.
+        std::fs::write(d.path().join(DIR).join("t2"), "").unwrap();
+        let (made, err) = s.create_all(vec![new("a"), new("b"), new("c")], &Actor::user());
+        assert_eq!(made.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t1"]);
+        assert!(format!("{:#}", err.unwrap_err()).starts_with("task 2: "));
+    }
+
+    #[test]
     fn order_appends_and_moves_take_the_midpoint() {
         let d = tempfile::tempdir().unwrap();
         let s = store(&d);
@@ -652,6 +680,19 @@ mod tests {
         assert_eq!(same.activity.len(), u.activity.len(), "no change, no entry");
         let cleared = s.update(&t.id, TaskPatch { clear: vec![TaskField::Upstream], ..Default::default() }, None, &Actor::user()).unwrap();
         assert_eq!(cleared.upstream, None);
+    }
+
+    #[test]
+    fn upstream_urls_must_be_web_links() {
+        let check = |url: &str| check_upstream(TaskUpstream { url: url.into(), label: None });
+        for good in ["https://linear.app/x/issue/ABC-1", "http://localhost:3000/a", " HTTPS://github.com/o/r/issues/4 "] {
+            assert!(check(good).is_ok(), "{good}");
+        }
+        for bad in ["javascript:alert(1)", "file:///etc/passwd", "linear.app/x", "https://", "https:// a", "ftp://x", "data:text/html,x"] {
+            let e = check(bad).unwrap_err();
+            assert_eq!(crate::api::HarnessError::from(e).code, crate::api::ErrorCode::Invalid, "{bad}");
+        }
+        assert!(check("ABC-1").unwrap_err().to_string().contains("https://"), "the message says what to give");
     }
 
     #[test]

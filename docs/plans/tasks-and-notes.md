@@ -111,7 +111,7 @@ New `crates/harness-core/src/host/dispatch/tasks.rs` (listed in `dispatch/mod.rs
 | `ReadNote { session_id }`                                                                   | `Note { content, hash, updated_ms, images: Vec<String> }`           |
 | `WriteNote { session_id, content, base_hash: Option<String> }`                              | `Note` (conflict error when the hash changed)                       |
 | `AddNoteImages { session_id, files: Vec<AttachmentInput> }`                                 | `Note`                                                              |
-| `RemoveNoteImage { session_id, path }` (only files directly in `attachments/note/`)          | `Note`                                                              |
+| `RemoveNoteImage { session_id, path }` (only files directly in `attachments/note/`)         | `Note`                                                              |
 
 `TaskPatch` has optional fields plus `clear: Vec<TaskField>` (`Due`, `Upstream`). This avoids `Option<Option<T>>` in specta. A status change appends `StatusChanged`.
 
@@ -133,17 +133,16 @@ Emit both in `execute` after success (copy the `changes` match at `host/mod.rs:2
 **Start Session from a task:** `CreateSession` gets `task: Option<TaskStart { id, include: TaskContextParts, set_status: Option<TaskStatus> }>`. `TaskContextParts` is `{ summary, body_and_assets, parent_and_siblings, origin_note, origin_transcript }`. After the Session is created, the core does these steps in `host/create.rs`:
 1. Adds a `TaskSessionLink` and a `SessionStarted` activity entry.
 2. Sets the status, if the dialog asked for it.
-3. Writes `SessionMeta.task_id` (`session/meta.rs`).
-4. Builds the context text into `meta.seeds[main_thread]`. Task assets go in as file paths. The origin transcript comes from `summary::summarize`.
+3. Builds the context text into `meta.seeds[main_thread]`. Task assets go in as file paths. The origin transcript comes from `summary::summarize`.
 
-`harness_context::facts` gets one line: `- Started from task t12 "<title>": update its status with task_update`. `SessionSummary` gets `task_id: Option<String>`, which the panel pin and the sidebar use.
+`harness_context::facts` gets one line: `- Started from task t12 "<title>": update its status with task_update`. The link in `Task.sessions` is the one record of "started from": the facts line, `harness_info`, `task_update` and the panel pin all read it. There is no `task_id` on the Session.
 
 ## 3. Frontend
 
 **Shared data (`packages/api`):**
 - `src/client/tasks.ts` (functions for the whole app) and `src/client/session/tasks.ts` (the SessionApi part, like `session/shared.ts`). Add the methods to `HarnessClient`.
 - `useTasks(api)` in `src/react/hooks.ts`, over `taskStore` (`src/client/taskStore.ts`): one store per Transport, so every caller in a window shares one list, one `ListTasks` load and one subscription. It patches the list from `TasksChanged`, and loads again only after a failed load.
-- Pure helpers in `src/derive/tasks.ts`: `dueCount`, `openCount`, `childrenOf`, `topicProgress`, `upstreamId(url)` (Linear `ABC-123`, GitHub `#123`) and `isOverdue(due, today)`. They go here because the sidebar and the Frontend both need them (ADR 0012).
+- Pure helpers in `src/derive/tasks.ts`: `dueCount`, `openCount`, `childrenOf`, `topicProgress`, `upstreamId(url)` (Linear `ABC-123`, GitHub `#123`), `webLink(input)` (an upstream url must be `http(s)://`; the core refuses others), `TASK_STATUS_LABEL` and `isOverdue(due, today)`. They go here because the sidebar and the Frontend both need them (ADR 0012).
 - `src/derive/taskTool.ts` parses `task_add` and `task_update` calls. Copy `subSessionTool.ts`.
 - Mock: `mock/handlers/tasks.ts` and `mock/fixtures/tasks.ts` (two topics, subtasks, one upstream link, one overdue task), plus rows in `mock/commands.test.ts`.
 - Contract (`src/contract/frontend.ts`): add `TasksView?: ComponentType<TasksViewProps>`, and the View props `onOpenTasks?(taskId?)` and `onStartFromTask?(taskId)`.
@@ -222,7 +221,7 @@ Each phase is one PR and ships alone. Every phase runs `bun run check:rust`, `bu
 7. **Global view, Tree.** `treeLayout.ts`, `TreeView` and the floating preview. Tests:
    - node `treeLayout.test.ts`: only tasks with children show; hidden counts; Expand all; Hide done.
    - dom: the preview covers the tree without moving the nodes.
-8. **Start Session from a task.** `TaskStart` on `CreateSession`, the seed builder, the facts line, `SessionSummary.task_id`, the Composer task mode and the pinned task in the panel. Tests:
+8. **Start Session from a task.** `TaskStart` on `CreateSession`, the seed builder, the facts line, the Composer task mode and the pinned task in the panel. Tests:
    - cargo `tests/fake_agent.rs`: the first prompt has only the chosen parts; the link and status are set; the origin note and transcript are included when ticked.
    - node: the Composer args builder (`composer.test.ts`).
 

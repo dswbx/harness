@@ -1,4 +1,4 @@
-import { type TaskUpstream, upstreamId } from "@harness/api";
+import { type TaskUpstream, upstreamId, webLink } from "@harness/api";
 import {
    Button,
    cn,
@@ -35,17 +35,24 @@ export function UpstreamField({
    const [open, setOpen] = useState(false);
    const [url, setUrl] = useState("");
    const [label, setLabel] = useState("");
+   const [bad, setBad] = useState(false);
    const edit = (o: boolean) => {
       if (o) {
          setUrl(upstream?.url ?? "");
          setLabel(upstream?.label ?? "");
+         setBad(false);
       }
       setOpen(o);
    };
    const save = () => {
-      const u = url.trim();
+      if (!url.trim()) {
+         setOpen(false);
+         return upstream && onChange(null);
+      }
+      // Without a scheme `https://` is added; other schemes are refused (the core takes only web links).
+      const u = webLink(url);
+      if (!u) return setBad(true);
       setOpen(false);
-      if (!u) return upstream && onChange(null);
       if (u === upstream?.url && (label.trim() || null) === (upstream.label || null)) return;
       onChange({ url: u, label: label.trim() || null });
    };
@@ -98,9 +105,18 @@ export function UpstreamField({
                      aria-label="Link"
                      placeholder="https://linear.app/…"
                      value={url}
-                     onChange={(e) => setUrl(e.target.value)}
+                     onChange={(e) => {
+                        setUrl(e.target.value);
+                        setBad(false);
+                     }}
+                     aria-invalid={bad}
                      className="h-8"
                   />
+                  {bad && (
+                     <p className="px-1 text-xs text-destructive">
+                        Use a web link that starts with https://
+                     </p>
+                  )}
                   <Input
                      {...noAutocorrect}
                      aria-label="Label"

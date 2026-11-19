@@ -43,7 +43,15 @@ impl Harness {
     }
 
     pub(in crate::host) fn cmd_delete_task(&self, id: String) -> anyhow::Result<CommandResult> {
-        self.shared.tasks.delete(&id, &Actor::user())?;
+        let children = self.shared.tasks.children_ids(&id);
+        if let Err(e) = self.shared.tasks.delete(&id, &Actor::user()) {
+            // `execute` tells the windows only on success, but the children may have moved before
+            // the error.
+            if !children.is_empty() {
+                self.shared.tasks.emit_changed(&self.shared.app_events, std::iter::once(id).chain(children).collect());
+            }
+            return Err(e);
+        }
         Ok(CommandResult::Ok)
     }
 

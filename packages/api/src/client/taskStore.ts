@@ -22,6 +22,9 @@ export type TaskStore = {
 
 type Change = { ids: string[]; tasks: TaskSummary[] };
 
+/** After a failed load, the one retry waits this long. */
+export const TASK_RETRY_MS = 1000;
+
 /** The number in a Task id (`t<n>`): the list's order. */
 const num = (id: string) => Number(id.slice(1));
 
@@ -51,13 +54,15 @@ export function createTaskStore(source: TaskStoreSource): TaskStore {
    let loading = false;
    /** Changes seen while a load runs, applied on top of its result. */
    let queued: Change[] = [];
+   let retry: ReturnType<typeof setTimeout> | undefined;
 
    const set = (next: TaskSummary[] | null) => {
       tasks = next;
       for (const l of [...listeners]) l();
    };
 
-   const load = () => {
+   /** `again`: on failure, try once more after `TASK_RETRY_MS`. */
+   const load = (again = true) => {
       const mine = ++seq;
       loading = true;
       source.list().then(
@@ -69,13 +74,24 @@ export function createTaskStore(source: TaskStoreSource): TaskStore {
             set(changes.reduce(applyTaskChange, list));
          },
          (e) => {
-            if (mine === seq) loading = false;
             console.error("list tasks failed", e);
+            if (mine !== seq) return;
+            loading = false;
+            // Older than any list loaded later: applied on top of one, they would undo newer rows.
+            queued = [];
+            // After the retry, the next TasksChanged loads again (see `changed`).
+            if (again)
+               retry = setTimeout(() => {
+                  retry = undefined;
+                  if (mine === seq) load(false);
+               }, TASK_RETRY_MS);
          },
       );
    };
 
    const changed = (change: Change) => {
+      // A late event after `stop` (the unsubscribe is async): nobody to load for.
+      if (listeners.size === 0) return;
       if (loading) queued.push(change);
       // No list to patch (the load failed): load it again.
       else if (tasks === null) load();
@@ -91,6 +107,8 @@ export function createTaskStore(source: TaskStoreSource): TaskStore {
       void off?.then((f) => f());
       off = null;
       seq++;
+      clearTimeout(retry);
+      retry = undefined;
       loading = false;
       queued = [];
       tasks = null;

@@ -1,7 +1,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { HarnessClient } from "../client/app";
-import { createTaskStore } from "../client/taskStore";
+import { createTaskStore, TASK_RETRY_MS } from "../client/taskStore";
 import type { TaskSummary } from "../generated";
 import { MockTransport } from "../mock/mock";
 import { useTasks } from "./hooks";
@@ -114,6 +114,41 @@ it("loads again on a change after a failed load", async () => {
    await act(async () => f.pending[0]?.([task("t1")]));
    expect(ids(f.seen[0] ?? null)).toEqual(["t1"]);
    error.mockRestore();
+});
+
+it("drops the changes queued during a failed load and retries once", async () => {
+   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+   const f = fake();
+   const error = vi.spyOn(console, "error").mockImplementation(() => {});
+   const fails = () => {
+      let fail: (e: Error) => void = () => {};
+      f.list.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+      return (e: Error) => act(async () => fail(e));
+   };
+   const first = fails();
+   render(<f.View at={0} />);
+   f.change(["t2"], [task("t2", "stale")]);
+   await first(new Error("down"));
+   const second = fails();
+   await act(async () => vi.advanceTimersByTime(TASK_RETRY_MS));
+   expect(f.list).toHaveBeenCalledTimes(2);
+   await second(new Error("still down"));
+   await act(async () => vi.advanceTimersByTime(TASK_RETRY_MS * 5));
+   expect(f.list).toHaveBeenCalledTimes(2);
+   // The next change loads again; the change queued during the first load is not applied.
+   f.change(["t1"], [task("t1")]);
+   expect(f.list).toHaveBeenCalledTimes(3);
+   await act(async () => f.pending[0]?.([task("t1")]));
+   expect(ids(f.seen[0] ?? null)).toEqual(["t1"]);
+   error.mockRestore();
+   vi.useRealTimers();
+});
+
+it("ignores a change that comes after the last hook went", async () => {
+   const f = fake();
+   render(<f.View at={0} />).unmount();
+   f.change(["t1"], [task("t1")]);
+   expect(f.list).toHaveBeenCalledTimes(1);
 });
 
 it("is one store per transport, for the app and every Session", () => {

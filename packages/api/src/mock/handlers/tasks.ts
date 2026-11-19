@@ -1,3 +1,4 @@
+import { webLink } from "../../derive/tasks";
 import { CommandError } from "../../errors";
 import type {
    AttachmentInput,
@@ -6,6 +7,7 @@ import type {
    TaskAsset,
    TaskStatus,
    TaskSummary,
+   TaskUpstream,
 } from "../../generated";
 import type { MockTransport } from "../mock";
 import type { Handlers } from "./types";
@@ -34,6 +36,18 @@ function checkDue(due: string): string {
    if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(d))
       throw new CommandError("invalid", `"${d}" is not a date (YYYY-MM-DD)`);
    return d;
+}
+
+/** As the core's `check_upstream`: an `http(s)://` link; `null` for an empty url. */
+function checkUpstream(u: TaskUpstream | null | undefined): TaskUpstream | null {
+   const url = u?.url.trim();
+   if (!url) return null;
+   if (webLink(url) !== url)
+      throw new CommandError(
+         "invalid",
+         `the upstream url "${url}" is not a web link: it must start with https:// or http://`,
+      );
+   return { url, label: u?.label?.trim() || null };
 }
 
 /** A time after the Task's last change. */
@@ -136,6 +150,7 @@ export const tasksHandlers = {
    CreateTask: (mock, cmd) => {
       const title = cleanTitle(cmd.title);
       const due = cmd.due ? checkDue(cmd.due) : null;
+      const upstream = checkUpstream(cmd.upstream);
       const parent = cmd.parent_id ?? null;
       if (parent) mockTask(mock, parent);
       const origin = cmd.session_id ? mock.session(cmd.session_id) : null;
@@ -149,9 +164,7 @@ export const tasksHandlers = {
          status: cmd.status ?? "todo",
          priority: cmd.priority ?? "none",
          due,
-         upstream: cmd.upstream?.url.trim()
-            ? { url: cmd.upstream.url.trim(), label: cmd.upstream.label?.trim() || null }
-            : null,
+         upstream,
          parent_id: parent,
          order: lastOrder(mock, parent, id),
          origin_session_id: origin?.id ?? null,
@@ -173,6 +186,7 @@ export const tasksHandlers = {
       const p = cmd.patch;
       const title = p.title != null ? cleanTitle(p.title) : null;
       const due = p.due != null ? checkDue(p.due) : null;
+      const upstream = checkUpstream(p.upstream);
       const now = stamp(t);
       if (p.body != null && p.body !== t.body) {
          const base = cmd.base_updated_ms;
@@ -190,8 +204,7 @@ export const tasksHandlers = {
       }
       if (title) t.title = title;
       if (due) t.due = due;
-      if (p.upstream?.url.trim())
-         t.upstream = { url: p.upstream.url.trim(), label: p.upstream.label?.trim() || null };
+      if (upstream) t.upstream = upstream;
       if (p.priority) t.priority = p.priority;
       if (p.status && p.status !== t.status) {
          record(t, now, { type: "status_changed", from: t.status, to: p.status });

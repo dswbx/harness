@@ -148,16 +148,6 @@ export type StartTask = {
    origin: { sessionId: string; title: string; folder: string | null } | null;
 };
 
-export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
-   backlog: "Backlog",
-   todo: "Todo",
-   in_progress: "In progress",
-   in_review: "In review",
-   done: "Done",
-   blocked: "Blocked",
-   cancelled: "Cancelled",
-};
-
 /** The task context checkboxes, all set. */
 export type TaskParts = Required<TaskContextParts>;
 

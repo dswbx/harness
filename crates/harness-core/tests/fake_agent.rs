@@ -1788,7 +1788,6 @@ async fn session_from_a_task_is_linked_and_seeded_with_the_chosen_parts() {
 
     let include = TaskContextParts { summary: true, body_and_assets: true, ..Default::default() };
     let sid = start_from(&h, &folder, TaskStart { id: task.clone(), include, set_status: Some(TaskStatus::InProgress) }).await;
-    assert_eq!(summary(&h, &sid).await.unwrap().task_id.as_deref(), Some(task.as_str()));
     let CommandResult::Task { task: t } = h.execute(Command::ReadTask { id: task.clone() }).await.unwrap() else { panic!() };
     assert_eq!(t.status, TaskStatus::InProgress);
     assert_eq!(t.sessions.iter().map(|l| l.session_id.as_str()).collect::<Vec<_>>(), vec![sid.as_str()]);
@@ -1872,7 +1871,8 @@ async fn a_failed_task_link_still_creates_the_session_and_tells_the_windows() {
     let sid = start_from(&h, &dir.path().display().to_string(), start).await;
     std::fs::set_permissions(&task_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(summary(&h, &sid).await.is_some(), "the Session is created");
-    assert_eq!(summary(&h, &sid).await.unwrap().task_id, None, "not linked");
+    let CommandResult::Task { task: t } = h.execute(Command::ReadTask { id: task.clone() }).await.unwrap() else { panic!() };
+    assert!(t.sessions.is_empty(), "not linked");
     assert!(seen.lock().unwrap().iter().any(|e| e["type"] == "SessionsChanged"), "{:?}", seen.lock().unwrap());
 }
 

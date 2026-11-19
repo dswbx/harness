@@ -651,7 +651,7 @@ describe("MockTransport Review Comments", () => {
 });
 
 describe("MockTransport Start Session from a task", () => {
-   it("links the Session, sets the status once and keeps task_id", async () => {
+   it("links the Session and sets the status once", async () => {
       const mock = new MockTransport([], []);
       const c = new HarnessClient(mock);
       const id = await c.createSession({
@@ -664,7 +664,6 @@ describe("MockTransport Start Session from a task", () => {
       expect(task.status).toBe("in_progress");
       expect(task.sessions.map((l) => l.session_id)).toEqual([id]);
       expect(task.activity.map((a) => a.kind.type)).toContain("session_started");
-      expect((await c.listSessions()).find((s) => s.id === id)?.task_id).toBe("t4");
    });
 
    it("refuses an unknown task without making a Session", async () => {
@@ -703,5 +702,21 @@ describe("MockTransport Session Note images", () => {
       expect(after.images).toEqual([added.images[1]]);
       expect(changed).toHaveBeenCalledTimes(1);
       await expect(api.removeNoteImage(added.images[0] ?? "")).rejects.toThrow("no image");
+   });
+});
+
+describe("MockTransport Task upstream links", () => {
+   it("takes only http(s) links, as the core", async () => {
+      const client = new HarnessClient(new MockTransport([], []));
+      const bad = { url: "javascript:alert(1)", label: null };
+      await expect(client.createTask({ title: "A", upstream: bad })).rejects.toThrow("https://");
+      const t = await client.createTask({
+         title: "A",
+         upstream: { url: " https://x.dev/1 ", label: " " },
+      });
+      expect(t.upstream).toEqual({ url: "https://x.dev/1", label: null });
+      await expect(
+         client.updateTask(t.id, { upstream: { url: "x.dev/2", label: null } }),
+      ).rejects.toThrow("not a web link");
    });
 });

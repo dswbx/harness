@@ -1,4 +1,4 @@
-import type { HarnessClient, TaskStatus } from "@harness/api";
+import { type HarnessClient, TASK_STATUS_LABEL, type TaskStatus } from "@harness/api";
 import {
    Checkbox,
    Select,
@@ -10,7 +10,7 @@ import {
 } from "@harness/ui";
 import { ListTodo } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { type StartTask, TASK_STATUS_LABEL, type TaskParts, transcriptLabel } from "./composer";
+import { type StartTask, type TaskParts, transcriptLabel } from "./composer";
 import { Label } from "./parts";
 
 /** The task the Session starts from (board "StartSession"). */

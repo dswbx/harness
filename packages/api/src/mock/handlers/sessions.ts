@@ -66,7 +66,6 @@ export const sessionsHandlers = {
          cmd.title ?? (pr ? `#${pr.number} ${pr.title}` : (cmd.folder.split("/").pop() ?? id));
       mock.addSession(id, title, cmd.frontend_id, false, cmd.folder, workspace);
       if (cmd.task) {
-         mock.session(id).task_id = cmd.task.id;
          linkSessionTask(mock, cmd.task.id, id, title, cmd.task.set_status ?? null);
       }
       mock.emitApp({ type: "SessionsChanged" });

@@ -1155,8 +1155,6 @@ export type SessionSummary = {
 	parent?: SessionParent | null,
 	/**  Why new Events are not being saved to the Session Log right now (disk full, no permission, ...). */
 	log_error?: string | null,
-	/**  The task the Session was started from (ADR 0028). */
-	task_id?: string | null,
 };
 
 /**  One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search. */
