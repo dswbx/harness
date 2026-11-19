@@ -5,6 +5,7 @@
       "includes": [
          "**",
          "!spikes",
+         "!vendor",
          "!crates/harness-tauri/gen",
          "!packages/api/src/generated.ts",
          "!app/src/platform/generated.ts",
