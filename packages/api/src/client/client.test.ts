@@ -260,6 +260,7 @@ describe("HarnessClient wire shape", () => {
       await c.renameSharedArtifact("a", "T");
       await c.setAppSetting("appearance", undefined);
       await c.setWorktreeDir(null);
+      await c.setBranchPrefix(null);
       await c.setEditor(null);
       await c.openInEditor("s1");
       await c.removeAgent("a");
@@ -299,6 +300,7 @@ describe("unexpected results", () => {
       ["getEditor", () => c.getEditor()],
       ["listBranches", () => c.listBranches("/f")],
       ["getWorktreeDir", () => c.getWorktreeDir()],
+      ["getBranchPrefix", () => c.getBranchPrefix()],
       ["transcriptSize", () => c.transcriptSize("s1")],
       ["workspace", () => api.workspace()],
       ["session getEditor", () => api.getEditor()],

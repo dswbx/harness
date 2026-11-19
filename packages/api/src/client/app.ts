@@ -4,6 +4,7 @@ import type {
    AppSettingKey,
    AttachmentInput,
    Branches,
+   BranchPrefix,
    Editor,
    FrontendManifest,
    InstructionsEntry,
@@ -147,6 +148,15 @@ export class HarnessClient {
    /** null resets to the default (`.harness` in the repository). */
    async setWorktreeDir(dir: string | null): Promise<void> {
       await this.transport.execute({ type: "SetWorktreeDir", dir });
+   }
+   /** What new Session branches start with, and the prefix that gives now (`""`: none). */
+   async getBranchPrefix(): Promise<{ prefix: BranchPrefix; resolved: string }> {
+      const r = await expectResult(this.transport, { type: "GetBranchPrefix" }, "BranchPrefix");
+      return { prefix: r.prefix, resolved: r.resolved };
+   }
+   /** null resets to `harness`. */
+   async setBranchPrefix(prefix: BranchPrefix | null): Promise<void> {
+      await this.transport.execute({ type: "SetBranchPrefix", prefix });
    }
    /** The editor for "Open in editor"; null until chosen. */
    async getEditor(): Promise<Editor | null> {

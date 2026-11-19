@@ -64,6 +64,26 @@ export const settingsHandlers = {
       mock.worktreeDir = cmd.dir?.trim() || ".harness";
       return { type: "Ok" };
    },
+   GetBranchPrefix: (mock) => {
+      return {
+         type: "BranchPrefix",
+         prefix: mock.branchPrefix,
+         resolved: mock.resolvedBranchPrefix(),
+      };
+   },
+   SetBranchPrefix: (mock, cmd) => {
+      const p = cmd.prefix;
+      if (p?.type === "custom") {
+         const prefix = p.prefix.trim().replace(/^\/+|\/+$/g, "");
+         if (
+            prefix &&
+            !/^[A-Za-z0-9_][A-Za-z0-9._-]*(\/[A-Za-z0-9_][A-Za-z0-9._-]*)*$/.test(prefix)
+         )
+            throw new CommandError("invalid", `"${prefix}" is not a valid branch prefix`);
+         mock.branchPrefix = { type: "custom", prefix };
+      } else mock.branchPrefix = p ?? { type: "harness" };
+      return { type: "Ok" };
+   },
    GetEditor: (mock) => {
       return { type: "Editor", editor: mock.editor };
    },

@@ -21,23 +21,14 @@ pub struct WorktreeMeta {
     pub base: String,
 }
 
-/// Creates `branch` (default `harness/<slug>-<short id>`) from `base` (default: the current
+/// Creates `branch` from `base` (default: the current
 /// branch) at `path`. It starts from the freshly fetched origin copy of `base` when there is one
 /// (the local branch may be stale), else from the local `base`. `WorktreeMeta.base` stays `base`.
-pub async fn create_worktree(
-    fetches: &BaseFetches,
-    repo_root: &Path,
-    base: Option<String>,
-    branch: Option<String>,
-    path: &Path,
-    slug: &str,
-    short_id: &str,
-) -> anyhow::Result<WorktreeMeta> {
+pub async fn create_worktree(fetches: &BaseFetches, repo_root: &Path, base: Option<String>, branch: String, path: &Path) -> anyhow::Result<WorktreeMeta> {
     let base = match base {
         Some(b) => rev(&b)?.to_owned(),
         None => current_branch(repo_root).await?.ok_or_else(|| crate::error::invalid("HEAD is detached; pick a base branch"))?,
     };
-    let branch = branch.unwrap_or_else(|| format!("harness/{slug}-{short_id}"));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -337,7 +328,7 @@ mod tests {
 
     async fn wt(clone: &Path, base: &str, name: &str) -> WorktreeMeta {
         let path = clone.parent().unwrap().join(name);
-        create_worktree(&BaseFetches::default(), clone, Some(base.into()), None, &path, name, "1").await.unwrap()
+        create_worktree(&BaseFetches::default(), clone, Some(base.into()), format!("harness/{name}-1"), &path).await.unwrap()
     }
 
     #[tokio::test]

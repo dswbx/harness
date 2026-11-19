@@ -73,11 +73,11 @@ pub enum Command {
         /// (refused when the folder has changes).
         #[serde(default)]
         branch: Option<String>,
-        /// Work in a new Worktree on its own `harness/...` branch.
+        /// Work in a new Worktree on its own branch (`BranchPrefix`).
         #[serde(default)]
         worktree: bool,
         /// Create this branch from `branch` (default: the current one) and work on it; with
-        /// `worktree`, it becomes the Worktree's branch instead of a `harness/...` one.
+        /// `worktree`, it becomes the Worktree's branch instead of a prefixed one (`BranchPrefix`).
         #[serde(default)]
         new_branch: Option<String>,
         /// Start from this pull request (needs `gh`), on the PR's head branch: in a new Worktree
@@ -150,6 +150,12 @@ pub enum Command {
     /// `dir`: relative to the repository folder, or absolute (`~` is home). None resets to `.harness`.
     SetWorktreeDir {
         dir: Option<String>,
+    },
+    /// What new Session branches start with (`BranchPrefix`).
+    GetBranchPrefix,
+    /// None resets to `harness`.
+    SetBranchPrefix {
+        prefix: Option<BranchPrefix>,
     },
     /// Custom Instructions scopes: Global, then every repository known from Sessions or saved
     /// instructions (`Instructions`).

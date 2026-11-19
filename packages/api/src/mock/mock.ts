@@ -2,6 +2,7 @@ import { CommandError, toCommandError } from "../errors";
 import type {
    AgentInfo,
    AppEvent,
+   BranchPrefix,
    Command,
    CommandResult,
    Editor,
@@ -74,6 +75,15 @@ export class MockTransport implements Transport {
    editor: Editor | null = null;
    /** @internal */
    worktreeDir = ".harness";
+   /** @internal */
+   branchPrefix: BranchPrefix = { type: "harness" };
+   /** The prefix `branchPrefix` gives now (`""`: none). @internal */
+   resolvedBranchPrefix(): string {
+      const p = this.branchPrefix;
+      if (p.type === "github_user") return "octocat";
+      if (p.type === "custom") return p.prefix;
+      return "harness";
+   }
    /** @internal */
    appSettings: Record<string, unknown> = {};
    /** Custom Instructions by "global" or repository folder. @internal */
