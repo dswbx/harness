@@ -28,7 +28,7 @@ The plan: fix the bugs, add the gates, then make the Session Log and the Event c
 
 - Status: landed. A Harness MCP call is no longer trusted by its title; fake-agent tests send spoofed titles and each still asks.
 
-- Problem: any permission request whose title starts with `mcp__harness__` or `mcp.harness.` is allowed with no Policy check (`acp.rs:1207-1212`, `mcp.rs:9-11`). The title comes from the Agent's adapter, so it is untrusted input deciding a security check.
+- Problem: any permission request whose title starts with `mcp__harness__` or `mcp.harness.` is allowed with no Policy check (`acp/permission.rs`, `mcp/mod.rs`). The title comes from the Agent's adapter, so it is untrusted input deciding a security check.
 - Fix: identify a Harness MCP call by data the Harness owns, not by the title: either correlate with an in-flight request on the Harness MCP for that Agent Session (token + tool name), or simply run the Policy with kind `frontend_tool`/`git_*` (already default-allowed where safe). The double prompt this avoids is a UX cost, not a reason to trust a string.
 - Done when: a fake-agent test sends a request titled `mcp__harness__x` for an `execute` tool call and it asks.
 
@@ -68,7 +68,7 @@ The append-only Session Log is the core of the design (ADR 0003): it gives repla
 
 - Status: landed. The log loads once into memory, hot paths use projections (mode, status, `frontend_item`, ...), and `events()` returns shared `Arc<Event>` handles instead of clones.
 
-- Problem: `SessionLog::events()` reads and parses the whole file, and it is called from 13 places, including every permission Ask (`acp.rs:1300`), turn summaries (`session.rs:800`), transcripts (`transcript.rs:57,124`), context (`harness_context.rs:40`) and config sync (`acp.rs:457,512,558,623,671`). `subscribe` re-reads the whole file too (`log.rs:192`). Cost grows with every Turn.
+- Problem: `SessionLog::events()` reads and parses the whole file, and it is called from 13 places, including every permission Ask (`acp/`), turn summaries (`session/`), transcripts (`transcript.rs:57,124`), context (`harness_context.rs:40`) and config sync (`acp/`). `subscribe` re-reads the whole file too (`log.rs:192`). Cost grows with every Turn.
 - Fix: load once on open into an in-memory `Vec<Arc<Event>>` (or a byte-offset index plus an LRU for very long logs). Add small typed projections updated on append (current mode per Thread, title, last finished Turn, transcript size, open tool calls) so hot paths are O(1). `events()` becomes a slice clone, and most callers switch to a projection.
 - Done when: a bench (there is already `reducer.bench.test.ts` on the TS side; add one in Rust) shows a permission Ask on a 50k-event log costs the same as on an empty one.
 
@@ -92,7 +92,7 @@ The append-only Session Log is the core of the design (ADR 0003): it gives repla
 
 - Status: partly: `fsync` of files and directories and the `<data dir>/.lock` single-writer lock landed. Blocking work is off the async workers for the log (`Session::sync_log` on the blocking pool, the writer thread), `session.json` (`MetaDisk` writes outside the meta lock), Keychain calls (`Shared::library_blocking`), PTY writes (a writer thread), the first log parse, and the file-reading Commands. JSON settings files load and save through `persist::JsonFile` (atomic, a bad file is reset with a startup notice), but the small writes (permission rules, app settings, the Agent list) still run on the calling worker.
 
-- `write_meta` renames without `fsync` on the file or the directory (`session.rs:965-970`), so a power loss can leave an empty `session.json`. Add `sync_all` on the temp file and the parent dir. Same for the policy and settings files.
+- `write_meta` renames without `fsync` on the file or the directory (`session/meta.rs:206-209`), so a power loss can leave an empty `session.json`. Add `sync_all` on the temp file and the parent dir. Same for the policy and settings files.
 - Two Harness processes on one data dir are only defended by append mode (`log.rs:108-110`, and a test for it). Take an exclusive `flock` on `~/.harness/.lock` at startup and refuse to start a second writer (dev and release already use different dirs).
 - Log I/O is blocking `std::fs` on the tokio runtime (only 3 `spawn_blocking` in the core). With item 7's dedicated writer this moves off the async threads.
 
@@ -111,8 +111,8 @@ The append-only Session Log is the core of the design (ADR 0003): it gives repla
 - Status: landed in the 2026-11 refactoring. Events carry typed tool detail and `harness_result`; Agent-specific handling is in `agent_quirks.rs`; `scripts/boundaries.ts` fails on raw payload reads and Agent names in Frontends.
 
 - Problem: the chat Frontend reads agent-specific shapes out of raw ACP payloads: the plan from `rawInput.plan` on `switch_mode` (`reducer.ts:214-217`), the subagent prompt from Claude's Task `rawInput.prompt` (`SubagentCard.tsx:15`), the Frontend Tool name by regex on the core's title text `Frontend tool: <name>` (`reducer.ts:741`), git tool summaries from raw input and output (`toolDisplay/label.ts:39`). A second Frontend would have to copy all of it, which ADR 0012 says should not happen. The log itself stores ACP payloads untyped (`content`, `locations`, `raw_input`, `raw_output`, `tool_call`, `update` as `Json`, `api.rs:1002-1139`), so the Event schema is partly ACP's schema.
-- Problem, core side: agent-specific handling outside `agent_quirks.rs`, against AGENTS.md and ADR 0008: Codex `bash -lc` unwrapping in `permissions.rs:173-177`, Harness MCP tool naming per Agent in `mcp.rs:9-11` and `acp.rs:1209`.
-- Fix: normalize in the core (`acp.rs normalize` plus `agent_quirks.rs`) into typed Event fields: `ToolCall.plan`, `ToolCall.subagent { prompt, thread }`, `ToolCall.harness_tool`, `ToolCall.command` (already unwrapped), a typed `ToolContent` enum. Keep `raw_*` for the Inspector only. Move every agent-name check into `agent_quirks.rs`.
+- Problem, core side: agent-specific handling outside `agent_quirks.rs`, against AGENTS.md and ADR 0008: Codex `bash -lc` unwrapping in `permissions.rs:173-177`, Harness MCP tool naming per Agent in `mcp/mod.rs` and `acp/permission.rs`.
+- Fix: normalize in the core (`acp/normalize.rs` plus `agent_quirks.rs`) into typed Event fields: `ToolCall.plan`, `ToolCall.subagent { prompt, thread }`, `ToolCall.harness_tool`, `ToolCall.command` (already unwrapped), a typed `ToolContent` enum. Keep `raw_*` for the Inspector only. Move every agent-name check into `agent_quirks.rs`.
 - Guard: a CI grep that fails when `claude`, `codex`, `mcp__` or `rawInput.` appear in `packages/frontend-*` (outside tests and fixtures) or agent names appear in core files other than `agent_quirks.rs`.
 
 ### 12. Typed errors across the boundary

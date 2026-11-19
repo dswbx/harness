@@ -14,7 +14,7 @@ Subsessions (child Sessions, orchestrated, can write) may come later. Keep the s
 
 - `api.rs`: `StartSideThread { session_id, seed: Option<String>, excerpt: Option<Excerpt>, source: ThreadStart }` where `ThreadStart = Fork | Seed` (default `Fork`, falls back to `Seed`). `Excerpt { text, thread_id, seq }`. Result `ThreadStarted { thread_id, forked: bool }`.
 - Internal `AgentSessionStart = New | Fork { from: ThreadId, upto_seq } | Resume/Load` used by `ensure_agent_session`; `SessionMeta` stores the pending start per Thread (replaces bare `seeds`, migrate with `serde(default)`).
-- `acp.rs`: enable `unstable_session_fork` on `agent-client-protocol`; on first prompt of a forked Thread send `session/fork` of the source's Agent Session (same `cwd`, `mcp_servers` with this Thread's MCP token, no `systemPrompt` to keep cache). Log `AgentSessionStarted { boundary: Forked }`. If the source has no live/resumable Agent Session or fork errors: seed with `summary.rs` transcript, log `Initial`.
+- `acp/restore.rs`: enable `unstable_session_fork` on `agent-client-protocol`; on first prompt of a forked Thread send `session/fork` of the source's Agent Session (same `cwd`, `mcp_servers` with this Thread's MCP token, no `systemPrompt` to keep cache). Log `AgentSessionStarted { boundary: Forked }`. If the source has no live/resumable Agent Session or fork errors: seed with `summary.rs` transcript, log `Initial`.
 - `harness_context`: forked Thread gets a short `<harness_context>` addendum ("You are in a Side Thread forked from the Main Thread at Turn N; read-only; transcript tools available"), not the full block again.
 - Excerpt goes in front of the first prompt in both modes.
 - `prompts/harness.md`: one line about Side Threads and transcript tools.
@@ -23,7 +23,7 @@ Subsessions (child Sessions, orchestrated, can write) may come later. Keep the s
 ## 2. Core: transcript tools
 
 - `summary.rs` → split rendering (Turn list with index, prompts, replies, tool titles, optional tool I/O) from the "continue with summary" wrapper.
-- `mcp.rs` primitives, kind `read`:
+- `mcp/tools.rs` primitives, kind `read`:
   - `transcript_outline { thread? }`: Turns: index, short prompt, tool count, size.
   - `transcript_read { thread?, from, to, tools?: bool }`.
   - `transcript_search { thread?, query }` → Turn indexes + snippets.
