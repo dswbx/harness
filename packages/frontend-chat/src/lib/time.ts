@@ -1,3 +1,4 @@
+import { dateTimeFormat, relativeTimeFormat } from "@harness/api";
 import { useSyncExternalStore } from "react";
 
 const MIN = 60_000;
@@ -8,7 +9,7 @@ const DAY = 24 * HOUR;
 export function formatRelativeTime(ts: number, now: number = Date.now(), locale?: string): string {
    const diff = now - ts;
    if (diff < 45_000) return "just now";
-   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+   const rtf = relativeTimeFormat(locale, { numeric: "auto" });
    if (diff < HOUR) return rtf.format(-Math.max(1, Math.round(diff / MIN)), "minute");
    if (diff < DAY) return rtf.format(-Math.round(diff / HOUR), "hour");
    const startOfDay = (x: number) => {
@@ -18,11 +19,11 @@ export function formatRelativeTime(ts: number, now: number = Date.now(), locale?
    const days = Math.round((startOfDay(now) - startOfDay(ts)) / DAY);
    if (days < 7) return rtf.format(-days, "day");
    const d = new Date(ts);
-   return d.toLocaleDateString(locale, {
+   return dateTimeFormat(locale, {
       day: "numeric",
       month: "short",
       ...(d.getFullYear() !== new Date(now).getFullYear() && { year: "numeric" }),
-   });
+   }).format(d);
 }
 
 /** Elapsed time: "8s", "4m 05s", "1h 02m". */
@@ -36,7 +37,7 @@ export function formatDuration(ms: number): string {
 
 /** Full date and time for the tooltip. */
 export const fullMessageTime = (ts: number, locale?: string) =>
-   new Date(ts).toLocaleString(locale, { dateStyle: "full", timeStyle: "medium" });
+   dateTimeFormat(locale, { dateStyle: "full", timeStyle: "medium" }).format(ts);
 
 /** One shared 30s clock for all relative times, so many messages cost one timer. */
 const listeners = new Set<() => void>();

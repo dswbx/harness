@@ -11,6 +11,7 @@
 //   /prs           a reply with PR references in every form (chips, one batched lookup)
 //   /permission    two pending permission requests (a multi-line command, an edit with a diff)
 //   /card          a render_ui call with local images
+//   /stress [min]  a long Turn with 8 background subagents (~2,500 Events over 3 min), for profiling
 // Anywhere in a prompt: "attention" leaves the Session needing attention; in a Side Thread, "edit" asks for a permission.
 export { mockImage, mockRenderUi } from "./fixtures/renderUi";
 export { MockTransport } from "./mock";

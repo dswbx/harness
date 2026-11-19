@@ -13,6 +13,12 @@ export async function makeTransport(): Promise<Transport> {
       Object.values(registry).map((f) => f.manifest),
    );
    mock.notices = mockNotices(new URLSearchParams(location.search).get("notice"));
+   // `?replay=<session id>`: a real Session Log streamed into a mock Session (dev server only).
+   if (new URLSearchParams(location.search).has("replay"))
+      await (await import("../mock/replay")).startReplay(
+         mock,
+         new URLSearchParams(location.search),
+      );
    return mock;
 }
 
