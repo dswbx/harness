@@ -29,9 +29,11 @@ export function CodeFrame({
 }) {
    const [all, setAll] = useState(false);
    const wrap = useWrapCode();
-   const lines = code.split("\n");
+   // Output often ends in a newline; with the `pre`'s own it would show (and select) an empty last line.
+   const body = code.replace(/\n+$/, "");
+   const lines = body.split("\n");
    const folded = !all && lines.length > FOLD + 2;
-   const shown = folded ? lines.slice(0, FOLD).join("\n") : code;
+   const shown = folded ? lines.slice(0, FOLD).join("\n") : body;
    return (
       <Frame
          label={label}
@@ -48,10 +50,10 @@ export function CodeFrame({
             <CodeText
                code={`$ ${command}`}
                lang="console"
-               className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE, code && "border-b")}
+               className={cn(CODE, "[&_pre]:max-h-none", wrap && WRAP_PRE, body && "border-b")}
             />
          )}
-         {code && (
+         {body && (
             <CodeText
                code={shown}
                lang={lang}

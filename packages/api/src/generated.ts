@@ -25,8 +25,8 @@ export type AppEvent =
 unused: boolean; 
 /**  As `SessionSummary::unseen`. */
 unseen: boolean } | 
-/**  A Turn ended (`stop_reason` as in `TurnEnded`). */
-{ type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string } | 
+/**  A Turn ended (`stop_reason` as in `TurnEnded`). `main`: true for the Main Thread, false for a Side Thread. */
+{ type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string; main: boolean } | 
 /**  Agents were installed, updated or removed. */
 { type: "AgentsChanged" } | 
 /**

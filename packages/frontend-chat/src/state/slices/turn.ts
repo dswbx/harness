@@ -1,5 +1,5 @@
 import { type Event, usageOf } from "@harness/api";
-import type { Ctx } from "../draft";
+import { type Ctx, endsRunningTurn } from "../draft";
 
 /**
  * The running Turn and the context usage. `TurnStarted` and `TurnEnded` also write to the timeline
@@ -16,8 +16,10 @@ export function turnSlice(c: Ctx, e: Event) {
          d.lastTurnErrored = false;
          return;
       case "TurnEnded":
+         if (!endsRunningTurn(d, k.turn_id)) return;
          d.turnId = null;
          d.turnStartedAt = null;
+         if (k.stop_reason !== "cancelled") d.turnEndedAt = e.ts_ms;
          d.lastTurnErrored = k.stop_reason === "error";
          return;
       case "UsageUpdated": {

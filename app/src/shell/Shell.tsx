@@ -32,6 +32,7 @@ import { TasksEntry } from "../tasks/TasksEntry";
 import { UpdateFooter } from "../updates/UpdateFooter";
 import { useUpdate } from "../updates/updates";
 import { needsEditor } from "./editorError";
+import { useNavHistory } from "./useNavHistory";
 import { useSidebarOpen, useSidebarWidth } from "./useSidebar";
 import { DevBadge, WindowControls } from "./WindowControls";
 
@@ -40,26 +41,20 @@ import { DevBadge, WindowControls } from "./WindowControls";
  * task in its preview (null: none; ADR 0028).
  */
 type Selection = { session: string } | { shared: string } | { tasks: string | null } | null;
+const selectionKey = (s: Selection) =>
+   !s
+      ? ""
+      : "session" in s
+        ? `session:${s.session}`
+        : "shared" in s
+          ? `shared:${s.shared}`
+          : `tasks:${s.tasks ?? ""}`;
 
 export function Shell({ transport }: { transport: Transport }) {
    const client = useMemo<HarnessClient>(() => new Client(transport), [transport]);
    const [agentsVersion, setAgentsVersion] = useState(0);
    const bumpAgents = useCallback(() => setAgentsVersion((v) => v + 1), []);
    const { sessions, setSessions } = useSessions(client, bumpAgents);
-   const [selection, setSelection] = useState<Selection>(null);
-   const selected = selection && "session" in selection ? selection.session : null;
-   const sharedId = selection && "shared" in selection ? selection.shared : null;
-   const setSelected = useCallback(
-      (id: string | null) => setSelection(id ? { session: id } : null),
-      [],
-   );
-   const openShared = useCallback((id: string) => setSelection({ shared: id }), []);
-   const inTasks = selection !== null && "tasks" in selection;
-   const taskId = selection && "tasks" in selection ? selection.tasks : null;
-   const openTasks = useCallback((id?: string | null) => setSelection({ tasks: id ?? null }), []);
-   const [attachOpen, setAttachOpen] = useState(false);
-   /** "New Session with it": the Shared Artifact to attach once the Composer created the Session. */
-   const attachOnCreate = useRef<string | null>(null);
    const sharedSource = useMemo(
       () => ({
          list: () => client.listSharedArtifacts(),
@@ -74,6 +69,36 @@ export function Shell({ transport }: { transport: Transport }) {
       [client],
    );
    const sharedList = useSharedArtifacts(sharedSource);
+   // Back/forward skip what was deleted since (the shared list still loading: keep it).
+   const canShow = useCallback(
+      (s: Selection) =>
+         !!s &&
+         ("session" in s
+            ? sessions.some((x) => x.id === s.session)
+            : "shared" in s
+              ? !sharedList || sharedList.some((e) => e.meta.id === s.shared)
+              : true),
+      [sessions, sharedList],
+   );
+   const nav = useNavHistory<Selection>(null, selectionKey, canShow);
+   const selection = nav.current;
+   const setSelection = nav.go;
+   const selected = selection && "session" in selection ? selection.session : null;
+   const sharedId = selection && "shared" in selection ? selection.shared : null;
+   const setSelected = useCallback(
+      (id: string | null) => setSelection(id ? { session: id } : null),
+      [setSelection],
+   );
+   const openShared = useCallback((id: string) => setSelection({ shared: id }), [setSelection]);
+   const inTasks = selection !== null && "tasks" in selection;
+   const taskId = selection && "tasks" in selection ? selection.tasks : null;
+   const openTasks = useCallback(
+      (id?: string | null) => setSelection({ tasks: id ?? null }),
+      [setSelection],
+   );
+   const [attachOpen, setAttachOpen] = useState(false);
+   /** "New Session with it": the Shared Artifact to attach once the Composer created the Session. */
+   const attachOnCreate = useRef<string | null>(null);
    const tasks = useTasks(client);
    const fromTask = useStartFromTask({
       client,
@@ -124,6 +149,40 @@ export function Shell({ transport }: { transport: Transport }) {
       return () => window.removeEventListener("keydown", onKey, true);
    }, []);
 
+   const { back, forward } = nav;
+   // Back/forward from the app menu (View > Back / Forward, Opt+Cmd+Left / Right).
+   useEffect(
+      () =>
+         listenHost("nav", (dir) => {
+            if (dir === "back") back();
+            else if (dir === "forward") forward();
+         }),
+      [back, forward],
+   );
+   // Back/forward: Cmd+[ / Cmd+] (not while typing) and the mouse's back/forward buttons.
+   useEffect(() => {
+      const typing = (t: EventTarget | null) =>
+         t instanceof HTMLElement &&
+         (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+      const onKey = (e: KeyboardEvent) => {
+         if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || typing(e.target)) return;
+         if (e.key === "[") back();
+         else if (e.key === "]") forward();
+         else return;
+         e.preventDefault();
+      };
+      const onMouse = (e: MouseEvent) => {
+         if (e.button === 3) back();
+         else if (e.button === 4) forward();
+      };
+      window.addEventListener("keydown", onKey);
+      window.addEventListener("mouseup", onMouse);
+      return () => {
+         window.removeEventListener("keydown", onKey);
+         window.removeEventListener("mouseup", onMouse);
+      };
+   }, [back, forward]);
+
    // The Quick overlay's "Open in main window" (ADR 0022).
    useEffect(
       () =>
@@ -146,6 +205,8 @@ export function Shell({ transport }: { transport: Transport }) {
    const git = useGitRef(client, current);
    const sidebar = useSidebarWidth();
    const attention = sessions.filter((s) => !s.archived && s.status === "needs_attention").length;
+   // A Turn is in flight somewhere: a restart to update would cut it off.
+   const busy = sessions.some((s) => s.status !== "idle");
    const refresh = useCallback(() => client.listSessions().then(setSessions), [client]);
 
    useEffect(() => {
@@ -199,6 +260,8 @@ export function Shell({ transport }: { transport: Transport }) {
       <WindowControls
          sidebarOpen={sidebarOpen}
          onToggleSidebar={toggleSidebar}
+         onBack={nav.canBack ? nav.back : undefined}
+         onForward={nav.canForward ? nav.forward : undefined}
          onNew={() => setComposer(true)}
       />
    );
@@ -258,7 +321,7 @@ export function Shell({ transport }: { transport: Transport }) {
                   selected={sharedId}
                   onSelect={openShared}
                />
-               <UpdateFooter update={update} />
+               <UpdateFooter update={update} busy={busy} />
             </aside>
          )}
          <main className="flex min-w-0 flex-1 flex-col">
@@ -375,6 +438,7 @@ export function Shell({ transport }: { transport: Transport }) {
             section={settingsSection ?? "appearance"}
             onSectionChange={setSettingsSection}
             sessionId={selected}
+            busy={busy}
             agentsVersion={agentsVersion}
             onAgentsChanged={() => setAgentsVersion((v) => v + 1)}
             onMcpChanged={() => setMcpVersion((v) => v + 1)}

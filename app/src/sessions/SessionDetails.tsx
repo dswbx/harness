@@ -1,7 +1,6 @@
 import { formatDateTime, type SessionSummary } from "@harness/api";
-import { cn } from "@harness/ui";
+import { cn, StatusDot, statusLabel } from "@harness/ui";
 import type { ReactNode } from "react";
-import { StatusDot, statusLabel } from "./StatusDot";
 
 /**
  * Folder, Worktree, Agent and timing of a Session: the sidebar hover card and the header's info

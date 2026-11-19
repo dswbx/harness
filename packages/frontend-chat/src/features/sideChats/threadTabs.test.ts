@@ -3,6 +3,7 @@ import {
    activeThreadId,
    closeThread,
    loadThreadTabs,
+   moveThread,
    NO_TABS,
    newThreadTabId,
    openThread,
@@ -125,5 +126,27 @@ describe("storage", () => {
       expect(loadThreadTabs("s1")).toEqual(NO_TABS);
       localStorage.setItem(own, JSON.stringify({ v: 1, threads: ["a", 3, "b"], thread: "zzz" }));
       expect(loadThreadTabs("s1")).toEqual(tabs(["a", "b"], "b"));
+   });
+});
+
+describe("moveThread", () => {
+   const t: ThreadTabs = { threads: ["a", "b", "c"], thread: "b" };
+   test("moves a tab in front of another, or to the end; keeps the active one", () => {
+      expect(moveThread(t, "c", "a")).toEqual({ threads: ["c", "a", "b"], thread: "b" });
+      expect(moveThread(t, "a", null)).toEqual({ threads: ["b", "c", "a"], thread: "b" });
+   });
+   test("returns the same tabs when nothing moves", () => {
+      expect(moveThread(t, "a", "b")).toBe(t);
+      expect(moveThread(t, "c", null)).toBe(t);
+      expect(moveThread(t, "a", "a")).toBe(t);
+      expect(moveThread(t, "x", "a")).toBe(t);
+      expect(moveThread(t, "a", "x")).toBe(t);
+   });
+});
+
+describe("replaceThread", () => {
+   test("never lists a Thread twice", () => {
+      const t: ThreadTabs = { threads: ["a", "draft:x"], thread: "draft:x" };
+      expect(replaceThread(t, "draft:x", "a")).toEqual({ threads: ["a"], thread: "a" });
    });
 });

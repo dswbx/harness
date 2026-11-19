@@ -90,7 +90,7 @@ export function FileView({
       <div
          ref={box}
          className={cn(
-            "code-colors min-h-0 flex-1 overflow-auto py-1.5 font-mono leading-5",
+            "code-colors min-h-0 flex-1 select-text overflow-auto py-1.5 font-mono leading-5",
             className,
          )}
          style={{ fontSize }}

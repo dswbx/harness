@@ -1,5 +1,10 @@
-import { expect, it, vi } from "vitest";
-import { cachedImage } from "./imageCache";
+import { afterEach, expect, it, vi } from "vitest";
+import { cachedImage, cachedImageNow } from "./imageCache";
+
+afterEach(() => {
+   vi.unstubAllGlobals();
+   vi.useRealTimers();
+});
 
 it("reads an image once, as a data URL, and again after a failure", async () => {
    const read = vi.fn(async () => ({ mime: "image/png", data: "AAAA" }));
@@ -44,4 +49,45 @@ it("a read evicted before it settles does not touch the newer entry for its key"
    // Still the new one, and not read a third time.
    expect(await cachedImage("t:evict", again)).toBe("data:image/png;base64,NEW");
    expect(again).toHaveBeenCalledTimes(1);
+});
+
+/** A browser `Image` whose `decode` does what the test says. */
+function stubImage(decode: () => Promise<void>, size = { naturalWidth: 400, naturalHeight: 200 }) {
+   vi.stubGlobal(
+      "Image",
+      class {
+         src = "";
+         naturalWidth = size.naturalWidth;
+         naturalHeight = size.naturalHeight;
+         decode = decode;
+      },
+   );
+}
+const png = async () => ({ mime: "image/png", data: "AAAA" });
+
+it("hands out a decoded image with its ratio, at once for a later mount", async () => {
+   stubImage(async () => {});
+   expect(cachedImageNow("t:decoded")).toBeUndefined();
+   const url = await cachedImage("t:decoded", png);
+   expect(cachedImageNow("t:decoded")).toEqual({ url, ratio: 2 });
+});
+
+it("still hands out an image that cannot be decoded (broken, too large), without a ratio", async () => {
+   stubImage(async () => {
+      throw new Error("EncodingError");
+   });
+   const url = await cachedImage("t:broken", png);
+   expect(url).toBe("data:image/png;base64,AAAA");
+   expect(cachedImageNow("t:broken")).toEqual({ url, ratio: undefined });
+});
+
+it("does not wait forever for a decode that never settles", async () => {
+   vi.useFakeTimers();
+   stubImage(() => new Promise(() => {}));
+   const p = cachedImage("t:hung", png);
+   await vi.advanceTimersByTimeAsync(2000);
+   expect(cachedImageNow("t:hung")).toBeUndefined();
+   await vi.advanceTimersByTimeAsync(1500);
+   expect(await p).toBe("data:image/png;base64,AAAA");
+   expect(vi.getTimerCount()).toBe(0);
 });

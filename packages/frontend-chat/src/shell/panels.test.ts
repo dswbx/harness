@@ -220,14 +220,16 @@ describe("Plan status", () => {
 
 describe("Side chats status", () => {
    test("has an icon always, and shows once a tab has something to show", () => {
-      expect(statusOf("side", { open: [], count: 0 })).toEqual({
+      expect(statusOf("side", { open: [], count: 0, unread: 0 })).toEqual({
          presence: "icon",
          badge: 0,
+         dot: false,
          tip: "Side chats (⇧⌘B new)",
       });
-      expect(statusOf("side", { open: ["a"], count: 3 })).toEqual({
+      expect(statusOf("side", { open: ["a"], count: 3, unread: 1 })).toEqual({
          presence: "ready",
          badge: 3,
+         dot: true,
          tip: "Side chats (⇧⌘B new)",
       });
    });

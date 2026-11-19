@@ -165,11 +165,18 @@ pub async fn prompt(
         }
         let meta = session.meta();
         let seen_anyway = stop_reason == "cancelled";
-        session.shared().app_events.emit(crate::api::AppEvent::TurnFinished { session_id: meta.id, thread_id: thread.clone(), title: meta.title, stop_reason });
+        let main = session.is_main(Some(&thread));
+        session.shared().app_events.emit(crate::api::AppEvent::TurnFinished {
+            session_id: meta.id,
+            thread_id: thread.clone(),
+            title: meta.title,
+            stop_reason,
+            main,
+        });
         // After `TurnFinished`: watchers of a Turn's end (`session_wait`) see it first. A stopped
         // Turn was the user's doing: nothing new to see.
         if !seen_anyway
-            && session.is_main(Some(&thread))
+            && main
             && let Err(e) = session.set_unseen(true)
         {
             tracing::warn!("marking a Session unseen: {e:#}");

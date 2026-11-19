@@ -239,11 +239,18 @@ export type Usage = { used: number; size: number };
 export type BackgroundJobInfo = { id: string; label: string; since: number };
 
 export type ChatState = {
+   /**
+    * Whether any Event was folded in. Every Session Log starts with `SessionCreated`, so false means
+    * the log is not here yet, not that the Session is empty.
+    */
+   loaded: boolean;
    items: Item[];
    /** The running Turn, if any. */
    turnId: string | null;
    /** ms epoch the running Turn started. */
    turnStartedAt: number | null;
+   /** ms epoch the last Turn ended, unless the user stopped it (nothing new to see then). */
+   turnEndedAt: number | null;
    mainThreadId: string | null;
    taskList: TaskEntry[];
    /**

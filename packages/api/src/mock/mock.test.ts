@@ -373,6 +373,7 @@ describe("MockTransport like the core", () => {
                thread_id: main,
                title: "T",
                stop_reason: "end_turn",
+               main: true,
             },
          ]);
       } finally {

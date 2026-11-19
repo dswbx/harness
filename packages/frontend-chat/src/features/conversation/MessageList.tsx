@@ -2,6 +2,7 @@ import type { SessionApi } from "@harness/api";
 import { VirtualList, type VirtualListHandle } from "@harness/ui";
 import { type Ref, useMemo, useRef } from "react";
 import type { ChatState, Item } from "../../state/reducer";
+import { waitsForUser } from "../../state/waiting";
 import type { DiffScope } from "../changes/DiffPanel";
 import { PlanContext, type PlanCtx } from "../plan/PlanNote";
 import { PendingRow } from "../prompt/pending/PendingRow";
@@ -58,17 +59,15 @@ export function MessageList({
    onOpenDiff: (s: DiffScope) => void;
    /** Opens the Plan panel at a plan version. Without it, plans show inline (no panel). */
    onOpenPlan?: (requestId: string) => void;
-   empty: string;
+   /** Shown when there are no rows. Null: nothing (the Session Log is not here yet). */
+   empty: string | null;
    handle?: Ref<VirtualListHandle>;
    /** Height of the bar over the list's bottom (`ScrollUnder`), kept free at the end. */
    inset?: number;
 }) {
    const running = state.turnId !== null;
-   // A permission (or plan) waits for the user: the Turn is open but the Agent is not working.
-   const waiting = useMemo(
-      () => running && state.items.some((i) => i.type === "permission" && !i.resolved && !i.auto),
-      [running, state.items],
-   );
+   const { turnId, items } = state;
+   const waiting = useMemo(() => waitsForUser({ turnId, items }), [turnId, items]);
    const composer = composerKey(api.sessionId, side ? threadId : null);
    const userCount = useMemo(
       () => state.items.filter((i) => i.type === "user").length,
@@ -108,6 +107,7 @@ export function MessageList({
                scrollbarClassName="z-10 [&>*]:bg-[color-mix(in_oklch,var(--border),var(--foreground)_6%)]"
                innerClassName="mx-auto max-w-3xl px-10 pb-3 pt-4"
                empty={
+                  empty !== null &&
                   pending.length === 0 && (
                      <p className="py-16 text-center text-sm text-muted-foreground">{empty}</p>
                   )

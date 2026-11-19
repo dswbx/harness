@@ -21,6 +21,9 @@ export const filesPanel = definePanel<null, FileTarget>({
          filesWindowUrl(api.sessionId, ref.path, ref.start),
          {
             title: `Files: ${ref.path}`,
+            remember: "files",
+            overlayTitleBar: true,
+            titleBarHeight: 44,
          },
       );
    },

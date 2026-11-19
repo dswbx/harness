@@ -36,6 +36,10 @@ describe("CodeFrame", () => {
       }
    });
 
+   it("drops the output's trailing newlines (no empty last line to select)", () => {
+      expect(frame("out\n\n").querySelector("pre")!.textContent).toBe("out\n");
+   });
+
    it("shows ansi output as colors", () => {
       const pre = frame("\u001b[31mred\u001b[0m", "ansi").querySelector("pre")!;
       expect(pre.textContent).toBe("red");
