@@ -1,5 +1,6 @@
 import type { TaskSummary } from "@harness/api";
 import type { PanelCtx } from "../../panels/contract";
+import type { SessionInfo } from "./ListView";
 import { TaskDetail } from "./TaskDetail";
 import type { TaskApi } from "./taskApi";
 
@@ -18,6 +19,7 @@ export function FloatingPreview({
    id,
    tasks,
    host,
+   sessions,
    onClose,
    onOpen,
 }: {
@@ -25,6 +27,7 @@ export function FloatingPreview({
    id: string;
    tasks: readonly TaskSummary[] | null;
    host: PanelCtx["host"];
+   sessions: ReadonlyMap<string, SessionInfo>;
    onClose: () => void;
    onOpen: (id: string) => void;
 }) {
@@ -40,6 +43,7 @@ export function FloatingPreview({
             id={id}
             tasks={tasks}
             host={host}
+            sessions={sessions}
             onBack={onClose}
             onClose={onClose}
             onOpen={onOpen}

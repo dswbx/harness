@@ -15,14 +15,13 @@ export type NestDrag = { id: string; target: string | null; x: number; y: number
 /** Distance before a press turns into a drag, so a click (or a shaky one) still clicks. */
 const THRESHOLD = 6;
 
-/** The drop row under the pointer: the element marked `data-nest-target` (its value: a task id, or "" the top level). */
+/**
+ * The drop row under the pointer: the element marked `data-nest-target` (its value: a task id, or "" the top level).
+ * Hit-tested, so a row scrolled out of sight (kept in the DOM by the virtual list) under a header does not count.
+ */
 function targetAt(x: number, y: number): string | null {
-   for (const el of document.querySelectorAll<HTMLElement>("[data-nest-target]")) {
-      const r = el.getBoundingClientRect();
-      if (y >= r.top && y < r.bottom && x >= r.left && x < r.right)
-         return el.dataset.nestTarget ?? null;
-   }
-   return null;
+   const el = document.elementFromPoint?.(x, y)?.closest<HTMLElement>("[data-nest-target]");
+   return el?.dataset.nestTarget ?? null;
 }
 
 /**

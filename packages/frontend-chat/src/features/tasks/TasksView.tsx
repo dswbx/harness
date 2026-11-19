@@ -365,6 +365,7 @@ export function TasksView({
                               id={selected}
                               tasks={tasks}
                               host={host}
+                              sessions={sessionInfo}
                               onClose={() => onSelect(null)}
                               onOpen={onSelect}
                            />
@@ -411,6 +412,7 @@ export function TasksView({
                      id={selected}
                      tasks={tasks}
                      host={host}
+                     sessions={sessionInfo}
                      onClose={() => onSelect(null)}
                      onOpen={onSelect}
                   />

@@ -57,6 +57,7 @@ import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, filesToInputs, type StripAsset } from "./AssetStrip";
 import { DuePicker } from "./DuePicker";
+import type { SessionInfo } from "./ListView";
 import { ParentPicker } from "./ParentPicker";
 import { PriorityMenu } from "./PriorityMenu";
 import { QuickAdd } from "./QuickAdd";
@@ -68,6 +69,24 @@ import { useAutosave } from "./useAutosave";
 import { useFileDrop } from "./useFileDrop";
 
 const noop = () => {};
+
+/** Live Session titles by id (the All tasks view); a Session not in it was deleted. */
+type Sessions = ReadonlyMap<string, SessionInfo>;
+
+/**
+ * A Session's title: live from `sessions` when given (not in it: deleted, then `gone`), else `cached`, the title the
+ * task stored when it was linked (the Session panel has no Session list).
+ */
+function sessionTitle(
+   id: string,
+   cached: string | null,
+   sessions: Sessions | undefined,
+): { title: string; gone: boolean } {
+   if (!sessions) return { title: cached ?? id, gone: false };
+   const live = sessions.get(id);
+   if (live) return { title: live.title, gone: false };
+   return { title: `${cached ?? "Session"} (deleted)`, gone: true };
+}
 
 const SECTION =
    "flex items-center gap-1.5 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
@@ -114,6 +133,7 @@ export function TaskDetail({
    id,
    tasks,
    host,
+   sessions,
    onBack,
    onOpen,
    onClose,
@@ -123,6 +143,8 @@ export function TaskDetail({
    /** All tasks (null while loading): parent and subtasks. */
    tasks: readonly TaskSummary[] | null;
    host: PanelCtx["host"];
+   /** Live Session titles (the All tasks view). Absent: the titles cached on the task. */
+   sessions?: Sessions;
    onBack: () => void;
    onOpen: (id: string) => void;
    /** A preview beside a list (the All tasks view): its menu and a close button on the title row, no Back. */
@@ -251,7 +273,16 @@ export function TaskDetail({
                   <div className="flex items-start gap-2">
                      <div className="min-w-0 flex-1 pt-0.5">
                         {task ? (
-                           <TitleEditor task={task} onSave={(title) => patch({ title })} />
+                           <TitleEditor
+                              task={task}
+                              onSave={(title) => {
+                                 setError(null);
+                                 return api.updateTask(id, { title }).then(put, (e) => {
+                                    fail(e);
+                                    throw e;
+                                 });
+                              }}
+                           />
                         ) : (
                            <div className="h-6 text-sm text-muted-foreground/60">Loading…</div>
                         )}
@@ -322,6 +353,7 @@ export function TaskDetail({
                                  sessionId={task.origin_session_id}
                                  title={task.origin_title}
                                  current={api.sessionId}
+                                 sessions={sessions}
                               />
                            </div>
                         </div>
@@ -351,8 +383,20 @@ export function TaskDetail({
                            onOpen={onOpen}
                            onError={setError}
                         />
-                        <Sessions task={task} current={api.sessionId} now={now} host={host} />
-                        <Activity activity={task.activity} byId={byId} task={task} now={now} />
+                        <SessionList
+                           task={task}
+                           current={api.sessionId}
+                           sessions={sessions}
+                           now={now}
+                           host={host}
+                        />
+                        <Activity
+                           activity={task.activity}
+                           byId={byId}
+                           task={task}
+                           sessions={sessions}
+                           now={now}
+                        />
                      </div>
                   )}
                </ScrollArea>
@@ -417,25 +461,43 @@ function ParentLine({
    );
 }
 
-/** The title, one line of Markdown: saved on Enter and on blur. A title changed elsewhere loads in unless typing. */
-function TitleEditor({ task, onSave }: { task: Task; onSave: (title: string) => void }) {
+/**
+ * The title, one line of Markdown: saved on Enter and on blur. A title changed elsewhere loads in unless typing or
+ * not saved yet (a failed save stays, and the next blur tries again); one that came while typing loads on blur.
+ */
+function TitleEditor({ task, onSave }: { task: Task; onSave: (title: string) => Promise<void> }) {
    const editor = useRef<PromptEditorHandle>(null);
+   /** The title the editor was loaded with or last saved. */
    const shown = useRef<string | null>(null);
+   /** A title typed but not saved yet (saving or failed); null: none. */
+   const unsaved = useRef<string | null>(null);
    const focused = useRef(false);
+   const load = (title: string) => {
+      shown.current = title;
+      unsaved.current = null;
+      editor.current?.loadMarkdown(title);
+   };
    useEffect(() => {
-      if (focused.current || task.title === shown.current) return;
+      if (focused.current || unsaved.current !== null || task.title === shown.current) return;
       shown.current = task.title;
       editor.current?.loadMarkdown(task.title);
    }, [task.title]);
    const save = () => {
       const md = editor.current?.getMarkdown().trim() ?? "";
-      if (!md) {
-         editor.current?.loadMarkdown(task.title);
+      if (!md) return load(task.title);
+      if (md === shown.current) {
+         unsaved.current = null;
          return;
       }
-      if (md === shown.current) return;
-      shown.current = md;
-      onSave(md);
+      unsaved.current = md;
+      onSave(md).then(
+         () => {
+            shown.current = md;
+            if (unsaved.current === md) unsaved.current = null;
+         },
+         // The error shows above; the text stays unsaved for the next blur.
+         noop,
+      );
    };
    return (
       <div
@@ -446,6 +508,7 @@ function TitleEditor({ task, onSave }: { task: Task; onSave: (title: string) => 
          onBlur={() => {
             focused.current = false;
             save();
+            if (unsaved.current === null && task.title !== shown.current) load(task.title);
          }}
       >
          <PromptEditor
@@ -722,26 +785,29 @@ function Subtasks({
    );
 }
 
-/** A Session as a chip with its dot; it opens the Session (when the host can) unless it is this one. */
+/** A Session as a chip with its dot; it opens the Session (when the host can) unless it is this one or deleted. */
 function SessionChip({
    sessionId,
    title,
    current,
+   sessions,
 }: {
    sessionId: string | null;
    title: string | null;
    current: string | null;
+   sessions: Sessions | undefined;
 }) {
    const openSession = useContext(OpenSession);
    if (!sessionId) return <span className="text-muted-foreground">Outside a Session</span>;
    const here = sessionId === current;
+   const shown = sessionTitle(sessionId, title, sessions);
    const body = (
       <>
          <span className="size-1.5 shrink-0 rounded-full bg-sky-500" />
-         <span className="truncate">{here ? "This session" : (title ?? sessionId)}</span>
+         <span className="truncate">{here ? "This session" : shown.title}</span>
       </>
    );
-   if (here || !openSession)
+   if (here || shown.gone || !openSession)
       return (
          <span className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-md bg-muted px-2">
             {body}
@@ -759,30 +825,33 @@ function SessionChip({
    );
 }
 
-function Sessions({
+function SessionList({
    task,
    current,
+   sessions,
    now,
    host,
 }: {
    task: Task;
    current: string | null;
+   sessions: Sessions | undefined;
    now: number;
    host: PanelCtx["host"];
 }) {
    const openSession = useContext(OpenSession);
-   const rows: { id: string; title: string; note: string; tag: string | null }[] = [];
+   const rows: { id: string; title: string; gone: boolean; note: string; tag: string | null }[] =
+      [];
    if (task.origin_session_id)
       rows.push({
          id: task.origin_session_id,
-         title: task.origin_title ?? task.origin_session_id,
+         ...sessionTitle(task.origin_session_id, task.origin_title, sessions),
          note: "Created this task",
          tag: "origin",
       });
    for (const l of task.sessions)
       rows.push({
          id: l.session_id,
-         title: l.title,
+         ...sessionTitle(l.session_id, l.title, sessions),
          note: `Started from this task · ${formatAgeAgo(l.started_ms, now)}`,
          tag: null,
       });
@@ -807,7 +876,7 @@ function Sessions({
             )}
             {rows.map((r) => {
                const here = r.id === current;
-               const can = !here && !!openSession;
+               const can = !here && !r.gone && !!openSession;
                return (
                   <button
                      key={`${r.id}-${r.note}`}
@@ -849,6 +918,7 @@ function activityText(
    a: TaskActivity,
    byId: ReadonlyMap<string, TaskSummary>,
    task: Task,
+   sessions: Sessions | undefined,
 ): ReactNode {
    const who = a.by === "agent" ? "The Agent" : "You";
    const k = a.kind;
@@ -871,7 +941,8 @@ function activityText(
          return `${who} changed the status: ${STATUS_LABEL[k.from]} → ${STATUS_LABEL[k.to]}`;
       case "session_started": {
          const link = task.sessions.find((l) => l.session_id === k.session_id);
-         return `${who} started a Session from it${link ? `: ${link.title}` : ""}`;
+         const title = link && sessionTitle(link.session_id, link.title, sessions).title;
+         return `${who} started a Session from it${title ? `: ${title}` : ""}`;
       }
    }
 }
@@ -880,11 +951,13 @@ function Activity({
    activity,
    byId,
    task,
+   sessions,
    now,
 }: {
    activity: TaskActivity[];
    byId: ReadonlyMap<string, TaskSummary>;
    task: Task;
+   sessions: Sessions | undefined;
    now: number;
 }) {
    if (activity.length === 0) return null;
@@ -896,7 +969,7 @@ function Activity({
       >
          {shown.map((a) => (
             <div key={`${a.at_ms}:${JSON.stringify(a.kind)}`}>
-               {activityText(a, byId, task)} ·{" "}
+               {activityText(a, byId, task, sessions)} ·{" "}
                <Tooltip content={formatDateTime(a.at_ms)}>
                   <span>{formatAgeAgo(a.at_ms, now)}</span>
                </Tooltip>
