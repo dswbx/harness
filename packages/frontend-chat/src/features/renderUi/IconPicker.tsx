@@ -6,6 +6,7 @@ import { ICONS } from "./tools";
 const COLS = 8;
 /** A cell is `size-7` (28px) plus the 2px gap. */
 const ROW = 30;
+const INSET = 2;
 const VIEW = 150;
 const OVERSCAN = 2;
 
@@ -64,7 +65,20 @@ export function IconPicker({
    );
    const found = useMemo(() => {
       const q = squash(query);
-      return q && names ? names.filter((n) => squash(n).includes(q)) : [];
+      if (!q || !names) return [];
+      // Exact name, then prefix, then a word in the name, then anywhere.
+      const rank = (n: string) => {
+         const s = squash(n);
+         if (s === q) return 0;
+         if (s.startsWith(q)) return 1;
+         if (n.split("-").some((w) => w.startsWith(q))) return 2;
+         return s.includes(q) ? 3 : -1;
+      };
+      return names
+         .map((n) => [n, rank(n)] as const)
+         .filter(([, r]) => r >= 0)
+         .sort((a, b) => a[1] - b[1])
+         .map(([n]) => n);
    }, [query, names]);
 
    const rows = Math.ceil(found.length / COLS);
@@ -103,7 +117,7 @@ export function IconPicker({
          ) : (
             <ScrollArea
                className="rounded-md"
-               style={{ height: Math.min(VIEW, rows * ROW) }}
+               style={{ height: Math.min(VIEW, rows * ROW) + 2 * INSET }}
                key={query}
                onViewportScroll={(e) => setTop(e.currentTarget.scrollTop)}
             >
@@ -111,7 +125,12 @@ export function IconPicker({
                   role="radiogroup"
                   aria-labelledby={labelId}
                   className="grid grid-cols-8 content-start gap-0.5"
-                  style={{ paddingTop: first * ROW, paddingBottom: (rows - last) * ROW }}
+                  // INSET keeps the selected ring off the viewport edge, where it is clipped.
+                  style={{
+                     padding: INSET,
+                     paddingTop: INSET + first * ROW,
+                     paddingBottom: INSET + (rows - last) * ROW,
+                  }}
                >
                   {shown.map((n) => (
                      <Cell key={n} name={n} on={picked === n} onPick={onPick} />
