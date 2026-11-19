@@ -26,6 +26,7 @@ import { useMarkSeen } from "../sessions/useMarkSeen";
 import { useSessions } from "../sessions/useSessions";
 import { useTurnNotices } from "../sessions/useTurnNotices";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog";
+import { sectionStore } from "../settings/settingsStore";
 import { AttachDialog } from "../shared-artifacts/AttachDialog";
 import { SharedArtifactsSection } from "../shared-artifacts/SharedArtifactsSection";
 import { TasksEntry } from "../tasks/TasksEntry";
@@ -117,6 +118,10 @@ export function Shell({ transport }: { transport: Transport }) {
    /** Folder the Composer opens with (the + on a sidebar folder group); null: its own default. */
    const [composerFolder, setComposerFolder] = useState<string | null>(null);
    const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+   // The next open lands on the last section shown, also after a restart.
+   useEffect(() => {
+      if (settingsSection) sectionStore.set(settingsSection);
+   }, [settingsSection]);
    const [mcpVersion, setMcpVersion] = useState(0);
    const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
    const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -142,7 +147,7 @@ export function Shell({ transport }: { transport: Transport }) {
          if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ",") {
             e.preventDefault();
             e.stopPropagation();
-            setSettingsSection((s) => s ?? "appearance");
+            setSettingsSection((s) => s ?? sectionStore.get());
          }
       };
       window.addEventListener("keydown", onKey, true);
@@ -368,7 +373,7 @@ export function Shell({ transport }: { transport: Transport }) {
                      statusRef={setStatus}
                      indicatorRef={setIndicator}
                      menuRef={setMenu}
-                     onOpenSettings={() => setSettingsSection("appearance")}
+                     onOpenSettings={() => setSettingsSection(sectionStore.get())}
                      onOpenWindow={() =>
                         openViewWindow(current.id, current.title).catch((e) =>
                            report("Could not open window", e),

@@ -1,4 +1,5 @@
 export * from "./composites/event-log";
+export * from "./composites/movable";
 export * from "./composites/resizable";
 export * from "./composites/stat";
 export * from "./composites/status-dot";
