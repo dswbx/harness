@@ -3,6 +3,7 @@ import { HarnessClient as Client } from "@harness/api";
 import { useEffect, useMemo, useState } from "react";
 import { ViewHost } from "../platform/ViewHost";
 import { SessionHeader, trafficLights } from "../session-header/SessionHeader";
+import { SessionRenameDialog } from "../sessions/SessionRenameDialog";
 import { useMarkSeen } from "../sessions/useMarkSeen";
 import { useSessions } from "../sessions/useSessions";
 import { useTurnNotices } from "../sessions/useTurnNotices";
@@ -22,6 +23,7 @@ export function Solo({
    const [status, setStatus] = useState<HTMLDivElement | null>(null);
    const [indicator, setIndicator] = useState<HTMLSpanElement | null>(null);
    const [menu, setMenu] = useState<HTMLDivElement | null>(null);
+   const [renaming, setRenaming] = useState(false);
    const client = useMemo(() => new Client(transport), [transport]);
    const { sessions, settled } = useSessions(client);
    const session = settled ? (sessions.find((x) => x.id === sessionId) ?? null) : undefined;
@@ -54,6 +56,7 @@ export function Solo({
             session={session}
             parent={parent}
             onOpenParent={() => parent && setSessionId(parent.id)}
+            onRename={() => setRenaming(true)}
             toolbarRef={setToolbar}
             statusRef={setStatus}
             indicatorRef={setIndicator}
@@ -73,6 +76,11 @@ export function Solo({
                sessions={sessions}
             />
          </div>
+         <SessionRenameDialog
+            client={client}
+            session={renaming ? session : null}
+            onClose={() => setRenaming(false)}
+         />
       </div>
    );
 }

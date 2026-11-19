@@ -116,7 +116,7 @@ function ChatBody({
    useEffect(() => {
       if (state.loaded && !hasItems.current) prompt.current?.focus();
    }, [state.loaded]);
-   const { ui, rows, subagents } = useRows(state.items, state.sharedAttached);
+   const { ui, rows, subagents } = useRows(state.items, state.sharedAttached, state.panelEdits);
 
    const sharedMetas = useSharedMetas(api);
    const sessionMap = useMemo(

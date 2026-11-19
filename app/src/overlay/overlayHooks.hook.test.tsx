@@ -114,6 +114,7 @@ describe("useQuickDraft", () => {
          status: "working",
          unused: false,
          unseen: false,
+         title_explicit: false,
       });
       expect(hook.result.current.title).toBe("Hello");
       expect(dispatch).toHaveBeenCalledWith({ type: "sent" });
@@ -129,6 +130,7 @@ describe("useQuickDraft", () => {
          status: "idle",
          unused: false,
          unseen: false,
+         title_explicit: false,
       });
       expect(dispatch).not.toHaveBeenCalled();
    });
@@ -145,6 +147,7 @@ describe("useQuickDraft", () => {
          status: "idle",
          unused: true,
          unseen: false,
+         title_explicit: false,
       });
       expect(dispatch).not.toHaveBeenCalledWith({ type: "sent" });
       expect(localStorage.getItem("harness.overlay.agent")).toBeNull();

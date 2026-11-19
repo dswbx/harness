@@ -18,6 +18,8 @@ import {
    FolderOpen,
    Info,
    MoreHorizontal,
+   Pencil,
+   RotateCcw,
    Settings,
    Split,
    Zap,
@@ -47,6 +49,7 @@ export function SessionHeader({
    git,
    leading,
    onOpenWindow,
+   onRename,
    onChooseEditor,
    toolbarRef,
    statusRef,
@@ -65,6 +68,8 @@ export function SessionHeader({
    git?: GitRef;
    leading?: ReactNode;
    onOpenWindow?: () => void;
+   /** Opens the rename dialog. */
+   onRename: () => void;
    /** Opens Settings at the editor choice (no editor chosen yet). */
    onChooseEditor?: () => void;
    toolbarRef: (el: HTMLDivElement | null) => void;
@@ -173,6 +178,21 @@ export function SessionHeader({
                className="w-56"
                onCloseAutoFocus={(e) => e.preventDefault()}
             >
+               <DropdownMenuItem onSelect={onRename}>
+                  <Pencil /> Rename…
+               </DropdownMenuItem>
+               {session.title_explicit && (
+                  <DropdownMenuItem
+                     onSelect={() =>
+                        void client
+                           .resetSessionTitle(session.id)
+                           .catch((e) => report("Could not reset the title", e))
+                     }
+                  >
+                     <RotateCcw /> Use automatic title
+                  </DropdownMenuItem>
+               )}
+               <DropdownMenuSeparator />
                {onOpenWindow && (
                   <>
                      <DropdownMenuItem onSelect={onOpenWindow}>

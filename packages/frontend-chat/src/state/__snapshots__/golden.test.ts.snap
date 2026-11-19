@@ -807,6 +807,10 @@ exports[`golden Session Logs > codex-basic.jsonl reduces to the committed chat s
   "lineComments": [],
   "loaded": true,
   "mainThreadId": "01a177f4-7827-73dc-a5c5-47fc180ce57e",
+  "panelEdits": {
+    "deleted": {},
+    "overrides": {},
+  },
   "plans": [],
   "process": {
     "message": null,
@@ -1117,6 +1121,10 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
   "lineComments": [],
   "loaded": true,
   "mainThreadId": "golden-thread-main",
+  "panelEdits": {
+    "deleted": {},
+    "overrides": {},
+  },
   "plans": [],
   "process": {
     "message": "idle",
@@ -1221,6 +1229,10 @@ exports[`golden Session Logs > many-kinds.jsonl reduces to the committed chat st
       "lineComments": [],
       "loaded": true,
       "mainThreadId": null,
+      "panelEdits": {
+        "deleted": {},
+        "overrides": {},
+      },
       "plans": [],
       "process": null,
       "promptCaps": null,
@@ -1623,6 +1635,10 @@ exports[`golden Session Logs > recent-fields.jsonl reduces to the committed chat
     "acceptEdits": "Accept edits",
     "plan": "Plan",
   },
+  "panelEdits": {
+    "deleted": {},
+    "overrides": {},
+  },
   "plans": [
     {
       "clearsContext": false,
@@ -1781,6 +1797,17 @@ exports[`golden Session Logs > shared-artifacts.jsonl reduces to the committed c
   ],
   "loaded": true,
   "mainThreadId": "golden-thread-main",
+  "panelEdits": {
+    "deleted": {
+      "progress": true,
+    },
+    "overrides": {
+      "progress": {
+        "icon": "chart",
+        "title": "Release progress",
+      },
+    },
+  },
   "plans": [],
   "process": null,
   "promptCaps": null,

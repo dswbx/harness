@@ -78,6 +78,8 @@ fn variant_name(kind: &EventKind) -> &'static str {
         EventKind::WorkspaceChanged { .. } => "WorkspaceChanged",
         EventKind::FrontendToolOutput { .. } => "FrontendToolOutput",
         EventKind::FrontendError { .. } => "FrontendError",
+        EventKind::PanelEdited { .. } => "PanelEdited",
+        EventKind::PanelDeleted { .. } => "PanelDeleted",
         EventKind::StateChanged { .. } => "StateChanged",
         EventKind::ArtifactAttached { .. } => "ArtifactAttached",
         EventKind::ArtifactDetached { .. } => "ArtifactDetached",

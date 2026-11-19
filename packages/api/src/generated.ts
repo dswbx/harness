@@ -24,7 +24,9 @@ export type AppEvent =
 /**  As `SessionSummary::unused`. */
 unused: boolean; 
 /**  As `SessionSummary::unseen`. */
-unseen: boolean } | 
+unseen: boolean; 
+/**  As `SessionSummary::title_explicit`. */
+title_explicit: boolean } | 
 /**  A Turn ended (`stop_reason` as in `TurnEnded`). `main`: true for the Main Thread, false for a Side Thread. */
 { type: "TurnFinished"; session_id: string; thread_id: string; title: string; stop_reason: string; main: boolean } | 
 /**  Agents were installed, updated or removed. */
@@ -285,6 +287,19 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  *  (repeats and items that are gone are ignored) so the Agent learns about it.
  */
 { type: "ReportFrontendError"; session_id: string; tool: string; item: string; message: string } | 
+/**
+ *  Renames a `render_ui` panel and sets its icon as the user: a full override that stays when
+ *  the Agent calls again with that id. Title is trimmed and cut to 80 characters; empty or
+ *  absent values (both: back to the Agent's) fall back to the Agent's. Logged as `PanelEdited`.
+ *  Not for a Shared Artifact (see `RenameSharedArtifact`).
+ */
+{ type: "EditPanel"; session_id: string; item_id: string; title?: string | null; icon?: string | null } | 
+/**
+ *  Deletes a `render_ui` panel: its file in `panels/` is removed, then `PanelDeleted` is logged.
+ *  It comes back only when the Agent calls with that id again. Refuses a Shared Artifact (use
+ *  `DetachSharedArtifact`).
+ */
+{ type: "DeletePanel"; session_id: string; item_id: string } | 
 /**  An image in `frontend/` (base64), e.g. one a Frontend Tool call named. */
 { type: "FrontendReadImage"; session_id: string; path: string } | { type: "FrontendWrite"; session_id: string; path: string; content: string } | 
 /**  Files under `dir` (recursive, relative to `frontend/`). */
@@ -304,6 +319,8 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "UpdateBranch"; folder: string; branch: string } | 
 /**  Names the Session. Titles the Agent sends no longer replace it. */
 { type: "SetSessionTitle"; session_id: string; title: string } | 
+/**  Back to the automatic title: the Agent's last, else the first prompt's. Agent titles replace it again. */
+{ type: "ResetSessionTitle"; session_id: string } | 
 /**  The user viewed the Session: clears `SessionSummary::unseen`. */
 { type: "MarkSessionSeen"; session_id: string } | 
 /**  Stops the Agent; a Worktree is WIP-committed (when dirty) and removed, its branch kept. */
@@ -432,7 +449,9 @@ global?: boolean } | { type: "ListPermissionRules" } | { type: "AddPermissionRul
  */
 { type: "ShareMarkdown"; session_id: string; markdown: string; title?: string | null; 
 /**  The block's key in the Frontend, kept in `created_by.origin`. */
-origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; id: string } | { type: "DetachSharedArtifact"; session_id: string; id: string } | { type: "RenameSharedArtifact"; id: string; title: string } | 
+origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; id: string } | { type: "DetachSharedArtifact"; session_id: string; id: string } | 
+/**  Sets a Shared Artifact's title and, when given, its icon (`""` clears it). */
+{ type: "RenameSharedArtifact"; id: string; title: string; icon?: string | null } | 
 /**  Removes the Shared Artifact's folder. Items that show it then show it as missing. */
 { type: "DeleteSharedArtifact"; id: string } | 
 /**  Opens a Shared Artifact's content file in the user's editor. Needs no Session. */
@@ -748,6 +767,17 @@ files?: { [key in string]: string } } |
  *  the item's id clears it.
  */
 { type: "FrontendError"; tool: string; item: string; message: string } | 
+/**
+ *  The user renamed a `render_ui` item or changed its icon (`EditPanel`): a full override of
+ *  what the Agent set, kept when the Agent calls the tool again with that id. `title` and
+ *  `icon` both `None` go back to the Agent's.
+ */
+{ type: "PanelEdited"; tool: string; id: string; title?: string | null; icon?: string | null } | 
+/**
+ *  The user deleted a `render_ui` item (`DeletePanel`). It stays gone until the Agent calls the
+ *  tool with that id again; a user override survives that.
+ */
+{ type: "PanelDeleted"; tool: string; id: string } | 
 /**
  *  The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
  *  current state.
@@ -1198,6 +1228,8 @@ export type SessionSummary = {
 	unused: boolean,
 	/**  A Main Thread Turn ended (not cancelled) since the user last viewed the Session. */
 	unseen: boolean,
+	/**  The title was set on purpose (`SetSessionTitle`, the `set_title` tool): `ResetSessionTitle` goes back to the automatic one. */
+	title_explicit: boolean,
 	workspace: WorkspaceInfo,
 	/**  A Sub Session: the Session whose Agent started it (`session_start`). */
 	parent?: SessionParent | null,
@@ -1223,6 +1255,8 @@ export type SharedArtifactMeta = {
 	updated_ms: number,
 	created_by: SharedCreator,
 	attached?: string[],
+	/**  The Frontend's icon name for its Panel; none: the Frontend's default. */
+	icon?: string | null,
 };
 
 /**  The Session that made an artifact shared. */

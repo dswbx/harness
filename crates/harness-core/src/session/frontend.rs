@@ -24,7 +24,25 @@ pub struct FrontendItem {
     pub thread: Option<ThreadId>,
     /// Its latest call's copied images: src -> path relative to `frontend/`.
     pub files: std::collections::BTreeMap<String, String>,
+    /// The user's title and icon for it (`PanelEdited`); they win over the Agent's `input.title`.
+    pub title: Option<String>,
+    pub icon: Option<String>,
 }
+
+impl FrontendItem {
+    /// The title to show: the user's, else the Agent's `title`.
+    pub fn display_title(&self) -> Option<&str> {
+        self.title.as_deref().or_else(|| self.input.get("title").and_then(|v| v.as_str()))
+    }
+
+    /// The icon to show: the user's, else the Agent's `icon`.
+    pub fn display_icon(&self) -> Option<&str> {
+        self.icon.as_deref().or_else(|| self.input.get("icon").and_then(|v| v.as_str()))
+    }
+}
+
+/// Longest user title of a panel, in characters.
+const MAX_PANEL_TITLE: usize = 80;
 
 /// The Frontend Tool that shows panels, and so Shared Artifacts.
 pub const RENDER_UI: &str = "render_ui";
@@ -187,6 +205,64 @@ impl Session {
     /// order first seen: the live items a Frontend shows (e.g. `render_ui` slots), latest input each.
     pub fn frontend_items(&self) -> anyhow::Result<Vec<Arc<FrontendItem>>> {
         self.log.frontend_items()
+    }
+
+    /// Logs `PanelEdited` for a live `render_ui` item: the user's title (trimmed, whitespace
+    /// collapsed, at most `MAX_PANEL_TITLE` characters) and icon. Empty values are `None`; both
+    /// `None` go back to the Agent's. Refuses a Shared Artifact item (rename it with
+    /// `RenameSharedArtifact`).
+    pub fn edit_panel(&self, item_id: &str, title: Option<String>, icon: Option<String>) -> anyhow::Result<()> {
+        let item = self.live_panel(item_id)?;
+        if item.input.get("source").and_then(|v| v.as_str()).and_then(crate::shared::reference).is_some() {
+            return Err(crate::error::invalid(format!("{item_id} is a shared artifact: rename it with RenameSharedArtifact")));
+        }
+        let title =
+            title.map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(MAX_PANEL_TITLE).collect::<String>()).filter(|t| !t.is_empty());
+        let icon = icon.map(|i| i.trim().chars().take(40).collect::<String>()).filter(|i| !i.is_empty());
+        self.log.append(None, EventKind::PanelEdited { tool: RENDER_UI.to_owned(), id: item_id.to_owned(), title, icon })?;
+        Ok(())
+    }
+
+    /// Deletes a live `render_ui` item: logs `PanelDeleted`, then removes its file in `panels/` when
+    /// it has one (best effort, a failure is only logged). A symbolic link is unlinked, never followed;
+    /// a source that is invalid or leads outside `panels/` keeps its file; so does one another live
+    /// item still names. Refuses a Shared Artifact item (detach it instead).
+    pub fn delete_panel(&self, item_id: &str) -> anyhow::Result<()> {
+        let item = self.live_panel(item_id)?;
+        let source = item.input.get("source").and_then(|v| v.as_str()).map(str::to_owned);
+        if source.as_deref().is_some_and(|s| crate::shared::reference(s).is_some()) {
+            return Err(crate::error::invalid(format!("{item_id} is a shared artifact: detach it instead")));
+        }
+        self.log.append(None, EventKind::PanelDeleted { tool: RENDER_UI.to_owned(), id: item_id.to_owned() })?;
+        if let Some(source) = source
+            && let Err(e) = self.remove_panel_file(&source)
+        {
+            tracing::warn!("deleting the file of panel {item_id}: {e:#}");
+        }
+        Ok(())
+    }
+
+    /// Removes the entry `source` names in `panels/`, unless another live panel names the same one.
+    fn remove_panel_file(&self, source: &str) -> anyhow::Result<()> {
+        let dir = self.panels_dir();
+        let Ok(entry) = crate::panels::entry_path(&dir, source) else { return Ok(()) };
+        for other in self.frontend_items()? {
+            if other.tool != RENDER_UI {
+                continue;
+            }
+            let Some(s) = other.input.get("source").and_then(|v| v.as_str()) else { continue };
+            if crate::shared::reference(s).is_none() && crate::panels::entry_path(&dir, s).is_ok_and(|e| e == entry) {
+                return Ok(());
+            }
+        }
+        if std::fs::symlink_metadata(&entry).is_ok_and(|m| m.is_file() || m.file_type().is_symlink()) {
+            std::fs::remove_file(&entry)?;
+        }
+        Ok(())
+    }
+
+    fn live_panel(&self, item_id: &str) -> anyhow::Result<Arc<FrontendItem>> {
+        self.frontend_item(RENDER_UI, item_id)?.ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))
     }
 
     /// One live Frontend Tool item by tool and id.

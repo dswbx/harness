@@ -18,7 +18,7 @@ import {
    DropdownMenuContent,
    DropdownMenuItem,
    DropdownMenuTrigger,
-   Input,
+   RenameDialog,
    ResizeHandle,
    ScrollArea,
    useResizableWidth,
@@ -32,9 +32,10 @@ import {
    Share2,
    Trash2,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Segmented } from "../../lib/Segmented";
 import { formatRelativeTime, useNow } from "../../lib/time";
+import { PanelIcon } from "../renderUi/panelIcon";
 import { RenderUi, type UiEnv } from "../renderUi/RenderUi";
 import { sharedSourceText, useSharedArtifact } from "../renderUi/sharedSource";
 import { sharedNode } from "../renderUi/tools";
@@ -153,7 +154,12 @@ export function SharedArtifactView({
             className="flex h-13 shrink-0 items-center gap-2 border-b px-4"
          >
             {leading}
-            <Share2 className="size-4 shrink-0 text-muted-foreground" />
+            {/* Its own icon when it has one, else the share icon. */}
+            <PanelIcon
+               name={meta?.icon}
+               fallback={Share2}
+               className="size-4 shrink-0 text-muted-foreground"
+            />
             <span className="min-w-0 truncate text-sm font-medium">{meta?.title ?? id}</span>
             {meta && (
                <>
@@ -300,9 +306,12 @@ export function SharedArtifactView({
          {meta && (
             <RenameDialog
                open={dialog === "rename"}
-               title={meta.title}
-               onClose={() => setDialog(null)}
-               onRename={async (title) => {
+               onOpenChange={(o) => !o && setDialog(null)}
+               title="Rename shared artifact"
+               label="Title"
+               description="The id and folder stay the same."
+               value={meta.title}
+               onSave={async (title) => {
                   const m = await client.renameSharedArtifact(id, title);
                   onRenamed?.(m);
                }}
@@ -364,57 +373,5 @@ function Activity({ text, ts, now }: { text: string; ts?: number; now: number })
             </time>
          )}
       </div>
-   );
-}
-
-function RenameDialog({
-   open,
-   title,
-   onClose,
-   onRename,
-}: {
-   open: boolean;
-   title: string;
-   onClose: () => void;
-   onRename: (title: string) => Promise<void>;
-}) {
-   const [value, setValue] = useState(title);
-   const [error, setError] = useState<string | null>(null);
-   useEffect(() => {
-      if (open) {
-         setValue(title);
-         setError(null);
-      }
-   }, [open, title]);
-   const save = () => {
-      const t = value.trim();
-      if (!t) return;
-      onRename(t).then(onClose, (e) => setError(errText(e)));
-   };
-   return (
-      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-         <DialogContent>
-            <DialogHeader>
-               <DialogTitle>Rename shared artifact</DialogTitle>
-               <DialogDescription>The id and folder stay the same.</DialogDescription>
-            </DialogHeader>
-            <Input
-               autoFocus
-               value={value}
-               onChange={(e) => setValue(e.target.value)}
-               onKeyDown={(e) => e.key === "Enter" && save()}
-               aria-label="Title"
-            />
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <DialogFooter>
-               <Button variant="outline" onClick={onClose}>
-                  Cancel
-               </Button>
-               <Button disabled={!value.trim()} onClick={save}>
-                  Rename
-               </Button>
-            </DialogFooter>
-         </DialogContent>
-      </Dialog>
    );
 }

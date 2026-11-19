@@ -13,6 +13,8 @@ type FrontendFiles = Pick<
    | "getState"
    | "patchState"
    | "reportFrontendError"
+   | "editPanel"
+   | "deletePanel"
    | "answerFrontendRequest"
 >;
 
@@ -43,6 +45,10 @@ export const frontendFilesApi = (transport: Transport, sessionId: string): Front
    patchState: (ops) => run(transport, { type: "PatchState", session_id: sessionId, ops }),
    reportFrontendError: (tool, item, message) =>
       run(transport, { type: "ReportFrontendError", session_id: sessionId, tool, item, message }),
+   editPanel: (item_id, title, icon) =>
+      run(transport, { type: "EditPanel", session_id: sessionId, item_id, title, icon }),
+   deletePanel: (item_id) =>
+      run(transport, { type: "DeletePanel", session_id: sessionId, item_id }),
    answerFrontendRequest: (request_id, answer) =>
       run(transport, {
          type: "AnswerFrontendRequest",

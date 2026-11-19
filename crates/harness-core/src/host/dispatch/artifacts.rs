@@ -47,8 +47,8 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
-    pub(in crate::host) fn cmd_rename_shared_artifact(&self, id: String, title: String) -> anyhow::Result<CommandResult> {
-        Ok(CommandResult::SharedArtifactInfo { meta: self.shared.artifacts.rename(&id, &title)? })
+    pub(in crate::host) fn cmd_rename_shared_artifact(&self, id: String, title: String, icon: Option<String>) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::SharedArtifactInfo { meta: self.shared.artifacts.rename(&id, &title, icon.as_deref())? })
     }
 
     pub(in crate::host) async fn cmd_delete_shared_artifact(&self, id: String) -> anyhow::Result<CommandResult> {

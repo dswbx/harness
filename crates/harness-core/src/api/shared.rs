@@ -41,6 +41,9 @@ pub struct SharedArtifactMeta {
     pub created_by: SharedCreator,
     #[serde(default)]
     pub attached: Vec<SessionId>,
+    /// The Frontend's icon name for its Panel; none: the Frontend's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// One row of `ListSharedArtifacts`. `snippet`: text around the match, for a search.

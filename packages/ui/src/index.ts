@@ -1,5 +1,6 @@
 export * from "./composites/event-log";
 export * from "./composites/movable";
+export * from "./composites/rename-dialog";
 export * from "./composites/resizable";
 export * from "./composites/stat";
 export * from "./composites/status-dot";
@@ -13,6 +14,7 @@ export * from "./primitives/button";
 export * from "./primitives/calendar";
 export * from "./primitives/card";
 export * from "./primitives/checkbox";
+export * from "./primitives/context-menu";
 export * from "./primitives/dialog";
 export * from "./primitives/dropdown-menu";
 export * from "./primitives/input";

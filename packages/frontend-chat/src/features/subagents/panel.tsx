@@ -25,7 +25,7 @@ export const subagentsPanel = definePanel<Model>({
       return useMemo(() => {
          const { subagents } = chatRowsOf(
             state.items,
-            renderUiOf(state.items, state.sharedAttached),
+            renderUiOf(state.items, state.sharedAttached, state.panelEdits),
          );
          // Most Sessions have none: no walk over the items then.
          if (subagents.size === 0) return NONE;
@@ -35,7 +35,7 @@ export const subagentsPanel = definePanel<Model>({
             turnRunning && !waitingForUser,
          );
          return { rows, running: rows.filter((r) => r.state === "running").length };
-      }, [state.items, state.sharedAttached, turnRunning, waitingForUser]);
+      }, [state.items, state.sharedAttached, state.panelEdits, turnRunning, waitingForUser]);
    },
    status: (m) => ({
       presence: m.rows.length > 0 ? "ready" : "absent",

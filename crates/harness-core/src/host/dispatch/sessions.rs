@@ -173,6 +173,11 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
+    pub(in crate::host) fn cmd_reset_session_title(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.reset_title()?;
+        Ok(CommandResult::Ok)
+    }
+
     pub(in crate::host) fn cmd_mark_session_seen(&self, session_id: SessionId) -> anyhow::Result<CommandResult> {
         self.session(&session_id)?.set_unseen(false)?;
         Ok(CommandResult::Ok)

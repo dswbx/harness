@@ -17,6 +17,7 @@ describe("applyStatus", () => {
             status: "working",
             unused: false,
             unseen: false,
+            title_explicit: false,
          },
          99,
       );
@@ -33,6 +34,7 @@ describe("applyStatus", () => {
             status: "idle",
             unused: false,
             unseen: false,
+            title_explicit: false,
          },
          1,
       );
@@ -45,11 +47,24 @@ describe("applyStatus", () => {
          title: "t-a",
          status: "idle",
          unused: false,
+         title_explicit: false,
       } as const;
       const marked = applyStatus([s("a", { unused: false })], { ...ev, unseen: true }, 5);
       expect(marked?.[0]).toMatchObject({ unseen: true, updated_ms: 5 });
       const seen = applyStatus(marked ?? [], { ...ev, unseen: false }, 9);
       expect(seen?.[0]).toMatchObject({ unseen: false, updated_ms: 5 });
+   });
+   it("patches `title_explicit`", () => {
+      const ev = {
+         type: "SessionStatus",
+         session_id: "a",
+         title: "mine",
+         status: "idle",
+         unused: false,
+         unseen: false,
+         title_explicit: true,
+      } as const;
+      expect(applyStatus([s("a")], ev, 5)?.[0]).toMatchObject({ title_explicit: true });
    });
    it("returns null for an unknown Session", () => {
       expect(
@@ -62,6 +77,7 @@ describe("applyStatus", () => {
                status: "idle",
                unused: false,
                unseen: false,
+               title_explicit: false,
             },
             1,
          ),

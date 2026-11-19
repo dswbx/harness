@@ -232,6 +232,25 @@ pub enum Command {
         item: String,
         message: String,
     },
+    /// Renames a `render_ui` panel and sets its icon as the user: a full override that stays when
+    /// the Agent calls again with that id. Title is trimmed and cut to 80 characters; empty or
+    /// absent values (both: back to the Agent's) fall back to the Agent's. Logged as `PanelEdited`.
+    /// Not for a Shared Artifact (see `RenameSharedArtifact`).
+    EditPanel {
+        session_id: SessionId,
+        item_id: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+    },
+    /// Deletes a `render_ui` panel: its file in `panels/` is removed, then `PanelDeleted` is logged.
+    /// It comes back only when the Agent calls with that id again. Refuses a Shared Artifact (use
+    /// `DetachSharedArtifact`).
+    DeletePanel {
+        session_id: SessionId,
+        item_id: String,
+    },
     /// An image in `frontend/` (base64), e.g. one a Frontend Tool call named.
     FrontendReadImage {
         session_id: SessionId,
@@ -270,6 +289,10 @@ pub enum Command {
     SetSessionTitle {
         session_id: SessionId,
         title: String,
+    },
+    /// Back to the automatic title: the Agent's last, else the first prompt's. Agent titles replace it again.
+    ResetSessionTitle {
+        session_id: SessionId,
     },
     /// The user viewed the Session: clears `SessionSummary::unseen`.
     MarkSessionSeen {
@@ -531,9 +554,12 @@ pub enum Command {
         session_id: SessionId,
         id: String,
     },
+    /// Sets a Shared Artifact's title and, when given, its icon (`""` clears it).
     RenameSharedArtifact {
         id: String,
         title: String,
+        #[serde(default)]
+        icon: Option<String>,
     },
     /// Removes the Shared Artifact's folder. Items that show it then show it as missing.
     DeleteSharedArtifact {

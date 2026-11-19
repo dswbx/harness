@@ -99,6 +99,7 @@ export const sessionsHandlers = {
             status: s.status,
             unused: s.unused,
             unseen: false,
+            title_explicit: s.title_explicit,
          });
       }
       return { type: "Ok" };
@@ -108,7 +109,9 @@ export const sessionsHandlers = {
       const s = mock.session(cmd.session_id);
       const title = cmd.title.trim().split(/\s+/).join(" ").slice(0, 80);
       if (!title) throw new CommandError("invalid", "title is empty");
+      if (!s.title_explicit) mock.autoTitles.set(s.id, s.title);
       s.title = title;
+      s.title_explicit = true;
       mock.emit(s.id, { type: "SessionInfoUpdated", title }, null);
       mock.emitApp({
          type: "SessionStatus",
@@ -117,6 +120,26 @@ export const sessionsHandlers = {
          status: s.status,
          unused: s.unused,
          unseen: s.unseen,
+         title_explicit: true,
+      });
+      return { type: "Ok" };
+   },
+   // Like the core: back to the automatic title, Agent titles replace it again.
+   ResetSessionTitle: (mock, cmd) => {
+      const s = mock.session(cmd.session_id);
+      const title = mock.autoTitles.get(s.id) ?? s.title;
+      mock.autoTitles.delete(s.id);
+      s.title = title;
+      s.title_explicit = false;
+      mock.emit(s.id, { type: "SessionInfoUpdated", title }, null);
+      mock.emitApp({
+         type: "SessionStatus",
+         session_id: s.id,
+         title,
+         status: s.status,
+         unused: s.unused,
+         unseen: s.unseen,
+         title_explicit: false,
       });
       return { type: "Ok" };
    },

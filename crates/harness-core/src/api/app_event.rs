@@ -19,6 +19,8 @@ pub enum AppEvent {
         unused: bool,
         /// As `SessionSummary::unseen`.
         unseen: bool,
+        /// As `SessionSummary::title_explicit`.
+        title_explicit: bool,
     },
     /// A Turn ended (`stop_reason` as in `TurnEnded`). `main`: true for the Main Thread, false for a Side Thread.
     TurnFinished { session_id: SessionId, thread_id: ThreadId, title: String, stop_reason: String, main: bool },

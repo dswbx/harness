@@ -55,6 +55,23 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
+    pub(in crate::host) fn cmd_edit_panel(
+        &self,
+        session_id: SessionId,
+        item_id: String,
+        title: Option<String>,
+        icon: Option<String>,
+    ) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.edit_panel(&item_id, title, icon)?;
+        Ok(CommandResult::Ok)
+    }
+
+    pub(in crate::host) async fn cmd_delete_panel(&self, session_id: SessionId, item_id: String) -> anyhow::Result<CommandResult> {
+        let session = self.session(&session_id)?;
+        tokio::task::spawn_blocking(move || session.delete_panel(&item_id)).await??;
+        Ok(CommandResult::Ok)
+    }
+
     pub(in crate::host) fn cmd_frontend_read_image(&self, session_id: SessionId, path: String) -> anyhow::Result<CommandResult> {
         let (mime, data) = self.session(&session_id)?.frontend_read_image(&path)?;
         Ok(CommandResult::Attachment { mime, data })

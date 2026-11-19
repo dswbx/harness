@@ -97,6 +97,35 @@ describe("Session subscription lag recovery", () => {
    });
 });
 
+describe("Session titles", () => {
+   it("reset restores the automatic title and clears title_explicit", async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const id = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const before = (await client.listSessions()).find((s) => s.id === id);
+      const statuses: { title: string; title_explicit: boolean }[] = [];
+      const off = await client.subscribeApp((e) => {
+         if (e.type === "SessionStatus") statuses.push(e);
+      });
+      await client.setSessionTitle(id, "  My  name ");
+      expect((await client.listSessions()).find((s) => s.id === id)).toMatchObject({
+         title: "My name",
+         title_explicit: true,
+      });
+      await client.resetSessionTitle(id);
+      expect((await client.listSessions()).find((s) => s.id === id)).toMatchObject({
+         title: before?.title,
+         title_explicit: false,
+      });
+      expect(statuses.map((s) => s.title_explicit)).toEqual([true, false]);
+      off();
+   });
+});
+
 describe("MockTransport Side Threads", () => {
    const modeOpt = (currentValue: string) => ({
       id: "mode",
@@ -312,6 +341,60 @@ describe("MockTransport Commands without a canned reply", () => {
       await expect(transport.execute(report)).resolves.toEqual(ok);
       await expect(transport.execute(report)).resolves.toEqual(ok);
       expect(got.filter((e) => e.kind.type === "FrontendError")).toHaveLength(1);
+   });
+});
+
+describe("MockTransport panel edits", () => {
+   const setup = async () => {
+      const transport = new MockTransport([], []);
+      const client = new HarnessClient(transport);
+      const sid = await client.createSession({
+         folder: "/tmp/x",
+         agentId: "a",
+         frontendId: "chat",
+      });
+      const api = createSessionApi(transport, sid);
+      const events: Event[] = [];
+      await api.subscribe((e) => events.push(e));
+      return { transport, client, sid, api, events };
+   };
+   const emitCall = (t: MockTransport, sid: string, input: Record<string, unknown>) =>
+      t.emit(sid, {
+         type: "FrontendToolOutput",
+         tool: "render_ui",
+         call_id: "c1",
+         path: "p.json",
+         input,
+      });
+
+   it("EditPanel and DeletePanel log the Events; a missing or shared item is refused", async () => {
+      const { transport, sid, api, events } = await setup();
+      await expect(api.editPanel("card", "T", null)).rejects.toThrow();
+      emitCall(transport, sid, { id: "card", title: "Agent", root: {} });
+      emitCall(transport, sid, { id: "sh", source: "shared:map-a1b2c3" });
+      await api.editPanel("card", "  My   card ", " star ");
+      await api.editPanel("card", "   ", "");
+      await expect(api.editPanel("sh", "x", null)).rejects.toThrow();
+      await expect(api.deletePanel("sh")).rejects.toThrow();
+      await api.deletePanel("card");
+      await expect(api.deletePanel("card")).rejects.toThrow();
+      expect(
+         events
+            .map((e) => e.kind)
+            .filter((k) => k.type === "PanelEdited" || k.type === "PanelDeleted"),
+      ).toEqual([
+         { type: "PanelEdited", tool: "render_ui", id: "card", title: "My card", icon: "star" },
+         { type: "PanelEdited", tool: "render_ui", id: "card", title: null, icon: null },
+         { type: "PanelDeleted", tool: "render_ui", id: "card" },
+      ]);
+   });
+
+   it("renaming a Shared Artifact sets the icon; no icon keeps it, empty clears it", async () => {
+      const { client, api } = await setup();
+      const meta = await api.shareMarkdown("# Notes", "Notes");
+      expect((await client.renameSharedArtifact(meta.id, "N2", "star")).icon).toBe("star");
+      expect((await client.renameSharedArtifact(meta.id, "N3")).icon).toBe("star");
+      expect((await client.renameSharedArtifact(meta.id, "N3", "")).icon).toBeUndefined();
    });
 });
 

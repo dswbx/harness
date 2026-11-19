@@ -53,6 +53,7 @@ exports[`HarnessClient wire shape > sends these Commands 1`] = `
     "type": "CreateQuickSession",
   },
   {
+    "icon": "star",
     "id": "a",
     "title": "T",
     "type": "RenameSharedArtifact",
@@ -270,6 +271,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "DeleteComment",
     },
   ],
+  "deletePanel": [
+    {
+      "item_id": "i",
+      "session_id": "s1",
+      "type": "DeletePanel",
+    },
+  ],
   "deleteTask": [
     {
       "id": "t1",
@@ -289,6 +297,15 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "session_id": "s1",
       "text": "t",
       "type": "EditComment",
+    },
+  ],
+  "editPanel": [
+    {
+      "icon": "star",
+      "item_id": "i",
+      "session_id": "s1",
+      "title": "T",
+      "type": "EditPanel",
     },
   ],
   "exportPlan": [
@@ -537,6 +554,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "id": "t1",
       "name": "a.txt",
       "type": "RemoveTaskAsset",
+    },
+  ],
+  "renameShared": [
+    {
+      "icon": "star",
+      "id": "a",
+      "title": "T",
+      "type": "RenameSharedArtifact",
     },
   ],
   "reportFrontendError": [

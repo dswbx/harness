@@ -176,6 +176,56 @@ async fn explicit_title_wins_over_agent_titles() {
     assert_eq!(titles, vec![Some("Fix the login bug".to_owned())], "only the explicit title is logged");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_title_restores_agent_title() {
+    let (h, sid, _dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "set a title".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    assert_eq!(title_of(&h).await, "Fake title");
+    h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: "Mine".into() }).await.unwrap();
+    assert_eq!(title_of(&h).await, "Mine");
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert!(sessions[0].title_explicit);
+    h.execute(Command::ResetSessionTitle { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(title_of(&h).await, "Fake title");
+    let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
+    assert!(!sessions[0].title_explicit);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_title_without_agent_title_uses_first_prompt() {
+    let (h, sid, _dir) = setup().await;
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "say hello\nmore".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: "Mine".into() }).await.unwrap();
+    h.execute(Command::ResetSessionTitle { session_id: sid.clone() }).await.unwrap();
+    assert_eq!(title_of(&h).await, "say hello");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_title_of_a_quick_session_renamed_before_its_first_prompt_lets_the_prompt_title_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = harness(&dir.path().join("data"), &[], Duration::from_secs(900));
+    let sid = quick_session(&h).await;
+    let created = summary(&h, &sid).await.unwrap().title;
+    h.execute(Command::SetSessionTitle { session_id: sid.clone(), title: "Mine".into() }).await.unwrap();
+    h.execute(Command::ResetSessionTitle { session_id: sid.clone() }).await.unwrap();
+    let s = summary(&h, &sid).await.unwrap();
+    assert_eq!((s.title.as_str(), s.title_explicit, s.unused), (created.as_str(), false, true));
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "say hello\nmore".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    assert_eq!(summary(&h, &sid).await.unwrap().title, "say hello");
+}
+
 async fn unseen_of(h: &Harness) -> bool {
     let CommandResult::Sessions { sessions } = h.execute(Command::ListSessions).await.unwrap() else { panic!() };
     sessions[0].unseen

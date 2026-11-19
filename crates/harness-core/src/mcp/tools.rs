@@ -499,6 +499,7 @@ async fn run_harness_info(session: &Arc<Session>, _: &ThreadId, _: &Value) -> an
 async fn run_set_title(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
     let title = arg_str(args)("title").unwrap_or_default();
     session.set_title(&title)?;
+    session.note_agent_title(&session.meta().title);
     Ok(format!("Session titled: {}", session.meta().title))
 }
 

@@ -10,6 +10,7 @@ const ev = (session_id: string, unseen: boolean) =>
       status: "idle",
       unused: false,
       unseen,
+      title_explicit: false,
    }) as const;
 const s = (id: string, over: Partial<SessionSummary> = {}) => ({ id, ...over }) as SessionSummary;
 

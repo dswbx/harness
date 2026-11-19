@@ -43,14 +43,38 @@ fn scan(events: &[Event]) -> Scanned {
             _ => {}
         }
     }
-    let mut items: Vec<harness_core::session::FrontendItem> = Vec::new();
+    // Items with their place (first-seen rank); a deleted panel keeps its rank for when it comes back.
+    let mut items: Vec<(u64, harness_core::session::FrontendItem)> = Vec::new();
+    let mut parked: HashMap<(String, String), u64> = HashMap::new();
+    let mut next_rank = 0u64;
+    let mut overrides: HashMap<(String, String), (Option<String>, Option<String>)> = HashMap::new();
     for e in events {
+        match &e.kind {
+            EventKind::PanelEdited { tool, id, title, icon } => {
+                overrides.insert((tool.clone(), id.clone()), (title.clone(), icon.clone()));
+                if let Some((_, x)) = items.iter_mut().find(|(_, x)| x.tool == *tool && x.id == *id) {
+                    x.title = title.clone();
+                    x.icon = icon.clone();
+                }
+                continue;
+            }
+            EventKind::PanelDeleted { tool, id } => {
+                if let Some(at) = items.iter().position(|(_, x)| x.tool == *tool && x.id == *id) {
+                    parked.insert((tool.clone(), id.clone()), items.remove(at).0);
+                }
+                continue;
+            }
+            _ => {}
+        }
         let EventKind::FrontendToolOutput { tool, input, files, .. } = &e.kind else { continue };
         let Some(id) = input.get("id").and_then(Value::as_str).map(str::to_owned) else { continue };
-        let at = items.iter().position(|x| x.tool == *tool && x.id == id);
+        let at = items.iter().position(|(_, x)| x.tool == *tool && x.id == id);
+        let (title, icon) = overrides.get(&(tool.clone(), id.clone())).cloned().unwrap_or_default();
         let item = harness_core::session::FrontendItem {
             tool: tool.clone(),
             id,
+            title,
+            icon,
             input: input.clone(),
             ts_ms: e.ts_ms,
             thread: e.thread_id.clone(),
@@ -60,15 +84,28 @@ fn scan(events: &[Event]) -> Scanned {
             (true, Some(i)) => {
                 items.remove(i);
             }
-            (true, None) => {}
-            (false, Some(i)) => items[i] = item,
-            (false, None) => items.push(item),
+            (true, None) => {
+                parked.remove(&(tool.clone(), item.id.clone()));
+            }
+            (false, Some(i)) => items[i].1 = item,
+            (false, None) => {
+                let rank = parked.remove(&(tool.clone(), item.id.clone())).unwrap_or_else(|| {
+                    next_rank += 1;
+                    next_rank - 1
+                });
+                items.push((rank, item));
+                items.sort_by_key(|(r, _)| *r);
+            }
         }
     }
+    let items: Vec<harness_core::session::FrontendItem> = items.into_iter().map(|(_, x)| x).collect();
     let mut keyed: HashMap<(String, String), String> = HashMap::new();
     let mut errors: Vec<harness_core::session::FrontendErrorEntry> = Vec::new();
     for e in events {
         match &e.kind {
+            EventKind::PanelDeleted { tool, id } => {
+                keyed.remove(&(tool.clone(), id.clone()));
+            }
             EventKind::FrontendToolOutput { tool, call_id, input, .. } => {
                 let Some(thread) = e.thread_id.clone() else { continue };
                 match input.get("id").and_then(Value::as_str) {
@@ -241,7 +278,7 @@ fn random_event(r: &mut Rng) -> (Option<String>, EventKind) {
     let item = format!("i{}", r.next(4));
     let tool = ["render_ui", "other"][r.next(2) as usize].to_owned();
     let mode = ["default", "plan", "edit", ""][r.next(4) as usize].to_owned();
-    let kind = match r.next(16) {
+    let kind = match r.next(20) {
         0 => EventKind::ModeChanged { mode_id: mode, mode: None },
         1 => EventKind::ConfigOptionsChanged {
             options: json!([{ "id": "mode", "category": "mode", "currentValue": mode }, { "id": "model", "currentValue": "m" }]),
@@ -265,6 +302,13 @@ fn random_event(r: &mut Rng) -> (Option<String>, EventKind) {
             EventKind::FrontendToolOutput { tool, call_id: format!("c{}", r.next(5)), path: "p".into(), input, files: Default::default() }
         }
         12 | 13 => EventKind::FrontendError { tool, item: if r.next(3) == 0 { format!("c{}", r.next(5)) } else { item }, message: format!("m{}", r.next(3)) },
+        14 => EventKind::PanelEdited {
+            tool,
+            id: item,
+            title: [Some("Mine".to_owned()), None][r.next(2) as usize].clone(),
+            icon: [Some("star".to_owned()), None][r.next(2) as usize].clone(),
+        },
+        15 => EventKind::PanelDeleted { tool, id: item },
         _ => EventKind::Error { message: "noise".into() },
     };
     (thread, kind)

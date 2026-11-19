@@ -122,6 +122,33 @@ describe("collectArtifacts", () => {
       expect(list[0]!.prompt).toBe("Look at the tests");
    });
 
+   it("takes the user's title and icon, and drops deleted panels", () => {
+      const items = [
+         ui("f1", { id: "a", placement: "right", title: "Notes", icon: "file", root: md("n") }),
+         ui("f2", { id: "b", placement: "right", title: "Gone", root: md("g") }),
+         ui(
+            "f3",
+            withSourceRoot({
+               id: "c",
+               placement: "right",
+               title: "Plan",
+               source: "shared:plan-3f9a1c",
+            }),
+         ),
+      ];
+      const list = collectArtifacts(items, {
+         overrides: {
+            a: { title: "Mine", icon: null },
+            c: { title: "Ignored", icon: "star" },
+         },
+         deleted: { b: true },
+      });
+      expect(list.map((a) => [a.slotId, a.title, a.icon])).toEqual([
+         ["a", "Mine", "file"],
+         ["c", "Plan", null],
+      ]);
+   });
+
    it("filters by kind and text", () => {
       const list = collectArtifacts([
          agent("a", "| Route | ms |\n|---|---|\n| /search | 9 |"),

@@ -85,6 +85,60 @@ describe("render_ui placements", () => {
    });
 });
 
+describe("user edits of panels (PanelEdited, PanelDeleted)", () => {
+   const edit = (id: string, title: string | null, icon: string | null): Event =>
+      ev({ type: "PanelEdited", tool: "render_ui", id, title, icon });
+   const del = (id: string): Event => ev({ type: "PanelDeleted", tool: "render_ui", id });
+   const split = (s: ReturnType<typeof fold>) =>
+      splitRenderUi(s.items, s.sharedAttached, s.panelEdits);
+   const panel = (title: string, root = "a") =>
+      ui({ id: "p", placement: "right", title, icon: "file", root: md(root) });
+
+   it("an override replaces the title and icon, and survives the Agent sending the id again", () => {
+      const s = fold([panel("Agent"), edit("p", "Mine", "star"), panel("Agent 2", "b")]);
+      const [p] = split(s).slots.right;
+      expect([p!.title, p!.icon, p!.root]).toEqual(["Mine", "star", md("b")]);
+      expect(p!.agent).toEqual({ title: "Agent 2", icon: "file" });
+   });
+
+   it("overrides each value apart; none left goes back to the Agent's", () => {
+      let s = fold([panel("Agent"), edit("p", "Mine", null)]);
+      expect(split(s).slots.right.map((x) => [x.title, x.icon])).toEqual([["Mine", "file"]]);
+      s = [edit("p", null, null)].reduce(reduce, s);
+      const [p] = split(s).slots.right;
+      expect([p!.title, p!.icon, p!.agent]).toEqual(["Agent", "file", null]);
+   });
+
+   it("a deleted id shows nowhere (inline rows hide too); a later call brings it back with its override", () => {
+      const s = fold([
+         ui({ id: "q", root: md("inline") }),
+         panel("Agent"),
+         edit("p", "Mine", null),
+         del("p"),
+         del("q"),
+      ]);
+      const { inline, slots } = split(s);
+      expect(slots.right).toEqual([]);
+      expect(inline.get(s.items[0]!.id)).toBeNull();
+      expect(s.panelEdits.deleted).toEqual({ p: true, q: true });
+      const back = [panel("Agent again", "c")].reduce(reduce, s);
+      expect(back.panelEdits.deleted).toEqual({ q: true });
+      expect(split(back).slots.right.map((x) => [x.title, x.root])).toEqual([["Mine", md("c")]]);
+   });
+
+   it("ignores overrides for another tool and does not touch a shared panel", () => {
+      const s = fold([
+         ui({ id: "p", placement: "right", title: "Plan", source: "shared:plan-3f9a1c" }),
+         ev({ type: "ArtifactAttached", id: "plan-3f9a1c", by: "user" }),
+         edit("p", "Mine", "star"),
+         ev({ type: "PanelEdited", tool: "other", id: "x", title: "No", icon: null }),
+      ]);
+      expect(Object.keys(s.panelEdits.overrides)).toEqual(["p"]);
+      const [p] = split(s).slots.right;
+      expect([p!.title, p!.icon, p!.agent]).toEqual(["Plan", null, null]);
+   });
+});
+
 describe("Shared Artifacts in slots (ADR 0024)", () => {
    const attach = (id: string, ts = 5): Event => ({
       ...ev({ type: "ArtifactAttached", id, by: "user" }),
@@ -108,6 +162,7 @@ describe("Shared Artifacts in slots (ADR 0024)", () => {
             files: {},
             ts: 7,
             source: "shared:map-a1b2c3",
+            agent: null,
          },
       ]);
    });
@@ -150,6 +205,7 @@ const slot = (id: string, over: Partial<Slot> = {}): Slot => ({
    files: {},
    ts: 1,
    source: null,
+   agent: null,
    ...over,
 });
 describe("slotDot", () => {

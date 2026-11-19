@@ -38,11 +38,11 @@ import { fullMessageTime, useNow } from "../../lib/time";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { CopyButton, Frame, useWrapCode, WRAP, WrapButton } from "../markdown/CodeBlock";
 import { Highlighted } from "../markdown/Highlighted";
+import { iconFor } from "../renderUi/panelIcon";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { parseTree, sharedSourceText, useSharedArtifact } from "../renderUi/sharedSource";
 import { sourceLang, usePanelSource } from "../renderUi/source";
 import { sharedNode } from "../renderUi/tools";
-import { uiIcons } from "../renderUi/uiIcons";
 import { quotableAttrs } from "../review/SelectionComment";
 import { ArtifactImage, ArtifactPreview, artifactFormats } from "./ArtifactExport";
 import {
@@ -65,7 +65,7 @@ const KINDS: { kind: ArtifactKind | "all"; label: string }[] = [
 ];
 
 function KindIcon({ a }: { a: Artifact }) {
-   const Custom = a.icon ? uiIcons[a.icon as keyof typeof uiIcons] : undefined;
+   const Custom = iconFor(a.icon);
    if (Custom) return <Custom />;
    if (a.kind === "diagram") return <Workflow />;
    if (a.kind === "table") return <Table2 />;

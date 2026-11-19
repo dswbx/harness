@@ -296,6 +296,23 @@ pub enum EventKind {
         item: String,
         message: String,
     },
+    /// The user renamed a `render_ui` item or changed its icon (`EditPanel`): a full override of
+    /// what the Agent set, kept when the Agent calls the tool again with that id. `title` and
+    /// `icon` both `None` go back to the Agent's.
+    PanelEdited {
+        tool: String,
+        id: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+    },
+    /// The user deleted a `render_ui` item (`DeletePanel`). It stays gone until the Agent calls the
+    /// tool with that id again; a user override survives that.
+    PanelDeleted {
+        tool: String,
+        id: String,
+    },
     /// The Session State changed (ADR 0015). Applying every `ops` in order to `{}` gives the
     /// current state.
     StateChanged {

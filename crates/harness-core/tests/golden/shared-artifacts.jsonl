@@ -16,3 +16,5 @@
 {"v":1,"seq":15,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000001900,"kind":{"type":"CommentAdded","comment":{"id":"c2","path":"src/a.ts","line":3,"side":null,"code":"import a","text":"unused","by":"user"}}}
 {"v":1,"seq":16,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000002000,"kind":{"type":"CommentDeleted","id":"c2"}}
 {"v":1,"seq":17,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000002100,"kind":{"type":"CommentResolved","id":"c1","by":"agent","note":"renamed"}}
+{"v":1,"seq":18,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000002200,"kind":{"type":"PanelEdited","tool":"render_ui","id":"progress","title":"Release progress","icon":"chart"}}
+{"v":1,"seq":19,"session_id":"golden-session-0003","thread_id":null,"ts_ms":1790000002300,"kind":{"type":"PanelDeleted","tool":"render_ui","id":"progress"}}

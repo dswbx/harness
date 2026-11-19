@@ -88,6 +88,7 @@ function setStatus(mock: MockTransport, id: string, status: SessionSummary["stat
       status,
       unused: s.unused,
       unseen: s.unseen,
+      title_explicit: s.title_explicit,
    });
 }
 
@@ -132,6 +133,7 @@ function turnEnded(
          status: s.status,
          unused: s.unused,
          unseen: true,
+         title_explicit: s.title_explicit,
       });
    }
 }
@@ -157,6 +159,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
          status: used.status,
          unused: false,
          unseen: used.unseen,
+         title_explicit: used.title_explicit,
       });
    }
    if (cmd.thread_id) return promptSide(mock, sid, cmd.thread_id, cmd.text);

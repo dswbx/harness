@@ -238,6 +238,12 @@ export type Usage = { used: number; size: number };
 /** `since`: when the job went to the background (ms). */
 export type BackgroundJobInfo = { id: string; label: string; since: number };
 
+/** The user's changes to `render_ui` panels, by item id. `null` in an override: the Agent's value. */
+export type PanelEdits = {
+   overrides: Readonly<Record<string, { title: string | null; icon: string | null }>>;
+   deleted: Readonly<Record<string, true>>;
+};
+
 export type ChatState = {
    /**
     * Whether any Event was folded in. Every Session Log starts with `SessionCreated`, so false means
@@ -302,6 +308,11 @@ export type ChatState = {
     * `ArtifactDetached`. `ts`: when it was attached.
     */
    sharedAttached: readonly { id: string; ts: number }[];
+   /**
+    * What the user did to `render_ui` panels (`PanelEdited`, `PanelDeleted`): their own title and icon per id,
+    * and the ids deleted. A later `render_ui` call with a deleted id brings it back (the override stays).
+    */
+   panelEdits: PanelEdits;
    /** Review Comments on diff and file lines (ADR 0027), in the order added, from the `Comment*` Events. */
    lineComments: readonly LineCommentState[];
    /**
