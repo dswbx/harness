@@ -1,4 +1,4 @@
-import { cn, Input, ScrollArea } from "@harness/ui";
+import { Button, cn, Input, ScrollArea } from "@harness/ui";
 import { useEffect, useMemo, useState } from "react";
 import { lucideIconNames, PanelIcon } from "./panelIcon";
 import { ICONS } from "./tools";
@@ -48,15 +48,22 @@ export function IconPicker({
    const [query, setQuery] = useState("");
    const [names, setNames] = useState<string[] | null>(null);
    const [top, setTop] = useState(0);
+   const [failed, setFailed] = useState(false);
+   const [attempt, setAttempt] = useState(0);
    const searching = squash(query) !== "";
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` re-runs the load after a failure (Retry)
    useEffect(() => {
       if (!searching || names) return;
       let live = true;
-      lucideIconNames().then((n) => live && setNames(n));
+      setFailed(false);
+      lucideIconNames().then(
+         (n) => live && setNames(n),
+         () => live && setFailed(true),
+      );
       return () => {
          live = false;
       };
-   }, [searching, names]);
+   }, [searching, names, attempt]);
 
    const curated = useMemo(
       () =>
@@ -109,6 +116,13 @@ export function IconPicker({
                {curated.map((n) => (
                   <Cell key={n} name={n} on={picked === n} onPick={onPick} />
                ))}
+            </div>
+         ) : failed ? (
+            <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+               <span>Couldn't load icons</span>
+               <Button variant="outline" size="sm" onClick={() => setAttempt((a) => a + 1)}>
+                  Retry
+               </Button>
             </div>
          ) : !names ? (
             <p className="py-2 text-xs text-muted-foreground">Loading icons…</p>

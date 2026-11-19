@@ -43,6 +43,21 @@ pub fn source_path(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
     crate::fsutil::resolve_below_via_ancestor(dir, &dir.join(name)).ok_or_else(|| crate::error::policy_denied(format!("source {name:?} is outside panels_dir")))
 }
 
+/// The directory entry a `source` name points to, for removing it: the name is checked and the
+/// folder it is in is resolved (it must be inside `dir`), but the entry itself is not, so a symbolic
+/// link stays the link and is not followed to its target.
+pub fn entry_path(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
+    check_name(name)?;
+    let full = dir.join(name);
+    let (parent, leaf) = full.parent().zip(full.file_name()).ok_or_else(|| crate::error::invalid(format!("source {name:?} has no file name")))?;
+    let root = dir.canonicalize()?;
+    let real = parent.canonicalize().map_err(|_| crate::error::not_found(format!("source {name:?} does not exist in panels_dir")))?;
+    if !real.starts_with(&root) {
+        return Err(crate::error::policy_denied(format!("source {name:?} is outside panels_dir")));
+    }
+    Ok(real.join(leaf))
+}
+
 /// A source file's text and a hash of it (sha256, hex).
 pub fn read(dir: &Path, name: &str) -> anyhow::Result<(String, String)> {
     let path = source_path(dir, name)?;

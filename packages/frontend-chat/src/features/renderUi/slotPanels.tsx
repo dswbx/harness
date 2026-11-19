@@ -123,6 +123,7 @@ export function SlotPanel({
          <PanelHeader
             title={
                <EditPanelPopover
+                  id={slot.id}
                   open={dialog === "edit"}
                   onOpenChange={(o) => setDialog(o ? "edit" : null)}
                   title={label}

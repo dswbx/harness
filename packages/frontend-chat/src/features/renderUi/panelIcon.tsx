@@ -8,9 +8,16 @@ type IconMap = Record<string, Loader>;
 let mapPromise: Promise<IconMap> | undefined;
 /** lucide's name -> loader table (about 1700 names, each its own chunk). Fetched once, on first need. */
 export function lucideIconMap(): Promise<IconMap> {
-   mapPromise ??= import("lucide-react/dynamicIconImports").then(
-      (m) => m.default as unknown as IconMap,
-   );
+   if (!mapPromise) {
+      const p = import("lucide-react/dynamicIconImports").then(
+         (m) => m.default as unknown as IconMap,
+      );
+      mapPromise = p;
+      // A failed fetch is not cached: the next call tries again.
+      p.catch(() => {
+         if (mapPromise === p) mapPromise = undefined;
+      });
+   }
    return mapPromise;
 }
 
@@ -27,11 +34,15 @@ function loadIcon(name: string): Promise<LucideIcon | null> {
    if (!p) {
       p = lucideIconMap()
          .then((m) => m[name]?.())
-         .then((mod) => mod?.default ?? null)
-         .catch(() => null)
-         .then((icon) => {
+         .then((mod) => {
+            const icon = mod?.default ?? null;
             resolved.set(name, icon);
             return icon;
+         })
+         // A failed load is not cached: the next mount tries again.
+         .catch(() => {
+            pending.delete(name);
+            return null;
          });
       pending.set(name, p);
    }

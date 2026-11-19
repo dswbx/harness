@@ -203,12 +203,16 @@ async fn delete_panel_removes_its_file_and_refuses_shared_and_unknown_items() {
     call(&s, "render_ui", "c3", json!({ "id": "esc", "source": "../outside.md" }));
     assert!(s.delete_panel("sh").is_err(), "shared is detached, not deleted");
     assert!(s.edit_panel("sh", Some("x".into()), None).is_err());
-    assert!(s.delete_panel("esc").is_err(), "a source outside panels/ is refused");
     assert!(s.delete_panel("nope").is_err());
     assert_eq!(s.frontend_items().unwrap().len(), 3);
     s.delete_panel("a").unwrap();
     assert!(!file.exists());
     assert_eq!(s.frontend_items().unwrap().len(), 2);
+    // A source outside panels/ deletes the panel and touches no file.
+    std::fs::write(s.panels_dir().join("../outside.md"), "keep").unwrap();
+    s.delete_panel("esc").unwrap();
+    assert!(s.panels_dir().join("../outside.md").exists());
+    assert_eq!(s.frontend_items().unwrap().len(), 1);
     // A panel whose file is already gone still deletes.
     call(&s, "render_ui", "c4", json!({ "id": "gone", "source": "gone.md" }));
     s.delete_panel("gone").unwrap();
@@ -224,4 +228,100 @@ async fn sharing_a_panel_takes_the_users_title_and_icon() {
     let meta = s.share_item("a", StateWriter::User).unwrap();
     assert_eq!((meta.title.as_str(), meta.icon.as_deref()), ("Mine", Some("star")));
     assert_eq!(s.shared.artifacts.get(&meta.id).unwrap().icon.as_deref(), Some("star"));
+    // The override is spent: the item follows the artifact from now on, and a rename shows.
+    let item = s.frontend_item("render_ui", "a").unwrap().unwrap();
+    assert_eq!((item.title.as_deref(), item.icon.as_deref()), (None, None));
+    // Even a stray override is not carried by an item that shows a Shared Artifact.
+    s.log.append(None, EventKind::PanelEdited { tool: "render_ui".into(), id: "a".into(), title: Some("Stale".into()), icon: None }).unwrap();
+    let item = s.frontend_item("render_ui", "a").unwrap().unwrap();
+    assert_eq!(item.title, None);
+    let source = item.input["source"].clone();
+    call(&s, "render_ui", "c9", json!({ "id": "a", "source": source }));
+    assert_eq!(s.frontend_item("render_ui", "a").unwrap().unwrap().title, None);
+}
+
+#[tokio::test]
+async fn reset_title_falls_back_to_the_created_title_then_the_first_prompt() {
+    let (s, _dir) = session().await;
+    let created = s.meta().title;
+    s.set_title("Mine").unwrap();
+    assert!(s.meta().title_explicit);
+    // No Agent title, no prompt: back to the title it was created with.
+    s.reset_title().unwrap();
+    let m = s.meta();
+    assert_eq!((m.title.as_str(), m.title_explicit), (created.as_str(), false));
+
+    // A Session from before `agent_title` existed (none recorded) with a prompt: the prompt's title.
+    let main = s.meta().main_thread_id;
+    let started = EventKind::TurnStarted { turn_id: "t1".into(), text: "say hello\nmore".into(), attachments: vec![], context: None, origin: None };
+    s.log.append(Some(main), started).unwrap();
+    s.set_title("Mine").unwrap();
+    assert_eq!(s.meta().agent_title, None);
+    s.reset_title().unwrap();
+    assert_eq!(s.meta().title, "say hello");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn delete_panel_unlinks_a_symlink_and_never_follows_it() {
+    use std::os::unix::fs::symlink;
+    let (s, dir) = session().await;
+    let panels = s.panels_dir();
+    std::fs::create_dir_all(&panels).unwrap();
+    // A link to another file in panels/: only the link goes.
+    std::fs::write(panels.join("b.md"), "b").unwrap();
+    symlink(panels.join("b.md"), panels.join("a.md")).unwrap();
+    call(&s, "render_ui", "c1", json!({ "id": "a", "source": "a.md" }));
+    s.delete_panel("a").unwrap();
+    assert!(std::fs::symlink_metadata(panels.join("a.md")).is_err(), "the link is gone");
+    assert_eq!(std::fs::read_to_string(panels.join("b.md")).unwrap(), "b", "its target stays");
+
+    // A link to a file outside panels/: the panel deletes (it did not fail forever), the target stays.
+    let outside = dir.path().join("outside.md");
+    std::fs::write(&outside, "out").unwrap();
+    symlink(&outside, panels.join("o.md")).unwrap();
+    call(&s, "render_ui", "c2", json!({ "id": "o", "source": "o.md" }));
+    s.delete_panel("o").unwrap();
+    assert!(s.frontend_item("render_ui", "o").unwrap().is_none());
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "out");
+
+    // A folder that is a link out of panels/: nothing is removed through it.
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("x.md"), "x").unwrap();
+    symlink(&elsewhere, panels.join("sub")).unwrap();
+    call(&s, "render_ui", "c3", json!({ "id": "x", "source": "sub/x.md" }));
+    s.delete_panel("x").unwrap();
+    assert!(elsewhere.join("x.md").exists());
+}
+
+#[tokio::test]
+async fn delete_panel_keeps_a_file_another_live_panel_still_names() {
+    let (s, _dir) = session().await;
+    std::fs::create_dir_all(s.panels_dir()).unwrap();
+    let file = s.panels_dir().join("shared.md");
+    std::fs::write(&file, "s").unwrap();
+    call(&s, "render_ui", "c1", json!({ "id": "one", "source": "shared.md" }));
+    call(&s, "render_ui", "c2", json!({ "id": "two", "source": "shared.md" }));
+    s.delete_panel("one").unwrap();
+    assert!(file.exists(), "panel two still shows it");
+    assert!(s.frontend_item("render_ui", "one").unwrap().is_none());
+    s.delete_panel("two").unwrap();
+    assert!(!file.exists(), "the last one takes the file with it");
+}
+
+#[tokio::test]
+async fn a_revived_panel_returns_to_its_place_but_a_removed_one_goes_last() {
+    let (s, _dir) = session().await;
+    for (i, id) in ["a", "b", "c"].into_iter().enumerate() {
+        call(&s, "render_ui", &format!("c{i}"), json!({ "id": id }));
+    }
+    // Deleted by the user, then called again: its first-seen place, as the Frontend's slots keep it.
+    s.delete_panel("a").unwrap();
+    call(&s, "render_ui", "c4", json!({ "id": "a", "v": 2 }));
+    assert_eq!(keys(&s), vec![key("render_ui", "a"), key("render_ui", "b"), key("render_ui", "c")]);
+    // Removed by the Agent (`remove: true`): it comes back last (the Frontend drops it from its slot too).
+    call(&s, "render_ui", "c5", json!({ "id": "a", "remove": true }));
+    call(&s, "render_ui", "c6", json!({ "id": "a", "v": 3 }));
+    assert_eq!(keys(&s), vec![key("render_ui", "b"), key("render_ui", "c"), key("render_ui", "a")]);
 }

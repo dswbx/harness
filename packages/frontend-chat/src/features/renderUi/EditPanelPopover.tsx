@@ -14,6 +14,7 @@ const MAX_TITLE = 80;
  * everywhere, so there is no "Use Agent's".
  */
 export function EditPanelPopover({
+   id: slotId,
    open,
    onOpenChange,
    title,
@@ -23,6 +24,8 @@ export function EditPanelPopover({
    onSave,
    children,
 }: {
+   /** The panel's id: what the header shows when the Agent gave no title. */
+   id: string;
    open: boolean;
    onOpenChange: (open: boolean) => void;
    title: string;
@@ -47,7 +50,7 @@ export function EditPanelPopover({
 
    const clean = value.split(/\s+/).filter(Boolean).join(" ").slice(0, MAX_TITLE);
    // What "unchanged" means: the Agent's value when the user changed it before, else what shows now.
-   const baseTitle = agent ? (agent.title ?? title) : title;
+   const baseTitle = agent ? (agent.title ?? slotId) : title;
    const baseIcon = agent ? agent.icon : icon;
    const run = (go: () => Promise<void>) => {
       setBusy(true);

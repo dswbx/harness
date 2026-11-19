@@ -143,7 +143,9 @@ impl Session {
     }
 
     /// Goes back to the automatic title: the Agent's last, else the first Main Thread prompt's,
-    /// else the current one. Agent titles replace it again.
+    /// else the title it was created with (`SessionCreated`; a Quick Session not yet prompted is
+    /// titled by its first prompt again). Agent titles replace it again. A Session from before
+    /// `agent_title` was recorded has none: it goes to its first prompt's title, even if the Agent had titled it.
     pub fn reset_title(&self) -> anyhow::Result<()> {
         let m = self.meta();
         let from_prompt = || {
@@ -175,34 +177,44 @@ impl Session {
         Ok(())
     }
 
-    /// Titles the Agent sends on `thread` are dropped: the title was set on purpose.
-    pub fn ignores_agent_title(&self, thread: Option<&ThreadId>) -> bool {
-        self.is_main(thread) && self.meta.lock().title_explicit
-    }
-
-    /// Records the Agent's title in `agent_title` (the main Thread's only).
+    /// Records the Agent's title in `agent_title` (the main Thread's only); no write when unchanged.
     pub fn note_agent_title_on(&self, thread: Option<&ThreadId>, title: &str) {
         let title = title.trim();
-        if !title.is_empty() && self.is_main(thread) {
-            let _ = self.update_meta(|m| m.agent_title = Some(title.to_owned()));
+        if title.is_empty() || !self.is_main(thread) || self.meta.lock().agent_title.as_deref() == Some(title) {
+            return;
         }
+        let _ = self.update_meta(|m| m.agent_title = Some(title.to_owned()));
     }
 
     pub fn note_agent_title(&self, title: &str) {
         self.note_agent_title_on(None, title);
     }
 
-    /// Keeps the Agent's title for the Session (`session_info_update` on the main Thread).
-    pub fn set_agent_title(&self, thread: Option<&ThreadId>, title: &str) {
+    /// A `session_info_update` title from the Agent: keeps it as `agent_title` and, unless the user
+    /// set the title on purpose, makes it the Session's title. One meta write, none when nothing
+    /// changed (Agents repeat the title). Only the main Thread's counts. True when the title was set
+    /// on purpose: the Event is then dropped.
+    pub fn apply_agent_title(&self, thread: Option<&ThreadId>, title: &str) -> bool {
         let title = title.trim();
-        if title.is_empty() || !self.is_main(thread) {
-            return;
+        if !self.is_main(thread) {
+            return false;
         }
-        let changed = self.update_meta(|m| std::mem::replace(&mut m.title, title.to_owned()) != title).unwrap_or(false);
-        if changed {
-            let session_id = self.id();
-            self.emit_status(session_id, title.to_owned(), self.agent.status());
+        let (explicit, new_agent, new_title) = {
+            let m = self.meta.lock();
+            (m.title_explicit, !title.is_empty() && m.agent_title.as_deref() != Some(title), !title.is_empty() && !m.title_explicit && m.title != title)
+        };
+        if new_agent || new_title {
+            let _ = self.update_meta(|m| {
+                m.agent_title = Some(title.to_owned());
+                if !m.title_explicit {
+                    m.title = title.to_owned();
+                }
+            });
         }
+        if new_title {
+            self.emit_status(self.id(), title.to_owned(), self.agent.status());
+        }
+        explicit
     }
 
     fn from_parts(dir: &Path, meta: SessionMeta, log: SessionLog, shared: Arc<Shared>) -> Self {
@@ -393,7 +405,7 @@ impl Session {
     }
 
     /// A Quick Session is used from its first prompt on, and takes its title from the first one
-    /// on the Main Thread. The Agent's own title replaces that later (`set_agent_title`).
+    /// on the Main Thread. The Agent's own title replaces that later (`apply_agent_title`).
     fn note_first_prompt(&self, thread: &ThreadId, text: &str) -> anyhow::Result<()> {
         let is_main = self.is_main(Some(thread));
         let m = self.meta();

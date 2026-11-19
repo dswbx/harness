@@ -15,7 +15,7 @@ import { svgToPng } from "./toPng";
 const MAX_EDGE = 1568;
 const MAX_BYTES = 3_500_000;
 
-type Input = { id?: string; kind?: string; mermaid?: string; html?: string; width?: number };
+export type Input = { id?: string; kind?: string; mermaid?: string; html?: string; width?: number };
 
 /** The Session Log up to `lastSeq`: this also runs for a Session no window shows. */
 function replay(api: SessionApi, lastSeq: number): Promise<ChatState> {
@@ -58,6 +58,14 @@ function pick(list: Artifact[], input: Input): Artifact {
       .join("\n");
    const what = input.id ? `"${input.id}"` : input.kind ? `of kind ${input.kind}` : "yet";
    throw new Error(`No artifact ${what}.${known ? ` Artifacts:\n${known}` : ""}`);
+}
+
+/** The artifact a `view_artifact` call asks for, as the user sees it: renames applied, deleted panels gone. */
+export function artifactFor(
+   state: Pick<ChatState, "items" | "panelEdits">,
+   input: Input,
+): Artifact {
+   return pick(collectArtifacts(state.items, state.panelEdits), input);
 }
 
 const b64 = async (b: Blob) => {
@@ -128,7 +136,7 @@ export function ArtifactRequest({ api, request, onDone }: FrontendRequestProps) 
             );
          } else {
             const state = await replay(api, request.last_seq);
-            const a = pick(collectArtifacts(state.items), input);
+            const a = artifactFor(state, input);
             const env = noEnv(api, state);
             label = `${a.title} (${a.sub}, key ${a.key})`;
             shot = await fit((maxEdge) => artifactPng(a, env, shoot, { ...opts, maxEdge }));

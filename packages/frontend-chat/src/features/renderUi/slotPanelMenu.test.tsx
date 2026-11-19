@@ -130,6 +130,27 @@ describe("rename and icon popover", () => {
       await waitFor(() => expect(onEdit).toHaveBeenCalledWith(null, null));
    });
 
+   it("changing only the icon of a renamed panel the Agent left untitled keeps the rename", async () => {
+      const { onEdit } = setup({
+         slot: slot({ title: "Mine", icon: "file", agent: { title: null, icon: "file" } }),
+      });
+      open();
+      await screen.findByLabelText("Title");
+      fireEvent.click(screen.getByRole("radio", { name: "star" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(onEdit).toHaveBeenCalledWith("Mine", "star"));
+   });
+
+   it("the id is the untitled panel's baseline: typing it back clears the rename", async () => {
+      const { onEdit } = setup({
+         slot: slot({ title: "Mine", icon: "file", agent: { title: null, icon: "file" } }),
+      });
+      open();
+      fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "p" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(onEdit).toHaveBeenCalledWith(null, null));
+   });
+
    it("a shared panel has no Use Agent's and saves title and icon as they are", async () => {
       const { onEdit } = setup({ shared: true, slot: slot({ source: "shared:notes-3f9a1c" }) });
       open();

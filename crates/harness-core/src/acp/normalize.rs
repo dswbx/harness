@@ -28,12 +28,10 @@ pub(super) fn on_update(session: &Arc<Session>, n: &acp::SessionNotification) {
         }
         kind = super::restore::named_mode_changed(session, mode_id.clone());
     }
-    if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind {
-        session.note_agent_title_on(thread.as_ref(), t);
-        if session.ignores_agent_title(thread.as_ref()) {
-            return;
-        }
-        session.set_agent_title(thread.as_ref(), t);
+    if let EventKind::SessionInfoUpdated { title: Some(t) } = &kind
+        && session.apply_agent_title(thread.as_ref(), t)
+    {
+        return;
     }
     let job = match &kind {
         EventKind::ToolCallUpdate { background_job: Some(job), .. } => Some(job.clone()),

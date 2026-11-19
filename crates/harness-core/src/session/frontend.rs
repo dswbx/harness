@@ -223,20 +223,41 @@ impl Session {
         Ok(())
     }
 
-    /// Deletes a live `render_ui` item: removes its file in `panels/` when it has one, then logs
-    /// `PanelDeleted`. Refuses a Shared Artifact item (detach it instead).
+    /// Deletes a live `render_ui` item: logs `PanelDeleted`, then removes its file in `panels/` when
+    /// it has one (best effort, a failure is only logged). A symbolic link is unlinked, never followed;
+    /// a source that is invalid or leads outside `panels/` keeps its file; so does one another live
+    /// item still names. Refuses a Shared Artifact item (detach it instead).
     pub fn delete_panel(&self, item_id: &str) -> anyhow::Result<()> {
         let item = self.live_panel(item_id)?;
-        if let Some(source) = item.input.get("source").and_then(|v| v.as_str()) {
-            if crate::shared::reference(source).is_some() {
-                return Err(crate::error::invalid(format!("{item_id} is a shared artifact: detach it instead")));
-            }
-            let file = crate::panels::source_path(&self.panels_dir(), source)?;
-            if std::fs::symlink_metadata(&file).is_ok_and(|m| m.is_file()) {
-                std::fs::remove_file(&file)?;
-            }
+        let source = item.input.get("source").and_then(|v| v.as_str()).map(str::to_owned);
+        if source.as_deref().is_some_and(|s| crate::shared::reference(s).is_some()) {
+            return Err(crate::error::invalid(format!("{item_id} is a shared artifact: detach it instead")));
         }
         self.log.append(None, EventKind::PanelDeleted { tool: RENDER_UI.to_owned(), id: item_id.to_owned() })?;
+        if let Some(source) = source
+            && let Err(e) = self.remove_panel_file(&source)
+        {
+            tracing::warn!("deleting the file of panel {item_id}: {e:#}");
+        }
+        Ok(())
+    }
+
+    /// Removes the entry `source` names in `panels/`, unless another live panel names the same one.
+    fn remove_panel_file(&self, source: &str) -> anyhow::Result<()> {
+        let dir = self.panels_dir();
+        let Ok(entry) = crate::panels::entry_path(&dir, source) else { return Ok(()) };
+        for other in self.frontend_items()? {
+            if other.tool != RENDER_UI {
+                continue;
+            }
+            let Some(s) = other.input.get("source").and_then(|v| v.as_str()) else { continue };
+            if crate::shared::reference(s).is_none() && crate::panels::entry_path(&dir, s).is_ok_and(|e| e == entry) {
+                return Ok(());
+            }
+        }
+        if std::fs::symlink_metadata(&entry).is_ok_and(|m| m.is_file() || m.file_type().is_symlink()) {
+            std::fs::remove_file(&entry)?;
+        }
         Ok(())
     }
 

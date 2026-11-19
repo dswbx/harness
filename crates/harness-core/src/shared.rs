@@ -175,6 +175,7 @@ impl SharedArtifacts {
     pub fn create(
         &self,
         title: &str,
+        icon: Option<&str>,
         kind: SharedKind,
         created_by: SharedCreator,
         attached: Vec<SessionId>,
@@ -193,7 +194,7 @@ impl SharedArtifacts {
             updated_ms: now,
             created_by,
             attached,
-            icon: None,
+            icon: icon.map(|i| i.trim().chars().take(40).collect::<String>()).filter(|i| !i.is_empty()),
         };
         let tmp = self.dir.join(format!(".new-{id}"));
         std::fs::create_dir_all(&tmp)?;
@@ -393,7 +394,7 @@ mod tests {
 
     fn make(store: &SharedArtifacts, title: &str, kind: SharedKind, content: &str) -> SharedArtifactMeta {
         let content = content.to_owned();
-        store.create(title, kind, creator(), vec!["s1".into()], |dir| Ok(std::fs::write(dir.join(content_name(kind)), content)?)).unwrap()
+        store.create(title, None, kind, creator(), vec!["s1".into()], |dir| Ok(std::fs::write(dir.join(content_name(kind)), content)?)).unwrap()
     }
 
     #[test]

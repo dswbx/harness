@@ -114,14 +114,14 @@ impl Session {
                 }
                 SharedKind::Md => serde_json::json!({}),
             };
-            artifacts.create(&title, kind, self.creator(), vec![self.id()], |dir| {
+            artifacts.create(&title, icon.as_deref(), kind, self.creator(), vec![self.id()], |dir| {
                 write_state(dir, &state)?;
                 crate::shared::move_file(&file, &dir.join(crate::shared::content_name(kind)))
             })?
         } else if let Some(root) = item.input.get("root") {
             let doc = self.state()?;
             let state = if has_html(root) { doc } else { crate::state::subset(&doc, &crate::state::bound_paths(root))? };
-            artifacts.create(&title, SharedKind::Ui, self.creator(), vec![self.id()], |dir| {
+            artifacts.create(&title, icon.as_deref(), SharedKind::Ui, self.creator(), vec![self.id()], |dir| {
                 write_state(dir, &state)?;
                 let mut files = std::collections::BTreeMap::new();
                 for (src, rel) in &item.files {
@@ -137,10 +137,6 @@ impl Session {
         } else {
             return Err(crate::error::invalid(format!("{item_id} has neither root nor source")));
         };
-        let meta = match icon {
-            Some(icon) => artifacts.rename(&meta.id, &meta.title, Some(&icon))?,
-            None => meta,
-        };
         let mut input = item.input.clone();
         if let Some(o) = input.as_object_mut() {
             o.remove("root");
@@ -148,6 +144,10 @@ impl Session {
         }
         let thread = item.thread.clone().unwrap_or_else(|| self.meta().main_thread_id);
         self.write_frontend_tool_output(&thread, RENDER_UI, input, Default::default())?;
+        // The title and icon moved into the artifact: the per-Session override would only go stale.
+        if item.title.is_some() || item.icon.is_some() {
+            self.log.append(None, EventKind::PanelEdited { tool: RENDER_UI.to_owned(), id: item_id.to_owned(), title: None, icon: None })?;
+        }
         self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
         Ok(meta)
     }
@@ -166,7 +166,7 @@ impl Session {
         let title = title.map(str::to_owned).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| markdown_title(markdown));
         let kind = crate::api::SharedKind::Md;
         let text = markdown.to_owned();
-        let meta = self.shared.artifacts.create(&title, kind, crate::api::SharedCreator { origin, ..self.creator() }, vec![self.id()], |dir| {
+        let meta = self.shared.artifacts.create(&title, None, kind, crate::api::SharedCreator { origin, ..self.creator() }, vec![self.id()], |dir| {
             Ok(std::fs::write(dir.join(crate::shared::content_name(kind)), text)?)
         })?;
         self.log.append(None, EventKind::ArtifactAttached { id: meta.id.clone(), by })?;
