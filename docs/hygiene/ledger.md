@@ -16,6 +16,11 @@ The routine may edit only the [Known findings](#known-findings) table, and only 
    - deprecation warnings in the last CI and Release runs
 
    Report a finding only if it was verified in the code, with `file:line`. Skip findings already in [Known findings](#known-findings). An independent subagent checks each finding before it is reported.
+
+   **Merged PRs.** Also review the PRs merged into `main` in the scope for correctness bugs: wrong logic, missed edge cases, races, broken error handling, and leaks of processes or subscriptions.
+   - Triage the PRs in batches of about 10 per subagent. Each batch returns the PRs worth a closer look and why.
+   - Give a deep review, one subagent per PR, to every PR that touches `crates/`, `packages/api/` or the Event/Command API, every PR with more than 300 changed lines, and every PR the triage flagged. Deep-review at most 4 PRs per run, picking the riskiest first, and list the rest in the issue.
+   - A confirmed bug is a finding like any other. A fix changes behaviour, so it is `decide` and never auto-merged.
 4. **Fix.** Open at most 2 fix PRs. Each one covers one [auto-merge class](#auto-merge), or picks up one `open` finding from the table. A fix PR never also changes this file.
 5. **Review.** Every fix PR gets a review from an independent subagent:
    - Give it the diff, not your conclusion.
@@ -45,6 +50,25 @@ The routine may edit only the [Known findings](#known-findings) table, and only 
 
    Findings that were already `decide` before this run never trigger a notification. A clean run stays silent.
 10. **Security.** File a security finding only as a private draft advisory, and put one neutral line in the issue. Security findings never go into this file and are never fixed in an auto-merge PR.
+
+## Subagents
+
+The routine coordinates the run and delegates the work to subagents. Use the Agent tool's `model` option. A `fork` ignores it, so do not use forks for this work.
+
+- **`sonnet`** for the lighter work:
+  - measuring the numbers
+  - scanning CI and Release logs
+  - checking doc paths
+  - triaging merged PRs
+  - writing a fix in an auto-merge class
+  - the ledger PR
+- **`opus`** for the harder work:
+  - verifying each finding before it is reported
+  - deep reviews of merged PRs
+  - finding duplicated logic and modules that do too much
+  - the review of every fix PR, whose `SAFE` verdict decides the merge
+
+Give each subagent the goal, the files or PRs, and what to return. Give it the code or the diff, never your own conclusion. Use at most 12 subagents per run. If a subagent fails or returns nothing useful, retry it once, then report the step as failed.
 
 ## Auto-merge
 
