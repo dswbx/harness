@@ -50,6 +50,7 @@ import {
 } from "./listModel";
 import { PriorityIcon } from "./PriorityMenu";
 import { STATUS_LABEL, StatusMenu } from "./StatusMenu";
+import { sessionTitle } from "./sessionTitle";
 import { upstreamText } from "./UpstreamField";
 import { useNestDrag } from "./useNestDrag";
 
@@ -527,9 +528,7 @@ function Origin({
                s ? DOT[s.status ?? "idle"] : "border border-muted-foreground/50",
             )}
          />
-         <span className="truncate">
-            {s ? s.title : `${task.origin_title ?? "Session"} (deleted)`}
-         </span>
+         <span className="truncate">{sessionTitle(id, task.origin_title, sessions).title}</span>
       </span>
    );
 }
