@@ -13,8 +13,7 @@ function rng(seed: number) {
    };
 }
 
-const LINE =
-   "| E-%n | `pg_has_role(oid, text)` | returns 42883 function does not exist | catalog |";
+const LINE = "| W-%n | `widget.refresh(id, opts)` | returns an error: unknown option | widgets |";
 const text = (n: number, lines: number) =>
    Array.from({ length: lines }, (_, i) => LINE.replace("%n", `${n}-${i}`)).join("\n");
 
@@ -50,7 +49,7 @@ export function stressLiveTurn(subagents = 8, minutes = 3): StressStep[] {
       const pick = r();
       const dur = 300 + r() * 4000;
       if (pick < 0.5) {
-         const cmd = `cd /Users/me/turso && rg -n "pg_has_role|has_.*_privilege" core/ testing/ # ${n}`;
+         const cmd = `cd /Users/me/project && rg -n "refresh|update_widget" src/ tests/ # ${n}`;
          at(t, {
             type: "ToolCall",
             tool_call_id: id,
@@ -71,7 +70,7 @@ export function stressLiveTurn(subagents = 8, minutes = 3): StressStep[] {
             );
          at(t + dur, update(id, { status: "completed", raw_output: { stdout: text(n, 120) } }));
       } else if (pick < 0.65) {
-         const path = `/Users/me/turso/core/function/catalog_${n}.rs`;
+         const path = `/Users/me/project/src/widgets/widget_${n}.rs`;
          at(t, {
             type: "ToolCall",
             tool_call_id: id,
@@ -85,33 +84,33 @@ export function stressLiveTurn(subagents = 8, minutes = 3): StressStep[] {
          });
          at(t + dur, update(id, { status: "completed", content: output(text(n, 200)) }));
       } else if (pick < 0.9) {
-         const issue = `TUR-${40 + (n % 60)}`;
+         const issue = `TASK-${40 + (n % 60)}`;
          at(t, {
             type: "ToolCall",
             tool_call_id: id,
-            title: "mcp__claude_ai_Linear__save_issue",
+            title: "mcp__tracker__save_task",
             kind: null,
             status: null,
             content: [],
             locations: [],
             raw_input: {
                id: issue,
-               title: `Support catalog function ${n}`,
+               title: `Fix widget option ${n}`,
                description: text(n, 30),
             },
             parent_tool_call_id: parent,
-            detail: { mcp: { server: "claude_ai_Linear", tool: "save_issue" } },
+            detail: { mcp: { server: "tracker", tool: "save_task" } },
          } as EventKind);
          at(
             t + dur,
             update(id, {
                status: "completed",
-               content: output(`{"id":"${issue}","url":"https://linear.app/x/${issue}"}`),
+               content: output(`{"id":"${issue}","url":"https://tracker.example/${issue}"}`),
             }),
          );
       } else {
          // A large write: the whole file in the input and again as a diff (the original had 40 to 100 KB ones).
-         const path = `/tmp/gaps/out-${n}.md`;
+         const path = `/tmp/notes/out-${n}.md`;
          const body = text(n, 400 + Math.floor(r() * 600));
          at(t, {
             type: "ToolCall",
@@ -133,7 +132,7 @@ export function stressLiveTurn(subagents = 8, minutes = 3): StressStep[] {
    for (let s = 0; s < subagents; s++) {
       const task = `stress-task-${s}`;
       const start = 2000 + s * 1500;
-      const title = `Draft E${s * 3 + 2}-E${s * 3 + 4} catalog issues`;
+      const title = `Draft tasks ${s * 3 + 2}-${s * 3 + 4}`;
       at(start, {
          type: "ToolCall",
          tool_call_id: task,
@@ -155,7 +154,7 @@ export function stressLiveTurn(subagents = 8, minutes = 3): StressStep[] {
          start + 150,
          update(task, {
             content: output(
-               `Read /tmp/gaps/brief.md first. Your items: ${title}.\n\n${text(s, 20)}`,
+               `Read /tmp/notes/brief.md first. Your items: ${title}.\n\n${text(s, 20)}`,
             ),
          }),
       );
@@ -204,7 +203,7 @@ export function stressLiveTurn(subagents = 8, minutes = 3): StressStep[] {
          size: 200000,
       } as EventKind);
    for (let t = 20000; t < span; t += 8000 + r() * 8000) call(t, null);
-   const reply = `All ${subagents} subagents reported. The drafts are in \`/tmp/gaps/\`. ${"Each draft lists the gap, the test and the fix. ".repeat(20)}`;
+   const reply = `All ${subagents} subagents reported. The drafts are in \`/tmp/notes/\`. ${"Each draft lists the problem, the test and the fix. ".repeat(20)}`;
    for (let i = 0; i < reply.length; i += 30)
       at(span + i * 2, { type: "AgentMessageChunk", text: reply.slice(i, i + 30) });
    return steps.sort((a, b) => a.at - b.at);

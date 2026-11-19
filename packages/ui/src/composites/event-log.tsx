@@ -35,9 +35,11 @@ const DOTS = [
 const dotFor = (name: string) =>
    DOTS[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % DOTS.length]!;
 
-/** "1,204" up to 9,999, then "12.3k". */
+const grouped = new Intl.NumberFormat("en-US");
+
+/** "1,204" up to 9,999, then "12.3k". One kept formatter: `toLocaleString` makes a new one per call. */
 function compact(n: number): string {
-   return n < 10_000 ? n.toLocaleString("en-US") : `${(n / 1000).toFixed(n < 100_000 ? 1 : 0)}k`;
+   return n < 10_000 ? grouped.format(n) : `${(n / 1000).toFixed(n < 100_000 ? 1 : 0)}k`;
 }
 
 /** "session" for the main Session, else the thread id's tail. */

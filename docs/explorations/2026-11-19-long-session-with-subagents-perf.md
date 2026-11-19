@@ -5,7 +5,7 @@
 **Observed:**
 
 - Chat only (the Session's panel files absent): WebKit 95 fps, no frame over 30 ms, typing 2 keys 11 to 17 ms, no growth over 70 s. Chromium: about 10% CPU at 20x speed. No JS heap or DOM growth over 30 Session switches (25 MB after GC).
-- With the Session's panel files (one is `all-drafts.md`, 204 KB, open in the right dock): from the moment it shows, the main thread was blocked 55% of the time, frame p95 120 ms, typing 2 keys 270 to 390 ms. Profile: almost all of it in `Markdown` (react-markdown parse of the whole file), on every Event batch, because the panel re-renders with the chat state and `Markdown` was not memoized.
+- With the Session's panel files (one is a 204 KB `.md` file, open in the right dock): from the moment it shows, the main thread was blocked 55% of the time, frame p95 120 ms, typing 2 keys 270 to 390 ms. Profile: almost all of it in `Markdown` (react-markdown parse of the whole file), on every Event batch, because the panel re-renders with the chat state and `Markdown` was not memoized.
 - With `Markdown` memoized: blocked 4%, frame p95 12 ms, typing about 20 ms. One 333 ms frame left when the panel first shows (the one parse).
 - Synthetic `/stress` Turn (8 subagents, about 2,500 Events): about 5% CPU in Chromium. It does not reproduce the slowness: the cause was the large panel file, not the Event volume.
 - `new Intl.DateTimeFormat(...)` costs about 60 µs per call in JavaScriptCore (Bun), 0.6 µs to format with a kept one. `toLocaleString` with options about 55 µs.

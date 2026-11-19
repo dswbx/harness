@@ -49,7 +49,7 @@ export const frontendFilesHandlers = {
    FrontendList: (mock, cmd) => {
       const dir = (cmd.dir ?? "").replace(/^\/|\/$/g, "");
       const files = [...(mock.frontendFiles.get(cmd.session_id)?.keys() ?? [])].filter(
-         (p) => !dir || p.startsWith(dir + "/"),
+         (p) => !dir || p.startsWith(`${dir}/`),
       );
       return { type: "Files", files };
    },
