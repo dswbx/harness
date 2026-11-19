@@ -609,6 +609,12 @@ pub enum Command {
         session_id: SessionId,
         files: Vec<AttachmentInput>,
     },
+    /// Deletes one of the Session Note's images: `path` as in `Note::images`. Only files directly
+    /// in `attachments/note/`.
+    RemoveNoteImage {
+        session_id: SessionId,
+        path: String,
+    },
 }
 
 /// One Session State patch operation (lenient JSON Patch, see `state.rs`).

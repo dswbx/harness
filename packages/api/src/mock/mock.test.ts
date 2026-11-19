@@ -682,3 +682,26 @@ describe("MockTransport Start Session from a task", () => {
       expect(await c.listSessions()).toHaveLength(before);
    });
 });
+
+describe("MockTransport Session Note images", () => {
+   it("removes one image and refuses an unknown path", async () => {
+      const transport = new MockTransport([], []);
+      const id = await new HarnessClient(transport).createSession({
+         folder: "/tmp/n",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const api = createSessionApi(transport, id);
+      const png = { type: "data" as const, mime: "image/png", data: "eA==" };
+      const added = await api.addNoteImages([
+         { ...png, name: "a.png" },
+         { ...png, name: "b.png" },
+      ]);
+      const changed = vi.fn();
+      await api.noteChanged(changed);
+      const after = await api.removeNoteImage(added.images[0] ?? "");
+      expect(after.images).toEqual([added.images[1]]);
+      expect(changed).toHaveBeenCalledTimes(1);
+      await expect(api.removeNoteImage(added.images[0] ?? "")).rejects.toThrow("no image");
+   });
+});

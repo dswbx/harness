@@ -255,6 +255,8 @@ export interface SessionApi {
    writeNote(content: string, baseHash?: string | null): Promise<Note>;
    /** Copies images into the note's `attachments/note/`; `readAttachment` reads them back. */
    addNoteImages(files: AttachmentInput[]): Promise<Note>;
+   /** Deletes one of the note's images: `path` as in `Note.images`. */
+   removeNoteImage(path: string): Promise<Note>;
    /** Calls back when this Session's note was written (any window). */
    noteChanged(onChange: () => void): Promise<Unsubscribe>;
 }

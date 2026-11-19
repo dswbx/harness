@@ -78,4 +78,13 @@ export const noteHandlers = {
       mock.notes.set(cmd.session_id, { content: cur.content, updated_ms: cur.updated_ms, images });
       return { type: "Note", note: changed(mock, cmd.session_id) };
    },
+   RemoveNoteImage: (mock, cmd) => {
+      const cur = note(mock, cmd.session_id);
+      if (!cur.images.includes(cmd.path))
+         throw new CommandError("not_found", `the note has no image ${cmd.path}`);
+      mock.attachments.delete(cmd.path);
+      const images = cur.images.filter((p) => p !== cmd.path);
+      mock.notes.set(cmd.session_id, { content: cur.content, updated_ms: cur.updated_ms, images });
+      return { type: "Note", note: changed(mock, cmd.session_id) };
+   },
 } satisfies Partial<Handlers>;

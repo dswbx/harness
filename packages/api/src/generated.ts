@@ -450,7 +450,12 @@ due?: string | null; upstream?: TaskUpstream | null } |
  */
 { type: "WriteNote"; session_id: string; content: string; base_hash?: string | null } | 
 /**  Copies images into the Session Note's `attachments/note/`. */
-{ type: "AddNoteImages"; session_id: string; files: AttachmentInput[] };
+{ type: "AddNoteImages"; session_id: string; files: AttachmentInput[] } | 
+/**
+ *  Deletes one of the Session Note's images: `path` as in `Note::images`. Only files directly
+ *  in `attachments/note/`.
+ */
+{ type: "RemoveNoteImage"; session_id: string; path: string };
 
 export type CommandResult = { type: "Ok" } | 
 /**  `AddComment`. */

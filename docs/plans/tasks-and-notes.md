@@ -111,6 +111,7 @@ New `crates/harness-core/src/host/dispatch/tasks.rs` (listed in `dispatch/mod.rs
 | `ReadNote { session_id }`                                                                   | `Note { content, hash, updated_ms, images: Vec<String> }`           |
 | `WriteNote { session_id, content, base_hash: Option<String> }`                              | `Note` (conflict error when the hash changed)                       |
 | `AddNoteImages { session_id, files: Vec<AttachmentInput> }`                                 | `Note`                                                              |
+| `RemoveNoteImage { session_id, path }` (only files directly in `attachments/note/`)          | `Note`                                                              |
 
 `TaskPatch` has optional fields plus `clear: Vec<TaskField>` (`Due`, `Upstream`). This avoids `Option<Option<T>>` in specta. A status change appends `StatusChanged`.
 

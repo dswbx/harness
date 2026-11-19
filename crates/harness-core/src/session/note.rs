@@ -37,6 +37,12 @@ impl Session {
         let _guard = self.note_lock.lock();
         add_images(&self.dir, files)
     }
+
+    /// See `remove_image`.
+    pub fn remove_note_image(&self, path: &str) -> anyhow::Result<Note> {
+        let _guard = self.note_lock.lock();
+        remove_image(&self.dir, path)
+    }
 }
 
 fn hash(content: &str) -> String {
@@ -97,6 +103,21 @@ pub(crate) fn add_images(dir: &Path, files: Vec<AttachmentInput>) -> anyhow::Res
     read(dir)
 }
 
+/// Deletes the image at `path` (as in `Note::images`). Refuses a path that is not a file directly
+/// in `attachments/note/`.
+pub(crate) fn remove_image(dir: &Path, path: &str) -> anyhow::Result<Note> {
+    let path = Path::new(path);
+    let images = images_dir(dir);
+    let inside = path.parent() == Some(images.as_path())
+        && matches!(path.components().next_back(), Some(std::path::Component::Normal(_)))
+        && std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file());
+    if !inside {
+        return Err(crate::error::not_found(format!("the note has no image {}", path.display())));
+    }
+    std::fs::remove_file(path)?;
+    read(dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +174,32 @@ mod tests {
         let e = add_images(dir.path(), vec![AttachmentInput::Path { path: dir.path().join("a.txt").display().to_string() }]).unwrap_err();
         assert_eq!(code(e), ErrorCode::Invalid);
         assert_eq!(read(dir.path()).unwrap().images.len(), 2);
+    }
+
+    #[test]
+    fn remove_image_deletes_only_note_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("shot.png");
+        std::fs::write(&png, b"png").unwrap();
+        let note = add_images(dir.path(), vec![AttachmentInput::Path { path: png.display().to_string() }]).unwrap();
+        let below = dir.path().join("attachments").join("note");
+        std::fs::create_dir_all(below.join("sub")).unwrap();
+        std::fs::write(dir.path().join("attachments").join("other.png"), b"x").unwrap();
+        // Outside `attachments/note/`, through `..`, a folder, missing.
+        for bad in [
+            png.clone(),
+            dir.path().join("attachments").join("other.png"),
+            below.join("..").join("other.png"),
+            below.join("sub"),
+            below.join("gone.png"),
+            dir.path().join("note.md"),
+        ] {
+            let e = remove_image(dir.path(), &bad.display().to_string()).unwrap_err();
+            assert_eq!(code(e), ErrorCode::NotFound, "{}", bad.display());
+        }
+        assert!(png.exists() && dir.path().join("attachments").join("other.png").exists());
+        let after = remove_image(dir.path(), &note.images[0]).unwrap();
+        assert!(after.images.is_empty());
+        assert!(!Path::new(&note.images[0]).exists());
     }
 }

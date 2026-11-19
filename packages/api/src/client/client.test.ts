@@ -51,6 +51,7 @@ const replies: Partial<Record<Command["type"], CommandResult>> = {
    ReadNote: { type: "Note", note },
    WriteNote: { type: "Note", note },
    AddNoteImages: { type: "Note", note },
+   RemoveNoteImage: { type: "Note", note },
    ReadImageFile: { type: "Attachment", mime: "image/png", data: "eA==" },
    FrontendReadImage: { type: "Attachment", mime: "image/png", data: "eA==" },
    StartSideThread: { type: "ThreadStarted", thread_id: "t2", forked: false },
@@ -193,6 +194,7 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    readNote: (a) => a.readNote(),
    writeNote: (a) => a.writeNote("# n", "h"),
    addNoteImages: (a) => a.addNoteImages([]),
+   removeNoteImage: (a) => a.removeNoteImage("/s/attachments/note/a.png"),
 };
 
 describe("createSessionApi wire shape", () => {

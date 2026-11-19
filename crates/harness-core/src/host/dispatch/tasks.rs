@@ -88,4 +88,8 @@ impl Harness {
         let note = tokio::task::spawn_blocking(move || session.add_note_images(files)).await??;
         Ok(CommandResult::Note { note })
     }
+
+    pub(in crate::host) fn cmd_remove_note_image(&self, session_id: SessionId, path: String) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::Note { note: self.session(&session_id)?.remove_note_image(&path)? })
+    }
 }

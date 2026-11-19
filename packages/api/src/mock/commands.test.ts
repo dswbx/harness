@@ -177,6 +177,11 @@ const table: Record<Command["type"], () => Command> = {
       session_id: S,
       files: [{ type: "data", name: "a.png", mime: "image/png", data: "eA==" }],
    }),
+   RemoveNoteImage: () => ({
+      type: "RemoveNoteImage",
+      session_id: S,
+      path: "/mock/sessions/s1/attachments/note/a.png",
+   }),
 };
 
 describe("MockTransport handles every Command", () => {

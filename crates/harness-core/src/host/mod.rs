@@ -317,7 +317,9 @@ impl Harness {
         };
         // Other windows re-read the note.
         let note = match &cmd {
-            Command::WriteNote { session_id, .. } | Command::AddNoteImages { session_id, .. } => Some(session_id.clone()),
+            Command::WriteNote { session_id, .. } | Command::AddNoteImages { session_id, .. } | Command::RemoveNoteImage { session_id, .. } => {
+                Some(session_id.clone())
+            }
             _ => None,
         };
         // Tasks the Command changes, known before it runs (`CreateTask` adds its new id after).
@@ -496,6 +498,7 @@ impl Harness {
             Command::ReadNote { session_id } => self.cmd_read_note(session_id),
             Command::WriteNote { session_id, content, base_hash } => self.cmd_write_note(session_id, content, base_hash),
             Command::AddNoteImages { session_id, files } => self.cmd_add_note_images(session_id, files).await,
+            Command::RemoveNoteImage { session_id, path } => self.cmd_remove_note_image(session_id, path),
         }
     }
 

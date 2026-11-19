@@ -521,6 +521,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ReadTaskAsset",
     },
   ],
+  "removeNoteImage": [
+    {
+      "path": "/s/attachments/note/a.png",
+      "session_id": "s1",
+      "type": "RemoveNoteImage",
+    },
+  ],
   "removeTaskAsset": [
     {
       "id": "t1",
