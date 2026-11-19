@@ -16,6 +16,7 @@ import type { SessionInfo } from "./ListView";
 import type { TaskFilter } from "./listModel";
 import { PriorityIcon } from "./PriorityMenu";
 import { StatusIcon } from "./StatusMenu";
+import { sessionTitle } from "./sessionTitle";
 import {
    collapseAll,
    defaultCollapsed,
@@ -280,7 +281,6 @@ function Node({
    const topic = node.depth === 0;
    const progress = node.kids > 0 ? topicProgress(tasks, task.id) : null;
    const origin = task.origin_session_id;
-   const session = origin ? sessions.get(origin) : undefined;
    return (
       <div
          data-tree-node={task.id}
@@ -332,7 +332,7 @@ function Node({
                )}
                {!progress && origin && (
                   <span className="truncate">
-                     {session ? session.title : `${task.origin_title ?? "Session"} (deleted)`}
+                     {sessionTitle(origin, task.origin_title, sessions).title}
                   </span>
                )}
             </span>
