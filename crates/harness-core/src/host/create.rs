@@ -108,7 +108,9 @@ impl Harness {
                 ))
             }
             Start::Branch { base, new_branch, worktree: true } => {
-                let branch = new_branch.unwrap_or_else(|| crate::git::prefixed(&prefix, &format!("{}-{short}", crate::git::slug(title))));
+                // `<prefix>/<short id>`; without a prefix, `<title slug>-<short id>` (a bare id says nothing).
+                let branch = new_branch
+                    .unwrap_or_else(|| if prefix.is_empty() { format!("{}-{short}", crate::git::slug(title)) } else { crate::git::prefixed(&prefix, short) });
                 let wt = crate::git::create_worktree(&self.base_fetches, &root, base, branch, &dest).await?;
                 Ok(in_worktree(wt, None))
             }

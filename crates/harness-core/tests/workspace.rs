@@ -432,9 +432,11 @@ async fn branch_prefix_setting_names_new_worktree_branches() {
     assert_eq!((prefix, resolved.as_str()), (BranchPrefix::Harness, "harness"));
     assert!(branch(create(&h, &repo, None, true).await.unwrap()).await.starts_with("harness/"));
     h.execute(Command::SetBranchPrefix { prefix: Some(BranchPrefix::Custom { prefix: "me/wip/".into() }) }).await.unwrap();
-    assert!(branch(create(&h, &repo, None, true).await.unwrap()).await.starts_with("me/wip/"));
+    let sid = create(&h, &repo, None, true).await.unwrap();
+    assert_eq!(branch(sid.clone()).await, format!("me/wip/{}", &sid[sid.len() - 6..]));
     h.execute(Command::SetBranchPrefix { prefix: Some(BranchPrefix::Custom { prefix: "".into() }) }).await.unwrap();
-    assert!(!branch(create(&h, &repo, None, true).await.unwrap()).await.contains('/'));
+    let b = branch(create(&h, &repo, None, true).await.unwrap()).await;
+    assert!(!b.contains('/') && b.contains('-'), "{b}");
     assert!(h.execute(Command::SetBranchPrefix { prefix: Some(BranchPrefix::Custom { prefix: "a b".into() }) }).await.is_err());
 }
 

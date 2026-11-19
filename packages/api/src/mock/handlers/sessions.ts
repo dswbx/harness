@@ -45,7 +45,7 @@ export const sessionsHandlers = {
          );
       const worktree = cmd.worktree;
       const prefix = mock.resolvedBranchPrefix();
-      const newBranch = prefix ? `${prefix}/${id}` : id;
+      const newBranch = prefix ? `${prefix}/${id.slice(-6)}` : id;
       const workspace: WorkspaceInfo = {
          repo_root: isRepo ? cmd.folder : null,
          source_folder: cmd.folder,

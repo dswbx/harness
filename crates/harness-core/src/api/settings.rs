@@ -41,7 +41,7 @@ pub enum OverlayPosition {
     Bottom,
 }
 
-/// What new Session branches start with: `<prefix>/<title slug>-<short id>`.
+/// What new Session branches start with: `<prefix>/<short id>` (no prefix: `<title slug>-<short id>`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BranchPrefix {

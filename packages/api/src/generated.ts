@@ -125,7 +125,7 @@ export type BranchInfo = {
 	archived: boolean,
 };
 
-/**  What new Session branches start with: `<prefix>/<title slug>-<short id>`. */
+/**  What new Session branches start with: `<prefix>/<short id>` (no prefix: `<title slug>-<short id>`). */
 export type BranchPrefix = 
 /**  `harness/...` */
 { type: "harness" } | 

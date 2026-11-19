@@ -106,7 +106,8 @@ function BranchPrefixSetting({ client }: { client: HarnessClient }) {
    };
    if (saved === undefined) return null;
    const type = saved.prefix.type;
-   const example = `${saved.resolved ? `${saved.resolved}/` : ""}fix-login-1a2b3c`;
+   // Matches create.rs: `<prefix>/<short id>`, or `<title>-<short id>` without a prefix.
+   const example = saved.resolved ? `${saved.resolved}/1a2b3c` : "fix-login-1a2b3c";
    return (
       <section className="mt-8">
          <h3 className="text-sm font-medium">Branches</h3>
