@@ -133,7 +133,7 @@ impl Harness {
             mcp_shim: options.mcp_shim,
             app_events: Default::default(),
             prompts_dir: data_dir.join("prompts"),
-            instructions: crate::instructions::Instructions::new(data_dir.join(crate::instructions::DIR)),
+            instructions: crate::instructions::Instructions::new(&data_dir),
             pr_refs: Default::default(),
             artifacts: crate::shared::SharedArtifacts::open(data_dir.join(crate::shared::DIR))?,
             tasks: crate::tasks::Tasks::open(data_dir.join(crate::tasks::DIR))?,

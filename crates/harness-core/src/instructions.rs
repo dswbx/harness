@@ -15,11 +15,21 @@ const MAX_NAME: usize = 250;
 
 pub struct Instructions {
     dir: PathBuf,
+    /// `<data dir>/quick`: Quick Session folders, scratch space with no instructions of their own.
+    quick: PathBuf,
 }
 
 impl Instructions {
-    pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
+    pub fn new(data_dir: &Path) -> Self {
+        Self { dir: data_dir.join(DIR), quick: data_dir.join("quick") }
+    }
+
+    /// Whose Custom Instructions a Session gets (`SessionMeta::instructions_folder`). None in a
+    /// Quick Session's folder, also for the Sub Sessions its Agent starts there.
+    pub fn folder_of(&self, meta: &crate::session::SessionMeta) -> Option<PathBuf> {
+        // Quick folders are canonical (`create_quick`); the data dir may not be.
+        let canonical = std::fs::canonicalize(&self.quick).unwrap_or_else(|_| self.quick.clone());
+        meta.instructions_folder().filter(|f| !f.starts_with(&self.quick) && !f.starts_with(&canonical))
     }
 
     fn repos(&self) -> PathBuf {
@@ -176,7 +186,7 @@ mod tests {
         let repo = dir.path().join("demo-app");
         std::fs::create_dir_all(&repo).unwrap();
         let repo = repo.display().to_string();
-        let i = Instructions::new(dir.path().join(DIR));
+        let i = Instructions::new(dir.path());
         let global = InstructionsScope::Global;
         let scope = InstructionsScope::Repo { path: repo.clone() };
 

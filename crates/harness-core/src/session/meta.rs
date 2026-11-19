@@ -142,10 +142,18 @@ impl SessionMeta {
     }
 
     /// Whose Custom Instructions apply: the repository's main checkout (shared by its Worktrees),
-    /// else the folder. None for a Quick Session (its folder is scratch space).
+    /// else the folder. None for a Quick Session; `Instructions::folder_of` also skips its folder.
     pub fn instructions_folder(&self) -> Option<PathBuf> {
         if self.quick {
             return None;
+        }
+        // A live Worktree's own `.git` leads to the main checkout, even when it was cut from
+        // another Worktree that is gone now (its recorded repo_root).
+        if let Some(wt) = &self.workspace.worktree {
+            let main = crate::instructions::main_checkout(&wt.path);
+            if main != wt.path {
+                return Some(main);
+            }
         }
         Some(self.repo_folder().map_or_else(|| PathBuf::from(&self.folder), |r| crate::instructions::main_checkout(&r)))
     }
