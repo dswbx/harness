@@ -88,6 +88,7 @@ impl Session {
             awaiting_first_prompt: false,
             title_from_prompt: false,
             title_explicit: false,
+            agent_title: None,
             parent: None,
             initial_config: Default::default(),
         };
@@ -141,9 +142,54 @@ impl Session {
         Ok(())
     }
 
+    /// Goes back to the automatic title: the Agent's last, else the first Main Thread prompt's,
+    /// else the current one. Agent titles replace it again.
+    pub fn reset_title(&self) -> anyhow::Result<()> {
+        let m = self.meta();
+        let from_prompt = || {
+            let events = self.log().events().ok()?;
+            events.iter().find_map(|e| match &e.kind {
+                EventKind::TurnStarted { text, origin: None, .. } if e.thread_id.as_ref() == Some(&m.main_thread_id) => title_from_text(text),
+                _ => None,
+            })
+        };
+        let agent = m.agent_title.clone().filter(|t| !t.is_empty());
+        let created = || {
+            let events = self.log().events().ok()?;
+            events.iter().find_map(|e| match &e.kind {
+                EventKind::SessionCreated { title, .. } => Some(title.clone()),
+                _ => None,
+            })
+        };
+        let prompt = if agent.is_none() { from_prompt() } else { None };
+        let from_prompt_pending = agent.is_none() && prompt.is_none() && (m.awaiting_first_prompt || m.title_from_prompt);
+        let title = agent.or(prompt).or_else(created).unwrap_or_else(|| m.title.clone());
+        let main = self.update_meta(|m| {
+            m.title = title.clone();
+            m.title_explicit = false;
+            m.title_from_prompt = from_prompt_pending;
+            m.main_thread_id.clone()
+        })?;
+        self.log().append(Some(main), EventKind::SessionInfoUpdated { title: Some(title.clone()) })?;
+        self.emit_status(self.id(), title, self.agent.status());
+        Ok(())
+    }
+
     /// Titles the Agent sends on `thread` are dropped: the title was set on purpose.
     pub fn ignores_agent_title(&self, thread: Option<&ThreadId>) -> bool {
         self.is_main(thread) && self.meta.lock().title_explicit
+    }
+
+    /// Records the Agent's title in `agent_title` (the main Thread's only).
+    pub fn note_agent_title_on(&self, thread: Option<&ThreadId>, title: &str) {
+        let title = title.trim();
+        if !title.is_empty() && self.is_main(thread) {
+            let _ = self.update_meta(|m| m.agent_title = Some(title.to_owned()));
+        }
+    }
+
+    pub fn note_agent_title(&self, title: &str) {
+        self.note_agent_title_on(None, title);
     }
 
     /// Keeps the Agent's title for the Session (`session_info_update` on the main Thread).
@@ -260,11 +306,11 @@ impl Session {
     }
 
     fn emit_status(&self, session_id: SessionId, title: String, status: SessionStatus) {
-        let (unused, unseen) = {
+        let (unused, unseen, title_explicit) = {
             let m = self.meta.lock();
-            (m.unused(), m.unseen)
+            (m.unused(), m.unseen, m.title_explicit)
         };
-        self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status, unused, unseen });
+        self.shared.app_events.emit(crate::api::AppEvent::SessionStatus { session_id, title, status, unused, unseen, title_explicit });
     }
 
     /// Marks that a Main Thread Turn ended unseen (`true`) or that the user viewed the Session
@@ -298,6 +344,7 @@ impl Session {
             quick: m.quick,
             unused: m.unused(),
             unseen: m.unseen,
+            title_explicit: m.title_explicit,
             workspace: crate::api::WorkspaceInfo {
                 repo_root: m.workspace.repo_root.as_ref().map(|p| p.display().to_string()),
                 source_folder: m

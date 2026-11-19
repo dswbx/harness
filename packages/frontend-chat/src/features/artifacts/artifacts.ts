@@ -1,5 +1,6 @@
-import type { Item } from "../../state/reducer";
+import type { Item, PanelEdits } from "../../state/reducer";
 import { asRenderUi } from "../renderUi/decode";
+import { NO_EDITS } from "../renderUi/slots";
 import { type Placement, type RawNode, sharedRef, sourceTreeName } from "../renderUi/tools";
 
 export type ArtifactKind = "ui" | "diagram" | "table";
@@ -221,7 +222,7 @@ function uiPart(it: Extract<Item, { type: "frontend_tool" }>, v: ReturnType<type
    return p;
 }
 
-export function collectArtifacts(items: Item[]): Artifact[] {
+export function collectArtifacts(items: Item[], edits: PanelEdits = NO_EDITS): Artifact[] {
    const out: Artifact[] = [];
    /** render_ui id -> its artifact (in `out`). */
    const byId = new Map<string, Artifact>();
@@ -259,7 +260,7 @@ export function collectArtifacts(items: Item[]): Artifact[] {
       if (it.type !== "frontend_tool" || !it.render?.ok) continue;
       const v = asRenderUi(it.render.value);
       const old = v.id ? byId.get(v.id) : undefined;
-      if (v.remove || !v.root) {
+      if (v.remove || !v.root || (v.id && edits.deleted[v.id])) {
          if (old) {
             out.splice(out.indexOf(old), 1);
             byId.delete(v.id!);
@@ -292,7 +293,12 @@ export function collectArtifacts(items: Item[]): Artifact[] {
       } else out.push(a);
       if (v.id) byId.set(v.id, a);
    }
-   return out;
+   // The user's title and icon replace the Agent's, except for a shared one (its meta names it).
+   return out.map((a) => {
+      const o = a.kind === "ui" && !a.shared && a.slotId ? edits.overrides[a.slotId] : undefined;
+      if (!o) return a;
+      return { ...a, title: o.title ?? a.title, icon: o.icon ?? a.icon };
+   });
 }
 
 /** Artifacts of `kind` (or all) whose title, kind line or source contain `query` (any case). */

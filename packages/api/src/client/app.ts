@@ -32,6 +32,8 @@ import {
    getEditor,
    markSessionSeen,
    openInEditor,
+   resetSessionTitle,
+   setSessionTitle,
    unarchiveSession,
 } from "./commands";
 import { expectResult } from "./expect";
@@ -270,6 +272,14 @@ export class HarnessClient {
    async markSessionSeen(sessionId: string): Promise<void> {
       await markSessionSeen(this.transport, sessionId);
    }
+   /** Names the Session; Agent titles no longer replace it. */
+   async setSessionTitle(sessionId: string, title: string): Promise<void> {
+      await setSessionTitle(this.transport, sessionId, title);
+   }
+   /** Back to the automatic title (the Agent's, else the first prompt's). */
+   async resetSessionTitle(sessionId: string): Promise<void> {
+      await resetSessionTitle(this.transport, sessionId);
+   }
    async unarchiveSession(sessionId: string): Promise<void> {
       await unarchiveSession(this.transport, sessionId);
    }
@@ -326,10 +336,15 @@ export class HarnessClient {
    readSharedArtifact(id: string): Promise<SharedArtifactData> {
       return readShared(this.transport, id);
    }
-   async renameSharedArtifact(id: string, title: string): Promise<SharedArtifactMeta> {
+   /** Sets a Shared Artifact's title and, when given, its icon (`""` clears it). */
+   async renameSharedArtifact(
+      id: string,
+      title: string,
+      icon?: string | null,
+   ): Promise<SharedArtifactMeta> {
       const r = await expectResult(
          this.transport,
-         { type: "RenameSharedArtifact", id, title },
+         { type: "RenameSharedArtifact", id, title, icon: icon ?? null },
          "SharedArtifactInfo",
       );
       return r.meta;

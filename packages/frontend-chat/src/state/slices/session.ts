@@ -24,6 +24,21 @@ export function sessionLevel(c: Ctx, e: Event): boolean {
          k.type === "ArtifactAttached" ? [...rest, { id: k.id, ts: e.ts_ms }] : rest;
       return true;
    }
+   if (k.type === "PanelEdited" && k.tool === "render_ui") {
+      const { [k.id]: _, ...rest } = d.panelEdits.overrides;
+      const none = k.title == null && k.icon == null;
+      d.panelEdits = {
+         ...d.panelEdits,
+         overrides: none
+            ? rest
+            : { ...rest, [k.id]: { title: k.title ?? null, icon: k.icon ?? null } },
+      };
+      return true;
+   }
+   if (k.type === "PanelDeleted" && k.tool === "render_ui") {
+      d.panelEdits = { ...d.panelEdits, deleted: { ...d.panelEdits.deleted, [k.id]: true } };
+      return true;
+   }
    if (
       k.type === "CommentAdded" ||
       k.type === "CommentEdited" ||
@@ -35,6 +50,16 @@ export function sessionLevel(c: Ctx, e: Event): boolean {
       return true;
    }
    return k.type === "ArtifactStateChanged";
+}
+
+/** A `render_ui` call with the id of a deleted panel brings it back (the user's override stays). */
+export function reviveDeletedPanel(c: Ctx, e: Event) {
+   const k = e.kind;
+   if (k.type !== "FrontendToolOutput" || k.tool !== "render_ui") return;
+   const id = (k.input as { id?: unknown } | null)?.id;
+   if (typeof id !== "string" || !c.d.panelEdits.deleted[id]) return;
+   const { [id]: _, ...deleted } = c.d.panelEdits.deleted;
+   c.d.panelEdits = { ...c.d.panelEdits, deleted };
 }
 
 /** Main + Side Threads for menus and tab titles. */

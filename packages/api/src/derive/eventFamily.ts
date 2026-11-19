@@ -34,6 +34,8 @@ const FAMILY: Record<EventKind["type"], string> = {
    StateChanged: "Session",
    ArtifactAttached: "Session",
    ArtifactDetached: "Session",
+   PanelEdited: "Session",
+   PanelDeleted: "Session",
    ArtifactStateChanged: "Session",
    CommentAdded: "Session",
    CommentEdited: "Session",

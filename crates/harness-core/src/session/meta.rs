@@ -63,6 +63,10 @@ pub struct SessionMeta {
     /// sends no longer replace it.
     #[serde(default)]
     pub title_explicit: bool,
+    /// The last title the Agent sent (ACP `session_info_update`, the `set_title` tool), kept even
+    /// when `title_explicit` drops it: `ResetSessionTitle` goes back to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_title: Option<String>,
     /// A Sub Session: the Session whose Agent started it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<crate::api::SessionParent>,

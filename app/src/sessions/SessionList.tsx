@@ -40,6 +40,8 @@ export function SessionList({
    onSelect,
    onArchive,
    onDelete,
+   onRename,
+   onResetTitle,
    onOpenWindow,
    onNewInFolder,
    onNewQuick,
@@ -50,6 +52,8 @@ export function SessionList({
    onSelect: (id: string) => void;
    onArchive: (s: SessionSummary) => void;
    onDelete: (s: SessionSummary) => void;
+   onRename: (s: SessionSummary) => void;
+   onResetTitle: (s: SessionSummary) => void;
    /** Opens the Session in its own window. */
    onOpenWindow?: (s: SessionSummary) => void;
    /** Opens the Composer with this folder picked (the + on a folder group). */
@@ -145,6 +149,8 @@ export function SessionList({
          onSelect={() => onSelect(s.id)}
          onArchive={() => onArchive(s)}
          onDelete={() => onDelete(s)}
+         onRename={() => onRename(s)}
+         onResetTitle={() => onResetTitle(s)}
          onOpenWindow={onOpenWindow && (() => onOpenWindow(s))}
       />
    );
@@ -170,6 +176,8 @@ export function SessionList({
                onSelect={() => onSelect(s.id)}
                onArchive={() => onArchive(s)}
                onDelete={() => onDelete(s)}
+               onRename={() => onRename(s)}
+               onResetTitle={() => onResetTitle(s)}
                onOpenWindow={onOpenWindow && (() => onOpenWindow(s))}
             />
             {open && (

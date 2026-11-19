@@ -22,6 +22,7 @@ const slot = (id: string, over: Partial<Slot> = {}): Slot => ({
    files: {},
    ts: 1,
    source: null,
+   agent: null,
    ...over,
 });
 

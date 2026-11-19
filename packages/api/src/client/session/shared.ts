@@ -16,6 +16,7 @@ type Shared = Pick<
    | "shareMarkdown"
    | "attachShared"
    | "detachShared"
+   | "renameShared"
    | "listShared"
    | "readShared"
    | "patchArtifactState"
@@ -44,6 +45,14 @@ export const sharedApi = (transport: Transport, sessionId: string): Shared => ({
    attachShared: (id) => attachSharedArtifact(transport, sessionId, id),
    detachShared: (id) =>
       run(transport, { type: "DetachSharedArtifact", session_id: sessionId, id }),
+   renameShared: async (id, title, icon = null) =>
+      (
+         await expectResult(
+            transport,
+            { type: "RenameSharedArtifact", id, title, icon },
+            "SharedArtifactInfo",
+         )
+      ).meta,
    listShared: (query) => listShared(transport, query),
    readShared: (id) => readShared(transport, id),
    patchArtifactState: (id, ops) => patchArtifactState(transport, id, ops, sessionId),

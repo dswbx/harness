@@ -38,7 +38,7 @@ pub(crate) async fn session() -> (Arc<Session>, tempfile::TempDir) {
     (h.session(&session_id).unwrap(), dir)
 }
 
-fn call(s: &Session, tool: &str, call_id: &str, input: serde_json::Value) {
+pub(crate) fn call(s: &Session, tool: &str, call_id: &str, input: serde_json::Value) {
     let thread = s.meta().main_thread_id;
     let kind = EventKind::FrontendToolOutput { tool: tool.into(), call_id: call_id.into(), path: format!("{call_id}.json"), input, files: Default::default() };
     s.log.append(Some(thread), kind).unwrap();
@@ -162,4 +162,66 @@ async fn attached_shared_follows_attach_and_detach_in_order() {
     assert_eq!(s.attached_shared().unwrap(), vec!["b", "a"]);
     // Folders only for artifacts that still exist (none of these were created).
     assert!(s.attached_shared_dirs().is_empty());
+}
+
+#[tokio::test]
+async fn a_panel_override_survives_the_agent_calling_again_and_deleting_and_reviving_keeps_it() {
+    let (s, _dir) = session().await;
+    call(&s, "render_ui", "c1", json!({ "id": "a", "title": "Agent title", "root": {} }));
+    s.edit_panel("a", Some("  My   panel \n".into()), Some("star".into())).unwrap();
+    let item = s.frontend_item("render_ui", "a").unwrap().unwrap();
+    assert_eq!((item.display_title(), item.display_icon()), (Some("My panel"), Some("star")));
+    call(&s, "render_ui", "c2", json!({ "id": "a", "title": "Agent again", "root": {} }));
+    let item = s.frontend_item("render_ui", "a").unwrap().unwrap();
+    assert_eq!(item.display_title(), Some("My panel"), "the override survives a re-send");
+    assert_eq!(item.input["title"], "Agent again");
+
+    s.delete_panel("a").unwrap();
+    assert!(s.frontend_items().unwrap().is_empty());
+    assert!(s.frontend_item("render_ui", "a").unwrap().is_none());
+    assert!(s.edit_panel("a", None, None).is_err(), "a deleted panel cannot be edited");
+    call(&s, "render_ui", "c3", json!({ "id": "a", "title": "Back", "root": {} }));
+    let item = s.frontend_item("render_ui", "a").unwrap().unwrap();
+    assert_eq!(item.display_title(), Some("My panel"), "revived with the override");
+
+    s.edit_panel("a", Some("   ".into()), None).unwrap();
+    let item = s.frontend_item("render_ui", "a").unwrap().unwrap();
+    assert_eq!((item.display_title(), item.display_icon()), (Some("Back"), None), "empty goes back to the Agent's");
+    let long = "x".repeat(200);
+    s.edit_panel("a", Some(long), None).unwrap();
+    assert_eq!(s.frontend_item("render_ui", "a").unwrap().unwrap().title.as_ref().unwrap().chars().count(), 80);
+}
+
+#[tokio::test]
+async fn delete_panel_removes_its_file_and_refuses_shared_and_unknown_items() {
+    let (s, _dir) = session().await;
+    std::fs::create_dir_all(s.panels_dir()).unwrap();
+    let file = s.panels_dir().join("notes.md");
+    std::fs::write(&file, "# Hi").unwrap();
+    call(&s, "render_ui", "c1", json!({ "id": "a", "source": "notes.md" }));
+    call(&s, "render_ui", "c2", json!({ "id": "sh", "source": "shared:map-a1b2c3" }));
+    call(&s, "render_ui", "c3", json!({ "id": "esc", "source": "../outside.md" }));
+    assert!(s.delete_panel("sh").is_err(), "shared is detached, not deleted");
+    assert!(s.edit_panel("sh", Some("x".into()), None).is_err());
+    assert!(s.delete_panel("esc").is_err(), "a source outside panels/ is refused");
+    assert!(s.delete_panel("nope").is_err());
+    assert_eq!(s.frontend_items().unwrap().len(), 3);
+    s.delete_panel("a").unwrap();
+    assert!(!file.exists());
+    assert_eq!(s.frontend_items().unwrap().len(), 2);
+    // A panel whose file is already gone still deletes.
+    call(&s, "render_ui", "c4", json!({ "id": "gone", "source": "gone.md" }));
+    s.delete_panel("gone").unwrap();
+}
+
+#[tokio::test]
+async fn sharing_a_panel_takes_the_users_title_and_icon() {
+    let (s, _dir) = session().await;
+    std::fs::create_dir_all(s.panels_dir()).unwrap();
+    std::fs::write(s.panels_dir().join("notes.md"), "# Hi").unwrap();
+    call(&s, "render_ui", "c1", json!({ "id": "a", "title": "Agent title", "icon": "file", "source": "notes.md" }));
+    s.edit_panel("a", Some("Mine".into()), Some("star".into())).unwrap();
+    let meta = s.share_item("a", StateWriter::User).unwrap();
+    assert_eq!((meta.title.as_str(), meta.icon.as_deref()), ("Mine", Some("star")));
+    assert_eq!(s.shared.artifacts.get(&meta.id).unwrap().icon.as_deref(), Some("star"));
 }

@@ -44,13 +44,32 @@ fn scan(events: &[Event]) -> Scanned {
         }
     }
     let mut items: Vec<harness_core::session::FrontendItem> = Vec::new();
+    let mut overrides: HashMap<(String, String), (Option<String>, Option<String>)> = HashMap::new();
     for e in events {
+        match &e.kind {
+            EventKind::PanelEdited { tool, id, title, icon } => {
+                overrides.insert((tool.clone(), id.clone()), (title.clone(), icon.clone()));
+                if let Some(x) = items.iter_mut().find(|x| x.tool == *tool && x.id == *id) {
+                    x.title = title.clone();
+                    x.icon = icon.clone();
+                }
+                continue;
+            }
+            EventKind::PanelDeleted { tool, id } => {
+                items.retain(|x| !(x.tool == *tool && x.id == *id));
+                continue;
+            }
+            _ => {}
+        }
         let EventKind::FrontendToolOutput { tool, input, files, .. } = &e.kind else { continue };
         let Some(id) = input.get("id").and_then(Value::as_str).map(str::to_owned) else { continue };
         let at = items.iter().position(|x| x.tool == *tool && x.id == id);
+        let (title, icon) = overrides.get(&(tool.clone(), id.clone())).cloned().unwrap_or_default();
         let item = harness_core::session::FrontendItem {
             tool: tool.clone(),
             id,
+            title,
+            icon,
             input: input.clone(),
             ts_ms: e.ts_ms,
             thread: e.thread_id.clone(),
@@ -69,6 +88,9 @@ fn scan(events: &[Event]) -> Scanned {
     let mut errors: Vec<harness_core::session::FrontendErrorEntry> = Vec::new();
     for e in events {
         match &e.kind {
+            EventKind::PanelDeleted { tool, id } => {
+                keyed.remove(&(tool.clone(), id.clone()));
+            }
             EventKind::FrontendToolOutput { tool, call_id, input, .. } => {
                 let Some(thread) = e.thread_id.clone() else { continue };
                 match input.get("id").and_then(Value::as_str) {
@@ -241,7 +263,7 @@ fn random_event(r: &mut Rng) -> (Option<String>, EventKind) {
     let item = format!("i{}", r.next(4));
     let tool = ["render_ui", "other"][r.next(2) as usize].to_owned();
     let mode = ["default", "plan", "edit", ""][r.next(4) as usize].to_owned();
-    let kind = match r.next(16) {
+    let kind = match r.next(20) {
         0 => EventKind::ModeChanged { mode_id: mode, mode: None },
         1 => EventKind::ConfigOptionsChanged {
             options: json!([{ "id": "mode", "category": "mode", "currentValue": mode }, { "id": "model", "currentValue": "m" }]),
@@ -265,6 +287,13 @@ fn random_event(r: &mut Rng) -> (Option<String>, EventKind) {
             EventKind::FrontendToolOutput { tool, call_id: format!("c{}", r.next(5)), path: "p".into(), input, files: Default::default() }
         }
         12 | 13 => EventKind::FrontendError { tool, item: if r.next(3) == 0 { format!("c{}", r.next(5)) } else { item }, message: format!("m{}", r.next(3)) },
+        14 => EventKind::PanelEdited {
+            tool,
+            id: item,
+            title: [Some("Mine".to_owned()), None][r.next(2) as usize].clone(),
+            icon: [Some("star".to_owned()), None][r.next(2) as usize].clone(),
+        },
+        15 => EventKind::PanelDeleted { tool, id: item },
         _ => EventKind::Error { message: "noise".into() },
     };
     (thread, kind)

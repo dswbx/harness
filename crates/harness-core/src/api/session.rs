@@ -56,6 +56,8 @@ pub struct SessionSummary {
     pub unused: bool,
     /// A Main Thread Turn ended (not cancelled) since the user last viewed the Session.
     pub unseen: bool,
+    /// The title was set on purpose (`SetSessionTitle`, the `set_title` tool): `ResetSessionTitle` goes back to the automatic one.
+    pub title_explicit: bool,
     pub workspace: WorkspaceInfo,
     /// A Sub Session: the Session whose Agent started it (`session_start`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

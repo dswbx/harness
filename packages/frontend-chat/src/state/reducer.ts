@@ -3,7 +3,13 @@ import { type Ctx, initialState, newCtx, sideCtx } from "./draft";
 import { agentSlice, endSideJobs } from "./slices/agent";
 import { configSlice } from "./slices/config";
 import { plansSlice } from "./slices/plans";
-import { adoptMainThread, sessionLevel, sessionSlice, trackThreadList } from "./slices/session";
+import {
+   adoptMainThread,
+   reviveDeletedPanel,
+   sessionLevel,
+   sessionSlice,
+   trackThreadList,
+} from "./slices/session";
 import { timelineSlice } from "./slices/timeline";
 import { turnSlice } from "./slices/turn";
 import type { ChatState, ContentBlock, ToolCallRef, ToolDecoder } from "./types";
@@ -16,6 +22,7 @@ export type {
    ConfigOption,
    ContentBlock,
    Item,
+   PanelEdits,
    PlanEntry,
    SubagentMeta,
    ToolCallRef,
@@ -89,6 +96,8 @@ const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    ArtifactAttached: NONE,
    ArtifactDetached: NONE,
    ArtifactStateChanged: NONE,
+   PanelEdited: NONE,
+   PanelDeleted: NONE,
    CommentAdded: NONE,
    CommentEdited: NONE,
    CommentDeleted: NONE,
@@ -110,6 +119,8 @@ function apply(c: Ctx, e: Event) {
       type === "ArtifactAttached" ||
       type === "ArtifactDetached" ||
       type === "ArtifactStateChanged" ||
+      type === "PanelEdited" ||
+      type === "PanelDeleted" ||
       type === "CommentAdded" ||
       type === "CommentEdited" ||
       type === "CommentDeleted" ||
@@ -119,6 +130,7 @@ function apply(c: Ctx, e: Event) {
       sessionLevel(c, e);
       return;
    }
+   if (type === "FrontendToolOutput") reviveDeletedPanel(c, e);
    trackThreadList(c, e);
    // The Agent process is gone, and its background jobs with it: in every Thread.
    if (type === "AgentProcessState") endSideJobs(c, e);

@@ -87,6 +87,7 @@ pub(super) fn info(session: &Session) -> anyhow::Result<Value> {
         .frontend_items()?
         .into_iter()
         .map(|item| {
+            let (shown_title, shown_icon) = (item.title.clone(), item.icon.clone());
             let crate::session::FrontendItem { tool, id, input, ts_ms, .. } = item.as_ref();
             let (tool, id, ts_ms) = (tool.clone(), id.clone(), *ts_ms);
             let mut item = json!({ "tool": tool, "id": id });
@@ -94,6 +95,14 @@ pub(super) fn info(session: &Session) -> anyhow::Result<Value> {
                 if let Some(v) = input.get(k) {
                     item[k] = v.clone();
                 }
+            }
+            // The user's rename wins; the Agent sees what the user sees.
+            if let Some(t) = shown_title {
+                item["title"] = json!(t);
+                item["agent_title"] = input.get("title").cloned().unwrap_or(Value::Null);
+            }
+            if let Some(i) = shown_icon {
+                item["icon"] = json!(i);
             }
             let mut errs: Vec<String> = errors.iter().filter(|e| e.tool == tool && e.item == id).map(|e| e.message.clone()).collect();
             // When it last changed: its latest call, or for a file-backed panel a later file write.
@@ -133,4 +142,24 @@ pub(super) fn info(session: &Session) -> anyhow::Result<Value> {
         "items": items, "state_keys": keys, "panels_dir": panels.display().to_string(), "shared": shared,
         "tasks": super::task_tools::session_tasks(session), "note_path": session.note_path().display().to_string(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn harness_info_shows_the_users_title_and_hides_deleted_panels() {
+        let (s, _dir) = crate::session::projection_tests::session().await;
+        crate::session::projection_tests::call(&s, "render_ui", "c1", json!({ "id": "a", "title": "Agent title", "root": {} }));
+        crate::session::projection_tests::call(&s, "render_ui", "c2", json!({ "id": "b", "title": "Other", "root": {} }));
+        s.edit_panel("a", Some("Mine".into()), None).unwrap();
+        s.delete_panel("b").unwrap();
+        let info = info(&s).unwrap();
+        let items = info["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!((items[0]["id"].as_str(), items[0]["title"].as_str(), items[0]["agent_title"].as_str()), (Some("a"), Some("Mine"), Some("Agent title")));
+    }
 }

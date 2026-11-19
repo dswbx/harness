@@ -171,6 +171,14 @@ export interface SessionApi {
     * `call_id`. The core logs it (`FrontendError`) so the Agent learns about it; repeats are ignored.
     */
    reportFrontendError(tool: string, item: string, message: string): Promise<void>;
+   /**
+    * Renames a `render_ui` panel and sets its icon as the user (`EditPanel`): a full override that
+    * stays when the Agent calls again with that id. Both empty: back to the Agent's. Not for a
+    * Shared Artifact (use `HarnessClient.renameSharedArtifact`).
+    */
+   editPanel(itemId: string, title: string | null, icon: string | null): Promise<void>;
+   /** Deletes a `render_ui` panel and its file in `panels/` (`DeletePanel`). Not for a Shared Artifact (use `detachShared`). */
+   deletePanel(itemId: string): Promise<void>;
    /** Answers a `FrontendRequest` AppEvent. The first answer wins; later ones do nothing. */
    answerFrontendRequest(requestId: string, answer: FrontendAnswer): Promise<void>;
    /** An image in `frontend/` as base64, e.g. a Frontend Tool call's copied image. */
@@ -216,6 +224,8 @@ export interface SessionApi {
    ): Promise<SharedArtifactMeta>;
    attachShared(id: string): Promise<SharedArtifactMeta>;
    detachShared(id: string): Promise<void>;
+   /** Sets a Shared Artifact's title and, when given, its icon (`""` clears it): the name everywhere it shows. */
+   renameShared(id: string, title: string, icon?: string | null): Promise<SharedArtifactMeta>;
    /** Shared Artifacts, most recently updated first; with `query`, matches by title or text. */
    listShared(query?: string | null): Promise<SharedArtifactEntry[]>;
    readShared(id: string): Promise<SharedArtifactData>;

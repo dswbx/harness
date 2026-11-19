@@ -48,6 +48,8 @@ export class MockTransport implements Transport {
    logs = new Map<string, Event[]>();
    /** @internal */
    sessions: SessionSummary[] = [];
+   /** The automatic title of a Session renamed on purpose: `ResetSessionTitle` restores it. */
+   autoTitles = new Map<string, string>();
    private subs = new Map<string, Set<(e: Event) => void>>();
    private lagHandlers = new Map<(e: Event) => void, () => void>();
    /** @internal */
@@ -196,6 +198,7 @@ export class MockTransport implements Transport {
          quick: false,
          unused: false,
          unseen: false,
+         title_explicit: false,
          workspace: workspace ?? {
             repo_root: folder,
             source_folder: folder,

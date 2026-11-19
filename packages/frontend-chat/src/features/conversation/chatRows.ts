@@ -43,15 +43,17 @@ export function chatRows(items: Item[], ui: ReturnType<typeof splitRenderUi>) {
 type Ui = ReturnType<typeof splitRenderUi>;
 type Attached = Parameters<typeof splitRenderUi>[1];
 
-const uiCache = new WeakMap<readonly Item[], { attached: Attached; ui: Ui }>();
+type Edits = Parameters<typeof splitRenderUi>[2];
+
+const uiCache = new WeakMap<readonly Item[], { attached: Attached; edits: Edits; ui: Ui }>();
 const rowsCache = new WeakMap<readonly Item[], { ui: Ui; result: ReturnType<typeof chatRows> }>();
 
-/** `splitRenderUi`, shared: callers with the same `items` array and `attached` get the same object. */
-export function renderUiOf(items: Item[], attached?: Attached): Ui {
+/** `splitRenderUi`, shared: callers with the same `items` array, `attached` and `edits` get the same object. */
+export function renderUiOf(items: Item[], attached?: Attached, edits?: Edits): Ui {
    const hit = uiCache.get(items);
-   if (hit && hit.attached === attached) return hit.ui;
-   const ui = splitRenderUi(items, attached);
-   uiCache.set(items, { attached, ui });
+   if (hit && hit.attached === attached && hit.edits === edits) return hit.ui;
+   const ui = splitRenderUi(items, attached, edits);
+   uiCache.set(items, { attached, edits, ui });
    return ui;
 }
 

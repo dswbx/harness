@@ -18,8 +18,15 @@ import { TaskListCard } from "./TaskListCard";
 import { Working } from "./Working";
 
 /** A Thread's items split into rows: render_ui calls moved to slots, resolved permissions and subagent calls folded away. */
-export function useRows(items: Item[], sharedAttached?: ChatState["sharedAttached"]) {
-   const ui = useMemo(() => renderUiOf(items, sharedAttached), [items, sharedAttached]);
+export function useRows(
+   items: Item[],
+   sharedAttached?: ChatState["sharedAttached"],
+   panelEdits?: ChatState["panelEdits"],
+) {
+   const ui = useMemo(
+      () => renderUiOf(items, sharedAttached, panelEdits),
+      [items, sharedAttached, panelEdits],
+   );
    // Resolved permission cards render nothing; keep them out of the virtual list. So do render_ui
    // calls that moved to a slot or were replaced by a later call with their id.
    // Subagent tool calls go inside their Task call's card.

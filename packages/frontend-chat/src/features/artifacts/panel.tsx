@@ -23,7 +23,10 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
    placement: { edge: "left" },
    useModel: ({ api, state, host }) => {
       // One pass over the items per batch (as the View did before).
-      const artifacts = useMemo(() => collectArtifacts(state.items), [state.items]);
+      const artifacts = useMemo(
+         () => collectArtifacts(state.items, state.panelEdits),
+         [state.items, state.panelEdits],
+      );
       const metas = host.sharedMetas ?? NO_METAS;
       // Message blocks this Session shared, by their artifact key: the copy stands in for them.
       const copies = useMemo(() => {

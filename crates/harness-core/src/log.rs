@@ -121,6 +121,8 @@ struct FrontendProj {
     /// `(tool, id)` -> key in `items`: a call finds its item without a scan.
     pos: HashMap<(String, String), u64>,
     next_order: u64,
+    /// `(tool, id)` -> the user's title and icon (`PanelEdited`). Kept when the item is deleted or the Agent calls again.
+    overrides: HashMap<(String, String), (Option<String>, Option<String>)>,
     /// Every live item (its `id`, or the call id of a call without one) -> Thread of its latest call.
     keyed: HashMap<(String, String), ThreadId>,
     /// `FrontendError`s not cleared since, oldest first. May name items that never existed: read through `errors`.
@@ -139,6 +141,7 @@ impl FrontendProj {
                 if let Some(id) = id {
                     let key = (tool.clone(), id.to_owned());
                     let at = self.pos.get(&key).copied();
+                    let (title, icon) = self.overrides.get(&key).cloned().unwrap_or_default();
                     match (remove, at) {
                         (true, Some(i)) => {
                             self.items.remove(&i);
@@ -153,6 +156,8 @@ impl FrontendProj {
                                 ts_ms: e.ts_ms,
                                 thread: e.thread_id.clone(),
                                 files: files.clone(),
+                                title,
+                                icon,
                             });
                             match at {
                                 Some(i) => {
@@ -182,6 +187,27 @@ impl FrontendProj {
                         self.keyed.insert((tool.clone(), call_id.clone()), thread.clone());
                     }
                 }
+            }
+            EventKind::PanelEdited { tool, id, title, icon } => {
+                let key = (tool.clone(), id.clone());
+                if title.is_none() && icon.is_none() {
+                    self.overrides.remove(&key);
+                } else {
+                    self.overrides.insert(key.clone(), (title.clone(), icon.clone()));
+                }
+                if let Some(item) = self.pos.get(&key).and_then(|i| self.items.get_mut(i)) {
+                    let item = Arc::make_mut(item);
+                    item.title = title.clone();
+                    item.icon = icon.clone();
+                }
+            }
+            EventKind::PanelDeleted { tool, id } => {
+                let key = (tool.clone(), id.clone());
+                if let Some(i) = self.pos.remove(&key) {
+                    self.items.remove(&i);
+                }
+                self.keyed.remove(&key);
+                self.errors.retain(|x| !(x.tool == *tool && x.item == *id));
             }
             EventKind::FrontendError { tool, item, message } => {
                 self.errors.push(FrontendErrorEntry {
@@ -259,7 +285,9 @@ impl Projections {
                     }
                 }
             }
-            EventKind::FrontendToolOutput { .. } | EventKind::FrontendError { .. } => self.frontend.apply(e),
+            EventKind::FrontendToolOutput { .. } | EventKind::FrontendError { .. } | EventKind::PanelEdited { .. } | EventKind::PanelDeleted { .. } => {
+                self.frontend.apply(e)
+            }
             EventKind::SessionInfoUpdated { title: Some(t) } if !t.trim().is_empty() => {
                 self.titles.insert(e.thread_id.clone(), (e.seq, t.clone()));
             }

@@ -82,6 +82,7 @@ const replies: Partial<Record<Command["type"], CommandResult>> = {
    ShareArtifact: { type: "SharedArtifactInfo", meta },
    ShareMarkdown: { type: "SharedArtifactInfo", meta },
    AttachSharedArtifact: { type: "SharedArtifactInfo", meta },
+   RenameSharedArtifact: { type: "SharedArtifactInfo", meta },
    ListSharedArtifacts: { type: "SharedArtifactList", artifacts: [] },
    SharedArtifactRead: {
       type: "SharedArtifact",
@@ -175,6 +176,9 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    shareMarkdown: (a) => a.shareMarkdown("# m"),
    attachShared: (a) => a.attachShared("a"),
    detachShared: (a) => a.detachShared("a"),
+   renameShared: (a) => a.renameShared("a", "T", "star"),
+   editPanel: (a) => a.editPanel("i", "T", "star"),
+   deletePanel: (a) => a.deletePanel("i"),
    listShared: (a) => a.listShared(),
    readShared: (a) => a.readShared("a"),
    patchArtifactState: (a) => a.patchArtifactState("a", []),
@@ -257,7 +261,7 @@ describe("HarnessClient wire shape", () => {
       await c.listSharedArtifacts("q");
       await c.createSession({ folder: "/f", agentId: "a", frontendId: "f" });
       await c.createQuickSession({ agentId: "a", frontendId: "f" });
-      await c.renameSharedArtifact("a", "T");
+      await c.renameSharedArtifact("a", "T", "star");
       await c.setAppSetting("appearance", undefined);
       await c.setWorktreeDir(null);
       await c.setEditor(null);

@@ -36,6 +36,7 @@ export function applyStatus(
          title: e.title,
          unused: e.unused,
          unseen: e.unseen,
+         title_explicit: e.title_explicit,
          updated_ms: seenOnly ? s.updated_ms : now,
       };
    });

@@ -78,7 +78,8 @@ impl Session {
     pub fn share_item(&self, item_id: &str, by: crate::api::StateWriter) -> anyhow::Result<crate::api::SharedArtifactMeta> {
         use crate::api::SharedKind;
         let item = self.frontend_item(RENDER_UI, item_id)?.ok_or_else(|| crate::error::not_found(format!("no {RENDER_UI} item with id {item_id:?}")))?;
-        let title = item.input.get("title").and_then(|v| v.as_str()).unwrap_or(item_id).to_owned();
+        let title = item.display_title().unwrap_or(item_id).to_owned();
+        let icon = item.display_icon().map(str::to_owned);
         let artifacts = &self.shared.artifacts;
         let write_state = |dir: &Path, state: &serde_json::Value| -> anyhow::Result<()> {
             if state.as_object().is_some_and(|o| !o.is_empty()) {
@@ -135,6 +136,10 @@ impl Session {
             })?
         } else {
             return Err(crate::error::invalid(format!("{item_id} has neither root nor source")));
+        };
+        let meta = match icon {
+            Some(icon) => artifacts.rename(&meta.id, &meta.title, Some(&icon))?,
+            None => meta,
         };
         let mut input = item.input.clone();
         if let Some(o) = input.as_object_mut() {

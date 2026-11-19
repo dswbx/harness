@@ -1,7 +1,7 @@
 import type { SharedArtifactMeta } from "@harness/api";
 import { formatAgeAgo, formatDateTime } from "@harness/api";
 import { DropdownMenuItem, DropdownMenuSeparator, ScrollArea, Tooltip } from "@harness/ui";
-import { Copy, ExternalLink, Layers, Share2, Unlink } from "lucide-react";
+import { Copy, ExternalLink, Layers, Pencil, Share2, Trash2, Unlink } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatRelativeTime, useNow } from "../../lib/time";
 import { definePanelFamily } from "../../panels/contract";
@@ -10,6 +10,8 @@ import { sessionCount } from "../artifacts/ArtifactsPanel";
 import { artifactsPanel } from "../artifacts/panel";
 import { renderUiOf } from "../conversation/chatRows";
 import { quotableAttrs } from "../review/SelectionComment";
+import { DeletePanelDialog } from "./DeletePanelDialog";
+import { EditPanelPopover } from "./EditPanelPopover";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { useEnv } from "./runtime";
 import { lastSlot, nextSeen, type Slot, slotDot, slotRef, slotToAutoOpen } from "./slots";
@@ -81,17 +83,23 @@ async function copySourcePath(env: UiEnv, name: string) {
  * `updated`: when it last changed (its latest call, or a later write of its source file). `shared`:
  * the Shared Artifact it shows (ADR 0024): a share icon with its details on hover, and its menu.
  */
-function SlotPanel({
+export function SlotPanel({
    slot,
    env,
    updated,
    shared,
    onShare,
    onShowInArtifacts,
+   onEdit,
+   onDelete,
 }: {
    slot: Slot;
    env: UiEnv;
    updated: number;
+   /** Saves the panel's title and icon (the Agent's own value as `null`): `EditPanel`, or for a shared one `RenameSharedArtifact`. */
+   onEdit: (title: string | null, icon: string | null) => Promise<void>;
+   /** Deletes the panel (`DeletePanel`); not for a shared one (it detaches). */
+   onDelete?: () => Promise<void>;
    /** Opens the Artifacts panel on this panel's detail page. */
    onShowInArtifacts: () => void;
    /** Offers "Make shared" (ADR 0024); only for a panel that is not shared yet. */
@@ -108,12 +116,29 @@ function SlotPanel({
       slot.root.type === "Html" || (!!sharedNodeId(slot.root) && shared?.meta?.kind === "html");
    // A file in this Session's panels_dir (not a Shared Artifact's).
    const localSource = slot.source && !sharedRef(slot.source) ? slot.source : null;
+   const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
+   const label = slot.title ?? slot.id;
    return (
       <>
          <PanelHeader
-            title={slot.title ?? slot.id}
+            title={
+               <EditPanelPopover
+                  open={dialog === "edit"}
+                  onOpenChange={(o) => setDialog(o ? "edit" : null)}
+                  title={label}
+                  icon={slot.icon}
+                  agent={slot.agent}
+                  shared={!!shared}
+                  onSave={onEdit}
+               >
+                  {label}
+               </EditPanelPopover>
+            }
             menu={
                <>
+                  <DropdownMenuItem onSelect={() => setDialog("edit")}>
+                     <Pencil /> Rename and icon…
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={onShowInArtifacts}>
                      <Layers /> Show in Artifacts
                   </DropdownMenuItem>
@@ -136,10 +161,21 @@ function SlotPanel({
                               </DropdownMenuItem>
                            )}
                            <DropdownMenuItem onSelect={shared.onDetach}>
-                              <Unlink /> Detach
+                              <Unlink /> Detach from Session
                            </DropdownMenuItem>
                         </>
                      )
+                  )}
+                  {onDelete && !shared && (
+                     <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                           className="text-destructive focus:text-destructive"
+                           onSelect={() => setDialog("delete")}
+                        >
+                           <Trash2 /> Delete panel…
+                        </DropdownMenuItem>
+                     </>
                   )}
                </>
             }
@@ -147,6 +183,15 @@ function SlotPanel({
             {shared && <SharedBadge meta={shared.meta} />}
             {updated > 0 && <UpdatedAgo ts={updated} />}
          </PanelHeader>
+         {onDelete && (
+            <DeletePanelDialog
+               open={dialog === "delete"}
+               title={label}
+               file={localSource}
+               onClose={() => setDialog(null)}
+               onDelete={onDelete}
+            />
+         )}
          {fill ? (
             <div
                className="relative min-h-0 flex-1"
@@ -197,13 +242,17 @@ const isShared = (source: string | null) => !!sharedRef(source);
 export const slotPanels = definePanelFamily<SlotsModel>({
    prefix: "slot",
    useModel: ({ api, state, host, open, isOpen }) => {
-      const { left, right } = renderUiOf(state.items, state.sharedAttached).slots;
+      const { left, right } = renderUiOf(state.items, state.sharedAttached, state.panelEdits).slots;
       const metas = host.sharedMetas ?? NO_METAS;
       const placed = useMemo(() => {
          const titled = (slot: Slot) => {
             const id = sharedRef(slot.source);
-            const title = id ? metas.get(id)?.title : undefined;
-            return title && title !== slot.title ? { ...slot, title } : slot;
+            const meta = id ? metas.get(id) : undefined;
+            const title = meta?.title;
+            const icon = meta?.icon ?? slot.icon;
+            return (title && title !== slot.title) || icon !== slot.icon
+               ? { ...slot, title: title || slot.title, icon }
+               : slot;
          };
          return [
             ...left.map((slot): Placed => ({ slot: titled(slot), side: "left" })),
@@ -287,6 +336,12 @@ export const slotPanels = definePanelFamily<SlotsModel>({
             onShowInArtifacts={() =>
                ctx.open(artifactsPanel, sharedId ? `shared:${sharedId}` : `ui:${slot.id}`)
             }
+            onEdit={(title, icon) =>
+               sharedId
+                  ? api.renameShared(sharedId, title ?? slot.title ?? slot.id, icon).then(() => {})
+                  : api.editPanel(slot.id, title, icon)
+            }
+            onDelete={sharedId ? undefined : () => api.deletePanel(slot.id)}
             onShare={
                sharedId
                   ? undefined

@@ -1,5 +1,5 @@
 import type { PanelRef } from "../../panels/contract";
-import type { Item } from "../../state/reducer";
+import type { Item, PanelEdits } from "../../state/reducer";
 import { asRenderUi } from "./decode";
 import { type Placement, type RawNode, sharedNode, sharedNodeId, sharedRef } from "./tools";
 
@@ -13,7 +13,12 @@ export type Slot = {
    files: Record<string, string>;
    ts: number;
    source: string | null;
+   /** What the Agent set, when the user changed the title or icon (`PanelEdited`); `null` when not. */
+   agent: { title: string | null; icon: string | null } | null;
 };
+
+/** No user changes. */
+export const NO_EDITS: PanelEdits = { overrides: {}, deleted: {} };
 
 /**
  * What a slot shows, as a string that changes when it does: its tree, and for a file-backed panel
@@ -30,10 +35,14 @@ export function slotChangeKey(x: Slot, stamps: Record<string, { hash: string }>)
  *
  * Shared Artifacts (ADR 0024): an item showing `shared:<id>` hides while `<id>` is not in `attached`.
  * An attached artifact no shown item points at gets a right panel of its own, `shared:<id>`.
+ *
+ * `edits`: what the user did (`PanelEdited`, `PanelDeleted`). A deleted id shows nowhere; an override
+ * replaces the title and icon of a slot after the latest call is chosen (not for a shared one: its meta is the truth).
  */
 export function splitRenderUi(
    items: Item[],
    attached: readonly { id: string; ts: number }[] = [],
+   edits: PanelEdits = NO_EDITS,
 ): {
    /** Row id -> what to render there instead of its own input (latest for its id), or null to hide. */
    inline: Map<string, { root: RawNode; files: Record<string, string> } | null>;
@@ -66,7 +75,12 @@ export function splitRenderUi(
       }
       inline.set(it.id, null);
       const shared = sharedRef(v.source);
-      if (v.remove || !v.root || (shared && !attached.some((a) => a.id === shared))) {
+      if (
+         v.remove ||
+         !v.root ||
+         edits.deleted[v.id] ||
+         (shared && !attached.some((a) => a.id === shared))
+      ) {
          drop(v.id);
          continue;
       }
@@ -78,14 +92,16 @@ export function splitRenderUi(
          inline.set(firstRow.get(v.id)!, { root: v.root, files: ft.files });
          where.set(v.id, "inline");
       } else {
-         const slot = {
+         const o = shared ? undefined : edits.overrides[v.id];
+         const slot: Slot = {
             id: v.id,
-            title: v.title ?? null,
-            icon: v.icon ?? null,
+            title: o?.title ?? v.title ?? null,
+            icon: o?.icon ?? v.icon ?? null,
             root: v.root,
             files: ft.files,
             ts: ft.ts,
             source: v.source ?? null,
+            agent: o ? { title: v.title ?? null, icon: v.icon ?? null } : null,
          };
          if (where.get(v.id) === placement)
             slots[placement] = slots[placement].map((s) => (s.id === v.id ? slot : s));
@@ -118,6 +134,7 @@ export function splitRenderUi(
          files: {},
          ts: a.ts,
          source: `shared:${a.id}`,
+         agent: null,
       });
    }
    return { inline, slots };

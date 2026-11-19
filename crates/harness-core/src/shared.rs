@@ -184,8 +184,17 @@ impl SharedArtifacts {
         let title = if title.is_empty() { "Untitled" } else { title };
         let id = new_id(title);
         let now = crate::log::now_ms();
-        let meta =
-            SharedArtifactMeta { v: META_VERSION, id: id.clone(), title: title.to_owned(), kind, created_ms: now, updated_ms: now, created_by, attached };
+        let meta = SharedArtifactMeta {
+            v: META_VERSION,
+            id: id.clone(),
+            title: title.to_owned(),
+            kind,
+            created_ms: now,
+            updated_ms: now,
+            created_by,
+            attached,
+            icon: None,
+        };
         let tmp = self.dir.join(format!(".new-{id}"));
         std::fs::create_dir_all(&tmp)?;
         let made = fill(&tmp).and_then(|()| write_meta(&tmp, &meta)).and_then(|()| Ok(std::fs::rename(&tmp, self.folder(&id)?)?));
@@ -223,13 +232,18 @@ impl SharedArtifacts {
         .map(drop)
     }
 
-    pub fn rename(&self, id: &str, title: &str) -> anyhow::Result<SharedArtifactMeta> {
+    /// Sets the title and, with `icon`, the icon (`""` clears it); `None` keeps it.
+    pub fn rename(&self, id: &str, title: &str, icon: Option<&str>) -> anyhow::Result<SharedArtifactMeta> {
         let title = title.trim();
         if title.is_empty() {
             return Err(crate::error::invalid("a title is required"));
         }
         self.update_meta(id, |m| {
             m.title = title.to_owned();
+            if let Some(icon) = icon {
+                let icon = icon.trim();
+                m.icon = (!icon.is_empty()).then(|| icon.chars().take(40).collect());
+            }
             m.updated_ms = crate::log::now_ms();
         })
     }
@@ -260,7 +274,9 @@ impl SharedArtifacts {
         let fresh = self.folder(id).ok().and_then(|f| load(&f).ok());
         let mut index = self.index.write();
         match fresh {
-            Some(meta) => index.insert(id.to_owned(), meta.clone()).is_none_or(|old| old.title != meta.title || old.attached != meta.attached),
+            Some(meta) => {
+                index.insert(id.to_owned(), meta.clone()).is_none_or(|old| old.title != meta.title || old.icon != meta.icon || old.attached != meta.attached)
+            }
             None => index.remove(id).is_some(),
         }
     }
@@ -462,9 +478,12 @@ mod tests {
         assert_eq!(store.get(&m.id).unwrap().attached, vec!["s1", "s2"]);
         assert!(store.forget_session("s1"));
         assert!(!store.forget_session("s1"));
-        let renamed = store.rename(&m.id, " New name ").unwrap();
+        let renamed = store.rename(&m.id, " New name ", Some("star")).unwrap();
         assert_eq!((renamed.title.as_str(), renamed.attached.clone()), ("New name", vec!["s2".to_owned()]));
         assert_eq!(renamed.id, m.id, "the id never changes");
+        assert_eq!(renamed.icon.as_deref(), Some("star"));
+        assert_eq!(store.rename(&m.id, "New name", None).unwrap().icon.as_deref(), Some("star"), "no icon keeps it");
+        assert_eq!(store.rename(&m.id, "New name", Some("")).unwrap().icon, None, "empty clears it");
         let reopened = SharedArtifacts::open(d.path().join("shared")).unwrap();
         assert_eq!(reopened.get(&m.id).unwrap().title, "New name", "meta.json is the truth");
 

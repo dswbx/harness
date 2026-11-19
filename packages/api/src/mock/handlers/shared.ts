@@ -175,6 +175,7 @@ export const sharedHandlers = {
       const title = cmd.title.trim();
       if (!title) throw new CommandError("invalid", "a title is required");
       a.meta.title = title;
+      if (cmd.icon != null) a.meta.icon = cmd.icon.trim() || undefined;
       a.meta.updated_ms = Date.now();
       mock.emitApp({ type: "SharedArtifactsChanged" });
       mock.emitApp({ type: "SharedArtifactChanged", id: cmd.id });

@@ -21,6 +21,7 @@ import { useGitRef } from "../session-header/useGitRef";
 import { DeleteSessionDialog } from "../sessions/DeleteSessionDialog";
 import { forgetGone, withSubSessions } from "../sessions/forgetGone";
 import { SessionList } from "../sessions/SessionList";
+import { SessionRenameDialog } from "../sessions/SessionRenameDialog";
 import { hideUnusedQuick } from "../sessions/sessionGroups";
 import { useMarkSeen } from "../sessions/useMarkSeen";
 import { useSessions } from "../sessions/useSessions";
@@ -126,6 +127,7 @@ export function Shell({ transport }: { transport: Transport }) {
    }, [settingsSection]);
    const [mcpVersion, setMcpVersion] = useState(0);
    const [toDelete, setToDelete] = useState<SessionSummary | null>(null);
+   const [renaming, setRenaming] = useState<SessionSummary | null>(null);
    const [deleteError, setDeleteError] = useState<string | null>(null);
    const [deleting, setDeleting] = useState(false);
    const subSessionCount = toDelete
@@ -236,6 +238,8 @@ export function Shell({ transport }: { transport: Transport }) {
       report,
       agentsVersion,
    });
+   const resetTitle = (s: SessionSummary) =>
+      client.resetSessionTitle(s.id).catch((e) => report("Could not reset the title", e));
    const askDelete = (s: SessionSummary) => {
       setToDelete(s);
       setDeleteError(null);
@@ -305,6 +309,8 @@ export function Shell({ transport }: { transport: Transport }) {
                   onSelect={setSelected}
                   onArchive={toggleArchive}
                   onDelete={askDelete}
+                  onRename={setRenaming}
+                  onResetTitle={resetTitle}
                   onOpenWindow={(s) =>
                      openViewWindow(s.id, s.title).catch((e) => report("Could not open window", e))
                   }
@@ -368,6 +374,7 @@ export function Shell({ transport }: { transport: Transport }) {
                      client={client}
                      session={current}
                      parent={currentParent}
+                     onRename={() => setRenaming(current)}
                      onOpenParent={() => currentParent && setSelected(currentParent.id)}
                      git={git}
                      leading={leading}
@@ -419,6 +426,11 @@ export function Shell({ transport }: { transport: Transport }) {
                </div>
             )}
          </main>
+         <SessionRenameDialog
+            client={client}
+            session={renaming}
+            onClose={() => setRenaming(null)}
+         />
          <DeleteSessionDialog
             toDelete={toDelete}
             subSessionCount={subSessionCount}

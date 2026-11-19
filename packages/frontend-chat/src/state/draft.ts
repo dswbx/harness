@@ -26,6 +26,7 @@ export const initialState = (): ChatState => ({
    promptCaps: null,
    uiState: {},
    sharedAttached: [],
+   panelEdits: { overrides: {}, deleted: {} },
    lineComments: [],
    threads: {},
    threadList: [],
