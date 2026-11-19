@@ -50,23 +50,39 @@ export function InstructionsPanel({
 }) {
    const report = useReportError();
    const [entries, setEntries] = useState<InstructionsEntry[] | null>(null);
-   const [selected, setSelected] = useState<InstructionsScope | null>(null);
+   /** The scope on screen and its saved text. Switched only once the text has loaded, so the editor never empties. */
+   const [shown, setShown] = useState<{ scope: InstructionsScope; text: string } | null>(null);
+   const opening = useRef<string | null>(null);
+   const open = useCallback(
+      (scope: InstructionsScope) => {
+         const key = keyOf(scope);
+         opening.current = key;
+         return client.getInstructions(scope).then(
+            (text) => {
+               if (opening.current === key) setShown({ scope, text });
+            },
+            (e) => report("Could not load the instructions", e),
+         );
+      },
+      [client, report],
+   );
    const load = useCallback(
       (want: InstructionsScope | null) =>
          client.listInstructions().then(
             (list) => {
                setEntries(list);
-               setSelected((cur) => pick(list, cur ?? want)?.scope ?? null);
+               const target = pick(list, want)?.scope;
+               if (target) void open(target);
             },
             (e) => report("Could not load the instructions", e),
          ),
-      [client, report],
+      [client, report, open],
    );
    useEffect(() => {
-      setSelected(null);
       void load(wanted);
    }, [load, wanted]);
 
+   const selected = shown?.scope ?? null;
    const entry = entries && selected && entries.find((e) => keyOf(e.scope) === keyOf(selected));
    const onSaved = (scope: InstructionsScope, text: string) =>
       setEntries(
@@ -81,8 +97,7 @@ export function InstructionsPanel({
       if (!to) return;
       try {
          await client.moveInstructions(e.scope.path, to);
-         setSelected(null);
-         await load(null);
+         await load({ type: "repo", path: to });
       } catch (err) {
          report("Could not move the instructions", err);
       }
@@ -102,7 +117,7 @@ export function InstructionsPanel({
                      key="global"
                      entry={e}
                      active={!!entry && keyOf(entry.scope) === "global"}
-                     onClick={() => setSelected(e.scope)}
+                     onClick={() => void open(e.scope)}
                   />
                ))}
                <div className="px-2.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -118,16 +133,17 @@ export function InstructionsPanel({
                      key={keyOf(e.scope)}
                      entry={e}
                      active={!!entry && keyOf(entry.scope) === keyOf(e.scope)}
-                     onClick={() => setSelected(e.scope)}
+                     onClick={() => void open(e.scope)}
                   />
                ))}
             </div>
          </ScrollArea>
-         {entry && (
+         {entry && shown && (
             <ScopeEditor
                key={keyOf(entry.scope)}
                client={client}
                entry={entry}
+               initial={shown.text}
                onSaved={onSaved}
                onRelink={inTauri() ? () => void relink(entry) : undefined}
             />
@@ -178,32 +194,28 @@ function ScopeButton({
    );
 }
 
-/** One scope's text: loads it, saves it after typing pauses and when it goes away. */
+/** One scope's text: saves it after typing pauses and when it goes away. */
 function ScopeEditor({
    client,
    entry,
+   initial,
    onSaved,
    onRelink,
 }: {
    client: HarnessClient;
    entry: InstructionsEntry;
+   /** The saved text when it opened. */
+   initial: string;
    onSaved: (scope: InstructionsScope, text: string) => void;
    onRelink?: () => void;
 }) {
    const report = useReportError();
    const { scope } = entry;
-   const [initial, setInitial] = useState<string | null>(null);
    const [state, setState] = useState<SaveState>("saved");
    const pending = useRef<string | null>(null);
    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
    const saved = useRef(onSaved);
    saved.current = onSaved;
-
-   useEffect(() => {
-      client.getInstructions(scope).then(setInitial, (e) => {
-         report("Could not load the instructions", e);
-      });
-   }, [client, scope, report]);
 
    const flush = useCallback(() => {
       if (timer.current) clearTimeout(timer.current);
@@ -266,7 +278,7 @@ function ScopeEditor({
                   )}
                </div>
             )}
-            {initial === null ? null : Editor ? (
+            {Editor ? (
                <div className="flex min-h-48 flex-1 flex-col rounded-xl border bg-card px-3 py-2.5 focus-within:border-ring/50 dark:focus-within:border-border">
                   <Editor
                      initial={initial}
