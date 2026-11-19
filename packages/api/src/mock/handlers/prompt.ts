@@ -4,6 +4,7 @@ import type { Attachment, AttachmentInput, CommandResult, SessionSummary } from 
 import { MOCK_FILES } from "../fixtures/git";
 import { mockImage, mockRenderUi } from "../fixtures/renderUi";
 import type { MockTransport } from "../mock";
+import { stressLiveTurn } from "../stressLive";
 import { markCommentsSent } from "./comments";
 import type { Handler, Handlers } from "./types";
 
@@ -487,6 +488,31 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
             ],
          });
       }
+      return { type: "Ok" };
+   }
+   // Typing "/stress [minutes]" streams a long Turn with 8 background subagents (about 2,500 Events), for profiling.
+   const stress = /^\/stress(?:[ \t]+(\d+(?:\.\d+)?))?(?:\s|$)/.exec(cmd.text.trim());
+   if (stress) {
+      const turn = `t${mock.logs.get(sid)!.length}`;
+      mock.emit(sid, {
+         type: "TurnStarted",
+         turn_id: turn,
+         text: cmd.text,
+         attachments: [],
+         context: null,
+      });
+      turnStarted(mock, sid);
+      const steps = stressLiveTurn(8, Number(stress[1] ?? 3));
+      const t0 = performance.now();
+      let i = 0;
+      // One timer per batch of due steps, like Events arriving from the core.
+      const tick = () => {
+         const now = performance.now() - t0;
+         while (i < steps.length && steps[i]!.at <= now) mock.emit(sid, steps[i++]!.kind);
+         if (i < steps.length) setTimeout(tick, Math.max(0, steps[i]!.at - now));
+         else turnEnded(mock, sid, mock.mainThread(sid), turn);
+      };
+      setTimeout(tick, 0);
       return { type: "Ok" };
    }
    // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.

@@ -32,6 +32,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 - "Preview" means: start the browser mock app (fake backend, fixture Sessions) and show it in the built-in browser pane, so the user can look at a change before they run the real app. Use `preview_start` with `app-alt-port` (port 1431, from `.claude/launch.json`). Do not use `app` (port 1420): the user's own `bun run dev` uses that port.
 - After a UI change, open a preview without being asked: go to the changed screen, check the console for errors, and leave the page open for the user.
 - The mock has no real git, files or Agent. Backend behavior still needs tests or the real app.
+- Profiling: `?replay=<session id>&speed=20` streams a real Session Log (and its panel files) from `~/.harness` into a mock Session; `/stress` in a mock prompt streams a long Turn with 8 subagents; `?scan` loads react-scan. `app-prod-mock` (port 1433) serves a production build of the mock with the same tools.
 
 ## Commands
 

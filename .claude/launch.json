@@ -12,6 +12,15 @@
          "runtimeExecutable": "bun",
          "runtimeArgs": ["run", "--cwd", "app", "dev", "--port", "1431", "--strictPort"],
          "port": 1431
+      },
+      {
+         "name": "app-prod-mock",
+         "runtimeExecutable": "sh",
+         "runtimeArgs": [
+            "-c",
+            "cd app && bunx vite build --minify false && bunx vite preview --port 1433 --strictPort --host 127.0.0.1"
+         ],
+         "port": 1433
       }
    ]
 }

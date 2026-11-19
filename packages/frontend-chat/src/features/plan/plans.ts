@@ -1,4 +1,4 @@
-import { findModeOption, type PermissionOption } from "@harness/api";
+import { dateTimeFormat, findModeOption, type PermissionOption } from "@harness/api";
 import type { ConfigOption } from "../../state/reducer";
 import { diffLines } from "../changes/diff";
 
@@ -65,4 +65,4 @@ export function planToAutoOpen(
 
 /** "14:05" in the local time. */
 export const clockTime = (ts: number) =>
-   new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+   dateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(ts);

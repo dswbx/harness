@@ -20,15 +20,36 @@ export function formatAgeAgo(ts: number, now: number = Date.now()): string {
    return age === "now" ? age : `${age} ago`;
 }
 
+const formats = new Map<string, Intl.DateTimeFormat | Intl.RelativeTimeFormat>();
+
+/** One `Intl.DateTimeFormat` per locale and options, kept: making one costs about 60 µs in JavaScriptCore,
+ * using it under 1 µs, and rows format their times on every render. */
+export function dateTimeFormat(
+   locale: Intl.LocalesArgument,
+   options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+   const key = `d${String(locale)}|${JSON.stringify(options)}`;
+   let f = formats.get(key) as Intl.DateTimeFormat | undefined;
+   if (!f) formats.set(key, (f = new Intl.DateTimeFormat(locale, options)));
+   return f;
+}
+
+/** As `dateTimeFormat`, for `Intl.RelativeTimeFormat`. */
+export function relativeTimeFormat(
+   locale: Intl.LocalesArgument,
+   options: Intl.RelativeTimeFormatOptions,
+): Intl.RelativeTimeFormat {
+   const key = `r${String(locale)}|${JSON.stringify(options)}`;
+   let f = formats.get(key) as Intl.RelativeTimeFormat | undefined;
+   if (!f) formats.set(key, (f = new Intl.RelativeTimeFormat(locale as string, options)));
+   return f;
+}
+
 /** Full local date and time of a timestamp, for the hover on an age label. */
 export function formatDateTime(
    ts: number,
    locale?: Intl.LocalesArgument,
    timeZone?: string,
 ): string {
-   return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone,
-   }).format(ts);
+   return dateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone }).format(ts);
 }
