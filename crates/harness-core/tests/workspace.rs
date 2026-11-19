@@ -105,7 +105,7 @@ async fn worktree_session_lifecycle() {
     let sid = create(&h, &repo, None, true).await.unwrap();
     let s = summary(&h, &sid).await.unwrap();
     let branch = s.workspace.worktree_branch.clone().unwrap();
-    assert!(branch.starts_with("harness/fix-the-parser-"), "{branch}");
+    assert_eq!(branch, format!("harness/{}", &sid[sid.len() - 6..]));
     assert_eq!(s.workspace.base_branch.as_deref(), Some("main"));
     let wt = PathBuf::from(&s.folder);
     // By default in the repository's `.harness` folder, kept out of its status.
