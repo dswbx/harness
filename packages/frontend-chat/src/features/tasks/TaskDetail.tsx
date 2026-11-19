@@ -55,7 +55,7 @@ import type { PanelCtx } from "../../panels/contract";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
-import { AddFilesButton, AssetStrip, filesToInputs, type StripAsset } from "./AssetStrip";
+import { AddFilesButton, AssetStrip, type StripAsset } from "./AssetStrip";
 import { DuePicker } from "./DuePicker";
 import type { SessionInfo } from "./ListView";
 import { ParentPicker } from "./ParentPicker";
@@ -65,7 +65,7 @@ import { STATUS_LABEL, StatusIcon, StatusMenu } from "./StatusMenu";
 import { TaskRow } from "./TaskRow";
 import type { TaskApi } from "./taskApi";
 import { UpstreamField } from "./UpstreamField";
-import { useAutosave } from "./useAutosave";
+import { useAutosavedMarkdown } from "./useAutosavedMarkdown";
 import { useFileDrop } from "./useFileDrop";
 
 const noop = () => {};
@@ -544,61 +544,41 @@ function BodyEditor({
    onError: (message: string | null) => void;
    onAddFiles: (files: AttachmentInput[]) => void;
 }) {
-   const editor = useRef<PromptEditorHandle>(null);
-   /** The `body_updated_ms` of the body the editor holds; saves are checked against it. */
-   const base = useRef<number | null>(null);
-   const lastMd = useRef<string | null>(null);
    const id = task.id;
-   const autosave = useAutosave<string>(async (md) => {
-      const saved = await api.updateTask(id, { body: md }, base.current);
-      base.current = saved.body_updated_ms;
-      put(saved);
+   const body = useAutosavedMarkdown({
+      value: task,
+      baseOf: (t) => t.body_updated_ms,
+      textOf: (t) => t.body,
+      write: (md, base) => api.updateTask(id, { body: md }, base),
+      read: () => api.readTask(id),
+      onStored: put,
+      onFiles: onAddFiles,
+      onError,
    });
-   const load = useCallback((t: Task) => {
-      const ed = editor.current;
-      if (!ed) return;
-      base.current = t.body_updated_ms;
-      lastMd.current = null;
-      ed.loadMarkdown(t.body);
-      lastMd.current = ed.getMarkdown();
-   }, []);
-   const { dirty } = autosave;
-   useEffect(() => {
-      if (task.body_updated_ms === base.current) return;
-      if (base.current !== null && dirty()) return;
-      load(task);
-   }, [task, load, dirty]);
-
-   const reload = () => {
-      autosave.reset();
-      api.readTask(id).then(
-         (t) => {
-            put(t);
-            load(t);
-         },
-         (e) => onError(errText(e)),
-      );
-   };
-   const files = (list: File[]) => filesToInputs(list).then(onAddFiles, (e) => onError(errText(e)));
 
    return (
       <section aria-label="Description">
          <div className={SECTION}>
             <span className="flex-1">Description</span>
-            {autosave.status === "conflict" ? (
+            {body.status === "conflict" ? (
                <span className="flex items-center gap-1.5 normal-case tracking-normal text-amber-500">
                   Changed elsewhere
-                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={reload}>
+                  <Button
+                     size="sm"
+                     variant="outline"
+                     className="h-6 px-2 text-xs"
+                     onClick={body.reload}
+                  >
                      Reload
                   </Button>
                </span>
-            ) : autosave.status === "pending" || autosave.status === "saving" ? (
+            ) : body.status === "pending" || body.status === "saving" ? (
                <span className="font-normal normal-case tracking-normal">Saving…</span>
             ) : null}
          </div>
-         {autosave.status === "error" && (
+         {body.status === "error" && (
             <div role="alert" className="pb-1.5 text-xs text-destructive">
-               {autosave.error}
+               {body.error}
             </div>
          )}
          <div
@@ -606,30 +586,17 @@ function BodyEditor({
                "rounded-xl border border-transparent px-2 py-1.5 transition-colors hover:border-border",
                "focus-within:border-ring/50 dark:focus-within:border-border",
             )}
-            onBlur={(e) => {
-               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) void autosave.flush();
-            }}
-            onPasteCapture={(e) => {
-               const list = [...e.clipboardData.files];
-               if (!list.length) return;
-               e.preventDefault();
-               e.stopPropagation();
-               void files(list);
-            }}
+            {...body.box}
          >
             <PromptEditor
-               ref={editor}
+               ref={body.editor}
                label="Task description"
                placeholder="Add a description… Markdown ok"
                newlineOnEnter
                menuOpen={false}
                onMenuKey={noop}
-               onSubmit={() => void autosave.flush()}
-               onChange={(_, md) => {
-                  if (lastMd.current === null || md === lastMd.current) return;
-                  lastMd.current = md;
-                  autosave.change(md);
-               }}
+               onSubmit={body.onSubmit}
+               onChange={body.onChange}
                maxHeightClassName="max-h-none"
                minHeightClassName="min-h-16"
             />

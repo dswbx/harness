@@ -135,3 +135,17 @@ describe("Title editor", () => {
       await waitFor(() => expect(title.textContent).toBe("Renamed elsewhere"));
    });
 });
+
+describe("Description", () => {
+   it("saves on blur, checked against the body it loaded", async () => {
+      const { api } = await setup("t1");
+      const update = vi.spyOn(api, "updateTask");
+      const loaded = (await api.readTask("t1")).body_updated_ms;
+      const body = screen.getByRole("textbox", { name: "Task description" });
+      await waitFor(() => expect(body.textContent).toContain("Ship the December release."));
+      await typeIn(body, "Ship it.");
+      await act(async () => fireEvent.focusOut(body));
+      await waitFor(() => expect(update).toHaveBeenCalledWith("t1", { body: "Ship it." }, loaded));
+      await waitFor(async () => expect((await api.readTask("t1")).body).toBe("Ship it."));
+   });
+});

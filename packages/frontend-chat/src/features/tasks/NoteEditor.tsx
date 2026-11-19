@@ -2,18 +2,18 @@ import {
    type AttachmentInput,
    errText,
    formatAgeAgo,
-   type Note,
    type SessionApi,
    useNote,
 } from "@harness/api";
 import { Button, cn, ScrollArea } from "@harness/ui";
 import { ListPlus } from "lucide-react";
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useNow } from "../../lib/time";
-import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
-import { AddFilesButton, AssetStrip, filesToInputs, type StripAsset } from "./AssetStrip";
+import { PromptEditor } from "../prompt/PromptEditor";
+import { AddFilesButton, AssetStrip, type StripAsset } from "./AssetStrip";
 import { taskFromText } from "./listModel";
-import { type AutosaveStatus, useAutosave } from "./useAutosave";
+import type { AutosaveStatus } from "./useAutosave";
+import { useAutosavedMarkdown } from "./useAutosavedMarkdown";
 import { useFileDrop } from "./useFileDrop";
 
 const noop = () => {};
@@ -56,11 +56,6 @@ function statusText(status: AutosaveStatus, updatedMs: number | null, now: numbe
  */
 export function NoteEditor({ api }: { api: SessionApi }) {
    const [note, setNote] = useNote(api);
-   const editor = useRef<PromptEditorHandle>(null);
-   /** The hash of the note the editor holds (loaded or saved); writes are checked against it. */
-   const base = useRef<string | null>(null);
-   /** The Markdown last loaded or seen, so a selection change or a load does not save. */
-   const lastMd = useRef<string | null>(null);
    const [error, setError] = useState<string | null>(null);
    const now = useNow();
    const box = useRef<HTMLDivElement>(null);
@@ -73,47 +68,27 @@ export function NoteEditor({ api }: { api: SessionApi }) {
       document.getSelection()?.collapseToEnd();
    };
 
-   const autosave = useAutosave<string>(async (md) => {
-      const saved = await api.writeNote(md, base.current);
-      base.current = saved.hash;
-      setNote(saved);
-   });
-
-   const load = useCallback((n: Note) => {
-      const ed = editor.current;
-      if (!ed) return;
-      base.current = n.hash;
-      lastMd.current = null;
-      ed.loadMarkdown(n.content);
-      lastMd.current = ed.getMarkdown();
-   }, []);
-
-   // The first read, and notes written in other windows while nothing here waits to be saved.
-   const { dirty } = autosave;
-   useEffect(() => {
-      if (!note || note.hash === base.current) return;
-      if (base.current !== null && dirty()) return;
-      load(note);
-   }, [note, load, dirty]);
-
-   const reload = () => {
-      autosave.reset();
-      setError(null);
-      api.readNote().then(
-         (n) => {
-            setNote(n);
-            load(n);
-         },
-         (e) => setError(errText(e)),
-      );
-   };
-
    const addImages = (files: AttachmentInput[]) => {
       setError(null);
       api.addNoteImages(files).then(setNote, (e) => setError(errText(e)));
    };
    // Files dropped on the note go to its images (not to a prompt box).
    const drop = useFileDrop(box, addImages, setError);
+
+   const md = useAutosavedMarkdown({
+      value: note,
+      baseOf: (n) => n.hash,
+      textOf: (n) => n.content,
+      write: (content, base) => api.writeNote(content, base),
+      read: () => api.readNote(),
+      onStored: setNote,
+      onFiles: addImages,
+      onError: setError,
+   });
+   const reload = () => {
+      setError(null);
+      md.reload();
+   };
 
    const images = useMemo<StripAsset[]>(
       () =>
@@ -126,9 +101,9 @@ export function NoteEditor({ api }: { api: SessionApi }) {
       [note?.images, api],
    );
 
-   const status = autosave.status;
+   const status = md.status;
    const shown = statusText(status, note?.updated_ms ?? null, now);
-   const problem = status === "error" ? autosave.error : error;
+   const problem = status === "error" ? md.error : error;
 
    return (
       <section aria-label="Session note" className="flex min-h-0 flex-1 flex-col">
@@ -158,34 +133,20 @@ export function NoteEditor({ api }: { api: SessionApi }) {
                   "focus-within:border-ring/50 dark:focus-within:border-border",
                   drop.over && "border-ring bg-accent/40",
                )}
-               onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-                     void autosave.flush();
-               }}
-               onPasteCapture={(e) => {
-                  const files = [...e.clipboardData.files];
-                  if (!files.length) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  filesToInputs(files).then(addImages, (err) => setError(errText(err)));
-               }}
+               {...md.box}
                {...drop.handlers}
             >
                <ScrollArea className="min-h-0 flex-1">
                   {note ? (
                      <PromptEditor
-                        ref={editor}
+                        ref={md.editor}
                         label="Session note"
                         placeholder="Notes for this session…"
                         newlineOnEnter
                         menuOpen={false}
                         onMenuKey={noop}
-                        onSubmit={() => void autosave.flush()}
-                        onChange={(_, md) => {
-                           if (lastMd.current === null || md === lastMd.current) return;
-                           lastMd.current = md;
-                           autosave.change(md);
-                        }}
+                        onSubmit={md.onSubmit}
+                        onChange={md.onChange}
                         maxHeightClassName="max-h-none"
                         minHeightClassName="min-h-40"
                      />
