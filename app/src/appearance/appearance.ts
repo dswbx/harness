@@ -1,4 +1,5 @@
 import { type HarnessClient, onStoredChange, storedValue } from "@harness/api";
+import { HARNESS_THEME, HARNESS_THEME_ID } from "./harnessTheme";
 import type { ImportedTheme } from "./importTheme";
 import { PRESETS, type ThemePreset } from "./presets";
 import { syncWindowBackground } from "./windowBackground";
@@ -7,7 +8,7 @@ export const MODES = ["light", "dark", "system"] as const;
 export type Mode = (typeof MODES)[number];
 
 export type Appearance = {
-   /** "default", a preset id or an imported theme's id (`user-…`). */
+   /** "harness" (the default), "default" (plain shadcn), a preset id or an imported theme's id (`user-…`). */
    theme: string;
    mode: Mode;
    /** "theme" (the theme's font), "system", "custom" or a bundled font id. */
@@ -43,8 +44,11 @@ export const FLOWS: RhythmOption[] = [
    { id: "airy", label: "Airy", value: "2em" },
 ];
 
+/** Built-in themes by id: Harness, then the tweakcn presets. */
+const BUILTIN: Record<string, ThemePreset> = { [HARNESS_THEME_ID]: HARNESS_THEME, ...PRESETS };
+
 export const DEFAULT_APPEARANCE: Appearance = {
-   theme: "default",
+   theme: HARNESS_THEME_ID,
    mode: "system",
    font: "theme",
    mono: "theme",
@@ -136,10 +140,10 @@ export function normalize(raw: unknown): Appearance {
    const fontOk = (list: FontOption[]) => (s: string) =>
       s === "theme" || s === "system" || s === "custom" || list.some((f) => f.id === s);
    return {
-      // An imported theme id stays even before the themes load; an unknown one looks like default.
+      // An imported theme id stays even before the themes load; an unknown one falls back to Harness.
       theme: pick(
          r.theme,
-         (s) => s === "default" || Object.hasOwn(PRESETS, s) || USER_ID.test(s),
+         (s) => s === "default" || Object.hasOwn(BUILTIN, s) || USER_ID.test(s),
          d.theme,
       ),
       mode: pick(r.mode, (s) => (MODES as readonly string[]).includes(s), d.mode) as Mode,
@@ -269,6 +273,7 @@ export function swatch(theme: string, isDark: boolean): string[] {
 
 export type ThemeOption = { id: string; label: string; imported?: boolean };
 export const THEMES: ThemeOption[] = [
+   { id: HARNESS_THEME_ID, label: HARNESS_THEME.label },
    { id: "default", label: "Default" },
    ...Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label })),
 ];
@@ -280,13 +285,13 @@ const themeListeners = new Set<() => void>();
 const themeById = (id: string): ThemePreset | undefined =>
    Object.hasOwn(imported, id)
       ? imported[id]
-      : Object.hasOwn(PRESETS, id)
-        ? PRESETS[id]
+      : Object.hasOwn(BUILTIN, id)
+        ? BUILTIN[id]
         : undefined;
 
 /** Imported themes by id. */
 export const getImportedThemes = () => imported;
-/** Imported themes first, then default and the presets. */
+/** Imported themes first, then Harness, default and the presets. */
 export const getThemes = () => themeList;
 export function onThemesChange(fn: () => void) {
    themeListeners.add(fn);

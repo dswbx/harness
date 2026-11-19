@@ -336,7 +336,10 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                   />
                   <ImportThemeDialog client={client} onImported={(theme) => update({ theme })} />
                </Row>
-               <ImportedThemes current={a.theme} onRemoved={() => update({ theme: "default" })} />
+               <ImportedThemes
+                  current={a.theme}
+                  onRemoved={() => update({ theme: DEFAULT_APPEARANCE.theme })}
+               />
             </Group>
             <Group title="Text">
                <FontRow
