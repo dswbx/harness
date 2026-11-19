@@ -73,7 +73,7 @@ describe("theme import", () => {
       expect(themeId("Zen!", (id) => taken.has(id))).toBe("user-zen-2");
       expect(themeId("???", () => false)).toBe("user-theme");
       expect(normalize({ theme: "user-zen" }).theme).toBe("user-zen");
-      expect(normalize({ theme: "user-" }).theme).toBe("default");
+      expect(normalize({ theme: "user-" }).theme).toBe("harness");
       expect(
          normalizeThemes({
             "user-zen": { label: "Zen", light: colors, dark: {} },

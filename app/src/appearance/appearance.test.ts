@@ -107,11 +107,13 @@ describe("resolveVars", () => {
          "--terminal-font-size": "12px",
          "--code-font-size": "12px",
       };
-      expect(resolveVars(DEFAULT_APPEARANCE, false)).toEqual({
+      expect(resolveVars(a({ theme: "default" }), false)).toEqual({
          "--app-font-size": "14px",
          ...chat,
       });
-      expect(resolveVars(a({ font: "geist", mono: "system", fontSize: 13 }), true)).toEqual({
+      expect(
+         resolveVars(a({ theme: "default", font: "geist", mono: "system", fontSize: 13 }), true),
+      ).toEqual({
          "--font-sans": '"Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif',
          "--font-mono": "ui-monospace, monospace",
          "--app-font-size": "13px",
@@ -201,7 +203,7 @@ describe("mapFontStack", () => {
 describe("presets", () => {
    it("has all 42 tweakcn presets with core colors in both modes", () => {
       expect(Object.keys(PRESETS)).toHaveLength(42);
-      expect(THEMES).toHaveLength(43);
+      expect(THEMES).toHaveLength(44);
       for (const p of Object.values(PRESETS)) {
          for (const isDark of [false, true]) {
             const v = modeVars(p, isDark);
@@ -211,11 +213,18 @@ describe("presets", () => {
       }
    });
 
+   it("Harness is the default theme, listed first", () => {
+      expect(DEFAULT_APPEARANCE.theme).toBe("harness");
+      expect(THEMES[0]).toEqual({ id: "harness", label: "Harness" });
+      expect(normalize({ theme: "harness" }).theme).toBe("harness");
+      expect(resolveVars(DEFAULT_APPEARANCE, true)["--background"]).toBeTruthy();
+   });
+
    it("swatch and filter", () => {
       expect(swatch("default", true)).toHaveLength(4);
       expect(swatch("modern-minimal", false)).toEqual(["#3b82f6", "#f3f4f6", "#e0f2fe", "#ffffff"]);
       expect(filterThemes(THEMES, "  CYBER ").map((t) => t.id)).toEqual(["cyberpunk"]);
-      expect(filterThemes(THEMES, "")).toHaveLength(43);
+      expect(filterThemes(THEMES, "")).toHaveLength(44);
    });
 });
 
@@ -244,7 +253,7 @@ describe("applyAppearance", () => {
       applyAppearance(a({ theme: "claude" }), d);
       expect(d.classes.has("dark")).toBe(true);
       expect(d.props.get("--background")).toBe(PRESETS.claude!.dark.background);
-      applyAppearance(a({ mode: "light" }), d);
+      applyAppearance(a({ theme: "default", mode: "light" }), d);
       expect(d.classes.has("dark")).toBe(false);
       expect([...d.props.keys()]).toEqual([
          "--app-font-size",
