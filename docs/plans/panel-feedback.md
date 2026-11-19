@@ -9,8 +9,8 @@ Status: implemented (steps 1 to 6; ADR 0023, 0024). `ui_patch` and the "Later" i
 An agent that kept 7 render_ui panels open over several days reported three costs: it resends 15-20k characters per change, it cannot read a panel back after compaction, and panels go stale. This plan covers the changes we agreed to build, cheapest first. Each step is a separate commit and can ship alone.
 
 Facts from the code (2026-11-12):
-- Core already keeps the full latest input per id: `session.rs:465` `frontend_items()`. `harness_info` (`mcp.rs:341`) returns only `{tool, id, placement, title, errors}`.
-- Validation errors already carry JSON Pointer paths (`mcp.rs:314`, `frontend_files.rs:21`), but the long tool description is appended after them.
+- Core already keeps the full latest input per id: `session/frontend.rs:188` `frontend_items()`. `harness_info` (`mcp/info.rs:83`) returns only `{tool, id, placement, title, errors}`.
+- Validation errors already carry JSON Pointer paths (`mcp/frontend_tools.rs:28`, `frontend_files.rs:21`), but the long tool description is appended after them.
 - Accordion and Tabs take titles from `props.items` and body i from `kids[i]` (`disclosure.tsx:57,194`). A `Repeat` child is one kid, so it cannot create items.
 - `view_artifact` with `html` renders `UiHtml` with `state={null}` (`ArtifactRequest.tsx:113`). Capture goes through `snapshotFrame` (`toPng.ts:93`).
 - Core has no file watcher. Frontend can read only `frontend/` files and `rev:path` via git. Markdown renders with react-markdown + remark-gfm (`Markdown.tsx`).
@@ -18,7 +18,7 @@ Facts from the code (2026-11-12):
 
 ## 1. `ui_get` MCP tool
 
-- New tuple in `primitives()` (`mcp.rs:139`), kind `read`. Input `{id}`. Output: the stored input (`root`, `placement`, `title`, `icon`, or `source` after step 5), plus the state values its `$state` paths point to.
+- New tuple in `primitives()` (`mcp/tools.rs:50`), kind `read`. Input `{id}`. Output: the stored input (`root`, `placement`, `title`, `icon`, or `source` after step 5), plus the state values its `$state` paths point to.
 - Match arm uses `session.frontend_items()` filtered by tool `render_ui` and id. Unknown id: error that lists known ids.
 - Update the tool snapshot in `crates/harness-core/tests/mcp.rs:145` and add a line to `crates/harness-core/prompts/harness.md`: "After compaction, read a panel with ui_get before you change it."
 - Test: render two items, replace one, remove one, `ui_get` returns the latest input and errors on the removed id.
