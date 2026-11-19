@@ -11,7 +11,7 @@ pub struct WorkspaceInfo {
     /// The folder the Session was started in: for a Worktree Session the same folder in the
     /// repository the Worktree came from, else the Session's folder.
     pub source_folder: String,
-    /// The Session's own `harness/...` branch when it has a Worktree.
+    /// The Session's own branch (`harness/...` by default, `BranchPrefix`) when it has a Worktree.
     pub worktree_branch: Option<String>,
     pub base_branch: Option<String>,
     /// Branch checked out in the Session's folder; None when not a git repo or HEAD is detached.

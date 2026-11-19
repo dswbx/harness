@@ -432,6 +432,8 @@ impl Harness {
             Command::FetchJson { url } => self.cmd_fetch_json(url).await,
             Command::GetWorktreeDir => self.cmd_get_worktree_dir(),
             Command::SetWorktreeDir { dir } => self.cmd_set_worktree_dir(dir),
+            Command::GetBranchPrefix => self.cmd_get_branch_prefix().await,
+            Command::SetBranchPrefix { prefix } => self.cmd_set_branch_prefix(prefix),
             Command::GetEditor => self.cmd_get_editor(),
             Command::SetEditor { editor } => self.cmd_set_editor(editor),
             Command::ListInstructions => self.cmd_list_instructions(),

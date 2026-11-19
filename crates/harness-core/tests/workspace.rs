@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harness_core::Harness;
-use harness_core::api::{AgentInfo, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
+use harness_core::api::{AgentInfo, BranchPrefix, Command, CommandResult, Event, EventKind, FrontendManifest, SessionSummary};
 
 fn harness(data: &Path) -> Arc<Harness> {
     let args = vec!["--resume".to_owned()];
@@ -418,6 +418,24 @@ async fn worktree_dir_setting() {
     h.execute(Command::SetWorktreeDir { dir: None }).await.unwrap();
     let CommandResult::WorktreeDir { dir: d } = h.execute(Command::GetWorktreeDir).await.unwrap() else { panic!() };
     assert_eq!(d, ".harness");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn branch_prefix_setting_names_new_worktree_branches() {
+    let (_dir, repo, data) = repo();
+    let h = harness(&data);
+    let branch = |sid: String| {
+        let h = &h;
+        async move { summary(h, &sid).await.unwrap().workspace.worktree_branch.unwrap() }
+    };
+    let CommandResult::BranchPrefix { prefix, resolved } = h.execute(Command::GetBranchPrefix).await.unwrap() else { panic!() };
+    assert_eq!((prefix, resolved.as_str()), (BranchPrefix::Harness, "harness"));
+    assert!(branch(create(&h, &repo, None, true).await.unwrap()).await.starts_with("harness/"));
+    h.execute(Command::SetBranchPrefix { prefix: Some(BranchPrefix::Custom { prefix: "me/wip/".into() }) }).await.unwrap();
+    assert!(branch(create(&h, &repo, None, true).await.unwrap()).await.starts_with("me/wip/"));
+    h.execute(Command::SetBranchPrefix { prefix: Some(BranchPrefix::Custom { prefix: "".into() }) }).await.unwrap();
+    assert!(!branch(create(&h, &repo, None, true).await.unwrap()).await.contains('/'));
+    assert!(h.execute(Command::SetBranchPrefix { prefix: Some(BranchPrefix::Custom { prefix: "a b".into() }) }).await.is_err());
 }
 
 #[tokio::test]

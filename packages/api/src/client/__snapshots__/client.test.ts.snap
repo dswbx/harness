@@ -67,6 +67,10 @@ exports[`HarnessClient wire shape > sends these Commands 1`] = `
     "type": "SetWorktreeDir",
   },
   {
+    "prefix": null,
+    "type": "SetBranchPrefix",
+  },
+  {
     "editor": null,
     "type": "SetEditor",
   },

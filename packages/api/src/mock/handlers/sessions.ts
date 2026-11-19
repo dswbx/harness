@@ -44,17 +44,19 @@ export const sessionsHandlers = {
             "cannot check out branch: the folder has uncommitted changes",
          );
       const worktree = cmd.worktree;
+      const prefix = mock.resolvedBranchPrefix();
+      const newBranch = prefix ? `${prefix}/${id}` : id;
       const workspace: WorkspaceInfo = {
          repo_root: isRepo ? cmd.folder : null,
          source_folder: cmd.folder,
-         worktree_branch: worktree ? (pr ? pr.head : (cmd.new_branch ?? `harness/${id}`)) : null,
+         worktree_branch: worktree ? (pr ? pr.head : (cmd.new_branch ?? newBranch)) : null,
          base_branch: worktree ? (pr ? pr.base : (cmd.branch ?? "main")) : null,
          branch: !isRepo
             ? null
             : worktree
               ? pr
                  ? pr.head
-                 : (cmd.new_branch ?? `harness/${id}`)
+                 : (cmd.new_branch ?? newBranch)
               : pr
                 ? pr.head
                 : (cmd.new_branch ?? cmd.branch ?? "main"),

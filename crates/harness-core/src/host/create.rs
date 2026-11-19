@@ -72,6 +72,8 @@ impl Harness {
             tracing::warn!("could not exclude {} from git: {e:#}", base.display());
         }
         let short = &id[id.len() - 6..];
+        let prefix = self.resolve_branch_prefix(&crate::git::branch_prefix(&self.data_dir)).await;
+        let pr_branch = |n: u32| crate::git::prefixed(&prefix, &format!("pr-{n}-{short}"));
         let rel = folder.strip_prefix(&root).unwrap_or(Path::new("")).to_owned();
         let in_worktree = |wt: WorktreeMeta, pr: Option<u32>| {
             (
@@ -85,7 +87,7 @@ impl Harness {
                     std::fs::create_dir_all(parent)?;
                 }
                 crate::git::git(&root, &["worktree", "add", "--detach", &dest.display().to_string()]).await?;
-                let fallback = format!("harness/pr-{}-{short}", pr.number);
+                let fallback = pr_branch(pr.number);
                 let branch = match crate::github::checkout_pr(&dest, pr.number, &fallback).await {
                     Ok(b) => b,
                     Err(e) => {
@@ -99,14 +101,15 @@ impl Harness {
                 if crate::git::is_dirty(&root).await? {
                     return Err(crate::error::conflict("the folder has uncommitted changes; commit or stash them, or use a Worktree"));
                 }
-                crate::github::checkout_pr(&root, pr.number, &format!("harness/pr-{}-{short}", pr.number)).await?;
+                crate::github::checkout_pr(&root, pr.number, &pr_branch(pr.number)).await?;
                 Ok((
                     folder.display().to_string(),
                     WorkspaceMeta { repo_root, worktree: None, base: Some(pr.base), pr: Some(pr.number), branch_pr: None, pr_status: None },
                 ))
             }
             Start::Branch { base, new_branch, worktree: true } => {
-                let wt = crate::git::create_worktree(&self.base_fetches, &root, base, new_branch, &dest, &crate::git::slug(title), short).await?;
+                let branch = new_branch.unwrap_or_else(|| crate::git::prefixed(&prefix, &format!("{}-{short}", crate::git::slug(title))));
+                let wt = crate::git::create_worktree(&self.base_fetches, &root, base, branch, &dest).await?;
                 Ok(in_worktree(wt, None))
             }
             Start::Branch { base, new_branch, worktree: false } => {

@@ -26,6 +26,25 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
+    pub(in crate::host) async fn cmd_get_branch_prefix(&self) -> anyhow::Result<CommandResult> {
+        let prefix = crate::git::branch_prefix(&self.data_dir);
+        Ok(CommandResult::BranchPrefix { resolved: self.resolve_branch_prefix(&prefix).await, prefix })
+    }
+
+    pub(in crate::host) fn cmd_set_branch_prefix(&self, prefix: Option<BranchPrefix>) -> anyhow::Result<CommandResult> {
+        crate::git::set_branch_prefix(&self.data_dir, prefix.as_ref())?;
+        Ok(CommandResult::Ok)
+    }
+
+    /// The prefix new Session branches get now (`""`: none).
+    pub(in crate::host) async fn resolve_branch_prefix(&self, prefix: &BranchPrefix) -> String {
+        let login = match prefix {
+            BranchPrefix::GithubUser => self.shared.pr_refs.me().await,
+            _ => None,
+        };
+        crate::git::resolve_branch_prefix(prefix, login.as_deref())
+    }
+
     pub(in crate::host) fn cmd_get_editor(&self) -> anyhow::Result<CommandResult> {
         Ok(CommandResult::Editor { editor: crate::editor::load(&self.data_dir) })
     }

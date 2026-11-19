@@ -132,6 +132,11 @@ pub enum CommandResult {
     WorktreeDir {
         dir: String,
     },
+    /// The branch prefix setting, and the prefix it gives now (`""`: none).
+    BranchPrefix {
+        prefix: BranchPrefix,
+        resolved: String,
+    },
     /// An app setting's value, or fetched JSON (`FetchJson`).
     Json {
         #[specta(type = Option<specta_typescript::Unknown>)]

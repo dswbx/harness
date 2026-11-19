@@ -41,6 +41,19 @@ pub enum OverlayPosition {
     Bottom,
 }
 
+/// What new Session branches start with: `<prefix>/<title slug>-<short id>`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BranchPrefix {
+    /// `harness/...`
+    #[default]
+    Harness,
+    /// The GitHub user's login (`octocat/...`); `harness` while it is unknown.
+    GithubUser,
+    /// Any prefix; empty means no prefix.
+    Custom { prefix: String },
+}
+
 /// The editor "Open in editor" uses: a known editor's URL scheme, a custom URL template
 /// (`{path}`, `{line}`), or the system default app (no line).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

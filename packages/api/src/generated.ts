@@ -125,6 +125,15 @@ export type BranchInfo = {
 	archived: boolean,
 };
 
+/**  What new Session branches start with: `<prefix>/<title slug>-<short id>`. */
+export type BranchPrefix = 
+/**  `harness/...` */
+{ type: "harness" } | 
+/**  The GitHub user's login (`octocat/...`); `harness` while it is unknown. */
+{ type: "github_user" } | 
+/**  Any prefix; empty means no prefix. */
+{ type: "custom"; prefix: string };
+
 export type Branches = {
 	/**  `None` when the folder is not in a git repository. */
 	repo_root: string | null,
@@ -176,11 +185,11 @@ folder: string; agent_id: string; frontend_id: string; title: string | null;
  *  (refused when the folder has changes).
  */
 branch?: string | null; 
-/**  Work in a new Worktree on its own `harness/...` branch. */
+/**  Work in a new Worktree on its own branch (`BranchPrefix`). */
 worktree?: boolean; 
 /**
  *  Create this branch from `branch` (default: the current one) and work on it; with
- *  `worktree`, it becomes the Worktree's branch instead of a `harness/...` one.
+ *  `worktree`, it becomes the Worktree's branch instead of a prefixed one (`BranchPrefix`).
  */
 new_branch?: string | null; 
 /**
@@ -227,6 +236,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetWorktreeDir" } | 
 /**  `dir`: relative to the repository folder, or absolute (`~` is home). None resets to `.harness`. */
 { type: "SetWorktreeDir"; dir: string | null } | 
+/**  What new Session branches start with (`BranchPrefix`). */
+{ type: "GetBranchPrefix" } | 
+/**  None resets to `harness`. */
+{ type: "SetBranchPrefix"; prefix: BranchPrefix | null } | 
 /**
  *  Custom Instructions scopes: Global, then every repository known from Sessions or saved
  *  instructions (`Instructions`).
@@ -495,6 +508,8 @@ export type CommandResult = { type: "Ok" } |
 { type: "PlanFile"; path: string } | 
 /**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */
 { type: "WorktreeDir"; dir: string } | 
+/**  The branch prefix setting, and the prefix it gives now (`""`: none). */
+{ type: "BranchPrefix"; prefix: BranchPrefix; resolved: string } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | 
 /**
@@ -1483,7 +1498,7 @@ export type WorkspaceInfo = {
 	 *  repository the Worktree came from, else the Session's folder.
 	 */
 	source_folder: string,
-	/**  The Session's own `harness/...` branch when it has a Worktree. */
+	/**  The Session's own branch (`harness/...` by default, `BranchPrefix`) when it has a Worktree. */
 	worktree_branch: string | null,
 	base_branch: string | null,
 	/**  Branch checked out in the Session's folder; None when not a git repo or HEAD is detached. */

@@ -52,6 +52,8 @@ const table: Record<Command["type"], () => Command> = {
    FetchJson: () => ({ type: "FetchJson", url: "https://example.com/a.json" }),
    GetWorktreeDir: () => ({ type: "GetWorktreeDir" }),
    SetWorktreeDir: () => ({ type: "SetWorktreeDir", dir: null }),
+   GetBranchPrefix: () => ({ type: "GetBranchPrefix" }),
+   SetBranchPrefix: () => ({ type: "SetBranchPrefix", prefix: null }),
    GetEditor: () => ({ type: "GetEditor" }),
    SetEditor: () => ({ type: "SetEditor", editor: { type: "zed" } }),
    ListInstructions: () => ({ type: "ListInstructions" }),
