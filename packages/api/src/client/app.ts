@@ -6,6 +6,8 @@ import type {
    Branches,
    Editor,
    FrontendManifest,
+   InstructionsEntry,
+   InstructionsScope,
    McpServerDef,
    NewPermissionRule,
    PermissionRule,
@@ -152,6 +154,31 @@ export class HarnessClient {
    }
    async setEditor(editor: Editor | null): Promise<void> {
       await this.transport.execute({ type: "SetEditor", editor });
+   }
+   /** Custom Instructions scopes: Global, then every known repository. */
+   async listInstructions(): Promise<InstructionsEntry[]> {
+      return (await expectResult(this.transport, { type: "ListInstructions" }, "Instructions"))
+         .entries;
+   }
+   /** A scope's saved text; "" when none. */
+   async getInstructions(scope: InstructionsScope): Promise<string> {
+      return (
+         await expectResult(this.transport, { type: "GetInstructions", scope }, "InstructionsText")
+      ).text;
+   }
+   /** Saves a scope's text; "" deletes it. Applies to new Sessions and Threads. */
+   async setInstructions(scope: InstructionsScope, text: string): Promise<void> {
+      await this.transport.execute({ type: "SetInstructions", scope, text });
+   }
+   /** Moves a repository's instructions to another folder (the repository was moved); the scope they have now. */
+   async moveInstructions(from: string, to: string): Promise<InstructionsScope> {
+      return (
+         await expectResult(
+            this.transport,
+            { type: "MoveInstructions", from, to },
+            "InstructionsMoved",
+         )
+      ).scope;
    }
    async openInEditor(sessionId: string, path?: string, line?: number): Promise<void> {
       await openInEditor(this.transport, sessionId, path, line);

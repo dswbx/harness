@@ -25,6 +25,8 @@ pub struct Shared {
     pub app_events: AppEvents,
     /// Optional overrides of the `<harness_context>` texts (`harness.md`, `<frontend id>.md`).
     pub prompts_dir: PathBuf,
+    /// Custom Instructions (`<data dir>/instructions/`), added to the `<harness_context>`.
+    pub instructions: crate::instructions::Instructions,
     /// PR lookups and the Sessions' GitHub repos, shared by all Sessions.
     pub pr_refs: crate::github::PrRefs,
     /// Shared Artifacts (ADR 0024), in `<data dir>/shared/`.

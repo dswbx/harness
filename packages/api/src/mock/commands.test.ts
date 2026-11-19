@@ -54,6 +54,18 @@ const table: Record<Command["type"], () => Command> = {
    SetWorktreeDir: () => ({ type: "SetWorktreeDir", dir: null }),
    GetEditor: () => ({ type: "GetEditor" }),
    SetEditor: () => ({ type: "SetEditor", editor: { type: "zed" } }),
+   ListInstructions: () => ({ type: "ListInstructions" }),
+   GetInstructions: () => ({ type: "GetInstructions", scope: { type: "global" } }),
+   SetInstructions: () => ({
+      type: "SetInstructions",
+      scope: { type: "repo", path: "/Users/me/demo" },
+      text: "Use tabs.",
+   }),
+   MoveInstructions: () => ({
+      type: "MoveInstructions",
+      from: "/Users/me/old-site",
+      to: "/Users/me/new-site",
+   }),
    OpenInEditor: () => ({ type: "OpenInEditor", session_id: S }),
    ExportPlan: () => ({ type: "ExportPlan", session_id: S, name: "plan", markdown: "# p" }),
    ListSessionFiles: () => ({ type: "ListSessionFiles", session_id: S }),

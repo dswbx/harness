@@ -5,6 +5,7 @@ import { RenderUiGallery } from "./features/artifacts/Gallery";
 import { SharedArtifactView } from "./features/artifacts/SharedArtifactView";
 import { setWrapCode, useWrapCode } from "./features/markdown/CodeBlock";
 import { setGuessInlineCode, useGuessInlineCode } from "./features/markdown/inlineCode";
+import { MarkdownEditor } from "./features/prompt/MarkdownEditor";
 import { TasksView } from "./features/tasks/TasksView";
 import { setOptionIsMeta, useOptionIsMeta } from "./features/terminal/terminalOptions";
 import { View } from "./shell/Root";
@@ -16,6 +17,7 @@ export const frontend: Frontend = {
    SharedView: SharedArtifactView,
    TasksView,
    Gallery: RenderUiGallery,
+   MarkdownEditor,
    toggles: [
       {
          id: "guess-inline-code",

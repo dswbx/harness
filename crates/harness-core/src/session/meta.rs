@@ -140,6 +140,15 @@ impl SessionMeta {
     pub fn repo_folder(&self) -> Option<PathBuf> {
         self.workspace.worktree.as_ref().map(|w| w.repo_root.clone()).or_else(|| self.workspace.repo_root.clone())
     }
+
+    /// Whose Custom Instructions apply: the repository's main checkout (shared by its Worktrees),
+    /// else the folder. None for a Quick Session (its folder is scratch space).
+    pub fn instructions_folder(&self) -> Option<PathBuf> {
+        if self.quick {
+            return None;
+        }
+        Some(self.repo_folder().map_or_else(|| PathBuf::from(&self.folder), |r| crate::instructions::main_checkout(&r)))
+    }
 }
 
 /// Writes `session.json`. The bytes are made under the `meta` lock (`snapshot`, which numbers

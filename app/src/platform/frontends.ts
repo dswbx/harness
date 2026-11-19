@@ -12,6 +12,9 @@ export const tasksView = () => all().find((fe) => fe.TasksView)?.TasksView;
 /** The Frontend's component catalog page, if any Frontend has one. */
 export const gallery = () => all().find((fe) => fe.Gallery)?.Gallery;
 
+/** A Frontend's Markdown editor (the prompt box's), if any Frontend lends one. */
+export const markdownEditor = () => all().find((fe) => fe.MarkdownEditor)?.MarkdownEditor;
+
 /** The preference switches the Frontends offer for an Appearance `group`. */
 export const frontendToggles = (group: FrontendToggle["group"]): FrontendToggle[] =>
    all().flatMap((fe) => fe.toggles?.filter((t) => t.group === group) ?? []);

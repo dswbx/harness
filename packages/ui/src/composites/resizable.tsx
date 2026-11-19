@@ -2,7 +2,8 @@ import * as React from "react";
 import { clamp, cn } from "../lib/utils";
 
 type DragOptions = {
-   cursor: "col-resize" | "row-resize";
+   /** CSS cursor on the whole page while dragging. */
+   cursor: string;
    /** Called once on pointer down, before any movement. */
    onStart?: () => void;
    /** Distance from the pointer-down point, in px. */

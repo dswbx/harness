@@ -34,4 +34,27 @@ impl Harness {
         crate::editor::save(&self.data_dir, editor.as_ref())?;
         Ok(CommandResult::Ok)
     }
+
+    pub(in crate::host) fn cmd_list_instructions(&self) -> anyhow::Result<CommandResult> {
+        let known: Vec<_> = self.sessions.read().values().filter_map(|s| s.meta().instructions_folder()).collect();
+        Ok(CommandResult::Instructions { entries: self.shared.instructions.list(known) })
+    }
+
+    pub(in crate::host) fn cmd_get_instructions(&self, scope: InstructionsScope) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::InstructionsText { text: self.shared.instructions.get(&scope).unwrap_or_default() })
+    }
+
+    pub(in crate::host) fn cmd_set_instructions(&self, scope: InstructionsScope, text: String) -> anyhow::Result<CommandResult> {
+        self.shared.instructions.set(&scope, &text)?;
+        Ok(CommandResult::Ok)
+    }
+
+    pub(in crate::host) fn cmd_move_instructions(&self, from: String, to: String) -> anyhow::Result<CommandResult> {
+        // The repository's key, as a Session there would have it.
+        let to = std::fs::canonicalize(&to).map_err(|e| crate::error::not_found(format!("{to}: {e}")))?;
+        let to = crate::instructions::main_checkout(&to);
+        let path = to.display().to_string();
+        self.shared.instructions.rename(&from, &path)?;
+        Ok(CommandResult::InstructionsMoved { scope: crate::api::InstructionsScope::Repo { path } })
+    }
 }

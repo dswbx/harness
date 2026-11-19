@@ -1,3 +1,4 @@
+import { baseName } from "../../derive/paths";
 import { applyStatePatch } from "../../derive/state";
 import { CommandError } from "../../errors";
 import type { Attachment, AttachmentInput, CommandResult, SessionSummary } from "../../generated";
@@ -541,9 +542,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
    const turn = `t${mock.logs.get(sid)!.length}`;
    const attachments = (cmd.attachments ?? []).map((a) => storeAttachment(mock, a));
    const first = !mock.logs.get(sid)!.some((e) => e.kind.type === "TurnStarted");
-   const context = first
-      ? "<harness_context>\nYou run inside Harness, a desktop app that hosts coding agents. (mock)\n\n## Frontend: Chat\n\nUse `render_ui` for structured results.\n\n## This Session\n- Workspace folder: /mock/project\n- Worktree: no\n</harness_context>"
-      : null;
+   const context = first ? mockContext(mock, sid) : null;
    mock.emit(sid, {
       type: "TurnStarted",
       turn_id: turn,
@@ -572,6 +571,28 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
    }, end);
    return { type: "Ok" };
 };
+
+/** The first prompt's `<harness_context>`, as the core builds it (`harness_context.rs`), with the mock's Custom Instructions. */
+function mockContext(mock: MockTransport, sid: string): string {
+   const s = mock.sessions.find((x) => x.id === sid);
+   const folder = s?.folder ?? "/mock/project";
+   const repo = s?.workspace.repo_root ?? null;
+   const parts = [
+      "You run inside Harness, a desktop app that hosts coding agents. (mock)",
+      "## Frontend: Chat\n\nUse `render_ui` for structured results.",
+   ];
+   const global = mock.instructions.get("global")?.trim();
+   if (global) parts.push(`## Your instructions for all Sessions\n\n${global}`);
+   const key = repo ?? folder;
+   const own = s?.quick ? undefined : mock.instructions.get(key)?.trim();
+   if (own) parts.push(`## Your instructions (${baseName(key)})\n\n${own}`);
+   const facts = [`## This Session`, `- Workspace folder: ${folder}`];
+   if (repo) facts.push(`- Repository: ${repo}`, "- Worktree: no");
+   else facts.push("- Not a git repository");
+   if (own) facts.push(`- Instructions folder: ${key}`);
+   parts.push(facts.join("\n"));
+   return `<harness_context>\n${parts.join("\n\n")}\n</harness_context>`;
+}
 
 export const promptHandlers = {
    ReadImageFile: () => {

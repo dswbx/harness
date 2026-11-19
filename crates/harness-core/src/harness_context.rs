@@ -2,7 +2,8 @@
 //! block before the user's text on the first prompt of each Agent Session, the way agent apps send
 //! their own instruction files. The texts are plain files: `prompts/harness.md` (built in) and the
 //! Frontend's `instructions.md` (in its manifest). `<data dir>/prompts/harness.md` and
-//! `<data dir>/prompts/<frontend id>.md` override them without a rebuild.
+//! `<data dir>/prompts/<frontend id>.md` override them without a rebuild. The user's Custom
+//! Instructions (`instructions.rs`) follow the Frontend's part.
 
 use std::path::Path;
 
@@ -21,7 +22,9 @@ pub fn build(session: &Session, thread: &ThreadId) -> String {
     {
         parts.push(format!("## Frontend: {}\n\n{text}", f.name));
     }
-    parts.push(facts(session));
+    let (own, folder) = instructions(session);
+    parts.extend(own);
+    parts.push(facts(session, folder.as_deref()));
     parts.extend(side_note(session, thread, false));
     format!("<harness_context>\n{}\n</harness_context>", parts.join("\n\n"))
 }
@@ -83,13 +86,33 @@ pub fn origin_note(origin: &crate::api::PromptOrigin) -> String {
     format!("<harness_context>\n{from}\n</harness_context>")
 }
 
+/// The user's Custom Instructions: Global, then the repository's (or folder's), with that one's
+/// key folder when it was sent. The headings differ in shape, so a folder named like Global stays apart.
+fn instructions(session: &Session) -> (Vec<String>, Option<std::path::PathBuf>) {
+    use crate::api::InstructionsScope;
+    let store = &session.shared().instructions;
+    let mut parts = vec![];
+    if let Some(text) = store.get(&InstructionsScope::Global) {
+        parts.push(format!("## Your instructions for all Sessions\n\n{text}"));
+    }
+    let mut sent = None;
+    if let Some(folder) = session.meta().instructions_folder()
+        && let Some(text) = store.get(&InstructionsScope::Repo { path: folder.display().to_string() })
+    {
+        parts.push(format!("## Your instructions ({})\n\n{text}", crate::instructions::folder_name(&folder)));
+        sent = Some(folder);
+    }
+    (parts, sent)
+}
+
 fn read(dir: &Path, name: &str) -> Option<String> {
     let text = std::fs::read_to_string(dir.join(format!("{name}.md"))).ok()?;
     Some(text.trim().to_owned()).filter(|t| !t.is_empty())
 }
 
-/// Facts about this Session at the start of the Agent Session.
-fn facts(session: &Session) -> String {
+/// Facts about this Session at the start of the Agent Session. `instructions`: the folder the
+/// repository's Custom Instructions belong to (the main checkout), when they were sent.
+fn facts(session: &Session, instructions: Option<&Path>) -> String {
     let meta = session.meta();
     let mut lines = vec!["## This Session".to_owned(), format!("- Workspace folder: {}", meta.folder)];
     match (&meta.workspace.repo_root, &meta.workspace.worktree) {
@@ -102,6 +125,9 @@ fn facts(session: &Session) -> String {
             lines.push("- Worktree: no, you work in the user's own checkout".to_owned());
         }
         (None, None) => lines.push("- Not a git repository".to_owned()),
+    }
+    if let Some(folder) = instructions {
+        lines.push(format!("- Instructions folder: {}", folder.display()));
     }
     if meta.quick {
         lines.push("- Quick Session: the folder is empty scratch space".to_owned());

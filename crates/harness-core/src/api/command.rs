@@ -151,6 +151,24 @@ pub enum Command {
     SetWorktreeDir {
         dir: Option<String>,
     },
+    /// Custom Instructions scopes: Global, then every repository known from Sessions or saved
+    /// instructions (`Instructions`).
+    ListInstructions,
+    /// The saved text of a scope (`InstructionsText`, empty when none).
+    GetInstructions {
+        scope: InstructionsScope,
+    },
+    /// Saves a scope's text; empty (or only whitespace) deletes it.
+    SetInstructions {
+        scope: InstructionsScope,
+        text: String,
+    },
+    /// Moves a repository's instructions to another folder (it was moved); `to` must exist and counts as its main
+    /// checkout when it is a Worktree. Fails when `to` already has some. Returns `InstructionsMoved`.
+    MoveInstructions {
+        from: String,
+        to: String,
+    },
     /// The user's editor for "Open in editor" (None until chosen).
     GetEditor,
     SetEditor {

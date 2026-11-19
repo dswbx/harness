@@ -208,6 +208,10 @@ _Avoid_: core MCP, internal tools
 The MCP servers a user configures once in the Harness, from which each Session is given a selection for all its Agents.
 _Avoid_: MCP config, integrations
 
+**Custom Instructions**:
+Text the user writes once in Settings, Global or for one repository (all its Worktrees share it), that the Harness adds to the Harness context on the first prompt of each Agent Session. Kept in the Harness data folder, never in the repository (ADR 0014 addendum).
+_Avoid_: system prompt, rules, AGENTS.md (that is a file in the repository)
+
 ### Permissions
 
 **Permission Policy**:
