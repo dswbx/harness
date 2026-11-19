@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["vendor"]
 
 [workspace.package]
 edition = "2024"
@@ -28,3 +29,8 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 unwrap_used = "warn"
+
+# Updater with one change: an update swaps `Harness.app/Contents`, not the bundle dir, so
+# the Dock keeps the app pinned. See vendor/tauri-plugin-updater/HARNESS_PATCH.md.
+[patch.crates-io]
+tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }
