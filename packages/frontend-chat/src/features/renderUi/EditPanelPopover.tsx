@@ -1,8 +1,7 @@
 import { errText } from "@harness/api";
-import { Button, cn, Input, Popover, PopoverAnchor, PopoverContent } from "@harness/ui";
+import { Button, Input, Popover, PopoverAnchor, PopoverContent } from "@harness/ui";
 import { type ReactNode, useEffect, useId, useState } from "react";
-import { ICONS } from "./tools";
-import { uiIcons } from "./uiIcons";
+import { IconPicker } from "./IconPicker";
 
 /** Longest title the core keeps. */
 const MAX_TITLE = 80;
@@ -106,38 +105,7 @@ export function EditPanelPopover({
                      </p>
                   )}
                </div>
-               <div className="flex flex-col gap-1.5">
-                  <span id={`${id}-icon`} className="text-xs font-medium">
-                     Icon
-                  </span>
-                  <div
-                     role="radiogroup"
-                     aria-labelledby={`${id}-icon`}
-                     className="grid grid-cols-8 gap-0.5"
-                  >
-                     {ICONS.map((name) => {
-                        const Icon = uiIcons[name];
-                        const on = picked === name;
-                        return (
-                           <button
-                              key={name}
-                              type="button"
-                              role="radio"
-                              aria-checked={on}
-                              aria-label={name}
-                              title={name}
-                              onClick={() => setPicked(name)}
-                              className={cn(
-                                 "flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-                                 on && "bg-accent text-foreground ring-1 ring-ring",
-                              )}
-                           >
-                              <Icon className="size-4" />
-                           </button>
-                        );
-                     })}
-                  </div>
-               </div>
+               <IconPicker labelId={`${id}-icon`} picked={picked} onPick={setPicked} />
                {error && <p className="text-xs text-destructive">{error}</p>}
                <div className="flex items-center gap-2">
                   {!shared && (

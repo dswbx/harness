@@ -7,6 +7,19 @@ import { SlotPanel } from "./slotPanels";
 import type { Slot } from "./slots";
 
 vi.mock("./RenderUi", () => ({ RenderUi: () => null }));
+// A few lucide names instead of the real table of 1700 chunks.
+vi.mock("lucide-react/dynamicIconImports", () => {
+   const icon = (n: string) => () =>
+      Promise.resolve({ default: (p: object) => <svg data-testid={`lucide-${n}`} {...p} /> });
+   return {
+      default: {
+         anchor: icon("anchor"),
+         "git-fork": icon("git-fork"),
+         "git-graph": icon("git-graph"),
+         "arrow-up": icon("arrow-up"),
+      },
+   };
+});
 
 afterEach(cleanup);
 
@@ -124,6 +137,35 @@ describe("rename and icon popover", () => {
       expect(screen.queryByRole("button", { name: "Use Agent's" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() => expect(onEdit).toHaveBeenCalledWith("Release notes", "file"));
+   });
+
+   it("search lists all icons, ignoring case, dashes and spaces; picking one saves its name", async () => {
+      const { onEdit } = setup();
+      open();
+      const search = await screen.findByLabelText("Search icons");
+      expect(screen.queryByRole("radio", { name: "anchor" })).toBeNull();
+      fireEvent.change(search, { target: { value: "Git Fo" } });
+      const hit = await screen.findByRole("radio", { name: "git-fork" });
+      expect(screen.queryByRole("radio", { name: "git-graph" })).toBeNull();
+      expect(screen.queryByRole("radio", { name: "file" })).toBeNull();
+      fireEvent.click(hit);
+      fireEvent.change(search, { target: { value: "" } });
+      // Not in the Agent's list: shown first, selected.
+      const radios = screen.getAllByRole("radio");
+      expect(radios[0].getAttribute("aria-label")).toBe("git-fork");
+      expect(radios[0].getAttribute("aria-checked")).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(onEdit).toHaveBeenCalledWith(null, "git-fork"));
+   });
+
+   it("says so when no icon matches; Enter in the search saves nothing", async () => {
+      const { onEdit } = setup();
+      open();
+      const search = await screen.findByLabelText("Search icons");
+      fireEvent.change(search, { target: { value: "zzzz" } });
+      await screen.findByText("No icons match");
+      fireEvent.keyDown(search, { key: "Enter" });
+      expect(onEdit).not.toHaveBeenCalled();
    });
 
    it("Cancel closes without saving", async () => {

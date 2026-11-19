@@ -12,13 +12,13 @@ import { renderUiOf } from "../conversation/chatRows";
 import { quotableAttrs } from "../review/SelectionComment";
 import { DeletePanelDialog } from "./DeletePanelDialog";
 import { EditPanelPopover } from "./EditPanelPopover";
+import { iconFor } from "./panelIcon";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { useEnv } from "./runtime";
 import { lastSlot, nextSeen, type Slot, slotDot, slotRef, slotToAutoOpen } from "./slots";
 import { useSourceStamps } from "./source";
 import { sharedNodeId, sharedRef } from "./tools";
 import { FillFrame } from "./UiHtml";
-import { uiIcons } from "./uiIcons";
 
 /**
  * "5m ago" at the right of a panel header. It takes only the room the title leaves and hides when
@@ -317,7 +317,7 @@ export const slotPanels = definePanelFamily<SlotsModel>({
       m.placed.map(({ slot, side }) => ({
          key: slot.id,
          label: slot.title ?? slot.id,
-         icon: uiIcons[slot.icon as keyof typeof uiIcons],
+         icon: iconFor(slot.icon),
          placement: { edge: side },
          overlay: true,
          status: { presence: "ready", dot: m.dots.has(slot.id) || undefined },

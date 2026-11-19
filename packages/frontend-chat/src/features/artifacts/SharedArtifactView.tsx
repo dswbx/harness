@@ -35,11 +35,11 @@ import {
 import { type ReactNode, useMemo, useState } from "react";
 import { Segmented } from "../../lib/Segmented";
 import { formatRelativeTime, useNow } from "../../lib/time";
+import { PanelIcon } from "../renderUi/panelIcon";
 import { RenderUi, type UiEnv } from "../renderUi/RenderUi";
 import { sharedSourceText, useSharedArtifact } from "../renderUi/sharedSource";
 import { sharedNode } from "../renderUi/tools";
 import { FillFrame } from "../renderUi/UiHtml";
-import { uiIcons } from "../renderUi/uiIcons";
 import { ArtifactImage } from "./ArtifactExport";
 import { Source, sessionCount } from "./ArtifactsPanel";
 import type { Artifact } from "./artifacts";
@@ -154,11 +154,12 @@ export function SharedArtifactView({
             className="flex h-13 shrink-0 items-center gap-2 border-b px-4"
          >
             {leading}
-            {(() => {
-               // Its own icon when it has one, else the share icon.
-               const Icon = (meta?.icon && uiIcons[meta.icon as keyof typeof uiIcons]) || Share2;
-               return <Icon className="size-4 shrink-0 text-muted-foreground" />;
-            })()}
+            {/* Its own icon when it has one, else the share icon. */}
+            <PanelIcon
+               name={meta?.icon}
+               fallback={Share2}
+               className="size-4 shrink-0 text-muted-foreground"
+            />
             <span className="min-w-0 truncate text-sm font-medium">{meta?.title ?? id}</span>
             {meta && (
                <>
