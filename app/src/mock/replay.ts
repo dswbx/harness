@@ -20,8 +20,10 @@ export async function startReplay(mock: MockTransport, params: URLSearchParams):
       .split("\n")
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Event);
-   const speed = Number(params.get("speed") ?? 10);
-   const from = Math.floor(log.length * Number(params.get("from") ?? 0));
+   // A bad or zero `speed` would stream nothing (every time Infinity): default and floor it.
+   const speed = Math.max(0.1, Number(params.get("speed")) || 10);
+   const share = Math.min(1, Math.max(0, Number(params.get("from")) || 0));
+   const from = Math.floor(log.length * share);
    const created = log.find((e) => e.kind.type === "SessionCreated")?.kind;
    const mainId = log.find((e) => e.kind.type === "ThreadStarted" && e.kind.main)?.thread_id;
    const sid = `replay-${id.slice(0, 8)}`;

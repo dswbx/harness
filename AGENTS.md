@@ -14,6 +14,7 @@ Desktop host for ACP Agents with pluggable Frontends. Read first: [GLOSSARY.md](
 ## Rules
 
 - Import boundaries are enforced by `scripts/boundaries.ts` (run by `bun run typecheck`): a Frontend imports only its own files, `@harness/api`, `@harness/ui`, `react` and its declared dependencies; `@harness/ui` imports no `@harness/api` and no Frontend; the `@harness/api` entry does not import the mock; `app/` takes only the `frontend` object from a Frontend's root entry; in `frontend-chat`, `features/`, `state/`, `panels/` and `lib/` never import `shell/`, and `state/`, `panels/` and `lib/` do not import `features/`; Frontends read no raw payloads (`rawInput`, `raw_output`, ...) and name no Agent; web storage goes through `storedValue` and the key registry in `@harness/api`, never `localStorage` directly.
+- Fixtures, mock data, tests and docs use made-up data only. Never copy content from real Sessions (Session Logs, panel files, prompts, titles, paths, repo, issue or tool names) into the repo; replay a real log locally with `?replay=<id>` instead.
 - Shared Primitives live in Rust; Frontend-specific logic lives in TS (ADR 0002).
 - Views render only from the Session Log (ADR 0003). Frontend state is a pure reducer over Events.
 - After changing `api/`, run `bun run gen-ts` (or `cargo run -q -p harness-core --bin gen-ts -- packages/api/src/generated.ts`).
