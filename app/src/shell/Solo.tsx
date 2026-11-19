@@ -70,6 +70,7 @@ export function Solo({
                indicator={indicator}
                menu={menu}
                onOpenSession={setSessionId}
+               sessions={sessions}
             />
          </div>
       </div>

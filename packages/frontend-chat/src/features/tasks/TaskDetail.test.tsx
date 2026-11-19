@@ -99,7 +99,7 @@ describe("Session titles", () => {
       expect(screen.getAllByText("Old worktree cleanup (deleted)").length).toBeGreaterThan(0);
    });
 
-   it("uses the cached titles without a Session list (the panel)", async () => {
+   it("uses the cached titles without a Session list", async () => {
       await setup("t3", { session: "mock-other" });
       expect(screen.getAllByText("Compact header layout").length).toBe(2);
    });

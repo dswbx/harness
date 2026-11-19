@@ -328,6 +328,7 @@ export function Shell({ transport }: { transport: Transport }) {
                         onOpenSession={setSelected}
                         onOpenTasks={TasksView ? openTasks : undefined}
                         onStartFromTask={fromTask.start}
+                        sessions={sessions}
                      />
                   </div>
                </>

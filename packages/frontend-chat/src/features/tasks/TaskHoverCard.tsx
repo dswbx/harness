@@ -5,6 +5,7 @@ import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { dueTone, formatDue } from "./DuePicker";
 import { PRIORITY_LABEL, PriorityIcon } from "./PriorityMenu";
 import { STATUS_LABEL, StatusIcon } from "./StatusMenu";
+import { type Sessions, sessionTitle } from "./sessionTitle";
 import { upstreamText } from "./UpstreamField";
 
 /** Wait before the card shows (the app's tooltips wait 1 s). */
@@ -64,17 +65,20 @@ function Summary({
    parent,
    progress,
    today,
+   sessions,
 }: {
    api: SessionApi;
    task: TaskSummary;
    parent: Pick<TaskSummary, "title"> | null;
    progress: { done: number; total: number } | null;
    today: string;
+   sessions: Sessions | undefined;
 }) {
    const body = useBodyPreview(api, task);
    const open = isOpen(task.status);
-   const here = task.origin_session_id !== null && task.origin_session_id === api.sessionId;
-   const sessions = task.sessions.length;
+   const origin = task.origin_session_id;
+   const here = origin !== null && origin === api.sessionId;
+   const started = task.sessions.length;
    return (
       <div className="space-y-2">
          <div className="text-[13px] font-medium leading-5">
@@ -118,12 +122,16 @@ function Summary({
                   </span>
                </Fact>
             )}
-            {(here || task.origin_title) && (
+            {origin && (here || task.origin_title || sessions) && (
                <Fact label="Created in">
-                  <span className="truncate">{here ? "This Session" : task.origin_title}</span>
+                  <span className="truncate">
+                     {here
+                        ? "This Session"
+                        : sessionTitle(origin, task.origin_title, sessions).title}
+                  </span>
                </Fact>
             )}
-            {sessions > 0 && <Fact label="Sessions">{sessions} started from it</Fact>}
+            {started > 0 && <Fact label="Sessions">{started} started from it</Fact>}
          </dl>
          {task.has_body && (
             <p
@@ -151,6 +159,7 @@ export function TaskHoverCard({
    progress,
    today,
    side = "left",
+   sessions,
    children,
 }: {
    api: SessionApi;
@@ -159,6 +168,8 @@ export function TaskHoverCard({
    progress: { done: number; total: number } | null;
    today: string;
    side?: "left" | "right";
+   /** Live Session titles. Absent: the titles cached on the task. */
+   sessions?: Sessions;
    /** The row: it must take a ref. */
    children: ReactElement;
 }) {
@@ -174,7 +185,14 @@ export function TaskHoverCard({
             if (!focusVisible(e.target)) e.preventDefault();
          }}
          content={
-            <Summary api={api} task={task} parent={parent} progress={progress} today={today} />
+            <Summary
+               api={api}
+               task={task}
+               parent={parent}
+               progress={progress}
+               today={today}
+               sessions={sessions}
+            />
          }
       >
          {children}

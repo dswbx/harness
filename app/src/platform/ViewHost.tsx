@@ -5,6 +5,7 @@ import {
    type OverlayFrame,
    type PanelWidth,
    type PromptContext,
+   type SessionSummary,
    type Transport,
    type ViewVariant,
 } from "@harness/api";
@@ -32,6 +33,7 @@ export function ViewHost({
    onOpenSession,
    onOpenTasks,
    onStartFromTask,
+   sessions,
 }: {
    transport: Transport;
    sessionId: string;
@@ -53,6 +55,8 @@ export function ViewHost({
    onOpenTasks?: (taskId?: string) => void;
    /** "Start session with this task"; without it, and with `onOpenSession`, ViewHost opens the dialog itself. */
    onStartFromTask?: (taskId: string) => void;
+   /** The Sessions the window lists, for live Session titles in the View. */
+   sessions?: readonly SessionSummary[];
 }) {
    const api = useMemo(() => createSessionApi(transport, sessionId), [transport, sessionId]);
    const client = useMemo(() => new HarnessClient(transport), [transport]);
@@ -81,6 +85,7 @@ export function ViewHost({
             onOpenSession={onOpenSession}
             onOpenTasks={onOpenTasks}
             onStartFromTask={startFromTask}
+            sessions={sessions}
          />
          {fromTask.dialog}
       </>

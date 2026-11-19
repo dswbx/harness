@@ -158,6 +158,7 @@ export function TasksPanel({
             progress={progress}
             today={today}
             sessionId={api.sessionId}
+            sessions={host.sessions}
             condensed={condensed}
             onOpen={() => onOpen(t.id)}
             onStatus={(s) => setStatus(t.id, s)}
@@ -171,6 +172,7 @@ export function TasksPanel({
             parent={parent}
             progress={progress}
             today={today}
+            sessions={host.sessions}
          >
             {depth === 0 ? (
                <div>{line}</div>

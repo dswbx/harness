@@ -5,6 +5,7 @@ import type {
    PanelWidth,
    PromptContext,
    SessionApi,
+   SessionStatus,
    ViewVariant,
 } from "@harness/api";
 import { useSessionEvents } from "@harness/api";
@@ -70,6 +71,7 @@ export type ChatProps = {
    onOpenShared?: (id: string) => void;
    onOpenTasks?: (taskId?: string) => void;
    onStartFromTask?: (taskId: string) => void;
+   sessions?: readonly { id: string; title: string; status?: SessionStatus }[];
 };
 
 /**
@@ -103,6 +105,7 @@ function ChatBody({
    onOpenShared,
    onOpenTasks,
    onStartFromTask,
+   sessions,
 }: ChatProps) {
    const overlay = variant === "overlay";
    const state = useSessionEvents(api, reduce, initialState, reduceBatch);
@@ -119,6 +122,10 @@ function ChatBody({
    const { ui, rows, subagents } = useRows(state.items, state.sharedAttached);
 
    const sharedMetas = useSharedMetas(api);
+   const sessionMap = useMemo(
+      () => sessions && new Map(sessions.map((s) => [s.id, s])),
+      [sessions],
+   );
    const { lay, update, placesRef, setPlaces } = useDockLayout(api.sessionId, overlay);
    useShortcuts(overlay, update);
    const env = useUiEnv(api, state.uiState);
@@ -145,8 +152,17 @@ function ChatBody({
          showShared,
          openTasks: onOpenTasks,
          startFromTask: onStartFromTask,
+         sessions: sessionMap,
       }),
-      [onOpenShared, onGitRefresh, sharedMetas, showShared, onOpenTasks, onStartFromTask],
+      [
+         onOpenShared,
+         onGitRefresh,
+         sharedMetas,
+         showShared,
+         onOpenTasks,
+         onStartFromTask,
+         sessionMap,
+      ],
    );
    const panelHost = usePanelHost({
       api,

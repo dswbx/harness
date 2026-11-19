@@ -7,6 +7,7 @@ import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PanelBodyProps, PanelCtx, PanelSelf } from "../../panels/contract";
 import { initialState } from "../../state/reducer";
+import type { SessionInfo } from "./ListView";
 import { type TasksModel, tasksPanel } from "./panel";
 
 // The row density and the note height are stored values: give them a storage.
@@ -27,8 +28,11 @@ afterEach(() => {
 
 const Body = tasksPanel.Body as ComponentType<PanelBodyProps<TasksModel, string>>;
 
-function setup() {
+function setup(
+   o: { sessions?: ReadonlyMap<string, SessionInfo>; edit?: (mock: MockTransport) => void } = {},
+) {
    const mock = new MockTransport([], []);
+   o.edit?.(mock);
    const api: SessionApi = new HarnessClient(mock).sessionApi("mock-1");
    const ctx: PanelCtx = {
       api,
@@ -38,7 +42,7 @@ function setup() {
       hide: vi.fn(),
       isOpen: () => true,
       chat: null,
-      host: {},
+      host: { sessions: o.sessions },
    };
    const self: PanelSelf<string> = {
       id: "tasks",
@@ -272,6 +276,48 @@ describe("Tasks panel", () => {
       const other = await screen.findByRole("tooltip", {}, { timeout: 2000 });
       expect(other.textContent).toContain("PriorityMedium");
       expect(other.textContent).toContain("Due");
+   });
+
+   describe("Session titles", () => {
+      /** "Header polish" (t5) also started a Session in mock-s2, so its row shows a Session chip. */
+      const linkT5 = (mock: MockTransport) => {
+         const t5 = mock.tasks.get("t5");
+         if (t5) t5.sessions = [{ session_id: "mock-s2", title: "Schema refs", started_ms: 0 }];
+      };
+      const hoverPinned = async () => {
+         const pinned = await waitFor(() => group(/^Started from$/));
+         fireEvent.pointerMove(row("Fix the updater signature check", pinned), {
+            pointerType: "mouse",
+         });
+         return screen.findByRole("tooltip", {}, { timeout: 2000 });
+      };
+
+      it("shows live titles of renamed Sessions in rows, the hover card and the drill-in", async () => {
+         const sessions = new Map<string, SessionInfo>([
+            ["mock-1", { title: "Mock session (fixture replay)" }],
+            ["mock-s1", { title: "Header v2" }],
+            ["mock-s2", { title: "Schema refs v2" }],
+         ]);
+         setup({ sessions, edit: linkT5 });
+         expect((await hoverPinned()).textContent).toContain("Created inHeader v2");
+         expect(row("Header polish", group(/^Created here/)).textContent).toContain(
+            "Schema refs v2",
+         );
+         fireEvent.click(row("Fix the updater signature check", group(/^Started from$/)));
+         const list = await waitFor(() => screen.getByRole("region", { name: "Sessions" }));
+         expect(within(list).getByText("Header v2")).toBeTruthy();
+         expect(screen.queryByText(/Compact header layout/)).toBeNull();
+      });
+
+      it("shows the cached titles, not as deleted, without a Session list", async () => {
+         setup({ edit: linkT5 });
+         expect((await hoverPinned()).textContent).toContain("Created inCompact header layout");
+         expect(row("Header polish", group(/^Created here/)).textContent).toContain("Schema refs");
+         fireEvent.click(row("Fix the updater signature check", group(/^Started from$/)));
+         const list = await waitFor(() => screen.getByRole("region", { name: "Sessions" }));
+         expect(within(list).getByText("Compact header layout")).toBeTruthy();
+         expect(screen.queryByText(/\(deleted\)/)).toBeNull();
+      });
    });
 
    it("docks the session note below the list, with a resize handle", async () => {

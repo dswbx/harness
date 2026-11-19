@@ -57,11 +57,11 @@ import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, type StripAsset } from "./AssetStrip";
 import { DuePicker } from "./DuePicker";
-import type { SessionInfo } from "./ListView";
 import { ParentPicker } from "./ParentPicker";
 import { PriorityMenu } from "./PriorityMenu";
 import { QuickAdd } from "./QuickAdd";
 import { STATUS_LABEL, StatusIcon, StatusMenu } from "./StatusMenu";
+import { type Sessions, sessionTitle } from "./sessionTitle";
 import { TaskRow } from "./TaskRow";
 import type { TaskApi } from "./taskApi";
 import { UpstreamField } from "./UpstreamField";
@@ -69,24 +69,6 @@ import { useAutosavedMarkdown } from "./useAutosavedMarkdown";
 import { useFileDrop } from "./useFileDrop";
 
 const noop = () => {};
-
-/** Live Session titles by id (the All tasks view); a Session not in it was deleted. */
-type Sessions = ReadonlyMap<string, SessionInfo>;
-
-/**
- * A Session's title: live from `sessions` when given (not in it: deleted, then `gone`), else `cached`, the title the
- * task stored when it was linked (the Session panel has no Session list).
- */
-function sessionTitle(
-   id: string,
-   cached: string | null,
-   sessions: Sessions | undefined,
-): { title: string; gone: boolean } {
-   if (!sessions) return { title: cached ?? id, gone: false };
-   const live = sessions.get(id);
-   if (live) return { title: live.title, gone: false };
-   return { title: `${cached ?? "Session"} (deleted)`, gone: true };
-}
 
 const SECTION =
    "flex items-center gap-1.5 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
@@ -143,7 +125,7 @@ export function TaskDetail({
    /** All tasks (null while loading): parent and subtasks. */
    tasks: readonly TaskSummary[] | null;
    host: PanelCtx["host"];
-   /** Live Session titles (the All tasks view). Absent: the titles cached on the task. */
+   /** Live Session titles (the host's Session list). Absent: the titles cached on the task. */
    sessions?: Sessions;
    onBack: () => void;
    onOpen: (id: string) => void;
@@ -380,6 +362,7 @@ export function TaskDetail({
                            id={id}
                            tasks={tasks ?? []}
                            today={today}
+                           sessions={sessions}
                            onOpen={onOpen}
                            onError={setError}
                         />
@@ -690,6 +673,7 @@ function Subtasks({
    id,
    tasks,
    today,
+   sessions,
    onOpen,
    onError,
 }: {
@@ -697,6 +681,7 @@ function Subtasks({
    id: string;
    tasks: readonly TaskSummary[];
    today: string;
+   sessions: Sessions | undefined;
    onOpen: (id: string) => void;
    onError: (message: string) => void;
 }) {
@@ -729,6 +714,7 @@ function Subtasks({
                   }
                   today={today}
                   sessionId={api.sessionId}
+                  sessions={sessions}
                   onOpen={() => onOpen(t.id)}
                   onStatus={(status) =>
                      api.updateTask(t.id, { status }).catch((e) => onError(errText(e)))

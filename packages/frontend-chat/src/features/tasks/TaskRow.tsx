@@ -6,6 +6,7 @@ import { META_CHIP } from "./chips";
 import { dueTone, formatDue } from "./DuePicker";
 import { PriorityIcon } from "./PriorityMenu";
 import { StatusMenu } from "./StatusMenu";
+import { type Sessions, sessionTitle } from "./sessionTitle";
 import { upstreamText } from "./UpstreamField";
 
 /**
@@ -19,6 +20,7 @@ export function TaskRow({
    progress,
    today,
    sessionId,
+   sessions,
    onOpen,
    onStatus,
    condensed = false,
@@ -33,6 +35,8 @@ export function TaskRow({
    today: string;
    /** The Session the list is in (null: none). */
    sessionId: string | null;
+   /** Live Session titles. Absent: the titles cached on the task. */
+   sessions?: Sessions;
    onOpen: () => void;
    onStatus: (status: TaskStatus) => void;
    /** One line: the status and the title. */
@@ -71,7 +75,9 @@ export function TaskRow({
       link && (
          <span key="session" className={META_CHIP} title="Started a Session">
             <span className="size-1.5 shrink-0 rounded-full bg-sky-500" />
-            <span className="truncate">{link.title}</span>
+            <span className="truncate">
+               {sessionTitle(link.session_id, link.title, sessions).title}
+            </span>
          </span>
       ),
    ].filter(Boolean);

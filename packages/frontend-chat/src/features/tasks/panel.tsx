@@ -49,6 +49,7 @@ export const tasksPanel = definePanel<TasksModel, string>({
             id={model.detail}
             tasks={model.tasks}
             host={ctx.host}
+            sessions={ctx.host.sessions}
             onBack={() => model.setDetail(null)}
             onOpen={model.setDetail}
          />
