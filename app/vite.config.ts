@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -30,18 +30,33 @@ const reactScan: Plugin = {
    ],
 };
 
-// Dev and preview servers only: serves a Session Log from this machine's data folders for `?replay=<id>`
+// Dev and preview servers only: serves a Session Log (and its panel files) from this machine's data folders for `?replay=<id>`
 // (app/src/mock/replay.ts). Listens on 127.0.0.1 only.
 const sessionLog: Connect.NextHandleFunction = async (req, res, next) => {
-   const m = /^\/__harness\/session-log\/([0-9a-f-]{36})$/.exec(req.url ?? "");
+   const m = /^\/__harness\/session-(log|panels)\/([0-9a-f-]{36})$/.exec(req.url ?? "");
    if (!m) return next();
    for (const home of new Set([homedir(), userInfo().homedir]))
-      for (const dir of [".harness", ".harness-dev"])
+      for (const dir of [".harness", ".harness-dev"]) {
+         const session = `${home}/${dir}/sessions/${m[2]}`;
          try {
-            const log = await readFile(`${home}/${dir}/sessions/${m[1]}/log.jsonl`);
-            res.setHeader("Content-Type", "application/x-ndjson");
-            return res.end(log);
+            if (m[1] === "log") {
+               const log = await readFile(`${session}/log.jsonl`);
+               res.setHeader("Content-Type", "application/x-ndjson");
+               return res.end(log);
+            }
+            // The Session's panel source files (top level), as `{ name: content }`.
+            const names = (await readdir(`${session}/panels`)).filter((n) =>
+               /\.(md|html|json)$/.test(n),
+            );
+            const files = Object.fromEntries(
+               await Promise.all(
+                  names.map(async (n) => [n, await readFile(`${session}/panels/${n}`, "utf8")]),
+               ),
+            );
+            res.setHeader("Content-Type", "application/json");
+            return res.end(JSON.stringify(files));
          } catch {}
+      }
    res.statusCode = 404;
    res.end();
 };

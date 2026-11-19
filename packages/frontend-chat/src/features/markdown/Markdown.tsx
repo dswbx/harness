@@ -1,4 +1,12 @@
-import { type ComponentProps, createContext, lazy, Suspense, useContext, useMemo } from "react";
+import {
+   type ComponentProps,
+   createContext,
+   lazy,
+   memo,
+   Suspense,
+   useContext,
+   useMemo,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -205,8 +213,9 @@ const sanitizeSchema = {
 const rawHtml: Plugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 
 /** `breaks`: single newlines become line breaks (user prompts are typed that way). `plainCode`: code blocks without
- * their frame (language, wrap, copy). */
-export function Markdown({
+ * their frame (language, wrap, copy). Memoized: its props are text and flags, and a parse costs time in proportion to
+ * the text (a 200 KB panel file: about 100 ms), so a parent that re-renders on every Event must not re-parse it. */
+export const Markdown = memo(function Markdown({
    children,
    className,
    breaks,
@@ -258,4 +267,4 @@ export function Markdown({
          </MarkdownText.Provider>
       </div>
    );
-}
+});
