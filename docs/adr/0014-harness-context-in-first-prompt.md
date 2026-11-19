@@ -16,7 +16,7 @@ The Agent needs to know about the Harness hosting it: its MCP tools, worktrees, 
 
 ## Addendum: Custom Instructions
 
-The user can add their own text to the block: Global (every Session) and per repository, edited in Settings › Instructions. The core adds `## Your instructions (global)` and `## Your instructions (<folder name>)` after the Frontend's part, before the Session facts. Like the rest of the block, edits apply from the next Agent Session (new Session or Thread).
+The user can add their own text to the block: Global (every Session) and per repository, edited in Settings › Instructions. The core adds `## Your instructions for all Sessions` and `## Your instructions (<folder name>)` after the Frontend's part, before the Session facts; the two shapes differ so a folder named `global` stays apart. When the repository's part is sent, the facts add `- Instructions folder: <key>`, so the UI's edit link finds it from a linked worktree too. Like the rest of the block, edits apply from the next Agent Session (new Session or Thread).
 
 **Storage:** `<data dir>/instructions/global.md` and `<data dir>/instructions/repos/<encoded folder>.md`. Nothing is written in the repository: the text is the user's, not the team's (that is what `AGENTS.md` is for). The file name is the folder's absolute path with `%`, `/`, `\` and `:` percent-encoded, so it is readable and the list gets the path back without an index file.
 

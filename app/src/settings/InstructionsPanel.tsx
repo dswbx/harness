@@ -96,8 +96,7 @@ export function InstructionsPanel({
       const to = await pickFolderDialog();
       if (!to) return;
       try {
-         await client.moveInstructions(e.scope.path, to);
-         await load({ type: "repo", path: to });
+         await load(await client.moveInstructions(e.scope.path, to));
       } catch (err) {
          report("Could not move the instructions", err);
       }
@@ -271,7 +270,8 @@ function ScopeEditor({
             {!entry.folder_exists && (
                <div className="mb-3 flex items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
                   <span className="flex-1">The folder was not found. It was moved or deleted.</span>
-                  {onRelink && (
+                  {/* `MoveInstructions` needs a saved text to move. */}
+                  {onRelink && entry.lines > 0 && (
                      <Button size="sm" variant="outline" onClick={onRelink}>
                         Choose its new folder…
                      </Button>

@@ -120,6 +120,10 @@ pub enum CommandResult {
     InstructionsText {
         text: String,
     },
+    /// `MoveInstructions`: the scope the text is saved under now (the new folder's main checkout).
+    InstructionsMoved {
+        scope: InstructionsScope,
+    },
     /// The file `ExportPlan` wrote (absolute).
     PlanFile {
         path: String,

@@ -65,6 +65,6 @@ export const instructionsHandlers = {
          throw new CommandError("conflict", `${cmd.to} already has instructions`);
       mock.instructions.delete(cmd.from);
       mock.instructions.set(cmd.to, text);
-      return { type: "Ok" };
+      return { type: "InstructionsMoved", scope: { type: "repo", path: cmd.to } };
    },
 } satisfies Partial<Handlers>;

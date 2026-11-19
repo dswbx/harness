@@ -170,9 +170,15 @@ export class HarnessClient {
    async setInstructions(scope: InstructionsScope, text: string): Promise<void> {
       await this.transport.execute({ type: "SetInstructions", scope, text });
    }
-   /** Moves a repository's instructions to another folder (the repository was moved). */
-   async moveInstructions(from: string, to: string): Promise<void> {
-      await this.transport.execute({ type: "MoveInstructions", from, to });
+   /** Moves a repository's instructions to another folder (the repository was moved); the scope they have now. */
+   async moveInstructions(from: string, to: string): Promise<InstructionsScope> {
+      return (
+         await expectResult(
+            this.transport,
+            { type: "MoveInstructions", from, to },
+            "InstructionsMoved",
+         )
+      ).scope;
    }
    async openInEditor(sessionId: string, path?: string, line?: number): Promise<void> {
       await openInEditor(this.transport, sessionId, path, line);

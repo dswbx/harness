@@ -238,7 +238,7 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "SetInstructions"; scope: InstructionsScope; text: string } | 
 /**
  *  Moves a repository's instructions to another folder (it was moved); `to` must exist and counts as its main
- *  checkout when it is a Worktree. Fails when `to` already has some.
+ *  checkout when it is a Worktree. Fails when `to` already has some. Returns `InstructionsMoved`.
  */
 { type: "MoveInstructions"; from: string; to: string } | 
 /**  The user's editor for "Open in editor" (None until chosen). */
@@ -489,6 +489,8 @@ export type CommandResult = { type: "Ok" } |
 { type: "PanelSource"; content: string; hash: string; path: string; mtime_ms: number } | 
 /**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
 { type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | { type: "Instructions"; entries: InstructionsEntry[] } | { type: "InstructionsText"; text: string } | 
+/**  `MoveInstructions`: the scope the text is saved under now (the new folder's main checkout). */
+{ type: "InstructionsMoved"; scope: InstructionsScope } | 
 /**  The file `ExportPlan` wrote (absolute). */
 { type: "PlanFile"; path: string } | 
 /**  Where new Worktrees go: relative to the repository folder, or absolute (`~` is home). */

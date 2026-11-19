@@ -582,13 +582,14 @@ function mockContext(mock: MockTransport, sid: string): string {
       "## Frontend: Chat\n\nUse `render_ui` for structured results.",
    ];
    const global = mock.instructions.get("global")?.trim();
-   if (global) parts.push(`## Your instructions (global)\n\n${global}`);
+   if (global) parts.push(`## Your instructions for all Sessions\n\n${global}`);
    const key = repo ?? folder;
    const own = s?.quick ? undefined : mock.instructions.get(key)?.trim();
    if (own) parts.push(`## Your instructions (${baseName(key)})\n\n${own}`);
    const facts = [`## This Session`, `- Workspace folder: ${folder}`];
    if (repo) facts.push(`- Repository: ${repo}`, "- Worktree: no");
    else facts.push("- Not a git repository");
+   if (own) facts.push(`- Instructions folder: ${key}`);
    parts.push(facts.join("\n"));
    return `<harness_context>\n${parts.join("\n\n")}\n</harness_context>`;
 }

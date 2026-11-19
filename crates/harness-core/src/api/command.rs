@@ -164,7 +164,7 @@ pub enum Command {
         text: String,
     },
     /// Moves a repository's instructions to another folder (it was moved); `to` must exist and counts as its main
-    /// checkout when it is a Worktree. Fails when `to` already has some.
+    /// checkout when it is a Worktree. Fails when `to` already has some. Returns `InstructionsMoved`.
     MoveInstructions {
         from: String,
         to: String,

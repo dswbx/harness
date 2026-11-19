@@ -53,7 +53,8 @@ impl Harness {
         // The repository's key, as a Session there would have it.
         let to = std::fs::canonicalize(&to).map_err(|e| crate::error::not_found(format!("{to}: {e}")))?;
         let to = crate::instructions::main_checkout(&to);
-        self.shared.instructions.rename(&from, &to.display().to_string())?;
-        Ok(CommandResult::Ok)
+        let path = to.display().to_string();
+        self.shared.instructions.rename(&from, &path)?;
+        Ok(CommandResult::InstructionsMoved { scope: crate::api::InstructionsScope::Repo { path } })
     }
 }

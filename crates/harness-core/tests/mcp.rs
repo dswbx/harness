@@ -623,11 +623,23 @@ async fn harness_context_starts_each_agent_session() {
     let first = shown(ask(&h, &wt_sid, "show-context", None).await);
     assert!(
         first.contains(
-            "Custom chat text.\n\n## Your instructions (global)\n\nAnswer briefly.\n\n## Your instructions (proj)\n\nRun the tests first.\n\n## This Session"
+            "Custom chat text.\n\n## Your instructions for all Sessions\n\nAnswer briefly.\n\n## Your instructions (proj)\n\nRun the tests first.\n\n## This Session"
         ),
         "{first}"
     );
     assert!(first.contains("- Worktree: yes"), "{first}");
+    assert!(first.contains(&format!("- Instructions folder: {root}\n")), "{first}");
+
+    // A linked worktree the user made: the Repository line is its own folder, the key line names
+    // the main checkout (the UI's "Edit … instructions" link reads it).
+    let linked = dir.path().join("proj-side");
+    git(&repo, &["worktree", "add", "-q", "-b", "side", linked.to_str().unwrap()]);
+    let linked_sid = create(&h, &linked, vec![]).await;
+    let ctx = shown(ask(&h, &linked_sid, "show-context", None).await);
+    let linked_root = linked.canonicalize().unwrap().display().to_string();
+    assert!(ctx.contains(&format!("- Repository: {linked_root}\n")), "{ctx}");
+    assert!(ctx.contains("## Your instructions (proj)\n\nRun the tests first."), "{ctx}");
+    assert!(ctx.contains(&format!("- Instructions folder: {root}\n")), "{ctx}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
