@@ -107,6 +107,25 @@ describe("Tasks panel", () => {
       expect(screen.getByText("Measure the header render time")).toBeTruthy();
    });
 
+   it("shows waits on N under a row with open blockers", async () => {
+      setup();
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      // t7 waits on t6, which is open; t5 waits on nothing.
+      expect(
+         within(row("Truncate long branch names", created)).getByText("waits on 1"),
+      ).toBeTruthy();
+      expect(within(row("Header polish", created)).queryByText(/waits on/)).toBeNull();
+      cleanup();
+      setup({
+         edit: (m) => {
+            const t6 = m.tasks.get("t6");
+            if (t6) t6.status = "done";
+         },
+      });
+      const after = await waitFor(() => group(/^Created here · 3$/));
+      expect(within(row("Truncate long branch names", after)).queryByText(/waits on/)).toBeNull();
+   });
+
    it("quick add creates the task in this Session", async () => {
       const { mock } = setup();
       await waitFor(() => group(/^Created here · 4$/));

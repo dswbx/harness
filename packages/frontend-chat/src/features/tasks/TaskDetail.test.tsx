@@ -149,3 +149,117 @@ describe("Description", () => {
       await waitFor(async () => expect((await api.readTask("t1")).body).toBe("Ship it."));
    });
 });
+
+describe("Properties", () => {
+   it("adds, edits and removes a property, checking key and value first", async () => {
+      const { api } = await setup("t8");
+      const update = vi.spyOn(api, "updateTask");
+      const props = screen.getByRole("region", { name: "Properties" });
+      expect(within(props).getByRole("button", { name: "Edit team: tools" })).toBeTruthy();
+
+      fireEvent.click(within(props).getByRole("button", { name: "Add property" }));
+      const key = within(props).getByRole("textbox", { name: "Property key" });
+      const value = within(props).getByRole("textbox", { name: "Property value" });
+      // Upper case is not a valid key: refused here, nothing is sent.
+      fireEvent.change(key, { target: { value: "Area" } });
+      fireEvent.change(value, { target: { value: "build" } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(within(props).getByRole("alert").textContent).toContain("Key: 1 to 32");
+      fireEvent.change(key, { target: { value: "team" } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(within(props).getByRole("alert").textContent).toContain("already has team");
+      fireEvent.change(key, { target: { value: "area" } });
+      fireEvent.change(value, { target: { value: "x".repeat(65) } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(within(props).getByRole("alert").textContent).toContain("Value: 1 to 64");
+      expect(update).not.toHaveBeenCalled();
+      fireEvent.change(value, { target: { value: " build " } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(update).toHaveBeenLastCalledWith("t8", { props: { team: "tools", area: "build" } });
+      await waitFor(() =>
+         expect(within(props).getByRole("button", { name: "Edit area: build" })).toBeTruthy(),
+      );
+
+      fireEvent.click(within(props).getByRole("button", { name: "Edit team: tools" }));
+      const edit = within(props).getByRole("textbox", { name: "Value of team" });
+      fireEvent.change(edit, { target: { value: "infra" } });
+      fireEvent.keyDown(edit, { key: "Enter" });
+      expect(update).toHaveBeenLastCalledWith("t8", { props: { team: "infra", area: "build" } });
+      await waitFor(() =>
+         expect(within(props).getByRole("button", { name: "Edit team: infra" })).toBeTruthy(),
+      );
+
+      fireEvent.click(within(props).getByRole("button", { name: "Remove area" }));
+      expect(update).toHaveBeenLastCalledWith("t8", { props: { team: "infra" } });
+      await waitFor(async () =>
+         expect((await api.readTask("t8")).props).toEqual({ team: "infra" }),
+      );
+      await waitFor(() =>
+         expect(within(props).queryByRole("button", { name: /^Edit area/ })).toBeNull(),
+      );
+      expect(update).toHaveBeenCalledTimes(3);
+   });
+});
+
+describe("Dependencies", () => {
+   it("lists Blocked by and Blocks, and a click opens the linked task", async () => {
+      const { onOpen } = await setup("t14");
+      const blockedBy = screen.getByRole("region", { name: "Blocked by" });
+      expect(blockedBy.textContent).toContain("Blocked by · 1");
+      expect(within(blockedBy).getByText("Measure cold vs warm build")).toBeTruthy();
+      const blocks = screen.getByRole("region", { name: "Blocks" });
+      expect(blocks.textContent).toContain("Blocks · 2");
+      // No × on the other side: those deps belong to the waiting tasks.
+      expect(within(blocks).queryByRole("button", { name: /^Remove link/ })).toBeNull();
+      fireEvent.click(within(blocks).getByText("Fix the updater signature check"));
+      expect(onOpen).toHaveBeenCalledWith("t3");
+      // t13 is done: nothing open to wait on.
+      expect(screen.queryByText(/waits on/)).toBeNull();
+   });
+
+   it("shows waits on N and the follow-ups of a task", async () => {
+      await setup("t4");
+      // t4 waits on t3 (open) and follows t2.
+      expect(screen.getByText("waits on 1")).toBeTruthy();
+      const follows = screen.getByRole("group", { name: "Follows" });
+      expect(within(follows).getByText("Write the changelog")).toBeTruthy();
+   });
+
+   it("adds a dep from the picker, with loops disabled, and removes one", async () => {
+      const { api } = await setup("t14");
+      const update = vi.spyOn(api, "updateTask");
+      fireEvent.click(screen.getByRole("button", { name: "Add dependency" }));
+      const list = await waitFor(() => screen.getByRole("listbox", { name: "Tasks" }));
+      // t4 waits on t3, which waits on t14: a dep on t4 would make a loop.
+      const loop = within(list).getByRole("option", { name: /Tag and publish the build/ });
+      expect(loop.getAttribute("aria-disabled")).toBe("true");
+      expect(loop.textContent).toContain("would make a loop");
+      fireEvent.click(loop);
+      expect(update).not.toHaveBeenCalled();
+      // Already linked: not listed. Itself: not listed.
+      expect(within(list).queryByRole("option", { name: /Measure cold vs warm build/ })).toBeNull();
+      expect(within(list).queryByRole("option", { name: /CARGO_TARGET_DIR/ })).toBeNull();
+
+      fireEvent.click(screen.getByRole("radio", { name: "follow-up" }));
+      fireEvent.click(within(list).getByRole("option", { name: /Check disk use after a week/ }));
+      // t15 waits on t14: a loop too, so pick one that does not.
+      expect(update).not.toHaveBeenCalled();
+      fireEvent.click(within(list).getByRole("option", { name: /Try the new Biome rules/ }));
+      expect(update).toHaveBeenLastCalledWith("t14", {
+         deps: [
+            { id: "t13", kind: "blocks" },
+            { id: "t8", kind: "follow_up" },
+         ],
+      });
+      const follows = await waitFor(() => screen.getByRole("group", { name: "Follows" }));
+      expect(within(follows).getByText("Try the new Biome rules")).toBeTruthy();
+
+      fireEvent.click(
+         screen.getByRole("button", { name: "Remove link to Measure cold vs warm build" }),
+      );
+      expect(update).toHaveBeenLastCalledWith("t14", { deps: [{ id: "t8", kind: "follow_up" }] });
+      await waitFor(async () =>
+         expect((await api.readTask("t14")).deps).toEqual([{ id: "t8", kind: "follow_up" }]),
+      );
+   });
+});

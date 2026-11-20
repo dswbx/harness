@@ -1,14 +1,20 @@
 import {
    type AttachmentInput,
+   blockedBy,
+   blocks,
    childrenOf,
    errText,
+   followedBy,
+   followsOf,
    formatAgeAgo,
    formatDateTime,
    isCommandError,
    isOpen,
    localDay,
+   openBlockers,
    type Task,
    type TaskActivity,
+   type TaskDep,
    type TaskPatch,
    type TaskSummary,
    topicProgress,
@@ -56,13 +62,15 @@ import { PanelHeader } from "../../panels/PanelHeader";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, type StripAsset } from "./AssetStrip";
+import { DepPicker } from "./DepPicker";
 import { DuePicker } from "./DuePicker";
 import { ParentPicker } from "./ParentPicker";
 import { PriorityMenu } from "./PriorityMenu";
+import { PropsField } from "./PropsField";
 import { QuickAdd } from "./QuickAdd";
 import { STATUS_LABEL, StatusIcon, StatusMenu } from "./StatusMenu";
 import { type Sessions, sessionTitle } from "./sessionTitle";
-import { TaskRow } from "./TaskRow";
+import { TaskRow, WaitsOnChip } from "./TaskRow";
 import type { TaskApi } from "./taskApi";
 import { UpstreamField } from "./UpstreamField";
 import { useAutosavedMarkdown } from "./useAutosavedMarkdown";
@@ -139,6 +147,13 @@ export function TaskDetail({
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
    const parentId = task?.parent_id ?? byId.get(id)?.parent_id ?? null;
    const parent = parentId ? (byId.get(parentId) ?? null) : null;
+   // All tasks, with this one's deps as last read or saved (the list catches up a moment later).
+   const deps = task?.deps;
+   const linked = useMemo(
+      () => (deps ? (tasks ?? []).map((t) => (t.id === id ? { ...t, deps } : t)) : (tasks ?? [])),
+      [tasks, id, deps],
+   );
+   const waitsOn = openBlockers(linked, id);
 
    const fail = (e: unknown) => setError(errText(e));
    const patch = (p: TaskPatch) => {
@@ -289,11 +304,12 @@ export function TaskDetail({
                      <div className="flex flex-col gap-5 px-4 pb-6 pt-1">
                         <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-xs">
                            <Label>Status</Label>
-                           <div>
+                           <div className="flex min-w-0 items-center gap-2">
                               <StatusMenu
                                  status={task.status}
                                  onChange={(status) => patch({ status })}
                               />
+                              {waitsOn > 0 && <WaitsOnChip count={waitsOn} />}
                            </div>
                            <Label>Priority</Label>
                            <div>
@@ -339,6 +355,20 @@ export function TaskDetail({
                               />
                            </div>
                         </div>
+                        <section aria-label="Properties">
+                           <div className={SECTION}>Properties</div>
+                           <PropsField
+                              props={task.props ?? {}}
+                              onChange={(props) => patch({ props })}
+                           />
+                        </section>
+                        <Dependencies
+                           id={id}
+                           deps={task.deps ?? []}
+                           tasks={linked}
+                           onOpen={onOpen}
+                           onChange={(deps) => patch({ deps })}
+                        />
                         <BodyEditor
                            api={api}
                            task={task}
@@ -712,6 +742,7 @@ function Subtasks({
                   progress={
                      tasks.some((x) => x.parent_id === t.id) ? topicProgress(tasks, t.id) : null
                   }
+                  waitsOn={t.deps.length > 0 ? openBlockers(tasks, t.id) : 0}
                   today={today}
                   sessionId={api.sessionId}
                   sessions={sessions}
@@ -735,6 +766,160 @@ function Subtasks({
             kids.length === 0 && <p className="text-xs text-muted-foreground/70">No subtasks.</p>
          )}
       </section>
+   );
+}
+
+/**
+ * Blocked by (what this task waits on, with the + picker) and Blocks (what waits on it), each with its follow-ups
+ * in a short list under it (ADR 0029). A click opens the linked task; × on this task's own deps removes one. Every
+ * change sends the whole new deps list of this task, the one that waits.
+ */
+function Dependencies({
+   id,
+   deps,
+   tasks,
+   onOpen,
+   onChange,
+}: {
+   id: string;
+   deps: readonly TaskDep[];
+   /** All tasks, with this one's current deps. */
+   tasks: readonly TaskSummary[];
+   onOpen: (id: string) => void;
+   onChange: (deps: TaskDep[]) => void;
+}) {
+   const waitsOn = blockedBy(tasks, id);
+   const follows = followsOf(tasks, id);
+   const waiting = blocks(tasks, id);
+   const followers = followedBy(tasks, id);
+   const remove = (other: string) => onChange(deps.filter((d) => d.id !== other));
+   return (
+      <>
+         <section aria-label="Blocked by">
+            <div className={SECTION}>
+               <span className="flex-1">
+                  Blocked by{waitsOn.length > 0 && ` · ${waitsOn.length}`}
+               </span>
+               <DepPicker
+                  taskId={id}
+                  tasks={tasks}
+                  onAdd={(other, kind) => onChange([...deps, { id: other, kind }])}
+               />
+            </div>
+            <div className="flex flex-col gap-1">
+               {waitsOn.map((t) => (
+                  <DepLine
+                     key={t.id}
+                     task={t}
+                     onOpen={() => onOpen(t.id)}
+                     onRemove={() => remove(t.id)}
+                  />
+               ))}
+               {waitsOn.length === 0 && follows.length === 0 && (
+                  <p className="text-xs text-muted-foreground/70">Waits on no task.</p>
+               )}
+            </div>
+            <FollowList
+               label="Follows"
+               tasks={follows}
+               onOpen={onOpen}
+               onRemove={(t) => remove(t.id)}
+            />
+         </section>
+         {(waiting.length > 0 || followers.length > 0) && (
+            <section aria-label="Blocks">
+               <div className={SECTION}>Blocks{waiting.length > 0 && ` · ${waiting.length}`}</div>
+               <div className="flex flex-col gap-1">
+                  {waiting.map((t) => (
+                     <DepLine key={t.id} task={t} onOpen={() => onOpen(t.id)} />
+                  ))}
+               </div>
+               <FollowList label="Followed by" tasks={followers} onOpen={onOpen} />
+            </section>
+         )}
+      </>
+   );
+}
+
+/** A linked task: status, title and id; a click opens it. `onRemove`: an × to drop the link. */
+function DepLine({
+   task,
+   compact,
+   onOpen,
+   onRemove,
+}: {
+   task: TaskSummary;
+   compact?: boolean;
+   onOpen: () => void;
+   onRemove?: () => void;
+}) {
+   const open = isOpen(task.status);
+   return (
+      <div
+         className={cn(
+            "group/dep flex min-w-0 items-center gap-1 rounded-md pr-1",
+            compact ? "h-7" : "h-8 bg-muted/40",
+            "hover:bg-accent/60",
+         )}
+      >
+         <button
+            type="button"
+            className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onOpen}
+         >
+            <StatusIcon status={task.status} />
+            <span
+               className={cn(
+                  "min-w-0 flex-1 truncate",
+                  !open && "text-muted-foreground line-through",
+               )}
+            >
+               <InlineMarkdown variant="quiet">{task.title}</InlineMarkdown>
+            </span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">{task.id}</span>
+         </button>
+         {onRemove && (
+            <Tooltip content="Remove link">
+               <button
+                  type="button"
+                  aria-label={`Remove link to ${task.title}`}
+                  className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/dep:opacity-100"
+                  onClick={onRemove}
+               >
+                  <X className="size-3" />
+               </button>
+            </Tooltip>
+         )}
+      </div>
+   );
+}
+
+/** Follow-ups, short: a small label, then compact lines. Nothing when there are none. */
+function FollowList({
+   label,
+   tasks,
+   onOpen,
+   onRemove,
+}: {
+   label: string;
+   tasks: readonly TaskSummary[];
+   onOpen: (id: string) => void;
+   onRemove?: (task: TaskSummary) => void;
+}) {
+   if (tasks.length === 0) return null;
+   return (
+      <div className="flex flex-col pt-1.5" role="group" aria-label={label}>
+         <span className="pb-0.5 text-[11px] text-muted-foreground">{label}</span>
+         {tasks.map((t) => (
+            <DepLine
+               key={t.id}
+               task={t}
+               compact
+               onOpen={() => onOpen(t.id)}
+               onRemove={onRemove && (() => onRemove(t))}
+            />
+         ))}
+      </div>
    );
 }
 
@@ -897,6 +1082,26 @@ function activityText(
          const title = link && sessionTitle(link.session_id, link.title, sessions).title;
          return `${who} started a Session from it${title ? `: ${title}` : ""}`;
       }
+      case "dep_added":
+      case "dep_removed": {
+         const other = byId.get(k.id);
+         const verb =
+            k.type === "dep_removed"
+               ? "removed the link to"
+               : k.kind === "follow_up"
+                 ? "made it follow"
+                 : "made it wait on";
+         return (
+            <>
+               {who} {verb}{" "}
+               <span className="text-foreground/80">
+                  {other ? <InlineMarkdown variant="quiet">{other.title}</InlineMarkdown> : k.id}
+               </span>
+            </>
+         );
+      }
+      case "props_changed":
+         return `${who} changed the properties`;
    }
 }
 

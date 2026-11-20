@@ -59,6 +59,7 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    app("harness:commits-pane-height", "frontend-chat/changes"),
    app("harness:files-tree-width", "frontend-chat/files"),
    app("harness.tasks.view", "frontend-chat/tasks"),
+   app("harness.tasks.groupBy", "frontend-chat/tasks"),
    app("harness:tasks-preview-width", "frontend-chat/tasks"),
    app("harness.tasks.tree", "frontend-chat/tasks"),
    app("harness:tasks-note-height", "frontend-chat/tasks"),

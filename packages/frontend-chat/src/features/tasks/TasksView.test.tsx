@@ -36,6 +36,7 @@ afterEach(() => {
       else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
    }
    vi.restoreAllMocks();
+   vi.unstubAllGlobals();
 });
 
 function setup(first: string | null = null, seed?: (tasks: Map<string, Task>) => void) {
@@ -212,5 +213,37 @@ describe("All tasks view", () => {
       expect(rendered).toBeGreaterThan(VIEWPORT / ROW / 2);
       expect(rendered).toBeLessThan(100);
       expect(screen.queryByRole("button", { name: `Bulk task ${N - 1}` })).toBeNull();
+   });
+
+   it("groups by a prop key from the group menu, with No <key> last, and keeps the choice", async () => {
+      // The group-by is a stored value: give it a storage.
+      const mem = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+         getItem: (k: string) => mem.get(k) ?? null,
+         setItem: (k: string, v: string) => void mem.set(k, String(v)),
+         removeItem: (k: string) => void mem.delete(k),
+      });
+      setup();
+      await waitFor(() => topic("Header polish"));
+      fireEvent.keyDown(screen.getByRole("button", { name: "Topic" }), { key: "Enter" });
+      // The fields, then the prop keys in use.
+      expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual([
+         "Topic",
+         "Status",
+         "Session",
+         "component",
+         "team",
+      ]);
+      fireEvent.click(screen.getByRole("menuitemradio", { name: "component" }));
+      await waitFor(() => expect(groupOf("Truncate long branch names")).toBe("=console"));
+      const heads = [...document.querySelectorAll<HTMLElement>("[data-group-head]")].map(
+         (h) => h.dataset.groupHead,
+      );
+      expect(heads).toEqual(["console", "docs", "engine", "engine-api", "No component"]);
+      expect(groupOf("Try the new Biome rules")).toBe("none");
+      expect(mem.get("harness.tasks.groupBy")).toBe("prop:component");
+      cleanup();
+      setup();
+      await waitFor(() => expect(groupOf("Truncate long branch names")).toBe("=console"));
    });
 });

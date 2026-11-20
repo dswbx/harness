@@ -232,6 +232,7 @@ describe("registry", () => {
          "app harness:commits-pane-height",
          "app harness:files-tree-width",
          "app harness.tasks.view",
+         "app harness.tasks.groupBy",
          "app harness:tasks-preview-width",
          "app harness.tasks.tree",
          "app harness:tasks-note-height",

@@ -1,6 +1,7 @@
 import {
    errText,
    localDay,
+   openBlockers,
    type SessionApi,
    storedValue,
    type TaskStatus,
@@ -156,6 +157,7 @@ export function TasksPanel({
             task={t}
             parent={depth === 0 ? parent : null}
             progress={progress}
+            waitsOn={t.deps.length > 0 ? openBlockers(all, t.id) : 0}
             today={today}
             sessionId={api.sessionId}
             sessions={host.sessions}

@@ -8,12 +8,14 @@ import {
    DEFAULT_FILTER,
    descendantIds,
    type GroupBy,
+   groupProp,
    hasFilters,
    type ListGroup,
    matchesFilter,
    moveTargets,
    NO_SESSION,
    parentCandidates,
+   parseGroupBy,
    reveal,
    sessionCount,
    sessionTasks,
@@ -258,6 +260,53 @@ describe("All tasks list", () => {
          expect(placed.sort(), groupBy).toEqual(["x", "x1", "y"]);
          expect(ids(l.closed), groupBy).toEqual(["x"]);
       }
+   });
+
+   it("groups flat by a prop key, sorted by value, with No <key> last", () => {
+      const withProps = [
+         t("p1", { props: { area: "parser" } }),
+         t("p2", { props: { area: "cli", team: "core" } }),
+         t("p3", { props: { team: "core" } }),
+         t("p4", { props: { area: "parser" } }),
+         t("p5", { status: "done", props: { area: "zeta" } }),
+         // A prop key that is also an Object.prototype name.
+         t("p6", { props: { constructor: "x" } }),
+      ];
+      const l = buildList(withProps, {
+         filter: DEFAULT_FILTER,
+         groupBy: "prop:area",
+         today,
+         flipped: new Set(),
+      });
+      expect(l.groups.map((g) => [g.label, ids(g.rows.map((r) => r.task))])).toEqual([
+         ["cli", ["p2"]],
+         ["parser", ["p1", "p4"]],
+         ["No area", ["p3", "p6"]],
+      ]);
+      // A value's group key cannot clash with the "No area" group, even for the value "none".
+      expect(l.groups.map((g) => g.key)).toEqual(["=cli", "=parser", "none"]);
+      expect(ids(l.closed)).toEqual(["p5"]);
+      const odd = buildList(withProps, {
+         filter: DEFAULT_FILTER,
+         groupBy: "prop:constructor",
+         today,
+         flipped: new Set(["group:none"]),
+      });
+      expect(odd.groups.map((g) => [g.label, g.count, g.folded])).toEqual([
+         ["x", 1, false],
+         ["No constructor", 4, true],
+      ]);
+   });
+
+   it("parses a stored group-by: fields, prop keys, and anything else as topic", () => {
+      expect(parseGroupBy("topic")).toBe("topic");
+      expect(parseGroupBy("status")).toBe("status");
+      expect(parseGroupBy("session")).toBe("session");
+      expect(parseGroupBy("prop:component")).toBe("prop:component");
+      expect(groupProp("prop:component")).toBe("component");
+      expect(groupProp("status")).toBeNull();
+      for (const bad of [null, "", "priority", "prop:", "prop:Has Space", `prop:${"k".repeat(33)}`])
+         expect(parseGroupBy(bad), String(bad)).toBe("topic");
    });
 
    it("filters by priority, Session, due date, upstream and text", () => {

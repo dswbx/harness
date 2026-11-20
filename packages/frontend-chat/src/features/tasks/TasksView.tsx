@@ -2,6 +2,7 @@ import {
    errText,
    localDay,
    openCount,
+   propKeys,
    storedValue,
    type TaskPriority,
    type TaskSummary,
@@ -21,6 +22,7 @@ import {
    DropdownMenu,
    DropdownMenuCheckboxItem,
    DropdownMenuContent,
+   DropdownMenuLabel,
    DropdownMenuRadioGroup,
    DropdownMenuRadioItem,
    DropdownMenuSeparator,
@@ -42,8 +44,10 @@ import {
    DEFAULT_FILTER,
    type DueFilter,
    type GroupBy,
+   groupProp,
    hasFilters,
    NO_SESSION,
+   parseGroupBy,
    reveal,
    type StatusFilter,
    sessionCount,
@@ -72,7 +76,15 @@ const DUE_FILTER: Record<DueFilter, string> = {
    week: "Due this week",
    none: "No due date",
 };
-const GROUP_BY: Record<GroupBy, string> = { topic: "Topic", status: "Status", session: "Session" };
+/** Group by a field, or a prop key (ADR 0029); the same menu for every view. */
+const groupByStore = storedValue<GroupBy>({
+   key: "harness.tasks.groupBy",
+   scope: "app",
+   parse: parseGroupBy,
+   serialize: (v) => v,
+});
+
+const GROUP_FIELDS = { topic: "Topic", status: "Status", session: "Session" } as const;
 const PRIORITIES: TaskPriority[] = ["urgent", "high", "medium", "low", "none"];
 /** A filter chip whose filter is set (not its default). */
 const ACTIVE_CHIP = "border-ring/60 bg-accent";
@@ -96,7 +108,7 @@ export function TasksView({
    const today = localDay(new Date(useNow()));
    const view = useStoredValue(viewStore);
    const [filter, setFilter] = useState<TaskFilter>(DEFAULT_FILTER);
-   const [groupBy, setGroupBy] = useState<GroupBy>("topic");
+   const groupBy = useStoredValue(groupByStore);
    const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
    const [adding, setAdding] = useState(false);
    const [topicFor, setTopicFor] = useState<TaskSummary | null>(null);
@@ -119,6 +131,12 @@ export function TasksView({
       [tasks, filter, groupBy, today, flipped, sessionInfo],
    );
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
+   // The prop keys in use, and the one grouped by (also when no task has it any more).
+   const keys = useMemo(() => {
+      const k = propKeys(tasks ?? []);
+      const g = groupProp(groupBy);
+      return g === null || k.includes(g) ? k : [...k, g].sort();
+   }, [tasks, groupBy]);
 
    // Opened at a task (the host's "Open in All tasks"): unfold its topic (the list brings its row into view).
    // Once per selection (also when it first loads), so a tasks reload keeps the user's folds.
@@ -321,14 +339,33 @@ export function TasksView({
                )}
                <span className="flex-1" />
                <span className="text-xs text-muted-foreground">Group</span>
-               <FilterMenu label={GROUP_BY[groupBy]} disabled={view === "tree"}>
+               <FilterMenu
+                  label={groupProp(groupBy) ?? GROUP_FIELDS[groupBy as keyof typeof GROUP_FIELDS]}
+                  disabled={view === "tree"}
+               >
                   <DropdownMenuRadioGroup
                      value={groupBy}
-                     onValueChange={(v) => setGroupBy(v as GroupBy)}
+                     onValueChange={(v) => groupByStore.set(parseGroupBy(v))}
                   >
-                     {(Object.keys(GROUP_BY) as GroupBy[]).map((g) => (
+                     <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                        Fields
+                     </DropdownMenuLabel>
+                     {(Object.keys(GROUP_FIELDS) as (keyof typeof GROUP_FIELDS)[]).map((g) => (
                         <DropdownMenuRadioItem key={g} value={g}>
-                           {GROUP_BY[g]}
+                           {GROUP_FIELDS[g]}
+                        </DropdownMenuRadioItem>
+                     ))}
+                     {keys.length > 0 && (
+                        <>
+                           <DropdownMenuSeparator />
+                           <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                              Properties
+                           </DropdownMenuLabel>
+                        </>
+                     )}
+                     {keys.map((k) => (
+                        <DropdownMenuRadioItem key={k} value={`prop:${k}`}>
+                           <span className="truncate">{k}</span>
                         </DropdownMenuRadioItem>
                      ))}
                   </DropdownMenuRadioGroup>

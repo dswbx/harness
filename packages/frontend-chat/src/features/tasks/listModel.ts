@@ -194,9 +194,20 @@ export function matchesFilter(t: Filterable, f: TaskFilter, today: string): bool
 const statusPasses = (status: TaskStatus, f: StatusFilter) =>
    f === "all" || (f === "open") === isOpen(status);
 
-export type GroupBy = "topic" | "status" | "session";
+/** A field, or a prop key as `prop:<key>` (ADR 0029). One string, so it fits a menu value and a stored value. */
+export type GroupBy = "topic" | "status" | "session" | `prop:${string}`;
 
-type Listable = Filterable & Pick<TaskSummary, "parent_id" | "created_ms" | "origin_title">;
+/** The prop key `g` groups by (null: a field). */
+export const groupProp = (g: GroupBy): string | null => (g.startsWith("prop:") ? g.slice(5) : null);
+
+/** A stored group-by; anything else (an old or broken value) is `topic`. */
+export function parseGroupBy(raw: string | null): GroupBy {
+   if (raw === "topic" || raw === "status" || raw === "session") return raw;
+   return raw && /^prop:[a-z0-9_-]{1,32}$/.test(raw) ? (raw as GroupBy) : "topic";
+}
+
+type Listable = Filterable &
+   Pick<TaskSummary, "parent_id" | "created_ms" | "origin_title" | "props">;
 
 /** One row of the list. */
 export type ListRow<T> = {
@@ -229,7 +240,7 @@ export type TaskList<T> = {
    closed: T[];
 };
 
-/** The group key of the tasks without a topic, Session or status group. */
+/** The group key of the tasks without a topic, Session, status or prop value. */
 export const NONE_GROUP = "none";
 
 /**
@@ -242,7 +253,8 @@ export const isExpanded = (key: string, depth: number, flipped: ReadonlySet<stri
 /**
  * The list of the All tasks view. By topic: one group per topic (a top-level task with subtasks) with its
  * subtasks below, indented, then "No topic" with the top-level tasks without subtasks. A task that fails the
- * filters still shows when one of its subtasks passes. By status or Session: flat groups.
+ * filters still shows when one of its subtasks passes. By status, Session or a prop key: flat groups. By a prop
+ * key, one group per value (key `=<value>`), sorted by name, then "No <key>" for the tasks without it.
  */
 export function buildList<T extends Listable>(
    tasks: readonly T[],
@@ -295,8 +307,14 @@ export function buildList<T extends Listable>(
    if (o.groupBy !== "topic") {
       // Flat groups take only the tasks that pass: a closed task with open subtasks goes here too.
       const closed = closedOf(() => false);
-      const keyOf = (t: T) =>
-         o.groupBy === "status" ? t.status : (t.origin_session_id ?? NONE_GROUP);
+      const prop = groupProp(o.groupBy);
+      const keyOf = (t: T) => {
+         if (prop !== null) {
+            // Own keys only: a key such as `constructor` is a valid prop key.
+            return Object.hasOwn(t.props, prop) ? `=${t.props[prop]}` : NONE_GROUP;
+         }
+         return o.groupBy === "status" ? t.status : (t.origin_session_id ?? NONE_GROUP);
+      };
       const byKey = new Map<string, T[]>();
       for (const t of sortTasks(tasks.filter(passes))) {
          const l = byKey.get(keyOf(t));
@@ -306,9 +324,13 @@ export function buildList<T extends Listable>(
       const label = (key: string, first: T) =>
          o.groupBy === "status"
             ? key
-            : key === NONE_GROUP
-              ? "No session"
-              : (o.sessionTitle?.(key) ?? first.origin_title ?? "Session");
+            : prop !== null
+              ? key === NONE_GROUP
+                 ? `No ${prop}`
+                 : key.slice(1)
+              : key === NONE_GROUP
+                ? "No session"
+                : (o.sessionTitle?.(key) ?? first.origin_title ?? "Session");
       const groups = [...byKey].map(([key, list]): ListGroup<T> => {
          const folded = !isExpanded(`group:${key}`, 0, flipped);
          return {
@@ -320,8 +342,8 @@ export function buildList<T extends Listable>(
             count: list.length,
          };
       });
-      // Statuses come in their order (sortTasks); Sessions by name, "No session" last.
-      if (o.groupBy === "session")
+      // Statuses come in their order (sortTasks); Sessions and prop values by name, "No ..." last.
+      if (o.groupBy !== "status")
          groups.sort(
             (a, b) =>
                Number(a.key === NONE_GROUP) - Number(b.key === NONE_GROUP) ||

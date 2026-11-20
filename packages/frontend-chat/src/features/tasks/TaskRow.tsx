@@ -1,6 +1,6 @@
 import { isOpen, type TaskStatus, type TaskSummary } from "@harness/api";
 import { cn } from "@harness/ui";
-import { CalendarDays, CornerDownRight } from "lucide-react";
+import { CalendarDays, CornerDownRight, Hourglass } from "lucide-react";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { META_CHIP } from "./chips";
 import { dueTone, formatDue } from "./DuePicker";
@@ -10,14 +10,15 @@ import { type Sessions, sessionTitle } from "./sessionTitle";
 import { upstreamText } from "./UpstreamField";
 
 /**
- * One task in a list: the status (a menu), the title, and under it the priority, due date, parent, subtask count,
- * upstream id and the last Session started from it (other than this one). `condensed`: one line, no facts under the
+ * One task in a list: the status (a menu), the title, and under it the priority, due date, "waits on N", parent,
+ * subtask count, upstream id and the last Session started from it (other than this one). `condensed`: one line, no facts under the
  * title, only a calendar mark when an open task is due today or overdue. A click opens the task.
  */
 export function TaskRow({
    task,
    parent,
    progress,
+   waitsOn = 0,
    today,
    sessionId,
    sessions,
@@ -31,6 +32,8 @@ export function TaskRow({
    parent: Pick<TaskSummary, "title"> | null;
    /** Done and total subtasks (null: none). */
    progress: { done: number; total: number } | null;
+   /** Its open blockers (`openBlockers`); shown as "waits on N" when above 0. */
+   waitsOn?: number;
    /** `YYYY-MM-DD`, for overdue dates. */
    today: string;
    /** The Session the list is in (null: none). */
@@ -54,6 +57,7 @@ export function TaskRow({
             {formatDue(task.due, today)}
          </span>
       ),
+      waitsOn > 0 && <WaitsOnChip key="waits" count={waitsOn} />,
       parent && (
          <span key="parent" className={META_CHIP}>
             <CornerDownRight className="size-2.5" />
@@ -141,5 +145,36 @@ export function TaskRow({
             )}
          </button>
       </div>
+   );
+}
+
+/**
+ * "waits on N": the task has N open blockers (ADR 0029). `narrow`: in a narrow container (`@container` below md),
+ * only the mark and N.
+ */
+export function WaitsOnChip({
+   count,
+   narrow,
+   className,
+}: {
+   count: number;
+   narrow?: boolean;
+   className?: string;
+}) {
+   return (
+      <span
+         className={cn(META_CHIP, "text-amber-600 dark:text-amber-400", className)}
+         title={`Waits on ${count} open ${count === 1 ? "task" : "tasks"}`}
+      >
+         <Hourglass className="size-2.5" />
+         {narrow ? (
+            <span>
+               <span className="@max-md:hidden">waits on </span>
+               {count}
+            </span>
+         ) : (
+            `waits on ${count}`
+         )}
+      </span>
    );
 }
