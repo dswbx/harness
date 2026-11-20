@@ -382,7 +382,7 @@ export function GraphView({
                               d={l.path}
                               fill="none"
                               stroke="currentColor"
-                              strokeWidth={(l.kind === "parent" ? 1 : 1.5) + (on ? 0.5 : 0)}
+                              strokeWidth={on ? (l.kind === "parent" ? 1.5 : 2) : 1}
                               strokeDasharray={l.kind === "follow_up" ? "4 3" : undefined}
                               markerEnd={`url(#${marker}-${tone}${on ? "-lit" : ""})`}
                               style={t.paint ? { stroke: t.paint } : undefined}

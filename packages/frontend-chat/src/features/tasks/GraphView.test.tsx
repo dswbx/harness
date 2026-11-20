@@ -171,7 +171,7 @@ describe("GraphView", () => {
       const rest = line("p>q");
       expect(rest.dataset.lit).toBeUndefined();
       expect(rest.getAttribute("class")).toContain("text-sky-500");
-      expect(rest.getAttribute("stroke-width")).toBe("1.5");
+      expect(rest.getAttribute("stroke-width")).toBe("1");
       expect(rest.getAttribute("marker-end")).toMatch(/-in_progress\)$/);
       // Outside k's chain: faded.
       expect(rest.dataset.faded).toBe("true");
