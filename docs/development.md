@@ -60,7 +60,7 @@ bunx playwright install webkit
 bun run screenshots
 ```
 
-The first command is needed once per machine. The second builds the app in mock mode, drives it with Playwright (WebKit, the same engine as the app on macOS), and writes `docs/images/readme/<name>-dark.png` and `docs/images/readme/<name>-light.png`. The clock is frozen, so two runs give the same images. The shots are defined in `screenshots/shots.ts`, one entry per shot. The macOS window frame is drawn by `screenshots/frame.ts`.
+The first command is needed once per machine. The second builds the app in mock mode, drives it with Playwright (WebKit, the same engine as the app on macOS), and writes `docs/images/readme/<name>.png` in dark mode. The clock is frozen, so two runs give the same images. The shots are defined in `screenshots/shots.ts`, one entry per shot. The macOS window frame is drawn by `screenshots/frame.ts`.
 
 Some shots use magic prompts of the browser mock: `/quiz`, `/artifacts`, `/prs`, `/permission` and `/card`. A magic prompt makes the mock Agent reply with fixed content. `packages/api/src/mock/index.ts` lists all magic prompts.
 

@@ -17,52 +17,50 @@ const STILL_CSS = `
 `;
 
 for (const shot of SHOTS)
-   for (const scheme of ["dark", "light"] as const)
-      test(`${shot.name}-${scheme}`, async ({ browser, baseURL }) => {
-         const viewport = shot.viewport ?? VIEWPORT;
-         // A fresh context per shot: clean localStorage.
-         const context = await browser.newContext({
-            baseURL,
-            viewport,
-            deviceScaleFactor: SCALE,
-            colorScheme: scheme,
-            reducedMotion: "reduce",
-            locale: "en-US",
-            timezoneId: "UTC",
-         });
-         // The default appearance (Harness theme, following the system's light or dark).
-         await context.addInitScript(() => {
-            localStorage.setItem(
-               "harness.appearance",
-               JSON.stringify({ theme: "harness", mode: "system" }),
-            );
-         });
-         const page = await context.newPage();
-         await page.clock.install({ time: NOW });
-         await page.goto(shot.path ?? "/");
-         await page.addStyleTag({ content: STILL_CSS });
-         await page.waitForLoadState("networkidle");
-         await shot.setup?.(page);
-         // Away from anything with a hover state, tooltip or focus ring.
-         await page.mouse.move(4, 4);
-         await settle(page);
-         // After settling: some views take focus late (the Terminal), and a focused Terminal blinks its cursor.
-         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-         await page.waitForTimeout(300);
-         const raw = await page.screenshot({ omitBackground: shot.frame === "none" });
-         const png =
-            shot.frame === "none"
-               ? raw
-               : await frameShot(browser, raw, {
-                    ...viewport,
-                    scale: SCALE,
-                    dark: scheme === "dark",
-                    lights: true,
-                 });
-         await mkdir(OUT, { recursive: true });
-         await writeFile(new URL(`${shot.name}-${scheme}.png`, OUT), png);
-         await context.close();
+   test(shot.name, async ({ browser, baseURL }) => {
+      const viewport = shot.viewport ?? VIEWPORT;
+      // A fresh context per shot: clean localStorage.
+      const context = await browser.newContext({
+         baseURL,
+         viewport,
+         deviceScaleFactor: SCALE,
+         colorScheme: "dark",
+         reducedMotion: "reduce",
+         locale: "en-US",
+         timezoneId: "UTC",
       });
+      // The default appearance: Harness theme, following the system (dark here).
+      await context.addInitScript(() => {
+         localStorage.setItem(
+            "harness.appearance",
+            JSON.stringify({ theme: "harness", mode: "system" }),
+         );
+      });
+      const page = await context.newPage();
+      await page.clock.install({ time: NOW });
+      await page.goto(shot.path ?? "/");
+      await page.addStyleTag({ content: STILL_CSS });
+      await page.waitForLoadState("networkidle");
+      await shot.setup?.(page);
+      // Away from anything with a hover state, tooltip or focus ring.
+      await page.mouse.move(4, 4);
+      await settle(page);
+      // After settling: some views take focus late (the Terminal), and a focused Terminal blinks its cursor.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.waitForTimeout(300);
+      const raw = await page.screenshot({ omitBackground: shot.frame === "none" });
+      const png =
+         shot.frame === "none"
+            ? raw
+            : await frameShot(browser, raw, {
+                 ...viewport,
+                 scale: SCALE,
+                 lights: true,
+              });
+      await mkdir(OUT, { recursive: true });
+      await writeFile(new URL(`${shot.name}.png`, OUT), png);
+      await context.close();
+   });
 
 /** Fonts loaded, network quiet, streamed replies done, two frames painted. */
 async function settle(page: import("@playwright/test").Page) {

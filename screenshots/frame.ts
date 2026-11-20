@@ -22,7 +22,7 @@ const LIGHT_COLORS = [
 export async function frameShot(
    browser: Browser,
    raw: Buffer,
-   o: { width: number; height: number; scale: number; dark: boolean; lights: boolean },
+   o: { width: number; height: number; scale: number; lights: boolean },
 ): Promise<Buffer> {
    const page = await browser.newPage({
       viewport: { width: o.width + 2 * MARGIN, height: o.height + 2 * MARGIN },
@@ -34,16 +34,14 @@ export async function frameShot(
               `<i style="left:${LIGHTS.x + i * LIGHTS.gap}px;top:${LIGHTS.cy - LIGHTS.size / 2}px;background:${fill};box-shadow:inset 0 0 0 0.5px ${edge}"></i>`,
         ).join("")
       : "";
-   // Dark: a dark outer edge and a faint light inner one, like macOS; light: one soft gray edge.
-   const edge = o.dark
-      ? "0 0 0 1px rgba(0,0,0,.85), inset 0 0 0 1px rgba(255,255,255,.14)"
-      : "0 0 0 1px rgba(0,0,0,.16)";
+   // A dark outer edge and a faint light inner one, like a dark macOS window.
+   const edge = "0 0 0 1px rgba(0,0,0,.85), inset 0 0 0 1px rgba(255,255,255,.14)";
    await page.setContent(`<!doctype html>
 <style>
    html, body { margin: 0; background: transparent; }
    .win { position: absolute; left: ${MARGIN}px; top: ${MARGIN}px; width: ${o.width}px; height: ${o.height}px;
       border-radius: ${RADIUS}px; overflow: hidden;
-      box-shadow: 0 12px 24px rgba(0,0,0,${o.dark ? 0.5 : 0.24}), 0 2px 8px rgba(0,0,0,${o.dark ? 0.3 : 0.12}); }
+      box-shadow: 0 12px 24px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3); }
    .win img { display: block; width: 100%; height: 100%; }
    .edge { position: absolute; inset: 0; border-radius: ${RADIUS}px; box-shadow: ${edge}; pointer-events: none; }
    i { position: absolute; width: ${LIGHTS.size}px; height: ${LIGHTS.size}px; border-radius: 50%; }

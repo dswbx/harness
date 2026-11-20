@@ -2,10 +2,7 @@
 
 A macOS desktop app to run ACP coding Agents (Claude, Codex, OpenCode and others) in one place. ACP (Agent Client Protocol) is an open protocol that lets an app talk to any AI coding Agent.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/hero-dark.png">
-  <img alt="Harness: the session sidebar, a chat with tool steps and a permission request, and a Plan panel" src="docs/images/readme/hero-light.png">
-</picture>
+<img alt="Harness: the session sidebar, a chat with tool steps and a permission request, and a Plan panel" src="docs/images/readme/hero.png">
 
 ## Why Harness
 
@@ -24,123 +21,81 @@ Tool calls show as short steps. Permission requests show inline with Allow and D
 
 Agents build panels and inline cards from a component catalog: stats, forms, steppers, charts, tables, HTML and SVG, and sandboxed JavaScript. Panels share one Session State, so a change in one panel updates another. A panel can also follow a Markdown or HTML file that the Agent writes. You can rename a panel, change its icon or delete it.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/render-ui-state-dark.png">
-  <img alt="A quiz panel and a score card that share Session State" src="docs/images/readme/render-ui-state-light.png">
-</picture>
+<img alt="A quiz panel and a score card that share Session State" src="docs/images/readme/render-ui-state.png">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/render-ui-card-dark.png">
-  <img alt="An inline render_ui card in the chat" src="docs/images/readme/render-ui-card-light.png">
-</picture>
+<img alt="An inline render_ui card in the chat" src="docs/images/readme/render-ui-card.png">
 
 ### Sub Sessions
 
 An Agent can start a Sub Session: a full Session with its own Agent, model, effort, folder and branch. The Agent can send it messages and wait for its reply. When the Sub Session finishes a Turn, the Harness tells the parent Agent. Sub Sessions show under their parent in the sidebar.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/sub-sessions-dark.png">
-  <img alt="A parent Session with Sub Sessions nested under it in the sidebar" src="docs/images/readme/sub-sessions-light.png">
-</picture>
+<img alt="A parent Session with Sub Sessions nested under it in the sidebar" src="docs/images/readme/sub-sessions.png">
 
 ### Side chats
 
 A side chat is a second conversation next to the main chat. It does not change the main chat's context. Start it with the full conversation or with nothing. Each side chat has its own tab, and you can reopen past side chats.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/side-chats-dark.png">
-  <img alt="A side chat panel next to the main chat" src="docs/images/readme/side-chats-light.png">
-</picture>
+<img alt="A side chat panel next to the main chat" src="docs/images/readme/side-chats.png">
 
 ### Sessions, Workspaces and Worktrees
 
 To start a Session, pick a folder, a branch or pull request, and optionally a new Worktree (a separate git checkout only for this Session). A Quick Session needs no folder. The sidebar has search, sort, groups and a marker for Turns you have not seen.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/new-session-dark.png">
-  <img alt="The new Session dialog with folder, branch and Worktree options" src="docs/images/readme/new-session-light.png">
-</picture>
+<img alt="The new Session dialog with folder, branch and Worktree options" src="docs/images/readme/new-session.png">
 
 ### Review changes
 
 The Changes panel shows the files each Turn changed, and you can push from the Session header. Add Review Comments on diff lines. They stay in the Session Log, and the Agent can read and resolve them. You can also comment on selected text in the chat, in Plans and in artifacts.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/changes-dark.png">
-  <img alt="The Changes panel with a diff and a Review Comment" src="docs/images/readme/changes-light.png">
-</picture>
+<img alt="The Changes panel with a diff and a Review Comment" src="docs/images/readme/changes.png">
 
 ### Full diff window
 
 The diff window has a file tree, side-by-side or unified diffs and the Session's commit list. Cmd-click or Shift-click commits to combine them in one diff. Review Comments show inline.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/diff-window-dark.png">
-  <img alt="The diff window with file tree, side-by-side diff and commit list" src="docs/images/readme/diff-window-light.png">
-</picture>
+<img alt="The diff window with file tree, side-by-side diff and commit list" src="docs/images/readme/diff-window.png">
 
 ### Pull requests
 
 Start a Session from a pull request. The Session header and the sidebar show the live PR status and checks. References like `owner/repo#123` show as chips, and the prompt box completes them. Agents can open a pull request with the `pr_create` tool.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/pull-requests-dark.png">
-  <img alt="PR chips in the chat and PR status in the Session header" src="docs/images/readme/pull-requests-light.png">
-</picture>
+<img alt="PR chips in the chat and PR status in the Session header" src="docs/images/readme/pull-requests.png">
 
 ### Artifacts
 
 The Artifacts panel collects what the Agent made: HTML, images, diagrams and tables. Make an artifact shared to use it in other Sessions.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/artifacts-dark.png">
-  <img alt="The Artifacts panel with a diagram and a table" src="docs/images/readme/artifacts-light.png">
-</picture>
+<img alt="The Artifacts panel with a diagram and a table" src="docs/images/readme/artifacts.png">
 
 ### Tasks and notes
 
 The Agent shows its Task List (its live steps) in the chat. Tasks are your own work items. The Tasks view shows them across all Sessions, and Agents can read and add them. Each Session also has one Markdown note.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/tasks-dark.png">
-  <img alt="The Tasks view with tasks from several Sessions" src="docs/images/readme/tasks-light.png">
-</picture>
+<img alt="The Tasks view with tasks from several Sessions" src="docs/images/readme/tasks.png">
 
 ### Terminal, Files and dockable panels
 
 Each Session has its own Terminal (toggle it with Cmd+J). The Files panel lets you browse, preview and comment on files. You can dock each panel in one of six Zones and move it by drag.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/panels-dark.png">
-  <img alt="Terminal, Files and other panels docked around the chat" src="docs/images/readme/panels-light.png">
-</picture>
+<img alt="Terminal, Files and other panels docked around the chat" src="docs/images/readme/panels.png">
 
 ### Quick Overlay
 
 A global shortcut opens a floating chat over any app. It starts a Quick Session and can include what you were looking at, such as the window title or selected text.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/quick-overlay-dark.png">
-  <img alt="The Quick Overlay floating over another app" src="docs/images/readme/quick-overlay-light.png">
-</picture>
+<img alt="The Quick Overlay floating over another app" src="docs/images/readme/quick-overlay.png">
 
 ### Agents from the ACP Registry
 
 Install, update and remove Agents from the ACP Registry (the public list of ACP Agents). The Harness runs them on its own toolchain: pinned Node and uv versions, with sha256-checked downloads. You do not need Node or Python on your Mac. You can also add a Custom Agent with any command. Agent sign-in shows in the chat.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/agents-dark.png">
-  <img alt="The Agents settings with installed and available Agents" src="docs/images/readme/agents-light.png">
-</picture>
+<img alt="The Agents settings with installed and available Agents" src="docs/images/readme/agents.png">
 
 ### Make it yours
 
 Pick a theme: the built-in Harness theme or a tweakcn preset, in light or dark. Write Custom Instructions for all Sessions or for one repository. Set Permission Policy rules and Git settings such as the Worktree folder and the branch prefix.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/settings-dark.png">
-  <img alt="The Settings dialog with theme options" src="docs/images/readme/settings-light.png">
-</picture>
+<img alt="The Settings dialog with theme options" src="docs/images/readme/settings.png">
 
 ### Also
 

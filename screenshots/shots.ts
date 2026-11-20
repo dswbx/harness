@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 
 export type Shot = {
-   /** Output: `docs/images/readme/<name>-dark.png` and `<name>-light.png`. */
+   /** Output: `docs/images/readme/<name>.png` (dark mode). */
    name: string;
    /** Page to open (default `/`). */
    path?: string;
