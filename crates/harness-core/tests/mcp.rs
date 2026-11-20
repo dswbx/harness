@@ -1353,6 +1353,8 @@ async fn task_commands_send_tasks_changed_with_the_changed_ids_and_summaries() {
         priority: None,
         due: None,
         upstream: None,
+        deps: Vec::new(),
+        props: Default::default(),
     };
     let row = |id: &str, title: &str, status: TaskStatus, parent: Option<&str>| (id.to_owned(), title.to_owned(), status, parent.map(Into::into));
     let CommandResult::Task { task: topic } = h.execute(new_task("Topic", None, Some(&a))).await.unwrap() else { panic!() };
@@ -1521,6 +1523,8 @@ async fn a_failed_delete_still_tells_the_windows_about_the_moved_children() {
         priority: None,
         due: None,
         upstream: None,
+        deps: Vec::new(),
+        props: Default::default(),
     };
     let CommandResult::Task { task: top } = h.execute(new_task("top", None)).await.unwrap() else { panic!() };
     let CommandResult::Task { task: child } = h.execute(new_task("child", Some(&top.id))).await.unwrap() else { panic!() };

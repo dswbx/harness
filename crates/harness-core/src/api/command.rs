@@ -600,6 +600,10 @@ pub enum Command {
         due: Option<String>,
         #[serde(default)]
         upstream: Option<TaskUpstream>,
+        #[serde(default)]
+        deps: Vec<TaskDep>,
+        #[serde(default)]
+        props: std::collections::BTreeMap<String, String>,
     },
     /// Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
     /// `base_updated_ms` (the `updated_ms` the editor loaded).

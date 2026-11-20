@@ -22,7 +22,31 @@ export function mockTask(mock: MockTransport, id: string): Task {
 
 function summary(t: Task): TaskSummary {
    const { body, activity: _a, body_updated_ms: _b, v: _v, ...rest } = t;
-   return structuredClone({ ...rest, has_body: body.trim() !== "" });
+   return structuredClone({
+      ...rest,
+      has_body: body.trim() !== "",
+      excerpt: excerpt(body),
+      deps: rest.deps ?? [],
+      props: rest.props ?? {},
+   });
+}
+
+/** Roughly the core's excerpt: the body as plain text, cut at a word to 160 chars with "…". */
+function excerpt(body: string): string {
+   const text = body
+      .replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, " ")
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/^[ \t]*(>[ \t]*)*(#{1,6}[ \t]+|[-*+][ \t]+|\d+[.)][ \t]+)?/gm, "")
+      .replace(/[*`~]|(?<!\w)_+|_+(?!\w)/g, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
+   const chars = [...text];
+   if (chars.length <= 160) return text;
+   const cut = chars.slice(0, 159).join("");
+   const at = chars[159] === " " ? cut.length : cut.lastIndexOf(" ");
+   return `${at > 0 ? cut.slice(0, at) : cut}…`;
 }
 
 function cleanTitle(title: string): string {

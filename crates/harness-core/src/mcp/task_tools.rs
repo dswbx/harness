@@ -129,6 +129,7 @@ pub(super) async fn run_task_add(session: &Arc<Session>, _: &ThreadId, args: &Va
             due: i.due.filter(|d| !d.trim().is_empty()),
             upstream: i.upstream_url.filter(|u| !u.trim().is_empty()).map(|url| TaskUpstream { url, label: i.upstream_label }),
             origin: Some(origin.clone()),
+            ..Default::default()
         })
         .collect();
     let (tasks, done) = session.shared().tasks.create_all(new, &actor(session));
