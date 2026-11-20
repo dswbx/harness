@@ -52,13 +52,19 @@ export async function artifactPng(
    );
 }
 
-export function artifactFormats(a: Artifact, env: UiEnv, shoot: Shoot): ExportFormat[] {
+/** `rev`: a version of what the content reads besides `a.source` (a panel's file), so a change draws again. */
+export function artifactFormats(
+   a: Artifact,
+   env: UiEnv,
+   shoot: Shoot,
+   rev?: string,
+): ExportFormat[] {
    const name = fileName(a.title);
    if (a.kind === "diagram") return mermaidFormats(name, a.source);
    const png: ExportFormat = {
       label: "PNG",
       file: `${name}.png`,
-      blob: async () => (await drawImage(a, env, shoot)).png,
+      blob: async () => (await drawImage(a, env, shoot, imageKey(a, env, rev))).png,
    };
    if (a.kind === "table")
       return [png, ...tableFormats(name, markdownTableRows(a.source), a.source)];
@@ -69,11 +75,17 @@ type Drawn = { png: Blob; url: string };
 /** Drawn images, in the panel's own settings. A tab switch unmounts the image: it must not draw again. */
 const images = new Map<string, { draw: Promise<Drawn>; done?: Drawn }>();
 
-/** What the picture depends on: the content, the theme, and the state a render_ui tree reads. */
-function imageKey(a: Artifact, env: UiEnv): string {
+/** What the picture depends on: the content (with its file's version), the theme, and the state a render_ui tree reads. */
+function imageKey(a: Artifact, env: UiEnv, rev?: string): string {
    const root = document.documentElement;
    const state = a.ui ? JSON.stringify(env.state ?? null) : "";
-   return JSON.stringify([root.className, root.getAttribute("style"), a.source, state]);
+   return JSON.stringify([
+      root.className,
+      root.getAttribute("style"),
+      a.source,
+      rev ?? null,
+      state,
+   ]);
 }
 
 function drawImage(a: Artifact, env: UiEnv, shoot: Shoot, key = imageKey(a, env)) {
@@ -92,8 +104,19 @@ function drawImage(a: Artifact, env: UiEnv, shoot: Shoot, key = imageKey(a, env)
 }
 
 /** The artifact drawn as an image, as it would download. */
-export function ArtifactImage({ a, env, shoot }: { a: Artifact; env: UiEnv; shoot: Shoot }) {
-   const key = imageKey(a, env);
+export function ArtifactImage({
+   a,
+   env,
+   shoot,
+   rev,
+}: {
+   a: Artifact;
+   env: UiEnv;
+   shoot: Shoot;
+   /** See `artifactFormats`. */
+   rev?: string;
+}) {
+   const key = imageKey(a, env, rev);
    const [shown, setShown] = useState<{ key: string; url: string } | null>(null);
    const [error, setError] = useState<string | null>(null);
    // biome-ignore lint/correctness/useExhaustiveDependencies: a new picture only when the key changes
