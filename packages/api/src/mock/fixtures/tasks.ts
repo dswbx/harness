@@ -59,7 +59,7 @@ export function mockTasks(): Task[] {
    const s1: [string, string] = ["mock-s1", "Compact header layout"];
    const s2: [string, string] = ["mock-s2", "Schema refs"];
    const s3: [string, string] = ["mock-s3", "Ping and pong greeting"];
-   const m1: [string, string] = ["mock-1", "Mock session (fixture replay)"];
+   const m1: [string, string] = ["mock-1", "Split the router module"];
    const tasks = [
       task(1, "Release v2026.12", {
          priority: "high",
@@ -172,7 +172,7 @@ export function mockTasks(): Task[] {
    ];
    const t3 = tasks[2] as Task;
    t3.sessions = [
-      { session_id: "mock-1", title: "Mock session (fixture replay)", started_ms: now - DAY },
+      { session_id: "mock-1", title: "Split the router module", started_ms: now - DAY },
    ];
    t3.activity.push(
       {

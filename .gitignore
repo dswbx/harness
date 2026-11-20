@@ -7,3 +7,5 @@ dist/
 .claude/worktrees/
 .idea/
 .private/
+test-results/
+playwright-report/

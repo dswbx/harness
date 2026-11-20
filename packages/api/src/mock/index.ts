@@ -1,6 +1,7 @@
 // Browser mock: not part of the `@harness/api` entry, so production bundles load it lazily (`@harness/api/mock`).
 //
-// Magic prompts the mock reacts to (a Main Thread prompt, matched after trim; see `handlers/prompt.ts`):
+// Magic prompts the mock reacts to (a Main Thread prompt, matched after trim; see `handlers/prompt.ts`).
+// Text may follow the command ("/quiz Quiz me on Rust" works like "/quiz"):
 //   /readonly      the Agent lost its session: the Thread turns read-only
 //   /restorefail   a resume fails once; the next try works
 //   /apprestart    the app was reopened: the Agent process is gone
@@ -8,7 +9,8 @@
 //   /auth          the Agent needs sign-in (AuthRequired)
 //   /quiz          a practice test built with Session State and slots (render_ui)
 //   /artifacts     a reply with a diagram, a table and a pull request (Artifacts panel)
-//   /prs           a reply with PR references in every form (chips, one batched lookup)
+//   /prs           a PR roundup reply with PR references in each state (chips, one batched lookup)
+//   /prrefs        PR references in every form and edge case (URLs, a missing PR, text that only looks like one)
 //   /permission    two pending permission requests (a multi-line command, an edit with a diff)
 //   /card          a render_ui call with local images
 //   /stress [min]  a long Turn with 8 background subagents (~2,500 Events over 3 min), for profiling

@@ -138,6 +138,34 @@ function turnEnded(
    }
 }
 
+/**
+ * A canned reply's Turn: logs the prompt (the user's message) now; the returned function ends the Turn.
+ * The prompt is logged without its magic command (`promptText`).
+ */
+function cannedTurn(mock: MockTransport, sid: string, text: string): () => void {
+   const turn = `t${mock.logs.get(sid)!.length}`;
+   mock.emit(sid, {
+      type: "TurnStarted",
+      turn_id: turn,
+      text: promptText(text),
+      attachments: [],
+      context: null,
+   });
+   turnStarted(mock, sid);
+   return () => turnEnded(mock, sid, mock.mainThread(sid), turn);
+}
+
+/** What a magic prompt logs as the user's message: the text after the command ("/quiz Rust basics" -> "Rust basics"); the command alone stays. */
+function promptText(text: string): string {
+   return text.trim().replace(/^\/[a-z]+\s+(?=\S)/, "");
+}
+
+/** A magic prompt: the command alone, or followed by text ("/quiz Quiz me on Rust"). */
+function magic(text: string, command: string): boolean {
+   const t = text.trim();
+   return t === command || (t.startsWith(command) && /\s/.test(t[command.length]!));
+}
+
 const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
    const sid = cmd.session_id;
    const used = mock.session(sid);
@@ -149,7 +177,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       // Like the core: a prompt on any Thread uses the Session; only a Main Thread prompt
       // replaces a placeholder title.
       used.unused = false;
-      const line = cmd.text.trim().split("\n")[0] ?? "";
+      const line = promptText(cmd.text).split("\n")[0] ?? "";
       if (!cmd.thread_id && used.title === "New Quick Session" && line)
          used.title = line.length > 40 ? `${line.slice(0, 40).trimEnd()}…` : line;
       mock.emitApp({
@@ -169,7 +197,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
          "Thread is read-only: continue with a summary first",
       );
    // Typing "/readonly" in the mock simulates an Agent that lost its session.
-   if (cmd.text.trim() === "/readonly") {
+   if (magic(cmd.text, "/readonly")) {
       mock.readOnly.add(sid);
       mock.emit(sid, {
          type: "ThreadReadOnly",
@@ -184,7 +212,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       );
    }
    // Typing "/restorefail" simulates a resume that fails; the next try works.
-   if (cmd.text.trim() === "/restorefail" && !mock.restoreFailed.has(sid)) {
+   if (magic(cmd.text, "/restorefail") && !mock.restoreFailed.has(sid)) {
       mock.restoreFailed.add(sid);
       mock.emit(sid, { type: "AgentProcessState", state: "starting", message: null });
       await new Promise((r) => setTimeout(r, 1200));
@@ -205,14 +233,14 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
          "The Agent could not reopen its earlier session. Try again, or continue from a transcript.",
       );
    }
-   if (cmd.text.trim() === "/restorefail")
+   if (magic(cmd.text, "/restorefail"))
       mock.emit(sid, {
          type: "AgentSessionStarted",
          acp_session_id: `acp-res-${mock.logs.get(sid)!.length}`,
          boundary: "resumed",
       });
    // Typing "/apprestart" simulates reopening the app: the Agent process is gone.
-   if (cmd.text.trim() === "/apprestart") {
+   if (magic(cmd.text, "/apprestart")) {
       mock.emit(sid, {
          type: "AgentProcessState",
          state: "stopped",
@@ -221,7 +249,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       return { type: "Ok" };
    }
    // Typing "/unsaved" simulates a Session Log that cannot be written; typing it again, that it can be again.
-   if (cmd.text.trim() === "/unsaved") {
+   if (magic(cmd.text, "/unsaved")) {
       const s = mock.session(sid);
       s.log_error = s.log_error ? null : "No space left on device (os error 28)";
       mock.emitApp({
@@ -233,7 +261,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       return { type: "Ok" };
    }
    // Typing "/auth" simulates an Agent that needs sign-in.
-   if (cmd.text.trim() === "/auth") {
+   if (magic(cmd.text, "/auth")) {
       mock.emit(sid, {
          type: "AuthRequired",
          message: "The Agent needs you to sign in first.",
@@ -250,7 +278,8 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       throw new CommandError("auth_required", "The Agent needs you to sign in first.");
    }
    // Typing "/quiz" simulates an Agent building a practice test with Session State and slots.
-   if (cmd.text.trim() === "/quiz") {
+   if (magic(cmd.text, "/quiz")) {
+      const end = cannedTurn(mock, sid, cmd.text);
       const ops = [
          {
             op: "add" as const,
@@ -391,10 +420,12 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
          type: "AgentMessageChunk",
          text: "The practice test has started: the question is on the right, your score is at the bottom.",
       });
+      end();
       return { type: "Ok" };
    }
    // Typing "/artifacts" simulates a reply with a diagram, a table and a pull request (the Artifacts panel).
-   if (cmd.text.trim() === "/artifacts") {
+   if (magic(cmd.text, "/artifacts")) {
+      const end = cannedTurn(mock, sid, cmd.text);
       mock.emit(sid, {
          type: "AgentMessageChunk",
          text: "The checkout flow:\n\n```mermaid\nflowchart LR\n  Cart --> Checkout --> Iframe[Payment iframe] --> Confirm\n```\n\nLast 20 CI runs:\n\n| Test | Fails | Median wait |\n| --- | --- | --- |\n| pays | 6 / 20 | 1.8 s |\n| refunds | 1 / 20 | 0.9 s |\n",
@@ -424,23 +455,36 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
             },
          },
       });
+      end();
       return { type: "Ok" };
    }
-   // Typing "/prs" simulates a reply with PR references in every form (chips; one batched lookup).
-   if (cmd.text.trim() === "/prs") {
+   // Typing "/prs" simulates a PR roundup reply: PR references in each state (chips; one batched lookup).
+   if (magic(cmd.text, "/prs")) {
+      const end = cannedTurn(mock, sid, cmd.text);
+      mock.emit(sid, {
+         type: "AgentMessageChunk",
+         text: "Here is where your PRs stand:\n\n- harness#23 (slash command popup fixes) is merged.\n- harness#24 (PR reference chips) is open and all checks pass. It is ready for review.\n- harness#21 has failing checks: the scrollback test times out on CI.\n- harness#20 is still a draft.\n- dswbx/harness#18 was closed without a merge.\n- In spark, supabase/spark#17 is open and spark#12 was merged yesterday.\n\nI would fix #21 first, then ask for a review of #24.",
+      });
+      end();
+      return { type: "Ok" };
+   }
+   // Typing "/prrefs" simulates PR references in every form and edge case: URLs, a missing PR, text that only looks like one.
+   if (magic(cmd.text, "/prrefs")) {
+      const end = cannedTurn(mock, sid, cmd.text);
       mock.emit(sid, {
          type: "AgentMessageChunk",
          text: "PR roundup: harness#23 landed, supabase/spark#17 is open and spark#12 merged. https://github.com/dswbx/harness/pull/21 has failing checks; draft harness#20 and closed dswbx/harness#18 stay as they are, harness#999 does not exist.\n\nText only: C#, step #3, `spark#24` in code, and [the chips PR](https://github.com/dswbx/harness/pull/24).",
       });
+      end();
       return { type: "Ok" };
    }
    // Typing "/permission" simulates two pending permission requests: a multi-line command and an edit with a diff.
-   if (cmd.text.trim() === "/permission") {
+   if (magic(cmd.text, "/permission")) {
       const turn = `t${mock.logs.get(sid)!.length}`;
       mock.emit(sid, {
          type: "TurnStarted",
          turn_id: turn,
-         text: cmd.text,
+         text: promptText(cmd.text),
          attachments: [],
          context: null,
       });
@@ -520,7 +564,8 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       return { type: "Ok" };
    }
    // Typing "/card" simulates an Agent calling the render_ui Frontend Tool with local images.
-   if (cmd.text.trim() === "/card") {
+   if (magic(cmd.text, "/card")) {
+      const end = cannedTurn(mock, sid, cmd.text);
       const n = ++mock.cardN;
       const input = mockRenderUi(["shots/home.png", "shots/settings.png", "shots/dark.png"]);
       const path = `tools/render_ui/mock-card-${n}.json`;
@@ -540,6 +585,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
          input,
          files,
       });
+      end();
       return { type: "Ok" };
    }
    const turn = `t${mock.logs.get(sid)!.length}`;
