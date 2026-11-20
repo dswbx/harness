@@ -238,6 +238,7 @@ describe("registry", () => {
          "app harness:tasks-note-height",
          "app harness.tasks.panelDensity",
          "app harness.tasks.panelView",
+         "app harness.tasks.panelGroupBy",
          "app harness.tasks.graphLines",
          "app harness.tasks.noteOpen",
          "app harness.tasks.sheetHeight",

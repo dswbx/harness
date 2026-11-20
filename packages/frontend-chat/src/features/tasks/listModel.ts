@@ -20,6 +20,8 @@ const STATUS_RANK: Record<TaskStatus, number> = {
    cancelled: 6,
 };
 
+const STATUS_COUNT = Object.keys(STATUS_RANK).length;
+
 const PRIORITY_RANK: Record<TaskPriority, number> = {
    urgent: 0,
    high: 1,
@@ -211,10 +213,10 @@ export type GroupBy = "topic" | "status" | "session" | `prop:${string}`;
 /** The prop key `g` groups by (null: a field). */
 export const groupProp = (g: GroupBy): string | null => (g.startsWith("prop:") ? g.slice(5) : null);
 
-/** A stored group-by; anything else (an old or broken value) is `topic`. */
-export function parseGroupBy(raw: string | null): GroupBy {
+/** A stored group-by; anything else (an old or broken value) is `fallback`. */
+export function parseGroupBy(raw: string | null, fallback: GroupBy = "topic"): GroupBy {
    if (raw === "topic" || raw === "status" || raw === "session") return raw;
-   return raw && /^prop:[a-z0-9_-]{1,32}$/.test(raw) ? (raw as GroupBy) : "topic";
+   return raw && /^prop:[a-z0-9_-]{1,32}$/.test(raw) ? (raw as GroupBy) : fallback;
 }
 
 type Listable = Filterable &
@@ -424,8 +426,8 @@ export function buildList<T extends Listable>(
 /**
  * The lanes of the Graph view for a group-by, with the List view's group labels: by topic, a task's topic is its
  * top-level ancestor when that one has subtasks (a top-level task without subtasks: "No topic"); by status, the
- * status; by Session, the origin Session; a prop key goes to `layoutGraph` as it is. `tasks`: all tasks (topic titles
- * and parents).
+ * status, in the status order (in progress first); by Session, the origin Session; a prop key goes to `layoutGraph`
+ * as it is. `tasks`: all tasks (topic titles and parents).
  */
 export function graphGroup<T extends Pick<TaskSummary, "id" | "parent_id" | "title" | "status">>(
    tasks: readonly T[],
@@ -439,6 +441,7 @@ export function graphGroup<T extends Pick<TaskSummary, "id" | "parent_id" | "tit
          laneOf: (t) => t.status,
          label: (k) => TASK_STATUS_LABEL[k as TaskStatus] ?? k,
          missing: "No status",
+         rank: (k) => STATUS_RANK[k as TaskStatus] ?? STATUS_COUNT,
       };
    if (groupBy === "session")
       return { laneOf: (t) => t.origin_session_id, label: sessionTitle, missing: "No session" };
@@ -453,6 +456,62 @@ export function graphGroup<T extends Pick<TaskSummary, "id" | "parent_id" | "tit
       missing: "No topic",
    };
 }
+
+type Sectionable = Sortable &
+   Pick<TaskSummary, "id" | "parent_id" | "title" | "origin_session_id" | "props">;
+
+/**
+ * `tasks` (sorted) in sections for a group-by, with the graph's lane keys and labels (`graphGroup`): a prop value,
+ * the topic, the Session, the status. Ordered like the All tasks list: statuses in their order, topics in task
+ * order, the others by name; the tasks without a key ("No <key>") last. `all`: all tasks (topic titles, parents).
+ */
+export function groupSections<T extends Sectionable>(
+   tasks: readonly T[],
+   all: readonly T[],
+   groupBy: GroupBy,
+   sessionTitle: (id: string) => string,
+): { key: string; label: string; tasks: T[] }[] {
+   // Keys: `=<lane key>`, or `NONE_GROUP` for the tasks without one.
+   const g = graphGroup(all, groupBy, sessionTitle);
+   const keyOf = (t: T): string | null => {
+      const k = g === null ? null : typeof g === "string" ? t.props[g] : g.laneOf(t);
+      return k === undefined || k === "" ? null : k;
+   };
+   const labelOf = (k: string | null) =>
+      typeof g === "string"
+         ? (k ?? `No ${g}`)
+         : g === null
+           ? ""
+           : k === null
+             ? g.missing
+             : (g.label?.(k) ?? k);
+   const byKey = new Map<string | null, T[]>();
+   for (const t of tasks) {
+      const k = keyOf(t);
+      const l = byKey.get(k);
+      if (l) l.push(t);
+      else byKey.set(k, [t]);
+   }
+   const byId = new Map(all.map((t) => [t.id, t]));
+   const order = (a: string, b: string): number => {
+      if (groupBy === "status") return STATUS_RANK[a as TaskStatus] - STATUS_RANK[b as TaskStatus];
+      const ta = byId.get(a);
+      const tb = byId.get(b);
+      if (groupBy === "topic" && ta && tb) return compareTasks(ta, tb);
+      return labelOf(a).localeCompare(labelOf(b));
+   };
+   return [...byKey]
+      .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : order(a, b)))
+      .map(([k, list]) => ({
+         key: k === null ? NONE_GROUP : `=${k}`,
+         label: labelOf(k),
+         tasks: list,
+      }));
+}
+
+/** How many different values the prop `key` has among `tasks`. */
+export const propValueCount = (tasks: readonly Pick<TaskSummary, "props">[], key: string): number =>
+   new Set(tasks.flatMap((t) => (Object.hasOwn(t.props, key) ? [t.props[key]] : []))).size;
 
 /**
  * The topics `id` can move under from the row menu: top-level tasks with subtasks, not the task itself, not

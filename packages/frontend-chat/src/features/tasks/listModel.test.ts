@@ -10,6 +10,7 @@ import {
    type GroupBy,
    graphGroup,
    groupProp,
+   groupSections,
    hasFilters,
    type ListGroup,
    matchesFilter,
@@ -18,6 +19,7 @@ import {
    parentCandidates,
    parseGroupBy,
    passesFilter,
+   propValueCount,
    reveal,
    sessionCount,
    sessionTasks,
@@ -389,5 +391,72 @@ describe("Graph view lanes", () => {
       expect(passesFilter(tasks[0]!, { ...DEFAULT_FILTER, query: "nope" }, "2026-01-01")).toBe(
          false,
       );
+   });
+});
+
+describe("Panel sections", () => {
+   const tasks = [
+      t("top", { title: "Release", props: { area: "ui" } }),
+      t("sub", { parent_id: "top", status: "in_progress", props: { area: "core" } }),
+      t("loose", { status: "blocked", origin_session_id: "s2" }),
+      t("x", { status: "in_review", props: { area: "ui" }, origin_session_id: "s1" }),
+      t("y", { status: "backlog", props: { area: "" } }),
+   ];
+   const sections = (g: GroupBy) =>
+      groupSections(sortTasks(tasks), tasks, g, (s) => `Session ${s}`).map(
+         (s) => `${s.label}: ${ids(s.tasks).join(" ")}`,
+      );
+
+   it("by a prop key: one section per value by name, No <key> last (an empty value too)", () => {
+      expect(sections("prop:area")).toEqual(["core: sub", "ui: x top", "No area: loose y"]);
+   });
+
+   it("by status in the status order; by topic and Session as the lanes", () => {
+      expect(sections("status")).toEqual([
+         "In progress: sub",
+         "In review: x",
+         "Blocked: loose",
+         "Todo: top",
+         "Backlog: y",
+      ]);
+      expect(sections("topic")).toEqual(["Release: sub top", "No topic: x loose y"]);
+      expect(sections("session")).toEqual([
+         "Session s1: x",
+         "Session s2: loose",
+         "No session: sub top y",
+      ]);
+   });
+
+   it("keys do not collide with the No <key> section", () => {
+      const keys = groupSections(
+         [t("a", { props: { k: "none" } }), t("b")],
+         [],
+         "prop:k",
+         () => "",
+      ).map((s) => s.key);
+      expect(new Set(keys).size).toBe(2);
+   });
+
+   it("counts the different values of a prop key", () => {
+      expect(propValueCount(tasks, "area")).toBe(3);
+      expect(propValueCount(tasks, "team")).toBe(0);
+   });
+
+   it("status lanes keep the status order; other lanes have none", () => {
+      const by = graphGroup(tasks, "status", () => "");
+      if (by === null || typeof by === "string") throw new Error("a lane function");
+      const order = ["backlog", "todo", "blocked", "in_review", "in_progress"].sort(
+         (a, b) => by.rank!(a) - by.rank!(b),
+      );
+      expect(order).toEqual(["in_progress", "in_review", "blocked", "todo", "backlog"]);
+      const topic = graphGroup(tasks, "topic", () => "");
+      expect(topic !== null && typeof topic !== "string" && topic.rank).toBeFalsy();
+   });
+
+   it("a stored group-by falls back to the given default", () => {
+      expect(parseGroupBy(null, "status")).toBe("status");
+      expect(parseGroupBy("bad value", "status")).toBe("status");
+      expect(parseGroupBy("prop:area", "status")).toBe("prop:area");
+      expect(parseGroupBy(null)).toBe("topic");
    });
 });

@@ -207,6 +207,19 @@ describe("layoutGraph", () => {
       expect(none.cards.every((c) => c.lane === 0)).toBe(true);
    });
 
+   it("a lane function with a fixed order sorts by it, not by rank; no key still last", () => {
+      const order = ["client", "server", "core"];
+      const l = layoutGraph(TASKS, {
+         ...opts(),
+         groupBy: {
+            laneOf: (x) => x.props.component ?? null,
+            missing: "None",
+            rank: (k) => order.indexOf(k),
+         },
+      });
+      expect(l.lanes.map((x) => x.label)).toEqual(["client", "server", "core", "None"]);
+   });
+
    it("picks the mode from the width", () => {
       const mode = (width: number) => layoutGraph(TASKS, opts({ width })).mode;
       expect([424, 440, 660, 1440].map(mode)).toEqual(["flow", "flow", "flow", "aligned"]);

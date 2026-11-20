@@ -105,7 +105,7 @@ const indent = (el: HTMLElement) =>
 describe("Tasks panel", () => {
    it("lists the open tasks created here, with Done folded", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       expect(row("Header polish", created)).toBeTruthy();
       expect(within(created).queryByText("Measure the header render time")).toBeNull();
       // t3 was started in this Session: pinned, not in the list.
@@ -119,7 +119,7 @@ describe("Tasks panel", () => {
 
    it("shows waits on N under a row with open blockers", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       // t7 waits on t6, which is open; t5 waits on nothing.
       expect(
          within(row("Truncate long branch names", created)).getByText("waits on 1"),
@@ -132,23 +132,23 @@ describe("Tasks panel", () => {
             if (t6) t6.status = "done";
          },
       });
-      const after = await waitFor(() => group(/^Created here · 3$/));
+      const after = await waitFor(() => group(/^Open · 3$/));
       expect(within(row("Truncate long branch names", after)).queryByText(/waits on/)).toBeNull();
    });
 
    it("quick add creates the task in this Session", async () => {
       const { mock } = setup();
-      await waitFor(() => group(/^Created here · 4$/));
+      await waitFor(() => group(/^Open · 4$/));
       await typeAndEnter("Add task", "Profile the cold build");
-      await waitFor(() => group(/^Created here · 5$/));
+      await waitFor(() => group(/^Open · 5$/));
       const added = [...mock.tasks.values()].find((t) => t.title === "Profile the cold build");
       expect(added?.origin_session_id).toBe("mock-1");
-      expect(row("Profile the cold build", group(/^Created here/))).toBeTruthy();
+      expect(row("Profile the cold build", group(/^Open · /))).toBeTruthy();
    });
 
    it("opens a task in the sheet below the list, swaps it and closes it", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       fireEvent.click(row("Header polish", created));
       const sheet = await waitFor(() => screen.getByRole("region", { name: "Task" }));
       const subtasks = await waitFor(() => within(sheet).getByRole("region", { name: "Subtasks" }));
@@ -156,7 +156,7 @@ describe("Tasks panel", () => {
       expect(within(subtasks).getByText("Subtasks · 1/3")).toBeTruthy();
       await waitFor(() => expect(title()).toBe("Header polish"));
       // The list stays, the open row is selected, and the sheet comes after it, outside its scroll area.
-      expect(group(/^Created here · 4$/)).toBe(created);
+      expect(group(/^Open · 4$/)).toBe(created);
       expect(rowBox("Header polish").getAttribute("aria-current")).toBe("true");
       expect(
          created.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -193,7 +193,7 @@ describe("Tasks panel", () => {
 
    it("adds a subtask under the open task", async () => {
       const { mock } = setup();
-      await waitFor(() => group(/^Created here · 4$/));
+      await waitFor(() => group(/^Open · 4$/));
       fireEvent.click(row("Read the ACP registry RFC"));
       await waitFor(() => expect(title()).toBe("Read the ACP registry RFC"));
       fireEvent.click(screen.getByRole("button", { name: "Add subtask" }));
@@ -205,7 +205,7 @@ describe("Tasks panel", () => {
 
    it("nests subtasks under their parent in the same group, without a parent chip", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       const kid = row("Align the session title baseline", created);
       // Nested under "Header polish": indented one level, no chip naming the parent.
       expect(kid.textContent).not.toContain("Header polish");
@@ -231,7 +231,7 @@ describe("Tasks panel", () => {
 
    it("shows the task title once, with the parent as a Sub-task of line", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       fireEvent.click(row("Align the session title baseline", created));
       await waitFor(() => expect(title()).toBe("Align the session title baseline"));
       expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
@@ -246,10 +246,10 @@ describe("Tasks panel", () => {
 
    it("condensed rows hide the facts under the title, and the choice is kept", async () => {
       setup();
-      await waitFor(() => group(/^Created here · 4$/));
+      await waitFor(() => group(/^Open · 4$/));
       const detail = row("Read the ACP registry RFC");
       expect(within(detail).getByRole("img", { name: "Medium priority" })).toBeTruthy();
-      const toggle = screen.getByRole("button", { name: "Condensed list" });
+      const toggle = screen.getByRole("button", { name: "Condensed" });
       expect(toggle.getAttribute("aria-pressed")).toBe("false");
       fireEvent.click(toggle);
       expect(toggle.getAttribute("aria-pressed")).toBe("true");
@@ -263,10 +263,10 @@ describe("Tasks panel", () => {
       // A new panel starts condensed.
       cleanup();
       setup();
-      await waitFor(() => group(/^Created here · 4$/));
-      expect(
-         screen.getByRole("button", { name: "Condensed list" }).getAttribute("aria-pressed"),
-      ).toBe("true");
+      await waitFor(() => group(/^Open · 4$/));
+      expect(screen.getByRole("button", { name: "Condensed" }).getAttribute("aria-pressed")).toBe(
+         "true",
+      );
       expect(
          within(row("Read the ACP registry RFC")).queryByRole("img", { name: "Medium priority" }),
       ).toBeNull();
@@ -274,7 +274,7 @@ describe("Tasks panel", () => {
 
    it("hovering a row shows its summary on the left", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       fireEvent.pointerMove(row("Header polish", created), { pointerType: "mouse" });
       const card = await screen.findByRole("tooltip", {}, { timeout: 2000 });
       expect(card.textContent).toContain("Header polish");
@@ -293,7 +293,7 @@ describe("Tasks panel", () => {
 
    it("shows a subtask's parent, priority and due date in its summary", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       fireEvent.pointerMove(row("Align the session title baseline", created), {
          pointerType: "mouse",
       });
@@ -302,7 +302,7 @@ describe("Tasks panel", () => {
       cleanup();
       setup();
       fireEvent.pointerMove(
-         row("Read the ACP registry RFC", await waitFor(() => group(/^Created here/))),
+         row("Read the ACP registry RFC", await waitFor(() => group(/^Open · /))),
          {
             pointerType: "mouse",
          },
@@ -334,9 +334,7 @@ describe("Tasks panel", () => {
          ]);
          setup({ sessions, edit: linkT5 });
          expect((await hoverPinned()).textContent).toContain("Created inHeader v2");
-         expect(row("Header polish", group(/^Created here/)).textContent).toContain(
-            "Schema refs v2",
-         );
+         expect(row("Header polish", group(/^Open · /)).textContent).toContain("Schema refs v2");
          fireEvent.click(row("Fix the updater signature check", group(/^Started from$/)));
          const list = await waitFor(() => screen.getByRole("region", { name: "Sessions" }));
          expect(within(list).getByText("Header v2")).toBeTruthy();
@@ -346,7 +344,7 @@ describe("Tasks panel", () => {
       it("shows the cached titles, not as deleted, without a Session list", async () => {
          setup({ edit: linkT5 });
          expect((await hoverPinned()).textContent).toContain("Created inCompact header layout");
-         expect(row("Header polish", group(/^Created here/)).textContent).toContain("Schema refs");
+         expect(row("Header polish", group(/^Open · /)).textContent).toContain("Schema refs");
          fireEvent.click(row("Fix the updater signature check", group(/^Started from$/)));
          const list = await waitFor(() => screen.getByRole("region", { name: "Sessions" }));
          expect(within(list).getByText("Compact header layout")).toBeTruthy();
@@ -357,7 +355,7 @@ describe("Tasks panel", () => {
    it("the Graph switch shows this Session's open tasks, outside blockers dashed; the choice is kept", async () => {
       const openTasks = vi.fn();
       setup({ openTasks });
-      await waitFor(() => group(/^Created here · 4$/));
+      await waitFor(() => group(/^Open · 4$/));
       fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
       expect(localStorage.getItem("harness.tasks.panelView")).toBe("graph");
       const card = (id: string) => document.querySelector<HTMLElement>(`[data-graph-card="${id}"]`);
@@ -392,9 +390,137 @@ describe("Tasks panel", () => {
       expect(screen.getByRole("tab", { name: "Graph" }).getAttribute("aria-selected")).toBe("true");
    });
 
+   describe("Options row", () => {
+      const options = () => document.querySelector<HTMLElement>("[data-tasks-options]")!;
+      const groupButton = () => within(options()).getByRole("button", { name: /^Group: / });
+      const card = (id: string) => document.querySelector<HTMLElement>(`[data-graph-card="${id}"]`);
+      /** The list's sections, top to bottom. */
+      const sections = () =>
+         [...document.querySelectorAll<HTMLElement>("[data-tasks-body] section[aria-label]")].map(
+            (el) => el.getAttribute("aria-label"),
+         );
+      const pick = (name: RegExp) => {
+         fireEvent.keyDown(groupButton(), { key: "Enter" });
+         fireEvent.click(screen.getByRole("menuitemradio", { name }));
+      };
+
+      it("sits under Add task in both views, with the density toggle and the counts", async () => {
+         setup();
+         await waitFor(() => group(/^Open · 4$/));
+         const add = screen.getByRole("textbox", { name: "Add task" });
+         expect(
+            add.compareDocumentPosition(options()) & Node.DOCUMENT_POSITION_FOLLOWING,
+         ).toBeTruthy();
+         // The header keeps only the panel's actions.
+         const toggle = within(options()).getByRole("button", { name: "Condensed" });
+         expect(screen.getByRole("tablist", { name: "View" }).parentElement?.contains(toggle)).toBe(
+            false,
+         );
+         expect(groupButton().textContent).toBe("Group: Status");
+         expect(options().textContent).toContain("5 open · 1 done");
+         fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+         await waitFor(() => expect(card("t3")).toBeTruthy());
+         expect(options().textContent).toContain("5 open · 1 outside");
+         expect(groupButton().textContent).toBe("Group: Status");
+         // The toggle sets the cards' density too, and is kept.
+         expect(card("t5")!.style.height).toBe("64px");
+         fireEvent.click(within(options()).getByRole("button", { name: "Condensed" }));
+         expect(card("t5")!.style.height).toBe("48px");
+         expect(localStorage.getItem("harness.tasks.panelDensity")).toBe("condensed");
+      });
+
+      it("leaves out no done and no outside tasks from the counts", async () => {
+         setup({
+            edit: (m) => {
+               m.tasks.delete("t10");
+               const t3 = m.tasks.get("t3");
+               if (t3) t3.deps = [];
+            },
+         });
+         await waitFor(() => group(/^Open · 4$/));
+         expect(options().textContent).toMatch(/5 open$/);
+         fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+         await waitFor(() => expect(card("t3")).toBeTruthy());
+         expect(options().textContent).toMatch(/5 open$/);
+      });
+
+      it("the menu has the fields, then the prop keys in use with their number of values", async () => {
+         setup();
+         await waitFor(() => group(/^Open · 4$/));
+         fireEvent.keyDown(groupButton(), { key: "Enter" });
+         expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual([
+            "StatusOpen / Done",
+            "Topic",
+            "Session",
+            "component2 values",
+         ]);
+      });
+
+      it("by status: Started from, Open, then Done folded", async () => {
+         setup();
+         await waitFor(() => group(/^Open · 4$/));
+         expect(sections()).toEqual(["Started from", "Open · 4", "Done · 1"]);
+         expect(
+            screen.getByRole("button", { name: "Done · 1" }).getAttribute("aria-expanded"),
+         ).toBe("false");
+      });
+
+      it("by a prop key: a section per value with counts, No <key> last, then Done; kept", async () => {
+         setup();
+         await waitFor(() => group(/^Open · 4$/));
+         pick(/^component/);
+         await waitFor(() => group(/^console · 2$/));
+         expect(sections()).toEqual([
+            "Started from",
+            "console · 2",
+            "docs · 1",
+            "No component · 1",
+            "Done · 1",
+         ]);
+         expect(row("Truncate long branch names", group(/^console · 2$/))).toBeTruthy();
+         expect(row("Header polish", group(/^No component · 1$/))).toBeTruthy();
+         expect(options().textContent).toContain("5 open · 1 done");
+         expect(
+            screen.getByRole("button", { name: "Done · 1" }).getAttribute("aria-expanded"),
+         ).toBe("false");
+         // A section folds.
+         const head = screen.getByRole("button", { name: "console · 2" });
+         fireEvent.click(head);
+         expect(head.getAttribute("aria-expanded")).toBe("false");
+         expect(
+            within(group(/^console · 2$/)).queryByText("Truncate long branch names"),
+         ).toBeNull();
+         expect(localStorage.getItem("harness.tasks.panelGroupBy")).toBe("prop:component");
+         cleanup();
+         setup();
+         await waitFor(() => group(/^console · 2$/));
+      });
+
+      it("is the panel's own: All tasks' group-by does not change it, nor it All tasks'", async () => {
+         mem.set("harness.tasks.groupBy", "prop:team");
+         setup();
+         await waitFor(() => group(/^Open · 4$/));
+         pick(/^Topic/);
+         await waitFor(() => group(/^Header polish · 3$/));
+         expect(localStorage.getItem("harness.tasks.panelGroupBy")).toBe("topic");
+         expect(localStorage.getItem("harness.tasks.groupBy")).toBe("prop:team");
+      });
+
+      it("the graph by status: one lane per open status, in the status order", async () => {
+         setup();
+         await waitFor(() => group(/^Open · 4$/));
+         fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+         await waitFor(() => expect(card("t3")).toBeTruthy());
+         const lanes = [...document.querySelectorAll<HTMLElement>("[data-lane]")].map(
+            (l) => l.dataset.lane,
+         );
+         expect(lanes).toEqual(["In progress", "In review", "Todo"]);
+      });
+   });
+
    it("docks the session note below the list, with a resize handle", async () => {
       setup();
-      const created = await waitFor(() => group(/^Created here · 4$/));
+      const created = await waitFor(() => group(/^Open · 4$/));
       const note = screen.getByRole("region", { name: "Session note" });
       const handle = screen.getByRole("separator", { name: "Resize session note" });
       // Below the list and outside its scroll area.
@@ -424,7 +550,7 @@ describe("Tasks panel", () => {
 
       it("is open when the note has text, folds to a bar with its first line, and the choice is kept", async () => {
          setup();
-         await waitFor(() => group(/^Created here · 4$/));
+         await waitFor(() => group(/^Open · 4$/));
          await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
          expect(bar().getAttribute("aria-expanded")).toBe("true");
          fireEvent.click(bar());
@@ -448,7 +574,7 @@ describe("Tasks panel", () => {
 
       it("is folded by default when the note is empty", async () => {
          setup({ edit: (m) => m.notes.delete("mock-1") });
-         await waitFor(() => group(/^Created here · 4$/));
+         await waitFor(() => group(/^Open · 4$/));
          expect(bar().getAttribute("aria-expanded")).toBe("false");
          expect(bar().textContent).toBe("Session note");
          expect(screen.queryByRole("textbox", { name: "Session note" })).toBeNull();
@@ -456,7 +582,7 @@ describe("Tasks panel", () => {
 
       it("folds while a task is open and comes back as it was when it closes", async () => {
          setup();
-         const created = await waitFor(() => group(/^Created here · 4$/));
+         const created = await waitFor(() => group(/^Open · 4$/));
          await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
          fireEvent.click(row("Header polish", created));
          await waitFor(() => screen.getByRole("region", { name: "Task" }));
@@ -490,7 +616,7 @@ describe("Tasks panel", () => {
             return this.hasAttribute("data-tasks-body") ? px : 0;
          });
       const open = async () => {
-         const created = await waitFor(() => group(/^Created here · 4$/));
+         const created = await waitFor(() => group(/^Open · 4$/));
          fireEvent.click(row("Header polish", created));
          const sheet = await waitFor(() => screen.getByRole("region", { name: "Task" }));
          return { sheet, handle: within(sheet).getByRole("separator", { name: "Resize task" }) };

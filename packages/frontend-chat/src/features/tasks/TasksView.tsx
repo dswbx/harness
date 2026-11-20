@@ -341,7 +341,12 @@ export function TasksView({
                <span className="flex-1" />
                {view === "graph" && <LinesMenu />}
                <span className="text-xs text-muted-foreground">Group</span>
-               <GroupByMenu value={groupBy} tasks={tasks ?? []} disabled={view === "tree"} />
+               <GroupByMenu
+                  value={groupBy}
+                  onChange={(g) => groupByStore.set(g)}
+                  tasks={tasks ?? []}
+                  disabled={view === "tree"}
+               />
                <Segmented
                   value={view}
                   onChange={(v) => viewStore.set(v)}

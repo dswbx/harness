@@ -26,6 +26,8 @@ export type GraphGroupBy<T> =
         label?: (key: string) => string;
         /** The heading of the last lane, for tasks without a key. */
         missing: string;
+        /** A fixed lane order (lower first, e.g. the status order); without it, by lowest rank, then name. */
+        rank?: (key: string) => number;
      };
 
 export type GraphOptions<T> = {
@@ -204,8 +206,10 @@ export function layoutGraph<T extends GraphTask>(
    const sorted = [...shown.values()];
    const ranks = graphRanks(sorted);
 
-   // Lanes: by lowest rank, then name; tasks without a key last.
+   // Lanes: by their fixed order if any, else by lowest rank, then name; tasks without a key last.
    const g = o.groupBy;
+   const fixed = (k: string | null) =>
+      g === null || typeof g === "string" || !g.rank || k === null ? 0 : g.rank(k);
    const grouped = g !== null;
    const keyOf = (t: T): string | null => {
       const k = g === null ? null : typeof g === "string" ? t.props[g] : g.laneOf(t);
@@ -232,6 +236,7 @@ export function layoutGraph<T extends GraphTask>(
    const laneList = [...laneBy.values()].sort(
       (a, b) =>
          Number(a.key === null) - Number(b.key === null) ||
+         fixed(a.key) - fixed(b.key) ||
          a.min - b.min ||
          cmp(a.label, b.label) ||
          cmp(a.key ?? "", b.key ?? ""),

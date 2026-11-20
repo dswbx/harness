@@ -228,8 +228,8 @@ describe("All tasks view", () => {
       fireEvent.keyDown(screen.getByRole("button", { name: "Topic" }), { key: "Enter" });
       // The fields, then the prop keys in use.
       expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual([
-         "Topic",
          "Status",
+         "Topic",
          "Session",
          "component",
          "team",
