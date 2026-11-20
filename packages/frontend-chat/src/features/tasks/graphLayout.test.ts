@@ -432,6 +432,22 @@ describe("layoutGraph", () => {
       expect(small.cardWidth).toBeLessThan(layoutGraph(TASKS, opts({ width: 300 })).cardWidth);
    });
 
+   it("a lane heading starts at the first card column, also with lines in the left gap", () => {
+      // Parent lines that go back to the left run in the left gap and make it grow.
+      const parents: Record<string, string> = { plan: "tests", schema: "ui", docs: "api" };
+      const parentOf = (x: GraphTask) => parents[x.id] ?? null;
+      let inLeftGap = 0;
+      for (const po of [undefined, parentOf])
+         for (const width of [300, 440, 660, 1440]) {
+            const l = layoutGraph(TASKS, opts({ width, parentOf: po }));
+            const first = Math.min(...l.cards.map((c) => c.x));
+            for (const line of l.lines) if (line.points.some((p) => p.x < first - EPS)) inLeftGap++;
+            expect(l.lanes.length).toBeGreaterThan(1);
+            for (const lane of l.lanes) expect(lane.labelX).toBe(first);
+         }
+      expect(inLeftGap).toBeGreaterThan(0);
+   });
+
    it("lays out nothing for no tasks", () => {
       const l = layoutGraph([], opts());
       expect(l.cards).toEqual([]);

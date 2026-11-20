@@ -92,7 +92,7 @@ describe("GraphView", () => {
       expect(lines()).toEqual(["a>b", "b>c", "b>d", "e>x"]);
       expect(line("b>c").getAttribute("stroke-dasharray")).toBeNull();
       expect(line("b>d").getAttribute("stroke-dasharray")).toBe("4 3");
-      expect(line("a>b").getAttribute("marker-end")).toMatch(/^url\(#graph.*-line\)$/);
+      expect(line("a>b").getAttribute("marker-end")).toMatch(/^url\(#graph.*-gray\)$/);
       // "waits on N" counts open blockers; condensed cards have no excerpt.
       expect(card("b").textContent).toContain("waits on 1");
       expect(card("a").textContent).not.toContain("Start here.");
@@ -114,21 +114,22 @@ describe("GraphView", () => {
       expect(text).toContain("Rest· 4");
    });
 
-   it("selection: its direct lines turn blue, its chain stays, the rest fades", () => {
+   it("selection: its direct lines light up, its chain stays, the rest fades", () => {
       setup({ selected: "b" });
       expect(line("a>b").dataset.lit).toBe("true");
       expect(line("b>c").dataset.lit).toBe("true");
       expect(line("b>d").dataset.lit).toBe("true");
       expect(line("e>x").dataset.lit).toBeUndefined();
       expect(line("e>x").dataset.faded).toBe("true");
-      expect(line("a>b").getAttribute("marker-end")).toMatch(/-lit\)$/);
+      expect(line("a>b").getAttribute("marker-end")).toMatch(/-gray-lit\)$/);
+      expect(line("a>b").getAttribute("class")).toContain("text-foreground");
       for (const id of ["a", "b", "c", "d"]) expect(card(id).dataset.faded).toBeUndefined();
       expect(card("e").dataset.faded).toBe("true");
       expect(card("x").dataset.faded).toBe("true");
       expect(card("b").getAttribute("aria-current")).toBe("true");
    });
 
-   it("the chain goes through several tasks; a line inside it that is not direct stays, not blue", () => {
+   it("the chain goes through several tasks; a line inside it that is not direct stays, not lit", () => {
       setup({ selected: "c" });
       expect(line("b>c").dataset.lit).toBe("true");
       expect(line("a>b").dataset.lit).toBeUndefined();
@@ -136,6 +137,49 @@ describe("GraphView", () => {
       // `d` follows `b` but is not in `c`'s chain.
       expect(card("d").dataset.faded).toBe("true");
       expect(line("b>d").dataset.faded).toBe("true");
+   });
+
+   it("a line has its source task's status color: muted at rest, full and thicker lit, gray for todo", () => {
+      const ext = task("ext", [], { status: "done", origin_session_id: "s9" });
+      const tasks = [
+         task("r", [], { status: "in_review" }),
+         task("p", [], { status: "in_progress" }),
+         task("k", [["r", "blocks"]], { status: "blocked" }),
+         task("q", [
+            ["p", "follow_up"],
+            ["k", "blocks"],
+            ["ext", "blocks"],
+         ]),
+         task("z", [["q", "blocks"]]),
+      ];
+      setup({ tasks, all: [...tasks, ext], outside: [ext], selected: "k" });
+      const tone = (key: string) => line(key).dataset.tone;
+      expect(["r>k", "p>q", "k>q", "ext>q", "q>z"].map(tone)).toEqual([
+         "in_review",
+         "in_progress",
+         "blocked",
+         "done",
+         "gray",
+      ]);
+      // k is selected: its lines are lit, in full color and thicker; the others rest, muted.
+      const lit = line("r>k");
+      expect(lit.dataset.lit).toBe("true");
+      expect(lit.getAttribute("class")).toContain("text-violet-500");
+      expect(lit.getAttribute("stroke")).toBe("currentColor");
+      expect(lit.getAttribute("stroke-width")).toBe("2");
+      expect(lit.getAttribute("marker-end")).toMatch(/-in_review-lit\)$/);
+      const rest = line("p>q");
+      expect(rest.dataset.lit).toBeUndefined();
+      expect(rest.getAttribute("class")).toContain("text-sky-500");
+      expect(rest.getAttribute("stroke-width")).toBe("1.5");
+      expect(rest.getAttribute("marker-end")).toMatch(/-in_progress\)$/);
+      // Outside k's chain: faded.
+      expect(rest.dataset.faded).toBe("true");
+      expect(rest.getAttribute("class")).toContain("opacity-25");
+      expect(line("q>z").getAttribute("class")).toContain("text-muted-foreground/70");
+      // A marker for each tone, rest and lit, colored like its line.
+      const m = document.querySelector(`marker[id$="-done-lit"]`);
+      expect(m?.getAttribute("class")).toContain("text-emerald-500");
    });
 
    it("hover lights a card's lines without fading the others", () => {

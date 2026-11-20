@@ -1,4 +1,11 @@
-import { isOpen, openBlockers, storedValue, type TaskSummary, useStoredValue } from "@harness/api";
+import {
+   isOpen,
+   openBlockers,
+   storedValue,
+   type TaskStatus,
+   type TaskSummary,
+   useStoredValue,
+} from "@harness/api";
 import {
    Button,
    cn,
@@ -30,7 +37,7 @@ import {
    MIN_WIDTH,
 } from "./graphLayout";
 import { PriorityIcon } from "./PriorityMenu";
-import { STATUS_LABEL, StatusIcon } from "./StatusMenu";
+import { COLORED_STATUSES, STATUS_COLOR, STATUS_LABEL, StatusIcon } from "./StatusMenu";
 import { type Sessions, sessionTitle } from "./sessionTitle";
 import { WaitsOnChip } from "./TaskRow";
 import { underSheet } from "./TaskSheet";
@@ -101,6 +108,28 @@ const shows = (lines: GraphLines, kind: GraphLineKind) =>
    kind === "blocks" ? lines.blocks : kind === "follow_up" ? lines.followUps : lines.parents;
 
 /**
+ * A line's color: the status color of its `from` task (the one waited on), `gray` for a status without a color,
+ * `parent` for parent lines (the border color).
+ */
+type LineTone = TaskStatus | "gray" | "parent";
+const TONES: LineTone[] = ["gray", "parent", ...COLORED_STATUSES];
+
+function lineTone(kind: GraphLineKind, from: TaskSummary | undefined): LineTone {
+   if (kind === "parent") return "parent";
+   return from && COLORED_STATUSES.includes(from.status) ? from.status : "gray";
+}
+
+/** At rest a status color is mixed toward the gray, in oklab so the hue stays (oklch turns it). */
+const REST = "color-mix(in oklab, currentColor 55%, var(--muted-foreground))";
+
+/** Class (sets `color`) and paint for a tone: a status color paints `currentColor`, mixed down at rest. */
+function toneStyle(tone: LineTone, lit: boolean): { className: string; paint?: string } {
+   if (tone === "gray") return { className: lit ? "text-foreground" : "text-muted-foreground/70" };
+   if (tone === "parent") return { className: lit ? "text-muted-foreground" : "text-border" };
+   return { className: STATUS_COLOR[tone], paint: lit ? undefined : REST };
+}
+
+/**
  * The container's width, rounded down to 8 px, read once per animation frame while it changes; 0 before the
  * first read (and in a DOM without layout).
  */
@@ -154,7 +183,9 @@ function chainOf(lines: readonly GraphLine[], id: string): Set<string> {
  * by `layoutGraph` for the container's width. Wide, lanes are bands and a card's column is its rank; narrow, lanes
  * are sections that tasks fill row by row. Below `MIN_WIDTH` it scrolls sideways.
  *
- * Hovering a card shows its lines in blue. `selected` does too, and fades every card and line outside its chain.
+ * A line has the status color of the task it comes from (muted at rest; gray for todo and the like). Hovering a
+ * card lights its lines (full color, thicker, on top). `selected` does too, and fades every card and line outside
+ * its chain.
  * `preview` floats over the graph area (like the Tree view's), and the graph gets room on its right for it.
  * `bottomSpace` is covered by something floating over the bottom of the area (the panel's task sheet): the graph
  * runs on behind it, with that much room at its end, and keeps its scrollbars and the selected card above it.
@@ -285,10 +316,10 @@ export function GraphView({
                               data-lane={l.label}
                               className="absolute flex items-center gap-1 truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
                               style={{
-                                 left: l.x + (bands ? 16 : 14),
+                                 left: l.labelX,
                                  top: l.y,
                                  height: l.head,
-                                 maxWidth: l.w - 32,
+                                 maxWidth: l.x + l.w - l.labelX - 16,
                               }}
                            >
                               <span className="truncate">
@@ -308,55 +339,56 @@ export function GraphView({
                      className="pointer-events-none absolute inset-0"
                   >
                      <defs>
-                        {(["line", "lit", "parent"] as const).map((k) => (
-                           <marker
-                              key={k}
-                              id={`${marker}-${k}`}
-                              viewBox="0 0 6 6"
-                              refX={6}
-                              refY={3}
-                              markerWidth={6}
-                              markerHeight={6}
-                              markerUnits="userSpaceOnUse"
-                              orient="auto"
-                           >
-                              <path
-                                 d="M0 0L6 3L0 6Z"
-                                 className={
-                                    k === "lit"
-                                       ? "fill-sky-500"
-                                       : k === "parent"
-                                         ? "fill-border"
-                                         : "fill-muted-foreground"
-                                 }
-                              />
-                           </marker>
-                        ))}
+                        {TONES.flatMap((tone) =>
+                           [false, true].map((on) => {
+                              const t = toneStyle(tone, on);
+                              return (
+                                 <marker
+                                    key={`${tone}-${on}`}
+                                    id={`${marker}-${tone}${on ? "-lit" : ""}`}
+                                    viewBox="0 0 6 6"
+                                    refX={6}
+                                    refY={3}
+                                    markerWidth={6}
+                                    markerHeight={6}
+                                    markerUnits="userSpaceOnUse"
+                                    orient="auto"
+                                    className={t.className}
+                                 >
+                                    <path
+                                       d="M0 0L6 3L0 6Z"
+                                       fill="currentColor"
+                                       style={t.paint ? { fill: t.paint } : undefined}
+                                    />
+                                 </marker>
+                              );
+                           }),
+                        )}
                      </defs>
                      {shown.map((l) => {
                         const on = lit(l);
                         const faded =
                            chain !== null && !on && !(chain.has(l.from) && chain.has(l.to));
-                        const tone = on ? "lit" : l.kind === "parent" ? "parent" : "line";
+                        const tone = lineTone(l.kind, byId.get(l.from));
+                        const t = toneStyle(tone, on);
                         return (
                            <path
                               key={`${l.kind}:${l.from}>${l.to}`}
                               data-line={`${l.from}>${l.to}`}
                               data-kind={l.kind}
+                              data-tone={tone}
                               data-lit={on || undefined}
                               data-faded={faded || undefined}
                               d={l.path}
                               fill="none"
-                              strokeWidth={l.kind === "parent" && !on ? 1 : 1.5}
+                              stroke="currentColor"
+                              strokeWidth={(l.kind === "parent" ? 1 : 1.5) + (on ? 0.5 : 0)}
                               strokeDasharray={l.kind === "follow_up" ? "4 3" : undefined}
-                              markerEnd={`url(#${marker}-${tone})`}
+                              markerEnd={`url(#${marker}-${tone}${on ? "-lit" : ""})`}
+                              style={t.paint ? { stroke: t.paint } : undefined}
                               className={cn(
                                  "transition-opacity duration-150",
-                                 on
-                                    ? "stroke-sky-500"
-                                    : l.kind === "parent"
-                                      ? "stroke-border"
-                                      : "stroke-muted-foreground/70",
+                                 t.className,
                                  faded && "opacity-25",
                               )}
                            />

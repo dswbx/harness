@@ -68,6 +68,8 @@ export type GraphLane = {
    h: number;
    /** The heading height at the top of the band: `LANE_HEAD`, or 0 without grouping. */
    head: number;
+   /** Where the heading starts: the left edge of the first card column (after PAD and a grown left gap). */
+   labelX: number;
 };
 
 /** From the task waited on (the dep target) to the task that waits; for `parent`, from the parent to the child. */
@@ -545,6 +547,7 @@ export function layoutGraph<T extends GraphTask>(
          w: content,
          h: rowY[laneStart[L]! + laneRows(L) - 1]! + cardHeight - top,
          head,
+         labelX: colX[0]!,
       };
    });
    const out: GraphLine[] = lines.map((l) => {
