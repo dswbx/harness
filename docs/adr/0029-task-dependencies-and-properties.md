@@ -17,6 +17,8 @@ Tasks (ADR 0028) have one relation: the parent. Users also need to say "this tas
 
 **Storage.** Both fields go in `task.json` with `serde(default)`, so old files load as before. There is no migration (ADR 0028). Both fields are in `TaskSummary`, so a view gets all lines from the one task list.
 
+**Description excerpt.** `TaskSummary` also gets `excerpt`: the start of the body as plain text, at most 160 characters. The core builds it, because a summary has no body. Cards show it under the title, so a card needs no separate subtitle field.
+
 **"Blocked" is derived, not stored.** A task with open `blocks` deps shows "waits on N". The stored status does not change. A user can still set the status `blocked` for other reasons.
 
 **Agent tools.** `task_add` and `task_update` take `deps: { add: [{ id, kind? }], remove: [id] }` and `props: { key: value | null }` (null removes a key). The `ensure_own` rule (ADR 0028) is unchanged. A dependency is written only on the waiting task, so the Agent can make its own task wait on any task. `task_get` returns `blocked_by`, `blocks` and `waits_on`.

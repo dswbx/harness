@@ -36,7 +36,7 @@ Facts from the code (2026-11-20):
    - **Aligned** when `cols >= ranks`. Lanes are horizontal bands. A task's column is its rank, the same in every lane, so lines go left to right. Two tasks of one rank in one lane stack. This is the Main board.
    - **Flow** when `cols < ranks`. Lanes are sections, one under the other, each with a heading. Inside a section, tasks sorted by rank fill rows of `cols` cards, left to right. Lines go right or down. This is the Panel board.
 5. **Card width** fills the space: `(width - 2*PAD - (cols-1)*GAP) / cols`, at most `CARD_MAX`. In aligned mode, extra space goes to both sides.
-6. **Card height** follows the panel density store: condensed 48 px (status, title, one meta line), detail 64 px (adds prop chips).
+6. **Card height** follows the panel density store: condensed 48 px (status, title, one meta line), detail 64 px (adds one line of the description excerpt between title and meta).
 7. **Minimum width** is 2 cards: `2*CARD_MIN + GAP + 2*PAD = 408` px. A narrower container lays out at 408 px and scrolls sideways in its `ScrollArea`. A tall graph scrolls down.
 8. **Order inside a lane** reduces crossings: 2 sweeps of the barycenter rule (sort by the mean position of linked cards), with ties by `order`. The result is the same for the same input.
 9. **Lines** never cross a card. Each line goes from the source's out side to a gap, along gaps, and into the target's in side. Lines in one gap get their own track (4 px apart). Corners are rounded (6 px). Out and in points spread along a card side when it has more than one line.
@@ -49,12 +49,13 @@ Each step is one PR with tests. Run `bun run check:rust`, `bun run typecheck` an
 1. **Docs.** ADR 0029. GLOSSARY: **Dependency** (a task waits on, or follows, another task; kinds blocks and follow-up; _Avoid_: edge, relation, link) and **Property** (a free key-value pair on a task; _Avoid_: label, tag, custom field). This plan.
 2. **Core model** (`api/tasks.rs`, `tasks.rs`, dispatch).
    - `TaskDepKind { Blocks, FollowUp }`, `TaskDep { id, kind }`, `Task.deps`, `Task.props`, both in `TaskSummary`.
+   - `TaskSummary.excerpt`: the start of the body as plain text, built next to `has_body` (`api/tasks.rs:152`). Markdown marks are removed, code blocks and images are skipped, white space is joined, and the text is cut at a word to at most 160 characters with "…". Empty when the body is empty.
    - `TaskPatch.deps: Option<Vec<TaskDep>>` (replace) and `TaskPatch.props: Option<BTreeMap<String, String>>` (replace).
    - Checks in `tasks.rs`: ids exist, no self dep, no loop (a walk over deps like `descends_from`), no duplicate ids, prop key and value rules from ADR 0029.
    - Delete removes the id from other tasks' deps, then writes the deleted task last.
    - Activity: `DepAdded { id, kind }`, `DepRemoved { id }`, `PropsChanged`.
    - `bun run gen-ts`.
-   - Tests: an old `task.json` loads, a loop is refused, delete cleans deps, a bad prop key is refused.
+   - Tests: an old `task.json` loads, a loop is refused, delete cleans deps, a bad prop key is refused, the excerpt of a body with a heading, a list, a link and a code block.
 3. **Agent tools** (`mcp/tools.rs`, `task_tools.rs`, `prompts/harness.md`).
    - `task_add` and `task_update`: `deps { add: [{ id, kind? }], remove: [id] }`, `props { key: value | null }`. Default kind: `blocks`.
    - `task_get`: `blocked_by`, `blocks`, `waits_on`. `task_list` rows: `waits_on` when above 0.
@@ -92,5 +93,4 @@ After steps 7 and 8: open the browser mock (`app-alt-port`), check All tasks and
 2. Parent lines in the graph: off by default with a toggle, or never? Suggest: toggle, off.
 3. Props in `task_list` filter now? Suggest: no, wait for a need.
 4. Risk/watch: a prop or a status? Suggest: prop (`risk: yes`).
-5. Card subtitle: first body line or a new `summary` field? Suggest: neither in v1, use the meta line.
-6. Drag to link (step 9) in v1? Suggest: after the rest ships.
+5. Drag to link (step 9) in v1? Suggest: after the rest ships.
