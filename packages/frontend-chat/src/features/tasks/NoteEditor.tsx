@@ -6,7 +6,7 @@ import {
    useNote,
 } from "@harness/api";
 import { Button, cn, ScrollArea } from "@harness/ui";
-import { ListPlus } from "lucide-react";
+import { ChevronDown, ListPlus } from "lucide-react";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useNow } from "../../lib/time";
 import { PromptEditor } from "../prompt/PromptEditor";
@@ -52,9 +52,10 @@ function statusText(status: AutosaveStatus, updatedMs: number | null, now: numbe
 /**
  * The Session Note (ADR 0028), typed in place: Markdown, saved 600 ms after typing stops, on blur and when the panel
  * goes away. A note written elsewhere loads in unless there are unsaved changes; then the save is refused and the
- * user reloads. Images pasted, dropped or attached go to the note's `attachments/note/`.
+ * user reloads. Images pasted, dropped or attached go to the note's `attachments/note/`. Its header folds it
+ * (`onCollapse`).
  */
-export function NoteEditor({ api }: { api: SessionApi }) {
+export function NoteEditor({ api, onCollapse }: { api: SessionApi; onCollapse: () => void }) {
    const [note, setNote] = useNote(api);
    const [error, setError] = useState<string | null>(null);
    const now = useNow();
@@ -111,17 +112,25 @@ export function NoteEditor({ api }: { api: SessionApi }) {
 
    return (
       <section aria-label="Session note" className="flex min-h-0 flex-1 flex-col">
-         <div className="flex items-center gap-2 px-3.5 pb-1.5 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            <span className="flex-1">Session note</span>
+         <div className="flex h-9 shrink-0 items-center gap-2 pl-3.5 pr-3 text-xs text-muted-foreground">
+            <button
+               type="button"
+               aria-expanded
+               onClick={onCollapse}
+               className="-my-1 flex min-w-0 flex-1 items-center gap-2 self-stretch text-left outline-none hover:text-foreground focus-visible:underline"
+            >
+               <ChevronDown className="size-3 shrink-0" />
+               <span className="font-medium text-foreground">Session note</span>
+            </button>
             {status === "conflict" ? (
-               <span className="flex items-center gap-1.5 normal-case tracking-normal text-amber-500">
+               <span className="flex items-center gap-1.5 text-amber-500">
                   Changed elsewhere
                   <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={reload}>
                      Reload
                   </Button>
                </span>
             ) : (
-               shown && <span className="font-normal normal-case tracking-normal">{shown}</span>
+               shown && <span className="shrink-0 text-[11px]">{shown}</span>
             )}
          </div>
          {problem && (

@@ -66,6 +66,8 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    app("harness.tasks.panelDensity", "frontend-chat/tasks"),
    app("harness.tasks.panelView", "frontend-chat/tasks"),
    app("harness.tasks.graphLines", "frontend-chat/tasks"),
+   app("harness.tasks.noteOpen", "frontend-chat/tasks"),
+   app("harness.tasks.sheetHeight", "frontend-chat/tasks"),
    app("harness.settings.frame", "app/settings"),
    app("harness.settings.section", "app/settings"),
    app("harness:window-frame:{name}", "api/platform/window"),

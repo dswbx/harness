@@ -44,7 +44,6 @@ async function setup(
             tasks={tasks}
             host={{}}
             sessions={o.sessions}
-            onBack={onClose}
             onClose={onClose}
             onOpen={onOpen}
          />

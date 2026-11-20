@@ -239,6 +239,8 @@ describe("registry", () => {
          "app harness.tasks.panelDensity",
          "app harness.tasks.panelView",
          "app harness.tasks.graphLines",
+         "app harness.tasks.noteOpen",
+         "app harness.tasks.sheetHeight",
          "app harness.settings.frame",
          "app harness.settings.section",
          "app harness:window-frame:{name}",

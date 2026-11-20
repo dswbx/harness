@@ -36,7 +36,6 @@ import {
    Tooltip,
 } from "@harness/ui";
 import {
-   ArrowLeft,
    ChevronRight,
    MoreHorizontal,
    MoveUpRight,
@@ -58,7 +57,6 @@ import {
 import { OpenSession } from "../../lib/OpenSession";
 import { useNow } from "../../lib/time";
 import type { PanelCtx } from "../../panels/contract";
-import { PanelHeader } from "../../panels/PanelHeader";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { AddFilesButton, AssetStrip, type StripAsset } from "./AssetStrip";
@@ -124,7 +122,6 @@ export function TaskDetail({
    tasks,
    host,
    sessions,
-   onBack,
    onOpen,
    onClose,
 }: {
@@ -135,10 +132,9 @@ export function TaskDetail({
    host: PanelCtx["host"];
    /** Live Session titles (the host's Session list). Absent: the titles cached on the task. */
    sessions?: Sessions;
-   onBack: () => void;
    onOpen: (id: string) => void;
-   /** A preview beside a list (the All tasks view): its menu and a close button on the title row, no Back. */
-   onClose?: () => void;
+   /** The close button on the title row; also called once the task is deleted. */
+   onClose: () => void;
 }) {
    const { task, put, missing, error, setError } = useTask(api, id);
    const [confirmDelete, setConfirmDelete] = useState(false);
@@ -172,7 +168,7 @@ export function TaskDetail({
 
    const remove = () => {
       setConfirmDelete(false);
-      api.deleteTask(id).then(onBack, fail);
+      api.deleteTask(id).then(onClose, fail);
    };
 
    const deleteItem = (
@@ -196,25 +192,7 @@ export function TaskDetail({
          </Button>
       </Tooltip>
    );
-   // The panel: Back and the panel's own controls. A preview: its controls sit on the title row instead.
-   const header = !onClose && (
-      <PanelHeader menu={deleteItem}>
-         <Tooltip content="Back to tasks" side="bottom">
-            <Button
-               size="icon"
-               variant="ghost"
-               className="size-7 shrink-0"
-               aria-label="Back to tasks"
-               onClick={onBack}
-            >
-               <ArrowLeft />
-            </Button>
-         </Tooltip>
-         <span className="flex-1" />
-         {openInAll}
-      </PanelHeader>
-   );
-   const controls = onClose && (
+   const controls = (
       <div className="-mr-1.5 flex shrink-0 items-center gap-0.5">
          {openInAll}
          <DropdownMenu>
@@ -248,25 +226,19 @@ export function TaskDetail({
 
    return (
       <div ref={root} className="flex h-full min-h-0 flex-col" {...drop.handlers}>
-         {header}
          {missing ? (
             <div className="flex items-start gap-2 p-4">
                <div className="flex flex-1 flex-col items-start gap-2 text-sm text-muted-foreground">
                   This task was deleted.
-                  <Button size="sm" variant="outline" onClick={onBack}>
-                     {onClose ? "Close" : "Back to tasks"}
+                  <Button size="sm" variant="outline" onClick={onClose}>
+                     Close
                   </Button>
                </div>
                {controls}
             </div>
          ) : (
             <>
-               <div
-                  className={cn(
-                     "flex shrink-0 flex-col gap-1 px-4 pb-2",
-                     onClose ? "pt-2.5" : "pt-3",
-                  )}
-               >
+               <div className="flex shrink-0 flex-col gap-1 px-4 pb-2 pt-2.5">
                   <div className="flex items-start gap-2">
                      <div className="min-w-0 flex-1 pt-0.5">
                         {task ? (

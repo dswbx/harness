@@ -12,7 +12,8 @@ import { upstreamText } from "./UpstreamField";
 /**
  * One task in a list: the status (a menu), the title, and under it the priority, due date, "waits on N", parent,
  * subtask count, upstream id and the last Session started from it (other than this one). `condensed`: one line, no facts under the
- * title, only a calendar mark when an open task is due today or overdue. A click opens the task.
+ * title, only a calendar mark when an open task is due today or overdue. A click opens the task; `selected`: it is
+ * the one open.
  */
 export function TaskRow({
    task,
@@ -25,6 +26,7 @@ export function TaskRow({
    onOpen,
    onStatus,
    condensed = false,
+   selected = false,
    className,
 }: {
    task: TaskSummary;
@@ -44,6 +46,7 @@ export function TaskRow({
    onStatus: (status: TaskStatus) => void;
    /** One line: the status and the title. */
    condensed?: boolean;
+   selected?: boolean;
    className?: string;
 }) {
    const open = isOpen(task.status);
@@ -85,11 +88,15 @@ export function TaskRow({
          </span>
       ),
    ].filter(Boolean);
+   const picked =
+      selected && "bg-sky-500/10 shadow-[inset_3px_0_0_var(--color-sky-400)] hover:bg-sky-500/15";
    if (condensed)
       return (
          <div
+            aria-current={selected || undefined}
             className={cn(
                "group/task flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/60",
+               picked,
                className,
             )}
          >
@@ -119,8 +126,10 @@ export function TaskRow({
       );
    return (
       <div
+         aria-current={selected || undefined}
          className={cn(
             "group/task flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60",
+            picked,
             className,
          )}
       >

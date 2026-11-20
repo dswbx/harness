@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { usePanelTarget } from "../../panels/usePanelTarget";
 import { sessionTasks } from "./listModel";
-import { TaskDetail } from "./TaskDetail";
 import { TasksPanel } from "./TasksPanel";
 
 export type TasksModel = {
@@ -14,14 +13,15 @@ export type TasksModel = {
    pinned: TaskSummary | null;
    /** The tasks created in this Session (without the pinned one). */
    created: TaskSummary[];
-   /** The task shown in full; null: the list. */
+   /** The task open in the panel's sheet; null: none. */
    detail: string | null;
    setDetail: (id: string | null) => void;
 };
 
 /**
  * Tasks & Notes (ADR 0028): the tasks of this Session and its Session Note; opened at a task id, it shows that
- * task. Once opened it stays mounted, so an unsaved note or description is never lost to hiding or moving the panel.
+ * task in its sheet. Once opened it stays mounted, so an unsaved note or description is never lost to hiding or
+ * moving the panel.
  */
 export const tasksPanel = definePanel<TasksModel, string>({
    id: "tasks",
@@ -41,26 +41,15 @@ export const tasksPanel = definePanel<TasksModel, string>({
       }, [tasks, sessionId, detail]);
    },
    status: () => ({ presence: "ready" }),
-   Body: ({ model, ctx }: PanelBodyProps<TasksModel, string>) =>
-      model.detail ? (
-         <TaskDetail
-            key={model.detail}
-            api={ctx.api}
-            id={model.detail}
-            tasks={model.tasks}
-            host={ctx.host}
-            sessions={ctx.host.sessions}
-            onBack={() => model.setDetail(null)}
-            onOpen={model.setDetail}
-         />
-      ) : (
-         <TasksPanel
-            api={ctx.api}
-            tasks={model.tasks}
-            pinned={model.pinned}
-            created={model.created}
-            host={ctx.host}
-            onOpen={model.setDetail}
-         />
-      ),
+   Body: ({ model, ctx }: PanelBodyProps<TasksModel, string>) => (
+      <TasksPanel
+         api={ctx.api}
+         tasks={model.tasks}
+         pinned={model.pinned}
+         created={model.created}
+         host={ctx.host}
+         openId={model.detail}
+         onOpen={model.setDetail}
+      />
+   ),
 });

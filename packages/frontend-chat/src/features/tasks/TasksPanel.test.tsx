@@ -24,6 +24,7 @@ beforeEach(() => {
 afterEach(() => {
    cleanup();
    vi.unstubAllGlobals();
+   vi.restoreAllMocks();
 });
 
 const Body = tasksPanel.Body as ComponentType<PanelBodyProps<TasksModel, string>>;
@@ -92,6 +93,11 @@ const group = (name: RegExp) => screen.getByRole("region", { name });
 const row = (title: string, within_: HTMLElement = document.body) =>
    within(within_).getByRole("button", { name: new RegExp(`^${title}`) });
 
+/** A task row's box (it carries the selected state). */
+const rowBox = (title: string) => row(title).closest<HTMLElement>(".group\\/task") as HTMLElement;
+/** The title of the task open in the sheet. */
+const title = () => screen.queryByRole("textbox", { name: "Task title" })?.textContent;
+
 /** A nested row's indent (its wrapper's left padding); null: top level. */
 const indent = (el: HTMLElement) =>
    el.closest<HTMLElement>("[style*='padding-left']")?.style.paddingLeft ?? null;
@@ -140,39 +146,56 @@ describe("Tasks panel", () => {
       expect(row("Profile the cold build", group(/^Created here/))).toBeTruthy();
    });
 
-   it("opens a task in full and goes back", async () => {
+   it("opens a task in the sheet below the list, swaps it and closes it", async () => {
       setup();
-      await waitFor(() => group(/^Created here · 4$/));
-      fireEvent.click(row("Header polish"));
-      const subtasks = await waitFor(() => group(/^Subtasks$/));
+      const created = await waitFor(() => group(/^Created here · 4$/));
+      fireEvent.click(row("Header polish", created));
+      const sheet = await waitFor(() => screen.getByRole("region", { name: "Task" }));
+      const subtasks = await waitFor(() => within(sheet).getByRole("region", { name: "Subtasks" }));
       expect(row("Align the session title baseline", subtasks)).toBeTruthy();
       expect(within(subtasks).getByText("Subtasks · 1/3")).toBeTruthy();
-      await waitFor(() =>
-         expect(screen.getByRole("textbox", { name: "Task title" }).textContent).toBe(
-            "Header polish",
-         ),
-      );
+      await waitFor(() => expect(title()).toBe("Header polish"));
+      // The list stays, the open row is selected, and the sheet comes after it (not over it).
+      expect(group(/^Created here · 4$/)).toBe(created);
+      expect(rowBox("Header polish").getAttribute("aria-current")).toBe("true");
+      expect(
+         created.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(created.closest("[data-radix-scroll-area-viewport]")?.contains(sheet)).toBe(false);
       // The detail's own status chip comes first, before the subtask rows.
-      expect(screen.getAllByRole("button", { name: "Status: Todo" })[0]?.textContent).toBe("Todo");
+      expect(within(sheet).getAllByRole("button", { name: "Status: Todo" })[0]?.textContent).toBe(
+         "Todo",
+      );
       // No host callbacks: no "Start session" and no "Open in All tasks".
       expect(screen.queryByRole("button", { name: /Start session/ })).toBeNull();
       expect(screen.queryByRole("button", { name: "Open in All tasks" })).toBeNull();
-      // A subtask opens in place.
+      // A subtask link opens in the sheet; so does another row of the list.
       fireEvent.click(row("Truncate long branch names", subtasks));
-      await waitFor(() =>
-         expect(screen.getByRole("textbox", { name: "Task title" }).textContent).toBe(
-            "Truncate long branch names",
-         ),
-      );
-      fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }));
-      await waitFor(() => group(/^Created here · 4$/));
+      await waitFor(() => expect(title()).toBe("Truncate long branch names"));
+      expect(rowBox("Truncate long branch names").getAttribute("aria-current")).toBe("true");
+      expect(rowBox("Header polish").getAttribute("aria-current")).toBeNull();
+      fireEvent.click(row("Read the ACP registry RFC", created));
+      await waitFor(() => expect(title()).toBe("Read the ACP registry RFC"));
+      // X closes it.
+      fireEvent.click(within(sheet).getByRole("button", { name: "Close preview" }));
+      expect(screen.queryByRole("region", { name: "Task" })).toBeNull();
+      expect(rowBox("Read the ACP registry RFC").getAttribute("aria-current")).toBeNull();
+      // Esc in the sheet or in the panel closes it too.
+      fireEvent.click(row("Header polish", created));
+      const again = await waitFor(() => screen.getByRole("region", { name: "Task" }));
+      fireEvent.keyDown(again, { key: "Escape" });
+      expect(screen.queryByRole("region", { name: "Task" })).toBeNull();
+      fireEvent.click(row("Header polish", created));
+      await waitFor(() => screen.getByRole("region", { name: "Task" }));
+      fireEvent.keyDown(row("Read the ACP registry RFC", created), { key: "Escape" });
+      expect(screen.queryByRole("region", { name: "Task" })).toBeNull();
    });
 
    it("adds a subtask under the open task", async () => {
       const { mock } = setup();
       await waitFor(() => group(/^Created here · 4$/));
       fireEvent.click(row("Read the ACP registry RFC"));
-      await waitFor(() => group(/^Subtasks$/));
+      await waitFor(() => expect(title()).toBe("Read the ACP registry RFC"));
       fireEvent.click(screen.getByRole("button", { name: "Add subtask" }));
       await typeAndEnter("New subtask", "Note the open questions");
       await waitFor(() => expect(row("Note the open questions", group(/^Subtasks/))).toBeTruthy());
@@ -210,25 +233,13 @@ describe("Tasks panel", () => {
       setup();
       const created = await waitFor(() => group(/^Created here · 4$/));
       fireEvent.click(row("Align the session title baseline", created));
-      await waitFor(() =>
-         expect(screen.getByRole("textbox", { name: "Task title" }).textContent).toBe(
-            "Align the session title baseline",
-         ),
-      );
-      // The panel header has Back, not the title or a breadcrumb.
-      const back = screen.getByRole("button", { name: "Back to tasks" });
-      const header = back.closest<HTMLElement>(".border-b");
-      expect(header?.textContent).not.toContain("Align the session title baseline");
+      await waitFor(() => expect(title()).toBe("Align the session title baseline"));
       expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
       const line = screen.getByText("Sub-task of").parentElement as HTMLElement;
       const parent = within(line).getByRole("button", { name: /Header polish/ });
       expect(parent.textContent).toContain("1/3");
       fireEvent.click(parent);
-      await waitFor(() =>
-         expect(screen.getByRole("textbox", { name: "Task title" }).textContent).toBe(
-            "Header polish",
-         ),
-      );
+      await waitFor(() => expect(title()).toBe("Header polish"));
       // A top-level task has no Sub-task of line.
       expect(screen.queryByText("Sub-task of")).toBeNull();
    });
@@ -367,7 +378,13 @@ describe("Tasks panel", () => {
       fireEvent.click(within(ext).getByRole("button"));
       expect(openTasks).toHaveBeenCalledWith("t14");
       fireEvent.click(within(card("t7")!).getByRole("button"));
-      await waitFor(() => screen.getByRole("button", { name: "Back to tasks" }));
+      await waitFor(() => expect(title()).toBe("Truncate long branch names"));
+      // The graph stays, the open card is selected; another card swaps the sheet.
+      expect(card("t7")!.getAttribute("aria-current")).toBe("true");
+      fireEvent.click(within(card("t9")!).getByRole("button"));
+      await waitFor(() => expect(card("t9")!.getAttribute("aria-current")).toBe("true"));
+      expect(card("t7")!.getAttribute("aria-current")).toBeNull();
+      expect(openTasks).toHaveBeenCalledTimes(1);
       cleanup();
       // Kept for the window: a new panel opens in the graph.
       setup();
@@ -400,5 +417,125 @@ describe("Tasks panel", () => {
       // Double-click resets.
       fireEvent.doubleClick(handle);
       expect(dock.style.height).toBe("300px");
+   });
+
+   describe("Session note bar", () => {
+      const bar = () => screen.getByRole("button", { name: /^Session note/ });
+
+      it("is open when the note has text, folds to a bar with its first line, and the choice is kept", async () => {
+         setup();
+         await waitFor(() => group(/^Created here · 4$/));
+         await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
+         expect(bar().getAttribute("aria-expanded")).toBe("true");
+         fireEvent.click(bar());
+         expect(screen.queryByRole("textbox", { name: "Session note" })).toBeNull();
+         const folded = bar();
+         expect(folded.getAttribute("aria-expanded")).toBe("false");
+         // The first line as plain text (no Markdown marks), and the save state.
+         expect(folded.textContent).toBe("Session noteBuild timingsSaved");
+         expect(localStorage.getItem("harness.tasks.noteOpen")).toBe("off");
+         // The last row of the panel.
+         const root = folded.parentElement as HTMLElement;
+         expect(root.lastElementChild).toBe(folded);
+         cleanup();
+         setup();
+         await waitFor(() => expect(bar().textContent).toContain("Build timings"));
+         expect(bar().getAttribute("aria-expanded")).toBe("false");
+         fireEvent.click(bar());
+         await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
+         expect(localStorage.getItem("harness.tasks.noteOpen")).toBe("on");
+      });
+
+      it("is folded by default when the note is empty", async () => {
+         setup({ edit: (m) => m.notes.delete("mock-1") });
+         await waitFor(() => group(/^Created here · 4$/));
+         expect(bar().getAttribute("aria-expanded")).toBe("false");
+         expect(bar().textContent).toBe("Session note");
+         expect(screen.queryByRole("textbox", { name: "Session note" })).toBeNull();
+      });
+
+      it("folds while a task is open and comes back as it was when it closes", async () => {
+         setup();
+         const created = await waitFor(() => group(/^Created here · 4$/));
+         await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
+         fireEvent.click(row("Header polish", created));
+         await waitFor(() => screen.getByRole("region", { name: "Task" }));
+         expect(bar().getAttribute("aria-expanded")).toBe("false");
+         // Not kept: the stored choice is unchanged.
+         expect(localStorage.getItem("harness.tasks.noteOpen")).toBeNull();
+         fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+         await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
+         // Folded by the user: it stays folded after the task closes.
+         fireEvent.click(bar());
+         fireEvent.click(row("Header polish", created));
+         await waitFor(() => screen.getByRole("region", { name: "Task" }));
+         fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+         expect(bar().getAttribute("aria-expanded")).toBe("false");
+         // Opening the note while a task is open closes the task.
+         fireEvent.click(row("Header polish", created));
+         await waitFor(() => screen.getByRole("region", { name: "Task" }));
+         fireEvent.click(bar());
+         expect(screen.queryByRole("region", { name: "Task" })).toBeNull();
+         await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
+         expect(localStorage.getItem("harness.tasks.noteOpen")).toBe("on");
+      });
+   });
+
+   describe("Task sheet height", () => {
+      /** The space under the toolbar is `px` high (jsdom does no layout). */
+      const room = (px: number) =>
+         vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (
+            this: HTMLElement,
+         ) {
+            return this.hasAttribute("data-tasks-body") ? px : 0;
+         });
+      const open = async () => {
+         const created = await waitFor(() => group(/^Created here · 4$/));
+         fireEvent.click(row("Header polish", created));
+         const sheet = await waitFor(() => screen.getByRole("region", { name: "Task" }));
+         return { sheet, handle: within(sheet).getByRole("separator", { name: "Resize task" }) };
+      };
+
+      it("starts at half the space, resizes by keyboard and drag, and is kept", async () => {
+         room(600);
+         setup();
+         const { sheet, handle } = await open();
+         expect(sheet.style.height).toBe("300px");
+         expect(handle.getAttribute("aria-orientation")).toBe("horizontal");
+         fireEvent.keyDown(handle, { key: "ArrowUp" });
+         expect(sheet.style.height).toBe("316px");
+         expect(localStorage.getItem("harness.tasks.sheetHeight")).toBe("316");
+         fireEvent.keyDown(handle, { key: "ArrowDown" });
+         fireEvent.keyDown(handle, { key: "ArrowDown" });
+         expect(sheet.style.height).toBe("284px");
+         // Esc on the handle closes the sheet; the height stays for the next task.
+         fireEvent.keyDown(handle, { key: "Escape" });
+         expect(screen.queryByRole("region", { name: "Task" })).toBeNull();
+         const next = await open();
+         expect(next.sheet.style.height).toBe("284px");
+         // Dragging the handle up makes it taller.
+         fireEvent.pointerDown(next.handle, { clientY: 500, pointerId: 1 });
+         fireEvent.pointerMove(window, { clientY: 400, pointerId: 1 });
+         fireEvent.pointerUp(window, { pointerId: 1 });
+         expect(next.sheet.style.height).toBe("384px");
+         expect(localStorage.getItem("harness.tasks.sheetHeight")).toBe("384");
+         // Double-click resets to half.
+         fireEvent.doubleClick(next.handle);
+         expect(next.sheet.style.height).toBe("300px");
+         expect(localStorage.getItem("harness.tasks.sheetHeight")).toBeNull();
+      });
+
+      it("is clamped: at least 160 px, and 120 px always left for the tasks", async () => {
+         localStorage.setItem("harness.tasks.sheetHeight", "1000");
+         room(600);
+         setup();
+         const { sheet, handle } = await open();
+         // 600 - 120 for the tasks - 8 margin.
+         expect(sheet.style.height).toBe("472px");
+         fireEvent.keyDown(handle, { key: "ArrowUp" });
+         expect(sheet.style.height).toBe("472px");
+         for (let i = 0; i < 30; i++) fireEvent.keyDown(handle, { key: "ArrowDown" });
+         expect(sheet.style.height).toBe("160px");
+      });
    });
 });

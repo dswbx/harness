@@ -44,7 +44,6 @@ export function FloatingPreview({
             tasks={tasks}
             host={host}
             sessions={sessions}
-            onBack={onClose}
             onClose={onClose}
             onOpen={onOpen}
          />

@@ -19,7 +19,7 @@ import {
    MoveUpRight,
    Workflow,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Segmented } from "../../lib/Segmented";
 import { useNow } from "../../lib/time";
 import type { PanelCtx } from "../../panels/contract";
@@ -31,6 +31,7 @@ import { NoteDock } from "./NoteDock";
 import { QuickAdd } from "./QuickAdd";
 import { TaskHoverCard } from "./TaskHoverCard";
 import { TaskRow } from "./TaskRow";
+import { TaskSheet, useHeight } from "./TaskSheet";
 
 type Density = "detail" | "condensed";
 
@@ -140,6 +141,10 @@ function Group({
  * created here and the closed ones folded under Done, scrolling above the Session Note docked at the bottom. In each
  * group a subtask sits under its parent (when the parent is in that group too); a done subtask of an open parent goes
  * to Done with a parent chip. Rows show in detail or condensed (a header toggle); hovering one shows its summary.
+ *
+ * A click on a row or card opens the task in a sheet above the note bar (board "PanelTaskOpen"); the tasks end at
+ * its top. The open task is selected and brought into view; Esc or its X closes it. While it is open the note is
+ * folded; closing it brings the note back as it was.
  */
 export function TasksPanel({
    api,
@@ -147,6 +152,7 @@ export function TasksPanel({
    pinned,
    created,
    host,
+   openId,
    onOpen,
 }: {
    api: SessionApi;
@@ -155,7 +161,9 @@ export function TasksPanel({
    pinned: TaskSummary | null;
    created: readonly TaskSummary[];
    host: PanelCtx["host"];
-   onOpen: (id: string) => void;
+   /** The task open in the sheet; null: none. */
+   openId: string | null;
+   onOpen: (id: string | null) => void;
 }) {
    const [showCreated, setShowCreated] = useState(true);
    const [showDone, setShowDone] = useState(false);
@@ -185,6 +193,7 @@ export function TasksPanel({
             sessionId={api.sessionId}
             sessions={host.sessions}
             condensed={condensed}
+            selected={t.id === openId}
             onOpen={() => onOpen(t.id)}
             onStatus={(s) => setStatus(t.id, s)}
          />
@@ -214,8 +223,27 @@ export function TasksPanel({
    const rows = (list: readonly TaskSummary[]) =>
       nestRows(list).map(({ task: t, depth }) => row(t, depth));
 
+   // The open task's row or card in view, again when the space changes (the sheet takes the bottom of it, and the
+   // note folds as it opens). The tasks come before the sheet, so the first selected element is theirs.
+   const body = useRef<HTMLDivElement>(null);
+   const room = useHeight(body);
+   useEffect(() => {
+      if (!openId || !room) return;
+      body.current
+         ?.querySelector<HTMLElement>('[aria-current="true"]')
+         ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+   }, [openId, room]);
+
    return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div
+         className="flex h-full min-h-0 flex-col"
+         onKeyDown={(e) => {
+            // Menus, dialogs and tooltips take their own Esc first (and mark it handled).
+            if (e.key !== "Escape" || !openId || e.defaultPrevented) return;
+            e.preventDefault();
+            onOpen(null);
+         }}
+      >
          <PanelHeader title="Tasks & Notes">
             <span className="flex-1" />
             <Segmented
@@ -270,63 +298,77 @@ export function TasksPanel({
                </Tooltip>
             )}
          </PanelHeader>
-         {view === "graph" ? (
-            <PanelGraph
-               api={api}
-               tasks={tasks}
-               pinned={pinned}
-               created={created}
-               condensed={condensed}
-               today={today}
-               host={host}
-               onOpen={onOpen}
-            />
-         ) : (
-            <ScrollArea className="min-h-0 flex-1">
-               {pinned && (
-                  <section aria-label="Started from" className="px-2.5 pt-2.5">
-                     <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Started from
-                     </div>
-                     <div className="rounded-lg border bg-card">{row(pinned)}</div>
-                  </section>
-               )}
-               <QuickAdd
-                  className="px-2.5 pb-1 pt-2.5"
-                  label="Add task"
-                  placeholder="Add task… Markdown ok"
-                  onAdd={(title) => api.createTask({ title })}
+         <div ref={body} data-tasks-body className="flex min-h-0 flex-1 flex-col">
+            {view === "graph" ? (
+               <PanelGraph
+                  api={api}
+                  tasks={tasks}
+                  pinned={pinned}
+                  created={created}
+                  condensed={condensed}
+                  today={today}
+                  host={host}
+                  selected={openId}
+                  onOpen={onOpen}
                />
-               {error && (
-                  <div role="alert" className="px-3.5 pt-1 text-xs text-destructive">
-                     {error}
-                  </div>
-               )}
-               <Group
-                  label={`Created here · ${open.length}`}
-                  open={showCreated}
-                  onToggle={() => setShowCreated((o) => !o)}
-               >
-                  {tasks && open.length === 0 && (
-                     <p className="px-2 py-1 text-xs text-muted-foreground/70">
-                        {closed.length ? "All done." : "No tasks created in this Session yet."}
-                     </p>
+            ) : (
+               <ScrollArea className="min-h-0 flex-1">
+                  {pinned && (
+                     <section aria-label="Started from" className="px-2.5 pt-2.5">
+                        <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                           Started from
+                        </div>
+                        <div className="rounded-lg border bg-card">{row(pinned)}</div>
+                     </section>
                   )}
-                  {rows(open)}
-               </Group>
-               {closed.length > 0 && (
+                  <QuickAdd
+                     className="px-2.5 pb-1 pt-2.5"
+                     label="Add task"
+                     placeholder="Add task… Markdown ok"
+                     onAdd={(title) => api.createTask({ title })}
+                  />
+                  {error && (
+                     <div role="alert" className="px-3.5 pt-1 text-xs text-destructive">
+                        {error}
+                     </div>
+                  )}
                   <Group
-                     label={`Done · ${closed.length}`}
-                     open={showDone}
-                     onToggle={() => setShowDone((o) => !o)}
+                     label={`Created here · ${open.length}`}
+                     open={showCreated}
+                     onToggle={() => setShowCreated((o) => !o)}
                   >
-                     {rows(closed)}
+                     {tasks && open.length === 0 && (
+                        <p className="px-2 py-1 text-xs text-muted-foreground/70">
+                           {closed.length ? "All done." : "No tasks created in this Session yet."}
+                        </p>
+                     )}
+                     {rows(open)}
                   </Group>
-               )}
-               <div className="h-2" />
-            </ScrollArea>
-         )}
-         <NoteDock api={api} />
+                  {closed.length > 0 && (
+                     <Group
+                        label={`Done · ${closed.length}`}
+                        open={showDone}
+                        onToggle={() => setShowDone((o) => !o)}
+                     >
+                        {rows(closed)}
+                     </Group>
+                  )}
+                  <div className="h-2" />
+               </ScrollArea>
+            )}
+            {openId && (
+               <TaskSheet
+                  api={api}
+                  id={openId}
+                  tasks={tasks}
+                  host={host}
+                  room={room}
+                  onClose={() => onOpen(null)}
+                  onOpen={onOpen}
+               />
+            )}
+         </div>
+         <NoteDock api={api} taskOpen={openId !== null} onOpenNote={() => onOpen(null)} />
       </div>
    );
 }
@@ -344,6 +386,7 @@ function PanelGraph({
    condensed,
    today,
    host,
+   selected,
    onOpen,
 }: {
    api: SessionApi;
@@ -353,6 +396,7 @@ function PanelGraph({
    condensed: boolean;
    today: string;
    host: PanelCtx["host"];
+   selected: string | null;
    onOpen: (id: string) => void;
 }) {
    const all = tasks ?? EMPTY;
@@ -398,6 +442,7 @@ function PanelGraph({
             outside={outside}
             groupBy={lanes}
             density={condensed ? "condensed" : "detail"}
+            selected={selected}
             today={today}
             sessions={sessions}
             onOpen={onOpen}
