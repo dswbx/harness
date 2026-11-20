@@ -203,8 +203,9 @@ export function DiffViewer({
             diffViewHighlight
             registerHighlighter={diffHighlighter}
             diffViewAddWidget={!!api}
+            // Split view also asks for the other side of a commented line, with no data there.
             renderExtendLine={({ data: t }) =>
-               api && <CommentList api={api} comments={t.comments} outdated={t.outdated} />
+               api && t && <CommentList api={api} comments={t.comments} outdated={t.outdated} />
             }
             renderWidgetLine={({ lineNumber, side, onClose }) =>
                api && (
