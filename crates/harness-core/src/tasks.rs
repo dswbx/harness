@@ -216,6 +216,11 @@ impl Tasks {
         Ok(())
     }
 
+    /// Checks `deps` as the new Dependencies of task `id` without writing, like `check_patch`.
+    pub fn check_deps(&self, id: &str, deps: &[TaskDep]) -> anyhow::Result<()> {
+        check_deps(&self.index.read(), id, deps)
+    }
+
     /// Applies `patch`. A body change is refused when the body changed after `base_updated_ms`.
     pub fn update(&self, id: &str, patch: TaskPatch, base_updated_ms: Option<i64>, actor: &Actor) -> anyhow::Result<Task> {
         let title = patch.title.as_deref().map(clean_title).transpose()?;

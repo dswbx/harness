@@ -2,13 +2,14 @@
 //! Task List. The Agent adds Tasks with this Session as their origin, and changes only the Tasks
 //! created in this Session or linked to it.
 
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::results::TasksAnswer;
-use crate::api::{ListedTask, StateWriter, Task, TaskField, TaskPatch, TaskPriority, TaskStatus, TaskSummary, TaskUpstream, ThreadId};
+use crate::api::{ListedTask, StateWriter, Task, TaskDep, TaskDepKind, TaskField, TaskPatch, TaskPriority, TaskStatus, TaskSummary, TaskUpstream, ThreadId};
 use crate::session::Session;
 use crate::tasks::{Actor, NewTask};
 
@@ -18,6 +19,38 @@ const MAX_ROWS: usize = 50;
 /// The status and priority values (`TaskStatus`, `TaskPriority` as JSON), for the schemas.
 pub(super) const STATUSES: [&str; 7] = ["backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"];
 pub(super) const PRIORITIES: [&str; 5] = ["none", "low", "medium", "high", "urgent"];
+
+/// The tools of this module: their input is checked against their schema before they run.
+pub(super) const TOOLS: [&str; 4] = ["task_add", "task_update", "task_list", "task_get"];
+
+/// Refuses input that does not match the tool's schema, for example a `parent` that is not a
+/// string (H15) or a `deps.add` item without an id. The error carries the description, as for
+/// Frontend Tools: Agents may call a tool before they have loaded its schema.
+pub(super) fn check_args(name: &str, description: &str, schema: &Value, args: &Value) -> anyhow::Result<()> {
+    let (validator, _) = crate::frontend_files::validator(schema)?;
+    let errors = crate::frontend_files::format_errors(&validator, args);
+    if errors.is_empty() {
+        return Ok(());
+    }
+    Err(crate::error::invalid(format!("invalid input for {name}:\n{errors}\n\nHow to call {name}:\n{description}")))
+}
+
+/// Tasks by id, to look up the title and status of a Dependency.
+type ById<'a> = HashMap<&'a str, &'a TaskSummary>;
+
+fn by_id(tasks: &[TaskSummary]) -> ById<'_> {
+    tasks.iter().map(|t| (t.id.as_str(), t)).collect()
+}
+
+/// Done and cancelled Tasks no longer hold anything up.
+fn is_open(status: TaskStatus) -> bool {
+    !matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
+}
+
+/// How many Tasks `t` waits on: its `blocks` Dependencies that are still open.
+fn waits_on(t: &TaskSummary, all: &ById) -> usize {
+    t.deps.iter().filter(|d| d.kind == TaskDepKind::Blocks && all.get(d.id.as_str()).is_some_and(|o| is_open(o.status))).count()
+}
 
 fn actor(session: &Session) -> Actor {
     Actor { by: StateWriter::Agent, session_id: Some(session.id()) }
@@ -52,7 +85,7 @@ fn relation_of(session_id: &str, t: &TaskSummary) -> Option<&'static str> {
 }
 
 /// One Task as a short row; fields without a value are left out.
-fn row(session_id: &str, t: &TaskSummary) -> Value {
+fn row(session_id: &str, t: &TaskSummary, all: &ById) -> Value {
     let mut m = Map::new();
     m.insert("id".into(), json!(t.id));
     m.insert("title".into(), json!(t.title));
@@ -72,6 +105,13 @@ fn row(session_id: &str, t: &TaskSummary) -> Value {
     if let Some(r) = relation_of(session_id, t) {
         m.insert("session".into(), json!(r));
     }
+    let waits = waits_on(t, all);
+    if waits > 0 {
+        m.insert("waits_on".into(), json!(waits));
+    }
+    if !t.props.is_empty() {
+        m.insert("props".into(), json!(t.props));
+    }
     Value::Object(m)
 }
 
@@ -79,7 +119,9 @@ fn row(session_id: &str, t: &TaskSummary) -> Value {
 /// first.
 pub(super) fn session_tasks(session: &Session) -> Vec<Value> {
     let id = session.id();
-    session.shared().tasks.list().iter().filter(|t| relation_of(&id, t).is_some()).map(|t| row(&id, t)).take(MAX_ROWS).collect()
+    let tasks = session.shared().tasks.list();
+    let all = by_id(&tasks);
+    tasks.iter().filter(|t| relation_of(&id, t).is_some()).map(|t| row(&id, t, &all)).take(MAX_ROWS).collect()
 }
 
 /// Refuses a Task the Agent may not change: one not created in this Session and not linked to it.
@@ -92,6 +134,68 @@ fn ensure_own(session: &Session, task: &Task) -> anyhow::Result<()> {
         "task {} was not created in this Session and is not linked to it, so you cannot change it. Ask the user to change it.",
         task.id
     )))
+}
+
+/// One `deps.add` item.
+#[derive(Deserialize)]
+struct DepInput {
+    id: String,
+    #[serde(default)]
+    kind: Option<TaskDepKind>,
+}
+
+/// `deps` of task_add (only `add`) and task_update.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct DepsInput {
+    add: Vec<DepInput>,
+    remove: Vec<String>,
+}
+
+/// `current` with `input` applied: `remove` drops ids, `add` appends new ids (kind blocks by
+/// default) and changes the kind of ids already there. An id named twice is refused, and so is
+/// removing an id that is not a Dependency.
+fn apply_deps(mut current: Vec<TaskDep>, input: DepsInput) -> anyhow::Result<Vec<TaskDep>> {
+    let mut named: Vec<String> = Vec::new();
+    let mut name = |id: &str| {
+        let id = id.trim().to_owned();
+        if named.contains(&id) {
+            return Err(crate::error::invalid(format!("deps names task {id} twice")));
+        }
+        named.push(id.clone());
+        Ok(id)
+    };
+    for id in input.remove {
+        let id = name(&id)?;
+        let before = current.len();
+        current.retain(|d| d.id != id);
+        if current.len() == before {
+            let now: Vec<&str> = current.iter().map(|d| d.id.as_str()).collect();
+            let now = if now.is_empty() { "none".to_owned() } else { now.join(", ") };
+            return Err(crate::error::invalid(format!("cannot remove {id}: it is not a dependency (deps now: {now})")));
+        }
+    }
+    for d in input.add {
+        let id = name(&d.id)?;
+        let kind = d.kind.unwrap_or(TaskDepKind::Blocks);
+        match current.iter_mut().find(|c| c.id == id) {
+            Some(c) => c.kind = kind,
+            None => current.push(TaskDep { id, kind }),
+        }
+    }
+    Ok(current)
+}
+
+/// `current` with `input` applied: a string sets a key, null removes it, other keys stay. The
+/// store checks keys and values.
+fn apply_props(mut current: BTreeMap<String, String>, input: BTreeMap<String, Option<String>>) -> BTreeMap<String, String> {
+    for (k, v) in input {
+        match v {
+            Some(v) => current.insert(k, v),
+            None => current.remove(&k),
+        };
+    }
+    current
 }
 
 #[derive(Deserialize)]
@@ -111,6 +215,10 @@ struct NewItem {
     upstream_url: Option<String>,
     #[serde(default)]
     upstream_label: Option<String>,
+    #[serde(default)]
+    deps: Option<DepsInput>,
+    #[serde(default)]
+    props: Option<BTreeMap<String, Option<String>>>,
 }
 
 pub(super) async fn run_task_add(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
@@ -120,18 +228,23 @@ pub(super) async fn run_task_add(session: &Arc<Session>, _: &ThreadId, args: &Va
     let origin = (session.id(), session.meta().title);
     let new = items
         .into_iter()
-        .map(|i| NewTask {
-            title: i.title,
-            body: i.body.unwrap_or_default(),
-            parent_id: i.parent.filter(|p| !p.trim().is_empty()),
-            status: i.status,
-            priority: i.priority,
-            due: i.due.filter(|d| !d.trim().is_empty()),
-            upstream: i.upstream_url.filter(|u| !u.trim().is_empty()).map(|url| TaskUpstream { url, label: i.upstream_label }),
-            origin: Some(origin.clone()),
-            ..Default::default()
+        .enumerate()
+        .map(|(n, i)| {
+            let deps = apply_deps(Vec::new(), i.deps.unwrap_or_default()).map_err(|e| crate::error::invalid(format!("task {}: {e:#}", n + 1)))?;
+            Ok(NewTask {
+                title: i.title,
+                body: i.body.unwrap_or_default(),
+                parent_id: i.parent.filter(|p| !p.trim().is_empty()),
+                status: i.status,
+                priority: i.priority,
+                due: i.due.filter(|d| !d.trim().is_empty()),
+                upstream: i.upstream_url.filter(|u| !u.trim().is_empty()).map(|url| TaskUpstream { url, label: i.upstream_label }),
+                origin: Some(origin.clone()),
+                deps,
+                props: apply_props(BTreeMap::new(), i.props.unwrap_or_default()),
+            })
         })
-        .collect();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let (tasks, done) = session.shared().tasks.create_all(new, &actor(session));
     // Tell the windows also when a write error stopped the batch after some were created.
     if !tasks.is_empty() {
@@ -157,6 +270,8 @@ struct UpdateArgs {
     priority: Option<TaskPriority>,
     /// `""` clears it.
     due: Option<String>,
+    deps: Option<DepsInput>,
+    props: Option<BTreeMap<String, Option<String>>>,
 }
 
 pub(super) async fn run_task_update(session: &Arc<Session>, _: &ThreadId, args: &Value) -> anyhow::Result<String> {
@@ -165,12 +280,15 @@ pub(super) async fn run_task_update(session: &Arc<Session>, _: &ThreadId, args: 
     let tasks = &session.shared().tasks;
     let task = tasks.get(&id)?;
     ensure_own(session, &task)?;
-    // `parent`: absent keeps it; null or "" moves the Task to the top level.
+    // `parent`: absent keeps it; null or "" moves the Task to the top level. `check_args` refused
+    // any other type.
     let parent = args.get("parent").map(|p| p.as_str().map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned));
     if let Some(Some(p)) = &parent {
         anyhow::ensure!(crate::tasks::is_id(p), crate::error::invalid(format!("{p:?} is not a task id")));
     }
-    let mut patch = TaskPatch { title: a.title, body: a.body, status: a.status, priority: a.priority, ..Default::default() };
+    let deps = a.deps.map(|d| apply_deps(task.deps.clone(), d)).transpose()?;
+    let props = a.props.map(|p| apply_props(task.props.clone(), p));
+    let mut patch = TaskPatch { title: a.title, body: a.body, status: a.status, priority: a.priority, deps, props, ..Default::default() };
     match a.due {
         Some(d) if d.trim().is_empty() => patch.clear.push(TaskField::Due),
         d => patch.due = d,
@@ -178,11 +296,20 @@ pub(super) async fn run_task_update(session: &Arc<Session>, _: &ThreadId, args: 
     if patch.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
         return Err(crate::error::invalid("title cannot be empty"));
     }
-    let fields =
-        patch.title.is_some() || patch.body.is_some() || patch.status.is_some() || patch.priority.is_some() || patch.due.is_some() || !patch.clear.is_empty();
-    anyhow::ensure!(fields || parent.is_some(), "nothing to change: give status, title, body, priority, due or parent");
+    let fields = patch.title.is_some()
+        || patch.body.is_some()
+        || patch.status.is_some()
+        || patch.priority.is_some()
+        || patch.due.is_some()
+        || !patch.clear.is_empty()
+        || patch.deps.is_some()
+        || patch.props.is_some();
+    anyhow::ensure!(fields || parent.is_some(), "nothing to change: give status, title, body, priority, due, parent, deps or props");
     // Check the whole patch before any write, so a bad call changes nothing.
     crate::tasks::Tasks::check_patch(&patch)?;
+    if let Some(deps) = &patch.deps {
+        tasks.check_deps(&id, deps)?;
+    }
     let actor = actor(session);
     // The move first: of the rest, it is the change most likely refused (a loop), and then
     // nothing changed.
@@ -221,22 +348,21 @@ pub(super) async fn run_task_list(session: &Arc<Session>, _: &ThreadId, args: &V
     };
     let query = a.query.map(|q| q.trim().to_lowercase()).filter(|q| !q.is_empty());
     let sid = session.id();
-    let mut hits: Vec<TaskSummary> = session
-        .shared()
-        .tasks
-        .list()
-        .into_iter()
+    let every = session.shared().tasks.list();
+    let ids = by_id(&every);
+    let mut hits: Vec<&TaskSummary> = every
+        .iter()
         .filter(|t| all || relation_of(&sid, t).is_some())
         .filter(|t| match status {
             None => true,
-            Some(None) => !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled),
+            Some(None) => is_open(t.status),
             Some(Some(s)) => t.status == s,
         })
         .filter(|t| query.as_deref().is_none_or(|q| t.title.to_lowercase().contains(q) || t.id == q))
         .collect();
     hits.sort_by_key(|t| std::cmp::Reverse(t.updated_ms));
     let total = hits.len();
-    let rows: Vec<Value> = hits.iter().take(MAX_ROWS).map(|t| row(&sid, t)).collect();
+    let rows: Vec<Value> = hits.iter().take(MAX_ROWS).map(|t| row(&sid, t, &ids)).collect();
     let mut out = json!({ "tasks": rows });
     if total > MAX_ROWS {
         out["more"] = json!(format!("{} more not shown: narrow with status or query", total - MAX_ROWS));
@@ -253,7 +379,9 @@ pub(super) async fn run_task_get(session: &Arc<Session>, _: &ThreadId, args: &Va
         Ok(p) => json!({ "id": p.id, "title": p.title }),
         Err(_) => json!({ "id": p }),
     });
-    let mut subtasks: Vec<TaskSummary> = tasks.list().into_iter().filter(|c| c.parent_id.as_deref() == Some(t.id.as_str())).collect();
+    let every = tasks.list();
+    let all = by_id(&every);
+    let mut subtasks: Vec<&TaskSummary> = every.iter().filter(|c| c.parent_id.as_deref() == Some(t.id.as_str())).collect();
     subtasks.sort_by(|a, b| a.order.total_cmp(&b.order));
     let files = tasks.files_dir(&t.id)?;
     let assets: Vec<Value> =
@@ -262,9 +390,19 @@ pub(super) async fn run_task_get(session: &Arc<Session>, _: &ThreadId, args: &Va
     let sessions: Vec<Value> =
         t.sessions.iter().map(|l| json!({ "session_id": l.session_id, "title": l.title, "this_session": l.session_id == sid })).collect();
     let can_update = ensure_own(session, &t).is_ok();
+    // Dependencies both ways: the ones on this Task, and the Tasks whose deps name it.
+    let short = |id: &str| match all.get(id) {
+        Some(o) => json!({ "id": o.id, "title": o.title, "status": o.status }),
+        None => json!({ "id": id }),
+    };
+    let on = |kind: TaskDepKind| t.deps.iter().filter(|d| d.kind == kind).map(|d| short(&d.id)).collect::<Vec<_>>();
+    let of = |kind: TaskDepKind| every.iter().filter(|o| o.deps.iter().any(|d| d.id == t.id && d.kind == kind)).map(|o| short(&o.id)).collect::<Vec<_>>();
+    let waits = all.get(t.id.as_str()).map_or(0, |s| waits_on(s, &all));
     let out = json!({
         "id": t.id, "title": t.title, "status": t.status, "priority": t.priority, "due": t.due, "upstream": t.upstream,
-        "body": t.body, "parent": parent, "subtasks": subtasks.iter().map(|c| row(&sid, c)).collect::<Vec<_>>(),
+        "props": t.props, "blocked_by": on(TaskDepKind::Blocks), "waits_on": waits, "blocks": of(TaskDepKind::Blocks),
+        "follows": on(TaskDepKind::FollowUp), "followed_by": of(TaskDepKind::FollowUp),
+        "body": t.body, "parent": parent, "subtasks": subtasks.iter().map(|c| row(&sid, c, &all)).collect::<Vec<_>>(),
         "origin": origin, "sessions": sessions, "assets": assets, "can_update": can_update,
         "created_ms": t.created_ms, "updated_ms": t.updated_ms,
     });
@@ -275,6 +413,17 @@ pub(super) async fn run_task_get(session: &Arc<Session>, _: &ThreadId, args: &Va
 mod tests {
     #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
     use super::*;
+
+    #[test]
+    fn deps_changes_apply_in_place_and_refuse_an_id_named_twice() {
+        let dep = |id: &str, kind| TaskDep { id: id.into(), kind };
+        let input = |v: Value| serde_json::from_value::<DepsInput>(v).unwrap();
+        let now = vec![dep("t1", TaskDepKind::Blocks), dep("t2", TaskDepKind::Blocks)];
+        let out = apply_deps(now.clone(), input(json!({ "add": [{ "id": "t3" }, { "id": "t1", "kind": "follow_up" }], "remove": ["t2"] }))).unwrap();
+        assert_eq!(out, [dep("t1", TaskDepKind::FollowUp), dep("t3", TaskDepKind::Blocks)]);
+        assert!(apply_deps(now.clone(), input(json!({ "add": [{ "id": "t3" }, { "id": "t3" }] }))).is_err());
+        assert!(apply_deps(now, input(json!({ "add": [{ "id": "t1" }], "remove": ["t1"] }))).is_err());
+    }
 
     #[test]
     fn the_schema_values_are_the_enums() {
