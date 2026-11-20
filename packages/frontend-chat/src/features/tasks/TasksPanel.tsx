@@ -1,5 +1,6 @@
 import {
    errText,
+   isOpen,
    localDay,
    openBlockers,
    type SessionApi,
@@ -10,12 +11,22 @@ import {
    useStoredValue,
 } from "@harness/api";
 import { Button, ScrollArea, Tooltip } from "@harness/ui";
-import { ChevronDown, ChevronRight, ListChevronsDownUp, MoveUpRight } from "lucide-react";
+import {
+   ChevronDown,
+   ChevronRight,
+   List,
+   ListChevronsDownUp,
+   MoveUpRight,
+   Workflow,
+} from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { Segmented } from "../../lib/Segmented";
 import { useNow } from "../../lib/time";
 import type { PanelCtx } from "../../panels/contract";
 import { PanelHeader } from "../../panels/PanelHeader";
-import { splitDone } from "./listModel";
+import { GraphView } from "./GraphView";
+import { GroupByMenu, groupByStore } from "./GroupByMenu";
+import { graphGroup, splitDone } from "./listModel";
 import { NoteDock } from "./NoteDock";
 import { QuickAdd } from "./QuickAdd";
 import { TaskHoverCard } from "./TaskHoverCard";
@@ -28,6 +39,17 @@ const densityStore = storedValue<Density>({
    key: "harness.tasks.panelDensity",
    scope: "app",
    parse: (raw) => (raw === "condensed" ? "condensed" : "detail"),
+   serialize: (v) => v,
+   sync: false,
+});
+
+type PanelView = "list" | "graph";
+
+/** The panel's List / Graph switch, per window. */
+const viewStore = storedValue<PanelView>({
+   key: "harness.tasks.panelView",
+   scope: "app",
+   parse: (raw) => (raw === "graph" ? "graph" : "list"),
    serialize: (v) => v,
    sync: false,
 });
@@ -139,6 +161,7 @@ export function TasksPanel({
    const [showDone, setShowDone] = useState(false);
    const [error, setError] = useState<string | null>(null);
    const condensed = useStoredValue(densityStore) === "condensed";
+   const view = useStoredValue(viewStore);
    const today = localDay(new Date(useNow()));
    const all = tasks ?? [];
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
@@ -195,6 +218,32 @@ export function TasksPanel({
       <div className="flex h-full min-h-0 flex-col">
          <PanelHeader title="Tasks & Notes">
             <span className="flex-1" />
+            <Segmented
+               value={view}
+               onChange={(v) => viewStore.set(v)}
+               label="View"
+               className="[&>button]:h-6 [&>button]:px-1.5"
+               items={[
+                  {
+                     value: "list",
+                     label: (
+                        <>
+                           <List className="size-3.5" />
+                           <span className="sr-only">List</span>
+                        </>
+                     ),
+                  },
+                  {
+                     value: "graph",
+                     label: (
+                        <>
+                           <Workflow className="size-3.5" />
+                           <span className="sr-only">Graph</span>
+                        </>
+                     ),
+                  },
+               ]}
+            />
             <Tooltip content={condensed ? "Show details" : "Condensed list"} side="bottom">
                <Button
                   size="icon"
@@ -221,50 +270,146 @@ export function TasksPanel({
                </Tooltip>
             )}
          </PanelHeader>
-         <ScrollArea className="min-h-0 flex-1">
-            {pinned && (
-               <section aria-label="Started from" className="px-2.5 pt-2.5">
-                  <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                     Started from
-                  </div>
-                  <div className="rounded-lg border bg-card">{row(pinned)}</div>
-               </section>
-            )}
-            <QuickAdd
-               className="px-2.5 pb-1 pt-2.5"
-               label="Add task"
-               placeholder="Add task… Markdown ok"
-               onAdd={(title) => api.createTask({ title })}
+         {view === "graph" ? (
+            <PanelGraph
+               api={api}
+               tasks={tasks}
+               pinned={pinned}
+               created={created}
+               condensed={condensed}
+               today={today}
+               host={host}
+               onOpen={onOpen}
             />
-            {error && (
-               <div role="alert" className="px-3.5 pt-1 text-xs text-destructive">
-                  {error}
-               </div>
-            )}
-            <Group
-               label={`Created here · ${open.length}`}
-               open={showCreated}
-               onToggle={() => setShowCreated((o) => !o)}
-            >
-               {tasks && open.length === 0 && (
-                  <p className="px-2 py-1 text-xs text-muted-foreground/70">
-                     {closed.length ? "All done." : "No tasks created in this Session yet."}
-                  </p>
+         ) : (
+            <ScrollArea className="min-h-0 flex-1">
+               {pinned && (
+                  <section aria-label="Started from" className="px-2.5 pt-2.5">
+                     <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Started from
+                     </div>
+                     <div className="rounded-lg border bg-card">{row(pinned)}</div>
+                  </section>
                )}
-               {rows(open)}
-            </Group>
-            {closed.length > 0 && (
+               <QuickAdd
+                  className="px-2.5 pb-1 pt-2.5"
+                  label="Add task"
+                  placeholder="Add task… Markdown ok"
+                  onAdd={(title) => api.createTask({ title })}
+               />
+               {error && (
+                  <div role="alert" className="px-3.5 pt-1 text-xs text-destructive">
+                     {error}
+                  </div>
+               )}
                <Group
-                  label={`Done · ${closed.length}`}
-                  open={showDone}
-                  onToggle={() => setShowDone((o) => !o)}
+                  label={`Created here · ${open.length}`}
+                  open={showCreated}
+                  onToggle={() => setShowCreated((o) => !o)}
                >
-                  {rows(closed)}
+                  {tasks && open.length === 0 && (
+                     <p className="px-2 py-1 text-xs text-muted-foreground/70">
+                        {closed.length ? "All done." : "No tasks created in this Session yet."}
+                     </p>
+                  )}
+                  {rows(open)}
                </Group>
-            )}
-            <div className="h-2" />
-         </ScrollArea>
+               {closed.length > 0 && (
+                  <Group
+                     label={`Done · ${closed.length}`}
+                     open={showDone}
+                     onToggle={() => setShowDone((o) => !o)}
+                  >
+                     {rows(closed)}
+                  </Group>
+               )}
+               <div className="h-2" />
+            </ScrollArea>
+         )}
          <NoteDock api={api} />
       </div>
    );
 }
+
+/**
+ * The panel's Graph view (board "Panel"): this Session's open tasks (pinned and created here) as a graph, lanes
+ * by the All tasks group-by. Open tasks of other Sessions that they wait on show as dashed cards; a click on one
+ * opens All tasks at it.
+ */
+function PanelGraph({
+   api,
+   tasks,
+   pinned,
+   created,
+   condensed,
+   today,
+   host,
+   onOpen,
+}: {
+   api: SessionApi;
+   tasks: readonly TaskSummary[] | null;
+   pinned: TaskSummary | null;
+   created: readonly TaskSummary[];
+   condensed: boolean;
+   today: string;
+   host: PanelCtx["host"];
+   onOpen: (id: string) => void;
+}) {
+   const all = tasks ?? EMPTY;
+   const groupBy = useStoredValue(groupByStore);
+   const shown = useMemo(
+      () => [...(pinned ? [pinned] : []), ...created].filter((t) => isOpen(t.status)),
+      [pinned, created],
+   );
+   const outside = useMemo(() => {
+      const here = new Set(shown.map((t) => t.id));
+      const ids = new Set(
+         shown.flatMap((t) => t.deps.filter((d) => d.kind === "blocks").map((d) => d.id)),
+      );
+      return all.filter((t) => ids.has(t.id) && !here.has(t.id) && isOpen(t.status));
+   }, [all, shown]);
+   const sessions = host.sessions;
+   const lanes = useMemo(
+      () =>
+         graphGroup(all, groupBy, (id) => {
+            const t = all.find((x) => x.origin_session_id === id);
+            return sessions?.get(id)?.title ?? t?.origin_title ?? "Session";
+         }),
+      [all, groupBy, sessions],
+   );
+   return (
+      <div className="flex min-h-0 flex-1 flex-col">
+         <QuickAdd
+            className="px-2.5 pb-1 pt-2.5"
+            label="Add task"
+            placeholder="Add task… Markdown ok"
+            onAdd={(title) => api.createTask({ title })}
+         />
+         <div className="flex shrink-0 items-center gap-2 border-b px-3 pb-2 pt-1 text-xs text-muted-foreground">
+            <GroupByMenu value={groupBy} tasks={all} prefix="Group: " className="h-6 text-xs" />
+            <span className="flex-1" />
+            <span className="truncate">
+               {shown.length} open{outside.length > 0 && ` · ${outside.length} outside`}
+            </span>
+         </div>
+         <GraphView
+            tasks={shown}
+            all={all}
+            outside={outside}
+            groupBy={lanes}
+            density={condensed ? "condensed" : "detail"}
+            today={today}
+            sessions={sessions}
+            onOpen={onOpen}
+            onOpenOutside={host.openTasks}
+            empty={
+               <p className="px-3.5 py-3 text-xs text-muted-foreground/70">
+                  {tasks ? "No open tasks in this Session." : "Loading…"}
+               </p>
+            }
+         />
+      </div>
+   );
+}
+
+const EMPTY: readonly TaskSummary[] = [];

@@ -29,7 +29,11 @@ afterEach(() => {
 const Body = tasksPanel.Body as ComponentType<PanelBodyProps<TasksModel, string>>;
 
 function setup(
-   o: { sessions?: ReadonlyMap<string, SessionInfo>; edit?: (mock: MockTransport) => void } = {},
+   o: {
+      sessions?: ReadonlyMap<string, SessionInfo>;
+      edit?: (mock: MockTransport) => void;
+      openTasks?: (id?: string) => void;
+   } = {},
 ) {
    const mock = new MockTransport([], []);
    o.edit?.(mock);
@@ -42,7 +46,7 @@ function setup(
       hide: vi.fn(),
       isOpen: () => true,
       chat: null,
-      host: { sessions: o.sessions },
+      host: { sessions: o.sessions, openTasks: o.openTasks },
    };
    const self: PanelSelf<string> = {
       id: "tasks",
@@ -337,6 +341,38 @@ describe("Tasks panel", () => {
          expect(within(list).getByText("Compact header layout")).toBeTruthy();
          expect(screen.queryByText(/\(deleted\)/)).toBeNull();
       });
+   });
+
+   it("the Graph switch shows this Session's open tasks, outside blockers dashed; the choice is kept", async () => {
+      const openTasks = vi.fn();
+      setup({ openTasks });
+      await waitFor(() => group(/^Created here · 4$/));
+      fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+      expect(localStorage.getItem("harness.tasks.panelView")).toBe("graph");
+      const card = (id: string) => document.querySelector<HTMLElement>(`[data-graph-card="${id}"]`);
+      await waitFor(() => expect(card("t3")).toBeTruthy());
+      // Pinned and created here, open only: not the done t10, not t4 (another Session's).
+      const ids = [...document.querySelectorAll<HTMLElement>("[data-graph-card]")]
+         .map((c) => c.dataset.graphCard)
+         .sort();
+      expect(ids).toEqual(["t14", "t3", "t5", "t6", "t7", "t9"]);
+      expect(screen.getByText("5 open · 1 outside")).toBeTruthy();
+      // t3 waits on t14, made in another Session: a dashed outside card with its line.
+      const ext = card("t14")!;
+      expect(ext.dataset.outside).toBe("true");
+      expect(ext.className).toContain("border-dashed");
+      expect(card("t3")!.dataset.outside).toBeUndefined();
+      expect(document.querySelector('[data-line="t14>t3"]')).toBeTruthy();
+      // A click on it opens All tasks at it; a click on a task of this Session opens it here.
+      fireEvent.click(within(ext).getByRole("button"));
+      expect(openTasks).toHaveBeenCalledWith("t14");
+      fireEvent.click(within(card("t7")!).getByRole("button"));
+      await waitFor(() => screen.getByRole("button", { name: "Back to tasks" }));
+      cleanup();
+      // Kept for the window: a new panel opens in the graph.
+      setup();
+      await waitFor(() => expect(card("t3")).toBeTruthy());
+      expect(screen.getByRole("tab", { name: "Graph" }).getAttribute("aria-selected")).toBe("true");
    });
 
    it("docks the session note below the list, with a resize handle", async () => {

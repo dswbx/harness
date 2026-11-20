@@ -2,6 +2,8 @@
 // for a given width. Pure, for the tests.
 
 export type GraphDepKind = "blocks" | "follow_up";
+/** A dep, or `parent`: from a task's parent to it (`parentOf`). */
+export type GraphLineKind = GraphDepKind | "parent";
 
 /** What the layout reads from a task (a `TaskSummary` fits). A dep is stored on the task that waits. */
 export interface GraphTask {
@@ -36,6 +38,11 @@ export type GraphOptions<T> = {
     * outside card just before the task that waits on it, in its lane. Others are ignored.
     */
    outside?: readonly GraphTask[];
+   /**
+    * Also a `parent` line from each task's parent to it, when both show. Parent lines do not change ranks or
+    * the order in a lane, only the room in the gaps.
+    */
+   parentOf?: (t: T) => string | null;
 };
 
 export type GraphPoint = { x: number; y: number };
@@ -63,11 +70,11 @@ export type GraphLane = {
    head: number;
 };
 
-/** From the task waited on (the dep target) to the task that waits. */
+/** From the task waited on (the dep target) to the task that waits; for `parent`, from the parent to the child. */
 export type GraphLine = {
    from: string;
    to: string;
-   kind: GraphDepKind;
+   kind: GraphLineKind;
    /** Orthogonal: from the right side of `from` to the left side of `to`. */
    points: GraphPoint[];
    /** SVG path `d` of `points` with rounded corners. */
@@ -154,7 +161,7 @@ type Line = {
    i: number;
    from: Node;
    to: Node;
-   kind: GraphDepKind;
+   kind: GraphLineKind;
    /** The from and to cards are in neighbour columns: one jog in the gap between them. */
    direct: boolean;
    /** Otherwise: the horizontal gap (above row h) it goes along. */
@@ -253,7 +260,7 @@ export function layoutGraph<T extends GraphTask>(
    const outsideBy = new Map<string, GraphTask>();
    for (const t of o.outside ?? [])
       if (!shown.has(t.id) && !outsideBy.has(t.id)) outsideBy.set(t.id, t);
-   const pending: { from: string; to: Node; kind: GraphDepKind }[] = [];
+   const pending: { from: string; to: Node; kind: GraphLineKind }[] = [];
    const waiting = new Map<string, Node[]>();
    for (const t of sorted) {
       const to = nodes.get(t.id)!;
@@ -276,10 +283,18 @@ export function layoutGraph<T extends GraphTask>(
       const first = w.reduce((a, b) => (b.rank < a.rank ? b : a));
       nodes.set(id, node(id, outsideBy.get(id)!.order, first.rank - 1, first.lane, true));
    }
+   if (o.parentOf)
+      for (const t of sorted) {
+         const p = o.parentOf(t);
+         if (p && p !== t.id && shown.has(p))
+            pending.push({ from: p, to: nodes.get(t.id)!, kind: "parent" });
+      }
    const lines: Line[] = pending.map((p, i) => {
       const from = nodes.get(p.from)!;
-      from.succs.push(p.to);
-      p.to.preds.push(from);
+      if (p.kind !== "parent") {
+         from.succs.push(p.to);
+         p.to.preds.push(from);
+      }
       return {
          i,
          from,

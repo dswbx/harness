@@ -1,4 +1,11 @@
-import { isOpen, type TaskPriority, type TaskStatus, type TaskSummary } from "@harness/api";
+import {
+   isOpen,
+   TASK_STATUS_LABEL,
+   type TaskPriority,
+   type TaskStatus,
+   type TaskSummary,
+} from "@harness/api";
+import type { GraphGroupBy } from "./graphLayout";
 
 // Pure helpers for task lists (ADR 0028): sorting, grouping, the tasks of one Session.
 
@@ -193,6 +200,10 @@ export function matchesFilter(t: Filterable, f: TaskFilter, today: string): bool
 
 const statusPasses = (status: TaskStatus, f: StatusFilter) =>
    f === "all" || (f === "open") === isOpen(status);
+
+/** Whether the task passes every filter, the status one too (the Graph view shows only these). */
+export const passesFilter = (t: Filterable, f: TaskFilter, today: string): boolean =>
+   statusPasses(t.status, f.status) && matchesFilter(t, f, today);
 
 /** A field, or a prop key as `prop:<key>` (ADR 0029). One string, so it fits a menu value and a stored value. */
 export type GroupBy = "topic" | "status" | "session" | `prop:${string}`;
@@ -408,6 +419,39 @@ export function buildList<T extends Listable>(
       });
    }
    return { groups, closed };
+}
+
+/**
+ * The lanes of the Graph view for a group-by, with the List view's group labels: by topic, a task's topic is its
+ * top-level ancestor when that one has subtasks (a top-level task without subtasks: "No topic"); by status, the
+ * status; by Session, the origin Session; a prop key goes to `layoutGraph` as it is. `tasks`: all tasks (topic titles
+ * and parents).
+ */
+export function graphGroup<T extends Pick<TaskSummary, "id" | "parent_id" | "title" | "status">>(
+   tasks: readonly T[],
+   groupBy: GroupBy,
+   sessionTitle: (id: string) => string,
+): GraphGroupBy<T & Pick<TaskSummary, "origin_session_id">> {
+   const prop = groupProp(groupBy);
+   if (prop !== null) return prop;
+   if (groupBy === "status")
+      return {
+         laneOf: (t) => t.status,
+         label: (k) => TASK_STATUS_LABEL[k as TaskStatus] ?? k,
+         missing: "No status",
+      };
+   if (groupBy === "session")
+      return { laneOf: (t) => t.origin_session_id, label: sessionTitle, missing: "No session" };
+   const byId = new Map(tasks.map((t) => [t.id, t]));
+   const parents = new Set(tasks.map((t) => t.parent_id));
+   return {
+      laneOf: (t) => {
+         const top = ancestors(byId, t.id)[0] ?? t;
+         return parents.has(top.id) ? top.id : null;
+      },
+      label: (id) => byId.get(id)?.title ?? id,
+      missing: "No topic",
+   };
 }
 
 /**

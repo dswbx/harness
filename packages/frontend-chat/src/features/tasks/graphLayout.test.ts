@@ -325,6 +325,41 @@ describe("layoutGraph", () => {
                }
    });
 
+   it("parent lines: routed like deps, without changing ranks or order", () => {
+      const parents: Record<string, string> = {
+         schema: "plan",
+         tests: "api",
+         ui: "docs",
+         spike: "ui",
+      };
+      const parentOf = (x: GraphTask) => parents[x.id] ?? null;
+      for (const width of [440, 1440]) {
+         const plain = layoutGraph(TASKS, opts({ width }));
+         const l = layoutGraph(TASKS, opts({ width, parentOf }));
+         const kinds = l.lines.filter((x) => x.kind === "parent").map((x) => `${x.from}>${x.to}`);
+         expect(kinds.sort()).toEqual(["api>tests", "docs>ui", "plan>schema", "ui>spike"]);
+         expect(l.cards.map((c) => [c.id, c.rank, c.lane])).toEqual(
+            plain.cards.map((c) => [c.id, c.rank, c.lane]),
+         );
+         expect(problems(l)).toEqual([]);
+      }
+      // A parent that is not shown: no line.
+      const none = layoutGraph(TASKS, opts({ parentOf: () => "nowhere" }));
+      expect(none.lines.some((x) => x.kind === "parent")).toBe(false);
+      for (const tasks of [bigGraph(40, 7), bigGraph(60, 42)]) {
+         // Some point back to an earlier or a later task (n1 -> n2), so lines also run right to left.
+         const parentOf = (x: GraphTask) => {
+            const n = Number(x.id.slice(1));
+            return n % 3 === 0 && n > 0 ? `n${n - 1}` : n % 5 === 1 ? "n2" : null;
+         };
+         for (const width of [300, 660, 1440])
+            for (const groupBy of [null, "area"])
+               expect(
+                  problems(layoutGraph(tasks, { width, groupBy, density: "detail", parentOf })),
+               ).toEqual([]);
+      }
+   });
+
    it("the checks find a line through a card and two lines on one track", () => {
       const l = layoutGraph(TASKS, opts({ width: 440 }));
       expect(problems(l)).toEqual([]);

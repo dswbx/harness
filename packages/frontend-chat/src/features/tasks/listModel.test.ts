@@ -8,6 +8,7 @@ import {
    DEFAULT_FILTER,
    descendantIds,
    type GroupBy,
+   graphGroup,
    groupProp,
    hasFilters,
    type ListGroup,
@@ -16,6 +17,7 @@ import {
    NO_SESSION,
    parentCandidates,
    parseGroupBy,
+   passesFilter,
    reveal,
    sessionCount,
    sessionTasks,
@@ -349,5 +351,43 @@ describe("All tasks list", () => {
 
    it("counts the Sessions of open tasks", () => {
       expect(sessionCount(tasks)).toBe(2);
+   });
+});
+
+describe("Graph view lanes", () => {
+   const tasks = [
+      t("top", { title: "Release" }),
+      t("sub", { parent_id: "top" }),
+      t("deep", { parent_id: "sub", status: "done", origin_session_id: "s1" }),
+      t("loose", { origin_session_id: "s2", origin_title: "Cached" }),
+      t("x", { props: { area: "ui" } }),
+   ];
+   const lane = (g: GroupBy, id: string) => {
+      const by = graphGroup(tasks, g, (s) => `Session ${s}`);
+      if (by === null || typeof by === "string") return by;
+      const k = by.laneOf(tasks.find((x) => x.id === id)!);
+      return k === null ? by.missing : (by.label?.(k) ?? k);
+   };
+
+   it("by topic: the top-level ancestor with subtasks, with its title; else No topic", () => {
+      expect(lane("topic", "top")).toBe("Release");
+      expect(lane("topic", "deep")).toBe("Release");
+      expect(lane("topic", "loose")).toBe("No topic");
+   });
+
+   it("by status and Session, with their labels; a prop key as it is", () => {
+      expect(lane("status", "deep")).toBe("Done");
+      expect(lane("session", "deep")).toBe("Session s1");
+      expect(lane("session", "top")).toBe("No session");
+      expect(lane("prop:area", "x")).toBe("area");
+   });
+
+   it("passesFilter: the status filter and the others", () => {
+      const done = tasks[2]!;
+      expect(passesFilter(done, DEFAULT_FILTER, "2026-01-01")).toBe(false);
+      expect(passesFilter(done, { ...DEFAULT_FILTER, status: "done" }, "2026-01-01")).toBe(true);
+      expect(passesFilter(tasks[0]!, { ...DEFAULT_FILTER, query: "nope" }, "2026-01-01")).toBe(
+         false,
+      );
    });
 });
