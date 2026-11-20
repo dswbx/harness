@@ -116,6 +116,7 @@ export function agentSlice(c: Ctx, e: Event) {
             id,
             message: k.message,
             methods: k.methods,
+            ...(k.agent_name && { agentName: k.agent_name }),
             ...(user &&
                !user.from && { resend: { text: user.text, attachments: user.attachments } }),
          });

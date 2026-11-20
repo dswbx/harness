@@ -53,6 +53,13 @@ describe("AuthCard", () => {
       expect(screen.getByText("Use your plan")).toBeTruthy();
    });
 
+   it("names the Agent in the title, with a fallback", () => {
+      const { rerender } = setup();
+      expect(screen.getByText("Sign in to continue")).toBeTruthy();
+      rerender(item({ agentName: "Claude" }));
+      expect(screen.getByText("Sign in to Claude")).toBeTruthy();
+   });
+
    it("runs a terminal method in a Terminal tab and shows it, then waits", async () => {
       const { api, open } = setup();
       fireEvent.click(screen.getByRole("button", { name: "Subscription" }));

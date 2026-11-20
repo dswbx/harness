@@ -652,7 +652,9 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
  */
 forked_from?: ForkPoint | null } | 
 /**  The Agent needs the user to sign in before it can work. */
-{ type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
+{ type: "AuthRequired"; methods: AuthMethodInfo[]; message: string; 
+/**  The Agent's display name, for "Sign in to <name>". Absent in older logs. */
+agent_name?: string | null } | 
 /**
  *  A terminal sign-in the Harness ran (`AuthInTerminal`) ended. On `signed_in` the Agent
  *  process was restarted before this was logged.

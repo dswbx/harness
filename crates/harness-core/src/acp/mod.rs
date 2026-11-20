@@ -204,7 +204,8 @@ fn report_auth_required(session: &Arc<Session>, thread: Option<&ThreadId>, messa
             kind: m.get("type").and_then(Value::as_str).unwrap_or("agent").to_owned(),
         })
         .collect();
-    session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
+    let agent_name = Some(session.meta().agent.name).filter(|n| !n.is_empty());
+    session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned(), agent_name });
     session.sync_log_detached();
 }
 

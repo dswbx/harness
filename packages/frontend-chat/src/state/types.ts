@@ -153,6 +153,8 @@ export type Item =
         id: string;
         message: string;
         methods: AuthMethodInfo[];
+        /** The Agent's display name, for the card title. */
+        agentName?: string;
         /** The user's message of the Turn this refused (the Agent asked mid-Turn), to send again after sign-in. */
         resend?: { text: string; attachments: Attachment[] };
         /** How the last terminal sign-in from this card ended (`AuthFinished`); `id` is that Event's. */

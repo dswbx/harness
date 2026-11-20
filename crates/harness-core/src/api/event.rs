@@ -45,6 +45,9 @@ pub enum EventKind {
     AuthRequired {
         methods: Vec<AuthMethodInfo>,
         message: String,
+        /// The Agent's display name, for "Sign in to <name>". Absent in older logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_name: Option<String>,
     },
     /// A terminal sign-in the Harness ran (`AuthInTerminal`) ended. On `signed_in` the Agent
     /// process was restarted before this was logged.

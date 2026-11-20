@@ -148,7 +148,13 @@ export function AuthCard({
             ) : (
                <KeyRound className="size-4 text-amber-500" />
             )}
-            <CardTitle>{done ? "Signed in" : "Sign in to continue"}</CardTitle>
+            <CardTitle>
+               {done
+                  ? "Signed in"
+                  : item.agentName
+                    ? `Sign in to ${item.agentName}`
+                    : "Sign in to continue"}
+            </CardTitle>
          </CardHeader>
          <CardContent className="space-y-3 text-sm">
             {done ? (
