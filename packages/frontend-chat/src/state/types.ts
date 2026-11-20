@@ -1,6 +1,7 @@
 import type {
    Attachment,
    AuthMethodInfo,
+   AuthOutcome,
    Boundary,
    FileChange,
    ForkPoint,
@@ -147,7 +148,22 @@ export type Item =
         auto?: { allowed: boolean; ruleId: string | null };
      }
    /** The Agent refuses to start a session until the user signs in. */
-   | { type: "auth"; id: string; message: string; methods: AuthMethodInfo[] }
+   | {
+        type: "auth";
+        id: string;
+        message: string;
+        methods: AuthMethodInfo[];
+        /** The user's message of the Turn this refused (the Agent asked mid-Turn), to send again after sign-in. */
+        resend?: { text: string; attachments: Attachment[] };
+        /** How the last terminal sign-in from this card ended (`AuthFinished`); `id` is that Event's. */
+        finished?: {
+           id: string;
+           methodId: string;
+           methodName: string;
+           outcome: AuthOutcome;
+           exitCode: number | null;
+        };
+     }
    | {
         type: "notice";
         id: string;

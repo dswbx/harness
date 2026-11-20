@@ -49,6 +49,11 @@ impl Harness {
         Ok(CommandResult::Ok)
     }
 
+    pub(in crate::host) fn cmd_auth_in_terminal(&self, session_id: SessionId, thread_id: Option<ThreadId>, method_id: String) -> anyhow::Result<CommandResult> {
+        let terminal_id = self.session(&session_id)?.auth_in_terminal(&self.terminals, &method_id, thread_id)?;
+        Ok(CommandResult::TerminalOpened { terminal_id })
+    }
+
     pub(in crate::host) async fn cmd_list_mcp_servers(&self) -> anyhow::Result<CommandResult> {
         // The lock can be held by a save writing `mcp.json`.
         Ok(CommandResult::McpServers { servers: self.shared.library_blocking(|lib| lib.list()).await? })

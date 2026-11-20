@@ -399,6 +399,7 @@ impl Harness {
             Command::RemoveAgent { agent_id } => self.cmd_remove_agent(agent_id),
             Command::Authenticate { session_id, method_id } => self.cmd_authenticate(session_id, method_id).await,
             Command::OpenAuthTerminal { session_id, method_id } => self.cmd_open_auth_terminal(session_id, method_id).await,
+            Command::AuthInTerminal { session_id, thread_id, method_id } => self.cmd_auth_in_terminal(session_id, thread_id, method_id),
             Command::ListFrontends => self.cmd_list_frontends(),
             Command::ListSessions => self.cmd_list_sessions(),
             Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, task } => {

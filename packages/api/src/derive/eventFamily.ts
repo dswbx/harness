@@ -20,6 +20,7 @@ const FAMILY: Record<EventKind["type"], string> = {
    AgentProcessState: "Agent",
    AgentCapabilities: "Agent",
    AuthRequired: "Agent",
+   AuthFinished: "Agent",
    ModeChanged: "Agent",
    ConfigOptionsChanged: "Agent",
    AvailableCommandsChanged: "Agent",
