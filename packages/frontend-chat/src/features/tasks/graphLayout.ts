@@ -100,6 +100,8 @@ export type GraphLayout = {
 /** Sizes in px. */
 export const CARD_MIN = 176;
 export const CARD_MAX = 248;
+/** The narrowest a card gets when gaps grow for their lines, before the layout gets wider. */
+export const CARD_FLOOR = 128;
 /** Between columns. */
 export const GAP = 32;
 /** Around the cards; lines in an outer gap keep at least this from the edge. */
@@ -115,6 +117,8 @@ export const LANE_HEAD = 24;
 /** Between two lines in one gap. A gap grows when its lines need more room. */
 export const TRACK = 4;
 export const RADIUS = 6;
+/** The straight end of a line before the card it points to (after its rounded corner), so its arrowhead shows. */
+export const ARROW_ROOM = 12;
 
 /** Cards per row for a container width (at least 2). */
 export function graphColumns(width: number): number {
@@ -406,16 +410,33 @@ export function layoutGraph<T extends GraphTask>(
    }
 
    // Sizes and positions.
-   // An inner gap holds its tracks in the middle. An outer gap (left of the first column, above the first row,
-   // and the mirror sides) grows by its tracks: PAD stays free on the edge side, 2 * TRACK on the card side.
+   // A column gap holds its tracks between 2 * TRACK from the card on its left (lines leave it) and ARROW_ROOM
+   // from the card on its right (lines enter it, with an arrowhead). An outer gap keeps PAD free on the edge side.
+   // A row gap holds its tracks in the middle (no arrowheads end there).
    const room = (n: number) => (n + 1) * TRACK;
+   const vRoom = (n: number) => 2 * TRACK + (n - 1) * TRACK + ARROW_ROOM + RADIUS;
    const size = (n: number, outer: boolean, inner: number) =>
       outer ? PAD + (n > 0 ? room(n) : 0) : Math.max(inner, room(n));
    const trackStart = (start: number, sz: number, n: number, i: number, last: number) =>
       i === 0 ? start + PAD : i === last ? start + 2 * TRACK : start + (sz - (n - 1) * TRACK) / 2;
-   const vSize = vCount.map((n, i) => size(n, i === 0 || i === gridCols, GAP));
-   // Gaps that grew for their lines take room from the cards first (down to CARD_MIN - GAP), then widen the layout.
-   const cardWidth = Math.min(fullCard, Math.max(CARD_MIN - GAP, (width - sum(vSize)) / gridCols));
+   const vSizeOf = (n: number, i: number) =>
+      i === gridCols
+         ? PAD + (n > 0 ? room(n) : 0)
+         : i === 0
+           ? PAD + (n > 0 ? (n - 1) * TRACK + ARROW_ROOM + RADIUS : 0)
+           : Math.max(GAP, vRoom(n));
+   const vTrackStart = (start: number, sz: number, n: number, i: number) => {
+      if (i === 0) return start + PAD;
+      if (i === gridCols) return start + 2 * TRACK;
+      const centered = start + (sz - (n - 1) * TRACK) / 2;
+      return Math.max(
+         start + 2 * TRACK,
+         Math.min(centered, start + sz - ARROW_ROOM - RADIUS - (n - 1) * TRACK),
+      );
+   };
+   const vSize = vCount.map((n, i) => vSizeOf(n, i));
+   // Gaps that grew for their lines take room from the cards first (down to CARD_FLOOR), then widen the layout.
+   const cardWidth = Math.min(fullCard, Math.max(CARD_FLOOR, (width - sum(vSize)) / gridCols));
    const content = sum(vSize) + gridCols * cardWidth;
    const left = Math.max(0, (width - content) / 2);
    const vStart: number[] = [];
@@ -500,7 +521,7 @@ export function layoutGraph<T extends GraphTask>(
          const [qg, qk] = vKey(q);
          return p.role - q.role || pg - qg || pk - qk || p.l.i - q.l.i;
       });
-      const x0 = trackStart(vStart[i]!, vSize[i]!, segs.length, i, gridCols);
+      const x0 = vTrackStart(vStart[i]!, vSize[i]!, segs.length, i);
       for (const [k, s] of segs.entries()) {
          if (s.role === 2) s.l.x2 = x0 + k * TRACK;
          else s.l.x1 = x0 + k * TRACK;

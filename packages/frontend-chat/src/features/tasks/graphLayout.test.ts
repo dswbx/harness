@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+   ARROW_ROOM,
    CARD_MAX,
    type GraphDepKind,
    type GraphLayout,
@@ -12,6 +13,7 @@ import {
    layoutGraph,
    MIN_WIDTH,
    PAD,
+   RADIUS,
    TRACK,
 } from "./graphLayout";
 
@@ -430,6 +432,20 @@ describe("layoutGraph", () => {
       );
       expect(small.width).toBe(MIN_WIDTH);
       expect(small.cardWidth).toBeLessThan(layoutGraph(TASKS, opts({ width: 300 })).cardWidth);
+   });
+
+   it("every line ends in a straight piece of at least ARROW_ROOM after its corner, so its arrowhead shows", () => {
+      for (const tasks of [TASKS, bigGraph(40, 7), bigGraph(60, 42)])
+         for (const width of [300, 440, 660, 1440])
+            for (const groupBy of [null, "area"]) {
+               const l = layoutGraph(tasks, { width, groupBy, density: "detail" });
+               for (const line of l.lines) {
+                  const [a, b] = line.points.slice(-2);
+                  expect(Math.hypot(b!.x - a!.x, b!.y - a!.y)).toBeGreaterThanOrEqual(
+                     ARROW_ROOM + RADIUS - EPS,
+                  );
+               }
+            }
    });
 
    it("a lane heading starts at the first card column, also with lines in the left gap", () => {
