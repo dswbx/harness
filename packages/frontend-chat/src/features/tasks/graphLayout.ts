@@ -100,7 +100,8 @@ export const CARD_MIN = 176;
 export const CARD_MAX = 248;
 /** Between columns. */
 export const GAP = 32;
-export const PAD = 12;
+/** Around the cards; lines in an outer gap keep at least this from the edge. */
+export const PAD = 20;
 /** Two cards. */
 export const MIN_WIDTH = 2 * CARD_MIN + GAP + 2 * PAD;
 export const CARD_HEIGHT = { condensed: 48, detail: 64 } as const;
@@ -403,8 +404,14 @@ export function layoutGraph<T extends GraphTask>(
    }
 
    // Sizes and positions.
+   // An inner gap holds its tracks in the middle. An outer gap (left of the first column, above the first row,
+   // and the mirror sides) grows by its tracks: PAD stays free on the edge side, 2 * TRACK on the card side.
    const room = (n: number) => (n + 1) * TRACK;
-   const vSize = vCount.map((n, i) => Math.max(i === 0 || i === gridCols ? PAD : GAP, room(n)));
+   const size = (n: number, outer: boolean, inner: number) =>
+      outer ? PAD + (n > 0 ? room(n) : 0) : Math.max(inner, room(n));
+   const trackStart = (start: number, sz: number, n: number, i: number, last: number) =>
+      i === 0 ? start + PAD : i === last ? start + 2 * TRACK : start + (sz - (n - 1) * TRACK) / 2;
+   const vSize = vCount.map((n, i) => size(n, i === 0 || i === gridCols, GAP));
    // Gaps that grew for their lines take room from the cards first (down to CARD_MIN - GAP), then widen the layout.
    const cardWidth = Math.min(fullCard, Math.max(CARD_MIN - GAP, (width - sum(vSize)) / gridCols));
    const content = sum(vSize) + gridCols * cardWidth;
@@ -420,7 +427,7 @@ export function layoutGraph<T extends GraphTask>(
    }
    const head = grouped ? LANE_HEAD : 0;
    const hSize = hCount.map((n, j) =>
-      Math.max(j === 0 || j === nRows ? PAD : firstRow.has(j) ? LANE_GAP : ROW_GAP, room(n)),
+      size(n, j === 0 || j === nRows, firstRow.has(j) ? LANE_GAP : ROW_GAP),
    );
    const hStart: number[] = [];
    const rowY: number[] = [];
@@ -491,7 +498,7 @@ export function layoutGraph<T extends GraphTask>(
          const [qg, qk] = vKey(q);
          return p.role - q.role || pg - qg || pk - qk || p.l.i - q.l.i;
       });
-      const x0 = vStart[i]! + (vSize[i]! - (segs.length - 1) * TRACK) / 2;
+      const x0 = trackStart(vStart[i]!, vSize[i]!, segs.length, i, gridCols);
       for (const [k, s] of segs.entries()) {
          if (s.role === 2) s.l.x2 = x0 + k * TRACK;
          else s.l.x1 = x0 + k * TRACK;
@@ -514,7 +521,7 @@ export function layoutGraph<T extends GraphTask>(
          const [qg, qk] = key(q);
          return pg - qg || pk - qk || p.i - q.i;
       });
-      const y0 = hStart[h]! + (hSize[h]! - (list.length - 1) * TRACK) / 2;
+      const y0 = trackStart(hStart[h]!, hSize[h]!, list.length, h, nRows);
       for (const [k, l] of list.entries()) l.y = y0 + k * TRACK;
    }
 

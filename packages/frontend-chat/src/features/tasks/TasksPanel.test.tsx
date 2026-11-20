@@ -155,7 +155,7 @@ describe("Tasks panel", () => {
       expect(row("Align the session title baseline", subtasks)).toBeTruthy();
       expect(within(subtasks).getByText("Subtasks · 1/3")).toBeTruthy();
       await waitFor(() => expect(title()).toBe("Header polish"));
-      // The list stays, the open row is selected, and the sheet comes after it (not over it).
+      // The list stays, the open row is selected, and the sheet comes after it, outside its scroll area.
       expect(group(/^Created here · 4$/)).toBe(created);
       expect(rowBox("Header polish").getAttribute("aria-current")).toBe("true");
       expect(
@@ -523,6 +523,85 @@ describe("Tasks panel", () => {
          fireEvent.doubleClick(next.handle);
          expect(next.sheet.style.height).toBe("300px");
          expect(localStorage.getItem("harness.tasks.sheetHeight")).toBeNull();
+      });
+
+      /** The scroll area holding `el`: its root (the sheet's space as `--sheet-space`) and its viewport. */
+      const scrollOf = (el: Element) => {
+         const viewport = el.closest<HTMLElement>("[data-radix-scroll-area-viewport]")!;
+         return {
+            viewport,
+            space: viewport.parentElement!.style.getPropertyValue("--sheet-space"),
+         };
+      };
+      const spacer = () => document.querySelector<HTMLElement>("[data-sheet-spacer]");
+
+      it("floats over the list, which keeps the sheet's space free at its end", async () => {
+         room(600);
+         setup();
+         const { sheet, handle } = await open();
+         // Over the bottom of the tasks area, not after the list in the flow.
+         expect(sheet.className).toContain("absolute");
+         expect(sheet.className).toContain("bottom-2");
+         expect(sheet.parentElement?.hasAttribute("data-tasks-body")).toBe(true);
+         // 300 px sheet + 8 px below it + 8 px air.
+         await waitFor(() => expect(spacer()?.style.height).toBe("316px"));
+         const list = scrollOf(spacer()!);
+         expect(list.space).toBe("316px");
+         expect(list.viewport.className).toContain("scroll-pb-(--sheet-space)");
+         expect(list.viewport.contains(rowBox("Header polish"))).toBe(true);
+         // The spacer follows the sheet height.
+         fireEvent.keyDown(handle, { key: "ArrowUp" });
+         expect(spacer()?.style.height).toBe("332px");
+         expect(scrollOf(spacer()!).space).toBe("332px");
+         // Closed: the usual 8 px end, no space kept.
+         fireEvent.click(within(sheet).getByRole("button", { name: "Close preview" }));
+         expect(spacer()?.style.height).toBe("8px");
+         expect(scrollOf(spacer()!).space).toBe("0px");
+      });
+
+      it("brings the open task into view above the sheet, in the list and the graph", async () => {
+         const scrolled: Element[] = [];
+         const scrollIntoView = vi.fn(function (this: Element) {
+            scrolled.push(this);
+         });
+         Object.defineProperty(Element.prototype, "scrollIntoView", {
+            value: scrollIntoView,
+            configurable: true,
+            writable: true,
+         });
+         try {
+            room(600);
+            setup();
+            await open();
+            const selected = rowBox("Header polish");
+            await waitFor(() => expect(scrolled).toContain(selected));
+            expect(scrollIntoView).toHaveBeenLastCalledWith({
+               block: "nearest",
+               inline: "nearest",
+            });
+            // Scrolled with the scroll area's padding: the sheet's space at the bottom.
+            expect(scrollOf(selected).space).toBe("316px");
+            expect(scrollOf(selected).viewport.className).toContain("scroll-pb-(--sheet-space)");
+            fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+            const card = await waitFor(() => {
+               const c = document.querySelector<HTMLElement>(
+                  '[data-graph-card][aria-current="true"]',
+               );
+               expect(c).toBeTruthy();
+               return c!;
+            });
+            await waitFor(() => expect(scrolled).toContain(card));
+            const graph = scrollOf(card);
+            expect(graph.space).toBe("316px");
+            expect(graph.viewport.className).toContain("scroll-pb-(--sheet-space)");
+            expect(spacer()?.style.height).toBe("316px");
+            expect(graph.viewport.contains(spacer())).toBe(true);
+            // Back in the list: its row again.
+            fireEvent.click(screen.getByRole("tab", { name: "List" }));
+            await waitFor(() => expect(scrolled).toContain(rowBox("Header polish")));
+         } finally {
+            delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+         }
       });
 
       it("is clamped: at least 160 px, and 120 px always left for the tasks", async () => {

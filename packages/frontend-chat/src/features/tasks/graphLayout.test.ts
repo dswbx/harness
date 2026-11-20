@@ -11,6 +11,7 @@ import {
    LANE_HEAD,
    layoutGraph,
    MIN_WIDTH,
+   PAD,
    TRACK,
 } from "./graphLayout";
 
@@ -97,6 +98,15 @@ function problems(l: GraphLayout): string[] {
          bad.push(`${name} does not start on the right side`);
       if (Math.abs(last.x - to.x) > EPS || last.y <= to.y || last.y >= to.y + h)
          bad.push(`${name} does not end on the left side`);
+      // Lines in the outer gaps keep PAD from the edge.
+      for (const p of line.points)
+         if (
+            p.x < PAD - EPS ||
+            p.x > l.width - PAD + EPS ||
+            p.y < PAD - EPS ||
+            p.y > l.height - PAD + EPS
+         )
+            bad.push(`${name} too near the edge`);
       for (const s of segs(line.points)) {
          if (!vertical(s) && Math.abs(s[0].y - s[1].y) > EPS) bad.push(`${name} not orthogonal`);
          // Never inside a card (touching its own cards' sides is fine).
@@ -156,7 +166,7 @@ describe("graphRanks", () => {
 describe("graphColumns", () => {
    it("fits cards of at least CARD_MIN, 2 at least", () => {
       expect(graphColumns(300)).toBe(2);
-      expect(graphColumns(408)).toBe(2);
+      expect(graphColumns(424)).toBe(2);
       expect(graphColumns(440)).toBe(2);
       expect(graphColumns(660)).toBe(3);
       expect(graphColumns(1440)).toBe(6);
@@ -197,7 +207,7 @@ describe("layoutGraph", () => {
 
    it("picks the mode from the width", () => {
       const mode = (width: number) => layoutGraph(TASKS, opts({ width })).mode;
-      expect([408, 440, 660, 1440].map(mode)).toEqual(["flow", "flow", "flow", "aligned"]);
+      expect([424, 440, 660, 1440].map(mode)).toEqual(["flow", "flow", "flow", "aligned"]);
       // Three ranks fit 3 columns.
       const three = TASKS.filter((x) => x.id !== "ui" && x.id !== "tests");
       expect(layoutGraph(three, opts({ width: 660 })).mode).toBe("aligned");
@@ -315,7 +325,7 @@ describe("layoutGraph", () => {
    it("no line crosses a card, and no two lines share a track", () => {
       const sets = [TASKS, bigGraph(40, 7), bigGraph(60, 42), bigGraph(25, 3)];
       for (const tasks of sets)
-         for (const width of [300, 408, 440, 660, 900, 1440])
+         for (const width of [300, 424, 440, 660, 900, 1440])
             for (const groupBy of [null, "component", "area"])
                for (const density of ["condensed", "detail"] as const) {
                   const outside = [t("n3"), t("nowhere")];
@@ -382,10 +392,44 @@ describe("layoutGraph", () => {
    });
 
    it("lays out at MIN_WIDTH below it", () => {
-      expect(MIN_WIDTH).toBe(408);
+      expect(MIN_WIDTH).toBe(424);
       const narrow = layoutGraph(TASKS, opts({ width: 300 }));
-      expect(narrow).toEqual(layoutGraph(TASKS, opts({ width: 408 })));
-      expect(narrow.width).toBe(408);
+      expect(narrow).toEqual(layoutGraph(TASKS, opts({ width: 424 })));
+      expect(narrow.width).toBe(424);
+   });
+
+   it("outer gaps grow by their lines: PAD to the edge, 2 tracks to the cards", () => {
+      const parentOf = (x: GraphTask) => {
+         const n = Number(x.id.slice(1));
+         return n % 3 === 0 && n > 0 ? `n${n - 1}` : n % 5 === 1 ? "n2" : null;
+      };
+      let outer = 0;
+      for (const tasks of [bigGraph(40, 7), bigGraph(60, 42)])
+         for (const width of [300, 424, 660])
+            for (const groupBy of [null, "area"]) {
+               const l = layoutGraph(tasks, { width, groupBy, density: "detail", parentOf });
+               const left = Math.min(...l.cards.map((c) => c.x));
+               const right = Math.max(...l.cards.map((c) => c.x + l.cardWidth));
+               expect(left).toBeGreaterThanOrEqual(PAD);
+               for (const line of l.lines)
+                  for (const s of segs(line.points).filter(vertical)) {
+                     const x = s[0].x;
+                     if (x >= left && x <= right) continue;
+                     outer++;
+                     expect(x < left ? left - x : x - right).toBeGreaterThanOrEqual(
+                        2 * TRACK - EPS,
+                     );
+                  }
+            }
+      expect(outer).toBeGreaterThan(0);
+      // A few outer lines: the cards shrink, the layout does not get wider than the container.
+      const parents: Record<string, string> = { plan: "tests", schema: "ui", docs: "api" };
+      const small = layoutGraph(
+         TASKS,
+         opts({ width: 300, parentOf: (x) => parents[x.id] ?? null }),
+      );
+      expect(small.width).toBe(MIN_WIDTH);
+      expect(small.cardWidth).toBeLessThan(layoutGraph(TASKS, opts({ width: 300 })).cardWidth);
    });
 
    it("lays out nothing for no tasks", () => {

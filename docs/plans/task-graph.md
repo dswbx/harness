@@ -31,15 +31,15 @@ Facts from the code (2026-11-20):
 
 1. **Rank.** A task's rank is the longest path of deps to it (both kinds). Tasks with no deps have rank 0. Deps to tasks that are not shown are dropped from the rank. They show as dashed "outside" cards next to the task (panel only).
 2. **Lanes.** One lane per group value. Lanes are sorted by their lowest rank, then by name. Tasks without the key go to a last lane, "No <key>".
-3. **Columns from the width.** Sizes: `CARD_MIN 176`, `CARD_MAX 248`, `GAP 32`, `PAD 12`. `cols = floor((width - 2*PAD + GAP) / (CARD_MIN + GAP))`, at least 2.
+3. **Columns from the width.** Sizes: `CARD_MIN 176`, `CARD_MAX 248`, `GAP 32`, `PAD 20`. `cols = floor((width - 2*PAD + GAP) / (CARD_MIN + GAP))`, at least 2.
 4. **Two modes, chosen by space:**
    - **Aligned** when `cols >= ranks`. Lanes are horizontal bands. A task's column is its rank, the same in every lane, so lines go left to right. Two tasks of one rank in one lane stack. This is the Main board.
    - **Flow** when `cols < ranks`. Lanes are sections, one under the other, each with a heading. Inside a section, tasks sorted by rank fill rows of `cols` cards, left to right. Lines go right or down. This is the Panel board.
 5. **Card width** fills the space: `(width - 2*PAD - (cols-1)*GAP) / cols`, at most `CARD_MAX`. In aligned mode, extra space goes to both sides.
 6. **Card height** follows the panel density store: condensed 48 px (status, title, one meta line), detail 64 px (adds one line of the description excerpt between title and meta).
-7. **Minimum width** is 2 cards: `2*CARD_MIN + GAP + 2*PAD = 408` px. A narrower container lays out at 408 px and scrolls sideways in its `ScrollArea`. A tall graph scrolls down.
+7. **Minimum width** is 2 cards: `2*CARD_MIN + GAP + 2*PAD = 424` px. A narrower container lays out at 424 px and scrolls sideways in its `ScrollArea`. A tall graph scrolls down.
 8. **Order inside a lane** reduces crossings: 2 sweeps of the barycenter rule (sort by the mean position of linked cards), with ties by `order`. The result is the same for the same input.
-9. **Lines** never cross a card. Each line goes from the source's out side to a gap, along gaps, and into the target's in side. Lines in one gap get their own track (4 px apart). Corners are rounded (6 px). Out and in points spread along a card side when it has more than one line.
+9. **Lines** never cross a card. Each line goes from the source's out side to a gap, along gaps, and into the target's in side. Lines in one gap get their own track (4 px apart). An outer gap (left of the first column, right of the last, above the first row, below the last) grows by its tracks: lines keep `PAD` to the edge and 8 px to the cards. Gaps that grow take room from the cards first, then widen the layout. Corners are rounded (6 px). Out and in points spread along a card side when it has more than one line.
 10. **Width changes.** A `ResizeObserver` gives the width, rounded to 8 px, once per animation frame. Cards move with a 150 ms transform transition, but not under `prefers-reduced-motion` and not when the mode changes.
 
 ## Steps
@@ -70,7 +70,7 @@ Each step is one PR with tests. Run `bun run check:rust`, `bun run typecheck` an
    - `TaskRow`: a "waits on N" chip.
    - `TaskDetail`: Properties (`PropsField`), Blocked by, Blocks. `DepPicker` (Popover + Command) searches tasks, offers blocks or follow-up, and disables a task that would make a loop.
 6. **`graphLayout.ts`** with `graphLayout.test.ts`.
-   - Tests: ranks; lane order; mode at widths 408, 440, 660 and 1440; no line segment inside a card; no two lines on one track; the same output for the same input; layout at 408 px when the width is 300.
+   - Tests: ranks; lane order; mode at widths 424, 440, 660 and 1440; no line segment inside a card; no two lines on one track; the same output for the same input; layout at 424 px when the width is 300.
 7. **Graph view in All tasks** (`GraphView.tsx`, `TasksView.tsx`).
    - `ViewMode` gets `"graph"` (update the stored value parser).
    - The selected task's direct lines turn blue. Its whole chain stays. Other cards fade.

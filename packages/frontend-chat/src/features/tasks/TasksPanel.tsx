@@ -31,7 +31,7 @@ import { NoteDock } from "./NoteDock";
 import { QuickAdd } from "./QuickAdd";
 import { TaskHoverCard } from "./TaskHoverCard";
 import { TaskRow } from "./TaskRow";
-import { TaskSheet, useHeight } from "./TaskSheet";
+import { sheetSpace, TaskSheet, underSheet, useHeight } from "./TaskSheet";
 
 type Density = "detail" | "condensed";
 
@@ -142,9 +142,10 @@ function Group({
  * group a subtask sits under its parent (when the parent is in that group too); a done subtask of an open parent goes
  * to Done with a parent chip. Rows show in detail or condensed (a header toggle); hovering one shows its summary.
  *
- * A click on a row or card opens the task in a sheet above the note bar (board "PanelTaskOpen"); the tasks end at
- * its top. The open task is selected and brought into view; Esc or its X closes it. While it is open the note is
- * folded; closing it brings the note back as it was.
+ * A click on a row or card opens the task in a sheet that floats above the note bar (board "PanelTaskOpen"); the
+ * tasks run on behind it, with room at their end to scroll each one above it. The open task is selected and brought
+ * into view above the sheet; Esc or its X closes it. While it is open the note is folded; closing it brings the note
+ * back as it was.
  */
 export function TasksPanel({
    api,
@@ -223,16 +224,20 @@ export function TasksPanel({
    const rows = (list: readonly TaskSummary[]) =>
       nestRows(list).map(({ task: t, depth }) => row(t, depth));
 
-   // The open task's row or card in view, again when the space changes (the sheet takes the bottom of it, and the
-   // note folds as it opens). The tasks come before the sheet, so the first selected element is theirs.
+   // The open task's row or card in view above the sheet (the scroll areas keep `space` free with scroll-padding),
+   // again when the space changes (the note folds as the sheet opens, the sheet resizes) or the view switches. The
+   // tasks come before the sheet, so the first selected element is theirs.
    const body = useRef<HTMLDivElement>(null);
    const room = useHeight(body);
+   const [sheetHeight, setSheetHeight] = useState(0);
+   const space = openId ? sheetSpace(sheetHeight) : 0;
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `view`: the other view's row or card.
    useEffect(() => {
-      if (!openId || !room) return;
+      if (!openId || !room || !space) return;
       body.current
          ?.querySelector<HTMLElement>('[aria-current="true"]')
          ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-   }, [openId, room]);
+   }, [openId, room, space, view]);
 
    return (
       <div
@@ -298,7 +303,7 @@ export function TasksPanel({
                </Tooltip>
             )}
          </PanelHeader>
-         <div ref={body} data-tasks-body className="flex min-h-0 flex-1 flex-col">
+         <div ref={body} data-tasks-body className="relative flex min-h-0 flex-1 flex-col">
             {view === "graph" ? (
                <PanelGraph
                   api={api}
@@ -310,9 +315,10 @@ export function TasksPanel({
                   host={host}
                   selected={openId}
                   onOpen={onOpen}
+                  space={space}
                />
             ) : (
-               <ScrollArea className="min-h-0 flex-1">
+               <ScrollArea className="min-h-0 flex-1" {...underSheet(space)}>
                   {pinned && (
                      <section aria-label="Started from" className="px-2.5 pt-2.5">
                         <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -353,7 +359,7 @@ export function TasksPanel({
                         {rows(closed)}
                      </Group>
                   )}
-                  <div className="h-2" />
+                  <div data-sheet-spacer style={{ height: Math.max(8, space) }} />
                </ScrollArea>
             )}
             {openId && (
@@ -363,6 +369,7 @@ export function TasksPanel({
                   tasks={tasks}
                   host={host}
                   room={room}
+                  onHeight={setSheetHeight}
                   onClose={() => onOpen(null)}
                   onOpen={onOpen}
                />
@@ -388,6 +395,7 @@ function PanelGraph({
    host,
    selected,
    onOpen,
+   space,
 }: {
    api: SessionApi;
    tasks: readonly TaskSummary[] | null;
@@ -398,6 +406,8 @@ function PanelGraph({
    host: PanelCtx["host"];
    selected: string | null;
    onOpen: (id: string) => void;
+   /** The space the task sheet covers at the bottom (`sheetSpace`). */
+   space: number;
 }) {
    const all = tasks ?? EMPTY;
    const groupBy = useStoredValue(groupByStore);
@@ -447,6 +457,7 @@ function PanelGraph({
             sessions={sessions}
             onOpen={onOpen}
             onOpenOutside={host.openTasks}
+            bottomSpace={space}
             empty={
                <p className="px-3.5 py-3 text-xs text-muted-foreground/70">
                   {tasks ? "No open tasks in this Session." : "Loading…"}

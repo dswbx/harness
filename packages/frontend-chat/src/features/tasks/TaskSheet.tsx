@@ -1,6 +1,6 @@
 import { storedNumber, type TaskSummary } from "@harness/api";
 import { clamp, useDragDelta } from "@harness/ui";
-import { type RefObject, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import type { PanelCtx } from "../../panels/contract";
 import { TaskDetail } from "./TaskDetail";
 import type { TaskApi } from "./taskApi";
@@ -14,6 +14,25 @@ const SHEET_ROOM = 120 + 8;
 const STEP = 16;
 /** The height while the space is not laid out yet (no size). */
 const FALLBACK = 320;
+/** Below the sheet (its bottom margin) plus a little air above it: the space a scroll area keeps free for it. */
+const SHEET_SPACE = 8 + 8;
+
+/** The space at the bottom of the tasks area that a sheet of `height` covers; 0: no sheet. */
+export const sheetSpace = (height: number) => (height ? height + SHEET_SPACE : 0);
+
+/**
+ * Props for a `ScrollArea` that runs on under the sheet (the sheet floats over its bottom): `space` (`sheetSpace`)
+ * is kept for the scrollbars and for scrolling into view, so both stay above the sheet. The content adds a spacer
+ * of `space` at its end, so its last rows can scroll above the sheet too.
+ */
+export function underSheet(space: number) {
+   return {
+      style: { "--sheet-space": `${space}px` } as CSSProperties,
+      viewportClassName: "scroll-pb-(--sheet-space)",
+      scrollbarClassName:
+         "data-[orientation=horizontal]:bottom-(--sheet-space)! data-[orientation=vertical]:bottom-[calc(var(--sheet-space)_+_var(--radix-scroll-area-corner-height))]!",
+   };
+}
 
 /**
  * The height of `ref`, kept current; 0 until it is laid out. The panel measures the sheet's space before the sheet
@@ -35,10 +54,11 @@ export function useHeight(ref: RefObject<HTMLElement | null>): number {
 }
 
 /**
- * The Tasks & Notes panel's task sheet (board "PanelTaskOpen"): the task in full on a card at the bottom of the
- * tasks area, above the note bar. The tasks above end at its top, so each stays reachable. Drag its handle (or
- * ArrowUp/ArrowDown on it) to resize; double-click resets to half the space. The height is kept per window and
- * clamped to the space: at least `SHEET_MIN`, and always `SHEET_ROOM` left for the tasks.
+ * The Tasks & Notes panel's task sheet (board "PanelTaskOpen"): the task in full on a card that floats over the
+ * bottom of the tasks area, above the note bar. The tasks run on behind it; their scroll area keeps `sheetSpace`
+ * free at its end (`underSheet`), so each stays reachable. Drag its handle (or ArrowUp/ArrowDown on it) to resize;
+ * double-click resets to half the space. The height is kept per window and clamped to the space: at least
+ * `SHEET_MIN`, and always `SHEET_ROOM` left for the tasks. `onHeight` gets each new height.
  */
 export function TaskSheet({
    api,
@@ -46,6 +66,7 @@ export function TaskSheet({
    tasks,
    host,
    room,
+   onHeight,
    onClose,
    onOpen,
 }: {
@@ -55,6 +76,7 @@ export function TaskSheet({
    host: PanelCtx["host"];
    /** The height of the space the sheet sits in (`useHeight`); 0: not laid out. */
    room: number;
+   onHeight?: (height: number) => void;
    onClose: () => void;
    onOpen: (id: string) => void;
 }) {
@@ -66,6 +88,9 @@ export function TaskSheet({
       setWant(next);
       heightStore.set(next);
    };
+
+   // Before paint, so the tasks behind get their space in the same frame.
+   useLayoutEffect(() => onHeight?.(height), [onHeight, height]);
 
    const drag = useRef({ start: height, last: height });
    const onPointerDown = useDragDelta({
@@ -85,7 +110,7 @@ export function TaskSheet({
       <section
          aria-label="Task"
          data-task-sheet
-         className="mx-2 mb-2 flex shrink-0 flex-col overflow-hidden rounded-xl border bg-card shadow-[0_-8px_24px_-6px_rgb(0_0_0/0.18),0_2px_8px_rgb(0_0_0/0.08)] dark:shadow-[0_-12px_32px_rgb(0_0_0/0.45),0_2px_8px_rgb(0_0_0/0.4)]"
+         className="absolute inset-x-2 bottom-2 z-10 flex flex-col overflow-hidden rounded-xl border bg-card shadow-[0_-8px_24px_-6px_rgb(0_0_0/0.18),0_2px_8px_rgb(0_0_0/0.08)] dark:shadow-[0_-12px_32px_rgb(0_0_0/0.45),0_2px_8px_rgb(0_0_0/0.4)]"
          style={{ height }}
       >
          <div

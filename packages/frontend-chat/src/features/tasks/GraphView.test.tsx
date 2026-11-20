@@ -206,7 +206,7 @@ describe("GraphView", () => {
       expect(box().style.width).toBe("440px");
       width = 300;
       act(() => report?.());
-      expect(box().style.width).toBe("408px");
+      expect(box().style.width).toBe("424px");
       spy.mockRestore();
    });
 

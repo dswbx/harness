@@ -33,6 +33,7 @@ import { PriorityIcon } from "./PriorityMenu";
 import { STATUS_LABEL, StatusIcon } from "./StatusMenu";
 import { type Sessions, sessionTitle } from "./sessionTitle";
 import { WaitsOnChip } from "./TaskRow";
+import { underSheet } from "./TaskSheet";
 
 const NONE: readonly TaskSummary[] = [];
 
@@ -155,6 +156,8 @@ function chainOf(lines: readonly GraphLine[], id: string): Set<string> {
  *
  * Hovering a card shows its lines in blue. `selected` does too, and fades every card and line outside its chain.
  * `preview` floats over the graph area (like the Tree view's), and the graph gets room on its right for it.
+ * `bottomSpace` is covered by something floating over the bottom of the area (the panel's task sheet): the graph
+ * runs on behind it, with that much room at its end, and keeps its scrollbars and the selected card above it.
  */
 export function GraphView({
    tasks,
@@ -169,6 +172,7 @@ export function GraphView({
    onOpen,
    onOpenOutside,
    preview,
+   bottomSpace = 0,
    empty,
 }: {
    /** The tasks shown. */
@@ -188,6 +192,8 @@ export function GraphView({
    /** A click on an outside card; none: they do not click. */
    onOpenOutside?: (id: string) => void;
    preview?: ReactNode;
+   /** Px at the bottom of the area covered by a floating sheet (`sheetSpace`). */
+   bottomSpace?: number;
    /** Shown instead of the graph when no task shows. */
    empty?: ReactNode;
 }) {
@@ -250,7 +256,7 @@ export function GraphView({
          {tasks.length === 0 ? (
             empty
          ) : (
-            <ScrollArea horizontal className="min-h-0 flex-1">
+            <ScrollArea horizontal className="min-h-0 flex-1" {...underSheet(bottomSpace)}>
                <div
                   className="relative"
                   data-graph-box
@@ -383,6 +389,7 @@ export function GraphView({
                      );
                   })}
                </div>
+               {bottomSpace > 0 && <div data-sheet-spacer style={{ height: bottomSpace }} />}
             </ScrollArea>
          )}
          {preview}
