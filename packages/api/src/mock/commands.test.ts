@@ -18,6 +18,7 @@ const table: Record<Command["type"], () => Command> = {
    RemoveAgent: () => ({ type: "RemoveAgent", agent_id: "claude-acp" }),
    Authenticate: () => ({ type: "Authenticate", session_id: S, method_id: "m" }),
    OpenAuthTerminal: () => ({ type: "OpenAuthTerminal", session_id: S, method_id: "m" }),
+   AuthInTerminal: () => ({ type: "AuthInTerminal", session_id: S, method_id: "m" }),
    ListFrontends: () => ({ type: "ListFrontends" }),
    ListSessions: () => ({ type: "ListSessions" }),
    CreateSession: () => ({

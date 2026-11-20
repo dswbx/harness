@@ -41,9 +41,12 @@
 //! Flags: `--resume` / `--load` advertise those capabilities for any `fake-*` session id; load
 //! replays one message chunk ("replayed") before answering. `--resume-fails=N` fails the first N
 //! resumes of this process; `--resume-delay-ms=N` makes each resume take N ms. `--no-http-mcp`
-//! makes the Harness use the stdio shim. `--auth` advertises an agent auth method (`login`) and a
-//! terminal one (`tui`, args `--login`), and refuses `session/new` with `auth_required` until
-//! `authenticate(login)` succeeds. `--images` advertises image and embedded-context prompt
+//! makes the Harness use the stdio shim. `--auth` advertises an agent auth method (`login`) and,
+//! when the client offers terminal auth, a terminal one (`tui`, args `--login`), and refuses
+//! `session/new` with `auth_required` until `authenticate(login)` succeeds. With
+//! `--auth-file=<path>` it is signed in from the start when that file exists; `--login` (the
+//! terminal method) prints a line, creates that file and exits 0, or exits N without creating it
+//! when given `--login-exit=N`. `--images` advertises image and embedded-context prompt
 //! capabilities. `--fork` advertises `session/fork` (new id, copy of the source's history); with
 //! `--fork-fail` the request is refused. `--exit` prints a line to stderr and exits at startup
 //! (Agent conformance check tests). `--legacy-modes` makes it an Agent with legacy session modes
@@ -255,6 +258,17 @@ async fn main() -> agent_client_protocol::Result<()> {
     if let Some(n) = args.iter().find_map(|a| a.strip_prefix("--resume-delay-ms=")) {
         RESUME_DELAY_MS.store(n.parse().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
     }
+    let auth_file = args.iter().find_map(|a| a.strip_prefix("--auth-file=")).map(std::path::PathBuf::from);
+    if args.iter().any(|a| a == "--login") {
+        println!("fake-agent: signing in");
+        let code: i32 = args.iter().find_map(|a| a.strip_prefix("--login-exit=")).and_then(|n| n.parse().ok()).unwrap_or(0);
+        if code == 0
+            && let Some(path) = &auth_file
+        {
+            std::fs::write(path, "signed in").unwrap();
+        }
+        std::process::exit(code);
+    }
     if args.iter().any(|a| a == "--exit") {
         eprintln!("fake-agent: exiting on purpose");
         std::process::exit(3);
@@ -279,7 +293,7 @@ async fn main() -> agent_client_protocol::Result<()> {
     let fork_fail = args.iter().any(|a| a == "--fork-fail");
     LEGACY_MODES.store(args.iter().any(|a| a == "--legacy-modes"), std::sync::atomic::Ordering::SeqCst);
     PLAN_MODE.store(args.iter().any(|a| a == "--plan-mode"), std::sync::atomic::Ordering::SeqCst);
-    let authed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!auth));
+    let authed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!auth || auth_file.as_ref().is_some_and(|p| p.exists())));
     let authed_new = authed.clone();
     // Ids stay unique across processes so a restarted agent never reuses one.
     let next = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(std::process::id() as u64 * 1000));
@@ -308,10 +322,11 @@ async fn main() -> agent_client_protocol::Result<()> {
                 }
                 let mut resp = InitializeResponse::new(req.protocol_version).agent_capabilities(caps);
                 if auth {
-                    resp = resp.auth_methods(vec![
-                        AuthMethod::Agent(AuthMethodAgent::new("login", "Log in")),
-                        AuthMethod::Terminal(AuthMethodTerminal::new("tui", "Log in in a terminal").args(vec!["--login".to_owned()])),
-                    ]);
+                    let mut methods = vec![AuthMethod::Agent(AuthMethodAgent::new("login", "Log in"))];
+                    if req.client_capabilities.auth.terminal {
+                        methods.push(AuthMethod::Terminal(AuthMethodTerminal::new("tui", "Log in in a terminal").args(vec!["--login".to_owned()])));
+                    }
+                    resp = resp.auth_methods(methods);
                 }
                 responder.respond(resp)
             },

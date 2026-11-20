@@ -1,5 +1,5 @@
 import type { Event, TranscriptSize } from "@harness/api";
-import { type Ctx, notice, push, sideCtx } from "../draft";
+import { type Ctx, notice, own, push, sideCtx } from "../draft";
 
 /** The Agent process no longer runs (its background jobs ended with it). */
 const agentGone = (state: string) =>
@@ -105,9 +105,42 @@ export function agentSlice(c: Ctx, e: Event) {
             }),
          });
          return;
-      case "AuthRequired":
-         push(c, { type: "auth", id, message: k.message, methods: k.methods });
+      case "AuthRequired": {
+         // Mid-Turn: the Turn's own message (when the user sent it) is what to send again after sign-in.
+         let n = d.turnId === null ? -1 : d.items.length - 1;
+         while (n >= 0 && d.items[n]!.type !== "user") n--;
+         const user =
+            n >= 0 ? (d.items[n] as Extract<(typeof d.items)[number], { type: "user" }>) : null;
+         push(c, {
+            type: "auth",
+            id,
+            message: k.message,
+            methods: k.methods,
+            ...(k.agent_name && { agentName: k.agent_name }),
+            ...(user &&
+               !user.from && { resend: { text: user.text, attachments: user.attachments } }),
+         });
          return;
+      }
+      case "AuthFinished": {
+         // It answers the latest sign-in card.
+         const items = d.items;
+         let n = items.length - 1;
+         while (n >= 0 && items[n]!.type !== "auth") n--;
+         if (n < 0) return;
+         const it = items[n] as Extract<(typeof items)[number], { type: "auth" }>;
+         own(c)[n] = {
+            ...it,
+            finished: {
+               id,
+               methodId: k.method_id,
+               methodName: k.method_name,
+               outcome: k.outcome,
+               exitCode: k.exit_code ?? null,
+            },
+         };
+         return;
+      }
    }
 }
 

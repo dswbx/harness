@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harness_core::Harness;
-use harness_core::api::{AgentInfo, AgentSource, Command, CommandResult, Event, EventKind, FrontendManifest};
+use harness_core::api::{AgentInfo, AgentSource, AuthOutcome, Command, CommandResult, Event, EventKind, FrontendManifest};
 use harness_core::host::Options;
 use sha2::{Digest, Sha256};
 
@@ -184,6 +184,68 @@ async fn auth_required_until_the_user_signs_in() {
     assert!(h.execute(Command::Authenticate { session_id: sid.clone(), method_id: "nope".into() }).await.is_err());
     h.execute(Command::Authenticate { session_id: sid.clone(), method_id: "login".into() }).await.unwrap();
     turn_ends(&h, &sid, "hi").await.unwrap();
+}
+
+fn fake_with(args: &[&str]) -> AgentInfo {
+    AgentInfo {
+        id: "fake".into(),
+        name: "Fake".into(),
+        command: fake_agent_bin().display().to_string(),
+        args: args.iter().map(|a| (*a).to_owned()).collect(),
+        env: Default::default(),
+        source: AgentSource::Custom,
+        version: None,
+        icon: None,
+        install: Default::default(),
+    }
+}
+
+/// Runs the `tui` terminal method in a Terminal tab and waits for its `AuthFinished`.
+async fn sign_in_in_terminal(h: &Harness, sid: &str) -> (AuthOutcome, Option<u32>, String) {
+    let cmd = Command::AuthInTerminal { session_id: sid.into(), thread_id: None, method_id: "tui".into() };
+    let CommandResult::TerminalOpened { terminal_id } = h.execute(cmd).await.unwrap() else { panic!() };
+    let CommandResult::Terminals { terminals } = h.execute(Command::ListTerminals { session_id: sid.into() }).await.unwrap() else { panic!() };
+    assert!(terminals.iter().any(|t| t.id == terminal_id && t.title == "Sign in: Log in in a terminal"), "{terminals:?}");
+    for _ in 0..400 {
+        let found = events(h, sid).into_iter().find_map(|e| match e.kind {
+            EventKind::AuthFinished { outcome, exit_code, method_name, .. } => Some((outcome, exit_code, method_name)),
+            _ => None,
+        });
+        if let Some(f) = found {
+            return f;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no AuthFinished");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn signing_in_in_a_terminal_tab_restarts_the_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("credentials");
+    let flag = format!("--auth-file={}", file.display());
+    let h = harness(&dir.path().join("data"), &dir.path().join("none.json"), vec![fake_with(&["--auth", &flag])]);
+    let sid = create(&h, dir.path(), "fake").await;
+    assert!(turn_ends(&h, &sid, "hi").await.is_err());
+
+    let (outcome, code, name) = sign_in_in_terminal(&h, &sid).await;
+    assert_eq!((outcome, code, name.as_str()), (AuthOutcome::SignedIn, Some(0), "Log in in a terminal"));
+    assert!(file.exists(), "the login ran with the Agent's launch plus the method's args");
+    // The process that refused was replaced: the next one is signed in.
+    turn_ends(&h, &sid, "hi").await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_terminal_sign_in_is_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("credentials");
+    let flag = format!("--auth-file={}", file.display());
+    let h = harness(&dir.path().join("data"), &dir.path().join("none.json"), vec![fake_with(&["--auth", &flag, "--login-exit=3"])]);
+    let sid = create(&h, dir.path(), "fake").await;
+    assert!(turn_ends(&h, &sid, "hi").await.is_err());
+    let (outcome, code, _) = sign_in_in_terminal(&h, &sid).await;
+    assert_eq!((outcome, code), (AuthOutcome::Failed, Some(3)));
+    assert!(!file.exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]

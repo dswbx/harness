@@ -117,6 +117,33 @@ export const agentsHandlers = {
    },
    Authenticate: signIn,
    OpenAuthTerminal: signIn,
+   // A pretend login in a new tab: it signs in after a few seconds, unless its tab was closed.
+   AuthInTerminal: (mock, cmd) => {
+      const sid = cmd.session_id;
+      const tabs = mock.tabs(sid);
+      const id = ++tabs.next;
+      tabs.ids.push(id);
+      mock.emitApp({ type: "TerminalsChanged", session_id: sid });
+      setTimeout(() => {
+         const open = tabs.ids.includes(id);
+         if (open) {
+            mock.endTerminal(sid, id, 0);
+            mock.emitApp({ type: "TerminalsChanged", session_id: sid });
+         }
+         mock.emit(
+            sid,
+            {
+               type: "AuthFinished",
+               method_id: cmd.method_id,
+               method_name: "Codex login",
+               outcome: open ? "signed_in" : "cancelled",
+               exit_code: open ? 0 : null,
+            },
+            cmd.thread_id ?? null,
+         );
+      }, 3000);
+      return { type: "TerminalOpened", terminal_id: id };
+   },
    ListFrontends: (mock) => {
       return {
          type: "Frontends",

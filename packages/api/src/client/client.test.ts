@@ -75,6 +75,7 @@ const replies: Partial<Record<Command["type"], CommandResult>> = {
    FrontendList: { type: "Files", files: [] },
    ListTerminals: { type: "Terminals", terminals: [] },
    TerminalOpen: { type: "TerminalOpened", terminal_id: 2 },
+   AuthInTerminal: { type: "TerminalOpened", terminal_id: 2 },
    AddComment: {
       type: "Comment",
       comment: { id: "c1", path: "f", line: 1, side: null, code: "c", text: "t", by: "user" },
@@ -165,6 +166,7 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    frontendList: (a) => a.frontendList(),
    authenticate: (a) => a.authenticate("m"),
    openAuthTerminal: (a) => a.openAuthTerminal("m"),
+   authInTerminal: (a) => a.authInTerminal("m", "t"),
    terminalList: (a) => a.terminalList(),
    terminalOpen: (a) => a.terminalOpen(),
    terminalClose: (a) => a.terminalClose(2),

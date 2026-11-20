@@ -54,6 +54,7 @@ fn variant_name(kind: &EventKind) -> &'static str {
         EventKind::SessionStatusChanged { .. } => "SessionStatusChanged",
         EventKind::ThreadStarted { .. } => "ThreadStarted",
         EventKind::AuthRequired { .. } => "AuthRequired",
+        EventKind::AuthFinished { .. } => "AuthFinished",
         EventKind::ThreadReadOnly { .. } => "ThreadReadOnly",
         EventKind::AgentSessionRestoring { .. } => "AgentSessionRestoring",
         EventKind::AgentSessionStarted { .. } => "AgentSessionStarted",
