@@ -1,6 +1,6 @@
 # Task graph plan
 
-Status: proposed (2026-11-20). ADR 0029 (Task dependencies and properties) and the glossary entries must exist before step 2 merges.
+Status: accepted (2026-11-20). Unresolved questions use the suggested answers. ADR 0029 (Task dependencies and properties) and the glossary entries must exist before step 2 merges.
 
 **Directories:**
 - `crates/harness-core`: `api/tasks.rs`, `tasks.rs`, `host/dispatch/tasks.rs`, `mcp/tools.rs`, `mcp/task_tools.rs`, `prompts/harness.md`, tests.
