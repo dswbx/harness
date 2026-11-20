@@ -491,7 +491,12 @@ export function TasksPanel({
                />
             )}
          </div>
-         <NoteDock api={api} taskOpen={openId !== null} onOpenNote={() => onOpen(null)} />
+         <NoteDock
+            key={api.sessionId}
+            api={api}
+            taskOpen={openId !== null}
+            onOpenNote={() => onOpen(null)}
+         />
       </div>
    );
 }

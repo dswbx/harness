@@ -28,11 +28,21 @@ pub(super) const TOOLS: [&str; 4] = ["task_add", "task_update", "task_list", "ta
 /// Frontend Tools: Agents may call a tool before they have loaded its schema.
 pub(super) fn check_args(name: &str, description: &str, schema: &Value, args: &Value) -> anyhow::Result<()> {
     let (validator, _) = crate::frontend_files::validator(schema)?;
-    let errors = crate::frontend_files::format_errors(&validator, args);
+    let errors = crate::frontend_files::format_errors(&validator, &without_nulls(args));
     if errors.is_empty() {
         return Ok(());
     }
     Err(crate::error::invalid(format!("invalid input for {name}:\n{errors}\n\nHow to call {name}:\n{description}")))
+}
+
+/// `args` without its null object members: serde reads `null` as absent for an optional field,
+/// so the schema check treats it the same way. Only the check sees this copy.
+fn without_nulls(v: &Value) -> Value {
+    match v {
+        Value::Object(m) => Value::Object(m.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), without_nulls(v))).collect()),
+        Value::Array(a) => Value::Array(a.iter().map(without_nulls).collect()),
+        v => v.clone(),
+    }
 }
 
 /// Tasks by id, to look up the title and status of a Dependency.

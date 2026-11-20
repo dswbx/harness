@@ -13,7 +13,7 @@ import { useRef, useState } from "react";
 import { NoteEditor } from "./NoteEditor";
 
 const heightStore = storedNumber("harness:tasks-note-height");
-/** Open or folded, per window; null until the user toggles it (then: open when the note has text). */
+/** Open or folded, per window; null until the user toggles it (then: open when the note had text when it loaded). */
 const openStore = storedValue<boolean | null>({
    key: "harness.tasks.noteOpen",
    scope: "app",
@@ -44,6 +44,7 @@ function firstLine(markdown: string): string {
  * Folded, a bar with its first line. Open, docked like the commits pane of Changes: drag its top edge to resize
  * (double-click resets). Open or folded and the height are kept per window. A task open in the panel's sheet folds
  * it (`taskOpen`) without changing the kept state; opening the note then calls `onOpenNote` (the sheet closes).
+ * Key it by Session: the default state comes from the first note it loads.
  */
 export function NoteDock({
    api,
@@ -57,7 +58,10 @@ export function NoteDock({
    const [note] = useNote(api);
    const line = firstLine(note?.content ?? "");
    const stored = useStoredValue(openStore);
-   const open = !taskOpen && (stored ?? line !== "");
+   // Whether the note had text when it first loaded. Kept, so deleting all text does not fold the note.
+   const [hadText, setHadText] = useState<boolean | null>(null);
+   if (hadText === null && note) setHadText(line !== "");
+   const open = !taskOpen && (stored ?? hadText ?? false);
    const toggle = () => {
       openStore.set(!open);
       if (!open && taskOpen) onOpenNote();

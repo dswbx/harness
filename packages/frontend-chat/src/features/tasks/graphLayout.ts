@@ -212,7 +212,14 @@ export function layoutGraph<T extends GraphTask>(
       g === null || typeof g === "string" || !g.rank || k === null ? 0 : g.rank(k);
    const grouped = g !== null;
    const keyOf = (t: T): string | null => {
-      const k = g === null ? null : typeof g === "string" ? t.props[g] : g.laneOf(t);
+      const k =
+         g === null
+            ? null
+            : typeof g === "string"
+              ? Object.hasOwn(t.props, g)
+                 ? t.props[g]
+                 : undefined
+              : g.laneOf(t);
       return k === undefined || k === "" ? null : k;
    };
    const labelOf = (k: string | null) =>

@@ -140,7 +140,8 @@ impl Tasks {
                 self.get(p).map_err(at)?;
             }
             clean_props(n.props.clone()).map_err(at)?;
-            check_deps(&self.index.read(), "", &n.deps).map_err(at)?;
+            // Keeps the error code (not_found for an unknown id) and adds the position.
+            check_deps(&self.index.read(), "", &n.deps).map_err(|e| e.context(format!("task {}", i + 1)))?;
             Ok(())
         });
         let mut created = Vec::new();
@@ -726,6 +727,17 @@ mod tests {
         let (made, err) = s.create_all(vec![new("a"), new("b"), new("c")], &Actor::user());
         assert_eq!(made.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t1"]);
         assert!(format!("{:#}", err.unwrap_err()).starts_with("task 2: "));
+    }
+
+    #[test]
+    fn create_all_keeps_not_found_for_an_unknown_dep() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let dep = TaskDep { id: "t99".into(), kind: TaskDepKind::Blocks };
+        let (none, err) = s.create_all(vec![NewTask { title: "a".into(), deps: vec![dep], ..Default::default() }], &Actor::user());
+        let err = err.unwrap_err();
+        assert!(none.is_empty() && format!("{err:#}").contains("task 1"));
+        assert_eq!(crate::api::HarnessError::from(err).code, crate::api::ErrorCode::NotFound);
     }
 
     #[test]

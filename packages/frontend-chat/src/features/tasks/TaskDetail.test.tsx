@@ -29,9 +29,14 @@ async function typeIn(el: HTMLElement, text: string) {
 
 async function setup(
    id: string,
-   o: { session?: string; sessions?: ReadonlyMap<string, SessionInfo> } = {},
+   o: {
+      session?: string;
+      sessions?: ReadonlyMap<string, SessionInfo>;
+      edit?: (mock: MockTransport) => void;
+   } = {},
 ) {
    const mock = new MockTransport([], []);
+   o.edit?.(mock);
    const api = new HarnessClient(mock).sessionApi(o.session ?? "mock-1");
    const tasks = await api.listTasks();
    const onClose = vi.fn();
@@ -260,5 +265,70 @@ describe("Dependencies", () => {
       await waitFor(async () =>
          expect((await api.readTask("t14")).deps).toEqual([{ id: "t8", kind: "follow_up" }]),
       );
+   });
+
+   it("two quick removes both stick: the second builds on the first", async () => {
+      const { api } = await setup("t4");
+      const real = api.updateTask.bind(api);
+      let release = () => {};
+      const held = new Promise<void>((r) => {
+         release = r;
+      });
+      // Replies come only after both clicks.
+      const update = vi.spyOn(api, "updateTask").mockImplementation(async (...a) => {
+         await held;
+         return real(...a);
+      });
+      const region = screen.getByRole("region", { name: "Blocked by" });
+      fireEvent.click(
+         within(region).getByRole("button", {
+            name: "Remove link to Fix the updater signature check",
+         }),
+      );
+      fireEvent.click(
+         within(region).getByRole("button", { name: "Remove link to Write the changelog" }),
+      );
+      expect(update.mock.calls.map((c) => c[1])).toEqual([
+         { deps: [{ id: "t2", kind: "follow_up" }] },
+         { deps: [] },
+      ]);
+      await act(async () => release());
+      await waitFor(async () => expect((await api.readTask("t4")).deps).toEqual([]));
+      await waitFor(() => expect(within(region).getByText("Waits on no task.")).toBeTruthy());
+   });
+
+   it("shows the saved deps again when a change fails", async () => {
+      const { api } = await setup("t4");
+      vi.spyOn(api, "updateTask").mockRejectedValueOnce(new Error("disk full"));
+      const region = screen.getByRole("region", { name: "Blocked by" });
+      fireEvent.click(
+         within(region).getByRole("button", { name: "Remove link to Write the changelog" }),
+      );
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("disk full"));
+      await waitFor(() => expect(within(region).getByText("Write the changelog")).toBeTruthy());
+   });
+
+   it("lists a dep on a deleted task as missing, and leaves it out of every change", async () => {
+      const { api } = await setup("t4", {
+         edit: (m) => {
+            const t4 = m.tasks.get("t4");
+            if (t4) t4.deps = [...(t4.deps ?? []), { id: "t99", kind: "blocks" }];
+         },
+      });
+      const update = vi.spyOn(api, "updateTask");
+      const region = screen.getByRole("region", { name: "Blocked by" });
+      expect(within(region).getByText("t99 · missing")).toBeTruthy();
+      // Another change drops it, so the core does not refuse the list.
+      fireEvent.click(
+         within(region).getByRole("button", {
+            name: "Remove link to Fix the updater signature check",
+         }),
+      );
+      expect(update).toHaveBeenLastCalledWith("t4", { deps: [{ id: "t2", kind: "follow_up" }] });
+      await waitFor(async () =>
+         expect((await api.readTask("t4")).deps).toEqual([{ id: "t2", kind: "follow_up" }]),
+      );
+      await waitFor(() => expect(within(region).queryByText("t99 · missing")).toBeNull());
+      expect(screen.queryByRole("alert")).toBeNull();
    });
 });

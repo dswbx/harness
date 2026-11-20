@@ -427,6 +427,15 @@ describe("Panel sections", () => {
       ]);
    });
 
+   it("a prop key named like an Object member: tasks without it go to No <key>", () => {
+      const both = [t("a", { props: { constructor: "x" } }), t("b")];
+      expect(
+         groupSections(both, both, "prop:constructor", () => "").map(
+            (s) => `${s.label}: ${ids(s.tasks).join(" ")}`,
+         ),
+      ).toEqual(["x: a", "No constructor: b"]);
+   });
+
    it("keys do not collide with the No <key> section", () => {
       const keys = groupSections(
          [t("a", { props: { k: "none" } }), t("b")],

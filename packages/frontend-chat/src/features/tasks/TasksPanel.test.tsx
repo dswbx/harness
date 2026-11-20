@@ -572,6 +572,19 @@ describe("Tasks panel", () => {
          expect(localStorage.getItem("harness.tasks.noteOpen")).toBe("on");
       });
 
+      it("stays open when all its text is deleted", async () => {
+         const { api } = setup();
+         const editor = await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
+         // As the autosave of an emptied note: written, then read again.
+         await act(async () => {
+            const note = await api.readNote();
+            await api.writeNote("", note.hash);
+            await new Promise((r) => setTimeout(r, 50));
+         });
+         expect(screen.getByRole("textbox", { name: "Session note" })).toBe(editor);
+         expect(bar().getAttribute("aria-expanded")).toBe("true");
+      });
+
       it("is folded by default when the note is empty", async () => {
          setup({ edit: (m) => m.notes.delete("mock-1") });
          await waitFor(() => group(/^Open · 4$/));

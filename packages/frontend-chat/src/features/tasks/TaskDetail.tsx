@@ -109,7 +109,28 @@ function useTask(api: TaskApi, id: string) {
          void off.then((f) => f());
       };
    }, [api, id]);
-   return { task, put, missing, error, setError };
+   /**
+    * Sends a change. `next`: the task as it will be, shown at once, so a quick second change builds on it. The
+    * reply is shown unless a newer change was shown first; on an error the task is read again.
+    */
+   const save = useCallback(
+      (send: () => Promise<Task>, next?: Task) => {
+         if (next) put(next);
+         const mine = seq.current;
+         return send().then(
+            (t) => {
+               if (mine === seq.current) setTask(t);
+            },
+            (e) => {
+               const again = ++seq.current;
+               api.readTask(id).then((t) => again === seq.current && setTask(t), noop);
+               throw e;
+            },
+         );
+      },
+      [api, id, put],
+   );
+   return { task, put, save, missing, error, setError };
 }
 
 /**
@@ -136,7 +157,7 @@ export function TaskDetail({
    /** The close button on the title row; also called once the task is deleted. */
    onClose: () => void;
 }) {
-   const { task, put, missing, error, setError } = useTask(api, id);
+   const { task, put, save, missing, error, setError } = useTask(api, id);
    const [confirmDelete, setConfirmDelete] = useState(false);
    const now = useNow();
    const today = localDay(new Date(now));
@@ -150,11 +171,21 @@ export function TaskDetail({
       [tasks, id, deps],
    );
    const waitsOn = openBlockers(linked, id);
+   // Deps on tasks that no longer exist (none known while the list loads).
+   const gone = useMemo(
+      () => new Set(tasks ? (deps ?? []).filter((d) => !byId.has(d.id)).map((d) => d.id) : []),
+      [tasks, deps, byId],
+   );
 
    const fail = (e: unknown) => setError(errText(e));
    const patch = (p: TaskPatch) => {
       setError(null);
-      api.updateTask(id, p).then(put, fail);
+      // Deps and props show at once, so a quick second edit does not undo the first.
+      const next =
+         task && (p.deps || p.props)
+            ? { ...task, ...(p.deps && { deps: p.deps }), ...(p.props && { props: p.props }) }
+            : undefined;
+      save(() => api.updateTask(id, p), next).catch(fail);
    };
 
    const addFiles = (files: AttachmentInput[]) => {
@@ -337,6 +368,7 @@ export function TaskDetail({
                         <Dependencies
                            id={id}
                            deps={task.deps ?? []}
+                           gone={gone}
                            tasks={linked}
                            onOpen={onOpen}
                            onChange={(deps) => patch({ deps })}
@@ -749,12 +781,15 @@ function Subtasks({
 function Dependencies({
    id,
    deps,
+   gone,
    tasks,
    onOpen,
    onChange,
 }: {
    id: string;
    deps: readonly TaskDep[];
+   /** Ids of deps on tasks that no longer exist: shown to remove, and left out of every change (core refuses them). */
+   gone: ReadonlySet<string>;
    /** All tasks, with this one's current deps. */
    tasks: readonly TaskSummary[];
    onOpen: (id: string) => void;
@@ -764,7 +799,8 @@ function Dependencies({
    const follows = followsOf(tasks, id);
    const waiting = blocks(tasks, id);
    const followers = followedBy(tasks, id);
-   const remove = (other: string) => onChange(deps.filter((d) => d.id !== other));
+   const change = (next: TaskDep[]) => onChange(next.filter((d) => !gone.has(d.id)));
+   const remove = (other: string) => change(deps.filter((d) => d.id !== other));
    return (
       <>
          <section aria-label="Blocked by">
@@ -775,7 +811,7 @@ function Dependencies({
                <DepPicker
                   taskId={id}
                   tasks={tasks}
-                  onAdd={(other, kind) => onChange([...deps, { id: other, kind }])}
+                  onAdd={(other, kind) => change([...deps, { id: other, kind }])}
                />
             </div>
             <div className="flex flex-col gap-1">
@@ -787,7 +823,18 @@ function Dependencies({
                      onRemove={() => remove(t.id)}
                   />
                ))}
-               {waitsOn.length === 0 && follows.length === 0 && (
+               {[...gone].map((other) => (
+                  <div
+                     key={other}
+                     className="group/dep flex h-8 min-w-0 items-center gap-1 rounded-md bg-muted/40 pr-1 hover:bg-accent/60"
+                  >
+                     <span className="min-w-0 flex-1 truncate px-2 text-[13px] text-muted-foreground">
+                        {other} · missing
+                     </span>
+                     <RemoveLink name={other} onClick={() => remove(other)} />
+                  </div>
+               ))}
+               {waitsOn.length === 0 && follows.length === 0 && gone.size === 0 && (
                   <p className="text-xs text-muted-foreground/70">Waits on no task.</p>
                )}
             </div>
@@ -850,19 +897,24 @@ function DepLine({
             </span>
             <span className="shrink-0 text-[11px] text-muted-foreground">{task.id}</span>
          </button>
-         {onRemove && (
-            <Tooltip content="Remove link">
-               <button
-                  type="button"
-                  aria-label={`Remove link to ${task.title}`}
-                  className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/dep:opacity-100"
-                  onClick={onRemove}
-               >
-                  <X className="size-3" />
-               </button>
-            </Tooltip>
-         )}
+         {onRemove && <RemoveLink name={task.title} onClick={onRemove} />}
       </div>
+   );
+}
+
+/** The × on a dep line that drops the link (shown on hover). */
+function RemoveLink({ name, onClick }: { name: string; onClick: () => void }) {
+   return (
+      <Tooltip content="Remove link">
+         <button
+            type="button"
+            aria-label={`Remove link to ${name}`}
+            className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/dep:opacity-100"
+            onClick={onClick}
+         >
+            <X className="size-3" />
+         </button>
+      </Tooltip>
    );
 }
 

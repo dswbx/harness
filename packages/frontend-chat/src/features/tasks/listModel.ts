@@ -474,7 +474,14 @@ export function groupSections<T extends Sectionable>(
    // Keys: `=<lane key>`, or `NONE_GROUP` for the tasks without one.
    const g = graphGroup(all, groupBy, sessionTitle);
    const keyOf = (t: T): string | null => {
-      const k = g === null ? null : typeof g === "string" ? t.props[g] : g.laneOf(t);
+      const k =
+         g === null
+            ? null
+            : typeof g === "string"
+              ? Object.hasOwn(t.props, g)
+                 ? t.props[g]
+                 : undefined
+              : g.laneOf(t);
       return k === undefined || k === "" ? null : k;
    };
    const labelOf = (k: string | null) =>

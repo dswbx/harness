@@ -1424,6 +1424,12 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let bad = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":" "}]}"#, None).await;
     assert!(bad.contains("mcp error:") && bad.contains("task 2"), "{bad}");
     assert!(h.execute(Command::ReadTask { id: "t3".into() }).await.is_err());
+    // An unknown dep id keeps its not_found code, with the position.
+    let unknown = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":"x","deps":{"add":[{"id":"t99"}]}}]}"#, None).await;
+    assert!(unknown.contains("task 2") && unknown.contains("t99"), "{unknown}");
+    // null for an optional field means absent.
+    mcp_json(&h, &a, r#"task_add {"tasks":[{"title":"Nulls","due":null,"body":null,"status":null,"priority":null}]}"#).await;
+    mcp_json(&h, &a, r#"task_update {"id":"t3","status":"done","due":null,"title":null,"body":null,"priority":null}"#).await;
 
     // Session b cannot change a's Task; a can, and a move under its own subtask is refused.
     let refused = ask(&h, &b, r#"mcp task_update {"id":"t1","status":"done"}"#, None).await;
@@ -1452,7 +1458,7 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let all = mcp_json(&h, &b, r#"task_list {"scope":"all","status":"open"}"#).await;
     assert_eq!(all["tasks"].as_array().unwrap().iter().map(|t| t["id"].clone()).collect::<Vec<_>>(), [serde_json::json!("t1")]);
     let info = mcp_json(&h, &a, "harness_info {}").await;
-    assert_eq!(info["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(info["tasks"].as_array().unwrap().len(), 3);
     assert_eq!(info["tasks"][0]["session"], "created_here");
     assert!(info["note_path"].as_str().unwrap().ends_with(&format!("{a}/note.md")), "{info}");
 

@@ -192,6 +192,17 @@ describe("layoutGraph", () => {
       for (const lane of l.lanes) expect(lane.head).toBe(LANE_HEAD);
    });
 
+   it("a prop key named like an Object member: tasks without it have no key", () => {
+      const l = layoutGraph([t("x", [], { constructor: "a" }), t("y")], {
+         ...opts(),
+         groupBy: "constructor",
+      });
+      expect(l.lanes.map((x) => [x.key, x.label])).toEqual([
+         ["a", "a"],
+         [null, "No constructor"],
+      ]);
+   });
+
    it("groups by a lane function with its labels, or not at all", () => {
       const byFirst = layoutGraph(TASKS, {
          ...opts(),
