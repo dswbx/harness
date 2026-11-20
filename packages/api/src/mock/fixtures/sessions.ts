@@ -1,15 +1,23 @@
 import type { SessionSummary, WorkspaceInfo } from "../../generated";
+import { registryAgent } from "../handlers/agents";
 import type { MockTransport } from "../mock";
 import { mockSubSessionLogs } from "../mockSubSessions";
+import { MOCK_REGISTRY } from "./registry";
 
 export function seedSessions(mock: MockTransport): void {
-   mock.addSession("mock-1", "Mock session (fixture replay)", "chat");
+   mock.addSession("mock-1", "Split the router module", "chat", true, "/Users/me/code/shop");
    // The fixture Shared Artifacts' attachments, logged as the core would.
    if (mock.fixture.length > 0)
       for (const a of mock.shared.values())
          if (a.meta.attached?.includes("mock-1"))
             mock.emit("mock-1", { type: "ArtifactAttached", id: a.meta.id, by: "user" }, null);
    if (mock.fixture.length > 0) seedComments(mock);
+   // Claude and Codex come installed, so the New Session dialog and the Quick overlay can start Sessions.
+   if (mock.fixture.length > 0)
+      for (const entry of MOCK_REGISTRY.filter((a) => ["claude-acp", "codex-acp"].includes(a.id))) {
+         mock.installed.push(registryAgent(entry));
+         mock.installedVersions.set(entry.id, entry.version);
+      }
    // Sample Sessions covering the sidebar's cases (worktree, PR, plain branch, no git, ages).
    const h = 3600e3;
    const ws = (folder: string, o: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
@@ -160,6 +168,47 @@ export function seedSessions(mock: MockTransport): void {
                raw_input,
             });
          }
+         // A Side Thread asked while the Main Thread works (Side chats panel).
+         const side = `${sid}-side-1`;
+         mock.emit(
+            sid,
+            {
+               type: "ThreadStarted",
+               agent_id: "codex",
+               main: false,
+               forked_from: {
+                  thread_id: mock.mainThread(sid),
+                  turn: 1,
+                  seq: mock.logs.get(sid)!.length - 1,
+               },
+            },
+            side,
+         );
+         mock.emit(
+            sid,
+            { type: "AgentSessionStarted", acp_session_id: "acp-side-1", boundary: "forked" },
+            side,
+         );
+         mock.emit(
+            sid,
+            {
+               type: "TurnStarted",
+               turn_id: "side-t1",
+               text: "Why does the header need two rows today?",
+               attachments: [],
+               context: null,
+            },
+            side,
+         );
+         mock.emit(
+            sid,
+            {
+               type: "AgentMessageChunk",
+               text: "Two things push it to a second row:\n\n1. `SessionHeader.tsx` puts the title and the branch chip in separate flex rows.\n2. The PR chip needs room for its checks, so it wraps below the title.\n\nOne row works if the PR chip moves next to the title and the branch shows on hover.",
+            },
+            side,
+         );
+         mock.emit(sid, { type: "TurnEnded", turn_id: "side-t1", stop_reason: "end_turn" }, side);
       }
       // An idle Session whose Agent left a shell command running: "1 background job running".
       if (title === "Ping and pong greeting") {

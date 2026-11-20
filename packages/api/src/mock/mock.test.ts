@@ -344,6 +344,41 @@ describe("MockTransport Commands without a canned reply", () => {
    });
 });
 
+describe("MockTransport magic prompts", () => {
+   it("match the command alone or followed by text, not a longer word", async () => {
+      const transport = new MockTransport([], []);
+      const sid = await new HarnessClient(transport).createSession({
+         folder: "/tmp/x",
+         agentId: "codex",
+         frontendId: "chat",
+      });
+      const got: Event[] = [];
+      await transport.subscribe(sid, 0, (e) => got.push(e));
+      const cards = () => got.filter((e) => e.kind.type === "FrontendToolOutput").length;
+      const prompt = (text: string) =>
+         transport.execute({ type: "Prompt", session_id: sid, thread_id: null, text });
+      await prompt("/artifacts");
+      expect(cards()).toBe(1);
+      await prompt("  /artifacts Show the checkout flow\n");
+      expect(cards()).toBe(2);
+      await prompt("/artifactsx");
+      expect(cards()).toBe(2);
+      // The logged prompt (the user's message) is the text after the command; the command alone stays.
+      expect(
+         got.flatMap((e) => (e.kind.type === "TurnStarted" ? [e.kind.text] : [])).slice(0, 3),
+      ).toEqual(["/artifacts", "Show the checkout flow", "/artifactsx"]);
+   });
+
+   it("name a Quick Session after the text, not the command", async () => {
+      const client = new HarnessClient(new MockTransport([], []));
+      const id = await client.createQuickSession({ agentId: "codex", frontendId: "chat" });
+      await client.sessionApi(id).prompt("/quiz Quiz me on Rust ownership");
+      expect((await client.listSessions()).find((s) => s.id === id)!.title).toBe(
+         "Quiz me on Rust ownership",
+      );
+   });
+});
+
 describe("MockTransport panel edits", () => {
    const setup = async () => {
       const transport = new MockTransport([], []);
