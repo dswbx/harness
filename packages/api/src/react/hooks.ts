@@ -4,6 +4,7 @@ import { type GitStatusSnapshot, gitStatusStore } from "../client/gitStatusStore
 import type { Event, Note, PrRefKey, SharedArtifactEntry, TaskSummary } from "../generated";
 import { prKey } from "../github/prRefs";
 import type { PrEntry, PrStore } from "../github/prStore";
+import { onSessionForgotten } from "../platform/forgetSession";
 import type { Unsubscribe } from "../transport/transport";
 
 /** Longest wait for a Session's replay to finish before its first render. */
@@ -17,11 +18,54 @@ const LIVE_MS = 500;
  */
 const QUIET_MS = 40;
 
+/** How many Sessions keep their folded state after their View unmounts. */
+const FOLD_CACHE_SESSIONS = 5;
+/** A folded state and the `seq` to subscribe from next: always the fold of every Event below `next`. */
+type Fold = { state: unknown; next: number };
+/**
+ * Folded state of recently shown Sessions, so switching back to one renders at once and replays only
+ * what came since. Per Session (least recently used first), then per reducer: Views with different
+ * reducers fold the same log to different states. Valid for the app's life: a Session Log is only
+ * appended to and its `seq` never goes back while the core runs (log.rs), and the core runs as long
+ * as this window. Dropped when the Session is forgotten (deleted).
+ */
+const folds = new Map<string, Map<unknown, Fold>>();
+onSessionForgotten((id) => void folds.delete(id));
+
+function readFold(sessionId: string, reducer: unknown): Fold | undefined {
+   const bySession = folds.get(sessionId);
+   const fold = bySession?.get(reducer);
+   if (bySession && fold) {
+      folds.delete(sessionId);
+      folds.set(sessionId, bySession);
+   }
+   return fold;
+}
+
+/** Keeps the newest fold: a second View of the Session that is behind does not move it back. */
+function writeFold(sessionId: string, reducer: unknown, fold: Fold) {
+   const bySession = folds.get(sessionId) ?? new Map<unknown, Fold>();
+   if ((bySession.get(reducer)?.next ?? -1) <= fold.next) bySession.set(reducer, fold);
+   folds.delete(sessionId);
+   folds.set(sessionId, bySession);
+   for (const id of folds.keys()) {
+      if (folds.size <= FOLD_CACHE_SESSIONS) break;
+      folds.delete(id);
+   }
+}
+
+/** Test hook: empties the fold cache. */
+export function clearFoldCache() {
+   folds.clear();
+}
+
 /**
  * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
  * (replay and live share one path), and unsubscribes on unmount. Events are batched per
  * animation frame so replays of large logs don't re-render per event; the replay renders at once. Once subscribed, it asks
  * the core to warm the Agent up so config options (models, modes) arrive before the first prompt.
+ * The fold of a recently shown Session is kept (see `folds`): mounted again, it renders that fold at
+ * once and subscribes only from the next `seq`.
  */
 export function useSessionEvents<S>(
    api: SessionApi,
@@ -30,8 +74,15 @@ export function useSessionEvents<S>(
    /** Folds many Events at once; defaults to folding `reducer` one by one. Must equal that fold. */
    batchReducer?: (state: S, events: readonly Event[]) => S,
 ): S {
-   const [state, setState] = useState<S>(init);
+   const [state, setState] = useState<S>(
+      () => (readFold(api.sessionId, reducer)?.state as S | undefined) ?? init(),
+   );
    useEffect(() => {
+      const sessionId = api.sessionId;
+      const cached = readFold(sessionId, reducer);
+      // This View's own fold: what it rendered last and the `seq` after the last Event in it.
+      let folded = (cached?.state as S | undefined) ?? init();
+      let next = cached?.next ?? 0;
       let cancelled = false;
       let unsub: (() => void) | undefined;
       let pending: Event[] = [];
@@ -41,7 +92,8 @@ export function useSessionEvents<S>(
       // shift as the rest lands. So the first render waits until no Event came for `QUIET_MS`
       // (the replay is done), at most `REPLAY_WAIT_MS`. An Event from just now also ends the wait:
       // the replay has reached the present, and a running Agent sends Events every frame.
-      let replaying = true;
+      // A cached fold is already whole: no wait, what came since folds on top in the next frame.
+      let replaying = !cached;
       let lastAt = 0;
       const started = performance.now();
       const flush = () => {
@@ -56,15 +108,20 @@ export function useSessionEvents<S>(
          replaying = false;
          const batch = pending;
          pending = [];
-         setState((s) => (batchReducer ? batchReducer(s, batch) : batch.reduce(reducer, s)));
+         folded = batchReducer ? batchReducer(folded, batch) : batch.reduce(reducer, folded);
+         const last = batch.at(-1);
+         if (last) next = last.seq + 1;
+         writeFold(sessionId, reducer, { state: folded, next });
+         const shown = folded;
+         setState(() => shown);
       };
-      setState(init());
+      setState(() => folded);
       api.subscribe((e) => {
          if (cancelled) return;
          pending.push(e);
          lastAt = performance.now();
          if (!raf) raf = requestAnimationFrame(flush);
-      })
+      }, next)
          .then((u) => {
             if (cancelled) u();
             else {
