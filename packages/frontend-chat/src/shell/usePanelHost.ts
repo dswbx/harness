@@ -26,6 +26,8 @@ export type HostedPanel = {
    label: string;
    /** None (a family's instance): the shell picks one for the place the panel is in. */
    icon?: ComponentType<{ className?: string }>;
+   /** A family instance's icon name (`FamilyInstance.iconName`). */
+   iconName?: string;
    placement: PlacementHint;
    expandable?: boolean;
    overlay: boolean;
@@ -187,6 +189,7 @@ export function usePanelHost(o: {
             id: id,
             label: inst.label,
             icon: inst.icon,
+            iconName: inst.iconName,
             placement: inst.placement,
             expandable: inst.expandable,
             overlay: !!inst.overlay,

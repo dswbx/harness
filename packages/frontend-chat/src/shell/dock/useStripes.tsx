@@ -4,6 +4,7 @@ import type { PanelStatus } from "../../panels/contract";
 import type { HostedPanel } from "../usePanelHost";
 import { stripeGroup } from "../viewState";
 import { isOpen, type Layout, toggle, type Zone } from "./model";
+import type { PanelHint } from "./panelRecord";
 import type { StripeGroup } from "./Stripe";
 
 /**
@@ -18,13 +19,15 @@ export function useStripes(o: {
    shown: Layout;
    available: ReadonlySet<string>;
    update: (f: (l: Layout) => Layout) => void;
+   /** Labels and icons of recorded panels the host does not list yet (before the log is here). */
+   hints?: ReadonlyMap<string, PanelHint>;
 }) {
-   const { entries, statuses, lay, shown, available, update } = o;
+   const { entries, statuses, lay, shown, available, update, hints } = o;
    const entryOf = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
-   const label = (id: string) => entryOf.get(id)?.label ?? id;
+   const label = (id: string) => entryOf.get(id)?.label ?? hints?.get(id)?.label ?? id;
    // A panel without an icon of its own (a render_ui one without `icon`) gets the one of the side it is on.
    const icon = (id: string) => {
-      const Own = entryOf.get(id)?.icon;
+      const Own = entryOf.get(id)?.icon ?? (entryOf.has(id) ? undefined : hints?.get(id)?.icon);
       if (Own) return <Own />;
       return lay.zones.leftTop.includes(id) || lay.zones.leftBottom.includes(id) ? (
          <PanelLeft />

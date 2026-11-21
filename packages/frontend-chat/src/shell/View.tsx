@@ -45,6 +45,7 @@ import { shownOpen } from "./dock/geometry";
 import { expand, hide, isOpen, move, resetLayout, resize, show } from "./dock/model";
 import { mountedPanels } from "./dock/mountedPanels";
 import { usePanelDrag } from "./dock/panelDrag";
+import { usePanelRecord } from "./dock/panelRecord";
 import { Stripe } from "./dock/Stripe";
 import { useDockLayout, useHostPlaces } from "./dock/useDockLayout";
 import { useStripes } from "./dock/useStripes";
@@ -209,7 +210,7 @@ function ChatBody({
 
    // Panels with an icon, and those that can show now. The layout keeps the rest where they are.
    // The Quick overlay shows only the panels marked `overlay` (ADR 0022 Phase 2).
-   const available = useMemo(
+   const availableNow = useMemo(
       () =>
          availablePanels({
             overlay,
@@ -218,10 +219,19 @@ function ChatBody({
          }),
       [overlay, panelHost.statuses, panelHost.overlayIds],
    );
-   const renderable = useMemo(
-      () => renderablePanels(available, panelHost.statuses),
-      [available, panelHost.statuses],
+   const renderableNow = useMemo(
+      () => renderablePanels(availableNow, panelHost.statuses),
+      [availableNow, panelHost.statuses],
    );
+   // Until the log is here, the panels the Session had when last loaded keep their zones and icons.
+   const { available, renderable, placeholders, hints } = usePanelRecord({
+      sessionId: api.sessionId,
+      overlay,
+      loaded: state.loaded,
+      entries: panelHost.entries,
+      available: availableNow,
+      renderable: renderableNow,
+   });
    const shown = useMemo(() => shownOpen(lay, renderable), [lay, renderable]);
    useHostPlaces({ placesRef, setPlaces }, panelHost.places);
 
@@ -235,6 +245,7 @@ function ChatBody({
       shown,
       available,
       update,
+      hints,
    });
    /** What both trees (main and Quick overlay) give the dock. */
    const dock = {
@@ -245,7 +256,12 @@ function ChatBody({
       onExpand: (id: string | null) => update((l) => expand(l, id)),
       onDragStart: startDrag,
    };
-   const panels = mountedPanels(panelHost.entries, (id) => isOpen(shown, id), renderable);
+   const panels = mountedPanels(
+      panelHost.entries,
+      (id) => isOpen(shown, id),
+      renderable,
+      placeholders,
+   );
 
    // The host's header shows the process state as a dot on its info icon; a header of our own (no host header) a badge.
    const pending = usePendingMessages(api.sessionId);
