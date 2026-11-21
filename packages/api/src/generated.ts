@@ -1012,6 +1012,23 @@ export type ListedTask = {
 	status: TaskStatus,
 };
 
+/**
+ *  One page of a Session Log, read by a View that opens the Session (ADR 0029): the Events with
+ *  `from_seq <= seq < end`, oldest first, as many as fit the page limits but at least one while
+ *  any is left. The Events are serialized once, when the page is cut to its byte limit.
+ */
+export type LogPage = {
+	events: Event[],
+	/**
+	 *  Upper bound (exclusive) of the read: the `to_seq` asked for, else the `seq` the next Event of
+	 *  the log gets, so every Event the log has now is below it. A View loads up to the `end` of its
+	 *  first page and subscribes from it.
+	 */
+	end: number,
+	/**  Events below `end` are left after this page: read on from the last `seq` + 1. */
+	more: boolean,
+};
+
 /**  An MCP server in the MCP Library. */
 export type McpServerDef = {
 	/**  Stable id; empty on first save means "derive from name". */

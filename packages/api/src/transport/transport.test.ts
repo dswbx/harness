@@ -112,6 +112,19 @@ describe("tauriTransport.subscribe", () => {
    });
 });
 
+describe("tauriTransport.readLogPage", () => {
+   it("asks the core for one page and hands back its answer", async () => {
+      const page = { events: [], end: 7, more: false };
+      invoke.mockResolvedValueOnce(page);
+      expect(await tauriTransport.readLogPage("s1", 3, null)).toBe(page);
+      expect(invoke).toHaveBeenCalledWith("read_log_page", {
+         sessionId: "s1",
+         fromSeq: 3,
+         toSeq: null,
+      });
+   });
+});
+
 describe("tauriTransport.attachTerminal", () => {
    const bytes = (...b: number[]) => new Uint8Array(b).buffer;
    const attach = async () => {
@@ -183,7 +196,7 @@ describe("subscribeResilient", () => {
          subscribe: (_s: string, _from: number, _on: unknown, lagged?: () => void) =>
             new Promise<() => void>((resolve) => opens.push({ lagged, resolve })),
       } as unknown as Transport;
-      const started = subscribeResilient(transport, "s1", 0, () => {}, 1);
+      const started = subscribeResilient(transport, "s1", 0, () => {}, { retryMs: 1 });
       // Lagged before the first subscribe has resolved: a second open starts.
       opens[0].lagged?.();
       await vi.waitFor(() => expect(opens).toHaveLength(2));
@@ -198,5 +211,55 @@ describe("subscribeResilient", () => {
       expect(off2).not.toHaveBeenCalled();
       unsubscribe();
       expect(off2).toHaveBeenCalledTimes(1);
+   });
+
+   it("tries a failed first open again and resolves once it is open", async () => {
+      const froms: number[] = [];
+      const off = vi.fn();
+      const transport = {
+         subscribe: async (_s: string, from: number) => {
+            froms.push(from);
+            if (froms.length < 3) throw new Error("down");
+            return off;
+         },
+      } as unknown as Transport;
+      const unsubscribe = await subscribeResilient(transport, "s1", 7, () => {}, { retryMs: 1 });
+      expect(froms).toEqual([7, 7, 7]);
+      unsubscribe();
+      expect(off).toHaveBeenCalledTimes(1);
+   });
+
+   it("rejects when the first open still fails after the retries", async () => {
+      let opens = 0;
+      const transport = {
+         subscribe: async () => {
+            opens++;
+            throw new Error("down");
+         },
+      } as unknown as Transport;
+      await expect(
+         subscribeResilient(transport, "s1", 0, () => {}, { retryMs: 1 }),
+      ).rejects.toThrow("down");
+      expect(opens).toBe(6);
+   });
+
+   it("stops retrying the first open when its signal aborts, and opens nothing", async () => {
+      let opens = 0;
+      const transport = {
+         subscribe: async () => {
+            opens++;
+            throw new Error("down");
+         },
+      } as unknown as Transport;
+      const stop = new AbortController();
+      const started = subscribeResilient(transport, "s1", 0, () => {}, {
+         retryMs: 1000,
+         signal: stop.signal,
+      });
+      await vi.waitFor(() => expect(opens).toBe(1));
+      stop.abort();
+      const unsubscribe = await started;
+      expect(opens).toBe(1);
+      unsubscribe();
    });
 });

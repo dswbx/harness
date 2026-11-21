@@ -1,6 +1,14 @@
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { toCommandError } from "../errors";
-import type { AppEvent, Command, CommandResult, Event, SessionMessage } from "../generated";
+import type {
+   AppEvent,
+   Command,
+   CommandResult,
+   Event,
+   LogPage,
+   SessionMessage,
+} from "../generated";
+import { withRetry } from "./retry";
 
 export type Unsubscribe = () => void;
 
@@ -13,6 +21,13 @@ export type TerminalOutput = Uint8Array | { replay: Uint8Array } | { exit: numbe
 /** Boundary between the UI and the Rust core (ADR 0001): Commands, Session Logs, AppEvents, and the Terminal byte stream. */
 export interface Transport {
    execute(cmd: Command): Promise<CommandResult>;
+   /**
+    * One page of the Session Log (ADR 0029): the Events with `fromSeq <= seq < end`, oldest first,
+    * within the core's page limits but at least one while any is left. `end` is `toSeq`, else the
+    * `seq` the next Event gets. A View opening a Session reads up to the `end` of its first page,
+    * one page at a time, and subscribes from that `end`.
+    */
+   readLogPage(sessionId: string, fromSeq: number, toSeq: number | null): Promise<LogPage>;
    /**
     * Replays the Session Log from `fromSeq`, then streams live. When the core drops the
     * subscription because this View fell too far behind it calls `onLagged` once and sends
@@ -39,17 +54,23 @@ export interface Transport {
 /**
  * Subscribes to a Session Log and keeps the stream whole: when the core drops this View for
  * lagging, it subscribes again from the next `seq` it has not seen, so the UI catches up on its
- * own with no gaps and no duplicates. Returns an unsubscribe function.
+ * own with no gaps and no duplicates. A failed open (the first one too) is tried again with a
+ * growing delay. Resolves with an unsubscribe function once the first open succeeded; rejects
+ * when it still fails after the retries. When `signal` aborts first, it stops trying and resolves
+ * (nothing is open then).
  */
 export async function subscribeResilient(
    transport: Transport,
    sessionId: string,
    fromSeq: number,
    onEvent: (e: Event) => void,
-   retryMs = 250,
+   { retryMs = 250, signal }: { retryMs?: number; signal?: AbortSignal } = {},
 ): Promise<Unsubscribe> {
    let next = fromSeq;
-   let stopped = false;
+   const stop = new AbortController();
+   if (signal?.aborted) stop.abort();
+   else signal?.addEventListener("abort", () => stop.abort(), { once: true });
+   const stopped = () => stop.signal.aborted;
    let off: Unsubscribe | null = null;
    // Opens can resolve out of order: a handle of an older open is closed as soon as it arrives.
    let generation = 0;
@@ -60,38 +81,33 @@ export async function subscribeResilient(
          next,
          (e) => {
             // A late Event of a dropped subscription, or a replay overlap: already delivered.
-            if (stopped || mine !== generation || e.seq < next) return;
+            if (stopped() || mine !== generation || e.seq < next) return;
             next = e.seq + 1;
             onEvent(e);
          },
          () => {
-            if (stopped || mine !== generation) return;
+            if (stopped() || mine !== generation) return;
             off?.();
             off = null;
-            void reopen(0);
+            withRetry(open, stop.signal, retryMs).catch((err) => {
+               if (!stopped()) console.error("could not resubscribe to the Session Log", err);
+            });
          },
       );
-      if (stopped || mine !== generation) handle();
+      if (stopped() || mine !== generation) handle();
       else off = handle;
    };
-   const reopen = async (attempt: number): Promise<void> => {
-      try {
-         await open();
-      } catch (err) {
-         if (stopped || attempt >= 5) {
-            console.error("could not resubscribe to the Session Log", err);
-            return;
-         }
-         await new Promise((r) => setTimeout(r, retryMs * 2 ** attempt));
-         if (!stopped) await reopen(attempt + 1);
-      }
-   };
-   await open();
-   return () => {
-      stopped = true;
+   const unsubscribe = () => {
+      stop.abort();
       off?.();
       off = null;
    };
+   try {
+      await withRetry(open, stop.signal, retryMs);
+   } catch (err) {
+      if (!stopped()) throw err;
+   }
+   return unsubscribe;
 }
 
 export function inTauri(): boolean {
@@ -149,6 +165,8 @@ export const tauriTransport: Transport = {
       invoke<CommandResult>("execute", { cmd }).catch((e) => {
          throw toCommandError(e);
       }),
+   readLogPage: (sessionId, fromSeq, toSeq) =>
+      invoke<LogPage>("read_log_page", { sessionId, fromSeq, toSeq }),
    async subscribe(sessionId, fromSeq, onEvent, onLagged) {
       const channel = new Channel<SessionMessage>();
       channel.onmessage = (m) => {

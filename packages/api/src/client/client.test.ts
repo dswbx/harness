@@ -103,6 +103,7 @@ function recorder(reply?: (cmd: Command) => CommandResult) {
          sent.push(cmd);
          return reply?.(cmd) ?? replies[cmd.type] ?? { type: "Ok" };
       },
+      readLogPage: async () => ({ events: [], end: 0, more: false }),
       subscribe: async () => () => {},
       subscribeApp: async () => () => {},
       attachTerminal: async () => () => {},
@@ -114,6 +115,7 @@ type Plain = Exclude<
    keyof SessionApi,
    | "sessionId"
    | "subscribe"
+   | "readLogPage"
    | "panelSourceChanged"
    | "terminalsChanged"
    | "terminalAttach"

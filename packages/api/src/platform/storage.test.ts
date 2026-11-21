@@ -246,6 +246,7 @@ describe("registry", () => {
          "app harness.settings.section",
          "app harness:window-frame:{name}",
          "session harness.chat.layout.{session}",
+         "session harness.chat.dockPanels.{session}",
          "session harness.chat.sideThreads.{session}",
          "session harness.chat.dockedPanels.{session}",
          "session harness.chat.panel.{session}",
@@ -284,6 +285,7 @@ describe("forgetSession", () => {
    it("removes exactly the Session's keys", () => {
       const mine = [
          "harness.chat.layout.s1",
+         "harness.chat.dockPanels.s1",
          "harness.chat.sideThreads.s1",
          "harness.chat.panel.s1",
          "harness.files.s1",

@@ -8,7 +8,6 @@ import type {
    SessionStatus,
    ViewVariant,
 } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
 import { MenuButton, Portal, type VirtualListHandle } from "@harness/ui";
 import { RotateCcw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
@@ -28,7 +27,6 @@ import { planPanel } from "../features/plan/panel";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
 import { type PendingMessage, usePendingMessages } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
-import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { Env } from "../features/renderUi/runtime";
 import { SlotStrip } from "../features/renderUi/SlotStrip";
 import { slotPanels } from "../features/renderUi/slotPanels";
@@ -41,17 +39,18 @@ import { tasksPanel } from "../features/tasks/panel";
 import { OpenTerminal } from "../features/terminal/openTerminal";
 import { terminalPanel } from "../features/terminal/panel";
 import { OpenStep } from "../features/toolDisplay/openStep";
-import { initialState } from "../state/reducer";
 import { DockLayout } from "./dock/DockLayout";
 import { shownOpen } from "./dock/geometry";
 import { expand, hide, isOpen, move, resetLayout, resize, show } from "./dock/model";
 import { mountedPanels } from "./dock/mountedPanels";
 import { usePanelDrag } from "./dock/panelDrag";
+import { usePanelRecord } from "./dock/panelRecord";
 import { Stripe } from "./dock/Stripe";
 import { useDockLayout, useHostPlaces } from "./dock/useDockLayout";
 import { useStripes } from "./dock/useStripes";
 import { OverlayDock } from "./overlay/OverlayDock";
 import { useProcessStatus } from "./ProcessStatus";
+import { useChatLog } from "./useChatLog";
 import { useJump } from "./useJump";
 import { usePanelHost } from "./usePanelHost";
 import { useShortcuts } from "./useShortcuts";
@@ -110,7 +109,8 @@ function ChatBody({
    sessions,
 }: ChatProps) {
    const overlay = variant === "overlay";
-   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
+   // `inert`: a cached fold not confirmed whole yet can be behind the log (useChatLog).
+   const { state, inert } = useChatLog(api);
    // A Session with nothing in it yet is waiting for a message. Known once its log is here.
    const prompt = useRef<PromptBoxHandle>(null);
    const hasItems = useRef(false);
@@ -213,7 +213,7 @@ function ChatBody({
 
    // Panels with an icon, and those that can show now. The layout keeps the rest where they are.
    // The Quick overlay shows only the panels marked `overlay` (ADR 0022 Phase 2).
-   const available = useMemo(
+   const availableNow = useMemo(
       () =>
          availablePanels({
             overlay,
@@ -222,10 +222,19 @@ function ChatBody({
          }),
       [overlay, panelHost.statuses, panelHost.overlayIds],
    );
-   const renderable = useMemo(
-      () => renderablePanels(available, panelHost.statuses),
-      [available, panelHost.statuses],
+   const renderableNow = useMemo(
+      () => renderablePanels(availableNow, panelHost.statuses),
+      [availableNow, panelHost.statuses],
    );
+   // Until the log is here, the panels the Session had when last loaded keep their zones and icons.
+   const { available, renderable, placeholders, hints } = usePanelRecord({
+      sessionId: api.sessionId,
+      overlay,
+      loaded: state.loaded,
+      entries: panelHost.entries,
+      available: availableNow,
+      renderable: renderableNow,
+   });
    const shown = useMemo(() => shownOpen(lay, renderable), [lay, renderable]);
    useHostPlaces({ placesRef, setPlaces }, panelHost.places);
 
@@ -239,6 +248,7 @@ function ChatBody({
       shown,
       available,
       update,
+      hints,
    });
    /** What both trees (main and Quick overlay) give the dock. */
    const dock = {
@@ -249,7 +259,12 @@ function ChatBody({
       onExpand: (id: string | null) => update((l) => expand(l, id)),
       onDragStart: startDrag,
    };
-   const panels = mountedPanels(panelHost.entries, (id) => isOpen(shown, id), renderable);
+   const panels = mountedPanels(
+      panelHost.entries,
+      (id) => isOpen(shown, id),
+      renderable,
+      placeholders,
+   );
 
    // The host's header shows the process state as a dot on its info icon; a header of our own (no host header) a badge.
    const pending = usePendingMessages(api.sessionId);
@@ -346,51 +361,54 @@ function ChatBody({
          <OpenTask.Provider value={overlay && !onOpenTasks ? null : openTask}>
             <OpenTerminal.Provider value={overlay ? null : openTerminal}>
                <FileViewProvider onView={openFile}>
-                  {overlay ? (
-                     <OverlayDock
-                        draft={overlayDraft}
-                        promptBox={promptBox}
-                        chat={chat}
-                        chatFrame={chatFrame}
-                        onPanelWidth={onPanelWidth}
-                        overlayFrame={overlayFrame}
-                        shown={shown}
-                        left={left}
-                        right={right}
-                        panels={panels}
-                        dock={dock}
-                        onToggle={onToggle}
-                        ghost={ghost}
-                     />
-                  ) : (
-                     <div className="relative flex h-full">
-                        {(!leftEmpty || drag) && (
+                  {/* `contents`: no box of its own, the layout stays as it is. */}
+                  <div className="contents" inert={inert}>
+                     {overlay ? (
+                        <OverlayDock
+                           draft={overlayDraft}
+                           promptBox={promptBox}
+                           chat={chat}
+                           chatFrame={chatFrame}
+                           onPanelWidth={onPanelWidth}
+                           overlayFrame={overlayFrame}
+                           shown={shown}
+                           left={left}
+                           right={right}
+                           panels={panels}
+                           dock={dock}
+                           onToggle={onToggle}
+                           ghost={ghost}
+                        />
+                     ) : (
+                        <div className="relative flex h-full">
+                           {(!leftEmpty || drag) && (
+                              <Stripe
+                                 side="left"
+                                 groups={left}
+                                 drag={drag}
+                                 overlay={leftEmpty}
+                                 onToggle={onToggle}
+                                 onPress={(it, e) => startDrag(it.id, it.label, e)}
+                              />
+                           )}
+                           <DockLayout
+                              {...dock}
+                              layout={shown}
+                              chat={chat}
+                              panels={panels}
+                              leftStripeOverlay={leftEmpty}
+                           />
                            <Stripe
-                              side="left"
-                              groups={left}
+                              side="right"
+                              groups={right}
                               drag={drag}
-                              overlay={leftEmpty}
                               onToggle={onToggle}
                               onPress={(it, e) => startDrag(it.id, it.label, e)}
                            />
-                        )}
-                        <DockLayout
-                           {...dock}
-                           layout={shown}
-                           chat={chat}
-                           panels={panels}
-                           leftStripeOverlay={leftEmpty}
-                        />
-                        <Stripe
-                           side="right"
-                           groups={right}
-                           drag={drag}
-                           onToggle={onToggle}
-                           onPress={(it, e) => startDrag(it.id, it.label, e)}
-                        />
-                        {ghost}
-                     </div>
-                  )}
+                           {ghost}
+                        </div>
+                     )}
+                  </div>
                </FileViewProvider>
             </OpenTerminal.Provider>
          </OpenTask.Provider>

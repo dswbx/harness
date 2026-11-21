@@ -96,6 +96,8 @@ export type FamilyInstance = {
    label: string;
    /** None: the host picks one for the place the panel is in. */
    icon?: PanelDef["icon"];
+   /** The name `icon` came from (the family's `iconOf` maps it back): kept, so the icon shows before the log is here. */
+   iconName?: string;
    placement: PlacementHint;
    status: PanelStatus;
    /** Shown in the Quick Overlay (default false). */
@@ -112,6 +114,8 @@ export type PanelFamily<M = unknown> = {
    prefix: string;
    useModel: (ctx: PanelCtx) => M;
    instances: (model: M) => FamilyInstance[];
+   /** An instance's icon by its `iconName`. */
+   iconOf?: (name: string) => PanelDef["icon"] | undefined;
    Body: ComponentType<{ model: M; ctx: PanelCtx; self: PanelSelf; instance: string }>;
 };
 

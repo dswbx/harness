@@ -401,10 +401,12 @@ export const slotPanels = definePanelFamily<SlotsModel>({
          key: slot.id,
          label: slot.title ?? slot.id,
          icon: iconFor(slot.icon),
+         iconName: slot.icon ?? undefined,
          placement: { edge: side },
          overlay: true,
          status: { presence: "ready", dot: m.dots.has(slot.id) || undefined },
       })),
+   iconOf: iconFor,
    Body: ({ model, ctx, instance }) => {
       const env: UiEnv = useEnv();
       const slot = model.byId.get(instance);

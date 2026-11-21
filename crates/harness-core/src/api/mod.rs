@@ -50,6 +50,7 @@ pub fn types() -> specta::Types {
         .register::<AppEvent>()
         .register::<HarnessError>()
         .register::<SessionMessage>()
+        .register::<LogPage>()
         .register::<OverlaySettings>()
 }
 

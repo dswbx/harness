@@ -60,7 +60,7 @@ use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use crate::api::{EVENT_SCHEMA_VERSION, Event, EventKind, EventSink, ProcessState, SessionId, ThreadId};
+use crate::api::{EVENT_SCHEMA_VERSION, Event, EventKind, EventSink, LogPage, ProcessState, SessionId, ThreadId};
 use crate::session::{FrontendErrorEntry, FrontendItem};
 
 pub type SubscriptionId = u64;
@@ -70,6 +70,12 @@ const COALESCE: Duration = Duration::from_millis(50);
 
 /// Events a subscriber may fall behind by before it is dropped with `Lagged`.
 const QUEUE_CAP: usize = 4096;
+
+/// Most Events in one page a View reads (`SessionLog::read_page`, ADR 0029).
+pub const PAGE_EVENTS: usize = 2000;
+/// Most bytes of serialized Events in one page. One Event can hold megabytes of tool output, so a
+/// page holds at least one Event whatever its size.
+pub const PAGE_BYTES: usize = 1 << 20;
 
 /// Rewrites an Event of schema version `v` (as JSON) into the current shape, before it is parsed.
 /// Identity while only version 1 exists. A rename or removal of an Event kind or field adds a
@@ -1283,6 +1289,37 @@ impl SessionLog {
         Ok(id)
     }
 
+    /// One page of the log for a View that opens it (ADR 0029): the Events with
+    /// `from_seq <= seq < end`, oldest first, at most `max_events` and `max_bytes` serialized, but
+    /// at least one. `end` is `to_seq`, else the `seq` the next Event gets: a View reads up to the
+    /// `end` of its first page and subscribes from it, so pages and live never overlap or leave a
+    /// gap. A held chunk is flushed first: it gets its `seq` below `end`, or it is not there yet.
+    /// The Events are shared handles under the lock and serialized after it, once each.
+    pub fn read_page(&self, from_seq: u64, to_seq: Option<u64>, max_events: usize, max_bytes: usize) -> anyhow::Result<LogPage> {
+        let (picked, end, left) = {
+            let mut inner = self.inner.lock();
+            inner.flush()?;
+            inner.ensure_loaded()?;
+            let end = to_seq.unwrap_or(inner.next_seq);
+            let events = inner.events.as_deref().unwrap_or_default();
+            let start = events.partition_point(|e| e.seq < from_seq);
+            let stop = events.partition_point(|e| e.seq < end).max(start);
+            let take = (stop - start).min(max_events.max(1));
+            (events[start..start + take].to_vec(), end, stop - start)
+        };
+        let mut events = Vec::with_capacity(picked.len());
+        let mut bytes = 0;
+        for ev in &picked {
+            let raw = serde_json::value::to_raw_value(&**ev)?;
+            bytes += raw.get().len();
+            if !events.is_empty() && bytes > max_bytes {
+                break;
+            }
+            events.push(raw);
+        }
+        Ok(LogPage { more: events.len() < left, events, end })
+    }
+
     pub fn unsubscribe(&self, id: SubscriptionId) {
         let mut inner = self.inner.lock();
         for s in inner.subscribers.iter().filter(|s| s.id == id) {
@@ -1884,6 +1921,205 @@ mod tests {
             let want: Vec<u64> = (from..=last).collect();
             assert_eq!(*seen.lock(), want, "view from {from}");
         }
+    }
+
+    // ----- pages (ADR 0029) -----
+
+    fn seqs(page: &LogPage) -> Vec<u64> {
+        page.events.iter().map(|r| serde_json::from_str::<Event>(r.get()).unwrap().seq).collect()
+    }
+
+    /// Reads the log as a View that opens it does: the first page, then on up to its `end`.
+    /// Returns (the `seq`s read, `end`, how many pages).
+    fn read_all(log: &SessionLog, from: u64, max_events: usize, max_bytes: usize) -> (Vec<u64>, u64, usize) {
+        let first = log.read_page(from, None, max_events, max_bytes).unwrap();
+        let end = first.end;
+        let (mut got, mut more, mut pages) = (seqs(&first), first.more, 1);
+        while more {
+            let next = got.last().map_or(from, |s| s + 1);
+            let page = log.read_page(next, Some(end), max_events, max_bytes).unwrap();
+            assert!(!page.events.is_empty(), "a page with more to come makes progress");
+            assert_eq!(page.end, end);
+            got.extend(seqs(&page));
+            more = page.more;
+            pages += 1;
+        }
+        (got, end, pages)
+    }
+
+    #[test]
+    fn an_empty_log_reads_as_one_empty_page_that_ends_at_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        let page = log.read_page(0, None, 10, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![], 0, false));
+    }
+
+    #[test]
+    fn a_page_covers_a_seq_range_up_to_the_event_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        for i in 0..10 {
+            log.append(None, err(&i.to_string())).unwrap();
+        }
+        let page = log.read_page(0, None, 4, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![0, 1, 2, 3], 10, true), "end: the next seq");
+        let page = log.read_page(4, Some(7), 4, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![4, 5, 6], 7, false));
+        // Appended after the first page: not in a read bounded by its end.
+        log.append(None, err("late")).unwrap();
+        let page = log.read_page(8, Some(10), 4, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![8, 9], 10, false));
+        // Without a bound the end moved on.
+        let page = log.read_page(8, None, 4, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![8, 9, 10], 11, false));
+        // From the end or past it, or a bound below the start: nothing, and nothing more.
+        let page = log.read_page(11, None, 4, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![], 11, false));
+        let page = log.read_page(5, Some(3), 4, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![], 3, false));
+        // A zero limit still makes progress.
+        let page = log.read_page(0, None, 0, 0).unwrap();
+        assert_eq!((seqs(&page), page.more), (vec![0], true));
+    }
+
+    #[test]
+    fn the_byte_limit_cuts_a_page_and_a_bigger_event_comes_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        for m in ["a", "b", &"x".repeat(10_000), "c", "d"] {
+            log.append(None, err(m)).unwrap();
+        }
+        let small = serde_json::to_string(&*log.events().unwrap()[0]).unwrap().len();
+        let limit = 2 * small + 1;
+        let page = log.read_page(0, None, 100, limit).unwrap();
+        assert_eq!((seqs(&page), page.more), (vec![0, 1], true));
+        let page = log.read_page(2, Some(5), 100, limit).unwrap();
+        assert_eq!((seqs(&page), page.more), (vec![2], true), "larger than the limit, but a page holds at least one");
+        let page = log.read_page(3, Some(5), 100, limit).unwrap();
+        assert_eq!((seqs(&page), page.more), (vec![3, 4], false));
+        assert_eq!(read_all(&log, 0, 100, limit), ((0..5).collect(), 5, 3));
+        // The page's Events are the log's, serialized whole.
+        let page = log.read_page(2, Some(3), 100, limit).unwrap();
+        let ev: Event = serde_json::from_str(page.events[0].get()).unwrap();
+        assert!(matches!(ev.kind, EventKind::Error { message } if message.len() == 10_000));
+    }
+
+    #[test]
+    fn pages_then_a_subscription_from_their_end_have_no_gap_or_duplicate_under_concurrent_appends() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Arc::new(open_in(dir.path()));
+        for i in 0..200 {
+            log.append(None, err(&i.to_string())).unwrap();
+        }
+        let appender = {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for i in 0..2000 {
+                    log.append(None, err(&i.to_string())).unwrap();
+                }
+            })
+        };
+        // A fresh View from 0 and one with a cached fold up to 50, each paging while appends go on.
+        let mut views = Vec::new();
+        for from in [0u64, 50] {
+            let (paged, end, _) = read_all(&log, from, 7, PAGE_BYTES);
+            assert_eq!(paged, (from..end).collect::<Vec<_>>(), "pages from {from} hold every Event below their end");
+            let (sink, live) = collector();
+            log.subscribe(end, sink).unwrap();
+            views.push((from, paged, live));
+        }
+        appender.join().unwrap();
+        let last = log.last_seq().unwrap();
+        assert_eq!(last, 2199);
+        for (from, paged, live) in views {
+            // The appender may have finished before the subscription: then live has nothing.
+            eventually("live caught up", || paged.last().max(live.lock().last()) == Some(&last));
+            let all: Vec<u64> = paged.iter().chain(live.lock().iter()).copied().collect();
+            assert_eq!(all, (from..=last).collect::<Vec<_>>(), "View from {from}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_held_chunk_is_in_the_page_or_after_its_end_never_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = open_in(dir.path());
+        log.append(None, err("a")).unwrap();
+        log.append(Some("t".into()), msg("Hel")).unwrap();
+        // The read flushes the held chunk: it is in the page, below the end.
+        let page = log.read_page(0, None, 10, PAGE_BYTES).unwrap();
+        assert_eq!((seqs(&page), page.end, page.more), (vec![0, 1], 2, false));
+        let chunk: Event = serde_json::from_str(page.events[1].get()).unwrap();
+        assert!(matches!(chunk.kind, EventKind::AgentMessageChunk { text, .. } if text == "Hel"));
+        // A chunk after the read is a new Event at the end, held until the subscription flushes it.
+        log.append(Some("t".into()), msg("lo")).unwrap();
+        let (sink, live) = collector();
+        log.subscribe(page.end, sink).unwrap();
+        eventually("the held chunk", || *live.lock() == vec![2]);
+    }
+
+    /// Serializing a big log for a View: one message per Event (a subscription's replay: a deep
+    /// clone, then its own JSON, as `ViewSink` and a Tauri Channel do) against pages (`read_page`,
+    /// then the page's JSON, as the Tauri command's answer). Rust side only: the IPC cost per
+    /// message and the parse in the webview are not in it.
+    /// `cargo test -p harness-core --release --lib -- --ignored --nocapture page_bench`
+    #[test]
+    #[ignore = "bench: run with --release --ignored --nocapture"]
+    fn page_bench() {
+        use crate::api::SessionMessage;
+        const N: u64 = 15_000;
+        let dir = tempfile::tempdir().unwrap();
+        let text = "lorem ipsum ".repeat(25);
+        let output = "0123456789abcdef ".repeat(180);
+        let mut content = String::new();
+        for i in 0..N {
+            let kind = if i % 10 < 7 {
+                format!("{{\"type\":\"AgentMessageChunk\",\"text\":\"{text}\"}}")
+            } else {
+                format!(
+                    "{{\"type\":\"ToolCallUpdate\",\"tool_call_id\":\"t{i}\",\"status\":\"completed\",\"content\":[{{\"type\":\"content\",\"content\":{{\"type\":\"text\",\"text\":\"{output}\"}}}}],\"raw_output\":{{\"output\":\"{output}\",\"exit\":0}}}}"
+                )
+            };
+            content.push_str(&line(i, &kind));
+        }
+        std::fs::write(dir.path().join("log.jsonl"), &content).unwrap();
+        let log = open_in(dir.path());
+        let events = log.events().unwrap();
+        assert_eq!(events.len() as u64, N);
+
+        let t = Instant::now();
+        let mut one_bytes = 0;
+        for ev in &events {
+            one_bytes += serde_json::to_string(&SessionMessage::Event((**ev).clone())).unwrap().len();
+        }
+        let one = t.elapsed();
+
+        let t = Instant::now();
+        let (mut page_bytes, mut pages, mut from, mut to) = (0, 0, 0, None);
+        loop {
+            let page = log.read_page(from, to, PAGE_EVENTS, PAGE_BYTES).unwrap();
+            from = seqs_last(&page).map_or(from, |s| s + 1);
+            to = Some(page.end);
+            page_bytes += serde_json::to_string(&page).unwrap().len();
+            pages += 1;
+            if !page.more {
+                break;
+            }
+        }
+        let paged = t.elapsed();
+        eprintln!(
+            "page_bench: {N} Events, {:.1} MB in the file\n  one per Event: {N} messages, {:.1} MB, {:.1} ms\n  pages:         {pages} messages, {:.1} MB, {:.1} ms",
+            content.len() as f64 / 1e6,
+            one_bytes as f64 / 1e6,
+            one.as_secs_f64() * 1e3,
+            page_bytes as f64 / 1e6,
+            paged.as_secs_f64() * 1e3,
+        );
+    }
+
+    /// The `seq` of a page's last Event, read without parsing the others.
+    fn seqs_last(page: &LogPage) -> Option<u64> {
+        page.events.last().map(|r| serde_json::from_str::<Event>(r.get()).unwrap().seq)
     }
 
     #[test]

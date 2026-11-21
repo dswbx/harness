@@ -1,15 +1,35 @@
 import { Suspense } from "react";
+import { PanelHeader } from "../../panels/PanelHeader";
 import type { HostedPanel } from "../usePanelHost";
 import type { DockPanel } from "./DockLayout";
 
-/** The hosted panels the dock keeps mounted: open ones, and (by their definition) once opened or while they can show. */
+/**
+ * The hosted panels the dock keeps mounted: open ones, and (by their definition) once opened or while they
+ * can show. A panel in `placeholders` (id to label: recorded, its model not loaded yet) shows only an empty
+ * frame with its header while shown, never its body.
+ */
 export function mountedPanels(
    entries: HostedPanel[],
    isShown: (id: string) => boolean,
    renderable: ReadonlySet<string>,
+   placeholders: ReadonlyMap<string, string> = new Map(),
 ): DockPanel[] {
    const panels: DockPanel[] = [];
+   for (const [id, label] of placeholders) {
+      if (!isShown(id)) continue;
+      panels.push({
+         id,
+         label,
+         children: (
+            <>
+               <PanelHeader title={label} />
+               <div aria-busy className="min-h-0 flex-1" />
+            </>
+         ),
+      });
+   }
    for (const e of entries) {
+      if (placeholders.has(e.id)) continue;
       const mounted =
          e.mount === "afterFirstOpen"
             ? e.self.opened

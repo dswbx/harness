@@ -1,4 +1,4 @@
-//! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session and app subscriptions, the
+//! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session Log pages and subscriptions, app subscriptions, the
 //! Terminal byte stream, plus macOS niceties (dock badge, notifications), opt-in self-update and
 //! the Quick overlay (`overlay/`).
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use harness_core::Harness;
-use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, HarnessError, Lagged, SessionMessage, SessionStatus};
+use harness_core::api::{AppEvent, Command, CommandResult, Event, EventSink, HarnessError, Lagged, LogPage, SessionMessage, SessionStatus};
 use harness_core::terminal::TerminalOutput;
 use subscriptions::Subscriptions;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -130,6 +130,15 @@ async fn subscribe(
     let label = webview.label().to_owned();
     let generation = generation.0;
     blocking(move || app.state::<Subscriptions>().subscribe_at(&harness, &label, generation, &session_id, from_seq, Box::new(ViewSink(channel)))).await?
+}
+
+/// One page of a Session Log for a View that opens the Session (ADR 0029), as one answer. On the
+/// blocking pool: the first read of a log parses it. It registers nothing, so it needs no
+/// generation: the answer to a webview that reloaded meanwhile is dropped by Tauri.
+#[tauri::command]
+async fn read_log_page(harness: tauri::State<'_, Arc<Harness>>, session_id: String, from_seq: u64, to_seq: Option<u64>) -> Result<LogPage, String> {
+    let harness = harness.inner().clone();
+    blocking(move || harness.read_log_page(&session_id, from_seq, to_seq)).await?
 }
 
 /// Harness-wide events (session list, attention) for this webview.
@@ -367,6 +376,7 @@ pub fn run() {
             save_file,
             subscribe,
             unsubscribe,
+            read_log_page,
             subscribe_app,
             terminal_attach,
             terminal_detach,

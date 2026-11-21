@@ -9,6 +9,7 @@ import type {
    GitStatus,
    KnownRepo,
    LineComment,
+   LogPage,
    Note,
    PrInfo,
    PrRefKey,
@@ -41,8 +42,17 @@ import type { NewTask } from "./tasks";
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
 export interface SessionApi {
    sessionId: string;
-   /** Replays from `fromSeq`, then live. Returns an unsubscribe function. */
-   subscribe(onEvent: (e: Event) => void, fromSeq?: number): Promise<Unsubscribe>;
+   /**
+    * Replays from `fromSeq`, then live. Returns an unsubscribe function once open; a failed open is
+    * tried again a few times. When `signal` aborts first, it stops trying (see `subscribeResilient`).
+    */
+   subscribe(
+      onEvent: (e: Event) => void,
+      fromSeq?: number,
+      signal?: AbortSignal,
+   ): Promise<Unsubscribe>;
+   /** One page of the Session Log from `fromSeq`, below `toSeq` if given (`Transport.readLogPage`). */
+   readLogPage(fromSeq: number, toSeq?: number | null): Promise<LogPage>;
    /**
     * `attachments`: files by path (picker, drop) or pasted bytes (base64). `threadId`: a Side Thread
     * (default: the Main Thread). Same for `cancel`, `setConfigOption`, `setMode`, `continueWithSummary`.
