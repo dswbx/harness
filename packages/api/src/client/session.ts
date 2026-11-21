@@ -42,8 +42,15 @@ import type { NewTask } from "./tasks";
 /** Session-scoped facade handed to a Frontend's View. Targets the Main Thread. */
 export interface SessionApi {
    sessionId: string;
-   /** Replays from `fromSeq`, then live. Returns an unsubscribe function. */
-   subscribe(onEvent: (e: Event) => void, fromSeq?: number): Promise<Unsubscribe>;
+   /**
+    * Replays from `fromSeq`, then live. Returns an unsubscribe function once open; a failed open is
+    * tried again a few times. When `signal` aborts first, it stops trying (see `subscribeResilient`).
+    */
+   subscribe(
+      onEvent: (e: Event) => void,
+      fromSeq?: number,
+      signal?: AbortSignal,
+   ): Promise<Unsubscribe>;
    /** One page of the Session Log from `fromSeq`, below `toSeq` if given (`Transport.readLogPage`). */
    readLogPage(fromSeq: number, toSeq?: number | null): Promise<LogPage>;
    /**

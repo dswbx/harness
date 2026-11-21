@@ -8,7 +8,6 @@ import type {
    SessionStatus,
    ViewVariant,
 } from "@harness/api";
-import { useSessionEvents } from "@harness/api";
 import { MenuButton, Portal, type VirtualListHandle } from "@harness/ui";
 import { RotateCcw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
@@ -28,7 +27,6 @@ import { planPanel } from "../features/plan/panel";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
 import { type PendingMessage, usePendingMessages } from "../features/prompt/pendingMessages";
 import { PrRefProvider } from "../features/prRefs/prRefs";
-import { reduce, reduceBatch } from "../features/renderUi/chatReducer";
 import { Env } from "../features/renderUi/runtime";
 import { SlotStrip } from "../features/renderUi/SlotStrip";
 import { slotPanels } from "../features/renderUi/slotPanels";
@@ -39,7 +37,6 @@ import type { SideChatsModel } from "../features/sideChats/panel";
 import { OpenTask } from "../features/tasks/openTask";
 import { tasksPanel } from "../features/tasks/panel";
 import { OpenStep } from "../features/toolDisplay/openStep";
-import { initialState } from "../state/reducer";
 import { DockLayout } from "./dock/DockLayout";
 import { shownOpen } from "./dock/geometry";
 import { expand, hide, isOpen, move, resetLayout, resize, show } from "./dock/model";
@@ -51,6 +48,7 @@ import { useDockLayout, useHostPlaces } from "./dock/useDockLayout";
 import { useStripes } from "./dock/useStripes";
 import { OverlayDock } from "./overlay/OverlayDock";
 import { useProcessStatus } from "./ProcessStatus";
+import { useChatLog } from "./useChatLog";
 import { useJump } from "./useJump";
 import { usePanelHost } from "./usePanelHost";
 import { useShortcuts } from "./useShortcuts";
@@ -109,7 +107,8 @@ function ChatBody({
    sessions,
 }: ChatProps) {
    const overlay = variant === "overlay";
-   const state = useSessionEvents(api, reduce, initialState, reduceBatch);
+   // `inert`: a cached fold not confirmed whole yet can be behind the log (useChatLog).
+   const { state, inert } = useChatLog(api);
    // A Session with nothing in it yet is waiting for a message. Known once its log is here.
    const prompt = useRef<PromptBoxHandle>(null);
    const hasItems = useRef(false);
@@ -357,51 +356,54 @@ function ChatBody({
       <Env.Provider value={env}>
          <OpenTask.Provider value={overlay && !onOpenTasks ? null : openTask}>
             <FileViewProvider onView={openFile}>
-               {overlay ? (
-                  <OverlayDock
-                     draft={overlayDraft}
-                     promptBox={promptBox}
-                     chat={chat}
-                     chatFrame={chatFrame}
-                     onPanelWidth={onPanelWidth}
-                     overlayFrame={overlayFrame}
-                     shown={shown}
-                     left={left}
-                     right={right}
-                     panels={panels}
-                     dock={dock}
-                     onToggle={onToggle}
-                     ghost={ghost}
-                  />
-               ) : (
-                  <div className="relative flex h-full">
-                     {(!leftEmpty || drag) && (
+               {/* `contents`: no box of its own, the layout stays as it is. */}
+               <div className="contents" inert={inert}>
+                  {overlay ? (
+                     <OverlayDock
+                        draft={overlayDraft}
+                        promptBox={promptBox}
+                        chat={chat}
+                        chatFrame={chatFrame}
+                        onPanelWidth={onPanelWidth}
+                        overlayFrame={overlayFrame}
+                        shown={shown}
+                        left={left}
+                        right={right}
+                        panels={panels}
+                        dock={dock}
+                        onToggle={onToggle}
+                        ghost={ghost}
+                     />
+                  ) : (
+                     <div className="relative flex h-full">
+                        {(!leftEmpty || drag) && (
+                           <Stripe
+                              side="left"
+                              groups={left}
+                              drag={drag}
+                              overlay={leftEmpty}
+                              onToggle={onToggle}
+                              onPress={(it, e) => startDrag(it.id, it.label, e)}
+                           />
+                        )}
+                        <DockLayout
+                           {...dock}
+                           layout={shown}
+                           chat={chat}
+                           panels={panels}
+                           leftStripeOverlay={leftEmpty}
+                        />
                         <Stripe
-                           side="left"
-                           groups={left}
+                           side="right"
+                           groups={right}
                            drag={drag}
-                           overlay={leftEmpty}
                            onToggle={onToggle}
                            onPress={(it, e) => startDrag(it.id, it.label, e)}
                         />
-                     )}
-                     <DockLayout
-                        {...dock}
-                        layout={shown}
-                        chat={chat}
-                        panels={panels}
-                        leftStripeOverlay={leftEmpty}
-                     />
-                     <Stripe
-                        side="right"
-                        groups={right}
-                        drag={drag}
-                        onToggle={onToggle}
-                        onPress={(it, e) => startDrag(it.id, it.label, e)}
-                     />
-                     {ghost}
-                  </div>
-               )}
+                        {ghost}
+                     </div>
+                  )}
+               </div>
             </FileViewProvider>
          </OpenTask.Provider>
       </Env.Provider>

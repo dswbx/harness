@@ -26,7 +26,8 @@ type Core = Pick<
 
 /** Prompting, Threads, permissions, Session lifecycle and sign-in. */
 export const coreApi = (transport: Transport, sessionId: string): Core => ({
-   subscribe: (onEvent, fromSeq = 0) => subscribeResilient(transport, sessionId, fromSeq, onEvent),
+   subscribe: (onEvent, fromSeq = 0, signal) =>
+      subscribeResilient(transport, sessionId, fromSeq, onEvent, { signal }),
    readLogPage: (fromSeq, toSeq = null) => transport.readLogPage(sessionId, fromSeq, toSeq),
    prompt: (text, attachments = [], threadId = null, commentIds = []) =>
       run(transport, {

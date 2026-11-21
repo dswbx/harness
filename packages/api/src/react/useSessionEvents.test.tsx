@@ -6,7 +6,8 @@ import { coreApi } from "../client/session/core";
 import type { Event } from "../generated";
 import { MockTransport } from "../mock/mock";
 import { forgetSession } from "../platform/forgetSession";
-import { clearFoldCache, type LogLoad, useSessionEvents } from "./hooks";
+import { clearFoldCache, readFold } from "./foldCache";
+import { type LogLoad, useSessionEvents } from "./hooks";
 
 const FRAME = 16;
 
@@ -17,6 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => {
    vi.useRealTimers();
+   vi.restoreAllMocks();
    clearFoldCache();
 });
 
@@ -30,6 +32,8 @@ const whole = (n: number, from = 0) => Array.from({ length: n - from }, (_, i) =
  * A Session of the mock core that Views mount on, paged `pageEvents` at a time. `append` adds
  * Events (live to every subscriber); `afterRead` runs after each page is cut, before the View has
  * it; `reads` lists each page read, `from` each core subscribe, `open` the live subscriptions.
+ * `failRead(n)` makes page reads from the `n`-th on fail (`times` of them, default all); `failSubs`
+ * makes that many core subscribes fail.
  */
 function session(id = "s1", pageEvents = 1000) {
    const mock = new MockTransport([], []);
@@ -38,9 +42,15 @@ function session(id = "s1", pageEvents = 1000) {
    const from: number[] = [];
    const reads: [number, number | null][] = [];
    let open = 0;
+   let failFrom = Number.POSITIVE_INFINITY;
+   let failTimes = 0;
    const subscribe = mock.subscribe.bind(mock);
    mock.subscribe = async (sid, fromSeq, onEvent, onLagged) => {
       from.push(fromSeq);
+      if (s.failSubs > 0) {
+         s.failSubs--;
+         throw new Error("subscribe down");
+      }
       const off = await subscribe(sid, fromSeq, onEvent, onLagged);
       open++;
       return () => {
@@ -55,6 +65,11 @@ function session(id = "s1", pageEvents = 1000) {
       reads,
       open: () => open,
       afterRead: (() => {}) as () => void,
+      failSubs: 0,
+      failRead: (n: number, times = Number.POSITIVE_INFINITY) => {
+         failFrom = n;
+         failTimes = times;
+      },
       append: (count: number) => {
          for (let i = 0; i < count; i++) mock.emit(id, { type: "Error", message: "x" }, null);
       },
@@ -63,17 +78,24 @@ function session(id = "s1", pageEvents = 1000) {
          subscribe: core.subscribe,
          readLogPage: async (fromSeq: number, toSeq: number | null = null) => {
             reads.push([fromSeq, toSeq]);
+            if (reads.length >= failFrom && failTimes > 0) {
+               failTimes--;
+               throw new Error("read down");
+            }
             const page = await core.readLogPage(fromSeq, toSeq);
             s.afterRead();
             return page;
          },
          warmUp: async () => {},
       } as unknown as SessionApi,
-      mount: (strict = false) => {
+      mount: (strict = false, cache = true) => {
          const renders: (readonly number[])[] = [];
          const loads: LogLoad[] = [];
          function View() {
-            const got = useSessionEvents(s.api, seqs, none, undefined, (l) => loads.push(l));
+            const got = useSessionEvents(s.api, seqs, none, undefined, {
+               cache,
+               onLoad: (l) => loads.push(l),
+            });
             if (renders.at(-1) !== got) renders.push(got);
             return null;
          }
@@ -105,7 +127,7 @@ it("reads the log in pages up to the first page's end and renders once, when it 
    expect(s.from).toEqual([250]);
    // Progress after each page but the last, then whole.
    expect(v.loads.map((l) => l.next)).toEqual([40, 80, 120, 160, 200, 240, 250]);
-   expect(v.loads.every((l) => l.end === 250)).toBe(true);
+   expect(v.loads.every((l) => "end" in l && l.end === 250)).toBe(true);
 });
 
 it("Events appended during the load fold on top of the pages, with no gap and no duplicate", async () => {
@@ -276,4 +298,124 @@ it("two Views of one Session at once keep one correct cached fold", async () => 
    expect(two.renders.at(-1)).toEqual(whole(15));
    two.view.unmount();
    expect(s.mount().sizes()[0]).toBe(15);
+});
+
+/** Backoff of the page and subscribe retries: 250 ms, then twice as long each time, 5 retries. */
+const RETRIES_MS = 250 * (1 + 2 + 4 + 8 + 16);
+
+it("a page read that fails is tried again and the log renders whole, with no gap", async () => {
+   const s = session("s1", 10);
+   s.append(40);
+   // The second page fails twice, then works.
+   s.failRead(2, 2);
+   const v = s.mount();
+   await frames(1);
+   expect(v.sizes()).toEqual([0]);
+   await act(() => vi.advanceTimersByTimeAsync(250 + 500 + FRAME));
+   expect(v.sizes()).toEqual([0, 40]);
+   expect(v.renders.at(-1)).toEqual(whole(40));
+   s.append(2);
+   await frames(1);
+   expect(v.renders.at(-1)).toEqual(whole(42));
+});
+
+it("a page read that fails for good stops the load: unsubscribed, nothing held, reported", async () => {
+   const error = vi.spyOn(console, "error").mockImplementation(() => {});
+   const s = session("s1", 10);
+   s.append(40);
+   s.failRead(2);
+   const v = s.mount();
+   await frames(1);
+   expect(s.open()).toBe(1);
+   await act(() => vi.advanceTimersByTimeAsync(RETRIES_MS + FRAME));
+   // The first read and 6 tries of the second.
+   expect(s.reads).toHaveLength(7);
+   expect(s.open()).toBe(0);
+   expect(v.loads.at(-1)).toEqual({ next: 10, failed: true });
+   expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("loading the Session Log of s1 failed"),
+      expect.any(Error),
+   );
+   // Live Events are not held or folded, nothing renders, nothing retries, nothing is cached.
+   s.append(5);
+   await frames(2);
+   expect(v.sizes()).toEqual([0]);
+   expect(vi.getTimerCount()).toBe(0);
+   expect(readFold("s1", seqs)).toBeUndefined();
+});
+
+it("a first page read that fails for good never subscribes and is reported", async () => {
+   vi.spyOn(console, "error").mockImplementation(() => {});
+   const s = session();
+   s.append(5);
+   s.failRead(1);
+   const v = s.mount();
+   await act(() => vi.advanceTimersByTimeAsync(RETRIES_MS + FRAME));
+   expect(s.reads).toHaveLength(6);
+   expect(s.from).toEqual([]);
+   expect(v.loads).toEqual([{ next: 0, failed: true }]);
+});
+
+it("unmounting while a page read waits to retry stops the retries", async () => {
+   const s = session("s1", 10);
+   s.append(20);
+   s.failRead(2);
+   const v = s.mount();
+   await frames(1);
+   v.view.unmount();
+   await act(() => vi.advanceTimersByTimeAsync(RETRIES_MS));
+   expect(s.reads).toHaveLength(2);
+   expect(s.open()).toBe(0);
+   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("a first subscribe that fails is tried again: live Events arrive with no gap and no duplicate", async () => {
+   const s = session("s1", 10);
+   s.append(30);
+   s.failSubs = 2;
+   const v = s.mount();
+   await frames(1);
+   // The pages render the whole log while the subscribe still retries.
+   expect(v.renders.at(-1)).toEqual(whole(30));
+   s.append(3);
+   await act(() => vi.advanceTimersByTimeAsync(250 + 500 + FRAME));
+   expect(s.from).toEqual([30, 30, 30]);
+   expect(s.open()).toBe(1);
+   s.append(2);
+   await frames(1);
+   expect(v.renders.at(-1)).toEqual(whole(35));
+});
+
+it("a cache hit with Events that came while away is whole only after that delta", async () => {
+   const s = session();
+   s.append(30);
+   const first = s.mount();
+   await frames(1);
+   first.view.unmount();
+   s.append(5);
+   const again = s.mount();
+   // Rendered at once from the cache, behind the log, and not reported whole.
+   expect(again.sizes()[0]).toBe(30);
+   expect(again.loads).toEqual([]);
+   await frames(1);
+   expect(again.loads).toEqual([{ next: 35, end: 35 }]);
+   expect(again.renders.at(-1)).toEqual(whole(35));
+});
+
+it("a View that does not opt in folds from the start every time and caches nothing", async () => {
+   const s = session();
+   s.append(8);
+   const first = s.mount(false, false);
+   await frames(1);
+   expect(first.renders.at(-1)).toEqual(whole(8));
+   first.view.unmount();
+   expect(readFold("s1", seqs)).toBeUndefined();
+   const again = s.mount(false, false);
+   expect(again.sizes()[0]).toBe(0);
+   await frames(1);
+   expect(s.reads).toEqual([
+      [0, null],
+      [0, null],
+   ]);
+   expect(again.renders.at(-1)).toEqual(whole(8));
 });
