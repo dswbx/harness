@@ -247,6 +247,7 @@ describe("registry", () => {
          "app harness:window-frame:{name}",
          "session harness.chat.layout.{session}",
          "session harness.chat.sideThreads.{session}",
+         "session harness.chat.dockedPanels.{session}",
          "session harness.chat.panel.{session}",
          "session harness.files.{session}",
          "session harness.changes.seen.{session}",

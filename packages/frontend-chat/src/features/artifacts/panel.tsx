@@ -1,16 +1,25 @@
 import { Layers } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { flash } from "../../lib/flash";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { usePanelTargetState } from "../../panels/usePanelTarget";
+import {
+   closePanel,
+   type DockedPanels,
+   openAsPanel,
+   panelIdOf,
+   placedPanelId,
+   useDockedPanels,
+} from "../renderUi/dockedPanels";
 import { useEnv } from "../renderUi/runtime";
 import { slotRef } from "../renderUi/slots";
-import { ArtifactsPanel, type SharedActions } from "./ArtifactsPanel";
+import { ArtifactsPanel, type PanelActions, type SharedActions } from "./ArtifactsPanel";
 import { type Artifact, blockMarkdown, collectArtifacts } from "./artifacts";
 
 export type ArtifactsModel = {
    artifacts: Artifact[];
    shared: SharedActions;
+   docked: { value: DockedPanels; update: (f: (d: DockedPanels) => DockedPanels) => void };
 };
 
 const NO_METAS: NonNullable<SharedActions["metas"]> = new Map();
@@ -55,7 +64,8 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
          }),
          [api, state.sharedAttached, metas, copies, showShared, openShared],
       );
-      return useMemo(() => ({ artifacts, shared }), [artifacts, shared]);
+      const docked = useDockedPanels(api.sessionId);
+      return useMemo(() => ({ artifacts, shared, docked }), [artifacts, shared, docked]);
    },
    status: (m) => ({ presence: "ready", badge: m.artifacts.length }),
    Body: ({ model, ctx, self }: PanelBodyProps<ArtifactsModel, string>) => {
@@ -63,11 +73,38 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
       // The artifact to open (its key), as a new object each time.
       const target = usePanelTargetState(self, (key) => ({ key }));
       // A click on an artifact: its panel (`slot:<id>`) when it has one, else the message block, flashed.
+      const { docked } = model;
+      // A panel made here gets its place in the dock on the next render: open it then.
+      const [toOpen, setToOpen] = useState<string | null>(null);
+      useEffect(() => {
+         if (!toOpen) return;
+         ctx.open(slotRef(toOpen));
+         setToOpen(null);
+      }, [toOpen, ctx]);
+      const panels = useMemo<PanelActions>(
+         () => ({
+            idOf: (a) => panelIdOf(a, docked.value),
+            open: (a) => {
+               const { next, id } = openAsPanel(docked.value, a.key, placedPanelId(a));
+               docked.update(() => next);
+               setToOpen(id);
+            },
+            close: (a) => {
+               const id = panelIdOf(a, docked.value);
+               if (!id) return;
+               ctx.hide(slotRef(id));
+               docked.update((d) => closePanel(d, id));
+            },
+         }),
+         [docked, ctx],
+      );
       const jump = (a: Artifact) => {
-         if (a.placement === "right" || a.placement === "left") {
-            if (a.slotId) ctx.open(slotRef(a.slotId));
+         const panel = panels.idOf(a);
+         if (panel) {
+            ctx.open(slotRef(panel));
             return;
          }
+         if (placedPanelId(a)) return;
          if (!a.rowId) {
             const el = document.querySelector(`[data-slot="${CSS.escape(a.slotId ?? "")}"]`);
             if (el) flash(el);
@@ -86,6 +123,7 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
             env={env}
             onJump={jump}
             shared={model.shared}
+            panels={panels}
             target={target}
          />
       );

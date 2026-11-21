@@ -1,23 +1,25 @@
 import type { SharedArtifactMeta } from "@harness/api";
 import { formatAgeAgo, formatDateTime } from "@harness/api";
 import { DropdownMenuItem, DropdownMenuSeparator, ScrollArea, Tooltip } from "@harness/ui";
-import { Copy, ExternalLink, Layers, Pencil, Share2, Trash2, Unlink } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Copy, ExternalLink, Layers, Pencil, Share2, Trash2, Unlink, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatRelativeTime, useNow } from "../../lib/time";
 import { definePanelFamily } from "../../panels/contract";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { sessionCount } from "../artifacts/ArtifactsPanel";
+import { blockMarkdown, collectArtifacts } from "../artifacts/artifacts";
 import { artifactsPanel } from "../artifacts/panel";
 import { renderUiOf } from "../conversation/chatRows";
 import { quotableAttrs } from "../review/SelectionComment";
 import { DeletePanelDialog } from "./DeletePanelDialog";
+import { addedPanelId, closePanel, useDockedPanels } from "./dockedPanels";
 import { EditPanelPopover } from "./EditPanelPopover";
 import { iconFor } from "./panelIcon";
 import { RenderUi, type UiEnv } from "./RenderUi";
 import { useEnv } from "./runtime";
 import { lastSlot, nextSeen, type Slot, slotDot, slotRef, slotToAutoOpen } from "./slots";
 import { useSourceStamps } from "./source";
-import { sharedNodeId, sharedRef } from "./tools";
+import { sharedNode, sharedNodeId, sharedRef } from "./tools";
 import { FillFrame } from "./UiHtml";
 
 /**
@@ -92,12 +94,18 @@ export function SlotPanel({
    onShowInArtifacts,
    onEdit,
    onDelete,
+   onClose,
 }: {
    slot: Slot;
    env: UiEnv;
    updated: number;
-   /** Saves the panel's title and icon (the Agent's own value as `null`): `EditPanel`, or for a shared one `RenameSharedArtifact`. */
-   onEdit: (title: string | null, icon: string | null) => Promise<void>;
+   /**
+    * Saves the panel's title and icon (the Agent's own value as `null`): `EditPanel`, or for a shared one
+    * `RenameSharedArtifact`. Absent for a panel the user made from a diagram or table (no render_ui id).
+    */
+   onEdit?: (title: string | null, icon: string | null) => Promise<void>;
+   /** Takes the panel out of the dock; the artifact stays in the Artifacts panel. */
+   onClose?: () => void;
    /** Deletes the panel (`DeletePanel`); not for a shared one (it detaches). */
    onDelete?: () => Promise<void>;
    /** Opens the Artifacts panel on this panel's detail page. */
@@ -122,27 +130,38 @@ export function SlotPanel({
       <>
          <PanelHeader
             title={
-               <EditPanelPopover
-                  id={slot.id}
-                  open={dialog === "edit"}
-                  onOpenChange={(o) => setDialog(o ? "edit" : null)}
-                  title={label}
-                  icon={slot.icon}
-                  agent={slot.agent}
-                  shared={!!shared}
-                  onSave={onEdit}
-               >
-                  {label}
-               </EditPanelPopover>
+               !onEdit ? (
+                  label
+               ) : (
+                  <EditPanelPopover
+                     id={slot.id}
+                     open={dialog === "edit"}
+                     onOpenChange={(o) => setDialog(o ? "edit" : null)}
+                     title={label}
+                     icon={slot.icon}
+                     agent={slot.agent}
+                     shared={!!shared}
+                     onSave={onEdit}
+                  >
+                     {label}
+                  </EditPanelPopover>
+               )
             }
             menu={
                <>
-                  <DropdownMenuItem onSelect={() => setDialog("edit")}>
-                     <Pencil /> Rename and icon…
-                  </DropdownMenuItem>
+                  {onEdit && (
+                     <DropdownMenuItem onSelect={() => setDialog("edit")}>
+                        <Pencil /> Rename and icon…
+                     </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onSelect={onShowInArtifacts}>
                      <Layers /> Show in Artifacts
                   </DropdownMenuItem>
+                  {onClose && (
+                     <DropdownMenuItem onSelect={onClose}>
+                        <X /> Close panel
+                     </DropdownMenuItem>
+                  )}
                   {localSource && env.readSource && (
                      <DropdownMenuItem onSelect={() => void copySourcePath(env, localSource)}>
                         <Copy /> Copy file path
@@ -228,6 +247,8 @@ export type SlotsModel = {
    /** Ids of the panels with a change dot (changed while closed). */
    dots: ReadonlySet<string>;
    updatedAt: (slot: Slot) => number;
+   /** Takes panel `id` out of the dock (`dockedPanels`). */
+   close: (id: string) => void;
 };
 
 const NO_METAS: ReadonlyMap<string, SharedArtifactMeta> = new Map();
@@ -245,6 +266,44 @@ export const slotPanels = definePanelFamily<SlotsModel>({
    useModel: ({ api, state, host, open, isOpen }) => {
       const { left, right } = renderUiOf(state.items, state.sharedAttached, state.panelEdits).slots;
       const metas = host.sharedMetas ?? NO_METAS;
+      const docked = useDockedPanels(api.sessionId);
+      const { closed, added: addedKeys } = docked.value;
+      // Artifacts the user made into panels (only read when there are any).
+      const added = useMemo(() => {
+         if (addedKeys.length === 0) return [];
+         const all = collectArtifacts(state.items, state.panelEdits);
+         const out: Slot[] = [];
+         for (const key of addedKeys) {
+            const sharedId = key.startsWith("shared:") ? key.slice(7) : null;
+            if (sharedId) {
+               if (!state.sharedAttached.some((x) => x.id === sharedId)) continue;
+               out.push({
+                  id: addedPanelId(key),
+                  title: null,
+                  icon: null,
+                  root: sharedNode(sharedId),
+                  files: {},
+                  ts: 0,
+                  source: key,
+                  agent: null,
+               });
+               continue;
+            }
+            const a = all.find((x) => x.key === key);
+            if (!a) continue;
+            out.push({
+               id: addedPanelId(key),
+               title: a.title,
+               icon: a.icon ?? null,
+               root: a.ui?.root ?? { type: "Markdown", props: { text: blockMarkdown(a) } },
+               files: a.ui?.files ?? {},
+               ts: a.ts,
+               source: a.file ?? null,
+               agent: null,
+            });
+         }
+         return out;
+      }, [addedKeys, state.items, state.panelEdits, state.sharedAttached]);
       const placed = useMemo(() => {
          const titled = (slot: Slot) => {
             const id = sharedRef(slot.source);
@@ -255,11 +314,17 @@ export const slotPanels = definePanelFamily<SlotsModel>({
                ? { ...slot, title: title || slot.title, icon }
                : slot;
          };
+         const shown = (slot: Slot) => !closed.includes(slot.id);
+         const ids = new Set([...left, ...right].map((x) => x.id));
          return [
-            ...left.map((slot): Placed => ({ slot: titled(slot), side: "left" })),
-            ...right.map((slot): Placed => ({ slot: titled(slot), side: "right" })),
+            ...left.filter(shown).map((slot): Placed => ({ slot: titled(slot), side: "left" })),
+            ...right.filter(shown).map((slot): Placed => ({ slot: titled(slot), side: "right" })),
+            // An added one the Agent has since placed is already there.
+            ...added
+               .filter((slot) => !ids.has(slot.id))
+               .map((slot): Placed => ({ slot: titled(slot), side: "right" })),
          ];
-      }, [left, right, metas]);
+      }, [left, right, added, closed, metas]);
 
       // File-backed panels (ADR 0023): their files' hashes and write times.
       const sourceNames = useMemo(
@@ -297,10 +362,14 @@ export const slotPanels = definePanelFamily<SlotsModel>({
       });
 
       const [openedAt] = useState(() => Date.now());
-      const newest = useMemo(() => lastSlot(placed.map((p) => p.slot)), [placed]);
+      // Read in the effect only: closing or reopening a panel is no reason to show the newest.
+      const closedRef = useRef(closed);
+      closedRef.current = closed;
+      // From all panels, closed ones too: closing the newest must not open the one before it.
+      const newest = useMemo(() => lastSlot([...left, ...right, ...added]), [left, right, added]);
       useEffect(() => {
          const slot = slotToAutoOpen(newest, openedAt);
-         if (slot) open(slotRef(slot.id));
+         if (slot && !closedRef.current.includes(slot.id)) open(slotRef(slot.id));
       }, [newest?.id, newest?.ts, openedAt, open]);
 
       // The dots depend on which panel is open now (read here, in the render).
@@ -309,9 +378,17 @@ export const slotPanels = definePanelFamily<SlotsModel>({
          .map((p) => p.slot.id)
          .join("\n");
       const dots = useMemo(() => new Set(dotIds ? dotIds.split("\n") : []), [dotIds]);
+      const { update } = docked;
+      const close = useCallback((id: string) => update((d) => closePanel(d, id)), [update]);
       return useMemo(
-         () => ({ placed, byId: new Map(placed.map((p) => [p.slot.id, p.slot])), dots, updatedAt }),
-         [placed, dots, updatedAt],
+         () => ({
+            placed,
+            byId: new Map(placed.map((p) => [p.slot.id, p.slot])),
+            dots,
+            updatedAt,
+            close,
+         }),
+         [placed, dots, updatedAt, close],
       );
    },
    instances: (m) =>
@@ -329,22 +406,36 @@ export const slotPanels = definePanelFamily<SlotsModel>({
       if (!slot) return null;
       const { api, host } = ctx;
       const sharedId = sharedRef(slot.source);
+      // Made by the user from a diagram, a table or a render_ui item without an id: nothing in the core to edit.
+      const madeHere = slot.id.startsWith("a:") && !sharedId;
       return (
          <SlotPanel
             slot={slot}
             env={env}
             updated={model.updatedAt(slot)}
             onShowInArtifacts={() =>
-               ctx.open(artifactsPanel, sharedId ? `shared:${sharedId}` : `ui:${slot.id}`)
+               ctx.open(
+                  artifactsPanel,
+                  sharedId ? `shared:${sharedId}` : madeHere ? slot.id.slice(2) : `ui:${slot.id}`,
+               )
             }
-            onEdit={(title, icon) =>
-               sharedId
-                  ? api.renameShared(sharedId, title ?? slot.title ?? slot.id, icon).then(() => {})
-                  : api.editPanel(slot.id, title, icon)
+            onEdit={
+               madeHere
+                  ? undefined
+                  : (title, icon) =>
+                       sharedId
+                          ? api
+                               .renameShared(sharedId, title ?? slot.title ?? slot.id, icon)
+                               .then(() => {})
+                          : api.editPanel(slot.id, title, icon)
             }
-            onDelete={sharedId ? undefined : () => api.deletePanel(slot.id)}
+            onDelete={sharedId || madeHere ? undefined : () => api.deletePanel(slot.id)}
+            onClose={() => {
+               ctx.hide(slotRef(slot.id));
+               model.close(slot.id);
+            }}
             onShare={
-               sharedId
+               sharedId || madeHere
                   ? undefined
                   : () =>
                        void api
