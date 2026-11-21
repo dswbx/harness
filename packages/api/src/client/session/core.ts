@@ -22,6 +22,7 @@ type Core = Pick<
    | "delete"
    | "authenticate"
    | "openAuthTerminal"
+   | "authInTerminal"
 >;
 
 /** Prompting, Threads, permissions, Session lifecycle and sign-in. */
@@ -86,4 +87,12 @@ export const coreApi = (transport: Transport, sessionId: string): Core => ({
       run(transport, { type: "Authenticate", session_id: sessionId, method_id }),
    openAuthTerminal: (method_id) =>
       run(transport, { type: "OpenAuthTerminal", session_id: sessionId, method_id }),
+   authInTerminal: async (method_id, threadId = null) =>
+      (
+         await expectResult(
+            transport,
+            { type: "AuthInTerminal", session_id: sessionId, thread_id: threadId, method_id },
+            "TerminalOpened",
+         )
+      ).terminal_id,
 });

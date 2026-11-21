@@ -45,6 +45,19 @@ pub enum EventKind {
     AuthRequired {
         methods: Vec<AuthMethodInfo>,
         message: String,
+        /// The Agent's display name, for "Sign in to <name>". Absent in older logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_name: Option<String>,
+    },
+    /// A terminal sign-in the Harness ran (`AuthInTerminal`) ended. On `signed_in` the Agent
+    /// process was restarted before this was logged.
+    AuthFinished {
+        method_id: String,
+        method_name: String,
+        outcome: AuthOutcome,
+        /// The login program's exit code; `None` if it could not be read.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<u32>,
     },
     /// The Thread's Agent Session could not be restored; the Thread stays readable and can be
     /// continued from a transcript. `retryable`: the Agent supports resume or load, so the next
@@ -664,6 +677,18 @@ pub struct ForkPoint {
     pub turn: u32,
     #[specta(type = specta_typescript::Number)]
     pub seq: u64,
+}
+
+/// How a terminal sign-in ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthOutcome {
+    /// Exit code 0.
+    SignedIn,
+    /// Any other exit.
+    Failed,
+    /// The user closed or killed its Terminal tab.
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

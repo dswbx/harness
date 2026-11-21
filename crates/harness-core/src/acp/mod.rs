@@ -19,7 +19,7 @@ use crate::session::Session;
 
 pub use jobs::JobWatchers;
 pub use permission::{OUTSIDE_FILE_KIND, authorize, authorize_at};
-pub use process::AgentSlot;
+pub use process::{AgentSlot, TerminalAuth};
 pub(crate) use restore::set_initial_config;
 pub use restore::{continue_with_summary, set_config_option, set_mode, warm_up};
 
@@ -204,7 +204,8 @@ fn report_auth_required(session: &Arc<Session>, thread: Option<&ThreadId>, messa
             kind: m.get("type").and_then(Value::as_str).unwrap_or("agent").to_owned(),
         })
         .collect();
-    session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned() });
+    let agent_name = Some(session.meta().agent.name).filter(|n| !n.is_empty());
+    session.log().append_or_report(thread.cloned(), EventKind::AuthRequired { methods, message: message.to_owned(), agent_name });
     session.sync_log_detached();
 }
 

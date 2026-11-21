@@ -36,14 +36,17 @@ import { useNow } from "../../lib/time";
 import type { PanelCtx } from "../../panels/contract";
 import { InlineMarkdown } from "../markdown/InlineMarkdown";
 import { FloatingPreview } from "./FloatingPreview";
+import { GraphView, LinesMenu } from "./GraphView";
+import { GroupByMenu, groupByStore } from "./GroupByMenu";
 import { type ListActions, ListView, type SessionInfo } from "./ListView";
 import {
    buildList,
    DEFAULT_FILTER,
    type DueFilter,
-   type GroupBy,
+   graphGroup,
    hasFilters,
    NO_SESSION,
+   passesFilter,
    reveal,
    type StatusFilter,
    sessionCount,
@@ -55,12 +58,16 @@ import { QuickAdd } from "./QuickAdd";
 import { TreeView } from "./TreeView";
 import { appTaskApi } from "./taskApi";
 
-type ViewMode = "list" | "tree";
+type ViewMode = "list" | "tree" | "graph";
+
+/** A stored view; anything else (an old or broken value) is the list. */
+export const parseViewMode = (raw: string | null): ViewMode =>
+   raw === "tree" || raw === "graph" ? raw : "list";
 
 const viewStore = storedValue<ViewMode>({
    key: "harness.tasks.view",
    scope: "app",
-   parse: (raw) => (raw === "tree" ? "tree" : "list"),
+   parse: parseViewMode,
    serialize: (v) => v,
 });
 
@@ -72,15 +79,14 @@ const DUE_FILTER: Record<DueFilter, string> = {
    week: "Due this week",
    none: "No due date",
 };
-const GROUP_BY: Record<GroupBy, string> = { topic: "Topic", status: "Status", session: "Session" };
 const PRIORITIES: TaskPriority[] = ["urgent", "high", "medium", "low", "none"];
 /** A filter chip whose filter is set (not its default). */
 const ACTIVE_CHIP = "border-ring/60 bg-accent";
 
 /**
  * All tasks (ADR 0028), the host's main pane: a header with the counts, search and New task, a bar of filters,
- * group-by and the List / Tree switch, then the list with the selected task in a docked preview, or the tree
- * with it in a floating one.
+ * group-by and the List / Tree / Graph switch, then the list with the selected task in a docked preview, or the
+ * tree or the graph (ADR 0029) with it in a floating one.
  */
 export function TasksView({
    client,
@@ -96,7 +102,7 @@ export function TasksView({
    const today = localDay(new Date(useNow()));
    const view = useStoredValue(viewStore);
    const [filter, setFilter] = useState<TaskFilter>(DEFAULT_FILTER);
-   const [groupBy, setGroupBy] = useState<GroupBy>("topic");
+   const groupBy = useStoredValue(groupByStore);
    const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
    const [adding, setAdding] = useState(false);
    const [topicFor, setTopicFor] = useState<TaskSummary | null>(null);
@@ -119,6 +125,19 @@ export function TasksView({
       [tasks, filter, groupBy, today, flipped, sessionInfo],
    );
    const byId = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
+   const graphTasks = useMemo(
+      () => (view === "graph" ? (tasks ?? []).filter((t) => passesFilter(t, filter, today)) : []),
+      [view, tasks, filter, today],
+   );
+   const lanes = useMemo(
+      () =>
+         graphGroup(
+            tasks ?? [],
+            groupBy,
+            (id) => sessionInfo.get(id)?.title ?? byId.get(id)?.origin_title ?? "Session",
+         ),
+      [tasks, groupBy, sessionInfo, byId],
+   );
 
    // Opened at a task (the host's "Open in All tasks"): unfold its topic (the list brings its row into view).
    // Once per selection (also when it first loads), so a tasks reload keeps the user's folds.
@@ -320,19 +339,14 @@ export function TasksView({
                   </Button>
                )}
                <span className="flex-1" />
+               {view === "graph" && <LinesMenu />}
                <span className="text-xs text-muted-foreground">Group</span>
-               <FilterMenu label={GROUP_BY[groupBy]} disabled={view === "tree"}>
-                  <DropdownMenuRadioGroup
-                     value={groupBy}
-                     onValueChange={(v) => setGroupBy(v as GroupBy)}
-                  >
-                     {(Object.keys(GROUP_BY) as GroupBy[]).map((g) => (
-                        <DropdownMenuRadioItem key={g} value={g}>
-                           {GROUP_BY[g]}
-                        </DropdownMenuRadioItem>
-                     ))}
-                  </DropdownMenuRadioGroup>
-               </FilterMenu>
+               <GroupByMenu
+                  value={groupBy}
+                  onChange={(g) => groupByStore.set(g)}
+                  tasks={tasks ?? []}
+                  disabled={view === "tree"}
+               />
                <Segmented
                   value={view}
                   onChange={(v) => viewStore.set(v)}
@@ -340,6 +354,7 @@ export function TasksView({
                   items={[
                      { value: "list", label: "List" },
                      { value: "tree", label: "Tree" },
+                     { value: "graph", label: "Graph" },
                   ]}
                />
             </div>
@@ -349,7 +364,41 @@ export function TasksView({
                </p>
             )}
             <div className="flex min-h-0 flex-1">
-               {view === "tree" ? (
+               {view === "graph" ? (
+                  <GraphView
+                     tasks={graphTasks}
+                     all={tasks ?? []}
+                     groupBy={lanes}
+                     density="detail"
+                     selected={selected}
+                     today={today}
+                     sessions={sessionInfo}
+                     showSession
+                     onOpen={actions.select}
+                     preview={
+                        selected && (
+                           <FloatingPreview
+                              api={api}
+                              id={selected}
+                              tasks={tasks}
+                              host={host}
+                              sessions={sessionInfo}
+                              onClose={() => onSelect(null)}
+                              onOpen={onSelect}
+                           />
+                        )
+                     }
+                     empty={
+                        <p className="px-4 py-6 text-sm text-muted-foreground">
+                           {!tasks
+                              ? "Loading…"
+                              : tasks.length === 0
+                                ? "No tasks yet. Add one with New task, or ask the Agent in a Session."
+                                : "No tasks match the filters."}
+                        </p>
+                     }
+                  />
+               ) : view === "tree" ? (
                   <TreeView
                      tasks={tasks}
                      filter={filter}

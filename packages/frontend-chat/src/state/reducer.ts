@@ -89,6 +89,7 @@ const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    AgentSessionRestoring: A,
    AgentSessionStarted: A,
    AuthRequired: A,
+   AuthFinished: A,
    ConfigOptionsChanged: [configSlice],
    AvailableCommandsChanged: [configSlice],
    TaskListUpdated: [plansSlice],

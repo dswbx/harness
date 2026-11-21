@@ -55,9 +55,19 @@ pub enum Command {
         session_id: SessionId,
         method_id: String,
     },
-    /// Opens Terminal.app running the Agent's terminal auth method.
+    /// Opens Terminal.app running the Agent's terminal auth method (the fallback to `AuthInTerminal`).
     OpenAuthTerminal {
         session_id: SessionId,
+        method_id: String,
+    },
+    /// Runs the Agent's terminal auth method in a new Terminal tab of the Session (ADR 0017).
+    /// Answers `TerminalOpened`. When the login ends, `AuthFinished` is logged in `thread_id`; on
+    /// success the Agent process was restarted first, so the next prompt uses the new sign-in.
+    /// Closing or killing the tab cancels it.
+    AuthInTerminal {
+        session_id: SessionId,
+        #[serde(default)]
+        thread_id: Option<ThreadId>,
         method_id: String,
     },
     ListFrontends,
@@ -600,6 +610,10 @@ pub enum Command {
         due: Option<String>,
         #[serde(default)]
         upstream: Option<TaskUpstream>,
+        #[serde(default)]
+        deps: Vec<TaskDep>,
+        #[serde(default)]
+        props: std::collections::BTreeMap<String, String>,
     },
     /// Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
     /// `base_updated_ms` (the `updated_ms` the editor loaded).

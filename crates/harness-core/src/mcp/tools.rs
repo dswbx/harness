@@ -49,6 +49,13 @@ impl Primitive {
 /// Primitive tools, in the order they are listed.
 pub(super) fn primitives() -> Vec<Primitive> {
     let empty = json!({ "type": "object", "properties": {} });
+    // The Dependency and Property input of task_add and task_update (ADR 0029).
+    let dep_add = json!({ "type": "array", "description": "Tasks it depends on", "items": { "type": "object", "properties": {
+        "id": { "type": "string", "description": "e.g. t3" },
+        "kind": { "type": "string", "enum": ["blocks", "follow_up"], "description": "Default blocks: it waits on that Task. follow_up: it comes after it but does not wait" }
+    }, "required": ["id"], "additionalProperties": false } });
+    let props = json!({ "type": "object", "additionalProperties": { "type": ["string", "null"] },
+        "description": "Key (a-z, 0-9, _ and -) to value (one line); null removes the key" });
     vec![
         Primitive::run(
             "git_status",
@@ -169,7 +176,7 @@ pub(super) fn primitives() -> Vec<Primitive> {
         ),
         Primitive::run(
             "task_add",
-            "Add Tasks: the user's own work items (to-dos, bugs, ideas), kept across Sessions in the app's Tasks list. Not your step list: keep your own steps in your todo or plan tool. Add Tasks only when the user asks or agrees. Each Task records this Session as its origin. `parent`: the id of a Task to put it under. Returns JSON: tasks (id, title, status).",
+            "Add Tasks: the user's own work items (to-dos, bugs, ideas), kept across Sessions in the app's Tasks list. Not your step list: keep your own steps in your todo or plan tool. Add Tasks only when the user asks or agrees. Each Task records this Session as its origin. `parent`: the id of a Task to put it under. `deps.add`: Tasks it waits on (kind blocks, the default) or comes after (kind follow_up); any Task, also of other Sessions. `props`: free key-value pairs for grouping, e.g. {\"component\": \"api\"}. Returns JSON: tasks (id, title, status).",
             json!({ "type": "object", "properties": {
                 "tasks": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": {
                     "title": { "type": "string", "description": "One line" },
@@ -179,7 +186,9 @@ pub(super) fn primitives() -> Vec<Primitive> {
                     "due": { "type": "string", "description": "YYYY-MM-DD" },
                     "parent": { "type": "string", "description": "Id of the Task to put it under, e.g. t3" },
                     "upstream_url": { "type": "string", "description": "The same item in another tracker (Linear, GitHub issue)" },
-                    "upstream_label": { "type": "string" }
+                    "upstream_label": { "type": "string" },
+                    "deps": { "type": "object", "properties": { "add": dep_add.clone() }, "additionalProperties": false },
+                    "props": props.clone()
                 }, "required": ["title"] } }
             }, "required": ["tasks"] }),
             "state",
@@ -187,7 +196,7 @@ pub(super) fn primitives() -> Vec<Primitive> {
         ),
         Primitive::run(
             "task_update",
-            "Change one of the user's Tasks (their work items, kept across Sessions; not your todo list): status, title, body, priority, due, or parent. Only Tasks created in this Session or that it was started from; for any other Task, ask the user to change it. Set the status as the work moves (in_progress, in_review, done). Returns JSON: tasks (id, title, status).",
+            "Change one of the user's Tasks (their work items, kept across Sessions; not your todo list): status, title, body, priority, due, parent, deps or props. Only Tasks created in this Session or that it was started from; for any other Task, ask the user to change it. Its deps may name any Task. Set the status as the work moves (in_progress, in_review, done). `deps`: `add` Tasks it waits on (kind blocks, the default) or comes after (kind follow_up), an existing one takes the new kind; `remove` ids. `props`: set keys, null removes a key; keys not named stay. Returns JSON: tasks (id, title, status).",
             json!({ "type": "object", "properties": {
                 "id": { "type": "string", "description": "The Task's id, e.g. t3" },
                 "status": { "type": "string", "enum": task_tools::STATUSES },
@@ -195,14 +204,19 @@ pub(super) fn primitives() -> Vec<Primitive> {
                 "body": { "type": "string", "description": "Markdown; replaces the body" },
                 "priority": { "type": "string", "enum": task_tools::PRIORITIES },
                 "due": { "type": "string", "description": "YYYY-MM-DD; empty clears it" },
-                "parent": { "type": ["string", "null"], "description": "Move it under this Task; null for the top level" }
+                "parent": { "type": ["string", "null"], "description": "Move it under this Task; null for the top level" },
+                "deps": { "type": "object", "properties": {
+                    "add": dep_add,
+                    "remove": { "type": "array", "items": { "type": "string" }, "description": "Ids of Tasks it depends on now" }
+                }, "additionalProperties": false },
+                "props": props
             }, "required": ["id"] }),
             "state",
             |s, t, a| Box::pin(task_tools::run_task_update(s, t, a)),
         ),
         Primitive::run(
             "task_list",
-            "List the user's Tasks (their work items, kept across Sessions; not your todo list), most recently changed first, at most 50. `scope`: session (default: created in this Session or that it was started from) or all. `status`: open (not done or cancelled) or one status. `query`: text in the title.",
+            "List the user's Tasks (their work items, kept across Sessions; not your todo list), most recently changed first, at most 50. `scope`: session (default: created in this Session or that it was started from) or all. `status`: open (not done or cancelled) or one status. `query`: text in the title. A row has `waits_on` when it waits on open Tasks (blocks deps not done or cancelled), and its `props`.",
             json!({ "type": "object", "properties": {
                 "scope": { "type": "string", "enum": ["session", "all"] },
                 "status": { "type": "string", "enum": std::iter::once("open").chain(task_tools::STATUSES).collect::<Vec<_>>() },
@@ -213,7 +227,7 @@ pub(super) fn primitives() -> Vec<Primitive> {
         ),
         Primitive::run(
             "task_get",
-            "Read one of the user's Tasks: its fields and Markdown body, parent, subtasks, origin Session, linked Sessions, asset files (with paths), and `can_update` (whether task_update may change it).",
+            "Read one of the user's Tasks: its fields and Markdown body, props, parent, subtasks, origin Session, linked Sessions, asset files (with paths), and `can_update` (whether task_update may change it). Dependencies: `blocked_by` (Tasks it waits on), `waits_on` (how many of them are not done or cancelled), `blocks` (Tasks that wait on it), `follows` and `followed_by` (follow_up deps).",
             json!({ "type": "object", "properties": { "id": { "type": "string", "description": "e.g. t3" } }, "required": ["id"] }),
             "read",
             |s, t, a| Box::pin(task_tools::run_task_get(s, t, a)),
@@ -340,6 +354,9 @@ pub(super) async fn call(session: &Arc<Session>, thread: &ThreadId, name: &str, 
             Handler::Sub => return Ok(vec![ContentBlock::text(crate::sub_sessions::call(session, thread, name, &args).await?)]),
             Handler::Run(run) => run,
         };
+        if task_tools::TOOLS.contains(&name) {
+            task_tools::check_args(name, p.description, &p.schema, &args)?;
+        }
         anyhow::ensure!(
             !(TRANSCRIPT_TOOLS.contains(&name) && session.is_fresh_side(thread)),
             "{name} is not available: the user started this Side Thread without the Main Thread's conversation"

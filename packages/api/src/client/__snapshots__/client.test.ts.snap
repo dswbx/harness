@@ -214,6 +214,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "AttachSharedArtifact",
     },
   ],
+  "authInTerminal": [
+    {
+      "method_id": "m",
+      "session_id": "s1",
+      "thread_id": "t",
+      "type": "AuthInTerminal",
+    },
+  ],
   "authenticate": [
     {
       "method_id": "m",

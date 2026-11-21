@@ -1,10 +1,11 @@
-import { webLink } from "../../derive/tasks";
+import { webLink, wouldLoop } from "../../derive/tasks";
 import { CommandError } from "../../errors";
 import type {
    AttachmentInput,
    Task,
    TaskActivityKind,
    TaskAsset,
+   TaskDep,
    TaskStatus,
    TaskSummary,
    TaskUpstream,
@@ -22,7 +23,31 @@ export function mockTask(mock: MockTransport, id: string): Task {
 
 function summary(t: Task): TaskSummary {
    const { body, activity: _a, body_updated_ms: _b, v: _v, ...rest } = t;
-   return structuredClone({ ...rest, has_body: body.trim() !== "" });
+   return structuredClone({
+      ...rest,
+      has_body: body.trim() !== "",
+      excerpt: excerpt(body),
+      deps: rest.deps ?? [],
+      props: rest.props ?? {},
+   });
+}
+
+/** Roughly the core's excerpt: the body as plain text, cut at a word to 160 chars with "…". */
+function excerpt(body: string): string {
+   const text = body
+      .replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, " ")
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/^[ \t]*(>[ \t]*)*(#{1,6}[ \t]+|[-*+][ \t]+|\d+[.)][ \t]+)?/gm, "")
+      .replace(/[*`~]|(?<!\w)_+|_+(?!\w)/g, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
+   const chars = [...text];
+   if (chars.length <= 160) return text;
+   const cut = chars.slice(0, 159).join("");
+   const at = chars[159] === " " ? cut.length : cut.lastIndexOf(" ");
+   return `${at > 0 ? cut.slice(0, at) : cut}…`;
 }
 
 function cleanTitle(title: string): string {
@@ -48,6 +73,47 @@ function checkUpstream(u: TaskUpstream | null | undefined): TaskUpstream | null 
          `the upstream url "${url}" is not a web link: it must start with https:// or http://`,
       );
    return { url, label: u?.label?.trim() || null };
+}
+
+/** As the core's `check_deps`: each other task exists once, and none leads back to `id` ("" for a new task). */
+function checkDeps(mock: MockTransport, id: string, deps: TaskDep[]): TaskDep[] {
+   const all = [...mock.tasks.values()].map((t) => ({ id: t.id, deps: t.deps ?? [] }));
+   deps.forEach((d, i) => {
+      if (id && d.id === id)
+         throw new CommandError("invalid", `task ${id} cannot depend on itself`);
+      if (deps.slice(0, i).some((e) => e.id === d.id))
+         throw new CommandError("invalid", `task ${d.id} is listed twice in deps`);
+      if (!mock.tasks.has(d.id)) throw new CommandError("not_found", `no task "${d.id}"`);
+      if (id && wouldLoop(all, id, d.id))
+         throw new CommandError(
+            "invalid",
+            `task ${id} cannot depend on task ${d.id}: it would make a loop`,
+         );
+   });
+   return deps.map((d) => ({ id: d.id, kind: d.kind }));
+}
+
+/** As the core's `clean_props`: keys 1-32 of `a-z0-9_-`, values 1-64 chars on one line, at most 16. */
+function cleanProps(props: Record<string, string>): Record<string, string> {
+   const entries = Object.entries(props);
+   if (entries.length > 16)
+      throw new CommandError("invalid", `a task has at most 16 props, not ${entries.length}`);
+   return Object.fromEntries(
+      entries.map(([k, raw]) => {
+         if (!/^[a-z0-9_-]{1,32}$/.test(k))
+            throw new CommandError(
+               "invalid",
+               `the prop key "${k}" must be 1-32 characters of a-z, 0-9, _ and -`,
+            );
+         const v = raw.trim();
+         if (!v || [...v].length > 64 || /[\r\n]/.test(v))
+            throw new CommandError(
+               "invalid",
+               `the value of prop "${k}" must be 1-64 characters on one line`,
+            );
+         return [k, v];
+      }),
+   );
 }
 
 /** A time after the Task's last change. */
@@ -154,6 +220,8 @@ export const tasksHandlers = {
       const parent = cmd.parent_id ?? null;
       if (parent) mockTask(mock, parent);
       const origin = cmd.session_id ? mock.session(cmd.session_id) : null;
+      const deps = checkDeps(mock, "", cmd.deps ?? []);
+      const props = cleanProps(cmd.props ?? {});
       const id = `t${mock.taskN++}`;
       const now = Date.now();
       const t: Task = {
@@ -175,6 +243,8 @@ export const tasksHandlers = {
          updated_ms: now,
          body_updated_ms: now,
          activity: [],
+         deps,
+         props,
       };
       record(t, now, { type: "created" }, origin?.id ?? null);
       mock.tasks.set(id, t);
@@ -187,6 +257,8 @@ export const tasksHandlers = {
       const title = p.title != null ? cleanTitle(p.title) : null;
       const due = p.due != null ? checkDue(p.due) : null;
       const upstream = checkUpstream(p.upstream);
+      const deps = p.deps ? checkDeps(mock, t.id, p.deps) : null;
+      const props = p.props ? cleanProps(p.props) : null;
       const now = stamp(t);
       if (p.body != null && p.body !== t.body) {
          const base = cmd.base_updated_ms;
@@ -209,6 +281,19 @@ export const tasksHandlers = {
       if (p.status && p.status !== t.status) {
          record(t, now, { type: "status_changed", from: t.status, to: p.status });
          t.status = p.status;
+      }
+      if (deps) {
+         const old = t.deps ?? [];
+         for (const d of old)
+            if (!deps.some((n) => n.id === d.id)) record(t, now, { type: "dep_removed", id: d.id });
+         for (const d of deps)
+            if (!old.some((o) => o.id === d.id && o.kind === d.kind))
+               record(t, now, { type: "dep_added", id: d.id, kind: d.kind });
+         t.deps = deps;
+      }
+      if (props && JSON.stringify(props) !== JSON.stringify(t.props ?? {})) {
+         record(t, now, { type: "props_changed" });
+         t.props = props;
       }
       t.updated_ms = now;
       changed(mock, [t.id]);
@@ -260,9 +345,17 @@ export const tasksHandlers = {
          c.updated_ms = now;
       });
       mock.tasks.delete(t.id);
+      // The id leaves the deps of other tasks.
+      const unlinked: string[] = [];
+      for (const o of mock.tasks.values()) {
+         if (!o.deps?.some((d) => d.id === t.id)) continue;
+         o.deps = o.deps.filter((d) => d.id !== t.id);
+         o.updated_ms = stamp(o);
+         unlinked.push(o.id);
+      }
       for (const k of mock.taskAssets.keys())
          if (k.startsWith(`${t.id}/`)) mock.taskAssets.delete(k);
-      changed(mock, [t.id, ...kids.map((c) => c.id)]);
+      changed(mock, [...new Set([t.id, ...kids.map((c) => c.id), ...unlinked])]);
       return { type: "Ok" };
    },
    AddTaskAssets: (mock, cmd) => {

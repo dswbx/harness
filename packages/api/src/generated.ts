@@ -102,6 +102,15 @@ export type AuthMethodInfo = {
 	kind: string,
 };
 
+/**  How a terminal sign-in ended. */
+export type AuthOutcome = 
+/**  Exit code 0. */
+"signed_in" | 
+/**  Any other exit. */
+"failed" | 
+/**  The user closed or killed its Terminal tab. */
+"cancelled";
+
 /**  A shell command an Agent runs in the background after its tool call finished. */
 export type BackgroundJob = {
 	/**  The Agent's id for the job. */
@@ -177,8 +186,15 @@ export type Command =
 { type: "RemoveAgent"; agent_id: string } | 
 /**  Runs an Agent-handled auth method (ACP `authenticate`) on the Session's Agent. */
 { type: "Authenticate"; session_id: string; method_id: string } | 
-/**  Opens Terminal.app running the Agent's terminal auth method. */
-{ type: "OpenAuthTerminal"; session_id: string; method_id: string } | { type: "ListFrontends" } | { type: "ListSessions" } | { type: "CreateSession"; 
+/**  Opens Terminal.app running the Agent's terminal auth method (the fallback to `AuthInTerminal`). */
+{ type: "OpenAuthTerminal"; session_id: string; method_id: string } | 
+/**
+ *  Runs the Agent's terminal auth method in a new Terminal tab of the Session (ADR 0017).
+ *  Answers `TerminalOpened`. When the login ends, `AuthFinished` is logged in `thread_id`; on
+ *  success the Agent process was restarted first, so the next prompt uses the new sign-in.
+ *  Closing or killing the tab cancels it.
+ */
+{ type: "AuthInTerminal"; session_id: string; thread_id?: string | null; method_id: string } | { type: "ListFrontends" } | { type: "ListSessions" } | { type: "CreateSession"; 
 /**  Primary Workspace Folder (v1: exactly one). */
 folder: string; agent_id: string; frontend_id: string; title: string | null; 
 /**
@@ -466,7 +482,7 @@ origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; i
 /**  A new Task, last among its siblings. With `session_id`, that Session is its origin. */
 { type: "CreateTask"; title: string; body?: string | null; parent_id?: string | null; session_id?: string | null; status?: TaskStatus | null; priority?: TaskPriority | null; 
 /**  `YYYY-MM-DD`. */
-due?: string | null; upstream?: TaskUpstream | null } | 
+due?: string | null; upstream?: TaskUpstream | null; deps?: TaskDep[]; props?: { [key in string]: string } } | 
 /**
  *  Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
  *  `base_updated_ms` (the `updated_ms` the editor loaded).
@@ -636,7 +652,16 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
  */
 forked_from?: ForkPoint | null } | 
 /**  The Agent needs the user to sign in before it can work. */
-{ type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
+{ type: "AuthRequired"; methods: AuthMethodInfo[]; message: string; 
+/**  The Agent's display name, for "Sign in to <name>". Absent in older logs. */
+agent_name?: string | null } | 
+/**
+ *  A terminal sign-in the Harness ran (`AuthInTerminal`) ended. On `signed_in` the Agent
+ *  process was restarted before this was logged.
+ */
+{ type: "AuthFinished"; method_id: string; method_name: string; outcome: AuthOutcome; 
+/**  The login program's exit code; `None` if it could not be read. */
+exit_code?: number | null } | 
 /**
  *  The Thread's Agent Session could not be restored; the Thread stays readable and can be
  *  continued from a transcript. `retryable`: the Agent supports resume or load, so the next
@@ -1377,6 +1402,10 @@ export type Task = {
 	body_updated_ms: number,
 	/**  The last 100 entries, oldest first. */
 	activity: TaskActivity[],
+	/**  The tasks this task waits on or follows, in the order given (ADR 0029). */
+	deps?: TaskDep[],
+	/**  Properties: free key-value pairs (ADR 0029). */
+	props?: { [key in string]: string },
 };
 
 export type TaskActivity = {
@@ -1389,7 +1418,9 @@ export type TaskActivity = {
 
 export type TaskActivityKind = { type: "created" } | 
 /**  The parent changed (`None`: no parent). */
-{ type: "moved"; from: string | null; to: string | null } | { type: "status_changed"; from: TaskStatus; to: TaskStatus } | { type: "session_started"; session_id: string };
+{ type: "moved"; from: string | null; to: string | null } | { type: "status_changed"; from: TaskStatus; to: TaskStatus } | { type: "session_started"; session_id: string } | 
+/**  A Dependency on `id` was added, or its kind changed. */
+{ type: "dep_added"; id: string; kind: TaskDepKind } | { type: "dep_removed"; id: string } | { type: "props_changed" };
 
 /**  A file in the task's `files/` folder; `name` is its file name there. */
 export type TaskAsset = {
@@ -1412,6 +1443,20 @@ export type TaskContextParts = {
 	origin_transcript?: boolean,
 };
 
+/**  A Dependency, stored only on the task that waits (ADR 0029). */
+export type TaskDep = {
+	/**  The other task. */
+	id: string,
+	kind: TaskDepKind,
+};
+
+/**  How a task depends on another (ADR 0029). */
+export type TaskDepKind = 
+/**  This task cannot be done before the other one. */
+"blocks" | 
+/**  This task comes after the other one, but does not wait on it. */
+"follow_up";
+
 export type TaskEntry = {
 	content: string,
 	priority: string,
@@ -1432,6 +1477,10 @@ export type TaskPatch = {
 	upstream?: TaskUpstream | null,
 	/**  Fields set to none (applied before the values above). */
 	clear?: TaskField[],
+	/**  Replaces all Dependencies. */
+	deps?: TaskDep[] | null,
+	/**  Replaces all Properties. */
+	props?: { [key in string]: string } | null,
 };
 
 export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
@@ -1461,6 +1510,8 @@ export type TaskSummary = {
 	id: string,
 	title: string,
 	has_body: boolean,
+	/**  The start of the body as plain text, at most 160 characters; empty for an empty body. */
+	excerpt: string,
 	status: TaskStatus,
 	priority: TaskPriority,
 	due: string | null,
@@ -1473,6 +1524,8 @@ export type TaskSummary = {
 	assets: TaskAsset[],
 	created_ms: number,
 	updated_ms: number,
+	deps: TaskDep[],
+	props: { [key in string]: string },
 };
 
 /**  The task's item in another tracker (Linear, GitHub, ...). */

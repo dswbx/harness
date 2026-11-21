@@ -1,5 +1,6 @@
 import {
    isOpen,
+   openBlockers,
    type SessionStatus,
    type TaskStatus,
    type TaskSummary,
@@ -51,6 +52,7 @@ import {
 import { PriorityIcon } from "./PriorityMenu";
 import { STATUS_LABEL, StatusMenu } from "./StatusMenu";
 import { sessionTitle } from "./sessionTitle";
+import { WaitsOnChip } from "./TaskRow";
 import { upstreamText } from "./UpstreamField";
 import { useNestDrag } from "./useNestDrag";
 
@@ -277,6 +279,7 @@ export function ListView({
    );
 }
 
+/** The status's name by status; else the group's own label (a topic, Session or prop value). */
 function groupLabel(groupBy: GroupBy, key: string, label: string): string {
    return groupBy === "status" ? (STATUS_LABEL[key as TaskStatus] ?? label) : label;
 }
@@ -363,6 +366,7 @@ function TaskLine({
    const { task, depth } = row;
    const open = isOpen(task.status);
    const progress = row.kids > 0 ? topicProgress(tasks, task.id) : null;
+   const waitsOn = task.deps.length > 0 ? openBlockers(tasks, task.id) : 0;
    return (
       <div
          data-task-row={task.id}
@@ -445,6 +449,7 @@ function TaskLine({
                   {progress.done}/{progress.total}
                </span>
             )}
+            {waitsOn > 0 && <WaitsOnChip count={waitsOn} narrow className="shrink-0" />}
             {task.sessions.length > 0 && (
                <span
                   className={cn(META_CHIP, "shrink-0 @max-md:hidden")}

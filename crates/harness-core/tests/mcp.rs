@@ -1353,6 +1353,8 @@ async fn task_commands_send_tasks_changed_with_the_changed_ids_and_summaries() {
         priority: None,
         due: None,
         upstream: None,
+        deps: Vec::new(),
+        props: Default::default(),
     };
     let row = |id: &str, title: &str, status: TaskStatus, parent: Option<&str>| (id.to_owned(), title.to_owned(), status, parent.map(Into::into));
     let CommandResult::Task { task: topic } = h.execute(new_task("Topic", None, Some(&a))).await.unwrap() else { panic!() };
@@ -1422,6 +1424,12 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let bad = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":" "}]}"#, None).await;
     assert!(bad.contains("mcp error:") && bad.contains("task 2"), "{bad}");
     assert!(h.execute(Command::ReadTask { id: "t3".into() }).await.is_err());
+    // An unknown dep id keeps its not_found code, with the position.
+    let unknown = ask(&h, &a, r#"mcp task_add {"tasks":[{"title":"ok"},{"title":"x","deps":{"add":[{"id":"t99"}]}}]}"#, None).await;
+    assert!(unknown.contains("task 2") && unknown.contains("t99"), "{unknown}");
+    // null for an optional field means absent.
+    mcp_json(&h, &a, r#"task_add {"tasks":[{"title":"Nulls","due":null,"body":null,"status":null,"priority":null}]}"#).await;
+    mcp_json(&h, &a, r#"task_update {"id":"t3","status":"done","due":null,"title":null,"body":null,"priority":null}"#).await;
 
     // Session b cannot change a's Task; a can, and a move under its own subtask is refused.
     let refused = ask(&h, &b, r#"mcp task_update {"id":"t1","status":"done"}"#, None).await;
@@ -1450,7 +1458,7 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     let all = mcp_json(&h, &b, r#"task_list {"scope":"all","status":"open"}"#).await;
     assert_eq!(all["tasks"].as_array().unwrap().iter().map(|t| t["id"].clone()).collect::<Vec<_>>(), [serde_json::json!("t1")]);
     let info = mcp_json(&h, &a, "harness_info {}").await;
-    assert_eq!(info["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(info["tasks"].as_array().unwrap().len(), 3);
     assert_eq!(info["tasks"][0]["session"], "created_here");
     assert!(info["note_path"].as_str().unwrap().ends_with(&format!("{a}/note.md")), "{info}");
 
@@ -1474,6 +1482,92 @@ async fn task_tools_add_with_this_origin_and_change_only_own_tasks() {
     assert_eq!(mcp_json(&h, &c, "task_list {}").await["tasks"][0]["session"], "started_from");
     mcp_json(&h, &c, r#"task_update {"id":"t1","status":"in_review"}"#).await;
     assert_eq!(read("t1").status, TaskStatus::InReview);
+}
+
+/// Reads a Task through the Command API.
+async fn read_task(h: &Harness, id: &str) -> harness_core::api::Task {
+    match h.execute(Command::ReadTask { id: id.into() }).await {
+        Ok(CommandResult::Task { task }) => task,
+        r => panic!("{r:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_tools_set_deps_and_props_as_changes() {
+    use harness_core::api::{TaskDep, TaskDepKind as Kind};
+    use serde_json::json;
+    let dep = |id: &str, kind| TaskDep { id: id.into(), kind };
+    let dir = tempfile::tempdir().unwrap();
+    let h = shared_harness(&dir.path().join("data"));
+    let a = create(&h, dir.path(), vec![]).await;
+    let b = create(&h, dir.path(), vec![]).await;
+
+    // task_add: deps (kind blocks by default) and props.
+    mcp_json(&h, &a, r#"task_add {"tasks":[{"title":"Design"}]}"#).await;
+    mcp_json(&h, &a, r#"task_add {"tasks":[{"title":"Build","deps":{"add":[{"id":"t1"}]},"props":{"component":"api","risk":"yes","gone":null}}]}"#).await;
+    let t2 = read_task(&h, "t2").await;
+    assert_eq!(t2.deps, [dep("t1", Kind::Blocks)]);
+    assert_eq!(serde_json::to_value(&t2.props).unwrap(), json!({ "component": "api", "risk": "yes" }));
+    // A Task of another Session: a's Tasks may depend on it.
+    mcp_json(&h, &b, r#"task_add {"tasks":[{"title":"Docs"}]}"#).await;
+    mcp_json(&h, &a, r#"task_update {"id":"t2","deps":{"add":[{"id":"t3","kind":"follow_up"}]}}"#).await;
+    assert_eq!(read_task(&h, "t2").await.deps, [dep("t1", Kind::Blocks), dep("t3", Kind::FollowUp)]);
+
+    // task_get: both directions, and how many open Tasks it waits on.
+    let get = mcp_json(&h, &a, r#"task_get {"id":"t2"}"#).await;
+    assert_eq!(get["blocked_by"], json!([{ "id": "t1", "title": "Design", "status": "todo" }]));
+    assert_eq!(get["waits_on"], 1);
+    assert_eq!(get["follows"], json!([{ "id": "t3", "title": "Docs", "status": "todo" }]));
+    assert_eq!((get["blocks"].clone(), get["followed_by"].clone()), (json!([]), json!([])));
+    assert_eq!(get["props"], json!({ "component": "api", "risk": "yes" }));
+    let get = mcp_json(&h, &a, r#"task_get {"id":"t1"}"#).await;
+    assert_eq!((get["blocks"].clone(), get["waits_on"].clone()), (json!([{ "id": "t2", "title": "Build", "status": "todo" }]), json!(0)));
+    assert_eq!(mcp_json(&h, &b, r#"task_get {"id":"t3"}"#).await["followed_by"], json!([{ "id": "t2", "title": "Build", "status": "todo" }]));
+    // task_list rows: waits_on only while above 0, props when there are any.
+    let row = |list: &serde_json::Value, id: &str| list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == id).unwrap().clone();
+    let list = mcp_json(&h, &a, "task_list {}").await;
+    assert_eq!((row(&list, "t2")["waits_on"].clone(), row(&list, "t2")["props"]["component"].clone()), (json!(1), json!("api")));
+    assert!(row(&list, "t1").get("waits_on").is_none() && row(&list, "t1").get("props").is_none(), "{list}");
+    mcp_json(&h, &a, r#"task_update {"id":"t1","status":"done"}"#).await;
+    assert!(row(&mcp_json(&h, &a, "task_list {}").await, "t2").get("waits_on").is_none(), "a done blocker holds nothing up");
+    assert_eq!(mcp_json(&h, &a, r#"task_get {"id":"t2"}"#).await["waits_on"], 0);
+
+    // task_update: a dep added again takes the new kind; remove drops one; props merge, null removes.
+    mcp_json(&h, &a, r#"task_update {"id":"t2","deps":{"add":[{"id":"t1","kind":"follow_up"}],"remove":["t3"]},"props":{"risk":null,"owner":"ana"}}"#).await;
+    let t2 = read_task(&h, "t2").await;
+    assert_eq!(t2.deps, [dep("t1", Kind::FollowUp)]);
+    assert_eq!(serde_json::to_value(&t2.props).unwrap(), json!({ "component": "api", "owner": "ana" }));
+
+    // Refused, and nothing written: a loop, removing a dep that is not there, a bad prop key.
+    let before = read_task(&h, "t1").await;
+    let looped = ask(&h, &a, r#"mcp task_update {"id":"t1","deps":{"add":[{"id":"t2"}]}}"#, None).await;
+    assert!(looped.contains("mcp error:") && looped.contains("loop"), "{looped}");
+    let missing = ask(&h, &a, r#"mcp task_update {"id":"t2","deps":{"remove":["t3"]},"status":"done"}"#, None).await;
+    assert!(missing.contains("mcp error:") && missing.contains("not a dependency"), "{missing}");
+    let bad_key = ask(&h, &a, r#"mcp task_update {"id":"t2","props":{"Bad Key":"x"}}"#, None).await;
+    assert!(bad_key.contains("mcp error:") && bad_key.contains("prop key"), "{bad_key}");
+    assert_eq!(read_task(&h, "t1").await, before);
+    assert_eq!(read_task(&h, "t2").await, t2);
+
+    // Input that does not match the schema is refused with the path, not ignored.
+    for (call, path) in [
+        (r#"task_update {"id":"t2","parent":5}"#, "/parent"),
+        (r#"task_update {"id":"t2","deps":{"add":["t1"]}}"#, "/deps/add/0"),
+        (r#"task_update {"id":"t2","deps":{"add":[{"id":"t1","kind":"after"}]}}"#, "/deps/add/0/kind"),
+        (r#"task_update {"id":"t2","deps":["t1"]}"#, "/deps"),
+        (r#"task_update {"id":"t2","props":{"risk":5}}"#, "/props/risk"),
+        (r#"task_add {"tasks":[{"title":"x","deps":{"remove":["t1"]}}]}"#, "/tasks/0/deps"),
+        (r#"task_get {"id":3}"#, "/id"),
+    ] {
+        let reply = ask(&h, &a, &format!("mcp {call}"), None).await;
+        assert!(reply.contains("mcp error:") && reply.contains("invalid input for") && reply.contains(path), "{call}: {reply}");
+    }
+    // H15: a parent that is not a string no longer moves the Task to the top level.
+    mcp_json(&h, &a, r#"task_update {"id":"t2","parent":"t1"}"#).await;
+    let reply = ask(&h, &a, r#"mcp task_update {"id":"t2","parent":true}"#, None).await;
+    assert!(reply.contains("mcp error:"), "{reply}");
+    assert_eq!(read_task(&h, "t2").await.parent_id.as_deref(), Some("t1"));
+    assert!(h.execute(Command::ReadTask { id: "t4".into() }).await.is_err(), "the refused task_add created nothing");
 }
 
 /// The ids of each `TasksChanged`, with (id, parent) of each summary.
@@ -1521,6 +1615,8 @@ async fn a_failed_delete_still_tells_the_windows_about_the_moved_children() {
         priority: None,
         due: None,
         upstream: None,
+        deps: Vec::new(),
+        props: Default::default(),
     };
     let CommandResult::Task { task: top } = h.execute(new_task("top", None)).await.unwrap() else { panic!() };
     let CommandResult::Task { task: child } = h.execute(new_task("child", Some(&top.id))).await.unwrap() else { panic!() };

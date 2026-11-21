@@ -1351,6 +1351,40 @@ describe("AuthRequired", () => {
       const item = s.items[s.items.length - 1];
       expect(item).toMatchObject({ type: "auth", message: "sign in", methods });
    });
+
+   it("mid-Turn, it keeps the Turn's message to send again", () => {
+      const s = fold([
+         started(),
+         ev({ type: "TurnStarted", turn_id: "t1", text: "fix it", attachments: [] }),
+         ev({ type: "AuthRequired", methods: [], message: "sign in" }),
+      ]);
+      expect(s.items.at(-1)).toMatchObject({
+         type: "auth",
+         resend: { text: "fix it", attachments: [] },
+      });
+   });
+
+   it("AuthFinished marks the latest auth item with how the sign-in ended", () => {
+      const methods = [{ id: "m", name: "Login", description: null, kind: "terminal" }];
+      const s = fold([
+         started(),
+         ev({ type: "AuthRequired", methods, message: "first" }),
+         ev({ type: "AuthRequired", methods, message: "second" }),
+         ev({
+            type: "AuthFinished",
+            method_id: "m",
+            method_name: "Login",
+            outcome: "failed",
+            exit_code: 1,
+         }),
+      ]);
+      const auths = s.items.filter((i) => i.type === "auth");
+      expect(auths[0]).not.toHaveProperty("finished");
+      expect(auths[1]).toMatchObject({
+         message: "second",
+         finished: { methodName: "Login", outcome: "failed", exitCode: 1 },
+      });
+   });
 });
 
 describe("Frontend Tools", () => {

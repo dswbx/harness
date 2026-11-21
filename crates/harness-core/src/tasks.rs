@@ -4,12 +4,12 @@
 //! All file access to Tasks stays in this module.
 
 use parking_lot::{Mutex, RwLock};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::api::{
-    AttachmentInput, SessionId, StateWriter, Task, TaskActivity, TaskActivityKind, TaskAsset, TaskField, TaskPatch, TaskPriority, TaskSessionLink, TaskStatus,
-    TaskSummary, TaskUpstream,
+    AttachmentInput, SessionId, StateWriter, Task, TaskActivity, TaskActivityKind, TaskAsset, TaskDep, TaskField, TaskPatch, TaskPriority, TaskSessionLink,
+    TaskStatus, TaskSummary, TaskUpstream,
 };
 
 /// The folder in the data dir.
@@ -21,6 +21,10 @@ const VERSION: u32 = 1;
 const MAX_ACTIVITY: usize = 100;
 /// Largest asset file.
 const MAX_ASSET: u64 = 25 * 1024 * 1024;
+/// Most Properties per Task, and the longest key and value (ADR 0029).
+const MAX_PROPS: usize = 16;
+const MAX_PROP_KEY: usize = 32;
+const MAX_PROP_VALUE: usize = 64;
 
 /// Whether `id` is a Task id: `t<n>`, `n` a number without leading zeros.
 pub fn is_id(id: &str) -> bool {
@@ -58,6 +62,8 @@ pub struct NewTask {
     pub priority: Option<TaskPriority>,
     pub due: Option<String>,
     pub upstream: Option<TaskUpstream>,
+    pub deps: Vec<TaskDep>,
+    pub props: BTreeMap<String, String>,
     pub origin: Option<(SessionId, String)>,
 }
 
@@ -110,9 +116,11 @@ impl Tasks {
         self.list().into_iter().filter(|t| t.sessions.iter().any(|l| l.session_id == session)).collect()
     }
 
-    /// The ids of a Task's direct children.
-    pub fn children_ids(&self, id: &str) -> Vec<String> {
-        self.index.read().values().filter(|t| t.parent_id.as_deref() == Some(id)).map(|t| t.id.clone()).collect()
+    /// The ids of the Tasks that deleting `id` changes: its direct children, and the Tasks with a
+    /// Dependency on it.
+    pub fn delete_touches(&self, id: &str) -> Vec<String> {
+        let index = self.index.read();
+        index.values().filter(|t| t.id != id && (t.parent_id.as_deref() == Some(id) || t.deps.iter().any(|d| d.id == id))).map(|t| t.id.clone()).collect()
     }
 
     /// The folder of a Task's asset files (it may not exist yet).
@@ -131,6 +139,9 @@ impl Tasks {
             if let Some(p) = &n.parent_id {
                 self.get(p).map_err(at)?;
             }
+            clean_props(n.props.clone()).map_err(at)?;
+            // Keeps the error code (not_found for an unknown id) and adds the position.
+            check_deps(&self.index.read(), "", &n.deps).map_err(|e| e.context(format!("task {}", i + 1)))?;
             Ok(())
         });
         let mut created = Vec::new();
@@ -150,11 +161,13 @@ impl Tasks {
         let title = clean_title(&new.title)?;
         let due = new.due.as_deref().map(check_due).transpose()?;
         let upstream = new.upstream.map(check_upstream).transpose()?;
+        let props = clean_props(new.props)?;
         let mut next = self.write_lock.lock();
         if let Some(p) = &new.parent_id {
             self.get(p)?;
         }
         let id = format!("t{}", *next);
+        check_deps(&self.index.read(), &id, &new.deps)?;
         let now = crate::log::now_ms();
         let (origin_session_id, origin_title) = new.origin.map_or((None, None), |(s, t)| (Some(s), Some(t)));
         let mut task = Task {
@@ -176,6 +189,8 @@ impl Tasks {
             updated_ms: now,
             body_updated_ms: now,
             activity: Vec::new(),
+            deps: new.deps,
+            props,
         };
         record(&mut task, actor, now, TaskActivityKind::Created);
         let tmp = self.dir.join(format!(".new-{id}"));
@@ -198,7 +213,13 @@ impl Tasks {
         patch.title.as_deref().map(clean_title).transpose()?;
         patch.due.as_deref().map(check_due).transpose()?;
         patch.upstream.clone().map(check_upstream).transpose()?;
+        patch.props.clone().map(clean_props).transpose()?;
         Ok(())
+    }
+
+    /// Checks `deps` as the new Dependencies of task `id` without writing, like `check_patch`.
+    pub fn check_deps(&self, id: &str, deps: &[TaskDep]) -> anyhow::Result<()> {
+        check_deps(&self.index.read(), id, deps)
     }
 
     /// Applies `patch`. A body change is refused when the body changed after `base_updated_ms`.
@@ -206,8 +227,12 @@ impl Tasks {
         let title = patch.title.as_deref().map(clean_title).transpose()?;
         let due = patch.due.as_deref().map(check_due).transpose()?;
         let upstream = patch.upstream.map(check_upstream).transpose()?;
+        let props = patch.props.map(clean_props).transpose()?;
         let _guard = self.write_lock.lock();
         let mut task = self.get(id)?;
+        if let Some(deps) = &patch.deps {
+            check_deps(&self.index.read(), id, deps)?;
+        }
         let now = stamp(&task);
         if let Some(body) = patch.body
             && body != task.body
@@ -243,6 +268,22 @@ impl Tasks {
             record(&mut task, actor, now, kind);
             task.status = s;
         }
+        if let Some(deps) = patch.deps {
+            let removed = task.deps.iter().filter(|d| !deps.iter().any(|n| n.id == d.id)).map(|d| TaskActivityKind::DepRemoved { id: d.id.clone() });
+            // A new id, or a new kind for an id.
+            let added = deps.iter().filter(|d| !task.deps.contains(d)).map(|d| TaskActivityKind::DepAdded { id: d.id.clone(), kind: d.kind });
+            let kinds: Vec<TaskActivityKind> = removed.chain(added).collect();
+            for kind in kinds {
+                record(&mut task, actor, now, kind);
+            }
+            task.deps = deps;
+        }
+        if let Some(p) = props
+            && p != task.props
+        {
+            record(&mut task, actor, now, TaskActivityKind::PropsChanged);
+            task.props = p;
+        }
         task.updated_ms = now;
         self.save(task)
     }
@@ -277,31 +318,47 @@ impl Tasks {
         self.save(task)
     }
 
-    /// Deletes a Task; its children move to its parent, after the parent's other children. Returns
-    /// the ids of the moved children. The children are written first and the Task's folder is
-    /// removed last, so a retry after a crash finishes the job.
+    /// Deletes a Task; its children move to its parent, after the parent's other children, and its
+    /// id leaves the `deps` of other Tasks. Returns the ids of the changed Tasks. They are written
+    /// first and the Task's folder is removed last, so a retry after a crash finishes the job.
     pub fn delete(&self, id: &str, actor: &Actor) -> anyhow::Result<Vec<String>> {
         let _guard = self.write_lock.lock();
         let task = self.get(id)?;
         let folder = self.folder(id)?;
-        let (children, base) = {
+        let (children, dependents, base) = {
             let index = self.index.read();
             let children: Vec<Task> = siblings(&index, Some(id), "").into_iter().cloned().collect();
-            (children, last_order(&index, task.parent_id.as_deref(), id))
+            let dependents: Vec<Task> =
+                index.values().filter(|t| t.id != id && t.parent_id.as_deref() != Some(id) && t.deps.iter().any(|d| d.id == id)).cloned().collect();
+            (children, dependents, last_order(&index, task.parent_id.as_deref(), id))
         };
-        let mut moved = Vec::new();
+        let mut changed = Vec::new();
+        let unlink = |t: &mut Task, now: i64| {
+            if t.deps.iter().any(|d| d.id == id) {
+                t.deps.retain(|d| d.id != id);
+                record(t, actor, now, TaskActivityKind::DepRemoved { id: id.to_owned() });
+            }
+        };
         for (i, mut child) in children.into_iter().enumerate() {
             let now = stamp(&child);
             record(&mut child, actor, now, TaskActivityKind::Moved { from: Some(id.to_owned()), to: task.parent_id.clone() });
+            unlink(&mut child, now);
             child.parent_id = task.parent_id.clone();
             child.order = base + i as f64;
             child.updated_ms = now;
-            moved.push(child.id.clone());
+            changed.push(child.id.clone());
             self.save(child)?;
+        }
+        for mut t in dependents {
+            let now = stamp(&t);
+            unlink(&mut t, now);
+            t.updated_ms = now;
+            changed.push(t.id.clone());
+            self.save(t)?;
         }
         std::fs::remove_dir_all(&folder)?;
         self.index.write().remove(id);
-        Ok(moved)
+        Ok(changed)
     }
 
     /// Copies `files` into the Task's `files/`. Names that are taken get a `-2`, `-3`, ... suffix.
@@ -440,6 +497,61 @@ fn descends_from(index: &BTreeMap<String, Task>, id: &str, ancestor: &str) -> bo
     false
 }
 
+/// Whether `from` waits on or follows `target` through a chain of Dependencies of either kind.
+fn depends_on(index: &BTreeMap<String, Task>, from: &str, target: &str) -> bool {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![from];
+    // `seen` bounds the walk: bad data could hold a loop.
+    while let Some(at) = todo.pop() {
+        if at == target {
+            return true;
+        }
+        if seen.insert(at) {
+            todo.extend(index.get(at).into_iter().flat_map(|t| t.deps.iter().map(|d| d.id.as_str())));
+        }
+    }
+    false
+}
+
+/// Checks the Dependencies of task `id`: each other task exists once, and none leads back to `id`.
+fn check_deps(index: &BTreeMap<String, Task>, id: &str, deps: &[TaskDep]) -> anyhow::Result<()> {
+    for (i, d) in deps.iter().enumerate() {
+        if !id.is_empty() && d.id == id {
+            return Err(crate::error::invalid(format!("task {id} cannot depend on itself")));
+        }
+        if deps[..i].iter().any(|e| e.id == d.id) {
+            return Err(crate::error::invalid(format!("task {} is listed twice in deps", d.id)));
+        }
+        anyhow::ensure!(index.contains_key(&d.id), crate::error::not_found(format!("no task {:?}", d.id)));
+        if depends_on(index, &d.id, id) {
+            return Err(crate::error::invalid(format!("task {id} cannot depend on task {}: it would make a loop", d.id)));
+        }
+    }
+    Ok(())
+}
+
+/// Properties with trimmed values. Keys are 1-32 characters of `a-z`, `0-9`, `_` and `-`; values
+/// 1-64 characters on one line; at most 16 (ADR 0029).
+fn clean_props(props: BTreeMap<String, String>) -> anyhow::Result<BTreeMap<String, String>> {
+    if props.len() > MAX_PROPS {
+        return Err(crate::error::invalid(format!("a task has at most {MAX_PROPS} props, not {}", props.len())));
+    }
+    props
+        .into_iter()
+        .map(|(k, v)| {
+            let key_ok = (1..=MAX_PROP_KEY).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+            if !key_ok {
+                return Err(crate::error::invalid(format!("the prop key {k:?} must be 1-{MAX_PROP_KEY} characters of a-z, 0-9, _ and -")));
+            }
+            let v = v.trim().to_owned();
+            if v.is_empty() || v.chars().count() > MAX_PROP_VALUE || v.contains(['\n', '\r']) {
+                return Err(crate::error::invalid(format!("the value of prop {k:?} must be 1-{MAX_PROP_VALUE} characters on one line")));
+            }
+            Ok((k, v))
+        })
+        .collect()
+}
+
 /// A title on one line; refuses an empty one.
 fn clean_title(title: &str) -> anyhow::Result<String> {
     let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -527,7 +639,7 @@ fn scan(dir: &Path) -> (BTreeMap<String, Task>, u64) {
 mod tests {
     #![allow(clippy::unwrap_used, reason = "tests fail loudly")]
     use super::*;
-    use crate::api::TaskSessionLink;
+    use crate::api::{TaskDepKind, TaskSessionLink};
 
     fn store(d: &tempfile::TempDir) -> Tasks {
         Tasks::open(d.path().join(DIR)).unwrap()
@@ -615,6 +727,17 @@ mod tests {
         let (made, err) = s.create_all(vec![new("a"), new("b"), new("c")], &Actor::user());
         assert_eq!(made.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t1"]);
         assert!(format!("{:#}", err.unwrap_err()).starts_with("task 2: "));
+    }
+
+    #[test]
+    fn create_all_keeps_not_found_for_an_unknown_dep() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let dep = TaskDep { id: "t99".into(), kind: TaskDepKind::Blocks };
+        let (none, err) = s.create_all(vec![NewTask { title: "a".into(), deps: vec![dep], ..Default::default() }], &Actor::user());
+        let err = err.unwrap_err();
+        assert!(none.is_empty() && format!("{err:#}").contains("task 1"));
+        assert_eq!(crate::api::HarnessError::from(err).code, crate::api::ErrorCode::NotFound);
     }
 
     #[test]
@@ -795,5 +918,157 @@ mod tests {
         assert!(!t.assets.iter().any(|a| a.name == "notes.txt"));
         assert!(!d.path().join("tasks").join(&t.id).join(FILES).join("notes.txt").exists());
         assert!(s.remove_asset(&t.id, "notes.txt").is_err());
+    }
+
+    fn dep(id: &str, kind: TaskDepKind) -> TaskDep {
+        TaskDep { id: id.into(), kind }
+    }
+
+    fn set_deps(s: &Tasks, id: &str, deps: Vec<TaskDep>) -> anyhow::Result<Task> {
+        s.update(id, TaskPatch { deps: Some(deps), ..Default::default() }, None, &Actor::user())
+    }
+
+    fn code(e: anyhow::Error) -> crate::api::ErrorCode {
+        crate::api::HarnessError::from(e).code
+    }
+
+    #[test]
+    fn old_task_json_without_deps_and_props_loads() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let t = add(&s, "a", None);
+        drop(s);
+        let file = d.path().join(DIR).join(&t.id).join(FILE);
+        let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let obj = json.as_object_mut().unwrap();
+        assert!(obj.remove("deps").is_some() && obj.remove("props").is_some());
+        std::fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
+        let t = store(&d).get(&t.id).unwrap();
+        assert!(t.deps.is_empty() && t.props.is_empty());
+    }
+
+    #[test]
+    fn deps_are_checked_and_recorded() {
+        use crate::api::ErrorCode;
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let (a, b, c) = (add(&s, "a", None), add(&s, "b", None), add(&s, "c", None));
+        let e = |r: anyhow::Result<Task>| code(r.unwrap_err());
+        assert_eq!(e(set_deps(&s, &a.id, vec![dep(&a.id, TaskDepKind::Blocks)])), ErrorCode::Invalid, "self");
+        assert_eq!(e(set_deps(&s, &a.id, vec![dep("t99", TaskDepKind::Blocks)])), ErrorCode::NotFound, "unknown id");
+        assert_eq!(e(set_deps(&s, &a.id, vec![dep(&b.id, TaskDepKind::Blocks), dep(&b.id, TaskDepKind::FollowUp)])), ErrorCode::Invalid, "twice");
+        // a waits on b, b follows c.
+        let a2 = set_deps(&s, &a.id, vec![dep(&b.id, TaskDepKind::Blocks)]).unwrap();
+        assert_eq!(a2.activity.last().unwrap().kind, TaskActivityKind::DepAdded { id: b.id.clone(), kind: TaskDepKind::Blocks });
+        set_deps(&s, &b.id, vec![dep(&c.id, TaskDepKind::FollowUp)]).unwrap();
+        assert_eq!(e(set_deps(&s, &b.id, vec![dep(&a.id, TaskDepKind::FollowUp)])), ErrorCode::Invalid, "direct loop");
+        let err = set_deps(&s, &c.id, vec![dep(&a.id, TaskDepKind::Blocks)]).unwrap_err();
+        assert!(err.to_string().contains("loop"), "indirect loop: {err}");
+        assert!(s.get(&c.id).unwrap().deps.is_empty(), "a refused patch writes nothing");
+        // A new kind is an add; a missing id is a remove.
+        let a3 = set_deps(&s, &a.id, vec![dep(&b.id, TaskDepKind::FollowUp), dep(&c.id, TaskDepKind::Blocks)]).unwrap();
+        let kinds: Vec<_> = a3.activity[a2.activity.len()..].iter().map(|x| x.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            [
+                TaskActivityKind::DepAdded { id: b.id.clone(), kind: TaskDepKind::FollowUp },
+                TaskActivityKind::DepAdded { id: c.id.clone(), kind: TaskDepKind::Blocks }
+            ]
+        );
+        let a4 = set_deps(&s, &a.id, vec![dep(&c.id, TaskDepKind::Blocks)]).unwrap();
+        assert_eq!(a4.activity.last().unwrap().kind, TaskActivityKind::DepRemoved { id: b.id.clone() });
+        assert_eq!(set_deps(&s, &a.id, a4.deps.clone()).unwrap().activity.len(), a4.activity.len(), "no change, no entry");
+        // On create too.
+        let new = NewTask { title: "d".into(), deps: vec![dep(&a.id, TaskDepKind::Blocks)], ..Default::default() };
+        assert_eq!(s.create(new, &Actor::user()).unwrap().deps, [dep(&a.id, TaskDepKind::Blocks)]);
+        let new = NewTask { title: "e".into(), deps: vec![dep("t99", TaskDepKind::Blocks)], ..Default::default() };
+        assert_eq!(code(s.create(new, &Actor::user()).unwrap_err()), ErrorCode::NotFound);
+        assert_eq!(store(&d).get(&a.id).unwrap().deps, a4.deps, "written to disk");
+    }
+
+    #[test]
+    fn delete_removes_the_id_from_other_tasks_deps() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let gone = add(&s, "gone", None);
+        let child = add(&s, "child", Some(&gone.id));
+        let other = add(&s, "other", None);
+        let keep = add(&s, "keep", None);
+        set_deps(&s, &child.id, vec![dep(&gone.id, TaskDepKind::FollowUp)]).unwrap();
+        set_deps(&s, &other.id, vec![dep(&keep.id, TaskDepKind::Blocks), dep(&gone.id, TaskDepKind::Blocks)]).unwrap();
+        let mut touched = s.delete_touches(&gone.id);
+        touched.sort();
+        assert_eq!(touched, [child.id.clone(), other.id.clone()]);
+        assert_eq!(s.delete(&gone.id, &Actor::user()).unwrap(), [child.id.clone(), other.id.clone()]);
+        let reopened = store(&d);
+        let (child, other) = (reopened.get(&child.id).unwrap(), reopened.get(&other.id).unwrap());
+        assert!(child.deps.is_empty() && child.parent_id.is_none(), "a child that depended on it: moved and unlinked");
+        assert_eq!(other.deps, [dep(&keep.id, TaskDepKind::Blocks)]);
+        assert_eq!(other.activity.last().unwrap().kind, TaskActivityKind::DepRemoved { id: gone.id.clone() });
+    }
+
+    #[test]
+    fn props_are_checked_and_replaced() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let t = add(&s, "a", None);
+        let props = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<BTreeMap<_, _>>();
+        let set = |p: BTreeMap<String, String>| s.update(&t.id, TaskPatch { props: Some(p), ..Default::default() }, None, &Actor::user());
+        let u = set(props(&[("component", " web-ui "), ("risk_2", "yes")])).unwrap();
+        assert_eq!(u.props, props(&[("component", "web-ui"), ("risk_2", "yes")]), "values trimmed");
+        assert_eq!(u.activity.last().unwrap().kind, TaskActivityKind::PropsChanged);
+        assert_eq!(s.list()[0].props, u.props, "in the summary");
+        let long_key = "k".repeat(33);
+        let long_value = "v".repeat(65);
+        for bad in [
+            props(&[("Component", "x")]),
+            props(&[("a b", "x")]),
+            props(&[("", "x")]),
+            props(&[(&long_key, "x")]),
+            props(&[("k", " ")]),
+            props(&[("k", "a\nb")]),
+            props(&[("k", &long_value)]),
+        ] {
+            let e = set(bad.clone()).unwrap_err();
+            assert_eq!(code(e), crate::api::ErrorCode::Invalid, "{bad:?}");
+        }
+        assert!(Tasks::check_patch(&TaskPatch { props: Some(props(&[("Bad", "x")])), ..Default::default() }).is_err());
+        let many: BTreeMap<String, String> = (0..17).map(|i| (format!("k{i}"), "v".into())).collect();
+        assert!(set(many).is_err(), "at most 16");
+        assert!(set(BTreeMap::new()).unwrap().props.is_empty(), "replace: empty clears");
+        let new = NewTask { title: "b".into(), props: props(&[("BAD", "x")]), ..Default::default() };
+        assert!(s.create(new, &Actor::user()).is_err());
+    }
+
+    #[test]
+    fn excerpt_is_plain_text_from_the_body() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let excerpt = |body: &str| {
+            let t = s.create(NewTask { title: "x".into(), body: body.into(), ..Default::default() }, &Actor::user()).unwrap();
+            TaskSummary::from(&t).excerpt
+        };
+        let body = "## Goal\n\nMake the **cache** _faster_, see [the notes](https://example.com/notes) and `cache_size`.\n\n```rust\nlet x = 1;\n```\n\n- first step\n1. second ![shot](a.png) step\n> quoted *text*\n---\nsnake_case stays";
+        assert_eq!(excerpt(body), "Goal Make the cache faster, see the notes and cache_size. first step second step quoted text snake_case stays");
+        assert_eq!(excerpt(""), "");
+        assert_eq!(excerpt("```\nonly code\n```"), "");
+    }
+
+    #[test]
+    fn excerpt_is_cut_at_a_word_to_160_chars() {
+        let d = tempfile::tempdir().unwrap();
+        let s = store(&d);
+        let excerpt = |body: String| {
+            let t = s.create(NewTask { title: "x".into(), body, ..Default::default() }, &Actor::user()).unwrap();
+            TaskSummary::from(&t).excerpt
+        };
+        let body = "word ".repeat(100);
+        let e = excerpt(body);
+        assert!(e.ends_with("word…") && e.chars().count() <= 160, "{e}");
+        assert_eq!(e.chars().count(), 32 * 5 - 1 + 1, "32 words, 31 spaces and the …");
+        let fits = "ä".repeat(160);
+        assert_eq!(excerpt(fits.clone()), fits, "160 chars fit, counted as chars");
+        let e = excerpt("ü".repeat(200));
+        assert_eq!(e.chars().count(), 160, "one long word is cut inside");
     }
 }

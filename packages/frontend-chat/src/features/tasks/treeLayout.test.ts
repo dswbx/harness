@@ -15,6 +15,7 @@ const t = (id: string, o: Partial<TaskSummary> = {}): TaskSummary => ({
    id,
    title: id,
    has_body: false,
+   excerpt: "",
    status: "todo",
    priority: "none",
    due: null,
@@ -27,6 +28,8 @@ const t = (id: string, o: Partial<TaskSummary> = {}): TaskSummary => ({
    assets: [],
    created_ms: 0,
    updated_ms: 0,
+   deps: [],
+   props: {},
    ...o,
 });
 

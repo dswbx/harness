@@ -198,8 +198,14 @@ export interface SessionApi {
    frontendList(dir?: string): Promise<string[]>;
    /** For an AuthRequired method of kind "agent": the Agent runs its own sign-in (often a browser). */
    authenticate(methodId: string): Promise<void>;
-   /** For an AuthRequired method of kind "terminal": opens Terminal.app running the Agent's login. */
+   /** For an AuthRequired method of kind "terminal": opens Terminal.app running the Agent's login (the fallback to `authInTerminal`). */
    openAuthTerminal(methodId: string): Promise<void>;
+   /**
+    * For an AuthRequired method of kind "terminal": runs the Agent's login in a new Terminal tab and
+    * returns its id. When it ends, `AuthFinished` is logged in `threadId` (after restarting the
+    * Agent on success). Closing or killing the tab cancels it.
+    */
+   authInTerminal(methodId: string, threadId?: string | null): Promise<number>;
    /** The Session's Terminal tabs (a first one exists implicitly). Titles and `busy` change silently: re-list now and then. */
    terminalList(): Promise<TerminalInfo[]>;
    /** A new Terminal tab; its shell starts on the first attach. Returns its id. */

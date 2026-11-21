@@ -36,6 +36,8 @@ import { SelectionComment } from "../features/review/SelectionComment";
 import type { SideChatsModel } from "../features/sideChats/panel";
 import { OpenTask } from "../features/tasks/openTask";
 import { tasksPanel } from "../features/tasks/panel";
+import { OpenTerminal } from "../features/terminal/openTerminal";
+import { terminalPanel } from "../features/terminal/panel";
 import { OpenStep } from "../features/toolDisplay/openStep";
 import { DockLayout } from "./dock/DockLayout";
 import { shownOpen } from "./dock/geometry";
@@ -185,6 +187,8 @@ function ChatBody({
       (id: string) => (overlay ? onOpenTasks?.(id) : openPanel(tasksPanel, id)),
       [overlay, onOpenTasks, openPanel],
    );
+   // The Quick overlay has no Terminal panel.
+   const openTerminal = useCallback((id: number) => openPanel(terminalPanel, id), [openPanel]);
    const { artifacts } = panelHost.models.artifacts as ArtifactsModel;
    const shareBlock = useCallback(
       (markdown: string, title?: string) => {
@@ -355,56 +359,58 @@ function ChatBody({
    return (
       <Env.Provider value={env}>
          <OpenTask.Provider value={overlay && !onOpenTasks ? null : openTask}>
-            <FileViewProvider onView={openFile}>
-               {/* `contents`: no box of its own, the layout stays as it is. */}
-               <div className="contents" inert={inert}>
-                  {overlay ? (
-                     <OverlayDock
-                        draft={overlayDraft}
-                        promptBox={promptBox}
-                        chat={chat}
-                        chatFrame={chatFrame}
-                        onPanelWidth={onPanelWidth}
-                        overlayFrame={overlayFrame}
-                        shown={shown}
-                        left={left}
-                        right={right}
-                        panels={panels}
-                        dock={dock}
-                        onToggle={onToggle}
-                        ghost={ghost}
-                     />
-                  ) : (
-                     <div className="relative flex h-full">
-                        {(!leftEmpty || drag) && (
+            <OpenTerminal.Provider value={overlay ? null : openTerminal}>
+               <FileViewProvider onView={openFile}>
+                  {/* `contents`: no box of its own, the layout stays as it is. */}
+                  <div className="contents" inert={inert}>
+                     {overlay ? (
+                        <OverlayDock
+                           draft={overlayDraft}
+                           promptBox={promptBox}
+                           chat={chat}
+                           chatFrame={chatFrame}
+                           onPanelWidth={onPanelWidth}
+                           overlayFrame={overlayFrame}
+                           shown={shown}
+                           left={left}
+                           right={right}
+                           panels={panels}
+                           dock={dock}
+                           onToggle={onToggle}
+                           ghost={ghost}
+                        />
+                     ) : (
+                        <div className="relative flex h-full">
+                           {(!leftEmpty || drag) && (
+                              <Stripe
+                                 side="left"
+                                 groups={left}
+                                 drag={drag}
+                                 overlay={leftEmpty}
+                                 onToggle={onToggle}
+                                 onPress={(it, e) => startDrag(it.id, it.label, e)}
+                              />
+                           )}
+                           <DockLayout
+                              {...dock}
+                              layout={shown}
+                              chat={chat}
+                              panels={panels}
+                              leftStripeOverlay={leftEmpty}
+                           />
                            <Stripe
-                              side="left"
-                              groups={left}
+                              side="right"
+                              groups={right}
                               drag={drag}
-                              overlay={leftEmpty}
                               onToggle={onToggle}
                               onPress={(it, e) => startDrag(it.id, it.label, e)}
                            />
-                        )}
-                        <DockLayout
-                           {...dock}
-                           layout={shown}
-                           chat={chat}
-                           panels={panels}
-                           leftStripeOverlay={leftEmpty}
-                        />
-                        <Stripe
-                           side="right"
-                           groups={right}
-                           drag={drag}
-                           onToggle={onToggle}
-                           onPress={(it, e) => startDrag(it.id, it.label, e)}
-                        />
-                        {ghost}
-                     </div>
-                  )}
-               </div>
-            </FileViewProvider>
+                           {ghost}
+                        </div>
+                     )}
+                  </div>
+               </FileViewProvider>
+            </OpenTerminal.Provider>
          </OpenTask.Provider>
       </Env.Provider>
    );

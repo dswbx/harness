@@ -23,15 +23,23 @@ export const STATUSES: TaskStatus[] = [
 
 export const STATUS_LABEL = TASK_STATUS_LABEL;
 
-const STATUS_COLOR: Record<TaskStatus, string> = {
-   backlog: "text-muted-foreground",
-   todo: "text-muted-foreground",
+const MUTED = "text-muted-foreground";
+
+/** The text color of each status (its icon; the graph's lines take it through `currentColor`). */
+export const STATUS_COLOR: Record<TaskStatus, string> = {
+   backlog: MUTED,
+   todo: MUTED,
    in_progress: "text-sky-500 dark:text-sky-400",
    in_review: "text-violet-500 dark:text-violet-400",
    blocked: "text-red-500 dark:text-red-400",
    done: "text-emerald-500 dark:text-emerald-400",
-   cancelled: "text-muted-foreground",
+   cancelled: MUTED,
 };
+
+/** The statuses with a color of their own (the others are the muted gray). */
+export const COLORED_STATUSES = (Object.keys(STATUS_COLOR) as TaskStatus[]).filter(
+   (s) => STATUS_COLOR[s] !== MUTED,
+);
 
 /** The status as a small circle: dashed (backlog), empty, half, three quarters, a check, a dash, a cross. */
 export function StatusIcon({ status, className }: { status: TaskStatus; className?: string }) {

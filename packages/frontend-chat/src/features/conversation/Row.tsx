@@ -143,7 +143,7 @@ function RowView({
          if (item.plan) return <PlanNote item={item} api={api} />;
          return item.resolved ? null : <PermissionCard item={item} api={api} />;
       case "auth":
-         return <AuthCard item={item} api={api} />;
+         return <AuthCard item={item} api={api} threadId={threadId} side={side} />;
       case "notice":
          return <Notice item={item} />;
       case "agent_notice":

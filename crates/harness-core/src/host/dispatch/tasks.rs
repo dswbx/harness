@@ -13,24 +13,13 @@ impl Harness {
         Ok(CommandResult::Task { task: self.shared.tasks.get(&id)? })
     }
 
-    #[allow(clippy::too_many_arguments, reason = "one per Command field")]
-    pub(in crate::host) fn cmd_create_task(
-        &self,
-        title: String,
-        body: Option<String>,
-        parent_id: Option<String>,
-        session_id: Option<SessionId>,
-        status: Option<TaskStatus>,
-        priority: Option<TaskPriority>,
-        due: Option<String>,
-        upstream: Option<TaskUpstream>,
-    ) -> anyhow::Result<CommandResult> {
-        let origin = match session_id {
+    /// `new` without its origin: with `session_id`, that Session is the origin.
+    pub(in crate::host) fn cmd_create_task(&self, mut new: NewTask, session_id: Option<SessionId>) -> anyhow::Result<CommandResult> {
+        new.origin = match session_id {
             Some(id) => Some((id.clone(), self.session(&id)?.meta().title)),
             None => None,
         };
-        let actor = Actor { by: StateWriter::User, session_id: origin.as_ref().map(|(id, _)| id.clone()) };
-        let new = NewTask { title, body: body.unwrap_or_default(), parent_id, status, priority, due, upstream, origin };
+        let actor = Actor { by: StateWriter::User, session_id: new.origin.as_ref().map(|(id, _)| id.clone()) };
         Ok(CommandResult::Task { task: self.shared.tasks.create(new, &actor)? })
     }
 
@@ -43,12 +32,12 @@ impl Harness {
     }
 
     pub(in crate::host) fn cmd_delete_task(&self, id: String) -> anyhow::Result<CommandResult> {
-        let children = self.shared.tasks.children_ids(&id);
+        let touched = self.shared.tasks.delete_touches(&id);
         if let Err(e) = self.shared.tasks.delete(&id, &Actor::user()) {
-            // `execute` tells the windows only on success, but the children may have moved before
-            // the error.
-            if !children.is_empty() {
-                self.shared.tasks.emit_changed(&self.shared.app_events, std::iter::once(id).chain(children).collect());
+            // `execute` tells the windows only on success, but the children and dependents may
+            // have changed before the error.
+            if !touched.is_empty() {
+                self.shared.tasks.emit_changed(&self.shared.app_events, std::iter::once(id).chain(touched).collect());
             }
             return Err(e);
         }

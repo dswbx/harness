@@ -335,8 +335,8 @@ impl Harness {
             Command::UpdateTask { id, .. } | Command::MoveTask { id, .. } | Command::AddTaskAssets { id, .. } | Command::RemoveTaskAsset { id, .. } => {
                 Some(vec![id.clone()])
             }
-            // Its children move to its parent.
-            Command::DeleteTask { id } => Some(std::iter::once(id.clone()).chain(self.shared.tasks.children_ids(id)).collect()),
+            // Its children move to its parent; other Tasks lose their Dependency on it.
+            Command::DeleteTask { id } => Some(std::iter::once(id.clone()).chain(self.shared.tasks.delete_touches(id)).collect()),
             _ => None,
         };
         let result = self.execute_inner(cmd).await.map_err(HarnessError::from);
@@ -399,6 +399,7 @@ impl Harness {
             Command::RemoveAgent { agent_id } => self.cmd_remove_agent(agent_id),
             Command::Authenticate { session_id, method_id } => self.cmd_authenticate(session_id, method_id).await,
             Command::OpenAuthTerminal { session_id, method_id } => self.cmd_open_auth_terminal(session_id, method_id).await,
+            Command::AuthInTerminal { session_id, thread_id, method_id } => self.cmd_auth_in_terminal(session_id, thread_id, method_id),
             Command::ListFrontends => self.cmd_list_frontends(),
             Command::ListSessions => self.cmd_list_sessions(),
             Command::CreateSession { folder, agent_id, frontend_id, title, branch, worktree, new_branch, pr, mcp_servers, task } => {
@@ -500,8 +501,10 @@ impl Harness {
             Command::PatchArtifactState { id, ops, session_id } => self.cmd_patch_artifact_state(id, ops, session_id),
             Command::ListTasks => self.cmd_list_tasks(),
             Command::ReadTask { id } => self.cmd_read_task(id),
-            Command::CreateTask { title, body, parent_id, session_id, status, priority, due, upstream } => {
-                self.cmd_create_task(title, body, parent_id, session_id, status, priority, due, upstream)
+            Command::CreateTask { title, body, parent_id, session_id, status, priority, due, upstream, deps, props } => {
+                let new =
+                    crate::tasks::NewTask { title, body: body.unwrap_or_default(), parent_id, status, priority, due, upstream, deps, props, origin: None };
+                self.cmd_create_task(new, session_id)
             }
             Command::UpdateTask { id, patch, base_updated_ms } => self.cmd_update_task(id, patch, base_updated_ms),
             Command::MoveTask { id, parent_id, before } => self.cmd_move_task(id, parent_id, before),

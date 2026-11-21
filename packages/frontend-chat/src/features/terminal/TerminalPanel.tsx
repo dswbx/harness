@@ -308,7 +308,16 @@ const NARROW = 320;
 const TITLES_POLL = 2000;
 
 /** The Session's Terminals as tabs in a panel (ADR 0017). Every tab keeps its xterm mounted, so screens survive switching. */
-export default function TerminalPanel({ api, active }: { api: SessionApi; active: boolean }) {
+export default function TerminalPanel({
+   api,
+   active,
+   show,
+}: {
+   api: SessionApi;
+   active: boolean;
+   /** A tab to show (a fresh object each time the panel is opened at it). */
+   show?: { id: number } | null;
+}) {
    const [tabs, setTabs] = useState<TerminalInfo[]>([]);
    const [sel, setSel] = useState<number | null>(null);
    const [unread, setUnread] = useState<Set<number>>(new Set());
@@ -335,6 +344,11 @@ export default function TerminalPanel({ api, active }: { api: SessionApi; active
          off?.();
       };
    }, [api, refresh]);
+   useEffect(() => {
+      if (!show) return;
+      setSel(show.id);
+      void refresh();
+   }, [show, refresh]);
    // Titles and the busy dot change without an event.
    useEffect(() => {
       if (!active) return;

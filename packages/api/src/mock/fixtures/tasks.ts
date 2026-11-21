@@ -1,5 +1,5 @@
 import { localDay } from "../../derive/tasks";
-import type { Task, TaskPriority, TaskStatus } from "../../generated";
+import type { Task, TaskDep, TaskPriority, TaskStatus } from "../../generated";
 
 const DAY = 86_400_000;
 
@@ -8,7 +8,7 @@ const day = (days: number) => localDay(new Date(Date.now() + days * DAY));
 
 /**
  * The mock's Tasks (ADR 0028): three topics with subtasks (one nested two deep), upstream links, overdue
- * Tasks, a cancelled one and some loose ones. Origins are fixture Sessions (`t18`'s was deleted); `t3` was
+ * Tasks, a cancelled one and some loose ones, `component` props and `blocks` chains (ADR 0029). Origins are fixture Sessions (`t18`'s was deleted); `t3` was
  * started in `mock-1`, which also has a done task.
  */
 export function mockTasks(): Task[] {
@@ -46,6 +46,8 @@ export function mockTasks(): Task[] {
          created_ms: created,
          updated_ms: created,
          body_updated_ms: created,
+         deps: [],
+         props: {},
          activity: [
             {
                at_ms: created,
@@ -170,6 +172,45 @@ export function mockTasks(): Task[] {
    (tasks[16] as Task).sessions = [
       { session_id: "mock-p1-b", title: "Check supalite RLS cases", started_ms: now - DAY / 2 },
    ];
+   // Properties and dependencies, made up, for the graph: `component` groups, `t8` has none.
+   const props = (comp: Record<number, string>) => {
+      for (const [n, v] of Object.entries(comp))
+         (tasks[Number(n) - 1] as Task).props = { component: v };
+   };
+   props({
+      1: "docs",
+      3: "console",
+      4: "console",
+      6: "console",
+      7: "console",
+      9: "docs",
+      12: "engine",
+      13: "engine",
+      14: "engine",
+      16: "engine-api",
+      17: "engine",
+      18: "engine-api",
+      19: "docs",
+      20: "console",
+   });
+   (tasks[7] as Task).props = { team: "tools" };
+   const wait = (n: number, ...deps: TaskDep[]) => {
+      (tasks[n - 1] as Task).deps = deps;
+   };
+   const blocks = (n: number): TaskDep => ({ id: `t${n}`, kind: "blocks" });
+   const follows = (n: number): TaskDep => ({ id: `t${n}`, kind: "follow_up" });
+   // Chain: t13 -> t14 -> t15 -> t18. `t3` (started in `mock-1`) waits on `t14` (made in `mock-s2`),
+   // and `t4` waits on `t3`: 13 -> 14 -> 3 -> 4. Chain: t19 -> t16 -> t17 -> t20.
+   wait(14, blocks(13));
+   wait(15, blocks(14));
+   wait(18, blocks(15));
+   wait(3, blocks(14));
+   wait(4, blocks(3), follows(2));
+   wait(16, blocks(19));
+   wait(17, blocks(16));
+   wait(20, blocks(17), follows(7));
+   wait(7, blocks(6));
+   wait(9, follows(19));
    const t3 = tasks[2] as Task;
    t3.sessions = [
       { session_id: "mock-1", title: "Mock session (fixture replay)", started_ms: now - DAY },

@@ -6,6 +6,8 @@ import {
    DropdownMenu,
    DropdownMenuContent,
    DropdownMenuItem,
+   DropdownMenuLabel,
+   DropdownMenuSeparator,
    DropdownMenuTrigger,
    noAutocorrect,
    Popover,
@@ -25,12 +27,14 @@ import {
    GitPullRequest,
    LayoutDashboard,
    MoreHorizontal,
+   PanelRight,
    Plus,
    Search,
    Share2,
    Table2,
    Unlink,
    Workflow,
+   X,
 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Segmented } from "../../lib/Segmented";
@@ -41,7 +45,7 @@ import { Highlighted } from "../markdown/Highlighted";
 import { iconFor } from "../renderUi/panelIcon";
 import type { UiEnv } from "../renderUi/RenderUi";
 import { parseTree, sharedSourceText, useSharedArtifact } from "../renderUi/sharedSource";
-import { sourceLang, usePanelSource } from "../renderUi/source";
+import { sourceLang, usePanelSource, useSourceStamps } from "../renderUi/source";
 import { sharedNode } from "../renderUi/tools";
 import { quotableAttrs } from "../review/SelectionComment";
 import { ArtifactImage, ArtifactPreview, artifactFormats } from "./ArtifactExport";
@@ -64,6 +68,60 @@ const KINDS: { kind: ArtifactKind | "all"; label: string }[] = [
    { kind: "table", label: "Tables" },
 ];
 
+/** Which artifacts the list shows: all, only those with a panel in the dock, or only those without. */
+type Show = "all" | "panels" | "other";
+const SHOWS: { show: Show; label: string }[] = [
+   { show: "all", label: "All" },
+   { show: "panels", label: "Panels" },
+   { show: "other", label: "Not panels" },
+];
+/** `turn`: grouped by Turn, newest Turn first. `updated`: one list, last changed first. */
+type Sort = "turn" | "updated";
+const SORTS: { sort: Sort; label: string }[] = [
+   { sort: "turn", label: "By turn" },
+   { sort: "updated", label: "Recently updated" },
+];
+
+/** What the Artifacts panel can do with the dock (`dockedPanels`); the panel wires it to the Session. */
+export type PanelActions = {
+   /** The id of the artifact's panel in the dock; null when it has none. */
+   idOf: (a: Artifact) => string | null;
+   /** Makes it a panel (or brings back a closed one) and shows it. */
+   open: (a: Artifact) => void;
+   /** Shows its panel (it has one). */
+   show: (a: Artifact) => void;
+   /** Takes its panel out of the dock; the artifact stays here. */
+   close: (a: Artifact) => void;
+};
+
+/** "Open as panel", or "Close panel" (after "Open panel" with `withOpen`) menu items for an artifact. */
+function PanelItems({
+   a,
+   panels,
+   withOpen = false,
+}: {
+   a: Artifact;
+   panels: PanelActions;
+   withOpen?: boolean;
+}) {
+   return panels.idOf(a) ? (
+      <>
+         {withOpen && (
+            <DropdownMenuItem onSelect={() => panels.show(a)}>
+               <ArrowRight /> Open panel
+            </DropdownMenuItem>
+         )}
+         <DropdownMenuItem onSelect={() => panels.close(a)}>
+            <X /> Close panel
+         </DropdownMenuItem>
+      </>
+   ) : (
+      <DropdownMenuItem onSelect={() => panels.open(a)}>
+         <PanelRight /> Open as panel
+      </DropdownMenuItem>
+   );
+}
+
 function KindIcon({ a }: { a: Artifact }) {
    const Custom = iconFor(a.icon);
    if (Custom) return <Custom />;
@@ -83,6 +141,16 @@ const PLACED: Record<string, string> = {
    left: "Left",
    right: "Right",
 };
+
+/** A row's tag: "Panel" while it has a panel in the dock, else where the Agent placed a live area. */
+const tagOf = (a: Artifact, panels: PanelActions | undefined): string | undefined =>
+   panels?.idOf(a)
+      ? "Panel"
+      : a.placement === "top" || a.placement === "bottom"
+        ? PLACED[a.placement]
+        : !panels && PLACED[a.placement]
+          ? PLACED[a.placement]
+          : undefined;
 
 /** The artifact's source, highlighted, with wrap and copy. `src`: shown instead (a Shared Artifact's file). */
 export function Source({
@@ -130,17 +198,22 @@ export function ArtifactsPanel({
    env,
    onJump,
    shared,
+   panels,
    target,
 }: {
    artifacts: Artifact[];
    env: UiEnv;
    onJump: (a: Artifact) => void;
+   /** Panel actions (`dockedPanels`): absent, the list has no panel filter or panel menu items. */
+   panels?: PanelActions;
    /** An artifact to open (its key), e.g. from a panel's "Show in Artifacts"; a new object each time. */
    target?: { key: string } | null;
    /** Shared Artifacts (ADR 0024): absent, the panel shows only the Session's own. */
    shared?: SharedActions;
 }) {
    const [kind, setKind] = useState<ArtifactKind | "all">("all");
+   const [show, setShow] = useState<Show>("all");
+   const [sort, setSort] = useState<Sort>("turn");
    const [query, setQuery] = useState("");
    const [selected, setSelected] = useState<string | null>(null);
    const [inspecting, setInspecting] = useState<string | null>(null);
@@ -148,6 +221,7 @@ export function ArtifactsPanel({
    useEffect(() => {
       if (!target) return;
       setKind("all");
+      setShow("all");
       setQuery("");
       setSelected(target.key);
       setInspecting(target.key);
@@ -157,18 +231,39 @@ export function ArtifactsPanel({
       [all, shared?.attached, shared?.copies],
    );
    const artifacts = groupsOf.local;
-   const shown = useMemo(
-      () => filterArtifacts(artifacts, kind, query).reverse(),
-      [artifacts, kind, query],
+   // File-backed panels change without a new call: their files' write times count, when sorting by them.
+   const files = useMemo(
+      () =>
+         sort === "updated"
+            ? [...new Set(artifacts.flatMap((a) => (a.file ? [a.file] : [])))].sort()
+            : [],
+      [artifacts, sort],
    );
+   const stamps = useSourceStamps(env.readSource, env.watchSources, files);
+   const updatedOf = (a: Artifact) => Math.max(a.ts, a.file ? (stamps[a.file]?.mtime ?? 0) : 0);
+   const isShown = (a: Artifact) =>
+      show === "all" || !panels || (show === "panels") === !!panels.idOf(a);
+   const visible = (k: ArtifactKind | "all") =>
+      filterArtifacts(artifacts, k, query).filter(isShown);
+   const shown = visible(kind).reverse();
+   if (sort === "updated") shown.sort((a, b) => updatedOf(b) - updatedOf(a));
    const metas = shared?.metas;
    const sharedShown = useMemo(() => {
       if (kind !== "all" && kind !== "ui") return [];
       const q = query.trim().toLowerCase();
-      return groupsOf.shared.filter(
-         (r) => !q || sharedTitle(r, metas?.get(r.id)).toLowerCase().includes(q),
+      const rows = groupsOf.shared.filter(
+         (r) =>
+            (!q || sharedTitle(r, metas?.get(r.id)).toLowerCase().includes(q)) &&
+            (show === "all" ||
+               !panels ||
+               (show === "panels") === !!panels.idOf(sharedArtifact(r, metas?.get(r.id)))),
       );
-   }, [groupsOf.shared, kind, query, metas]);
+      if (sort === "updated") {
+         const at = (r: SharedRow) => metas?.get(r.id)?.updated_ms ?? r.ts;
+         rows.sort((a, b) => at(b) - at(a));
+      }
+      return rows;
+   }, [groupsOf.shared, kind, query, metas, show, sort, panels]);
    const act = (f: () => Promise<unknown>) => {
       setError(null);
       f().catch((e) => setError(errText(e)));
@@ -178,15 +273,17 @@ export function ArtifactsPanel({
       : null;
    if (sharedOpen && shared) {
       const meta = metas?.get(sharedOpen.id);
+      const sa = sharedArtifact(sharedOpen, meta);
       return (
          <Inspect
-            a={sharedArtifact(sharedOpen, meta)}
+            a={sa}
             env={env}
             position={null}
             onStep={() => {}}
             onBack={() => setInspecting(null)}
-            onJump={() => shared.open(sharedOpen.id)}
+            onJump={() => (panels?.idOf(sa) ? panels.show(sa) : shared.open(sharedOpen.id))}
             madeIn={meta?.created_by.session_title}
+            panels={panels}
          />
       );
    }
@@ -210,10 +307,12 @@ export function ArtifactsPanel({
             onShare={
                shared && canShare(current) ? () => act(() => shared.share(current)) : undefined
             }
+            panels={panels}
          />
       );
    }
-   const counts = (k: ArtifactKind | "all") => filterArtifacts(artifacts, k, query).length;
+   const counts = (k: ArtifactKind | "all") => visible(k).length;
+   const filtered = kind !== "all" || show !== "all" || sort !== "turn";
    const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement && e.key !== "ArrowDown" && e.key !== "Enter")
          return;
@@ -231,13 +330,15 @@ export function ArtifactsPanel({
          setInspecting(shown[i].key);
       }
    };
-   // Rows by Turn, newest first.
+   // Rows by Turn, newest first (one group without a header when sorted by update).
    const groups: { turn: number; prompt: string; items: Artifact[] }[] = [];
-   for (const a of shown) {
-      const g = groups.at(-1);
-      if (g?.turn === a.turn) g.items.push(a);
-      else groups.push({ turn: a.turn, prompt: a.prompt, items: [a] });
-   }
+   if (sort === "updated" && shown.length > 0) groups.push({ turn: -1, prompt: "", items: shown });
+   else
+      for (const a of shown) {
+         const g = groups.at(-1);
+         if (g?.turn === a.turn) g.items.push(a);
+         else groups.push({ turn: a.turn, prompt: a.prompt, items: [a] });
+      }
    return (
       <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKey}>
          <PanelHeader title="Artifacts" className="@container gap-1.5">
@@ -260,14 +361,17 @@ export function ArtifactsPanel({
                         aria-label={`Kind: ${KINDS.find((k) => k.kind === kind)!.label}`}
                         className={cn(
                            "inline-flex h-5.5 shrink-0 items-center gap-0.5 rounded pr-0.5 pl-1.5 text-xs whitespace-nowrap hover:text-foreground data-[state=open]:bg-accent",
-                           kind !== "all" && "bg-accent font-medium text-foreground",
+                           filtered && "bg-accent font-medium text-foreground",
                         )}
                      >
-                        {KINDS.find((k) => k.kind === kind)!.label}
+                        {show === "all" || !panels
+                           ? KINDS.find((k) => k.kind === kind)!.label
+                           : SHOWS.find((x) => x.show === show)!.label}
                         <ChevronDown className="size-3.5" />
                      </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuContent align="end" className="w-48">
+                     <DropdownMenuLabel>Kind</DropdownMenuLabel>
                      {KINDS.map((k) => (
                         <DropdownMenuItem key={k.kind} onSelect={() => setKind(k.kind)}>
                            {k.label}
@@ -275,6 +379,33 @@ export function ArtifactsPanel({
                               {counts(k.kind)}
                            </span>
                            <Check className={cn("size-3.5", kind !== k.kind && "invisible")} />
+                        </DropdownMenuItem>
+                     ))}
+                     {panels && (
+                        <>
+                           <DropdownMenuSeparator />
+                           <DropdownMenuLabel>Show</DropdownMenuLabel>
+                           {SHOWS.map((x) => (
+                              <DropdownMenuItem key={x.show} onSelect={() => setShow(x.show)}>
+                                 {x.label}
+                                 <Check
+                                    className={cn(
+                                       "ml-auto size-3.5",
+                                       show !== x.show && "invisible",
+                                    )}
+                                 />
+                              </DropdownMenuItem>
+                           ))}
+                        </>
+                     )}
+                     <DropdownMenuSeparator />
+                     <DropdownMenuLabel>Sort</DropdownMenuLabel>
+                     {SORTS.map((x) => (
+                        <DropdownMenuItem key={x.sort} onSelect={() => setSort(x.sort)}>
+                           {x.label}
+                           <Check
+                              className={cn("ml-auto size-3.5", sort !== x.sort && "invisible")}
+                           />
                         </DropdownMenuItem>
                      ))}
                   </DropdownMenuContent>
@@ -311,6 +442,15 @@ export function ArtifactsPanel({
                            meta={metas?.get(r.id)}
                            onInspect={() => setInspecting(`shared:${r.id}`)}
                            onOpen={() => shared.open(r.id)}
+                           panelItems={
+                              panels && (
+                                 <PanelItems
+                                    a={sharedArtifact(r, metas?.get(r.id))}
+                                    panels={panels}
+                                    withOpen
+                                 />
+                              )
+                           }
                            onDetach={() => act(() => shared.detach(r.id))}
                            onOpenOutside={
                               shared.openOutside ? () => shared.openOutside!(r.id) : undefined
@@ -330,7 +470,7 @@ export function ArtifactsPanel({
                   <div key={`${g.turn}:${g.items[0]!.key}`}>
                      <div className="flex gap-1.5 px-1.5 pt-3 pb-1 text-[11px] text-muted-foreground">
                         <span className="shrink-0 font-medium tracking-wide whitespace-nowrap uppercase">
-                           {g.turn ? `Turn ${g.turn}` : "Start"}
+                           {g.turn < 0 ? "Recently updated" : g.turn ? `Turn ${g.turn}` : "Start"}
                         </span>
                         <span className="truncate">{g.prompt}</span>
                      </div>
@@ -338,6 +478,9 @@ export function ArtifactsPanel({
                         <Row
                            key={a.key}
                            a={a}
+                           ts={updatedOf(a)}
+                           tag={tagOf(a, panels)}
+                           panelItems={panels && <PanelItems a={a} panels={panels} withOpen />}
                            selected={a.key === selected}
                            onOpen={() => {
                               setSelected(a.key);
@@ -380,11 +523,20 @@ function RowMenu({ label, children }: { label: string; children: React.ReactNode
 
 function Row({
    a,
+   ts,
+   tag,
+   panelItems,
    selected,
    onOpen,
    onShare,
 }: {
    a: Artifact;
+   /** When it last changed. */
+   ts: number;
+   /** "Panel", "Top", ...: shown after the title. */
+   tag: string | undefined;
+   /** "Open as panel" / "Close panel". */
+   panelItems?: React.ReactNode;
    selected: boolean;
    onOpen: () => void;
    /** Offers "Make shared" (ADR 0024). */
@@ -417,22 +569,25 @@ function Row({
          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
                <span className="truncate text-[13px] font-medium">{a.title}</span>
-               {PLACED[a.placement] && (
+               {tag && (
                   <span className="shrink-0 rounded border px-1 text-[10px] font-medium text-muted-foreground">
-                     {PLACED[a.placement]}
+                     {tag}
                   </span>
                )}
             </div>
             <div className="truncate text-xs text-muted-foreground">{a.sub}</div>
          </div>
-         <Tooltip content={formatDateTime(a.ts)}>
-            <span className="text-xs text-muted-foreground">{formatAge(a.ts, now)}</span>
+         <Tooltip content={formatDateTime(ts)}>
+            <span className="text-xs text-muted-foreground">{formatAge(ts, now)}</span>
          </Tooltip>
-         {onShare && (
+         {(onShare || panelItems) && (
             <RowMenu label={`${a.title} options`}>
-               <DropdownMenuItem onSelect={onShare}>
-                  <Share2 /> Make shared
-               </DropdownMenuItem>
+               {panelItems}
+               {onShare && (
+                  <DropdownMenuItem onSelect={onShare}>
+                     <Share2 /> Make shared
+                  </DropdownMenuItem>
+               )}
             </RowMenu>
          )}
       </div>
@@ -458,6 +613,10 @@ export type SharedActions = {
    openOutside?: (id: string) => void;
 };
 
+/** The Agent placed it as a panel and the user closed it. */
+const placedClosed = (a: Artifact, panels: PanelActions) =>
+   (a.placement === "left" || a.placement === "right") && !!a.slotId && !panels.idOf(a);
+
 /** A render_ui item with an id, a diagram or a table can be made shared. */
 const canShare = (a: Artifact) => a.kind !== "ui" || !!a.slotId;
 
@@ -476,6 +635,9 @@ function sharedTitle(r: SharedRow, meta: SharedArtifactMeta | undefined): string
  * node (the artifact's own state); its source and downloads come from a read (see `Inspect`).
  */
 function sharedArtifact(r: SharedRow, meta: SharedArtifactMeta | undefined): Artifact {
+   // No item shows it in a place of its own (attached only, or a call without an id placed outside the chat):
+   // it has its own panel, `shared:<id>`, placed when attached (`splitRenderUi`).
+   const own = !r.artifact || (!r.artifact.slotId && r.artifact.placement !== "inline");
    return {
       key: `shared:${r.id}`,
       kind: "ui",
@@ -483,9 +645,10 @@ function sharedArtifact(r: SharedRow, meta: SharedArtifactMeta | undefined): Art
       sub: meta ? `${KIND_LABEL[meta.kind]} · ${sessionCount(meta)}` : "Shared artifact",
       rowId: null,
       index: null,
-      placement: r.artifact?.placement ?? "right",
-      slotId: r.artifact?.slotId ?? null,
+      placement: own ? "right" : r.artifact!.placement,
+      slotId: own ? `shared:${r.id}` : r.artifact!.slotId,
       ts: meta?.updated_ms ?? r.ts,
+      panelTs: own ? r.ts : r.artifact!.ts,
       turn: r.artifact?.turn ?? 0,
       prompt: r.artifact?.prompt ?? "",
       source: "",
@@ -507,9 +670,12 @@ function SharedRowView({
    onOpen,
    onDetach,
    onOpenOutside,
+   panelItems,
 }: {
    row: SharedRow;
    meta: SharedArtifactMeta | undefined;
+   /** "Open as panel" / "Close panel"; absent: only "Open panel". */
+   panelItems?: React.ReactNode;
    /** A click: its detail page (preview, image, source). */
    onInspect: () => void;
    onOpen: () => void;
@@ -545,9 +711,11 @@ function SharedRowView({
             </span>
          </Tooltip>
          <RowMenu label={`${title} options`}>
-            <DropdownMenuItem onSelect={onOpen}>
-               <ArrowRight /> Open panel
-            </DropdownMenuItem>
+            {panelItems ?? (
+               <DropdownMenuItem onSelect={onOpen}>
+                  <ArrowRight /> Open panel
+               </DropdownMenuItem>
+            )}
             {onOpenOutside && (
                <DropdownMenuItem onSelect={onOpenOutside}>
                   <ExternalLink /> Open outside Session
@@ -704,9 +872,11 @@ function Inspect({
    onJump,
    onShare,
    madeIn,
+   panels,
 }: {
    a: Artifact;
    env: UiEnv;
+   panels?: PanelActions;
    position: { i: number; n: number } | null;
    onStep: (d: 1 | -1) => void;
    onBack: () => void;
@@ -739,9 +909,11 @@ function Inspect({
       : data
         ? `${data.dir}/${SHARED_FILE[data.meta.kind]}`
         : null;
+   // The file's version: the tree names the file, so its text alone does not change when the file does.
+   const rev = file && "hash" in file ? file.hash : undefined;
    const shown = useMemo(() => (data ? { ...a, source: data.content } : a), [a, data]);
    const formats = (shoot: Parameters<typeof artifactFormats>[2]) => {
-      if (!sharedId) return artifactFormats(a, env, shoot);
+      if (!sharedId) return artifactFormats(a, env, shoot, rev);
       const [png] = artifactFormats(shown, env, shoot);
       if (!data) return png ? [png] : [];
       const tree = data.meta.kind === "ui" ? parseTree(data.content) : null;
@@ -779,14 +951,22 @@ function Inspect({
             className="gap-1 pl-1.5"
             menu={
                <>
-                  <DropdownMenuItem onSelect={onJump}>
-                     <ArrowRight />{" "}
-                     {a.placement === "left" || a.placement === "right"
-                        ? "Open panel"
-                        : a.placement === "inline"
-                          ? "Jump to message"
-                          : "Show"}
-                  </DropdownMenuItem>
+                  {(
+                     panels
+                        ? !!panels.idOf(a)
+                        : a.placement === "left" || a.placement === "right"
+                  ) ? (
+                     <DropdownMenuItem onSelect={onJump}>
+                        <ArrowRight /> Open panel
+                     </DropdownMenuItem>
+                  ) : a.placement === "inline" ||
+                    a.placement === "top" ||
+                    a.placement === "bottom" ? (
+                     <DropdownMenuItem onSelect={onJump}>
+                        <ArrowRight /> {a.placement === "inline" ? "Jump to message" : "Show"}
+                     </DropdownMenuItem>
+                  ) : null}
+                  {panels && <PanelItems a={a} panels={panels} />}
                   {onShare && (
                      <DropdownMenuItem onSelect={onShare}>
                         <Share2 /> Make shared
@@ -832,7 +1012,7 @@ function Inspect({
                <ChevronDown />
             </Button>
          </PanelHeader>
-         <div className="flex items-center gap-2 px-3.5 pt-3">
+         <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
             <Segmented
                value={tab}
                onChange={setTab}
@@ -856,13 +1036,13 @@ function Inspect({
             </p>
          )}
          <ScrollArea className="min-h-0 flex-1">
-            <div className="p-3.5">
+            <div className="px-3.5 pt-1.5 pb-3.5">
                {tab === "preview" && (
                   <div {...quotableAttrs(null, false, { source: "artifact", label: a.title })}>
                      <ArtifactPreview a={a} env={env} />
                   </div>
                )}
-               {tab === "image" && <ArtifactImage a={shown} env={env} shoot={shoot} />}
+               {tab === "image" && <ArtifactImage a={shown} env={env} shoot={shoot} rev={rev} />}
                {tab === "source" &&
                   (sharedId && !src ? (
                      <div className="h-16 animate-pulse rounded bg-muted" />
@@ -916,7 +1096,10 @@ function Inspect({
                   {a.placement !== "inline" && (
                      <>
                         <dt className="text-muted-foreground">Placed</dt>
-                        <dd>{PLACED[a.placement]}</dd>
+                        <dd>
+                           {PLACED[a.placement]}
+                           {panels && placedClosed(a, panels) && " · panel closed"}
+                        </dd>
                      </>
                   )}
                </dl>

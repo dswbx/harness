@@ -96,15 +96,7 @@ async function renderTask() {
    const tasks = await api.listTasks();
    render(
       <TooltipProvider>
-         <TaskDetail
-            api={api}
-            id="t12"
-            tasks={tasks}
-            host={{}}
-            onBack={noop}
-            onClose={noop}
-            onOpen={noop}
-         />
+         <TaskDetail api={api} id="t12" tasks={tasks} host={{}} onClose={noop} onOpen={noop} />
       </TooltipProvider>,
    );
    const zone = await waitFor(() => screen.getByRole("button", { name: "Add files" }));

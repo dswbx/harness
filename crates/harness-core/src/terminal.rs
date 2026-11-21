@@ -47,6 +47,8 @@ const MAX_MESSAGE: usize = 256 * 1024;
 struct Slot {
     id: u32,
     term: Option<Arc<Terminal>>,
+    /// The tab's title while it shows a command started by `run` (until a shell replaces it).
+    label: Option<String>,
 }
 
 #[derive(Default)]
@@ -58,12 +60,16 @@ struct Session {
 impl Session {
     fn add(&mut self) -> u32 {
         self.next += 1;
-        self.slots.push(Slot { id: self.next, term: None });
+        self.slots.push(Slot { id: self.next, term: None, label: None });
         self.next
     }
 }
 
 type Changed = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Called once when a command started by `run` ends: its exit code (`None` if it could not be
+/// read), and whether it ended on its own (`false`: its tab was closed or killed).
+pub type ExitHook = Box<dyn FnOnce(Option<u32>, bool) + Send>;
 
 /// Several Terminals per Session, keyed by a per-Session id (1, 2, ...). The first exists implicitly.
 #[derive(Default, Clone)]
@@ -86,22 +92,23 @@ impl Terminals {
 
     /// The Session's tabs (a first one is created if there are none).
     pub fn list(&self, session_id: &str) -> Vec<TerminalInfo> {
-        let slots: Vec<(u32, Option<Arc<Terminal>>)> = {
+        let slots: Vec<(u32, Option<Arc<Terminal>>, Option<String>)> = {
             let mut map = self.map.lock();
             let s = map.entry(session_id.to_owned()).or_default();
             if s.slots.is_empty() {
                 s.add();
             }
-            s.slots.iter().map(|x| (x.id, x.term.clone())).collect()
+            s.slots.iter().map(|x| (x.id, x.term.clone(), x.label.clone())).collect()
         };
         slots
             .into_iter()
             .enumerate()
-            .map(|(i, (id, term))| {
+            .map(|(i, (id, term, label))| {
                 let n = i + 1;
-                match term {
-                    None => TerminalInfo { id, title: format!("{} {n}", default_shell_name()), running: false, busy: false },
-                    Some(t) => {
+                match (term, label) {
+                    (term, Some(title)) => TerminalInfo { id, title, running: term.is_some(), busy: term.is_some() },
+                    (None, None) => TerminalInfo { id, title: format!("{} {n}", default_shell_name()), running: false, busy: false },
+                    (Some(t), None) => {
                         let (name, busy) = t.foreground();
                         TerminalInfo { id, title: if busy { name } else { format!("{name} {n}") }, running: true, busy }
                     }
@@ -122,6 +129,36 @@ impl Terminals {
         };
         self.notify(session_id);
         id
+    }
+
+    /// A new tab running `cmd` now (not the login shell), titled `label`. Its output is kept for
+    /// views that attach later; `on_exit` runs once when it ends. After it ends, the tab is an
+    /// ordinary one: the next attach starts a shell.
+    pub fn run(&self, session_id: &str, label: &str, cmd: CommandBuilder, on_exit: ExitHook) -> anyhow::Result<u32> {
+        let id = {
+            // Spawned under the lock, as in `attach`: a command that ends at once finds its slot set.
+            let mut map = self.map.lock();
+            let s = map.entry(session_id.to_owned()).or_default();
+            if s.slots.is_empty() {
+                s.add();
+            }
+            let id = s.add();
+            match self.spawn(session_id, id, cmd, 80, 24, Some(on_exit)) {
+                Ok(t) => {
+                    if let Some(slot) = s.slots.iter_mut().find(|x| x.id == id) {
+                        slot.term = Some(t);
+                        slot.label = Some(label.to_owned());
+                    }
+                    id
+                }
+                Err(e) => {
+                    s.slots.retain(|x| x.id != id);
+                    return Err(e);
+                }
+            }
+        };
+        self.notify(session_id);
+        Ok(id)
     }
 
     /// Kills the tab's shell and removes the tab.
@@ -151,8 +188,9 @@ impl Terminals {
             match &slot.term {
                 Some(t) => (t.clone(), false),
                 None => {
-                    let t = self.spawn(session_id, terminal_id, shell(folder), cols, rows)?;
+                    let t = self.spawn(session_id, terminal_id, shell(folder), cols, rows, None)?;
                     slot.term = Some(t.clone());
+                    slot.label = None;
                     (t, true)
                 }
             }
@@ -227,7 +265,7 @@ impl Terminals {
         map.get(session_id)?.slots.iter().find(|x| x.id == terminal_id)?.term.clone()
     }
 
-    fn spawn(&self, session_id: &str, terminal_id: u32, cmd: CommandBuilder, cols: u16, rows: u16) -> anyhow::Result<Arc<Terminal>> {
+    fn spawn(&self, session_id: &str, terminal_id: u32, cmd: CommandBuilder, cols: u16, rows: u16, on_exit: Option<ExitHook>) -> anyhow::Result<Arc<Terminal>> {
         let pair = portable_pty::native_pty_system().openpty(size(cols, rows))?;
         let mut child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
@@ -277,6 +315,9 @@ impl Terminals {
             if ended {
                 this.notify(&sid);
             }
+            if let Some(f) = on_exit {
+                f(code, ended);
+            }
         });
         Ok(term)
     }
@@ -298,7 +339,17 @@ fn process_name(pid: i32) -> Option<String> {
 
 /// The user's login shell, with the login-shell PATH and without host `CLAUDE*` vars.
 fn shell(folder: &Path) -> CommandBuilder {
-    let mut cmd = CommandBuilder::new_default_prog();
+    with_env(CommandBuilder::new_default_prog(), folder)
+}
+
+/// `program args` in `folder`, with the same environment as the shell (for `run`).
+pub fn command(folder: &Path, program: &str, args: &[String]) -> CommandBuilder {
+    let mut cmd = CommandBuilder::new(program);
+    cmd.args(args);
+    with_env(cmd, folder)
+}
+
+fn with_env(mut cmd: CommandBuilder, folder: &Path) -> CommandBuilder {
     cmd.cwd(folder);
     for k in crate::agent_quirks::stripped_env() {
         cmd.env_remove(k);
@@ -438,7 +489,7 @@ mod tests {
 
     /// Runs `cmd` as an existing tab.
     fn collect_in(terms: &Terminals, id: &str, tid: u32, cmd: CommandBuilder) -> mpsc::Receiver<Result<Vec<u8>, Option<u32>>> {
-        let t = terms.spawn(id, tid, cmd, 80, 24).unwrap();
+        let t = terms.spawn(id, tid, cmd, 80, 24, None).unwrap();
         let mut map = terms.map.lock();
         map.get_mut(id).unwrap().slots.iter_mut().find(|x| x.id == tid).unwrap().term = Some(t.clone());
         drop(map);
@@ -633,6 +684,59 @@ mod tests {
         let (exited, job_alive) = close_with_background_job("nohup sleep 300 >/dev/null 2>&1 & echo bgpid=$!");
         assert!(exited, "Exit was not sent within 5 s of closing the tab");
         assert!(!job_alive, "the background job survived the close");
+    }
+
+    /// Runs `script` with `Terminals::run`; the receiver gets what `on_exit` was called with.
+    fn run_hooked(terms: &Terminals, id: &str, script: &str) -> (u32, mpsc::Receiver<(Option<u32>, bool)>) {
+        let (tx, rx) = mpsc::channel();
+        let tid = terms.run(id, "Sign in", sh(script), Box::new(move |code, natural| tx.send((code, natural)).unwrap())).unwrap();
+        (tid, rx)
+    }
+
+    #[test]
+    fn run_starts_the_command_at_once_and_reports_its_exit() {
+        let terms = Terminals::default();
+        let (tid, rx) = run_hooked(&terms, "r", "echo signing-in; read x; exit 4");
+        // Output from before a view attached reaches it (replay, then live).
+        let (tx, out) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        terms
+            .attach(
+                "r",
+                tid,
+                Path::new("/"),
+                80,
+                24,
+                Box::new(move |o| {
+                    if let TerminalOutput::Replay(d) | TerminalOutput::Data(d) = o {
+                        let _ = tx.lock().send(String::from_utf8_lossy(d).into_owned());
+                    }
+                    true
+                }),
+            )
+            .unwrap();
+        let mut seen = String::new();
+        while !seen.contains("signing-in") {
+            seen.push_str(&out.recv_timeout(Duration::from_secs(10)).unwrap());
+        }
+        terms.input("r", tid, b"\n").unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap(), (Some(4), true));
+        let tab = terms.list("r").into_iter().find(|t| t.id == tid).unwrap();
+        assert!(tab.title == "Sign in" && !tab.running, "{tab:?}");
+        // The tab stays; attaching again starts a shell, which drops the label.
+        terms.attach("r", tid, Path::new("/"), 80, 24, Box::new(|_| true)).unwrap();
+        assert_ne!(terms.list("r").into_iter().find(|t| t.id == tid).unwrap().title, "Sign in");
+        terms.kill_all("r");
+    }
+
+    #[test]
+    fn closing_a_run_tab_reports_it_as_not_ended_on_its_own() {
+        let terms = Terminals::default();
+        let (tid, rx) = run_hooked(&terms, "c", "read x");
+        assert!(terms.list("c").into_iter().any(|t| t.id == tid && t.running && t.title == "Sign in"));
+        terms.close("c", tid);
+        let (_, natural) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(!natural);
     }
 
     #[test]

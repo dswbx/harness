@@ -1,4 +1,4 @@
-import type { TaskPriority, TaskStatus, TaskSummary } from "../generated";
+import type { TaskDepKind, TaskPriority, TaskStatus, TaskSummary } from "../generated";
 
 // Pure helpers over the Task list (ADR 0028), shared by the sidebar and Frontends (ADR 0012).
 
@@ -101,4 +101,69 @@ export function webLink(input: string): string | null {
 export function localDay(d: Date = new Date()): string {
    const p = (n: number) => String(n).padStart(2, "0");
    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+type DepTask = Pick<TaskSummary, "id" | "deps">;
+
+/** The tasks `id` waits on through a dependency of `kind`, in dep order; missing ids are skipped. */
+function depTargets<T extends DepTask>(tasks: readonly T[], id: string, kind: TaskDepKind): T[] {
+   const byId = new Map(tasks.map((t) => [t.id, t]));
+   const from = byId.get(id);
+   if (!from) return [];
+   return from.deps.flatMap((d) => {
+      const t = d.kind === kind ? byId.get(d.id) : undefined;
+      return t ? [t] : [];
+   });
+}
+
+/** The tasks that have a dependency of `kind` on `id`. */
+function depSources<T extends DepTask>(tasks: readonly T[], id: string, kind: TaskDepKind): T[] {
+   return tasks.filter((t) => t.deps.some((d) => d.id === id && d.kind === kind));
+}
+
+/** The tasks `id` waits on (its `blocks` dependencies). */
+export const blockedBy = <T extends DepTask>(tasks: readonly T[], id: string): T[] =>
+   depTargets(tasks, id, "blocks");
+
+/** The tasks that wait on `id`. */
+export const blocks = <T extends DepTask>(tasks: readonly T[], id: string): T[] =>
+   depSources(tasks, id, "blocks");
+
+/** The tasks `id` follows (its `follow_up` dependencies). */
+export const followsOf = <T extends DepTask>(tasks: readonly T[], id: string): T[] =>
+   depTargets(tasks, id, "follow_up");
+
+/** The tasks that follow `id`. */
+export const followedBy = <T extends DepTask>(tasks: readonly T[], id: string): T[] =>
+   depSources(tasks, id, "follow_up");
+
+/** How many of the tasks `id` waits on are still open ("waits on N"). */
+export function openBlockers(
+   tasks: readonly (DepTask & Pick<TaskSummary, "status">)[],
+   id: string,
+): number {
+   return blockedBy(tasks, id).filter((t) => isOpen(t.status)).length;
+}
+
+/**
+ * Whether a dependency of `from` on `to` (of either kind) would make a loop: `from === to`, or
+ * `to` already depends on `from` through a chain of either kind. As the core's `check_deps`.
+ */
+export function wouldLoop(tasks: readonly DepTask[], from: string, to: string): boolean {
+   if (from === to) return true;
+   const byId = new Map(tasks.map((t) => [t.id, t]));
+   const seen = new Set<string>();
+   const todo = [to];
+   for (let at = todo.pop(); at !== undefined; at = todo.pop()) {
+      if (at === from) return true;
+      if (seen.has(at)) continue;
+      seen.add(at);
+      for (const d of byId.get(at)?.deps ?? []) todo.push(d.id);
+   }
+   return false;
+}
+
+/** The prop keys in use, sorted and unique. */
+export function propKeys(tasks: readonly Pick<TaskSummary, "props">[]): string[] {
+   return [...new Set(tasks.flatMap((t) => Object.keys(t.props)))].sort();
 }

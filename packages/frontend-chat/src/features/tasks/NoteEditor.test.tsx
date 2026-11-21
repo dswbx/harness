@@ -31,7 +31,7 @@ async function setup() {
    const api = new HarnessClient(mock).sessionApi("mock-1");
    render(
       <TooltipProvider>
-         <NoteEditor api={api} />
+         <NoteEditor api={api} onCollapse={() => {}} />
       </TooltipProvider>,
    );
    const editor = await waitFor(() => screen.getByRole("textbox", { name: "Session note" }));
