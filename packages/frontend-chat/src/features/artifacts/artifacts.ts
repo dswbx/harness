@@ -37,6 +37,8 @@ export type Artifact = {
    shared?: { id: string };
    /** A file-backed panel's file in the Session's panels_dir (`source`, ADR 0023). */
    file?: string;
+   /** When its panel was last placed, when not `ts` (a Shared Artifact's `ts` is its last update). */
+   panelTs?: number;
 };
 
 /** What the source view shows and copies: a render_ui `Html` root as its HTML, not as JSON around it. */
