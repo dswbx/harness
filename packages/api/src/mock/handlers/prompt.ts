@@ -237,6 +237,7 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       mock.emit(sid, {
          type: "AuthRequired",
          message: "The Agent needs you to sign in first.",
+         agent_name: "Codex",
          methods: [
             {
                id: "browser",

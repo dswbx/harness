@@ -102,6 +102,15 @@ export type AuthMethodInfo = {
 	kind: string,
 };
 
+/**  How a terminal sign-in ended. */
+export type AuthOutcome = 
+/**  Exit code 0. */
+"signed_in" | 
+/**  Any other exit. */
+"failed" | 
+/**  The user closed or killed its Terminal tab. */
+"cancelled";
+
 /**  A shell command an Agent runs in the background after its tool call finished. */
 export type BackgroundJob = {
 	/**  The Agent's id for the job. */
@@ -177,8 +186,15 @@ export type Command =
 { type: "RemoveAgent"; agent_id: string } | 
 /**  Runs an Agent-handled auth method (ACP `authenticate`) on the Session's Agent. */
 { type: "Authenticate"; session_id: string; method_id: string } | 
-/**  Opens Terminal.app running the Agent's terminal auth method. */
-{ type: "OpenAuthTerminal"; session_id: string; method_id: string } | { type: "ListFrontends" } | { type: "ListSessions" } | { type: "CreateSession"; 
+/**  Opens Terminal.app running the Agent's terminal auth method (the fallback to `AuthInTerminal`). */
+{ type: "OpenAuthTerminal"; session_id: string; method_id: string } | 
+/**
+ *  Runs the Agent's terminal auth method in a new Terminal tab of the Session (ADR 0017).
+ *  Answers `TerminalOpened`. When the login ends, `AuthFinished` is logged in `thread_id`; on
+ *  success the Agent process was restarted first, so the next prompt uses the new sign-in.
+ *  Closing or killing the tab cancels it.
+ */
+{ type: "AuthInTerminal"; session_id: string; thread_id?: string | null; method_id: string } | { type: "ListFrontends" } | { type: "ListSessions" } | { type: "CreateSession"; 
 /**  Primary Workspace Folder (v1: exactly one). */
 folder: string; agent_id: string; frontend_id: string; title: string | null; 
 /**
@@ -636,7 +652,16 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
  */
 forked_from?: ForkPoint | null } | 
 /**  The Agent needs the user to sign in before it can work. */
-{ type: "AuthRequired"; methods: AuthMethodInfo[]; message: string } | 
+{ type: "AuthRequired"; methods: AuthMethodInfo[]; message: string; 
+/**  The Agent's display name, for "Sign in to <name>". Absent in older logs. */
+agent_name?: string | null } | 
+/**
+ *  A terminal sign-in the Harness ran (`AuthInTerminal`) ended. On `signed_in` the Agent
+ *  process was restarted before this was logged.
+ */
+{ type: "AuthFinished"; method_id: string; method_name: string; outcome: AuthOutcome; 
+/**  The login program's exit code; `None` if it could not be read. */
+exit_code?: number | null } | 
 /**
  *  The Thread's Agent Session could not be restored; the Thread stays readable and can be
  *  continued from a transcript. `retryable`: the Agent supports resume or load, so the next

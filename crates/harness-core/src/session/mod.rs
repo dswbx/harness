@@ -259,7 +259,7 @@ impl Session {
 
     /// Writes a `.command` script that runs the Agent's terminal auth and opens it in Terminal.
     pub async fn open_auth_terminal(&self, method_id: &str) -> anyhow::Result<()> {
-        let (agent, extra_args, extra_env) = self.agent.terminal_auth(self, method_id)?;
+        let crate::acp::TerminalAuth { agent, args: extra_args, env: extra_env, .. } = self.agent.terminal_auth(self, method_id)?;
         let quote = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
         let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("export PATH={}\n", quote(&self.shared.agents.toolchain.path())));
@@ -276,6 +276,42 @@ impl Session {
         let out = crate::proc::run("open", crate::proc::Opts::new(crate::proc::LOCAL).args(["-a", "Terminal"]).arg(&path)).await?;
         anyhow::ensure!(out.success(), "could not open Terminal");
         Ok(())
+    }
+
+    /// Runs the Agent's terminal auth method in a new Terminal tab: the Agent's own launch (same
+    /// env and PATH as when the Harness runs it) plus the method's args and env, in the Session's
+    /// folder. When it ends, a sign-in restarts the Agent process and `AuthFinished` is logged in
+    /// `thread`. Returns the tab's id.
+    pub fn auth_in_terminal(self: &Arc<Self>, terminals: &crate::terminal::Terminals, method_id: &str, thread: Option<ThreadId>) -> anyhow::Result<u32> {
+        let crate::acp::TerminalAuth { agent, args: extra_args, env: extra_env, name } = self.agent.terminal_auth(self, method_id)?;
+        let overrides: Vec<(String, String)> = extra_env.into_iter().collect();
+        let mut args = crate::acp::launch_args(&agent, &self.shared.agents.toolchain.path(), &overrides);
+        args.extend(extra_args);
+        let cmd = crate::terminal::command(Path::new(&self.meta().folder), "/usr/bin/env", &args);
+        let (session, method_id, rt) = (self.clone(), method_id.to_owned(), tokio::runtime::Handle::current());
+        let label = format!("Sign in: {name}");
+        let on_exit = Box::new(move |code: Option<u32>, natural: bool| {
+            rt.spawn(async move { session.auth_finished(method_id, name, thread, code, natural).await });
+        });
+        terminals.run(&self.id(), &label, cmd, on_exit)
+    }
+
+    async fn auth_finished(self: Arc<Self>, method_id: String, method_name: String, thread: Option<ThreadId>, exit_code: Option<u32>, natural: bool) {
+        // Shutdown kills every Terminal: not a cancel by the user, and the log is closing.
+        if self.shared.closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let outcome = match (natural, exit_code) {
+            (false, _) => crate::api::AuthOutcome::Cancelled,
+            (true, Some(0)) => crate::api::AuthOutcome::SignedIn,
+            (true, _) => crate::api::AuthOutcome::Failed,
+        };
+        if outcome == crate::api::AuthOutcome::SignedIn {
+            // The running process signed in before; a new one reads the new credentials.
+            self.agent.restart("signed_in").await;
+        }
+        self.log.append_or_report(thread, EventKind::AuthFinished { method_id, method_name, outcome, exit_code });
+        self.sync_log().await;
     }
 
     pub fn idle_timeout(&self) -> Duration {

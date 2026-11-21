@@ -66,6 +66,14 @@ pub(super) struct SlotState {
     pub(super) auth_methods: Vec<Value>,
 }
 
+/// How to run a terminal auth method: the Agent's launch spec plus `args` and `env`.
+pub struct TerminalAuth {
+    pub agent: crate::api::AgentInfo,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub name: String,
+}
+
 pub(super) struct Preparing<'a>(&'a AgentSlot);
 
 impl Drop for Preparing<'_> {
@@ -347,8 +355,8 @@ impl AgentSlot {
         Ok(())
     }
 
-    /// The launch spec plus the extra args and env of a terminal auth method.
-    pub fn terminal_auth(&self, session: &Session, method_id: &str) -> anyhow::Result<(crate::api::AgentInfo, Vec<String>, HashMap<String, String>)> {
+    /// The launch spec plus the extra args and env of a terminal auth method, and its name.
+    pub fn terminal_auth(&self, session: &Session, method_id: &str) -> anyhow::Result<TerminalAuth> {
         let state = self.state.lock();
         let m = state
             .auth_methods
@@ -358,8 +366,19 @@ impl AgentSlot {
         anyhow::ensure!(m.get("type").and_then(Value::as_str) == Some("terminal"), "{method_id} is not a terminal auth method");
         let args = serde_json::from_value(m.get("args").cloned().unwrap_or(Value::Null)).unwrap_or_default();
         let env = serde_json::from_value(m.get("env").cloned().unwrap_or(Value::Null)).unwrap_or_default();
+        let name = m.get("name").and_then(Value::as_str).unwrap_or(method_id).to_owned();
         let meta = session.meta();
-        Ok((session.agents().get(&meta.agent.id).unwrap_or(meta.agent), args, env))
+        Ok(TerminalAuth { agent: session.agents().get(&meta.agent.id).unwrap_or(meta.agent), args, env, name })
+    }
+
+    /// Stops the Agent process, if running, and waits (at most 5 s) until it is gone, so the next
+    /// prompt starts a fresh one (e.g. to read new credentials after a sign-in).
+    pub async fn restart(&self, reason: &str) {
+        self.shutdown(reason);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while self.conn().is_some() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     /// Stops the Agent process, if running (e.g. on archive). The next prompt starts it again.
@@ -540,11 +559,7 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
                 let init = cx
                     .send_request(
                         acp::InitializeRequest::new(ProtocolVersion::V1)
-                            // Notices: Agents send hook/SDK messages as `notice` instead of
-                            // bold-label text glued into the reply.
-                            .client_capabilities(
-                                acp::ClientCapabilities::new().session(acp::ClientSessionCapabilities::new().notices(acp::NoticeCapabilities::new())),
-                            )
+                            .client_capabilities(client_capabilities())
                             .client_info(acp::Implementation::new("harness", env!("CARGO_PKG_VERSION"))),
                     )
                     .block_task()
@@ -604,6 +619,15 @@ pub(super) async fn spawn_agent(session: Arc<Session>) -> anyhow::Result<Arc<Age
     }))
 }
 
+/// What the Harness tells Agents it supports in `initialize`. Notices: Agents send hook/SDK
+/// messages as `notice` instead of bold-label text glued into the reply. Terminal auth: the Harness
+/// runs `terminal` auth methods in a Terminal tab (`Session::auth_in_terminal`), so Agents list them.
+pub(super) fn client_capabilities() -> acp::ClientCapabilities {
+    acp::ClientCapabilities::new()
+        .session(acp::ClientSessionCapabilities::new().notices(acp::NoticeCapabilities::new()))
+        .auth(acp::AuthCapabilities::new().terminal(true))
+}
+
 /// The process is gone: forget its connection and cancel what it left pending. In-flight Turns
 /// end on their own when their prompt request fails.
 pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<String>, error: Option<String>) {
@@ -638,6 +662,13 @@ pub(super) fn on_exit(session: &Arc<Session>, generation: u64, stopped: Option<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn initialize_offers_terminal_auth() {
+        let caps = serde_json::to_value(client_capabilities()).unwrap();
+        assert_eq!(caps["auth"]["terminal"], true, "{caps}");
+        assert!(caps["session"]["notices"].is_object(), "{caps}");
+    }
 
     #[test]
     fn a_cancel_marks_only_a_thread_with_a_turn_in_flight() {

@@ -33,3 +33,4 @@
 {"v":1,"seq":32,"session_id":"golden-session-0004","thread_id":null,"ts_ms":1790000014384,"kind":{"type":"SessionStatusChanged","status":"idle"}}
 {"v":1,"seq":33,"session_id":"golden-session-0004","thread_id":"golden-thread-main","ts_ms":1790000014521,"kind":{"type":"ModeChanged","mode_id":"plan","mode":{"id":"plan","name":"Plan","plan":true}}}
 {"v":1,"seq":34,"session_id":"golden-session-0004","thread_id":"golden-thread-main","ts_ms":1790000014658,"kind":{"type":"UsageUpdated","usage":{"sessionUpdate":"usage_update","used":1200,"size":200000},"used":1200,"size":200000}}
+{"v":1,"seq":35,"session_id":"golden-session-0004","thread_id":"golden-thread-main","ts_ms":1790000014795,"kind":{"type":"AuthFinished","method_id":"login","method_name":"Log in","outcome":"signed_in","exit_code":0}}
