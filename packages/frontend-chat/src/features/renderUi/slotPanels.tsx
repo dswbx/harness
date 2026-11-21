@@ -366,8 +366,9 @@ export const slotPanels = definePanelFamily<SlotsModel>({
       // Read in the effect only: closing or reopening a panel is no reason to show the newest.
       const dockedRef = useRef(dockedNow);
       dockedRef.current = dockedNow;
-      // From all panels, closed ones too: closing the newest must not open the one before it.
-      const newest = useMemo(() => lastSlot([...left, ...right, ...added]), [left, right, added]);
+      // From the Agent's panels, closed ones too: closing the newest must not open the one before it. Panels the
+      // user made are left out (opened by hand; closing one drops it, which would make an older one the newest).
+      const newest = useMemo(() => lastSlot([...left, ...right]), [left, right]);
       useEffect(() => {
          const slot = slotToAutoOpen(newest, openedAt);
          if (slot && !isClosed(dockedRef.current, slot.id, slot.ts)) open(slotRef(slot.id));

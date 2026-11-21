@@ -88,16 +88,33 @@ export type PanelActions = {
    idOf: (a: Artifact) => string | null;
    /** Makes it a panel (or brings back a closed one) and shows it. */
    open: (a: Artifact) => void;
+   /** Shows its panel (it has one). */
+   show: (a: Artifact) => void;
    /** Takes its panel out of the dock; the artifact stays here. */
    close: (a: Artifact) => void;
 };
 
-/** "Open as panel" / "Close panel" menu items for an artifact. */
-function PanelItems({ a, panels }: { a: Artifact; panels: PanelActions }) {
+/** "Open as panel", or "Close panel" (after "Open panel" with `withOpen`) menu items for an artifact. */
+function PanelItems({
+   a,
+   panels,
+   withOpen = false,
+}: {
+   a: Artifact;
+   panels: PanelActions;
+   withOpen?: boolean;
+}) {
    return panels.idOf(a) ? (
-      <DropdownMenuItem onSelect={() => panels.close(a)}>
-         <X /> Close panel
-      </DropdownMenuItem>
+      <>
+         {withOpen && (
+            <DropdownMenuItem onSelect={() => panels.show(a)}>
+               <ArrowRight /> Open panel
+            </DropdownMenuItem>
+         )}
+         <DropdownMenuItem onSelect={() => panels.close(a)}>
+            <X /> Close panel
+         </DropdownMenuItem>
+      </>
    ) : (
       <DropdownMenuItem onSelect={() => panels.open(a)}>
          <PanelRight /> Open as panel
@@ -256,14 +273,15 @@ export function ArtifactsPanel({
       : null;
    if (sharedOpen && shared) {
       const meta = metas?.get(sharedOpen.id);
+      const sa = sharedArtifact(sharedOpen, meta);
       return (
          <Inspect
-            a={sharedArtifact(sharedOpen, meta)}
+            a={sa}
             env={env}
             position={null}
             onStep={() => {}}
             onBack={() => setInspecting(null)}
-            onJump={() => shared.open(sharedOpen.id)}
+            onJump={() => (panels?.idOf(sa) ? panels.show(sa) : shared.open(sharedOpen.id))}
             madeIn={meta?.created_by.session_title}
             panels={panels}
          />
@@ -429,6 +447,7 @@ export function ArtifactsPanel({
                                  <PanelItems
                                     a={sharedArtifact(r, metas?.get(r.id))}
                                     panels={panels}
+                                    withOpen
                                  />
                               )
                            }
@@ -461,7 +480,7 @@ export function ArtifactsPanel({
                            a={a}
                            ts={updatedOf(a)}
                            tag={tagOf(a, panels)}
-                           panelItems={panels && <PanelItems a={a} panels={panels} />}
+                           panelItems={panels && <PanelItems a={a} panels={panels} withOpen />}
                            selected={a.key === selected}
                            onOpen={() => {
                               setSelected(a.key);
@@ -616,6 +635,9 @@ function sharedTitle(r: SharedRow, meta: SharedArtifactMeta | undefined): string
  * node (the artifact's own state); its source and downloads come from a read (see `Inspect`).
  */
 function sharedArtifact(r: SharedRow, meta: SharedArtifactMeta | undefined): Artifact {
+   // No item shows it in a place of its own (attached only, or a call without an id placed outside the chat):
+   // it has its own panel, `shared:<id>`, placed when attached (`splitRenderUi`).
+   const own = !r.artifact || (!r.artifact.slotId && r.artifact.placement !== "inline");
    return {
       key: `shared:${r.id}`,
       kind: "ui",
@@ -623,11 +645,10 @@ function sharedArtifact(r: SharedRow, meta: SharedArtifactMeta | undefined): Art
       sub: meta ? `${KIND_LABEL[meta.kind]} · ${sessionCount(meta)}` : "Shared artifact",
       rowId: null,
       index: null,
-      placement: r.artifact?.placement ?? "right",
-      // Attached only: its own panel, `shared:<id>` (`splitRenderUi`).
-      slotId: r.artifact ? r.artifact.slotId : `shared:${r.id}`,
+      placement: own ? "right" : r.artifact!.placement,
+      slotId: own ? `shared:${r.id}` : r.artifact!.slotId,
       ts: meta?.updated_ms ?? r.ts,
-      panelTs: r.artifact?.ts ?? r.ts,
+      panelTs: own ? r.ts : r.artifact!.ts,
       turn: r.artifact?.turn ?? 0,
       prompt: r.artifact?.prompt ?? "",
       source: "",

@@ -52,6 +52,15 @@ describe("docked panels", () => {
       expect(panelIdOf(diagram, c)).toBeNull();
    });
 
+   it("closing an added item the Agent has since placed closes both", () => {
+      const added = openAsPanel(NO_DOCKED, inline.key, null).next;
+      const nowPlaced = { ...inline, placement: "right", ts: 20 };
+      expect(panelIdOf(nowPlaced, added)).toBe("i");
+      const c = closePanel(added, "i", 20);
+      expect(c).toEqual({ closed: { i: 20 }, added: [] });
+      expect(panelIdOf(nowPlaced, c)).toBeNull();
+   });
+
    it("adding twice or closing twice changes nothing", () => {
       const a = openAsPanel(NO_DOCKED, diagram.key, null).next;
       expect(openAsPanel(a, diagram.key, null).next).toBe(a);

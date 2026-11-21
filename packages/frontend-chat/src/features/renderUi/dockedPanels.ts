@@ -65,11 +65,16 @@ export function panelIdOf(a: ArtifactRef, d: DockedPanels): string | null {
    return d.added.includes(a.key) ? addedPanelId(a.key) : null;
 }
 
-/** Takes panel `id` (last called at `ts`) out of the dock: an added one is forgotten, a placed one is closed. */
+/**
+ * Takes panel `id` (last called at `ts`) out of the dock: an added one is forgotten, a placed one is closed.
+ * A render_ui id can be both (the user added the inline item, then the Agent placed it): both go.
+ */
 export function closePanel(d: DockedPanels, id: string, ts: number): DockedPanels {
    const added = d.added.filter((k) => addedPanelId(k) !== id);
-   if (added.length < d.added.length) return { ...d, added };
-   return d.closed[id] === ts ? d : { ...d, closed: { ...d.closed, [id]: ts } };
+   const next = added.length < d.added.length ? { ...d, added } : d;
+   // An `a:` id is never placed: nothing to close.
+   if (id.startsWith("a:") || d.closed[id] === ts) return next;
+   return { ...next, closed: { ...next.closed, [id]: ts } };
 }
 
 /**

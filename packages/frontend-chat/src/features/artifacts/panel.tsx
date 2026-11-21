@@ -81,27 +81,31 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
          ctx.open(slotRef(toOpen));
          setToOpen(null);
       }, [toOpen, ctx]);
-      const panels = useMemo<PanelActions>(
-         () => ({
-            idOf: (a) => panelIdOf({ ...a, ts: a.panelTs ?? a.ts }, docked.value),
+      const panels = useMemo<PanelActions>(() => {
+         // A Shared Artifact's `ts` is its last update; its panel's is `panelTs`.
+         const idOf = (a: Artifact) => panelIdOf({ ...a, ts: a.panelTs ?? a.ts }, docked.value);
+         return {
+            idOf,
             open: (a) => {
                const { next, id } = openAsPanel(docked.value, a.key, placedPanelId(a));
                docked.update(() => next);
                setToOpen(id);
             },
+            show: (a) => {
+               const id = idOf(a);
+               if (id) ctx.open(slotRef(id));
+            },
             close: (a) => {
-               const id = panelIdOf(a, docked.value);
+               const id = idOf(a);
                if (!id) return;
                ctx.hide(slotRef(id));
                docked.update((d) => closePanel(d, id, a.panelTs ?? a.ts));
             },
-         }),
-         [docked, ctx],
-      );
+         };
+      }, [docked, ctx]);
       const jump = (a: Artifact) => {
-         const panel = panels.idOf(a);
-         if (panel) {
-            ctx.open(slotRef(panel));
+         if (panels.idOf(a)) {
+            panels.show(a);
             return;
          }
          if (placedPanelId(a)) return;
