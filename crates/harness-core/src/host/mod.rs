@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::api::{AgentInfo, AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, PrRefKey, SessionId, SessionStatus};
+use crate::api::{AgentInfo, AppEvent, Command, CommandResult, Event, EventSink, FrontendManifest, HarnessError, LogPage, PrRefKey, SessionId, SessionStatus};
 use crate::log::SubscriptionId;
 use crate::permissions::Policy;
 use crate::session::{Session, Shared};
@@ -522,6 +522,13 @@ impl Harness {
         self.ensure_open().map_err(|e| format!("{e:#}"))?;
         let session = self.session(session_id).map_err(|e| e.to_string())?;
         session.log().subscribe(from_seq, sink).map_err(|e| format!("{e:#}"))
+    }
+
+    /// One page of a Session's log for a View that opens it (`SessionLog::read_page`, ADR 0029).
+    pub fn read_log_page(&self, session_id: &str, from_seq: u64, to_seq: Option<u64>) -> Result<LogPage, String> {
+        self.ensure_open().map_err(|e| format!("{e:#}"))?;
+        let session = self.session(session_id).map_err(|e| e.to_string())?;
+        session.log().read_page(from_seq, to_seq, crate::log::PAGE_EVENTS, crate::log::PAGE_BYTES).map_err(|e| format!("{e:#}"))
     }
 
     /// A snapshot of a Session's Events (no subscription, so it never counts as an open View).

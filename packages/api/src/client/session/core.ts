@@ -7,6 +7,7 @@ import type { SessionApi } from "../session";
 type Core = Pick<
    SessionApi,
    | "subscribe"
+   | "readLogPage"
    | "prompt"
    | "cancel"
    | "warmUp"
@@ -26,6 +27,7 @@ type Core = Pick<
 /** Prompting, Threads, permissions, Session lifecycle and sign-in. */
 export const coreApi = (transport: Transport, sessionId: string): Core => ({
    subscribe: (onEvent, fromSeq = 0) => subscribeResilient(transport, sessionId, fromSeq, onEvent),
+   readLogPage: (fromSeq, toSeq = null) => transport.readLogPage(sessionId, fromSeq, toSeq),
    prompt: (text, attachments = [], threadId = null, commentIds = []) =>
       run(transport, {
          type: "Prompt",

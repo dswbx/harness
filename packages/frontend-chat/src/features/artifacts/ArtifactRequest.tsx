@@ -17,34 +17,17 @@ const MAX_BYTES = 3_500_000;
 
 export type Input = { id?: string; kind?: string; mermaid?: string; html?: string; width?: number };
 
-/** The Session Log up to `lastSeq`: this also runs for a Session no window shows. */
-function replay(api: SessionApi, lastSeq: number): Promise<ChatState> {
-   return new Promise((ok, fail) => {
-      const events: Parameters<typeof reduceBatch>[1][number][] = [];
-      let off: (() => void) | null = null;
-      let done = false;
-      const finish = () => {
-         done = true;
-         off?.();
-         clearTimeout(limit);
-         ok(reduceBatch(initialState(), events));
-      };
-      const limit = setTimeout(() => {
-         done = true;
-         off?.();
-         fail(new Error("Could not read the Session Log in time."));
-      }, 15_000);
-      api.subscribe((e) => {
-         if (done) return;
-         (events as unknown[]).push(e);
-         if (e.seq >= lastSeq) finish();
-      }, 0)
-         .then((u) => {
-            if (done) u();
-            else off = u;
-         })
-         .catch(fail);
-   });
+/** The Session Log up to `lastSeq`, read in pages (ADR 0029): this also runs for a Session no window shows. */
+async function replay(api: SessionApi, lastSeq: number): Promise<ChatState> {
+   let state = initialState();
+   let from = 0;
+   for (;;) {
+      const page = await api.readLogPage(from, lastSeq + 1);
+      state = reduceBatch(state, page.events);
+      const last = page.events.at(-1);
+      if (!page.more || !last) return state;
+      from = last.seq + 1;
+   }
 }
 
 function pick(list: Artifact[], input: Input): Artifact {

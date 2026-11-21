@@ -7,23 +7,12 @@ import type { PrEntry, PrStore } from "../github/prStore";
 import { onSessionForgotten } from "../platform/forgetSession";
 import type { Unsubscribe } from "../transport/transport";
 
-/** Longest wait for a Session's replay to finish before its first render. */
-const REPLAY_WAIT_MS = 1000;
-/** An Event this recent is live, not replay: the log has caught up. */
-const LIVE_MS = 500;
-/**
- * No Event for this long: the replay is done. A frame without one is not enough: after a long task
- * (the view of the last Session unmounts) two frames run back to back, 1ms apart, between two
- * batches of the replay, and the log showed in parts.
- */
-const QUIET_MS = 40;
-
 /** How many Sessions keep their folded state after their View unmounts. */
 const FOLD_CACHE_SESSIONS = 5;
-/** A folded state and the `seq` to subscribe from next: always the fold of every Event below `next`. */
+/** A folded state and the `seq` to load from next: always the fold of every Event below `next`. */
 type Fold = { state: unknown; next: number };
 /**
- * Folded state of recently shown Sessions, so switching back to one renders at once and replays only
+ * Folded state of recently shown Sessions, so switching back to one renders at once and loads only
  * what came since. Per Session (least recently used first), then per reducer: Views with different
  * reducers fold the same log to different states. Valid for the app's life: a Session Log is only
  * appended to and its `seq` never goes back while the core runs (log.rs), and the core runs as long
@@ -59,13 +48,20 @@ export function clearFoldCache() {
    folds.clear();
 }
 
+/** How far a View has loaded its Session Log: Events below `next` are folded; it is whole once `next >= end`. */
+export type LogLoad = { next: number; end: number };
+
 /**
- * Subscribes once per `api` (StrictMode-safe), folds every Event through a pure reducer
- * (replay and live share one path), and unsubscribes on unmount. Events are batched per
- * animation frame so replays of large logs don't re-render per event; the replay renders at once. Once subscribed, it asks
- * the core to warm the Agent up so config options (models, modes) arrive before the first prompt.
- * The fold of a recently shown Session is kept (see `folds`): mounted again, it renders that fold at
- * once and subscribes only from the next `seq`.
+ * Loads the Session Log once per `api` (StrictMode-safe) and folds every Event through a pure
+ * reducer, then stays live; unsubscribes on unmount. The log comes in pages up to the `end` of the
+ * first one (ADR 0029), each folded as it lands, one asked for after the other, so an unmount stops
+ * the load. Live Events come from a subscription that starts at that `end`: held until the last
+ * page is folded, then folded on top, so there is no gap and no duplicate. The first render waits
+ * for the whole log (a part of it would render a Turn without its end as running, and rows would
+ * shift as the rest lands); after that, live Events are batched per animation frame. Once
+ * subscribed, it asks the core to warm the Agent up so config options (models, modes) arrive before
+ * the first prompt. The fold of a recently shown Session is kept (see `folds`): mounted again, it
+ * renders that fold at once and loads only from its `next`.
  */
 export function useSessionEvents<S>(
    api: SessionApi,
@@ -73,71 +69,88 @@ export function useSessionEvents<S>(
    init: () => S,
    /** Folds many Events at once; defaults to folding `reducer` one by one. Must equal that fold. */
    batchReducer?: (state: S, events: readonly Event[]) => S,
+   /** Called after each page and once the log is whole: for a loading indicator. Read when `api` changes, like `reducer`. */
+   onLoad?: (load: LogLoad) => void,
 ): S {
    const [state, setState] = useState<S>(
       () => (readFold(api.sessionId, reducer)?.state as S | undefined) ?? init(),
    );
+   // biome-ignore lint/correctness/useExhaustiveDependencies: reducer, init, batchReducer and onLoad are read once per `api` (stable module-level functions).
    useEffect(() => {
       const sessionId = api.sessionId;
       const cached = readFold(sessionId, reducer);
-      // This View's own fold: what it rendered last and the `seq` after the last Event in it.
+      // This View's own fold: the fold of every Event below `next`. Written to the cache only
+      // once the log is whole, so a later mount never takes a part for the whole.
       let folded = (cached?.state as S | undefined) ?? init();
       let next = cached?.next ?? 0;
       let cancelled = false;
+      let loaded = false;
       let unsub: (() => void) | undefined;
+      // Live Events not folded yet: all of them while the log loads, then one frame's worth.
       let pending: Event[] = [];
       let raf = 0;
-      // The replay comes in over several frames. Shown as it comes, a part of the log renders first
-      // (a Turn without its end looks running: its tool calls open, then collapse) and the rows
-      // shift as the rest lands. So the first render waits until no Event came for `QUIET_MS`
-      // (the replay is done), at most `REPLAY_WAIT_MS`. An Event from just now also ends the wait:
-      // the replay has reached the present, and a running Agent sends Events every frame.
-      // A cached fold is already whole: no wait, what came since folds on top in the next frame.
-      let replaying = !cached;
-      let lastAt = 0;
-      const started = performance.now();
-      const flush = () => {
-         raf = 0;
-         if (cancelled || pending.length === 0) return;
-         const caughtUp = Date.now() - (pending.at(-1)?.ts_ms ?? 0) < LIVE_MS;
-         const now = performance.now();
-         if (replaying && !caughtUp && now - lastAt < QUIET_MS && now - started < REPLAY_WAIT_MS) {
-            raf = requestAnimationFrame(flush);
-            return;
-         }
-         replaying = false;
-         const batch = pending;
-         pending = [];
-         folded = batchReducer ? batchReducer(folded, batch) : batch.reduce(reducer, folded);
-         const last = batch.at(-1);
-         if (last) next = last.seq + 1;
+      const fold = (events: readonly Event[]) => {
+         // Pages and live never overlap; this only guards the fold's invariant.
+         const fresh =
+            (events[0]?.seq ?? next) < next ? events.filter((e) => e.seq >= next) : events;
+         const last = fresh.at(-1);
+         if (!last) return;
+         folded = batchReducer ? batchReducer(folded, fresh) : fresh.reduce(reducer, folded);
+         next = last.seq + 1;
+      };
+      const show = () => {
          writeFold(sessionId, reducer, { state: folded, next });
          const shown = folded;
          setState(() => shown);
       };
-      setState(() => folded);
-      api.subscribe((e) => {
+      const flush = () => {
+         raf = 0;
+         if (cancelled || pending.length === 0) return;
+         const batch = pending;
+         pending = [];
+         fold(batch);
+         show();
+      };
+      const load = async () => {
+         let page = await api.readLogPage(next);
          if (cancelled) return;
-         pending.push(e);
-         lastAt = performance.now();
-         if (!raf) raf = requestAnimationFrame(flush);
-      }, next)
-         .then((u) => {
-            if (cancelled) u();
-            else {
-               unsub = u;
-               // Best effort: failures (e.g. the Agent won't start) arrive as events.
-               api.warmUp().catch(() => {});
-            }
-         })
-         .catch((err) => console.error("subscribe failed", err));
+         const end = page.end;
+         api.subscribe((e) => {
+            if (cancelled) return;
+            pending.push(e);
+            if (loaded && !raf) raf = requestAnimationFrame(flush);
+         }, end)
+            .then((u) => {
+               if (cancelled) u();
+               else {
+                  unsub = u;
+                  // Best effort: failures (e.g. the Agent won't start) arrive as events.
+                  api.warmUp().catch(() => {});
+               }
+            })
+            .catch((err) => console.error("subscribe failed", err));
+         for (;;) {
+            fold(page.events);
+            if (!page.more) break;
+            onLoad?.({ next, end });
+            page = await api.readLogPage(next, end);
+            if (cancelled) return;
+         }
+         // Every Event below `end` is folded (the log may skip a `seq`).
+         next = Math.max(next, end);
+         loaded = true;
+         fold(pending);
+         pending = [];
+         show();
+         onLoad?.({ next, end });
+      };
+      setState(() => folded);
+      load().catch((err) => console.error("loading the Session Log failed", err));
       return () => {
          cancelled = true;
          if (raf) cancelAnimationFrame(raf);
          unsub?.();
       };
-      // reducer/init are expected to be stable module-level functions
-      // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [api]);
    return state;
 }

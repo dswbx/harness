@@ -112,6 +112,19 @@ describe("tauriTransport.subscribe", () => {
    });
 });
 
+describe("tauriTransport.readLogPage", () => {
+   it("asks the core for one page and hands back its answer", async () => {
+      const page = { events: [], end: 7, more: false };
+      invoke.mockResolvedValueOnce(page);
+      expect(await tauriTransport.readLogPage("s1", 3, null)).toBe(page);
+      expect(invoke).toHaveBeenCalledWith("read_log_page", {
+         sessionId: "s1",
+         fromSeq: 3,
+         toSeq: null,
+      });
+   });
+});
+
 describe("tauriTransport.attachTerminal", () => {
    const bytes = (...b: number[]) => new Uint8Array(b).buffer;
    const attach = async () => {

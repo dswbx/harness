@@ -10,6 +10,7 @@ import type {
    EventKind,
    FrontendAnswer,
    FrontendToolDecl,
+   LogPage,
    McpServerDef,
    PermissionRule,
    SessionSummary,
@@ -384,6 +385,28 @@ export class MockTransport implements Transport {
       onOutput({ replay: new Uint8Array() });
       set.add(onOutput);
       return () => set.delete(onOutput);
+   }
+
+   /** Page limits of `readLogPage`, as the core's (`log::PAGE_EVENTS`, `PAGE_BYTES`). @internal */
+   pageEvents = 2000;
+   /** @internal */
+   pageBytes = 1 << 20;
+
+   async readLogPage(sessionId: string, fromSeq: number, toSeq: number | null): Promise<LogPage> {
+      const log = this.logs.get(sessionId);
+      if (!log) throw new Error(`unknown session ${sessionId}`);
+      // The mock log has no gaps: Event `seq` is its index.
+      const end = toSeq ?? log.length;
+      const stop = Math.min(end, log.length);
+      const events: Event[] = [];
+      let bytes = 0;
+      for (let i = Math.max(0, fromSeq); i < stop && events.length < this.pageEvents; i++) {
+         bytes += JSON.stringify(log[i]).length;
+         if (events.length > 0 && bytes > this.pageBytes) break;
+         events.push(log[i]!);
+      }
+      const next = events.at(-1)?.seq ?? fromSeq;
+      return { events, end, more: events.length > 0 && next + 1 < stop };
    }
 
    async subscribe(

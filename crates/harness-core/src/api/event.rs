@@ -713,6 +713,22 @@ pub struct PermissionOption {
     pub clears_context: bool,
 }
 
+/// One page of a Session Log, read by a View that opens the Session (ADR 0029): the Events with
+/// `from_seq <= seq < end`, oldest first, as many as fit the page limits but at least one while
+/// any is left. The Events are serialized once, when the page is cut to its byte limit.
+#[derive(Debug, Serialize, Type)]
+pub struct LogPage {
+    #[specta(type = Vec<Event>)]
+    pub events: Vec<Box<serde_json::value::RawValue>>,
+    /// Upper bound (exclusive) of the read: the `to_seq` asked for, else the `seq` the next Event of
+    /// the log gets, so every Event the log has now is below it. A View loads up to the `end` of its
+    /// first page and subscribes from it.
+    #[specta(type = specta_typescript::Number)]
+    pub end: u64,
+    /// Events below `end` are left after this page: read on from the last `seq` + 1.
+    pub more: bool,
+}
+
 /// What a Session subscription delivers to a View: Events, then possibly one `Lagged`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(untagged)]

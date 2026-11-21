@@ -1,6 +1,13 @@
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { toCommandError } from "../errors";
-import type { AppEvent, Command, CommandResult, Event, SessionMessage } from "../generated";
+import type {
+   AppEvent,
+   Command,
+   CommandResult,
+   Event,
+   LogPage,
+   SessionMessage,
+} from "../generated";
 
 export type Unsubscribe = () => void;
 
@@ -13,6 +20,13 @@ export type TerminalOutput = Uint8Array | { replay: Uint8Array } | { exit: numbe
 /** Boundary between the UI and the Rust core (ADR 0001): Commands, Session Logs, AppEvents, and the Terminal byte stream. */
 export interface Transport {
    execute(cmd: Command): Promise<CommandResult>;
+   /**
+    * One page of the Session Log (ADR 0029): the Events with `fromSeq <= seq < end`, oldest first,
+    * within the core's page limits but at least one while any is left. `end` is `toSeq`, else the
+    * `seq` the next Event gets. A View opening a Session reads up to the `end` of its first page,
+    * one page at a time, and subscribes from that `end`.
+    */
+   readLogPage(sessionId: string, fromSeq: number, toSeq: number | null): Promise<LogPage>;
    /**
     * Replays the Session Log from `fromSeq`, then streams live. When the core drops the
     * subscription because this View fell too far behind it calls `onLagged` once and sends
@@ -149,6 +163,8 @@ export const tauriTransport: Transport = {
       invoke<CommandResult>("execute", { cmd }).catch((e) => {
          throw toCommandError(e);
       }),
+   readLogPage: (sessionId, fromSeq, toSeq) =>
+      invoke<LogPage>("read_log_page", { sessionId, fromSeq, toSeq }),
    async subscribe(sessionId, fromSeq, onEvent, onLagged) {
       const channel = new Channel<SessionMessage>();
       channel.onmessage = (m) => {

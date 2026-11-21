@@ -804,3 +804,41 @@ describe("MockTransport Task upstream links", () => {
       ).rejects.toThrow("not a web link");
    });
 });
+
+describe("MockTransport.readLogPage like the core", () => {
+   const log = (n: number, message = "x") => {
+      const t = new MockTransport([], []);
+      t.logs.set("s", []);
+      for (let i = 0; i < n; i++) t.emit("s", { type: "Error", message }, null);
+      return t;
+   };
+   const read = async (t: MockTransport, from: number, to: number | null = null) => {
+      const p = await t.readLogPage("s", from, to);
+      return { seqs: p.events.map((e) => e.seq), end: p.end, more: p.more };
+   };
+
+   it("reads a seq range up to the event limit; end is the bound or the next seq", async () => {
+      const t = log(10);
+      t.pageEvents = 4;
+      expect(await read(t, 0)).toEqual({ seqs: [0, 1, 2, 3], end: 10, more: true });
+      expect(await read(t, 4, 7)).toEqual({ seqs: [4, 5, 6], end: 7, more: false });
+      expect(await read(t, 8)).toEqual({ seqs: [8, 9], end: 10, more: false });
+      expect(await read(t, 10)).toEqual({ seqs: [], end: 10, more: false });
+      expect(await read(t, 5, 3)).toEqual({ seqs: [], end: 3, more: false });
+      expect(await read(log(0), 0)).toEqual({ seqs: [], end: 0, more: false });
+   });
+
+   it("cuts a page at the byte limit but always holds one Event", async () => {
+      const t = log(3, "y".repeat(500));
+      t.pageBytes = 100;
+      expect(await read(t, 0)).toEqual({ seqs: [0], end: 3, more: true });
+      t.pageBytes = 1300;
+      expect(await read(t, 0)).toEqual({ seqs: [0, 1], end: 3, more: true });
+   });
+
+   it("fails for an unknown Session", async () => {
+      await expect(new MockTransport([], []).readLogPage("nope", 0, null)).rejects.toThrow(
+         "unknown session",
+      );
+   });
+});
