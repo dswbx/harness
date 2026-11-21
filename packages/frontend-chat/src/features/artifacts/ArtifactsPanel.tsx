@@ -739,9 +739,11 @@ function Inspect({
       : data
         ? `${data.dir}/${SHARED_FILE[data.meta.kind]}`
         : null;
+   // The file's version: the tree names the file, so its text alone does not change when the file does.
+   const rev = file && "hash" in file ? file.hash : undefined;
    const shown = useMemo(() => (data ? { ...a, source: data.content } : a), [a, data]);
    const formats = (shoot: Parameters<typeof artifactFormats>[2]) => {
-      if (!sharedId) return artifactFormats(a, env, shoot);
+      if (!sharedId) return artifactFormats(a, env, shoot, rev);
       const [png] = artifactFormats(shown, env, shoot);
       if (!data) return png ? [png] : [];
       const tree = data.meta.kind === "ui" ? parseTree(data.content) : null;
@@ -862,7 +864,7 @@ function Inspect({
                      <ArtifactPreview a={a} env={env} />
                   </div>
                )}
-               {tab === "image" && <ArtifactImage a={shown} env={env} shoot={shoot} />}
+               {tab === "image" && <ArtifactImage a={shown} env={env} shoot={shoot} rev={rev} />}
                {tab === "source" &&
                   (sharedId && !src ? (
                      <div className="h-16 animate-pulse rounded bg-muted" />
