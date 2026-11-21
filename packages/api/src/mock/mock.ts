@@ -338,6 +338,12 @@ export class MockTransport implements Transport {
       this.terminals.get(key)?.forEach((f) => f(bytes));
    }
 
+   /** The pretend shell's prompt: the Session's folder name. */
+   private shellPrompt(sessionId: string): string {
+      const folder = this.sessions.find((s) => s.id === sessionId)?.folder ?? "~";
+      return `\x1b[32m${folder.split("/").pop() || "~"}\x1b[0m $ `;
+   }
+
    /** @internal */
    terminalInput(sessionId: string, terminalId: number, data: string) {
       const key = `${sessionId}:${terminalId}`;
@@ -349,7 +355,10 @@ export class MockTransport implements Transport {
                this.emitApp({ type: "TerminalsChanged", session_id: sessionId });
                return;
             }
-            this.terminalOut(key, `\r\n${line ? `mock: ${line}\r\n` : ""}\x1b[32m~\x1b[0m $ `);
+            this.terminalOut(
+               key,
+               `\r\n${line ? `mock: ${line}\r\n` : ""}${this.shellPrompt(sessionId)}`,
+            );
             line = "";
          } else if (ch === "\x7f") {
             if (line) this.terminalOut(key, "\b \b");
@@ -374,9 +383,10 @@ export class MockTransport implements Transport {
       if (!set) {
          this.terminals.set(key, (set = new Set()));
          queueMicrotask(() =>
+            // A shell that already ran one command; typing `exit` ends it.
             this.terminalOut(
                key,
-               "Mock terminal (browser). Type `exit` to end.\r\n\x1b[32m~\x1b[0m $ ",
+               `${this.shellPrompt(sessionId)}git status --short\r\n M docs/guide.md\r\n M package.json\r\n M src/hello.ts\r\n D src/legacy.ts\r\n M src/server/router.ts\r\n?? README.md\r\n${this.shellPrompt(sessionId)}`,
             ),
          );
          this.emitApp({ type: "TerminalsChanged", session_id: sessionId });

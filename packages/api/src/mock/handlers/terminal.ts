@@ -12,7 +12,8 @@ export const terminalHandlers = {
          type: "Terminals",
          terminals: tabs.ids.map((id, i) => ({
             id,
-            title: `mock ${i + 1}`,
+            // Like the core: the shell's name and the tab's number.
+            title: `zsh ${i + 1}`,
             running: mock.terminals.has(`${cmd.session_id}:${id}`),
             busy: false,
          })),

@@ -8,6 +8,33 @@ const signIn = async (): Promise<CommandResult> => {
    return { type: "Ok" };
 };
 
+/** An Agent installed from the mock ACP Registry, as the core reports it. */
+export function registryAgent(entry: (typeof MOCK_REGISTRY)[number]): AgentInfo {
+   return {
+      id: entry.id,
+      name: entry.name,
+      command: entry.install_method ?? "",
+      args: [entry.id],
+      env: {},
+      source: { type: "registry", registry_id: entry.id },
+      version: entry.version,
+      icon: entry.icon,
+      install: {
+         sha256: null,
+         unverified: false,
+         previous: null,
+         held: false,
+         check: {
+            version: entry.version,
+            passed: true,
+            auth_required: false,
+            error: null,
+            at_ms: Date.now(),
+         },
+      },
+   };
+}
+
 export const agentsHandlers = {
    ListAgents: (mock) => {
       return { type: "Agents", agents: [...mock.installed] };
@@ -28,29 +55,7 @@ export const agentsHandlers = {
       if (!entry.install_method)
          throw new CommandError("agent_unavailable", "Agent is not installable on this machine");
       await new Promise((r) => setTimeout(r, 1500));
-      const agent: AgentInfo = {
-         id: entry.id,
-         name: entry.name,
-         command: entry.install_method,
-         args: [entry.id],
-         env: {},
-         source: { type: "registry", registry_id: entry.id },
-         version: entry.version,
-         icon: entry.icon,
-         install: {
-            sha256: null,
-            unverified: false,
-            previous: null,
-            held: false,
-            check: {
-               version: entry.version,
-               passed: true,
-               auth_required: false,
-               error: null,
-               at_ms: Date.now(),
-            },
-         },
-      };
+      const agent = registryAgent(entry);
       mock.installed = [...mock.installed.filter((a) => a.id !== agent.id), agent];
       mock.installedVersions.set(entry.id, entry.version);
       mock.emitApp({ type: "AgentsChanged" });

@@ -1,88 +1,134 @@
 # Harness
 
-A macOS desktop app that hosts ACP Agents (Claude, Codex, OpenCode, …) behind one UI-agnostic core. The Rust core owns the shared Primitives: Sessions, Threads, the Session Log, Workspaces and git, permissions, Agent installs, and the Harness MCP. Frontends are TypeScript and render purely from the Session Log, so the same Session can be shown as a chat, an event inspector, or something else entirely.
+A macOS desktop app to run ACP coding Agents (Claude, Codex, OpenCode and others) in one place. ACP (Agent Client Protocol) is an open protocol that lets an app talk to any AI coding Agent.
 
-Vocabulary: [GLOSSARY.md](GLOSSARY.md). Decisions: [docs/adr/](docs/adr/). Plan and status per milestone: [docs/plans/v1.md](docs/plans/v1.md). Acceptance checklist: [docs/plans/v1-acceptance.md](docs/plans/v1-acceptance.md).
+<img alt="Harness: the session sidebar, a chat with tool steps and a permission request, and a Plan panel" src="docs/images/readme/hero.png">
 
-## What it does
+## Why Harness
 
-- **Agents from the ACP Registry.** Install, update and remove Agents on a Harness-managed toolchain: pinned Node and uv with sha256-checked downloads. Custom Agents (any command) work too. Sign-in flows (agent or terminal auth) surface in the chat.
-- **Sessions with Workspaces.** Pick a folder, optionally a branch and a new Worktree (`harness/<slug>-<id>`). The Session tracks per-Turn file changes and has a diff panel with commit and push. Archiving a Worktree Session commits its WIP and removes the Worktree; deleting refuses unmerged work unless forced.
-- **Durable Session Log.** Every Session is an append-only JSONL log. Any number of Views (windows) replay and follow it live and render identically. Agent processes stop when idle, resume after restarts and crashes, and continue with a summary when an Agent can't resume.
-- **Permission Policy.** Rules by scope (global, Agent, Session), tool kind, and command prefix or path glob. "Always allow" becomes a Session rule. Plan approvals always ask.
-- **Harness MCP.** Agents get the git Primitives and their Frontend's tools (e.g. `render_ui`) over a loopback MCP server with per-session tokens. Agents without HTTP MCP use a stdio shim (`harness mcp-shim`). Your own MCP servers live in the MCP Library, with secrets in the Keychain.
-- **macOS niceties.** A dock badge and notifications when a Session needs you, and Sessions open in separate windows.
+- **Any ACP Agent in one app.** Install Claude, Codex, OpenCode or a Custom Agent. All Sessions look and work the same.
+- **Agents build UI with state for you.** With the `render_ui` tool, an Agent makes panels and cards (forms, charts, quizzes) that keep their own state.
+- **Agents can run other Agents.** One Agent can start Sub Sessions in other repositories, send them messages and get their results.
+- **A durable Session Log.** The Harness records each Session in its own log. Sessions survive app restarts, and any number of windows can show the same Session.
 
-## Run
+## Features
 
-Requirements: macOS 13+, Rust (stable), [Bun](https://bun.sh), git. You don't need Node or Python; the Harness downloads its own.
+### Readable Agent work
 
-```bash
-bun install
-bun run dev
+Tool calls show as short steps. Permission requests show inline with Allow and Deny, and your Permission Policy rules decide which requests ask you. Plans are versioned: you can comment on a Plan and approve it with Approve.
+
+### Agent-built UI with state
+
+Agents build panels and inline cards from a component catalog: stats, forms, steppers, charts, tables, HTML and SVG, and sandboxed JavaScript. Panels share one Session State, so a change in one panel updates another. A panel can also follow a Markdown or HTML file that the Agent writes. You can rename a panel, change its icon or delete it.
+
+<img alt="A quiz panel and a score card that share Session State" src="docs/images/readme/render-ui-state.png">
+
+<img alt="An inline render_ui card in the chat" src="docs/images/readme/render-ui-card.png">
+
+### Sub Sessions
+
+An Agent can start a Sub Session: a full Session with its own Agent, model, effort, folder and branch. The Agent can send it messages and wait for its reply. When the Sub Session finishes a Turn, the Harness tells the parent Agent. Sub Sessions show under their parent in the sidebar.
+
+<img alt="A parent Session with Sub Sessions nested under it in the sidebar" src="docs/images/readme/sub-sessions.png">
+
+### Side chats
+
+A side chat is a second conversation next to the main chat. It does not change the main chat's context. Start it with the full conversation or with nothing. Each side chat has its own tab, and you can reopen past side chats.
+
+<img alt="A side chat panel next to the main chat" src="docs/images/readme/side-chats.png">
+
+### Sessions, Workspaces and Worktrees
+
+To start a Session, pick a folder, a branch or pull request, and optionally a new Worktree (a separate git checkout only for this Session). A Quick Session needs no folder. The sidebar has search, sort, groups and a marker for Turns you have not seen.
+
+<img alt="The new Session dialog with folder, branch and Worktree options" src="docs/images/readme/new-session.png">
+
+### Review changes
+
+The Changes panel shows the files each Turn changed, and you can push from the Session header. Add Review Comments on diff lines. They stay in the Session Log, and the Agent can read and resolve them. You can also comment on selected text in the chat, in Plans and in artifacts.
+
+<img alt="The Changes panel with a diff and a Review Comment" src="docs/images/readme/changes.png">
+
+### Full diff window
+
+The diff window has a file tree, side-by-side or unified diffs and the Session's commit list. Cmd-click or Shift-click commits to combine them in one diff. Review Comments show inline.
+
+<img alt="The diff window with file tree, side-by-side diff and commit list" src="docs/images/readme/diff-window.png">
+
+### Pull requests
+
+Start a Session from a pull request. The Session header and the sidebar show the live PR status and checks. References like `owner/repo#123` show as chips, and the prompt box completes them. Agents can open a pull request with the `pr_create` tool.
+
+<img alt="PR chips in the chat and PR status in the Session header" src="docs/images/readme/pull-requests.png">
+
+### Artifacts
+
+The Artifacts panel collects what the Agent made: HTML, images, diagrams and tables. Make an artifact shared to use it in other Sessions.
+
+<img alt="The Artifacts panel with a diagram and a table" src="docs/images/readme/artifacts.png">
+
+### Tasks and notes
+
+The Agent shows its Task List (its live steps) in the chat. Tasks are your own work items. The Tasks view shows them across all Sessions, and Agents can read and add them. Each Session also has one Markdown note.
+
+<img alt="The Tasks view with tasks from several Sessions" src="docs/images/readme/tasks.png">
+
+### Terminal, Files and dockable panels
+
+Each Session has its own Terminal (toggle it with Cmd+J). The Files panel lets you browse, preview and comment on files. You can dock each panel in one of six Zones and move it by drag.
+
+<img alt="Terminal, Files and other panels docked around the chat" src="docs/images/readme/panels.png">
+
+### Quick Overlay
+
+A global shortcut opens a floating chat over any app. It starts a Quick Session and can include what you were looking at, such as the window title or selected text.
+
+<img alt="The Quick Overlay floating over another app" src="docs/images/readme/quick-overlay.png">
+
+### Agents from the ACP Registry
+
+Install, update and remove Agents from the ACP Registry (the public list of ACP Agents). The Harness runs them on its own toolchain: pinned Node and uv versions, with sha256-checked downloads. You do not need Node or Python on your Mac. You can also add a Custom Agent with any command. Agent sign-in shows in the chat.
+
+<img alt="The Agents settings with installed and available Agents" src="docs/images/readme/agents.png">
+
+### Make it yours
+
+Pick a theme: the built-in Harness theme or a tweakcn preset, in light or dark. Write Custom Instructions for all Sessions or for one repository. Set Permission Policy rules and Git settings such as the Worktree folder and the branch prefix.
+
+<img alt="The Settings dialog with theme options" src="docs/images/readme/settings.png">
+
+### Also
+
+- A dock badge and notifications when a Session needs you.
+- Opt-in updates: the app tells you about a new release and installs it only when you agree.
+- MCP Library: add your own MCP servers once and pick them per Session. Secrets stay in the macOS Keychain.
+- Harness MCP: the Harness gives every Agent git tools and its Frontend's tools. Agents without HTTP MCP use a stdio shim (`harness mcp-shim`).
+- Inspector Frontend: a raw view of the Session Log.
+- Back and forward navigation in the app.
+
+## Install
+
+1. Download the `.dmg` from the [latest release](https://github.com/dswbx/harness/releases/latest). It is a universal build for Apple silicon and Intel Macs, and needs macOS 13 or later.
+2. Drag Harness to Applications.
+3. Release builds are ad-hoc signed and not notarized, so macOS blocks the first open. Open **System Settings → Privacy & Security** and click **Open Anyway**. Or run `xattr -dr com.apple.quarantine /Applications/Harness.app`.
+
+First steps: open **Agents**, install Claude or Codex, click **New Session**, pick a folder and chat. Sign in when the Agent asks.
+
+## How it works
+
+Agents run as separate processes and talk to the Harness over ACP. A Rust core owns the shared parts: Sessions, the Session Log, Workspaces and git, the Permission Policy, Agent installs and the Harness MCP. The core writes every Event of a Session to its Session Log, an append-only JSONL file. Frontends are TypeScript and render only from the Session Log. So the same Session can show as a chat, as a raw event list in the Inspector, or in a new Frontend.
+
+```mermaid
+flowchart LR
+  A["Agents<br/>Claude, Codex, OpenCode, custom"] <-->|ACP| C["Rust core<br/>Sessions, Session Log, git,<br/>Permission Policy, Harness MCP"]
+  C -->|Events from the Session Log| F["Frontends<br/>chat, inspector"]
+  F -->|Commands| C
 ```
 
-The Vite dev server uses port 1420, or the next free one if that is taken (so several checkouts can run at once). It also runs in a plain browser (`bun run --cwd app dev`) with a mock transport (no core), which is handy for UI work.
+Terms: [GLOSSARY.md](GLOSSARY.md). Decisions: [docs/adr/](docs/adr/).
 
-First steps in the app: **Agents** → install Claude or Codex → **New Session** → pick a folder → chat. Sign in when the Agent asks.
+## Development
 
-## Layout
+You need macOS 13+, Rust (stable), [Bun](https://bun.sh) and git. Run `bun install`, then `bun run dev`. `bun run screenshots` makes the README images again from the browser mock with Playwright.
 
-| Path                                                    | What                                                                                                                    |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `crates/harness-core`                                   | The core: Commands in, Events out (`src/api/`). No Tauri dependency.                                                    |
-| `crates/harness-tauri`                                  | Tauri adapter: IPC (`execute`, Session and app subscriptions), windows, badge and notifications, `mcp-shim` subcommand. |
-| `crates/fake-agent`                                     | Scripted ACP agent (and MCP client) for deterministic tests.                                                            |
-| `packages/api`                                          | `@harness/api`: generated types, transports (Tauri, mock), client.                                                      |
-| `packages/ui`                                           | `@harness/ui`: shared components (Tailwind v4, shadcn style).                                                           |
-| `packages/frontend-chat`, `packages/frontend-inspector` | Frontends: a manifest plus a React module. They may import only `@harness/api` and `@harness/ui`.                       |
-| `app`                                                   | The shell: sidebar, Composer, Agents, MCP and permission dialogs, View host.                                            |
-
-## Writing a Frontend
-
-A Frontend is a package with a `manifest.json` (`id`, `name`, `version`, `frontend_tools`) and a React View that gets a `SessionApi`. It is a pure reducer over Events, so replay and live use the same code. Frontend Tools are declared in TS with [jsonv-ts](https://www.npmjs.com/package/jsonv-ts) and written into the manifest by `bun run gen-manifests`. The core validates every call against that JSON Schema before storing it in the Session's `frontend/` directory and emitting `FrontendToolOutput`. See `packages/frontend-chat/src/features/renderUi/tools.ts`.
-
-## Test
-
-```bash
-cargo test -p harness-core
-bun run typecheck
-bun run test
-HARNESS_LIVE=1 cargo test -p harness-core --test live -- --test-threads=1
-```
-
-The first runs unit tests plus integration tests against the fake agent and temp git repos. The second runs TS types plus the import-boundary and manifest checks. The third runs live smoke tests against real Claude and Codex; it needs logins and spends tokens.
-
-Headless runs against a real Agent:
-
-```bash
-SMOKE_INSTALL=1 cargo run -q -p harness-core --example smoke -- claude-acp <folder> "<prompt>"
-```
-
-## Release
-
-```bash
-bun run bundle
-```
-
-This builds `target/release/bundle/macos/Harness.app` and a `.dmg`. Signing and notarization are driven by environment variables, so no secrets live in the repo:
-
-| Variable                                                              | Purpose                                                            |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `APPLE_SIGNING_IDENTITY`                                              | e.g. `Developer ID Application: Name (TEAMID)`, from your keychain |
-| `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID` | Notarization                                                       |
-
-Without them the build is unsigned, which is fine locally: right-click → Open the first time. Hardened runtime is on. The app doesn't use the App Sandbox, because it spawns Agents, git and the toolchain.
-
-## Data
-
-Everything lives under `~/.harness/`. Dev builds use `~/.harness-dev/` instead. `HARNESS_HOME` overrides both. `bun run dev:copy-data` replaces the dev data with a copy of the real data (without worktrees).
-
-| Path                                                                 | Contents                                                            |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `sessions/<id>/`                                                     | `session.json`, `log.jsonl`, `frontend/`                            |
-| `worktrees/<id>/`                                                    | Worktrees                                                           |
-| `agents/`, `toolchain/`                                              | Installed Agents and runtimes                                       |
-| `agents.json`, `permissions.json`, `mcp.json`, `registry-cache.json` | Agent records, Permission Policy rules, MCP Library, registry cache |
-
-MCP Library secrets are in the Keychain under `dev.dswbx.harness.mcp`.
+Layout, tests, release and data folders: [docs/development.md](docs/development.md).

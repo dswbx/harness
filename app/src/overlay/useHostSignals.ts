@@ -1,3 +1,4 @@
+import { inTauri } from "@harness/api";
 import { type Dispatch, useEffect, useState } from "react";
 import { listenHost, type OverlayAnchor, overlayHost } from "./overlayHost";
 import type { OverlayAction } from "./overlayMode";
@@ -26,5 +27,10 @@ export function useHostSignals(dispatch: Dispatch<OverlayAction>) {
    );
    // biome-ignore lint/correctness/useExhaustiveDependencies: dispatch is the reducer's, stable
    useEffect(() => listenHost("overlay-shortcut", () => dispatch({ type: "shortcut" })), []);
+   // The browser mock (`?overlay=1`) has no host to show the window: it shows at once.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: dispatch is the reducer's, stable
+   useEffect(() => {
+      if (!inTauri()) dispatch({ type: "shown" });
+   }, []);
    return { shown, anchor };
 }
