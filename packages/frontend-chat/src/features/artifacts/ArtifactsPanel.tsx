@@ -627,6 +627,7 @@ function sharedArtifact(r: SharedRow, meta: SharedArtifactMeta | undefined): Art
       // Attached only: its own panel, `shared:<id>` (`splitRenderUi`).
       slotId: r.artifact ? r.artifact.slotId : `shared:${r.id}`,
       ts: meta?.updated_ms ?? r.ts,
+      panelTs: r.artifact?.ts ?? r.ts,
       turn: r.artifact?.turn ?? 0,
       prompt: r.artifact?.prompt ?? "",
       source: "",

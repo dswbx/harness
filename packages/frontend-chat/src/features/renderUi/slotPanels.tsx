@@ -12,7 +12,7 @@ import { artifactsPanel } from "../artifacts/panel";
 import { renderUiOf } from "../conversation/chatRows";
 import { quotableAttrs } from "../review/SelectionComment";
 import { DeletePanelDialog } from "./DeletePanelDialog";
-import { addedPanelId, closePanel, useDockedPanels } from "./dockedPanels";
+import { addedPanelId, closePanel, isClosed, useDockedPanels } from "./dockedPanels";
 import { EditPanelPopover } from "./EditPanelPopover";
 import { iconFor } from "./panelIcon";
 import { RenderUi, type UiEnv } from "./RenderUi";
@@ -247,8 +247,8 @@ export type SlotsModel = {
    /** Ids of the panels with a change dot (changed while closed). */
    dots: ReadonlySet<string>;
    updatedAt: (slot: Slot) => number;
-   /** Takes panel `id` out of the dock (`dockedPanels`). */
-   close: (id: string) => void;
+   /** Takes panel `id`, last called at `ts`, out of the dock (`dockedPanels`). */
+   close: (id: string, ts: number) => void;
 };
 
 const NO_METAS: ReadonlyMap<string, SharedArtifactMeta> = new Map();
@@ -267,7 +267,8 @@ export const slotPanels = definePanelFamily<SlotsModel>({
       const { left, right } = renderUiOf(state.items, state.sharedAttached, state.panelEdits).slots;
       const metas = host.sharedMetas ?? NO_METAS;
       const docked = useDockedPanels(api.sessionId);
-      const { closed, added: addedKeys } = docked.value;
+      const { added: addedKeys } = docked.value;
+      const dockedNow = docked.value;
       // Artifacts the user made into panels (only read when there are any).
       const added = useMemo(() => {
          if (addedKeys.length === 0) return [];
@@ -314,7 +315,7 @@ export const slotPanels = definePanelFamily<SlotsModel>({
                ? { ...slot, title: title || slot.title, icon }
                : slot;
          };
-         const shown = (slot: Slot) => !closed.includes(slot.id);
+         const shown = (slot: Slot) => !isClosed(dockedNow, slot.id, slot.ts);
          const ids = new Set([...left, ...right].map((x) => x.id));
          return [
             ...left.filter(shown).map((slot): Placed => ({ slot: titled(slot), side: "left" })),
@@ -324,7 +325,7 @@ export const slotPanels = definePanelFamily<SlotsModel>({
                .filter((slot) => !ids.has(slot.id))
                .map((slot): Placed => ({ slot: titled(slot), side: "right" })),
          ];
-      }, [left, right, added, closed, metas]);
+      }, [left, right, added, dockedNow, metas]);
 
       // File-backed panels (ADR 0023): their files' hashes and write times.
       const sourceNames = useMemo(
@@ -363,13 +364,13 @@ export const slotPanels = definePanelFamily<SlotsModel>({
 
       const [openedAt] = useState(() => Date.now());
       // Read in the effect only: closing or reopening a panel is no reason to show the newest.
-      const closedRef = useRef(closed);
-      closedRef.current = closed;
+      const dockedRef = useRef(dockedNow);
+      dockedRef.current = dockedNow;
       // From all panels, closed ones too: closing the newest must not open the one before it.
       const newest = useMemo(() => lastSlot([...left, ...right, ...added]), [left, right, added]);
       useEffect(() => {
          const slot = slotToAutoOpen(newest, openedAt);
-         if (slot && !closedRef.current.includes(slot.id)) open(slotRef(slot.id));
+         if (slot && !isClosed(dockedRef.current, slot.id, slot.ts)) open(slotRef(slot.id));
       }, [newest?.id, newest?.ts, openedAt, open]);
 
       // The dots depend on which panel is open now (read here, in the render).
@@ -379,7 +380,10 @@ export const slotPanels = definePanelFamily<SlotsModel>({
          .join("\n");
       const dots = useMemo(() => new Set(dotIds ? dotIds.split("\n") : []), [dotIds]);
       const { update } = docked;
-      const close = useCallback((id: string) => update((d) => closePanel(d, id)), [update]);
+      const close = useCallback(
+         (id: string, ts: number) => update((d) => closePanel(d, id, ts)),
+         [update],
+      );
       return useMemo(
          () => ({
             placed,
@@ -432,7 +436,7 @@ export const slotPanels = definePanelFamily<SlotsModel>({
             onDelete={sharedId || madeHere ? undefined : () => api.deletePanel(slot.id)}
             onClose={() => {
                ctx.hide(slotRef(slot.id));
-               model.close(slot.id);
+               model.close(slot.id, slot.ts);
             }}
             onShare={
                sharedId || madeHere

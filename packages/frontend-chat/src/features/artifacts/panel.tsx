@@ -83,7 +83,7 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
       }, [toOpen, ctx]);
       const panels = useMemo<PanelActions>(
          () => ({
-            idOf: (a) => panelIdOf(a, docked.value),
+            idOf: (a) => panelIdOf({ ...a, ts: a.panelTs ?? a.ts }, docked.value),
             open: (a) => {
                const { next, id } = openAsPanel(docked.value, a.key, placedPanelId(a));
                docked.update(() => next);
@@ -93,7 +93,7 @@ export const artifactsPanel = definePanel<ArtifactsModel, string>({
                const id = panelIdOf(a, docked.value);
                if (!id) return;
                ctx.hide(slotRef(id));
-               docked.update((d) => closePanel(d, id));
+               docked.update((d) => closePanel(d, id, a.panelTs ?? a.ts));
             },
          }),
          [docked, ctx],
