@@ -29,9 +29,14 @@ async function typeIn(el: HTMLElement, text: string) {
 
 async function setup(
    id: string,
-   o: { session?: string; sessions?: ReadonlyMap<string, SessionInfo> } = {},
+   o: {
+      session?: string;
+      sessions?: ReadonlyMap<string, SessionInfo>;
+      edit?: (mock: MockTransport) => void;
+   } = {},
 ) {
    const mock = new MockTransport([], []);
+   o.edit?.(mock);
    const api = new HarnessClient(mock).sessionApi(o.session ?? "mock-1");
    const tasks = await api.listTasks();
    const onClose = vi.fn();
@@ -44,7 +49,6 @@ async function setup(
             tasks={tasks}
             host={{}}
             sessions={o.sessions}
-            onBack={onClose}
             onClose={onClose}
             onOpen={onOpen}
          />
@@ -147,5 +151,184 @@ describe("Description", () => {
       await act(async () => fireEvent.focusOut(body));
       await waitFor(() => expect(update).toHaveBeenCalledWith("t1", { body: "Ship it." }, loaded));
       await waitFor(async () => expect((await api.readTask("t1")).body).toBe("Ship it."));
+   });
+});
+
+describe("Properties", () => {
+   it("adds, edits and removes a property, checking key and value first", async () => {
+      const { api } = await setup("t8");
+      const update = vi.spyOn(api, "updateTask");
+      const props = screen.getByRole("region", { name: "Properties" });
+      expect(within(props).getByRole("button", { name: "Edit team: tools" })).toBeTruthy();
+
+      fireEvent.click(within(props).getByRole("button", { name: "Add property" }));
+      const key = within(props).getByRole("textbox", { name: "Property key" });
+      const value = within(props).getByRole("textbox", { name: "Property value" });
+      // Upper case is not a valid key: refused here, nothing is sent.
+      fireEvent.change(key, { target: { value: "Area" } });
+      fireEvent.change(value, { target: { value: "build" } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(within(props).getByRole("alert").textContent).toContain("Key: 1 to 32");
+      fireEvent.change(key, { target: { value: "team" } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(within(props).getByRole("alert").textContent).toContain("already has team");
+      fireEvent.change(key, { target: { value: "area" } });
+      fireEvent.change(value, { target: { value: "x".repeat(65) } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(within(props).getByRole("alert").textContent).toContain("Value: 1 to 64");
+      expect(update).not.toHaveBeenCalled();
+      fireEvent.change(value, { target: { value: " build " } });
+      fireEvent.keyDown(value, { key: "Enter" });
+      expect(update).toHaveBeenLastCalledWith("t8", { props: { team: "tools", area: "build" } });
+      await waitFor(() =>
+         expect(within(props).getByRole("button", { name: "Edit area: build" })).toBeTruthy(),
+      );
+
+      fireEvent.click(within(props).getByRole("button", { name: "Edit team: tools" }));
+      const edit = within(props).getByRole("textbox", { name: "Value of team" });
+      fireEvent.change(edit, { target: { value: "infra" } });
+      fireEvent.keyDown(edit, { key: "Enter" });
+      expect(update).toHaveBeenLastCalledWith("t8", { props: { team: "infra", area: "build" } });
+      await waitFor(() =>
+         expect(within(props).getByRole("button", { name: "Edit team: infra" })).toBeTruthy(),
+      );
+
+      fireEvent.click(within(props).getByRole("button", { name: "Remove area" }));
+      expect(update).toHaveBeenLastCalledWith("t8", { props: { team: "infra" } });
+      await waitFor(async () =>
+         expect((await api.readTask("t8")).props).toEqual({ team: "infra" }),
+      );
+      await waitFor(() =>
+         expect(within(props).queryByRole("button", { name: /^Edit area/ })).toBeNull(),
+      );
+      expect(update).toHaveBeenCalledTimes(3);
+   });
+});
+
+describe("Dependencies", () => {
+   it("lists Blocked by and Blocks, and a click opens the linked task", async () => {
+      const { onOpen } = await setup("t14");
+      const blockedBy = screen.getByRole("region", { name: "Blocked by" });
+      expect(blockedBy.textContent).toContain("Blocked by · 1");
+      expect(within(blockedBy).getByText("Measure cold vs warm build")).toBeTruthy();
+      const blocks = screen.getByRole("region", { name: "Blocks" });
+      expect(blocks.textContent).toContain("Blocks · 2");
+      // No × on the other side: those deps belong to the waiting tasks.
+      expect(within(blocks).queryByRole("button", { name: /^Remove link/ })).toBeNull();
+      fireEvent.click(within(blocks).getByText("Fix the updater signature check"));
+      expect(onOpen).toHaveBeenCalledWith("t3");
+      // t13 is done: nothing open to wait on.
+      expect(screen.queryByText(/waits on/)).toBeNull();
+   });
+
+   it("shows waits on N and the follow-ups of a task", async () => {
+      await setup("t4");
+      // t4 waits on t3 (open) and follows t2.
+      expect(screen.getByText("waits on 1")).toBeTruthy();
+      const follows = screen.getByRole("group", { name: "Follows" });
+      expect(within(follows).getByText("Write the changelog")).toBeTruthy();
+   });
+
+   it("adds a dep from the picker, with loops disabled, and removes one", async () => {
+      const { api } = await setup("t14");
+      const update = vi.spyOn(api, "updateTask");
+      fireEvent.click(screen.getByRole("button", { name: "Add dependency" }));
+      const list = await waitFor(() => screen.getByRole("listbox", { name: "Tasks" }));
+      // t4 waits on t3, which waits on t14: a dep on t4 would make a loop.
+      const loop = within(list).getByRole("option", { name: /Tag and publish the build/ });
+      expect(loop.getAttribute("aria-disabled")).toBe("true");
+      expect(loop.textContent).toContain("would make a loop");
+      fireEvent.click(loop);
+      expect(update).not.toHaveBeenCalled();
+      // Already linked: not listed. Itself: not listed.
+      expect(within(list).queryByRole("option", { name: /Measure cold vs warm build/ })).toBeNull();
+      expect(within(list).queryByRole("option", { name: /CARGO_TARGET_DIR/ })).toBeNull();
+
+      fireEvent.click(screen.getByRole("radio", { name: "follow-up" }));
+      fireEvent.click(within(list).getByRole("option", { name: /Check disk use after a week/ }));
+      // t15 waits on t14: a loop too, so pick one that does not.
+      expect(update).not.toHaveBeenCalled();
+      fireEvent.click(within(list).getByRole("option", { name: /Try the new Biome rules/ }));
+      expect(update).toHaveBeenLastCalledWith("t14", {
+         deps: [
+            { id: "t13", kind: "blocks" },
+            { id: "t8", kind: "follow_up" },
+         ],
+      });
+      const follows = await waitFor(() => screen.getByRole("group", { name: "Follows" }));
+      expect(within(follows).getByText("Try the new Biome rules")).toBeTruthy();
+
+      fireEvent.click(
+         screen.getByRole("button", { name: "Remove link to Measure cold vs warm build" }),
+      );
+      expect(update).toHaveBeenLastCalledWith("t14", { deps: [{ id: "t8", kind: "follow_up" }] });
+      await waitFor(async () =>
+         expect((await api.readTask("t14")).deps).toEqual([{ id: "t8", kind: "follow_up" }]),
+      );
+   });
+
+   it("two quick removes both stick: the second builds on the first", async () => {
+      const { api } = await setup("t4");
+      const real = api.updateTask.bind(api);
+      let release = () => {};
+      const held = new Promise<void>((r) => {
+         release = r;
+      });
+      // Replies come only after both clicks.
+      const update = vi.spyOn(api, "updateTask").mockImplementation(async (...a) => {
+         await held;
+         return real(...a);
+      });
+      const region = screen.getByRole("region", { name: "Blocked by" });
+      fireEvent.click(
+         within(region).getByRole("button", {
+            name: "Remove link to Fix the updater signature check",
+         }),
+      );
+      fireEvent.click(
+         within(region).getByRole("button", { name: "Remove link to Write the changelog" }),
+      );
+      expect(update.mock.calls.map((c) => c[1])).toEqual([
+         { deps: [{ id: "t2", kind: "follow_up" }] },
+         { deps: [] },
+      ]);
+      await act(async () => release());
+      await waitFor(async () => expect((await api.readTask("t4")).deps).toEqual([]));
+      await waitFor(() => expect(within(region).getByText("Waits on no task.")).toBeTruthy());
+   });
+
+   it("shows the saved deps again when a change fails", async () => {
+      const { api } = await setup("t4");
+      vi.spyOn(api, "updateTask").mockRejectedValueOnce(new Error("disk full"));
+      const region = screen.getByRole("region", { name: "Blocked by" });
+      fireEvent.click(
+         within(region).getByRole("button", { name: "Remove link to Write the changelog" }),
+      );
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("disk full"));
+      await waitFor(() => expect(within(region).getByText("Write the changelog")).toBeTruthy());
+   });
+
+   it("lists a dep on a deleted task as missing, and leaves it out of every change", async () => {
+      const { api } = await setup("t4", {
+         edit: (m) => {
+            const t4 = m.tasks.get("t4");
+            if (t4) t4.deps = [...(t4.deps ?? []), { id: "t99", kind: "blocks" }];
+         },
+      });
+      const update = vi.spyOn(api, "updateTask");
+      const region = screen.getByRole("region", { name: "Blocked by" });
+      expect(within(region).getByText("t99 · missing")).toBeTruthy();
+      // Another change drops it, so the core does not refuse the list.
+      fireEvent.click(
+         within(region).getByRole("button", {
+            name: "Remove link to Fix the updater signature check",
+         }),
+      );
+      expect(update).toHaveBeenLastCalledWith("t4", { deps: [{ id: "t2", kind: "follow_up" }] });
+      await waitFor(async () =>
+         expect((await api.readTask("t4")).deps).toEqual([{ id: "t2", kind: "follow_up" }]),
+      );
+      await waitFor(() => expect(within(region).queryByText("t99 · missing")).toBeNull());
+      expect(screen.queryByRole("alert")).toBeNull();
    });
 });

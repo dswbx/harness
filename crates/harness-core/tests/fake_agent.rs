@@ -1788,6 +1788,8 @@ async fn task_fixture(h: &Harness, origin: &str) -> String {
         priority: None,
         due: None,
         upstream: (title == "Fix the cache").then(|| TaskUpstream { url: "https://linear.app/x/issue/LIN-487".into(), label: Some("LIN-487".into()) }),
+        deps: Vec::new(),
+        props: Default::default(),
     };
     let id = |r: CommandResult| match r {
         CommandResult::Task { task } => task.id,

@@ -482,7 +482,7 @@ origin?: string | null } | { type: "AttachSharedArtifact"; session_id: string; i
 /**  A new Task, last among its siblings. With `session_id`, that Session is its origin. */
 { type: "CreateTask"; title: string; body?: string | null; parent_id?: string | null; session_id?: string | null; status?: TaskStatus | null; priority?: TaskPriority | null; 
 /**  `YYYY-MM-DD`. */
-due?: string | null; upstream?: TaskUpstream | null } | 
+due?: string | null; upstream?: TaskUpstream | null; deps?: TaskDep[]; props?: { [key in string]: string } } | 
 /**
  *  Changes a Task's fields. A `patch.body` is refused (`conflict`) when the body changed after
  *  `base_updated_ms` (the `updated_ms` the editor loaded).
@@ -1385,6 +1385,10 @@ export type Task = {
 	body_updated_ms: number,
 	/**  The last 100 entries, oldest first. */
 	activity: TaskActivity[],
+	/**  The tasks this task waits on or follows, in the order given (ADR 0029). */
+	deps?: TaskDep[],
+	/**  Properties: free key-value pairs (ADR 0029). */
+	props?: { [key in string]: string },
 };
 
 export type TaskActivity = {
@@ -1397,7 +1401,9 @@ export type TaskActivity = {
 
 export type TaskActivityKind = { type: "created" } | 
 /**  The parent changed (`None`: no parent). */
-{ type: "moved"; from: string | null; to: string | null } | { type: "status_changed"; from: TaskStatus; to: TaskStatus } | { type: "session_started"; session_id: string };
+{ type: "moved"; from: string | null; to: string | null } | { type: "status_changed"; from: TaskStatus; to: TaskStatus } | { type: "session_started"; session_id: string } | 
+/**  A Dependency on `id` was added, or its kind changed. */
+{ type: "dep_added"; id: string; kind: TaskDepKind } | { type: "dep_removed"; id: string } | { type: "props_changed" };
 
 /**  A file in the task's `files/` folder; `name` is its file name there. */
 export type TaskAsset = {
@@ -1420,6 +1426,20 @@ export type TaskContextParts = {
 	origin_transcript?: boolean,
 };
 
+/**  A Dependency, stored only on the task that waits (ADR 0029). */
+export type TaskDep = {
+	/**  The other task. */
+	id: string,
+	kind: TaskDepKind,
+};
+
+/**  How a task depends on another (ADR 0029). */
+export type TaskDepKind = 
+/**  This task cannot be done before the other one. */
+"blocks" | 
+/**  This task comes after the other one, but does not wait on it. */
+"follow_up";
+
 export type TaskEntry = {
 	content: string,
 	priority: string,
@@ -1440,6 +1460,10 @@ export type TaskPatch = {
 	upstream?: TaskUpstream | null,
 	/**  Fields set to none (applied before the values above). */
 	clear?: TaskField[],
+	/**  Replaces all Dependencies. */
+	deps?: TaskDep[] | null,
+	/**  Replaces all Properties. */
+	props?: { [key in string]: string } | null,
 };
 
 export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
@@ -1469,6 +1493,8 @@ export type TaskSummary = {
 	id: string,
 	title: string,
 	has_body: boolean,
+	/**  The start of the body as plain text, at most 160 characters; empty for an empty body. */
+	excerpt: string,
 	status: TaskStatus,
 	priority: TaskPriority,
 	due: string | null,
@@ -1481,6 +1507,8 @@ export type TaskSummary = {
 	assets: TaskAsset[],
 	created_ms: number,
 	updated_ms: number,
+	deps: TaskDep[],
+	props: { [key in string]: string },
 };
 
 /**  The task's item in another tracker (Linear, GitHub, ...). */

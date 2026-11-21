@@ -136,6 +136,14 @@ _Avoid_: todo, ticket, issue (for a Task), Task List
 A Task that has subtasks; not a separate thing, only a Task with children (ADR 0028).
 _Avoid_: project, epic, folder
 
+**Dependency**:
+A Task's link to another Task it waits on (`blocks`) or comes after (`follow_up`), stored only on the waiting Task; loops are refused (ADR 0029).
+_Avoid_: edge, relation, link
+
+**Property**:
+A free key-value pair on a Task, such as `component: spark-platform`; views can group Tasks by any key (ADR 0029).
+_Avoid_: label, tag, custom field
+
 **Session Note**:
 The one Markdown note of a Session, typed by the user and stored as `note.md` in the Session Directory; not part of the Session Log, and the Agent reads it but does not write it (ADR 0028).
 _Avoid_: scratchpad, memo, Plan

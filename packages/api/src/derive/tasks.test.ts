@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { TaskStatus } from "../generated";
+import type { TaskDep, TaskStatus } from "../generated";
 import {
+   blockedBy,
+   blocks,
    childrenOf,
    dueCount,
+   followedBy,
+   followsOf,
    isOverdue,
    localDay,
+   openBlockers,
    openCount,
+   propKeys,
    topicProgress,
    upstreamId,
    webLink,
+   wouldLoop,
 } from "./tasks";
 
 const t = (
@@ -98,5 +105,63 @@ describe("webLink", () => {
       ["  ", null],
    ])("%s", (input, out) => {
       expect(webLink(input)).toBe(out);
+   });
+});
+
+describe("dependencies", () => {
+   const g = (
+      id: string,
+      deps: TaskDep[] = [],
+      status: TaskStatus = "todo",
+      props: Record<string, string> = {},
+   ) => ({ id, deps, status, props });
+   const b = (id: string): TaskDep => ({ id, kind: "blocks" });
+   const f = (id: string): TaskDep => ({ id, kind: "follow_up" });
+   // a <- b <- c (b waits on a, c waits on b); d follows a; c also waits on a missing task.
+   const tasks = [
+      g("a", [], "done", { component: "alpha" }),
+      g("b", [b("a")], "in_progress", { component: "beta", area: "x" }),
+      g("c", [b("b"), b("gone"), f("a")]),
+      g("d", [f("a"), b("c")], "todo", { component: "alpha" }),
+   ];
+
+   it("blockedBy and blocks", () => {
+      expect(blockedBy(tasks, "c").map((x) => x.id)).toEqual(["b"]);
+      expect(blocks(tasks, "a").map((x) => x.id)).toEqual(["b"]);
+      expect(blocks(tasks, "c").map((x) => x.id)).toEqual(["d"]);
+      expect(blockedBy(tasks, "nope")).toEqual([]);
+   });
+
+   it("followsOf and followedBy", () => {
+      expect(followsOf(tasks, "d").map((x) => x.id)).toEqual(["a"]);
+      expect(followedBy(tasks, "a").map((x) => x.id)).toEqual(["c", "d"]);
+      expect(followsOf(tasks, "b")).toEqual([]);
+   });
+
+   it("openBlockers counts blockers not done or cancelled", () => {
+      expect(openBlockers(tasks, "b")).toBe(0);
+      expect(openBlockers(tasks, "c")).toBe(1);
+      expect(openBlockers([...tasks, g("e", [b("a"), b("c")])], "e")).toBe(1);
+      expect(openBlockers([g("x", [b("y")]), g("y", [], "cancelled")], "x")).toBe(0);
+   });
+
+   it("wouldLoop sees self, direct and long loops of either kind", () => {
+      expect(wouldLoop(tasks, "a", "a")).toBe(true);
+      expect(wouldLoop(tasks, "a", "b")).toBe(true);
+      expect(wouldLoop(tasks, "a", "d")).toBe(true);
+      expect(wouldLoop(tasks, "b", "d")).toBe(true);
+      expect(wouldLoop(tasks, "d", "a")).toBe(false);
+      expect(wouldLoop(tasks, "c", "a")).toBe(false);
+      expect(wouldLoop(tasks, "a", "zzz")).toBe(false);
+   });
+
+   it("wouldLoop stops on bad data with a loop", () => {
+      const bad = [g("p", [b("q")]), g("q", [b("p")]), g("r")];
+      expect(wouldLoop(bad, "r", "p")).toBe(false);
+   });
+
+   it("propKeys is sorted and unique", () => {
+      expect(propKeys(tasks)).toEqual(["area", "component"]);
+      expect(propKeys([])).toEqual([]);
    });
 });

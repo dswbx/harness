@@ -36,6 +36,7 @@ afterEach(() => {
       else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
    }
    vi.restoreAllMocks();
+   vi.unstubAllGlobals();
 });
 
 function setup(first: string | null = null, seed?: (tasks: Map<string, Task>) => void) {
@@ -212,5 +213,66 @@ describe("All tasks view", () => {
       expect(rendered).toBeGreaterThan(VIEWPORT / ROW / 2);
       expect(rendered).toBeLessThan(100);
       expect(screen.queryByRole("button", { name: `Bulk task ${N - 1}` })).toBeNull();
+   });
+
+   it("groups by a prop key from the group menu, with No <key> last, and keeps the choice", async () => {
+      // The group-by is a stored value: give it a storage.
+      const mem = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+         getItem: (k: string) => mem.get(k) ?? null,
+         setItem: (k: string, v: string) => void mem.set(k, String(v)),
+         removeItem: (k: string) => void mem.delete(k),
+      });
+      setup();
+      await waitFor(() => topic("Header polish"));
+      fireEvent.keyDown(screen.getByRole("button", { name: "Topic" }), { key: "Enter" });
+      // The fields, then the prop keys in use.
+      expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual([
+         "Status",
+         "Topic",
+         "Session",
+         "component",
+         "team",
+      ]);
+      fireEvent.click(screen.getByRole("menuitemradio", { name: "component" }));
+      await waitFor(() => expect(groupOf("Truncate long branch names")).toBe("=console"));
+      const heads = [...document.querySelectorAll<HTMLElement>("[data-group-head]")].map(
+         (h) => h.dataset.groupHead,
+      );
+      expect(heads).toEqual(["console", "docs", "engine", "engine-api", "No component"]);
+      expect(groupOf("Try the new Biome rules")).toBe("none");
+      expect(mem.get("harness.tasks.groupBy")).toBe("prop:component");
+      cleanup();
+      setup();
+      await waitFor(() => expect(groupOf("Truncate long branch names")).toBe("=console"));
+   });
+
+   it("Graph: the filtered tasks in lanes of the group-by; a click selects and floats the preview", async () => {
+      const mem = new Map<string, string>([["harness.tasks.groupBy", "prop:component"]]);
+      vi.stubGlobal("localStorage", {
+         getItem: (k: string) => mem.get(k) ?? null,
+         setItem: (k: string, v: string) => void mem.set(k, String(v)),
+         removeItem: (k: string) => void mem.delete(k),
+      });
+      const { onSelect } = setup();
+      await waitFor(() => screen.getByRole("tab", { name: "Graph" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+      expect(mem.get("harness.tasks.view")).toBe("graph");
+      const card = (id: string) => document.querySelector<HTMLElement>(`[data-graph-card="${id}"]`);
+      await waitFor(() => expect(card("t14")).toBeTruthy());
+      const lanes = [...document.querySelectorAll<HTMLElement>("[data-lane]")].map(
+         (l) => l.dataset.lane,
+      );
+      expect(lanes).toEqual(["console", "docs", "engine", "engine-api", "No component"]);
+      // The status filter is open: the done t13 does not show.
+      expect(card("t13")).toBeNull();
+      expect(screen.getByRole("button", { name: "Lines: blocks, follow-ups" })).toBeTruthy();
+      fireEvent.click(within(card("t14")!).getByRole("button"));
+      expect(onSelect).toHaveBeenCalledWith("t14");
+      await waitFor(() => screen.getByRole("complementary", { name: "Task preview" }));
+      expect(card("t14")!.getAttribute("aria-current")).toBe("true");
+      // Its chain stays (t3 waits on it), the rest fades.
+      expect(card("t3")!.dataset.faded).toBeUndefined();
+      expect(card("t9")!.dataset.faded).toBe("true");
    });
 });

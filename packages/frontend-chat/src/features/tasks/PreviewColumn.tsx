@@ -49,7 +49,6 @@ export function PreviewColumn({
             tasks={tasks}
             host={host}
             sessions={sessions}
-            onBack={onClose}
             onClose={onClose}
             onOpen={onOpen}
          />
