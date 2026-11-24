@@ -265,6 +265,43 @@ export function tableRows(
    return out;
 }
 
+/**
+ * The text of `range` inside `table`, as a spreadsheet pastes it: a tab between cells, a newline between rows.
+ * A plain copy joins the cells with nothing between them.
+ */
+export function tableSelectionText(table: HTMLTableElement, range: Range): string {
+   const lines: string[] = [];
+   for (const row of table.rows) {
+      if (!range.intersectsNode(row)) continue;
+      const cells: string[] = [];
+      for (const cell of row.cells) {
+         if (!range.intersectsNode(cell)) continue;
+         const r = document.createRange();
+         r.selectNodeContents(cell);
+         if (r.compareBoundaryPoints(Range.START_TO_START, range) < 0)
+            r.setStart(range.startContainer, range.startOffset);
+         if (r.compareBoundaryPoints(Range.END_TO_END, range) > 0)
+            r.setEnd(range.endContainer, range.endOffset);
+         cells.push(r.toString().trim());
+      }
+      lines.push(cells.join("\t"));
+   }
+   return lines.join("\n");
+}
+
+/** A copy of a selection inside one table: cells and rows keep their separators. */
+function copyTable(e: React.ClipboardEvent<HTMLTableElement>) {
+   const sel = getSelection();
+   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+   const range = sel.getRangeAt(0);
+   // A selection that starts or ends outside the table copies as usual.
+   if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
+   const text = tableSelectionText(e.currentTarget, range);
+   if (!text.includes("\t") && !text.includes("\n")) return;
+   e.clipboardData.setData("text/plain", text);
+   e.preventDefault();
+}
+
 function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
    const [sort, setSort] = useState<{ col: number; desc: boolean } | null>(null);
    const [q, setQ] = useState("");
@@ -289,7 +326,7 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
             </div>
          )}
          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-ui">
+            <table className="w-full text-ui" onCopy={copyTable}>
                <thead className="bg-muted/50 text-left">
                   <tr>
                      {columns.map((c, i) => (
