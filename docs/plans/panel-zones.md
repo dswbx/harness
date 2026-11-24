@@ -24,7 +24,7 @@ The chat has one right panel showing one view at a time (Side chats, Changes, Te
 ## 2. Dock layout: `DockLayout.tsx`
 
 - Measures its box (ResizeObserver), positions chat and panels **absolutely** from `computeRects`. Every mounted panel keeps the same parent, so moving a zone never remounts it (Terminal shell, half-typed side chat prompts and Events filters survive). Terminal and opened side chats stay mounted hidden, as today.
-- Resize handles on open edges and splits. Generalize `packages/ui/src/components/resizable.tsx`: `ResizeHandle` gets `orientation` (vertical/horizontal) and positions from props; a `useDragDelta` helper replaces width-only logic (App sidebar keeps `useResizableWidth`). Double-click resets that size.
+- Resize handles on open edges and splits. Generalize `packages/ui/src/composites/resizable.tsx`: `ResizeHandle` gets `orientation` (vertical/horizontal) and positions from props; a `useDragDelta` helper replaces width-only logic (App sidebar keeps `useResizableWidth`). Double-click resets that size.
 - Expanded panel: same element gets fixed near-full-screen classes + backdrop, Esc collapses (moved out of `EventsPanel.tsx`). Panels declare `expandable` (Events only for now).
 
 ## 3. Stripes: `Stripe.tsx`
