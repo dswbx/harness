@@ -309,6 +309,7 @@ describe("unexpected results", () => {
       ["listBranches", () => c.listBranches("/f")],
       ["getWorktreeDir", () => c.getWorktreeDir()],
       ["getBranchPrefix", () => c.getBranchPrefix()],
+      ["getSubSessionSettings", () => c.getSubSessionSettings()],
       ["transcriptSize", () => c.transcriptSize("s1")],
       ["workspace", () => api.workspace()],
       ["session getEditor", () => api.getEditor()],

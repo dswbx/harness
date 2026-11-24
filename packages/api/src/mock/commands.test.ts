@@ -55,6 +55,8 @@ const table: Record<Command["type"], () => Command> = {
    SetWorktreeDir: () => ({ type: "SetWorktreeDir", dir: null }),
    GetBranchPrefix: () => ({ type: "GetBranchPrefix" }),
    SetBranchPrefix: () => ({ type: "SetBranchPrefix", prefix: null }),
+   GetSubSessionSettings: () => ({ type: "GetSubSessionSettings" }),
+   SetSubSessionSettings: () => ({ type: "SetSubSessionSettings", settings: { max_running: 2 } }),
    GetEditor: () => ({ type: "GetEditor" }),
    SetEditor: () => ({ type: "SetEditor", editor: { type: "zed" } }),
    ListInstructions: () => ({ type: "ListInstructions" }),

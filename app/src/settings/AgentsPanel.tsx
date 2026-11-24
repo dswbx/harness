@@ -18,9 +18,10 @@ import { useCallback, useEffect, useState } from "react";
 import { CustomAgentForm } from "./agents/CustomAgentForm";
 import { InstalledList } from "./agents/InstalledList";
 import { RegistryList } from "./agents/RegistryList";
+import { SubSessionLimit } from "./agents/SubSessionLimit";
 import { SectionHeader } from "./SectionHeader";
 
-/** Installed Agents, the ACP Registry, and Custom Agents. */
+/** Installed Agents, the ACP Registry, Custom Agents, and the Sub Session limit. */
 export function AgentsPanel({
    client,
    onChanged,
@@ -156,6 +157,8 @@ export function AgentsPanel({
                   onChanged?.();
                }}
             />
+
+            <SubSessionLimit client={client} />
          </div>
          <Dialog open={unverified !== null} onOpenChange={(o) => !o && setUnverified(null)}>
             <DialogContent>

@@ -435,6 +435,8 @@ impl Harness {
             Command::SetWorktreeDir { dir } => self.cmd_set_worktree_dir(dir),
             Command::GetBranchPrefix => self.cmd_get_branch_prefix().await,
             Command::SetBranchPrefix { prefix } => self.cmd_set_branch_prefix(prefix),
+            Command::GetSubSessionSettings => self.cmd_get_sub_session_settings(),
+            Command::SetSubSessionSettings { settings } => self.cmd_set_sub_session_settings(settings),
             Command::GetEditor => self.cmd_get_editor(),
             Command::SetEditor { editor } => self.cmd_set_editor(editor),
             Command::ListInstructions => self.cmd_list_instructions(),

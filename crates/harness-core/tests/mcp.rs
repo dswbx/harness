@@ -1850,6 +1850,28 @@ async fn sub_session_rules_cap_and_cascade() {
     assert!(rows.iter().all(|r| r["status"] == "working" && r["archived"] == false), "{listed}");
     let capped = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false}"#, None).await;
     assert!(capped.starts_with("mcp error: 4 Sub Sessions of this Session are running"), "{capped}");
+    assert!(capped.contains("the limit is 4") && capped.contains("Settings"), "{capped}");
+
+    // The limit is a setting: 4 by default, raised, 0 for no limit, lowered.
+    use harness_core::api::SubSessionSettings;
+    let CommandResult::SubSessionSettings { settings } = h.execute(Command::GetSubSessionSettings).await.unwrap() else { panic!() };
+    assert_eq!(settings.max_running, 4);
+    let set = |max_running| Command::SetSubSessionSettings { settings: Some(SubSessionSettings { max_running }) };
+    assert!(h.execute(set(33)).await.is_err());
+    h.execute(set(5)).await.unwrap();
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"fault-hang","worktree":false,"notify":false}"#).await;
+    children.push(started["session_id"].as_str().unwrap().to_owned());
+    let capped = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false}"#, None).await;
+    assert!(capped.starts_with("mcp error: 5 Sub Sessions of this Session are running"), "{capped}");
+    h.execute(set(0)).await.unwrap();
+    let started = mcp_json(&h, &sid, r#"session_start {"prompt":"fault-hang","worktree":false,"notify":false}"#).await;
+    children.push(started["session_id"].as_str().unwrap().to_owned());
+    h.execute(set(2)).await.unwrap();
+    let capped = ask(&h, &sid, r#"mcp session_start {"prompt":"x","worktree":false}"#, None).await;
+    assert!(capped.starts_with("mcp error: 6 Sub Sessions of this Session are running") && capped.contains("the limit is 2"), "{capped}");
+    h.execute(Command::SetSubSessionSettings { settings: None }).await.unwrap();
+    let CommandResult::SubSessionSettings { settings } = h.execute(Command::GetSubSessionSettings).await.unwrap() else { panic!() };
+    assert_eq!(settings.max_running, 4, "reset");
 
     // Archiving, unarchiving and deleting the parent takes its children along.
     h.execute(Command::ArchiveSession { session_id: sid.clone() }).await.unwrap();

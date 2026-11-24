@@ -84,6 +84,20 @@ export const settingsHandlers = {
       } else mock.branchPrefix = p ?? { type: "harness" };
       return { type: "Ok" };
    },
+   GetSubSessionSettings: (mock) => {
+      return { type: "SubSessionSettings", settings: mock.subSessionSettings };
+   },
+   SetSubSessionSettings: (mock, cmd) => {
+      // Core: `sub_sessions::save_settings`.
+      const max = cmd.settings?.max_running ?? 4;
+      if (max > 32)
+         throw new CommandError(
+            "invalid",
+            `the Sub Session limit must be 0 (no limit) to 32, not ${max}`,
+         );
+      mock.subSessionSettings = { max_running: max };
+      return { type: "Ok" };
+   },
    GetEditor: (mock) => {
       return { type: "Editor", editor: mock.editor };
    },

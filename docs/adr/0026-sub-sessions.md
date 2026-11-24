@@ -23,7 +23,7 @@ An Agent sometimes needs work done somewhere else: in another repository, or iso
 - The user starting a Sub Session from a View.
 - Moving a Session under a parent, or detaching it, after the fact.
 
-**A cap, not a product limit.** At most 4 Sub Sessions of one parent may be working or waiting for the user at a time (`MAX_RUNNING_SUB_SESSIONS`). Each is a separate Agent process with its own memory and API cost, so the cap keeps a looping Agent from starting many. `session_start` over the cap errors and tells the Agent to `session_wait` for one first.
+**A cap, not a product limit.** By default at most 4 Sub Sessions of one parent may be working or waiting for the user at a time. Each is a separate Agent process with its own memory and API cost, so the cap keeps a looping Agent from starting many. The user sets the cap in Settings > Agents (`SubSessionSettings::max_running` in `<data dir>/sub_sessions.json`, 0 to 32, 0 means no limit); the core reads it on each `session_start`, and a missing file or field gives 4. `session_start` over the cap errors with the limit, says it is set in Settings, and tells the Agent to `session_wait` for one first.
 
 **Consequences.**
 - One Session Log per child keeps every View, replay and archive rule unchanged (ADR 0003, 0021); only `parent` is new, an optional field with a serde default.

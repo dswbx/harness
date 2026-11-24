@@ -167,6 +167,12 @@ pub enum Command {
     SetBranchPrefix {
         prefix: Option<BranchPrefix>,
     },
+    /// The Sub Session settings (`SubSessionSettings`).
+    GetSubSessionSettings,
+    /// None resets them to the defaults. `max_running` over 32 is refused.
+    SetSubSessionSettings {
+        settings: Option<SubSessionSettings>,
+    },
     /// Custom Instructions scopes: Global, then every repository known from Sessions or saved
     /// instructions (`Instructions`).
     ListInstructions,

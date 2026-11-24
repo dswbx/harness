@@ -17,7 +17,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::api::{
-    AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, SubSessionReport, SubSessionReportKind, ThreadId,
+    AppEvent, EventKind, PromptOrigin, PromptOriginKind, SessionId, SessionParent, SessionStatus, SubSessionReport, SubSessionReportKind, SubSessionSettings,
+    ThreadId,
 };
 use crate::host::{Harness, NewSession};
 use crate::mcp::results::{SubSessionEntry, SubSessionListing, SubSessionSent, SubSessionStarted, SubSessionWaited};
@@ -26,9 +27,35 @@ use crate::session::Session;
 /// The tools, as named in `mcp::primitives`.
 pub const TOOLS: [&str; 4] = ["session_start", "session_send", "session_wait", "session_list"];
 
-/// Safety guard, not a product limit: each running Sub Session is a separate Agent process (memory,
-/// CPU, API cost), and the cap stops a looping Agent from starting many. Raise or remove freely.
-pub const MAX_RUNNING_SUB_SESSIONS: usize = 4;
+/// The settings file in the data dir (`SubSessionSettings`).
+const SETTINGS_FILE: &str = "sub_sessions.json";
+
+fn settings_file(data_dir: &Path) -> crate::persist::JsonFile<SubSessionSettings> {
+    crate::persist::JsonFile::in_dir(data_dir, SETTINGS_FILE)
+}
+
+/// The saved settings, else the defaults (a missing field takes its default).
+pub fn load_settings(data_dir: &Path) -> SubSessionSettings {
+    settings_file(data_dir).load_logged().unwrap_or_default()
+}
+
+/// None resets to the defaults. Refuses `max_running` over `SubSessionSettings::MAX_RUNNING_LIMIT`.
+pub fn save_settings(data_dir: &Path, settings: Option<&SubSessionSettings>) -> anyhow::Result<()> {
+    match settings {
+        None => settings_file(data_dir).remove(),
+        Some(s) => {
+            if s.max_running > SubSessionSettings::MAX_RUNNING_LIMIT {
+                return Err(crate::error::invalid(format!(
+                    "the Sub Session limit must be 0 (no limit) to {}, not {}",
+                    SubSessionSettings::MAX_RUNNING_LIMIT,
+                    s.max_running
+                )));
+            }
+            settings_file(data_dir).save(s)?;
+        }
+    }
+    Ok(())
+}
 
 /// Default and longest wait of `session_wait`, in seconds. `timeout_s: 0` only checks.
 const WAIT_DEFAULT_S: u64 = 600;
@@ -81,12 +108,18 @@ fn origin(session: &Session) -> PromptOrigin {
     PromptOrigin { session_id: m.id, title: m.title, kind: PromptOriginKind::Parent, reports: Vec::new() }
 }
 
-/// Errors when the parent already has `MAX_RUNNING_SUB_SESSIONS` children working or waiting for the user.
+/// Errors when the parent already has as many children working or waiting for the user as the
+/// setting allows (`SubSessionSettings::max_running`, 0: no limit). A safety guard, not a product
+/// limit: each one is a separate Agent process (memory, CPU, API cost).
 fn ensure_capacity(host: &Harness, parent: &Session) -> anyhow::Result<()> {
+    let max = host.sub_session_settings().max_running as usize;
+    if max == 0 {
+        return Ok(());
+    }
     let running = host.children(&parent.id()).iter().filter(|c| c.agent_slot().status() != SessionStatus::Idle).count();
     anyhow::ensure!(
-        running < MAX_RUNNING_SUB_SESSIONS,
-        "{running} Sub Sessions of this Session are running, the most allowed. Wait for one to finish (session_wait) first."
+        running < max,
+        "{running} Sub Sessions of this Session are running, the most allowed (the limit is {max}; the user sets it in Settings > Agents). Wait for one to finish (session_wait) first."
     );
     Ok(())
 }
@@ -699,6 +732,22 @@ mod tests {
 
     fn agent(id: &str, name: &str) -> crate::api::AgentInfo {
         serde_json::from_value(json!({ "id": id, "name": name, "command": "x", "args": [], "version": null, "icon": null })).unwrap()
+    }
+
+    #[test]
+    fn settings_default_to_4_when_missing_or_old_and_refuse_over_32() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(load_settings(d.path()).max_running, 4, "no file");
+        // A file from a build that had no such field (or a later one with other fields) still loads.
+        std::fs::write(d.path().join(SETTINGS_FILE), r#"{"other":true}"#).unwrap();
+        assert_eq!(load_settings(d.path()).max_running, 4, "missing field");
+        save_settings(d.path(), Some(&SubSessionSettings { max_running: 0 })).unwrap();
+        assert_eq!(load_settings(d.path()).max_running, 0);
+        save_settings(d.path(), Some(&SubSessionSettings { max_running: 32 })).unwrap();
+        assert!(save_settings(d.path(), Some(&SubSessionSettings { max_running: 33 })).is_err());
+        assert_eq!(load_settings(d.path()).max_running, 32, "a refused value is not stored");
+        save_settings(d.path(), None).unwrap();
+        assert_eq!(load_settings(d.path()).max_running, 4, "reset");
     }
 
     #[test]

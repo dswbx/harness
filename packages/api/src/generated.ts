@@ -258,6 +258,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "GetBranchPrefix" } | 
 /**  None resets to `harness`. */
 { type: "SetBranchPrefix"; prefix: BranchPrefix | null } | 
+/**  The Sub Session settings (`SubSessionSettings`). */
+{ type: "GetSubSessionSettings" } | 
+/**  None resets them to the defaults. `max_running` over 32 is refused. */
+{ type: "SetSubSessionSettings"; settings: SubSessionSettings | null } | 
 /**
  *  Custom Instructions scopes: Global, then every repository known from Sessions or saved
  *  instructions (`Instructions`).
@@ -545,6 +549,8 @@ export type CommandResult = { type: "Ok" } |
 { type: "WorktreeDir"; dir: string } | 
 /**  The branch prefix setting, and the prefix it gives now (`""`: none). */
 { type: "BranchPrefix"; prefix: BranchPrefix; resolved: string } | 
+/**  `GetSubSessionSettings`. */
+{ type: "SubSessionSettings"; settings: SubSessionSettings } | 
 /**  An app setting's value, or fetched JSON (`FetchJson`). */
 { type: "Json"; value: unknown | null } | { type: "Files"; files: string[] } | 
 /**
@@ -1360,6 +1366,18 @@ export type SubSessionReportKind =
 "ended" | 
 /**  It waits for the user to answer a permission request. */
 "needs_user";
+
+/**
+ *  Sub Session settings (`sub_sessions.json`, ADR 0026). Missing fields take their defaults, so an
+ *  older file, or none, still loads.
+ */
+export type SubSessionSettings = {
+	/**
+	 *  The most Sub Sessions of one parent that may be working or waiting for the user at a time.
+	 *  0: no limit. At most `SubSessionSettings::MAX_RUNNING_LIMIT`.
+	 */
+	max_running?: number,
+};
 
 export type SubSessionState = "idle" | "needs_attention" | "working";
 
