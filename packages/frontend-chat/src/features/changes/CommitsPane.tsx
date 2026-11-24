@@ -1,11 +1,11 @@
-import { type Commit, type SessionApi, storedNumber } from "@harness/api";
+import { type Commit, type GitSource, storedNumber } from "@harness/api";
 import { cn, ScrollArea, Tooltip } from "@harness/ui";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { formatRelativeTime, fullMessageTime } from "../../lib/time";
 import { ALL, toggleSelection, WIP } from "./scope";
 
-/** The Session's commits (newest first); reloads when `refreshKey` changes. Empty on error. */
-export function useCommits(api: SessionApi, refreshKey?: string): Commit[] {
+/** The commits (newest first) of a Session or folder; reloads when `refreshKey` changes. Empty on error. */
+export function useCommits(api: Pick<GitSource, "gitLog">, refreshKey?: string | number): Commit[] {
    const [commits, setCommits] = useState<Commit[]>([]);
    useEffect(() => {
       let off = false;

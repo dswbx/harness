@@ -281,6 +281,24 @@ pub enum Command {
     ListBranches {
         folder: String,
     },
+    /// Diff of the repository containing `folder` (an absolute path), with no Session: the whole repository, like
+    /// `git status`. `from` defaults to where its changes start (fork point from the default branch, else upstream,
+    /// else HEAD; never fetches); `to` defaults to the working tree now.
+    FolderGitDiff {
+        folder: String,
+        from: Option<String>,
+        to: Option<String>,
+    },
+    /// Commits since where the changes of the repository containing `folder` start (see FolderGitDiff), newest first.
+    FolderGitLog {
+        folder: String,
+    },
+    /// A file's content at `rev` in the repository containing `folder`; empty if absent there.
+    FolderGitShowFile {
+        folder: String,
+        rev: String,
+        path: String,
+    },
     /// Open pull requests of the GitHub repository containing `folder` (via `gh`). Fails when
     /// `gh` is missing, not signed in, or the folder has no GitHub remote.
     ListPullRequests {

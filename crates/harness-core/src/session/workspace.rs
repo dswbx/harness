@@ -188,24 +188,11 @@ impl Session {
     }
 
     pub async fn git_diff(&self, from: Option<String>, to: Option<String>) -> anyhow::Result<crate::api::Diff> {
-        let folder = self.folder()?;
-        let base = self.base();
-        let from = match from {
-            Some(f) => f,
-            None => crate::git::diff_base(&folder, base.as_deref()).await?,
-        };
-        let to = match to {
-            Some(t) => t,
-            None => crate::git::snapshot(&folder).await?,
-        };
-        crate::git::diff(&folder, &from, &to).await
+        crate::git::diff_range(&self.folder()?, self.base().as_deref(), from, to).await
     }
 
     pub async fn git_log(&self) -> anyhow::Result<Vec<crate::api::Commit>> {
-        let folder = self.folder()?;
-        let base = self.base();
-        let base = crate::git::diff_base(&folder, base.as_deref()).await?;
-        crate::git::log(&folder, &base).await
+        crate::git::log_since_base(&self.folder()?, self.base().as_deref()).await
     }
 
     pub async fn git_show_file(&self, rev: &str, path: &str) -> anyhow::Result<String> {
