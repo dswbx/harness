@@ -10,6 +10,7 @@ import {
    type Renderers,
    runActions,
    ScopeCtx,
+   Sel,
    structuredCloneSet,
    type Tone,
    tip,
@@ -60,6 +61,8 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
             const done = checked[it.id] === true;
             const t = tones[it.tone ?? "neutral"];
             const status = it.status ? statusIcons[it.status] : undefined;
+            // A checkable row is a button (a control): its text stays out of a selection.
+            const text = (c: React.ReactNode) => (path ? c : <Sel>{c}</Sel>);
             const row = (
                <>
                   {path && (
@@ -90,11 +93,11 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
                            done && "text-muted-foreground line-through",
                         )}
                      >
-                        <Md>{it.title}</Md>
+                        {text(<Md>{it.title}</Md>)}
                      </span>
                      {it.description && (
                         <span className="block text-ui-sm text-muted-foreground">
-                           <Md>{it.description}</Md>
+                           {text(<Md>{it.description}</Md>)}
                         </span>
                      )}
                   </span>
@@ -111,7 +114,7 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
                   )}
                   {it.meta && (
                      <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">
-                        {it.meta}
+                        {text(it.meta)}
                      </span>
                   )}
                </>
@@ -166,10 +169,12 @@ function Timeline({ node }: { node: Extract<UiNode, { type: "Timeline" }> }) {
                   </div>
                   <div className={cn("min-w-0 flex-1", !last && "pb-4")}>
                      <div className="flex items-baseline gap-2">
-                        <span className="min-w-0 flex-1 text-ui font-medium">{it.title}</span>
+                        <span className="min-w-0 flex-1 text-ui font-medium">
+                           <Sel>{it.title}</Sel>
+                        </span>
                         {it.time && (
                            <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">
-                              {it.time}
+                              <Sel>{it.time}</Sel>
                            </span>
                         )}
                      </div>
@@ -207,7 +212,12 @@ const rowTone: Record<Tone, string> = {
 };
 
 function TableCell({ cell }: { cell: Cell }) {
-   if (typeof cell !== "object" || cell === null) return <Md>{cell}</Md>;
+   if (typeof cell !== "object" || cell === null)
+      return (
+         <Sel>
+            <Md>{cell}</Md>
+         </Sel>
+      );
    const t = tones[cell.tone ?? "neutral"];
    return tip(
       cell.tooltip,
@@ -220,7 +230,9 @@ function TableCell({ cell }: { cell: Cell }) {
          )}
       >
          {cell.icon && <IconOf name={cell.icon} className="size-3.5" />}
-         <Md>{cellText(cell)}</Md>
+         <Sel>
+            <Md>{cellText(cell)}</Md>
+         </Sel>
       </span>,
       true,
    );
@@ -303,7 +315,9 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
                                     ))}
                               </button>
                            ) : (
-                              <Md>{c}</Md>
+                              <Sel>
+                                 <Md>{c}</Md>
+                              </Sel>
                            )}
                         </th>
                      ))}

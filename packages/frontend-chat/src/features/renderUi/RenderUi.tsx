@@ -260,9 +260,8 @@ export function RenderUi({ root, env }: { root: RawNode; env: UiEnv }) {
    );
    return (
       <Env.Provider value={value}>
-         {/* Sizes (text-ui*) follow the chat font size, like Markdown in messages. `select-text`: the body turns
-             selection off for app chrome; panel content is text a user reads and copies (controls stay off by role). */}
-         <div className="min-w-0 select-text text-ui">
+         {/* Sizes (text-ui*) follow the chat font size, like Markdown in messages. */}
+         <div className="min-w-0 text-ui">
             {/* `$js` props are undefined until the engine is there: wait, so components get their values. */}
             {scripted && !jsReady() ? (
                jsError() && <p className="text-ui-sm text-destructive">{jsError()}</p>
