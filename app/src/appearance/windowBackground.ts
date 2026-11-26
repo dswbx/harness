@@ -1,4 +1,4 @@
-import { inTauri } from "@harness/api";
+import { inTauri, windowOpenedQuietly } from "@harness/api";
 import { invoke } from "@tauri-apps/api/core";
 
 /** The page background as sRGB bytes (the theme may use any CSS color), or null if it has none. */
@@ -30,7 +30,8 @@ export function syncWindowBackground(show = false) {
    const key = String(rgb);
    if (!show && key === last) return;
    last = key;
-   void invoke("set_window_background", { rgb, show })
+   // A window opened quietly (`openWindow({ quiet })`) goes on screen without taking focus.
+   void invoke("set_window_background", { rgb, show, focus: !windowOpenedQuietly() })
       .then(() => {
          if (show) requestAnimationFrame(() => requestAnimationFrame(reveal));
       })

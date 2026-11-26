@@ -72,6 +72,7 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    app("harness.settings.frame", "app/settings"),
    app("harness.settings.section", "app/settings"),
    app("harness:window-frame:{name}", "api/platform/window"),
+   app("harness.panelWindows.reopen", "api/platform/panelWindows"),
    session("harness.chat.layout.{session}", "frontend-chat/shell/dock"),
    session("harness.chat.dockPanels.{session}", "frontend-chat/shell/dock"),
    session("harness.chat.sideThreads.{session}", "frontend-chat/sideChats"),
@@ -83,6 +84,8 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    session("harness.review-comments.{session}#{thread}", "frontend-chat/review"),
    session("harness.draft.{session}", "api/contract/drafts"),
    session("harness.draft.{session}#{thread}", "api/contract/drafts"),
+   session("harness.panelWindow.{session}#{name}", "api/platform/panelWindows"),
+   session("harness.panelWindowFrame.{session}#{name}", "api/platform/panelWindows"),
 ];
 
 export type KeyMatch = { def: KeyDef; session: string | null };

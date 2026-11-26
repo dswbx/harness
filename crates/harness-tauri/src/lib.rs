@@ -24,18 +24,85 @@ mod updates;
 /// Sets the color behind the webview, which replaces its default white until the page paints.
 /// `show` puts the window, which starts hidden, on screen after the color is set, still fully
 /// transparent: a webview only renders once on screen, and its first frame can be white. The page
-/// calls `reveal_window` once it has painted.
+/// calls `reveal_window` once it has painted. `focus: false` (a window opened quietly) puts it on
+/// screen without taking focus; default true.
 #[tauri::command]
-fn set_window_background(window: tauri::WebviewWindow, rgb: Option<(u8, u8, u8)>, show: bool) -> Result<(), String> {
+fn set_window_background(window: tauri::WebviewWindow, rgb: Option<(u8, u8, u8)>, show: bool, focus: Option<bool>) -> Result<(), String> {
     if let Some((r, g, b)) = rgb {
         window.set_background_color(Some(tauri::window::Color(r, g, b, 255))).map_err(|e| e.to_string())?;
     }
     // Already visible: a reload, or the fallback got there first.
     if show && !window.is_visible().map_err(|e| e.to_string())? {
         set_window_alpha(window.as_ref().window(), 0.0).map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
+        show_window(window.as_ref().window(), focus.unwrap_or(true)).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Puts a window on screen. Without `focus` it goes to the front without becoming the key window
+/// (macOS; `show()` makes it key). Elsewhere it is a plain `show()`.
+fn show_window(window: tauri::Window, focus: bool) -> tauri::Result<()> {
+    if focus || !cfg!(target_os = "macos") {
+        return window.show();
+    }
+    order_front(window)
+}
+
+#[cfg(target_os = "macos")]
+fn order_front(window: tauri::Window) -> tauri::Result<()> {
+    let target = window.clone();
+    window.run_on_main_thread(move || {
+        let Ok(ns_window) = target.ns_window() else { return };
+        // SAFETY: `ns_window` is this live window's NSWindow, and this runs on the main thread.
+        unsafe {
+            let _: () = objc2::msg_send![ns_window.cast::<objc2::runtime::AnyObject>(), orderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
+        }
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn order_front(window: tauri::Window) -> tauri::Result<()> {
+    window.show()
+}
+
+/// Unminimizes, shows and focuses a window, and makes Harness the active app. Main thread only.
+pub(crate) fn bring_to_front(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    #[cfg(target_os = "macos")]
+    overlay::activate_app();
+}
+
+/// Selects the Session in the main window (`select-session`), then on the main thread runs
+/// `before` and brings the main window to the front.
+pub(crate) fn show_session_in_main(app: &tauri::AppHandle, session_id: String, before: impl FnOnce(&tauri::AppHandle) + Send + 'static) -> Result<(), String> {
+    use tauri::Emitter;
+    app.emit_to("main", "select-session", session_id).map_err(|e| e.to_string())?;
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        before(&handle);
+        if let Some(main) = handle.get_webview_window("main") {
+            bring_to_front(&main);
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Brings the window with this label to the front (a panel window, from its rail badge or the
+/// sidebar). False when no such window is open.
+#[tauri::command]
+fn focus_window(app: tauri::AppHandle, label: String) -> Result<bool, String> {
+    let Some(window) = app.get_webview_window(&label) else { return Ok(false) };
+    app.run_on_main_thread(move || bring_to_front(&window)).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Shows the Session in the main window and brings that window to the front (a panel window's
+/// Session chip).
+#[tauri::command]
+fn show_session(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+    show_session_in_main(&app, session_id, |_| {})
 }
 
 /// Makes the window opaque: it has painted, or (from the fallback) never will.
@@ -347,11 +414,13 @@ pub fn run() {
             // The overlay is transparent and shown only by its shortcut.
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) && webview.label() != overlay::LABEL {
                 let window = webview.window();
+                // A window opened quietly (`?quiet=1`, `openWindow({ quiet })`) must not take focus.
+                let focus = !payload.url().query_pairs().any(|(k, v)| k == "quiet" && v == "1");
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     let _ = set_window_alpha(window.clone(), 1.0);
                     if !window.is_visible().unwrap_or(true) {
-                        let _ = window.show();
+                        let _ = show_window(window, focus);
                     }
                 });
             }
@@ -373,6 +442,8 @@ pub fn run() {
             execute,
             set_window_background,
             reveal_window,
+            focus_window,
+            show_session,
             save_file,
             subscribe,
             unsubscribe,

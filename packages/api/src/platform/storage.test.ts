@@ -245,6 +245,7 @@ describe("registry", () => {
          "app harness.settings.frame",
          "app harness.settings.section",
          "app harness:window-frame:{name}",
+         "app harness.panelWindows.reopen",
          "session harness.chat.layout.{session}",
          "session harness.chat.dockPanels.{session}",
          "session harness.chat.sideThreads.{session}",
@@ -256,6 +257,8 @@ describe("registry", () => {
          "session harness.review-comments.{session}#{thread}",
          "session harness.draft.{session}",
          "session harness.draft.{session}#{thread}",
+         "session harness.panelWindow.{session}#{name}",
+         "session harness.panelWindowFrame.{session}#{name}",
       ]);
    });
 
@@ -294,6 +297,8 @@ describe("forgetSession", () => {
          "harness.draft.s1",
          "harness.draft.s1#t1",
          "harness.draft.s1#t2",
+         "harness.panelWindow.s1#plan",
+         "harness.panelWindowFrame.s1#slot:a b",
       ];
       const others = [
          "harness.chat.layout.s10",
@@ -301,6 +306,9 @@ describe("forgetSession", () => {
          "harness.draft.s10",
          "harness.review-comments.s10#s1",
          "harness.draft.s2#s1",
+         "harness.panelWindow.s10#plan",
+         "harness.panelWindowFrame.s2#s1",
+         "harness.panelWindows.reopen",
          "harness.sidebarOpen",
          "harness:window-frame:s1",
          "something.else.s1",

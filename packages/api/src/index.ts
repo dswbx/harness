@@ -23,6 +23,7 @@ export * from "./github/prRefs";
 export * from "./github/prStore";
 export * from "./platform/files";
 export * from "./platform/forgetSession";
+export * from "./platform/panelWindows";
 export * from "./platform/storage";
 export * from "./platform/storageKeys";
 export * from "./platform/window";

@@ -31,6 +31,8 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 pub use commands::*;
 use geometry::Rect;
+#[cfg(target_os = "macos")]
+pub(crate) use panel::activate_app;
 use poll::{Capture, Poll};
 pub use window::hide;
 use window::{ensure, native_show, show};

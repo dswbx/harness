@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "../transport/transport";
-import { storedValue } from "./storage";
+import { type Stored, storedValue } from "./storage";
 
 /** Lets the user save `data` under a suggested `name`: the native save dialog in Tauri, a browser download otherwise. Returns where it went (in a browser, `name`), or null on cancel. */
 export async function saveFile(name: string, data: Blob): Promise<string | null> {
@@ -22,26 +22,53 @@ export async function saveFile(name: string, data: Blob): Promise<string | null>
    return invoke<string | null>("save_file", { name, data: btoa(binary) });
 }
 
-/** A window's last place and size, in logical pixels. */
-type Frame = { x: number; y: number; width: number; height: number };
-const frameStore = (key: string) =>
-   storedValue<Frame | null>({
-      key: `harness:window-frame:${key}`,
-      scope: "app",
-      parse: (raw) => {
-         try {
-            const f = JSON.parse(raw ?? "null");
-            return f && [f.x, f.y, f.width, f.height].every(Number.isFinite) ? f : null;
-         } catch {
-            return null;
-         }
-      },
-      sync: false,
-   });
-const readFrame = (key: string): Frame | null => frameStore(key).get();
+/** A window's place and size, in logical pixels. */
+export type Frame = { x: number; y: number; width: number; height: number };
+
+/** A stored frame; anything else (missing, bad JSON, a non-finite field) is null. */
+export function parseFrame(raw: string | null): Frame | null {
+   try {
+      const f = JSON.parse(raw ?? "null");
+      return f && [f.x, f.y, f.width, f.height].every(Number.isFinite) ? f : null;
+   } catch {
+      return null;
+   }
+}
+
+/** Where a window keeps its frame: a key under `harness:window-frame:`, or a caller's own store. */
+export type FrameStore = string | Stored<Frame | null>;
+const frameStore = (store: FrameStore): Stored<Frame | null> =>
+   typeof store === "string"
+      ? storedValue<Frame | null>({
+           key: `harness:window-frame:${store}`,
+           scope: "app",
+           parse: parseFrame,
+           sync: false,
+        })
+      : store;
+
+/** URL parameter `openWindow({ quiet })` adds: the page shows its window without taking focus. */
+const QUIET_PARAM = "quiet";
+
+/** Whether this page's window was opened with `openWindow({ quiet: true })` (it must show without focus). */
+export function windowOpenedQuietly(): boolean {
+   try {
+      return new URLSearchParams(globalThis.location?.search ?? "").get(QUIET_PARAM) === "1";
+   } catch {
+      return false;
+   }
+}
+
+/** Brings the window with this label to the front (unminimized, shown, focused). False when there is none or outside Tauri. */
+export async function focusWindow(label: string): Promise<boolean> {
+   if (!inTauri()) return false;
+   return invoke<boolean>("focus_window", { label });
+}
 
 /** Opens an app URL (e.g. `/?session=..&solo=1`) in a new window. Frontends can't import Tauri, so this lives here. With `pane=...` the host adds no Session header.
- * `remember`: the window opens at the frame last saved under this key (see `rememberWindowFrame`).
+ * `remember`: the window opens at the frame last saved there (see `rememberWindowFrame`); `frame` wins over it.
+ * `stable`: the label is used as given (it must hold only `a-zA-Z0-9-/:_`), so a window with it already open is focused instead of opening a second one.
+ * `quiet`: the window opens without taking focus.
  * `overlayTitleBar`: the traffic lights sit inside the page, like the main window; the page must leave 92px free on the left of a top bar `titleBarHeight` high (default 52px); the lights are centered in it. */
 export async function openWindow(
    label: string,
@@ -50,22 +77,35 @@ export async function openWindow(
       title: string;
       width?: number;
       height?: number;
-      remember?: string;
+      remember?: FrameStore;
+      frame?: Frame;
+      stable?: boolean;
+      quiet?: boolean;
       overlayTitleBar?: boolean;
       titleBarHeight?: number;
    },
 ) {
+   if (opts.quiet) url = withQuery(url, QUIET_PARAM, "1");
    if (!inTauri()) {
-      window.open(url, "_blank");
+      // A named target reuses the tab, like a stable label reuses the window.
+      window.open(url, opts.stable ? label : "_blank");
       return;
    }
    const [{ WebviewWindow }, { LogicalPosition }] = await Promise.all([
       import("@tauri-apps/api/webviewWindow"),
       import("@tauri-apps/api/dpi"),
    ]);
-   const frame = opts.remember ? readFrame(opts.remember) : null;
+   // Already open: focus it (a quiet open leaves it as it is).
+   if (
+      opts.stable &&
+      (opts.quiet ? await WebviewWindow.getByLabel(label) : await focusWindow(label))
+   )
+      return;
+   const frame = opts.frame ?? (opts.remember ? frameStore(opts.remember).get() : null);
    // A label can hold only `a-zA-Z0-9-/:_`; reusing one focuses nothing, so add a counter.
-   const safe = `${label.replace(/[^a-zA-Z0-9\-/:_]/g, "_")}-${Date.now().toString(36)}`;
+   const safe = opts.stable
+      ? label
+      : `${label.replace(/[^a-zA-Z0-9\-/:_]/g, "_")}-${Date.now().toString(36)}`;
    const w = new WebviewWindow(safe, {
       url,
       title: opts.title,
@@ -73,6 +113,7 @@ export async function openWindow(
       height: frame?.height ?? opts.height ?? 800,
       ...(frame && { x: frame.x, y: frame.y }),
       visible: false,
+      ...(opts.quiet && { focus: false }),
       ...(opts.overlayTitleBar && {
          titleBarStyle: "overlay" as const,
          hiddenTitle: true,
@@ -83,14 +124,21 @@ export async function openWindow(
    w.once("tauri://error", (e) => console.error("window create failed", e));
 }
 
+/** `url` (an app path like `/?a=1`) with `name=value` added to its query. */
+function withQuery(url: string, name: string, value: string): string {
+   const [path = "", hash] = url.split("#", 2);
+   const sep = path.includes("?") ? "&" : "?";
+   return `${path}${sep}${encodeURIComponent(name)}=${encodeURIComponent(value)}${hash === undefined ? "" : `#${hash}`}`;
+}
+
 /** Shows a file in the system file manager (Tauri only; frontends can't import Tauri, so this lives here). */
 export async function revealPath(path: string): Promise<void> {
    const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
    await revealItemInDir(path);
 }
 
-/** Saves this window's place and size under `key` whenever it moves or resizes, for `openWindow({ remember: key })`. Returns a cleanup. */
-export function rememberWindowFrame(key: string): () => void {
+/** Saves this window's place and size to `store` (a key, or the caller's own store) whenever it moves or resizes, for `openWindow({ remember: store })`. Returns a cleanup. */
+export function rememberWindowFrame(store: FrameStore): () => void {
    if (!inTauri()) return () => {};
    let off = false;
    const unlisten: (() => void)[] = [];
@@ -106,7 +154,7 @@ export function rememberWindowFrame(key: string): () => void {
             const p = pos.toLogical(scale);
             const s = size.toLogical(scale);
             const frame: Frame = { x: p.x, y: p.y, width: s.width, height: s.height };
-            frameStore(key).set(frame);
+            frameStore(store).set(frame);
          }, 300);
       };
       for (const u of await Promise.all([w.onMoved(save), w.onResized(save)])) {
