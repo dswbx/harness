@@ -639,6 +639,11 @@ mod tests {
         assert!(resolve_dir(&root, Some(OsStr::new("file.txt"))).unwrap_err().contains("not a folder"));
     }
 
+    /// A temp dir with a short path: the fallback socket must fit in it (CI's `$TMPDIR` is long).
+    fn short_tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new().tempdir_in("/tmp").unwrap()
+    }
+
     fn private(dir: &Path) {
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
@@ -662,14 +667,14 @@ mod tests {
 
     #[test]
     fn socket_path_without_tmpdir_uses_the_home_cache_never_tmp() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = short_tempdir();
         let home = tmp.path().join("home");
         std::fs::create_dir(&home).unwrap();
         let long = PathBuf::from(format!("/Users/u/{}", "d".repeat(100)));
         for unset in [None, Some(OsStr::new(""))] {
             let p = socket_path(&long, unset, &home).unwrap();
             assert!(p.starts_with(home.join("Library/Caches/harness")), "{p:?}");
-            assert!(!p.starts_with("/tmp"));
+            assert_ne!(p.parent(), Some(Path::new("/tmp")), "never directly in the shared /tmp");
             assert!(p.as_os_str().len() < MAX_SOCKET_PATH);
         }
         let mode = std::fs::metadata(home.join("Library/Caches/harness")).unwrap().permissions().mode() & 0o777;
@@ -678,7 +683,7 @@ mod tests {
 
     #[test]
     fn socket_path_refuses_an_insecure_fallback_dir() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = short_tempdir();
         let home = tmp.path().join("home");
         let cache = home.join("Library/Caches/harness");
         std::fs::create_dir_all(&cache).unwrap();
