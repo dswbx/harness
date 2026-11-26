@@ -319,6 +319,7 @@ pub fn run() {
         .manage(Subscriptions::default())
         .manage(updates::Updates::default())
         .manage(cli::CliQueue::default())
+        .manage(cli::CliServer::default())
         .setup(|app| {
             let data_dir = harness_core::host::default_data_dir(app.path().home_dir()?, std::env::var_os("HARNESS_HOME"), cfg!(debug_assertions));
             let exe = std::env::current_exe()?.display().to_string();
@@ -428,6 +429,8 @@ fn shut_down(app: &tauri::AppHandle) {
     if QUITTING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
+    // First: a client must not hand requests to an app that is going away.
+    cli::stop(app);
     let Some(harness) = app.try_state::<Arc<Harness>>() else { return };
     for window in app.webview_windows().values() {
         let _ = window.hide();

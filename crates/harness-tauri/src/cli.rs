@@ -6,15 +6,17 @@
 //!
 //! The app (`serve`) queues each request and pokes the main window (`cli-request`); its Shell takes
 //! the queue with `cli_take` on mount and on every poke, so a request survives a cold start or a
-//! reload. Also: installing the command on the PATH (`install`, `uninstall`, from the app menu).
+//! reload. At quit the app removes its socket and refuses requests (`CliServer::stop`), so a client
+//! never hands work to a dying app. Also: installing the command on the PATH (`install`, `uninstall`, from the app menu).
 
 use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
@@ -101,14 +103,42 @@ pub fn resolve_dir(cwd: &Path, dir: Option<&OsStr>) -> Result<String, String> {
 /// Longest socket path we use: macOS allows 104 bytes in `sun_path`, with the trailing NUL.
 const MAX_SOCKET_PATH: usize = 100;
 
-/// The socket of a data dir: `<data_dir>/cli.sock`, or `<tmp>/harness-<hash of data_dir>.sock`
-/// when that path is too long for a Unix socket.
-pub fn socket_path(data_dir: &Path, tmp: &Path) -> PathBuf {
+/// The socket of a data dir: `<data_dir>/cli.sock`, or, when that path is too long for a Unix
+/// socket, `harness-<hash of data_dir>.sock` in a private per-user dir (`private_dir`). Never `/tmp`.
+pub fn socket_path(data_dir: &Path, tmpdir: Option<&OsStr>, home: &Path) -> io::Result<PathBuf> {
     let inside = data_dir.join("cli.sock");
     if inside.as_os_str().len() < MAX_SOCKET_PATH {
-        return inside;
+        return Ok(inside);
     }
-    tmp.join(format!("harness-{:016x}.sock", fnv1a(data_dir.as_os_str().as_bytes())))
+    let dir = private_dir(tmpdir, home)?;
+    let hash = fnv1a(data_dir.as_os_str().as_bytes());
+    // A long `$TMPDIR` may leave no room for the readable name: try a bare hash.
+    [format!("harness-{hash:016x}.sock"), format!("{hash:016x}")]
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|p| p.as_os_str().len() < MAX_SOCKET_PATH)
+        .ok_or_else(|| io::Error::other(format!("{} is too long for a socket", dir.display())))
+}
+
+/// The dir for a fallback socket: `$TMPDIR` when set (per-user and mode 0700 on macOS), else
+/// `<home>/Library/Caches/harness`, made with mode 0700. It must be a dir that we own and that no
+/// one else can write to; otherwise another user could plant the socket path.
+fn private_dir(tmpdir: Option<&OsStr>, home: &Path) -> io::Result<PathBuf> {
+    let dir = match tmpdir.filter(|t| !t.is_empty()) {
+        Some(t) => PathBuf::from(t),
+        None => {
+            let dir = home.join("Library/Caches/harness");
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+            dir
+        }
+    };
+    let meta = std::fs::metadata(&dir)?;
+    // SAFETY: `geteuid` has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    if !meta.is_dir() || meta.uid() != me || meta.mode() & 0o022 != 0 {
+        return Err(io::Error::other(format!("{} is not a private folder of this user", dir.display())));
+    }
+    Ok(dir)
 }
 
 /// FNV-1a: a hash that stays the same across builds and Rust versions (the client and the app may differ).
@@ -116,24 +146,28 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
 }
 
+/// The socket of `data_dir`, from the environment. The client and the app both use it, so they agree.
+fn socket_for(data_dir: &Path) -> io::Result<PathBuf> {
+    let home = std::env::home_dir().ok_or_else(|| io::Error::other("no home folder"))?;
+    socket_path(data_dir, std::env::var_os("TMPDIR").as_deref(), &home)
+}
+
 /// The socket of this build's data dir (same resolution as the app: `HARNESS_HOME`, else `~/.harness` or, in a dev build, `~/.harness-dev`).
-fn this_socket() -> Option<PathBuf> {
-    let home = std::env::home_dir()?;
-    let data_dir = harness_core::host::default_data_dir(home, std::env::var_os("HARNESS_HOME"), cfg!(debug_assertions));
-    let tmp = std::env::var_os("TMPDIR").filter(|t| !t.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
-    Some(socket_path(&data_dir, &tmp))
+fn this_socket() -> io::Result<PathBuf> {
+    let home = std::env::home_dir().ok_or_else(|| io::Error::other("no home folder"))?;
+    socket_for(&harness_core::host::default_data_dir(home, std::env::var_os("HARNESS_HOME"), cfg!(debug_assertions)))
 }
 
 /// Why a request did not get through.
 #[derive(Debug)]
 pub enum SendError {
-    /// No app listens on the socket.
+    /// No app listens on the socket, or the one that does is quitting and refused the request.
     NotRunning,
     /// The app answered with an error, or the connection broke.
     Failed(String),
 }
 
-/// Sends one request and waits for the app's `ok`.
+/// Sends one request and waits for the app's `ok`. Anything else but a clear error is `NotRunning`.
 pub fn send(socket: &Path, req: &CliRequest) -> Result<(), SendError> {
     let mut stream = UnixStream::connect(socket).map_err(|_| SendError::NotRunning)?;
     let failed = |e: io::Error| SendError::Failed(e.to_string());
@@ -145,7 +179,8 @@ pub fn send(socket: &Path, req: &CliRequest) -> Result<(), SendError> {
     BufReader::new(stream).read_line(&mut reply).map_err(failed)?;
     match reply.trim() {
         "ok" => Ok(()),
-        "" => Err(SendError::Failed("the app closed the connection".into())),
+        // A quitting app answers `quitting`; one that died mid-request closes the connection.
+        QUITTING_REPLY | "" => Err(SendError::NotRunning),
         other => Err(SendError::Failed(other.to_owned())),
     }
 }
@@ -188,7 +223,7 @@ pub fn client(args: &[OsString]) -> Option<i32> {
         // start a second app on the same data dir: bring the running one to the front instead.
         // Dev builds skip this: several checkouts run `bun run dev` at once on `~/.harness-dev`.
         Cmd::Gui if cfg!(debug_assertions) => return None,
-        Cmd::Gui => return this_socket().and_then(|s| send(&s, &CliRequest::Focus).ok()).map(|()| EXIT_OK),
+        Cmd::Gui => return this_socket().ok().and_then(|s| send(&s, &CliRequest::Focus).ok()).map(|()| EXIT_OK),
         Cmd::Diff(dir) => (|folder| CliRequest::Diff { folder }, dir),
         Cmd::New(dir) => (|folder| CliRequest::New { folder }, dir),
     };
@@ -207,9 +242,12 @@ pub fn client(args: &[OsString]) -> Option<i32> {
         }
     };
     let req = make(folder);
-    let Some(socket) = this_socket() else {
-        eprintln!("harness: no home folder");
-        return Some(EXIT_USAGE);
+    let socket = match this_socket() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("harness: {e}");
+            return Some(EXIT_USAGE);
+        }
     };
     Some(match deliver(&socket, &req) {
         Ok(()) => EXIT_OK,
@@ -264,6 +302,48 @@ fn plist_version(plist: &str) -> Option<&str> {
 #[derive(Default)]
 pub struct CliQueue(Mutex<VecDeque<CliRequest>>);
 
+/// Device and inode of a file: tells our socket from a newer instance's at the same path.
+type FileId = (u64, u64);
+
+fn file_id(path: &Path) -> io::Result<FileId> {
+    let m = std::fs::symlink_metadata(path)?;
+    Ok((m.dev(), m.ino()))
+}
+
+/// The socket server's state, for quitting.
+#[derive(Default)]
+pub struct CliServer {
+    stopped: AtomicBool,
+    /// The socket we bound and its identity.
+    bound: Mutex<Option<(PathBuf, FileId)>>,
+}
+
+impl CliServer {
+    /// Quitting: from now on every request gets `quitting`, and our socket file is removed (only
+    /// if it is still ours, a newer instance may own the path by now), so clients start the app.
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        if let Some((path, id)) = self.bound.lock().take() {
+            remove_if_ours(&path, id);
+        }
+    }
+}
+
+/// Stops the socket server of `app` (see `CliServer::stop`). Safe to call twice or without a server.
+pub fn stop<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(server) = app.try_state::<CliServer>() {
+        server.stop();
+    }
+}
+
+/// Removes `path` when it is a socket with identity `id`.
+fn remove_if_ours(path: &Path, id: FileId) {
+    let is_ours = std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_socket() && (m.dev(), m.ino()) == id);
+    if is_ours && let Err(e) = std::fs::remove_file(path) {
+        tracing::warn!("cli: remove {}: {e}", path.display());
+    }
+}
+
 /// Binds the socket of `socket`'s data dir. `Ok(None)`: another live instance owns it (its
 /// connect succeeds), so this one leaves it alone. A stale socket file (no one listens) is removed.
 pub fn bind(socket: &Path) -> io::Result<Option<UnixListener>> {
@@ -287,12 +367,17 @@ pub fn bind(socket: &Path) -> io::Result<Option<UnixListener>> {
 /// Longest request line read (a folder path in JSON).
 const MAX_LINE: u64 = 64 * 1024;
 
-/// Reads one request line, hands it to `on` and answers `ok` (or `error: …`).
-pub fn handle(stream: UnixStream, on: &dyn Fn(CliRequest)) -> io::Result<()> {
+/// The reply of a quitting app: the request was not queued.
+const QUITTING_REPLY: &str = "quitting";
+
+/// Reads one request line, hands it to `on` and answers `ok` (or `error: …`). Once `stopped`, it
+/// answers `quitting` and drops the request.
+pub fn handle(stream: UnixStream, stopped: &AtomicBool, on: &dyn Fn(CliRequest)) -> io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut line = String::new();
     BufReader::new((&stream).take(MAX_LINE)).read_line(&mut line)?;
     let reply = match serde_json::from_str::<CliRequest>(line.trim()) {
+        _ if stopped.load(Ordering::SeqCst) => format!("{QUITTING_REPLY}\n"),
         Ok(req) => {
             on(req);
             "ok\n".to_owned()
@@ -302,21 +387,28 @@ pub fn handle(stream: UnixStream, on: &dyn Fn(CliRequest)) -> io::Result<()> {
     (&stream).write_all(reply.as_bytes())
 }
 
-/// Serves the socket of `data_dir` for the app's lifetime (a thread). Skips binding when another
-/// instance owns it.
+/// Serves the socket of `data_dir` until `stop` (a thread). Skips binding when another instance
+/// owns it. Needs `CliServer` in the managed state.
 pub fn serve<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
-    let tmp = std::env::var_os("TMPDIR").filter(|t| !t.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
-    let socket = socket_path(data_dir, &tmp);
+    let socket = match socket_for(data_dir) {
+        Ok(s) => s,
+        Err(e) => return tracing::warn!("cli: no socket path: {e}"),
+    };
     let listener = match bind(&socket) {
         Ok(Some(l)) => l,
         Ok(None) => return tracing::warn!("cli: another instance serves {}", socket.display()),
         Err(e) => return tracing::warn!("cli: cannot listen on {}: {e}", socket.display()),
     };
+    let server = app.state::<CliServer>();
+    match file_id(&socket) {
+        Ok(id) => *server.bound.lock() = Some((socket, id)),
+        Err(e) => tracing::warn!("cli: stat {}: {e}", socket.display()),
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
-            if let Err(e) = handle(stream, &|req| receive(&app, req)) {
+            if let Err(e) = handle(stream, &app.state::<CliServer>().stopped, &|req| receive(&app, req)) {
                 tracing::warn!("cli: {e}");
             }
         }
@@ -547,15 +639,63 @@ mod tests {
         assert!(resolve_dir(&root, Some(OsStr::new("file.txt"))).unwrap_err().contains("not a folder"));
     }
 
+    fn private(dir: &Path) {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
     #[test]
-    fn socket_path_falls_back_to_tmp_when_too_long() {
-        let tmp = Path::new("/tmp/t");
-        assert_eq!(socket_path(Path::new("/Users/u/.harness"), tmp), Path::new("/Users/u/.harness/cli.sock"));
+    fn socket_path_falls_back_to_a_private_dir_when_too_long() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let tmpdir = tmp.path().join("t");
+        std::fs::create_dir(&tmpdir).unwrap();
+        private(&tmpdir);
+        let short = socket_path(Path::new("/Users/u/.harness"), Some(tmpdir.as_os_str()), &home).unwrap();
+        assert_eq!(short, Path::new("/Users/u/.harness/cli.sock"));
         let long = PathBuf::from(format!("/Users/u/{}", "d".repeat(100)));
-        let a = socket_path(&long, tmp);
-        assert!(a.starts_with(tmp) && a.to_string_lossy().ends_with(".sock"), "{a:?}");
-        assert_eq!(a, socket_path(&long, tmp), "same dir, same socket");
-        assert_ne!(a, socket_path(&long.join("other"), tmp), "other dir, other socket");
+        let a = socket_path(&long, Some(tmpdir.as_os_str()), &home).unwrap();
+        assert!(a.starts_with(&tmpdir) && a.to_string_lossy().ends_with(".sock"), "{a:?}");
+        assert_eq!(a, socket_path(&long, Some(tmpdir.as_os_str()), &home).unwrap(), "same dir, same socket");
+        assert_ne!(a, socket_path(&long.join("other"), Some(tmpdir.as_os_str()), &home).unwrap(), "other dir, other socket");
+    }
+
+    #[test]
+    fn socket_path_without_tmpdir_uses_the_home_cache_never_tmp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let long = PathBuf::from(format!("/Users/u/{}", "d".repeat(100)));
+        for unset in [None, Some(OsStr::new(""))] {
+            let p = socket_path(&long, unset, &home).unwrap();
+            assert!(p.starts_with(home.join("Library/Caches/harness")), "{p:?}");
+            assert!(!p.starts_with("/tmp"));
+            assert!(p.as_os_str().len() < MAX_SOCKET_PATH);
+        }
+        let mode = std::fs::metadata(home.join("Library/Caches/harness")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+    }
+
+    #[test]
+    fn socket_path_refuses_an_insecure_fallback_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let cache = home.join("Library/Caches/harness");
+        std::fs::create_dir_all(&cache).unwrap();
+        let long = PathBuf::from(format!("/Users/u/{}", "d".repeat(100)));
+        for mode in [0o777, 0o770, 0o702] {
+            std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(mode)).unwrap();
+            assert!(socket_path(&long, None, &home).is_err(), "mode {mode:o}");
+            assert!(socket_path(&long, Some(cache.as_os_str()), &home).is_err(), "mode {mode:o} as TMPDIR");
+        }
+        std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(socket_path(&long, None, &home).is_ok());
+        // A shared dir that we do not own (`/tmp` as `$TMPDIR`) is refused.
+        assert!(socket_path(&long, Some(OsStr::new("/tmp")), &home).is_err());
+        // A file is no dir.
+        let file = tmp.path().join("file");
+        std::fs::write(&file, "x").unwrap();
+        assert!(socket_path(&long, Some(file.as_os_str()), &home).is_err());
     }
 
     #[test]
@@ -578,7 +718,7 @@ mod tests {
         let server = std::thread::spawn(move || {
             for _ in 0..2 {
                 let (stream, _) = listener.accept().unwrap();
-                handle(stream, &|r| seen.lock().push(r)).unwrap();
+                handle(stream, &AtomicBool::new(false), &|r| seen.lock().push(r)).unwrap();
             }
         });
         let req = CliRequest::New { folder: "/x y".into() };
@@ -606,6 +746,64 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         assert!(bind(&file).is_err(), "a non-socket file is never removed");
         assert!(file.exists());
+    }
+
+    #[test]
+    fn stop_removes_our_socket_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sock = tmp.path().join("cli.sock");
+        let _live = bind(&sock).unwrap().expect("free socket");
+        let server = CliServer::default();
+        *server.bound.lock() = Some((sock.clone(), file_id(&sock).unwrap()));
+        server.stop();
+        assert!(server.stopped.load(Ordering::SeqCst));
+        assert!(!sock.exists(), "our socket is removed");
+        assert!(matches!(send(&sock, &CliRequest::Focus), Err(SendError::NotRunning)));
+        server.stop();
+
+        // A newer instance's socket at the same path stays. The old one is still alive while the
+        // new one is made, so the inodes differ.
+        let sock = tmp.path().join("again.sock");
+        let _old = bind(&sock).unwrap().expect("free socket");
+        let old_id = file_id(&sock).unwrap();
+        let other = tmp.path().join("other.sock");
+        let _newer = bind(&other).unwrap().expect("free socket");
+        std::fs::rename(&other, &sock).unwrap();
+        let server = CliServer::default();
+        *server.bound.lock() = Some((sock.clone(), old_id));
+        server.stop();
+        assert!(sock.exists(), "a different socket is not ours");
+
+        // Nor a plain file.
+        let file = tmp.path().join("plain");
+        std::fs::write(&file, "x").unwrap();
+        let server = CliServer::default();
+        *server.bound.lock() = Some((file.clone(), file_id(&file).unwrap()));
+        server.stop();
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn a_stopped_server_refuses_and_the_client_sees_not_running() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sock = tmp.path().join("cli.sock");
+        let listener = bind(&sock).unwrap().expect("free socket");
+        let got = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let seen = got.clone();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle(stream, &AtomicBool::new(true), &|r| seen.lock().push(r)).unwrap();
+        });
+        let req = CliRequest::Diff { folder: "/x".into() };
+        assert!(matches!(send(&sock, &req), Err(SendError::NotRunning)));
+        server.join().unwrap();
+        assert!(got.lock().is_empty(), "the request is dropped");
+
+        // A server that closes the connection without an answer is not running either.
+        let listener = UnixListener::bind(tmp.path().join("dead.sock")).unwrap();
+        let closing = std::thread::spawn(move || drop(listener.accept().unwrap()));
+        assert!(matches!(send(&tmp.path().join("dead.sock"), &req), Err(SendError::NotRunning)));
+        closing.join().unwrap();
     }
 
     #[test]
