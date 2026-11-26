@@ -1,4 +1,4 @@
-import { focusPanelWindow, type SessionApi, type ViewVariant } from "@harness/api";
+import { type SessionApi, showPanelWindow, type ViewVariant } from "@harness/api";
 import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
    PanelCtx,
@@ -74,7 +74,7 @@ export function usePanelHost(o: {
    const sessionId = api.sessionId;
    const focusWindow = useCallback(
       (id: string) =>
-         void focusPanelWindow(sessionId, id).catch((e) => console.error("focus window failed", e)),
+         void showPanelWindow(sessionId, id).catch((e) => console.error("show window failed", e)),
       [sessionId],
    );
    const ctxRef = useRef<PanelCtx | null>(null);

@@ -1,13 +1,14 @@
 import { TooltipProvider } from "@harness/ui";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PanelHeader } from "../../panels/PanelHeader";
 import type { HostedPanel } from "../usePanelHost";
-import { PanelWindow, projectOf } from "./PanelWindow";
+import { CLOSE_GRACE_MS, PanelWindow, projectOf } from "./PanelWindow";
 
 const api = vi.hoisted(() => ({
    dockPanel: vi.fn(),
    closePanel: vi.fn(),
+   forgetPanelWindow: vi.fn(),
    closeCurrentWindow: vi.fn(async () => {}),
    showSession: vi.fn(async () => {}),
    popped: [{ session: "s1", panel: "plan" }] as { session: string; panel: string }[],
@@ -16,6 +17,9 @@ vi.mock("@harness/api", async (orig) => ({
    ...(await orig<typeof import("@harness/api")>()),
    dockPanel: api.dockPanel,
    closePanel: api.closePanel,
+   forgetPanelWindow: api.forgetPanelWindow,
+   isPanelPopped: (session: string, panel: string) =>
+      api.popped.some((w) => w.session === session && w.panel === panel),
    closeCurrentWindow: api.closeCurrentWindow,
    showSession: api.showSession,
    usePanelWindows: (session?: string) => api.popped.filter((w) => w.session === session),
@@ -25,7 +29,10 @@ beforeEach(() => {
    vi.clearAllMocks();
    api.popped = [{ session: "s1", panel: "plan" }];
 });
-afterEach(cleanup);
+afterEach(() => {
+   cleanup();
+   vi.useRealTimers();
+});
 
 const plan: HostedPanel = {
    id: "plan",
@@ -69,10 +76,11 @@ describe("PanelWindow", () => {
       expect(api.closeCurrentWindow).not.toHaveBeenCalled();
    });
 
-   it("an unknown panel id once loaded: docks back and closes", () => {
+   it("an unknown panel id once loaded: removes its key and closes", () => {
       api.popped = [{ session: "s1", panel: "nope" }];
       setup({ panel: "nope" });
-      expect(api.dockPanel).toHaveBeenCalledWith("s1", "nope");
+      expect(api.forgetPanelWindow).toHaveBeenCalledWith("s1", "nope");
+      expect(api.dockPanel).not.toHaveBeenCalled();
       expect(api.closeCurrentWindow).toHaveBeenCalledTimes(1);
    });
 
@@ -82,11 +90,24 @@ describe("PanelWindow", () => {
       expect(api.closeCurrentWindow).not.toHaveBeenCalled();
    });
 
-   it("closes when its key is gone (docked from elsewhere)", () => {
+   it("closes when no longer popped (docked from elsewhere), after the grace time", () => {
+      vi.useFakeTimers();
       api.popped = [];
       setup({ entry: plan });
+      expect(api.closeCurrentWindow).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(CLOSE_GRACE_MS));
       expect(api.closeCurrentWindow).toHaveBeenCalledTimes(1);
       expect(api.dockPanel).not.toHaveBeenCalled();
+   });
+
+   it("Dock back then pop out again quickly: the reopened state wins, the window stays", () => {
+      vi.useFakeTimers();
+      api.popped = [];
+      setup({ entry: plan });
+      // Popped again before the grace time ends (the new pop out found this window and focused it).
+      api.popped = [{ session: "s1", panel: "plan" }];
+      act(() => vi.advanceTimersByTime(CLOSE_GRACE_MS));
+      expect(api.closeCurrentWindow).not.toHaveBeenCalled();
    });
 
    it("archived: a notice with Dock back", () => {

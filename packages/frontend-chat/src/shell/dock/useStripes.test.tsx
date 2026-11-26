@@ -94,6 +94,16 @@ describe("useStripes: the icon's context menu", () => {
       expect(setup(new Set()).result.current.menuOf("plan").expand).toBeUndefined();
    });
 
+   it("Move to on a popped panel: moves it in the zone lists only, no zone's shown panel changes", () => {
+      // Tasks shown in rightTop; Plan (hidden there) is popped.
+      const { result, update, lay } = setup(new Set(["plan"]), ["tasks"]);
+      result.current.menuOf("plan").onMove("leftTop");
+      const next: Layout = update.mock.calls[0]![0](lay);
+      expect(next.zones.leftTop).toEqual(["plan"]);
+      expect(next.zones.rightTop).toEqual(["tasks"]);
+      expect(next.open).toEqual(lay.open);
+   });
+
    it("a popped panel: Show window and Dock back", () => {
       const { result, onFocusWindow, onDockBack } = setup(new Set(["plan"]), ["plan"]);
       const w = result.current.menuOf("plan").window!;

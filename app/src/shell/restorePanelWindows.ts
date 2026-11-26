@@ -1,12 +1,15 @@
 import {
    dockPanel,
+   type EndedPanelWindow,
    fitFrame,
+   forgetPanelWindow,
    inTauri,
-   listClosedPanelWindows,
    listDisplays,
+   listEndedPanelWindows,
    listPanelWindows,
    type PanelWindow,
    panelWindowFrame,
+   panelWindowOpen,
    panelWindowsReopen,
    popPanel,
    type SessionSummary,
@@ -16,26 +19,27 @@ import { useEffect, useRef } from "react";
 type SessionRef = Pick<SessionSummary, "id" | "archived" | "title">;
 
 /**
- * What to do with the panel windows left from the last run: `open` them again, or `drop` them
- * (dock back). A deleted Session's go; an archived Session's dock back (its layout still has the
- * panel open in its zone); with the setting off all dock back. `closed` (windows the user closed) are
- * never opened: they stay for the Session's main view to hide, and go only when the Session is gone.
+ * What to do with the panel windows left from the last run: `open` them again, `dock` them back (the
+ * Session's main view shows the panel in its zone), or `drop` their keys. A deleted Session's go; an
+ * archived Session's dock back; with the setting off all dock back. Ended ones (closed, docked) are
+ * never opened: they stay for the Session's main view to apply, and go only when the Session is gone.
  */
 export function planRestore(
    entries: readonly PanelWindow[],
    sessions: readonly Pick<SessionSummary, "id" | "archived">[],
    reopen: boolean,
-   closed: readonly PanelWindow[] = [],
-): { open: PanelWindow[]; drop: PanelWindow[] } {
+   ended: readonly EndedPanelWindow[] = [],
+): { open: PanelWindow[]; dock: PanelWindow[]; drop: PanelWindow[] } {
    const open: PanelWindow[] = [];
+   const dock: PanelWindow[] = [];
    const drop: PanelWindow[] = [];
    const byId = new Map(sessions.map((s) => [s.id, s]));
    for (const e of entries) {
       const s = byId.get(e.session);
-      (reopen && s && !s.archived ? open : drop).push(e);
+      (!s ? drop : reopen && !s.archived ? open : dock).push(e);
    }
-   for (const e of closed) if (!byId.has(e.session)) drop.push(e);
-   return { open, drop };
+   for (const { session, panel } of ended) if (!byId.has(session)) drop.push({ session, panel });
+   return { open, dock, drop };
 }
 
 /** A title until the pop-out sets its own (the panel labels live in the Frontend): `plan` → `Plan`. */
@@ -44,9 +48,10 @@ const panelTitle = (id: string) => id.charAt(0).toUpperCase() + id.slice(1);
 let ran = false;
 
 /**
- * Restores the panel windows once per app launch (not again on StrictMode's second effect or HMR).
- * Browser tabs outlive the main page, and a closed tab marks its own key closed, so outside Tauri only
- * the drops run.
+ * Restores the panel windows once per app launch (not again on StrictMode's second effect or HMR). A
+ * reload of the main window runs it again: a window that is open then is left as it is (not docked; a
+ * quiet reopen finds it open and does nothing). Browser tabs outlive the main page, and a closed tab
+ * marks its own key closed, so outside Tauri only the drops and docks run.
  */
 export async function restorePanelWindows(sessions: readonly SessionRef[]): Promise<void> {
    if (ran) return;
@@ -55,9 +60,13 @@ export async function restorePanelWindows(sessions: readonly SessionRef[]): Prom
       listPanelWindows(),
       sessions,
       panelWindowsReopen().get(),
-      listClosedPanelWindows(),
+      listEndedPanelWindows(),
    );
-   for (const w of plan.drop) dockPanel(w.session, w.panel);
+   for (const w of plan.drop) forgetPanelWindow(w.session, w.panel);
+   for (const w of plan.dock) {
+      const open = await panelWindowOpen(w.session, w.panel).catch(() => false);
+      if (!open) dockPanel(w.session, w.panel);
+   }
    if (plan.open.length === 0 || !inTauri()) return;
    const displays = await listDisplays().catch(() => ({ all: [], current: null }));
    const main = displays.current ?? displays.all[0];

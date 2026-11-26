@@ -6,6 +6,7 @@ import {
    hide,
    type Layout,
    move,
+   movePopped,
    reconcile,
    resetLayout,
    resize,
@@ -140,6 +141,20 @@ describe("move", () => {
       it("keeps the open panel", () => {
          expect(move(show(l, "events"), "events", "rightTop", 0).open.rightTop).toBe("events");
       });
+   });
+});
+
+describe("movePopped", () => {
+   it("moves the panel in the zone lists only: the target zone keeps its shown panel", () => {
+      const l = movePopped(open(empty, "side"), "events", "rightTop");
+      expect(l.zones.rightTop).toEqual(["side", "events"]);
+      expect(l.open.rightTop).toBe("side");
+   });
+
+   it("a popped panel still open in its old zone (older data) is hidden there, not carried over", () => {
+      const l = movePopped(open(empty, "side", "events"), "events", "rightTop");
+      expect(l.open.bottomRight).toBeNull();
+      expect(l.open.rightTop).toBe("side");
    });
 });
 

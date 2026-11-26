@@ -2,13 +2,13 @@ import {
    type AgentSwitch,
    type AttachmentInput,
    dockPanel,
-   focusPanelWindow,
    type OverlayFrame,
    type PanelWidth,
    type PromptContext,
    popPanel,
    type SessionApi,
    type SessionStatus,
+   showPanelWindow,
    usePanelWindows,
    type ViewVariant,
 } from "@harness/api";
@@ -50,15 +50,26 @@ import {
 } from "../panels/PanelHeader";
 import { DockLayout } from "./dock/DockLayout";
 import { shownOpen } from "./dock/geometry";
-import { expand, hide, isOpen, move, resetLayout, resize, show, ZONES } from "./dock/model";
+import {
+   expand,
+   hide,
+   isOpen,
+   move,
+   movePopped,
+   resetLayout,
+   resize,
+   show,
+   ZONES,
+   type Zone,
+} from "./dock/model";
 import { mountedPanels } from "./dock/mountedPanels";
 import { OVERLAY_ZONES } from "./dock/overlay";
 import { PanelWindow, projectOf } from "./dock/PanelWindow";
 import { usePanelDrag } from "./dock/panelDrag";
 import { usePanelRecord } from "./dock/panelRecord";
 import { Stripe } from "./dock/Stripe";
-import { useClosedWindows } from "./dock/useClosedWindows";
 import { useDockLayout, useHostPlaces } from "./dock/useDockLayout";
+import { useEndedWindows } from "./dock/useEndedWindows";
 import { useStripes } from "./dock/useStripes";
 import { OverlayDock } from "./overlay/OverlayDock";
 import { useProcessStatus } from "./ProcessStatus";
@@ -148,8 +159,8 @@ function ChatBody({
       [sessions],
    );
    const { lay, update, placesRef, setPlaces } = useDockLayout(api.sessionId, mode, popout);
-   // A panel window the user closed (red X): hidden here, then its key goes.
-   useClosedWindows(api.sessionId, mode === "main", lay, update);
+   // A panel window that ended (closed: hidden here; docked back: shown in its zone), then its key goes.
+   useEndedWindows(api.sessionId, mode === "main", lay, update);
    // The Session's panels open in windows of their own (a panel window leaves out its own panel).
    const poppedKey = usePanelWindows(api.sessionId)
       .map((w) => w.panel)
@@ -159,10 +170,11 @@ function ChatBody({
       () => new Set(poppedKey ? poppedKey.split("\n") : []),
       [poppedKey],
    );
+   // Focuses its window, or opens it again when it is gone.
    const focusWindow = useCallback(
       (id: string) =>
-         void focusPanelWindow(api.sessionId, id).catch((e) =>
-            console.error("focus window failed", e),
+         void showPanelWindow(api.sessionId, id).catch((e) =>
+            console.error("show window failed", e),
          ),
       [api.sessionId],
    );
@@ -286,15 +298,16 @@ function ChatBody({
    const shown = useMemo(() => shownOpen(lay, renderable, popped), [lay, renderable, popped]);
    useHostPlaces({ placesRef, setPlaces }, panelHost.places);
 
+   /** A popped panel moves in its zone list only (see `movePopped`). */
+   const moveTo = (id: string, zone: Zone, index?: number) =>
+      update((l) => (popped.has(id) ? movePopped : move)(l, id, zone, index));
    const { drag, start: startDrag } = usePanelDrag((id, t) =>
-      update((l) => move(l, id, t.zone, t.index ?? undefined)),
+      moveTo(id, t.zone, t.index ?? undefined),
    );
    const sessionTitle = sessionMap?.get(api.sessionId)?.title ?? state.title ?? "New Session";
-   /** Opens a panel in a window of its own. It stays open in the stored layout, so it comes back when docked. */
+   /** Opens a panel in a window of its own (focuses it when open). The stored layout does not change: docked back, the panel opens in its zone. */
    const popOut = (id: string) => {
-      if (popped.has(id)) return focusWindow(id);
       const label = panelHost.entries.find((e) => e.id === id)?.label ?? hints.get(id)?.label ?? id;
-      update((l) => show(l, id));
       popPanel(api.sessionId, id, { title: `${label} · ${sessionTitle}` }).catch((e) =>
          console.error("open panel window failed", e),
       );
@@ -318,7 +331,7 @@ function ChatBody({
    const dock = {
       drag,
       onResize: (patch: Parameters<typeof resize>[1]) => update((l) => resize(l, patch)),
-      onMove: (id: string, zone: Parameters<typeof move>[2]) => update((l) => move(l, id, zone)),
+      onMove: (id: string, zone: Zone) => moveTo(id, zone),
       onHide: (id: string) => update((l) => hide(l, id)),
       onExpand: (id: string | null) => update((l) => expand(l, id)),
       onDragStart: startDrag,

@@ -1,9 +1,9 @@
 import {
    baseName,
-   focusPanelWindow,
    formatAge,
    type SessionStatus,
    type SessionSummary,
+   showPanelWindow,
    useSessionHasDraft,
 } from "@harness/api";
 import {
@@ -305,13 +305,13 @@ export function SessionRow({
                                  aria-label={windowsLabel}
                                  onClick={(e) => {
                                     e.stopPropagation();
-                                    void focusPanelWindow(s.id, windows[0]);
+                                    void showPanelWindow(s.id, windows[0], { title: s.title });
                                  }}
                                  onKeyDown={(e) => {
                                     if (e.key !== "Enter" && e.key !== " ") return;
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    void focusPanelWindow(s.id, windows[0]);
+                                    void showPanelWindow(s.id, windows[0], { title: s.title });
                                  }}
                                  className="grid size-4 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
                               >

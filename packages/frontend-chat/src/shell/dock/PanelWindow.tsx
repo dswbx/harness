@@ -2,6 +2,8 @@ import {
    closeCurrentWindow,
    closePanel,
    dockPanel,
+   forgetPanelWindow,
+   isPanelPopped,
    onWindowClose,
    panelWindowFrame,
    rememberWindowFrame,
@@ -17,6 +19,12 @@ import type { PanelHint } from "./panelRecord";
 
 const noop = () => {};
 
+/**
+ * How long a pop-out waits, once its panel is no longer popped, before it closes: a pop out again in
+ * that time (Dock back, then pop out quickly) finds this window open and focuses it, so it must stay.
+ */
+export const CLOSE_GRACE_MS = 200;
+
 /** The project name the session chip shows: "Quick" for a Quick Session, else its folder's name. */
 export function projectOf(s: { folder?: string; quick?: boolean } | undefined): string | undefined {
    if (!s) return undefined;
@@ -27,9 +35,11 @@ export function projectOf(s: { folder?: string; quick?: boolean } | undefined): 
 /**
  * A panel window (`pane=panel`): one panel of the Session, full window, with the window header (see
  * `PanelHeader`). When the user closes the window it marks the panel closed (`closePanel`: the main
- * view hides it). Dock back docks it and shows it in its zone. It closes itself when the panel is no
- * longer popped (docked or closed from elsewhere), when the panel does not exist once the log is here,
- * or on Dock back. An archived Session shows a notice under the header.
+ * view hides it). Dock back marks it docked (the main view shows it in its zone). It closes itself on
+ * Dock back, when the panel does not exist once the log is here (its key goes), and when the panel is
+ * no longer popped (docked or closed from elsewhere): then only after `CLOSE_GRACE_MS`, and only if it
+ * is still not popped then (a new pop out reuses this window). An archived Session shows a notice
+ * under the header.
  */
 export function PanelWindow({
    sessionId,
@@ -64,6 +74,10 @@ export function PanelWindow({
       dockPanel(sessionId, panelId);
       close();
    }, [sessionId, panelId, close]);
+   const forget = useCallback(() => {
+      forgetPanelWindow(sessionId, panelId);
+      close();
+   }, [sessionId, panelId, close]);
 
    useEffect(() => {
       document.title = `${label} · ${sessionTitle}`;
@@ -72,15 +86,21 @@ export function PanelWindow({
    // The user closed the window (red X, Cmd+W; in a browser: the tab): not popped, hidden in its zone.
    // After Dock back the key is gone, so this does nothing.
    useEffect(() => onWindowClose(() => closePanel(sessionId, panelId)), [sessionId, panelId]);
-   // Not popped any more (docked from the main window, the Session deleted, restore turned off, closed): close.
+   // Not popped any more (docked from the main window, the Session deleted, restore turned off, closed):
+   // close, unless it is popped again by then (the storage read is the truth, not this render's value).
    const popped = usePanelWindows(sessionId).some((w) => w.panel === panelId);
    useEffect(() => {
-      if (!popped) close();
-   }, [popped, close]);
+      if (popped) return;
+      const t = setTimeout(() => {
+         if (!isPanelPopped(sessionId, panelId)) close();
+      }, CLOSE_GRACE_MS);
+      return () => clearTimeout(t);
+   }, [popped, close, sessionId, panelId]);
+   // An unknown panel (a removed render_ui item): nothing to dock back, the key goes.
    const unknown = loaded && !entry;
    useEffect(() => {
-      if (unknown) dockBack();
-   }, [unknown, dockBack]);
+      if (unknown) forget();
+   }, [unknown, forget]);
 
    const Own = entry?.icon ?? hint?.icon;
    const chrome = useMemo<PanelChrome>(

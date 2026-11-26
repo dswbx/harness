@@ -3,10 +3,10 @@ import { TooltipProvider } from "@harness/ui";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const focusPanelWindow = vi.hoisted(() => vi.fn(async () => true));
+const showPanelWindow = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@harness/api", async (orig) => ({
    ...(await orig<typeof import("@harness/api")>()),
-   focusPanelWindow,
+   showPanelWindow,
 }));
 
 import { SessionRow } from "./SessionRow";
@@ -89,7 +89,7 @@ describe("SessionRow menus", () => {
 });
 
 describe("SessionRow panel windows", () => {
-   afterEach(() => focusPanelWindow.mockClear());
+   afterEach(() => showPanelWindow.mockClear());
    it("hides the icon without popped panels", () => {
       setup(session());
       expect(screen.queryByRole("button", { name: /in own window/ })).toBeNull();
@@ -98,10 +98,10 @@ describe("SessionRow panel windows", () => {
       setup(session(), ["files", "diff"]);
       expect(screen.getByRole("button", { name: "2 panels in own window" })).toBeTruthy();
    });
-   it("click focuses the first window and does not select the row", () => {
+   it("click shows the first window (focused, or opened again) and does not select the row", () => {
       const h = setup(session(), ["files"]);
       fireEvent.click(screen.getByRole("button", { name: "1 panel in own window" }));
-      expect(focusPanelWindow).toHaveBeenCalledWith("s1", "files");
+      expect(showPanelWindow).toHaveBeenCalledWith("s1", "files", { title: "Sample task" });
       expect(h.onSelect).not.toHaveBeenCalled();
    });
 });

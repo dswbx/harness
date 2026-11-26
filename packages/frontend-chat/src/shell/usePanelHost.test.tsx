@@ -16,7 +16,7 @@ import { usePanelHost } from "./usePanelHost";
 const windows = vi.hoisted(() => ({ focus: vi.fn(async () => true) }));
 vi.mock("@harness/api", async (orig) => ({
    ...(await orig<typeof import("@harness/api")>()),
-   focusPanelWindow: windows.focus,
+   showPanelWindow: windows.focus,
 }));
 
 const applied: string[] = [];
@@ -160,7 +160,7 @@ describe("usePanelHost targets", () => {
 });
 
 describe("usePanelHost panel windows", () => {
-   it("focuses the window of a popped panel, no layout change", () => {
+   it("shows the window of a popped panel (focus, or reopen), no layout change", () => {
       applied.length = 0;
       windows.focus.mockClear();
       const { out } = setup("full", { popped: new Set(["files"]) });
@@ -172,7 +172,7 @@ describe("usePanelHost panel windows", () => {
       expect(isOpen(out.lay, "plan")).toBe(true);
    });
 
-   it("self.show on a popped panel focuses its window", () => {
+   it("self.show on a popped panel shows its window", () => {
       windows.focus.mockClear();
       const { out } = setup("full", { popped: new Set(["plan"]) });
       act(() => out.selves.plan!.show());

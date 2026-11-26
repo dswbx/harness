@@ -4,7 +4,7 @@ import { PANELS } from "./panels";
 
 /**
  * The registered panels' global shortcuts (Cmd+J: the Terminal). A panel open in a window of its own
- * (`popped`) gets that window focused; its zone in the stored layout stays as it is.
+ * (`popped`) gets that window shown (focused, or opened again when gone); its zone in the stored layout stays as it is.
  */
 export function useShortcuts(
    overlay: boolean,

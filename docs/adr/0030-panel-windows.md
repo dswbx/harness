@@ -2,7 +2,7 @@
 
 Users want to move a Panel (Plan, Tasks, Terminal, ...) out of the main window, for example onto a second display. The main window switches between Sessions, so a moved Panel must show which Session it belongs to, must dock back into its Zone, and must come back after quit and relaunch. Before this, only Changes (DiffWindow) and Files had windows of their own.
 
-**Decision:** any Panel can pop out into a Panel window: an OS window that shows only that Panel of one Session. In the main window the Panel shows as closed (its Zone collapses when nothing else is open there), but the stored layout keeps it open in its Zone, so Dock back shows it there again. Closing the window (red X) does not dock back: the Panel is docked but hidden in its Zone; its Stripe icon opens it. The Stripe icon and the sidebar row get a window badge; a click on the icon focuses the window, and its context menu (the same entries as the Panel's ⋮ menu) has Show window and Dock back.
+**Decision:** any Panel can pop out into a Panel window: an OS window that shows only that Panel of one Session. Popping out does not change the stored layout. In the main window the Panel shows as closed (its Zone keeps showing what it showed, or collapses when nothing else is open there). Dock back opens the Panel in its Zone. Closing the window (red X) does not dock back: the Panel is docked but hidden in its Zone; its Stripe icon opens it. The Stripe icon and the sidebar row get a window badge; a click on the icon shows the window (focused, or opened again when it is gone), and its context menu (the same entries as the Panel's ⋮ menu) has Show window and Dock back. Move to on a popped Panel changes only its Zone (no Zone's shown Panel changes); docked back, it opens in the new Zone.
 
 **Bound to one Session.** A Panel window shows one Panel of one Session for its whole life. Switching Sessions in the main window does not change it. The same Panel id in two Sessions gives two windows. Popping a Panel that is already popped focuses its window. The window label is `panel-{session}:{panel}` with both parts escaped (`panelWindowLabel`, injective), so the label finds the open window.
 
@@ -10,7 +10,7 @@ Users want to move a Panel (Plan, Tasks, Terminal, ...) out of the main window, 
 
 **Storage: one key per window.** All keys are in the `STORAGE_KEYS` registry. No stored layout format changes.
 
-- `harness.panelWindow.{session}#{name}` → `{v:1, at, closed?: true}`. Key present and not `closed` = the Panel is popped. `closed` = the user closed the window; the Session's main view still has to hide the Panel. Bad data counts as absent and is removed. Older values have no `closed` and still parse.
+- `harness.panelWindow.{session}#{name}` → `{v:1, at, closed?: true, docked?: true}`. Key present without `closed` or `docked` = the Panel is popped (live). `closed` = the user closed the window; `docked` = Dock back. Both are ended entries: the Session's main view still has to apply them (hide or show the Panel). Bad data counts as absent and is removed. Older values (no `closed`, or `closed: true`) still parse. `popPanel` on an absent or ended key writes a fresh live entry (`at` = now).
 - `harness.panelWindowFrame.{session}#{name}` → the window's frame (logical pixels). Only the Panel window writes it.
 - `harness.panelWindows.reopen` → app setting "Reopen panel windows on launch" (`on`/`off`, default on; Settings > Appearance > Windows).
 
@@ -18,23 +18,33 @@ One key per window, not one shared list, because each window is its own webview:
 
 **Quit vs close vs Dock back.** In Tauri, `app.exit()` raises `ExitRequested` and then exits; it never raises `CloseRequested` on a window (checked in tauri-runtime-wry). So `onCloseRequested` in a Panel window means the user closed it (red X, Cmd+W).
 
-| Action                                              | Key                           | Main view                                                 |
-| --------------------------------------------------- | ----------------------------- | --------------------------------------------------------- |
-| Quit, crash                                         | kept                          | window comes back on the next launch                      |
-| Close (red X, Cmd+W, browser tab)                   | `closePanel`: marked `closed` | hides the Panel in its Zone (saved), then removes the key |
-| Dock back (window header, Stripe menu, main window) | `dockPanel`: removed          | Panel shows open in its Zone                              |
-| Session deleted, setting off on launch              | removed                       | as Dock back                                              |
+| Action                                                | Key                           | Main view                                                 |
+| ----------------------------------------------------- | ----------------------------- | --------------------------------------------------------- |
+| Quit, crash                                           | kept                          | window comes back on the next launch                      |
+| Close (red X, Cmd+W, browser tab)                     | `closePanel`: marked `closed` | hides the Panel in its Zone (saved), then removes the key |
+| Dock back (window header, Stripe menu, main window)   | `dockPanel`: marked `docked`  | shows the Panel in its Zone (saved), then removes the key |
+| Archived Session or setting off, on launch            | marked `docked`               | as Dock back                                              |
+| Session deleted, unknown Panel id, window not created | removed (`forgetPanelWindow`) | nothing to do                                             |
+| Pop out again (from any state)                        | `popPanel`: live, fresh `at`  | Panel shows as closed                                     |
 
-The Panel window must not write the Session's stored layout: the main view keeps that layout in memory and would write over it. So the close only marks the key, and the main view of that Session applies it (`useClosedWindows`): at once when it shows the Session, else when the Session's view mounts later (the main window showed another Session, or was not running). It removes the key only after the hidden layout is saved. `closePanel` does nothing when the key is gone, so the close that follows Dock back changes nothing. A Panel window closes itself when its Panel is no longer popped (key gone or `closed`).
+The Panel window must not write the Session's stored layout: the main view keeps that layout in memory and would write over it. So close and Dock back only mark the key, and the main view of that Session applies it (`useEndedWindows`): at once when it shows the Session, else when the Session's view mounts later (the main window showed another Session, or was not running). It applies each end once and removes the key only after the changed layout is saved. `closePanel` and `dockPanel` do nothing on an ended or absent key, so the close that follows Dock back changes nothing.
 
-**Restore on launch.** Once per launch, in the main window only, after the Session list has loaded (`app/src/shell/restorePanelWindows.ts`, a pure `planRestore` plus a runner):
+**A live key without a window.** The window can be gone while its key is live (it was never created, or it died). Every way to reach a popped Panel (Stripe icon, its menu's Show window, a shortcut, a link into the Panel, the sidebar badge) calls `showPanelWindow`: it focuses the window, and when there is none it opens it again at its saved frame. When `openWindow` cannot create the window (`tauri://error`), `popPanel` removes the key again, so the Panel is not stuck as popped.
 
-- Session deleted → remove the key (also a `closed` one).
-- `closed` → leave it for the Session's main view; never reopen.
-- Session archived → remove the key (dock back). Its layout already has the Panel open in its Zone.
-- Setting off → remove all keys (all dock back).
+**A Panel window closes itself** when its Panel is no longer popped (key absent or ended), but only after a short grace time (`CLOSE_GRACE_MS`, 200 ms) and only if the key is still not live then. This handles Dock back followed quickly by a new pop out: the new pop out finds the old window still open and focuses it (stable label), and that window must stay. Rule: the stored value at the end of the grace time decides, not the change that started it. A pop out in the few milliseconds between that read and the window's destroy can still lose the window; the next click on the Stripe icon opens it again (`showPanelWindow`).
+
+A Panel window of a deleted Session (`Solo`: the Session list loaded and the Session is not in it) removes its key and closes. A failed first load of the list does not count as deleted: the window waits for the next load.
+
+**Restore on launch.** Once per main-window page load, in the main window only, after the Session list has loaded (`app/src/shell/restorePanelWindows.ts`, a pure `planRestore` plus a runner):
+
+- Session deleted → remove the key (also an ended one).
+- Ended (`closed`, `docked`) → leave it for the Session's main view; never reopen.
+- Session archived → mark it `docked` (dock back).
+- Setting off → mark all `docked` (all dock back).
 - Else open the window quietly (it does not take focus from the main window) at its saved frame. A frame that no display shows (a display was removed or moved) moves to the main window's display, centered (`fitFrame`).
 
-In the browser mock, tabs outlive the main page and a closed tab marks its own key `closed` (`pagehide`), so only the removals run there.
+A reload of the main window (dev: a full reload, Cmd+R) runs the restore again while Panel windows are open. So a live key whose window exists (`panelWindowOpen`, Tauri `getByLabel`) is never docked, and a quiet reopen of an open window does nothing. No extra storage is needed for this.
 
-**Consequences.** Each Panel window runs the full chat fold and the Panel models of its Session (more memory on long Sessions). A target sent to a popped Panel from the main window (a diff link while Changes is popped) only focuses its window for now. Closing the main window while Panel windows are open leaves them without a main window (an older issue: there is no reopen handler).
+In the browser mock, tabs outlive the main page and a closed tab marks its own key `closed` (`pagehide`), so only the removals and docks run there.
+
+**Consequences.** Each Panel window runs the full chat fold and the Panel models of its Session (more memory on long Sessions). A target sent to a popped Panel from the main window (a diff link while Changes is popped) only shows its window for now. Closing the main window while Panel windows are open leaves them without a main window (an older issue: there is no reopen handler).

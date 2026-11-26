@@ -3,12 +3,15 @@ import {
    closePanel,
    dockPanel,
    fitFrame,
-   listClosedPanelWindows,
+   forgetPanelWindow,
+   isPanelPopped,
+   listEndedPanelWindows,
    listPanelWindows,
    panelWindowLabel,
    panelWindowUrl,
    parsePanelWindow,
    popPanel,
+   showPanelWindow,
 } from "./panelWindows";
 
 class MemStorage {
@@ -76,13 +79,72 @@ describe("storage", () => {
          closed: true,
       });
       expect(parsePanelWindow('{"v":1,"at":5,"closed":false}')).toEqual({ v: 1, at: 5 });
+      expect(parsePanelWindow('{"v":1,"at":5,"docked":true}')).toEqual({
+         v: 1,
+         at: 5,
+         docked: true,
+      });
+      expect(parsePanelWindow('{"v":1,"at":5,"docked":1}')).toEqual({ v: 1, at: 5 });
    });
 
-   it("closed entries are not popped; they are listed apart", () => {
+   it("ended entries (closed, docked) are not popped; they are listed apart", () => {
       mem.setItem("harness.panelWindow.s1#plan", '{"v":1,"at":2}');
       mem.setItem("harness.panelWindow.s1#tasks", '{"v":1,"at":1,"closed":true}');
+      mem.setItem("harness.panelWindow.s1#files", '{"v":1,"at":3,"docked":true}');
       expect(listPanelWindows()).toEqual([{ session: "s1", panel: "plan" }]);
-      expect(listClosedPanelWindows()).toEqual([{ session: "s1", panel: "tasks" }]);
+      expect(listEndedPanelWindows()).toEqual([
+         { session: "s1", panel: "tasks", end: "closed" },
+         { session: "s1", panel: "files", end: "docked" },
+      ]);
+      expect(isPanelPopped("s1", "plan")).toBe(true);
+      expect(isPanelPopped("s1", "tasks")).toBe(false);
+      expect(isPanelPopped("s1", "files")).toBe(false);
+   });
+
+   it("pop again resets a docked or closed key to live with a fresh time", async () => {
+      mem.setItem("harness.panelWindow.s1#plan", '{"v":1,"at":1,"docked":true}');
+      mem.setItem("harness.panelWindow.s1#tasks", '{"v":1,"at":1,"closed":true}');
+      await popPanel("s1", "plan", { title: "Plan" });
+      await popPanel("s1", "tasks", { title: "Tasks" });
+      for (const p of ["plan", "tasks"]) {
+         const e = JSON.parse(mem.getItem(`harness.panelWindow.s1#${p}`)!);
+         expect(e).toEqual({ v: 1, at: expect.any(Number) });
+         expect(e.at).toBeGreaterThan(1);
+      }
+   });
+
+   it("a window that cannot be opened: the key goes again", async () => {
+      open.mockReturnValue(null);
+      expect(await popPanel("s1", "plan", { title: "Plan" })).toBe(false);
+      expect(mem.getItem("harness.panelWindow.s1#plan")).toBeNull();
+   });
+
+   it("showPanelWindow: when focus finds no window, opens it again", async () => {
+      mem.setItem("harness.panelWindow.s1#plan", '{"v":1,"at":1}');
+      expect(await showPanelWindow("s1", "plan")).toBe(true);
+      expect(open).toHaveBeenCalledWith(
+         panelWindowUrl("s1", "plan"),
+         panelWindowLabel("s1", "plan"),
+      );
+      expect(isPanelPopped("s1", "plan")).toBe(true);
+   });
+
+   it("dock marks a popped key docked; without a key it does nothing; forget removes it", async () => {
+      await popPanel("s1", "plan", { title: "Plan" });
+      const at = JSON.parse(mem.getItem("harness.panelWindow.s1#plan")!).at;
+      dockPanel("s1", "plan");
+      expect(JSON.parse(mem.getItem("harness.panelWindow.s1#plan")!)).toEqual({
+         v: 1,
+         at,
+         docked: true,
+      });
+      dockPanel("s1", "tasks");
+      expect(mem.getItem("harness.panelWindow.s1#tasks")).toBeNull();
+      // A close after Dock back changes nothing.
+      closePanel("s1", "plan");
+      expect(listEndedPanelWindows()).toEqual([{ session: "s1", panel: "plan", end: "docked" }]);
+      forgetPanelWindow("s1", "plan");
+      expect(mem.getItem("harness.panelWindow.s1#plan")).toBeNull();
    });
 
    it("close marks a popped key closed; on a docked panel it does nothing", async () => {
@@ -93,7 +155,7 @@ describe("storage", () => {
          closed: true,
       });
       expect(listPanelWindows()).toEqual([]);
-      expect(listClosedPanelWindows()).toEqual([{ session: "s1", panel: "plan" }]);
+      expect(listEndedPanelWindows()).toEqual([{ session: "s1", panel: "plan", end: "closed" }]);
       closePanel("s1", "tasks");
       expect(mem.getItem("harness.panelWindow.s1#tasks")).toBeNull();
       // Popping again clears the mark.
@@ -119,7 +181,7 @@ describe("storage", () => {
       expect(listPanelWindows()).toEqual([]);
    });
 
-   it("pop writes the key and opens the window; dock removes the key only", async () => {
+   it("pop writes the key and opens the window; dock marks the key only", async () => {
       await popPanel("s1", "slot:a b", { title: "Plan · Demo" });
       expect(JSON.parse(mem.getItem("harness.panelWindow.s1#slot:a b")!)).toMatchObject({ v: 1 });
       expect(open).toHaveBeenCalledWith(
@@ -132,6 +194,9 @@ describe("storage", () => {
       mem.setItem("harness.panelWindowFrame.s1#slot:a b", "{}");
       dockPanel("s1", "slot:a b");
       expect(listPanelWindows()).toEqual([]);
+      expect(listEndedPanelWindows()).toEqual([
+         { session: "s1", panel: "slot:a b", end: "docked" },
+      ]);
       expect(mem.getItem("harness.panelWindowFrame.s1#slot:a b")).toBe("{}");
    });
 

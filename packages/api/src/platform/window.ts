@@ -70,6 +70,7 @@ export async function focusWindow(label: string): Promise<boolean> {
  * `remember`: the window opens at the frame last saved there (see `rememberWindowFrame`); `frame` wins over it.
  * `stable`: the label is used as given (it must hold only `a-zA-Z0-9-/:_`), so a window with it already open is focused instead of opening a second one.
  * `quiet`: the window opens without taking focus.
+ * Resolves true once the window is there (opened or focused), false when it could not be created.
  * `overlayTitleBar`: the traffic lights sit inside the page, like the main window; the page must leave 92px free on the left of a top bar `titleBarHeight` high (default 52px); the lights are centered in it. */
 export async function openWindow(
    label: string,
@@ -85,12 +86,11 @@ export async function openWindow(
       overlayTitleBar?: boolean;
       titleBarHeight?: number;
    },
-) {
+): Promise<boolean> {
    if (opts.quiet) url = withQuery(url, QUIET_PARAM, "1");
    if (!inTauri()) {
       // A named target reuses the tab, like a stable label reuses the window.
-      window.open(url, opts.stable ? label : "_blank");
-      return;
+      return window.open(url, opts.stable ? label : "_blank") !== null;
    }
    const [{ WebviewWindow }, { LogicalPosition }] = await Promise.all([
       import("@tauri-apps/api/webviewWindow"),
@@ -101,7 +101,7 @@ export async function openWindow(
       opts.stable &&
       (opts.quiet ? await WebviewWindow.getByLabel(label) : await focusWindow(label))
    )
-      return;
+      return true;
    const frame = opts.frame ?? (opts.remember ? frameStore(opts.remember).get() : null);
    // A label can hold only `a-zA-Z0-9-/:_`; reusing one focuses nothing, so add a counter.
    const safe = opts.stable
@@ -122,7 +122,13 @@ export async function openWindow(
          trafficLightPosition: new LogicalPosition(18, 28 - (52 - (opts.titleBarHeight ?? 52)) / 2),
       }),
    });
-   w.once("tauri://error", (e) => console.error("window create failed", e));
+   return new Promise<boolean>((resolve) => {
+      void w.once("tauri://created", () => resolve(true));
+      void w.once("tauri://error", (e) => {
+         console.error("window create failed", e);
+         resolve(false);
+      });
+   });
 }
 
 /** `url` (an app path like `/?a=1`) with `name=value` added to its query. */

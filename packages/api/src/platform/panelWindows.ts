@@ -8,24 +8,32 @@ import { type Frame, focusWindow, openWindow, parseFrame } from "./window";
 /**
  * Panel windows: a Session's panel popped out into its own OS window. One key per pop-out
  * (`harness.panelWindow.{session}#{panel}`), so two webviews never race on one shared list. The
- * key present means popped, unless it is marked `closed`: the user closed the window (red X), and the
- * main view of the Session hides the panel and then removes the key. The pop-out keeps its frame
- * under `harness.panelWindowFrame.…`.
+ * key present means popped (live), unless it is marked as ended: `closed` (the user closed the window,
+ * red X) or `docked` (Dock back). The main view of the Session applies an ended entry to its layout
+ * (hides or shows the panel) and then removes the key. The pop-out keeps its frame under
+ * `harness.panelWindowFrame.…`.
  */
 export type PanelWindow = { session: string; panel: string };
-type Entry = { v: 1; at: number; closed?: true };
+/** How a pop-out ended: closed (the panel is hidden in its zone) or docked (it shows in its zone). */
+export type PanelWindowEnd = "closed" | "docked";
+export type EndedPanelWindow = PanelWindow & { end: PanelWindowEnd };
+type Entry = { v: 1; at: number; closed?: true; docked?: true };
+const endOf = (e: Entry): PanelWindowEnd | null =>
+   e.closed ? "closed" : e.docked ? "docked" : null;
 
 const ENTRY = "harness.panelWindow.";
 const FRAME = "harness.panelWindowFrame.";
 const ENTRY_PATTERN = `${ENTRY}{session}#{name}`;
 
-/** A stored entry; anything else (bad JSON, another version) is null. Older builds wrote no `closed`. */
+/** A stored entry; anything else (bad JSON, another version) is null. Older values have no `closed` or `docked`. */
 export function parsePanelWindow(raw: string | null): Entry | null {
    if (raw === null) return null;
    try {
       const e = JSON.parse(raw);
       if (!(e && typeof e === "object" && e.v === 1 && Number.isFinite(e.at))) return null;
-      return e.closed === true ? { v: 1, at: e.at, closed: true } : { v: 1, at: e.at };
+      if (e.closed === true) return { v: 1, at: e.at, closed: true };
+      if (e.docked === true) return { v: 1, at: e.at, docked: true };
+      return { v: 1, at: e.at };
    } catch {
       return null;
    }
@@ -87,42 +95,53 @@ function entryOf(key: string): PanelWindow | null {
    return { session: m.session, panel: key.slice(ENTRY.length + m.session.length + 1) };
 }
 
-type Scan = { list: PanelWindow[]; closed: PanelWindow[] };
-const strip = (l: (PanelWindow & { at: number })[]): PanelWindow[] =>
-   l.sort((a, b) => a.at - b.at).map(({ session, panel }) => ({ session, panel }));
+type Scan = { list: PanelWindow[]; ended: EndedPanelWindow[] };
+const byAge = <T extends { at: number }>(l: T[]) => l.sort((a, b) => a.at - b.at);
 
-/** The popped and the closed panels, oldest first, and whether a key held bad data. */
+/** The popped and the ended panels, oldest first, and whether a key held bad data. */
 function scan(clean: boolean): Scan & { bad: boolean } {
    const out: (PanelWindow & { at: number })[] = [];
-   const closed: (PanelWindow & { at: number })[] = [];
+   const done: (EndedPanelWindow & { at: number })[] = [];
    let bad = false;
    for (const key of storedKeys()) {
       const w = entryOf(key);
       if (!w) continue;
       const store = entryStore(w.session, w.panel);
       const e = store.get();
-      if (e) (e.closed ? closed : out).push({ ...w, at: e.at });
+      const end = e && endOf(e);
+      if (end) done.push({ ...w, end, at: e.at });
+      else if (e) out.push({ ...w, at: e.at });
       else if (store.has()) {
          bad = true;
          if (clean) store.remove();
       }
    }
-   return { list: strip(out), closed: strip(closed), bad };
+   return {
+      list: byAge(out).map(({ session, panel }) => ({ session, panel })),
+      ended: byAge(done).map(({ session, panel, end }) => ({ session, panel, end })),
+      bad,
+   };
 }
 
-/** Every popped panel (closed ones not), oldest first. A key with bad data counts as absent and is removed. */
+/** Every popped panel (ended ones not), oldest first. A key with bad data counts as absent and is removed. */
 export const listPanelWindows = (): PanelWindow[] => scan(true).list;
 
-/** Every panel whose window the user closed and whose key is not removed yet, oldest first. */
-export const listClosedPanelWindows = (): PanelWindow[] => scan(true).closed;
+/** Every panel whose pop-out ended (closed or docked) and whose key is not removed yet, oldest first. */
+export const listEndedPanelWindows = (): EndedPanelWindow[] => scan(true).ended;
+
+/** Whether `panel` of `session` is popped now (its key is live). */
+export function isPanelPopped(session: string, panel: string): boolean {
+   const e = entryStore(session, panel).get();
+   return !!e && !endOf(e);
+}
 
 let cache: { sig: string; value: Scan } | undefined;
 const snapshot = (): Scan => {
-   const { list, closed, bad } = scan(false);
+   const { bad, ...value } = scan(false);
    // Not while React reads a snapshot: removing a key notifies the listeners.
    if (bad) queueMicrotask(listPanelWindows);
-   const sig = JSON.stringify([list, closed]);
-   if (cache?.sig !== sig) cache = { sig, value: { list, closed } };
+   const sig = JSON.stringify([value.list, value.ended]);
+   if (cache?.sig !== sig) cache = { sig, value };
    return cache.value;
 };
 const subscribe = (l: () => void) =>
@@ -130,28 +149,32 @@ const subscribe = (l: () => void) =>
       if (key === null || entryOf(key)) l();
    });
 
-/** The popped panels (of one Session when given) as React state; follows other windows. Closed ones are not popped. */
+/** The popped panels (of one Session when given) as React state; follows other windows. Ended ones are not popped. */
 export function usePanelWindows(session?: string): PanelWindow[] {
    const all = useSyncExternalStore(subscribe, snapshot, snapshot).list;
    return session === undefined ? all : all.filter((w) => w.session === session);
 }
 
-/** The panels of `session` whose window the user closed (red X), as React state, for the main view to hide. */
-export function useClosedPanelWindows(session: string): PanelWindow[] {
-   const { closed } = useSyncExternalStore(subscribe, snapshot, snapshot);
-   return closed.filter((w) => w.session === session);
+/** The panels of `session` whose pop-out ended (closed or docked), as React state, for the main view to apply. */
+export function useEndedPanelWindows(session: string): EndedPanelWindow[] {
+   const { ended } = useSyncExternalStore(subscribe, snapshot, snapshot);
+   return ended.filter((w) => w.session === session);
 }
 
-/** Pops `panel` of `session` out: marks it popped, then opens its window (or focuses it when open). */
+/**
+ * Pops `panel` of `session` out: marks it popped (an absent or ended key gets a fresh live entry),
+ * then opens its window (or focuses it when open). The stored layout does not change. When the window
+ * cannot be created, the key goes again (the panel is not popped). Returns whether a window is there.
+ */
 export async function popPanel(
    session: string,
    panel: string,
    opts: { title: string; quiet?: boolean; frame?: Frame },
-): Promise<void> {
+): Promise<boolean> {
    const entry = entryStore(session, panel);
    const e = entry.get();
-   if (!e || e.closed) entry.set({ v: 1, at: Date.now() });
-   await openWindow(panelWindowLabel(session, panel), panelWindowUrl(session, panel), {
+   if (!e || endOf(e)) entry.set({ v: 1, at: Date.now() });
+   const ok = await openWindow(panelWindowLabel(session, panel), panelWindowUrl(session, panel), {
       title: opts.title,
       width: 560,
       height: 720,
@@ -161,10 +184,35 @@ export async function popPanel(
       ...(opts.quiet && { quiet: true }),
       overlayTitleBar: true,
    });
+   if (!ok && isPanelPopped(session, panel)) entry.remove();
+   return ok;
 }
 
-/** Docks `panel` back: removes its key (the pop-out closes itself when it sees that). It shows in its zone again. */
+/**
+ * Shows the pop-out of `panel`: brings its window to the front, or, when there is none (the key is live
+ * but the window is gone), opens it again at its saved frame. Returns whether a window is there.
+ */
+export async function showPanelWindow(
+   session: string,
+   panel: string,
+   opts: { title?: string } = {},
+): Promise<boolean> {
+   if (await focusPanelWindow(session, panel)) return true;
+   return popPanel(session, panel, { title: opts.title ?? panel });
+}
+
+/**
+ * Docks `panel` back: marks its key `docked` (the pop-out closes itself when it sees that). The main
+ * view of the Session shows the panel in its zone and then removes the key. Does nothing without a key.
+ */
 export function dockPanel(session: string, panel: string): void {
+   const entry = entryStore(session, panel);
+   const e = entry.get();
+   if (e) entry.set({ v: 1, at: e.at, docked: true });
+}
+
+/** Removes the key of `panel` (no window, nothing for the main view to apply): an unknown panel, a deleted Session. */
+export function forgetPanelWindow(session: string, panel: string): void {
    entryStore(session, panel).remove();
 }
 
@@ -176,12 +224,19 @@ export function dockPanel(session: string, panel: string): void {
 export function closePanel(session: string, panel: string): void {
    const entry = entryStore(session, panel);
    const e = entry.get();
-   if (e && !e.closed) entry.set({ v: 1, at: e.at, closed: true });
+   if (e && !endOf(e)) entry.set({ v: 1, at: e.at, closed: true });
 }
 
 /** Brings the pop-out of `panel` to the front; false when it is not open. */
 export const focusPanelWindow = (session: string, panel: string): Promise<boolean> =>
    focusWindow(panelWindowLabel(session, panel));
+
+/** Whether the pop-out window of `panel` exists now (Tauri only; else false). */
+export async function panelWindowOpen(session: string, panel: string): Promise<boolean> {
+   if (!inTauri()) return false;
+   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+   return (await WebviewWindow.getByLabel(panelWindowLabel(session, panel))) !== null;
+}
 
 /** Shows `session` in the main window and brings that window to the front (Tauri only). */
 export async function showSession(session: string): Promise<void> {

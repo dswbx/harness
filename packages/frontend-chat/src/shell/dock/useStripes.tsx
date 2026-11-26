@@ -9,6 +9,7 @@ import {
    isOpen,
    type Layout,
    move,
+   movePopped,
    toggle,
    ZONE_LABEL,
    ZONES,
@@ -106,7 +107,7 @@ export function useStripes(o: {
       const expanded = shown.expanded === id;
       return {
          moves: zones.map((z) => ({ id: z, label: ZONE_LABEL[z], current: z === home })),
-         onMove: (z) => update((l) => move(l, id, z as Zone)),
+         onMove: (z) => update((l) => (isPopped ? movePopped : move)(l, id, z as Zone)),
          expand:
             entryOf.get(id)?.expandable && isOpen(shown, id)
                ? { expanded, onToggle: () => update((l) => expand(l, expanded ? null : id)) }
