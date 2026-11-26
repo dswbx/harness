@@ -1,12 +1,15 @@
-import type {
-   AgentSwitch,
-   AttachmentInput,
-   OverlayFrame,
-   PanelWidth,
-   PromptContext,
-   SessionApi,
-   SessionStatus,
-   ViewVariant,
+import {
+   type AgentSwitch,
+   type AttachmentInput,
+   focusPanelWindow,
+   type OverlayFrame,
+   type PanelWidth,
+   type PromptContext,
+   popPanel,
+   type SessionApi,
+   type SessionStatus,
+   usePanelWindows,
+   type ViewVariant,
 } from "@harness/api";
 import { MenuButton, Portal, type VirtualListHandle } from "@harness/ui";
 import { RotateCcw } from "lucide-react";
@@ -137,6 +140,30 @@ function ChatBody({
       [sessions],
    );
    const { lay, update, placesRef, setPlaces } = useDockLayout(api.sessionId, mode, popout);
+   // The Session's panels open in windows of their own (a panel window leaves out its own panel).
+   const poppedKey = usePanelWindows(api.sessionId)
+      .map((w) => w.panel)
+      .filter((id) => id !== popout)
+      .join("\n");
+   const popped = useMemo<ReadonlySet<string>>(
+      () => new Set(poppedKey ? poppedKey.split("\n") : []),
+      [poppedKey],
+   );
+   const focusWindow = useCallback(
+      (id: string) =>
+         void focusPanelWindow(api.sessionId, id).catch((e) =>
+            console.error("focus window failed", e),
+         ),
+      [api.sessionId],
+   );
+   // A panel docked back (from its window, the placeholder, or closing the window) shows again in its zone.
+   const lastPopped = useRef({ sessionId: api.sessionId, popped });
+   useEffect(() => {
+      const last = lastPopped.current;
+      lastPopped.current = { sessionId: api.sessionId, popped };
+      if (mode !== "main" || last.sessionId !== api.sessionId) return;
+      for (const id of last.popped) if (!popped.has(id)) update((l) => show(l, id));
+   }, [api.sessionId, popped, mode, update]);
    // A panel window has no other panels to toggle.
    useShortcuts(mode !== "main", update);
    const env = useUiEnv(api, state.uiState);
@@ -183,6 +210,8 @@ function ChatBody({
       update,
       chat: panelChat,
       host: panelHostApi,
+      popped,
+      popout,
    });
    // Opening a panel at a target goes through the context (stable, so the chat's callbacks keep their identity).
    const openPanel = panelHost.ctx.open;
@@ -261,6 +290,8 @@ function ChatBody({
       available,
       update,
       hints,
+      popped,
+      onFocusWindow: focusWindow,
    });
    /** What both trees (main and Quick overlay) give the dock. */
    const dock = {
@@ -276,7 +307,18 @@ function ChatBody({
       (id) => isOpen(shown, id),
       renderable,
       placeholders,
+      { sessionId: api.sessionId, ids: popped },
    );
+   const sessionTitle = sessionMap?.get(api.sessionId)?.title ?? state.title ?? "New Session";
+   /** Opens a panel in a window of its own; its zone stays open for the placeholder. */
+   const popOut = (id: string) => {
+      if (popped.has(id)) return focusWindow(id);
+      const label = panelHost.entries.find((e) => e.id === id)?.label ?? hints.get(id)?.label ?? id;
+      update((l) => show(l, id));
+      popPanel(api.sessionId, id, { title: `${label} · ${sessionTitle}` }).catch((e) =>
+         console.error("open panel window failed", e),
+      );
+   };
 
    // The host's header shows the process state as a dot on its info icon; a header of our own (no host header) a badge.
    const pending = usePendingMessages(api.sessionId);
@@ -383,9 +425,7 @@ function ChatBody({
                            hint={hints.get(popout)}
                            loaded={state.loaded && !inert}
                            archived={state.archived}
-                           sessionTitle={
-                              sessionMap?.get(api.sessionId)?.title ?? state.title ?? "New Session"
-                           }
+                           sessionTitle={sessionTitle}
                            project={projectOf(sessionMap?.get(api.sessionId))}
                         />
                      ) : overlay ? (
@@ -422,6 +462,7 @@ function ChatBody({
                               chat={chat}
                               panels={panels}
                               leftStripeOverlay={leftEmpty}
+                              onPopOut={popOut}
                            />
                            <Stripe
                               side="right"

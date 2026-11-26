@@ -37,6 +37,8 @@ export type PanelChrome = {
    onHide: () => void;
    /** Pointer down on the header: drags the panel to another zone. */
    onDragStart: (e: PointerEvent) => void;
+   /** Opens the panel in a window of its own ("Open in window", Move to › New window). Absent: not offered. */
+   onPopOut?: () => void;
    /** The panel fills a panel window of its own: the header is that window's title bar. */
    window?: PanelWindowChrome;
 };
@@ -59,7 +61,7 @@ export const PanelContext = createContext<PanelChrome | null>(null);
 
 /**
  * The header every panel shares: `title`, the panel's own controls (`children`), a menu (the panel's own
- * entries in `menu`, then Expand, Move to) and the hide button. Dragging the header drags the panel to another zone.
+ * entries in `menu`, then Expand, Move to), Open in window (when offered) and the hide button. Dragging the header drags the panel to another zone.
  */
 export function PanelHeader({
    title,
@@ -105,6 +107,19 @@ export function PanelHeader({
          {children}
          {p && (
             <div className="ml-auto flex shrink-0 items-center gap-0.5">
+               {p.onPopOut && (
+                  <Tooltip content="Open in window" side="bottom">
+                     <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7"
+                        aria-label={`Open ${p.label} in window`}
+                        onClick={p.onPopOut}
+                     >
+                        <Maximize2 />
+                     </Button>
+                  </Tooltip>
+               )}
                <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                      <Button
@@ -146,6 +161,14 @@ export function PanelHeader({
                                  {m.current && <Check className="ml-auto" />}
                               </DropdownMenuItem>
                            ))}
+                           {p.onPopOut && (
+                              <>
+                                 <DropdownMenuSeparator />
+                                 <DropdownMenuItem onSelect={p.onPopOut}>
+                                    <Maximize2 /> New window
+                                 </DropdownMenuItem>
+                              </>
+                           )}
                         </DropdownMenuSubContent>
                      </DropdownMenuSub>
                   </DropdownMenuContent>

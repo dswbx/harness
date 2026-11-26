@@ -20,7 +20,7 @@ import {
    ScrollArea,
    Tooltip,
 } from "@harness/ui";
-import { ChevronRight, Copy, Maximize2, MoreHorizontal, RefreshCw } from "lucide-react";
+import { AppWindow, ChevronRight, Copy, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import { activeCommentsOn } from "../review/reviewComments";
@@ -198,7 +198,24 @@ export function DiffPanel({
 
    return (
       <>
-         <PanelHeader title={scope.label} titleHint={scope.label}>
+         <PanelHeader
+            title={scope.label}
+            titleHint={scope.label}
+            menu={
+               <DropdownMenuItem
+                  disabled={noRepo}
+                  onSelect={() =>
+                     void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), {
+                        title: `Diff: ${scope.label}`,
+                        remember: "diff",
+                        overlayTitleBar: true,
+                     })
+                  }
+               >
+                  <AppWindow /> Open diff viewer
+               </DropdownMenuItem>
+            }
+         >
             {diff && (
                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                   {files.length} {files.length === 1 ? "file" : "files"}
@@ -207,24 +224,6 @@ export function DiffPanel({
                </span>
             )}
             <div className="flex-1" />
-            <Tooltip content="Open in window" side="bottom">
-               <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7"
-                  aria-label="Open diff in window"
-                  disabled={noRepo}
-                  onClick={() =>
-                     void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), {
-                        title: `Diff: ${scope.label}`,
-                        remember: "diff",
-                        overlayTitleBar: true,
-                     })
-                  }
-               >
-                  <Maximize2 />
-               </Button>
-            </Tooltip>
             <Tooltip content="Refresh" side="bottom">
                <Button
                   size="icon"

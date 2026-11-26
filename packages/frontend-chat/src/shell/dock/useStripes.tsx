@@ -21,8 +21,11 @@ export function useStripes(o: {
    update: (f: (l: Layout) => Layout) => void;
    /** Labels and icons of recorded panels the host does not list yet (before the log is here). */
    hints?: ReadonlyMap<string, PanelHint>;
+   /** Panels open in a window of their own: a window badge, and a click focuses that window. */
+   popped?: ReadonlySet<string>;
+   onFocusWindow?: (id: string) => void;
 }) {
-   const { entries, statuses, lay, shown, available, update, hints } = o;
+   const { entries, statuses, lay, shown, available, update, hints, popped, onFocusWindow } = o;
    const entryOf = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
    const label = (id: string) => entryOf.get(id)?.label ?? hints?.get(id)?.label ?? id;
    // A panel without an icon of its own (a render_ui one without `icon`) gets the one of the side it is on.
@@ -35,12 +38,13 @@ export function useStripes(o: {
          <PanelRight />
       );
    };
-   const tip = (id: string) => statuses.get(id)?.tip ?? label(id);
+   const tip = (id: string) =>
+      popped?.has(id) ? `${label(id)} · in its own window` : (statuses.get(id)?.tip ?? label(id));
    const count = (id: string) => statuses.get(id)?.badge;
    const shortcut = (id: string) => entryOf.get(id)?.shortcut;
    const dotOf = (id: string) => statuses.get(id)?.dot;
-   const group = (zone: Zone): StripeGroup =>
-      stripeGroup(zone, {
+   const group = (zone: Zone): StripeGroup => {
+      const g = stripeGroup(zone, {
          zones: lay.zones,
          openIn: shown.open[zone],
          available,
@@ -51,6 +55,9 @@ export function useStripes(o: {
          shortcut,
          icon,
       });
+      if (!popped?.size) return g;
+      return { zone, items: g.items.map((it) => ({ ...it, popped: popped.has(it.id) })) };
+   };
    const left: [StripeGroup, StripeGroup, StripeGroup] = [
       group("leftTop"),
       group("leftBottom"),
@@ -63,8 +70,12 @@ export function useStripes(o: {
    ];
    const leftEmpty = left.every((g) => g.items.length === 0);
 
-   /** A stripe icon: hides the panel when it is shown, else the panel's own way to show (Side chats: its last chat), else shows it. */
+   /** A stripe icon: focuses the window of a popped panel; hides the panel when it is shown, else the panel's own way to show (Side chats: its last chat), else shows it. */
    const onToggle = (id: string) => {
+      if (popped?.has(id)) {
+         onFocusWindow?.(id);
+         return;
+      }
       const entry = entryOf.get(id);
       if (!isOpen(shown, id) && entry?.activate) entry.activate();
       else update((l) => toggle(l, id));

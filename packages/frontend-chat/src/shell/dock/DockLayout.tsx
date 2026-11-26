@@ -24,7 +24,14 @@ import {
 import type { DragState } from "./panelDrag";
 
 /** A panel the dock keeps mounted. Hidden (not open) panels stay in the tree, so a Terminal shell or a draft survives. */
-export type DockPanel = { id: string; label: string; expandable?: boolean; children: ReactNode };
+export type DockPanel = {
+   id: string;
+   label: string;
+   expandable?: boolean;
+   /** Open in a window of its own: no Open in window. */
+   popped?: boolean;
+   children: ReactNode;
+};
 
 /** Space between a floating panel and the chat, and between two panels on one side (px). */
 const GAP = 8;
@@ -120,6 +127,7 @@ export function DockLayout({
    onHide,
    onExpand,
    onDragStart,
+   onPopOut,
 }: {
    layout: Layout;
    chat: ReactNode;
@@ -144,6 +152,8 @@ export function DockLayout({
    onHide: (id: string) => void;
    onExpand: (id: string | null) => void;
    onDragStart: (id: string, label: string, e: React.PointerEvent) => void;
+   /** Opens a panel in a window of its own. Absent: the panels offer no pop-out (the Quick overlay). */
+   onPopOut?: (id: string) => void;
 }) {
    const box = useRef<HTMLDivElement>(null);
    const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -292,6 +302,7 @@ export function DockLayout({
                            onMove: (z) => onMove(p.id, z as Zone),
                            onHide: () => onHide(p.id),
                            onDragStart: (e) => onDragStart(p.id, p.label, e),
+                           onPopOut: onPopOut && !p.popped ? () => onPopOut(p.id) : undefined,
                         }}
                      >
                         {isExpanded && (

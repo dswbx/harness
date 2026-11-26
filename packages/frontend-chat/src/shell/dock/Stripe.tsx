@@ -1,4 +1,5 @@
 import { Button, cn, Tooltip } from "@harness/ui";
+import { AppWindow } from "lucide-react";
 import { Fragment, type PointerEvent, type ReactNode } from "react";
 import { ZONE_LABEL, type Zone } from "./model";
 import type { DragState } from "./panelDrag";
@@ -17,6 +18,8 @@ export type StripeItem = {
    on: boolean;
    /** Changed while it was closed. */
    dot: boolean;
+   /** Open in a window of its own: a window badge; a click focuses that window. */
+   popped?: boolean;
 };
 
 /** Zones of a stripe, top to bottom: upper, lower, then the bottom corner (after the spacer; none in the Quick overlay). */
@@ -24,7 +27,7 @@ export type StripeGroup = { zone: Zone; items: StripeItem[] };
 
 /**
  * A stripe of panel icons along the left or right edge: two side zones, a separator, and the bottom zone
- * at the foot. Click toggles a panel; dragging an icon moves it (a dashed slot shows where it lands).
+ * at the foot. Click toggles a panel (a popped one: focuses its window); dragging an icon moves it (a dashed slot shows where it lands).
  * `overlay`: the stripe is empty and hidden except while dragging, then it covers the edge as a drop target.
  */
 export function Stripe({
@@ -101,6 +104,14 @@ export function Stripe({
                         {it.icon}
                         {it.dot && (
                            <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
+                        )}
+                        {it.popped && (
+                           <span
+                              data-testid="window-badge"
+                              className="absolute right-0 bottom-0 grid size-3 place-items-center rounded-sm bg-background text-foreground [&>svg]:size-2.5!"
+                           >
+                              <AppWindow />
+                           </span>
                         )}
                      </Button>
                   </Tooltip>

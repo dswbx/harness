@@ -84,4 +84,25 @@ describe("PanelHeader", () => {
       fireEvent.click(screen.getByRole("button", { name: "Dock back Plan" }));
       expect(onDockBack).toHaveBeenCalledTimes(1);
    });
+
+   it("with onPopOut: Open in window button and Move to › New window", () => {
+      const onPopOut = vi.fn();
+      setup(chrome({ onPopOut }));
+      fireEvent.click(screen.getByRole("button", { name: "Open Plan in window" }));
+      expect(onPopOut).toHaveBeenCalledTimes(1);
+      openMenu();
+      const sub = screen.getByRole("menuitem", { name: "Move to" });
+      fireEvent.keyDown(sub, { key: "ArrowRight" });
+      fireEvent.click(screen.getByRole("menuitem", { name: "New window" }));
+      expect(onPopOut).toHaveBeenCalledTimes(2);
+   });
+
+   it("without onPopOut: no Open in window, no New window", () => {
+      setup(chrome());
+      expect(screen.queryByRole("button", { name: "Open Plan in window" })).toBeNull();
+      openMenu();
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: "Move to" }), { key: "ArrowRight" });
+      expect(screen.getByRole("menuitem", { name: "Right top" })).toBeTruthy();
+      expect(screen.queryByRole("menuitem", { name: "New window" })).toBeNull();
+   });
 });

@@ -1,4 +1,4 @@
-import type { SessionApi, ViewVariant } from "@harness/api";
+import { focusPanelWindow, type SessionApi, type ViewVariant } from "@harness/api";
 import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
    PanelCtx,
@@ -60,22 +60,44 @@ export function usePanelHost(o: {
    panels?: readonly PanelDef<any, any>[];
    // biome-ignore lint/suspicious/noExplicitAny: families of different model types
    families?: readonly PanelFamily<any>[];
+   /** Panels open in a window of their own (not `popout`): opening one focuses that window. */
+   popped?: ReadonlySet<string>;
+   /** In a panel window: the panel it shows. Only that one can show here. */
+   popout?: string;
 }) {
    const { api, state, variant, lay, update, chat, host, panels = PANELS, families = FAMILIES } = o;
+   const { popout } = o;
    const layRef = useRef(lay);
    layRef.current = lay;
+   const poppedRef = useRef<ReadonlySet<string>>(new Set());
+   poppedRef.current = o.popped ?? new Set();
+   const sessionId = api.sessionId;
+   const focusWindow = useCallback(
+      (id: string) =>
+         void focusPanelWindow(sessionId, id).catch((e) => console.error("focus window failed", e)),
+      [sessionId],
+   );
    const ctxRef = useRef<PanelCtx | null>(null);
    const [targets, setTargets] = useState<Record<string, Target>>({});
    const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
    const open = useCallback(
       (ref: PanelRef<unknown>, ...target: unknown[]) => {
+         // Open in a window of its own: that window comes to the front (v1: without the target).
+         if (poppedRef.current.has(ref.id)) {
+            focusWindow(ref.id);
+            return;
+         }
          const def = panels.find((p) => p.id === ref.id);
-         // A View that cannot show this panel hands the target to the panel's fallback instead.
-         if (def?.fallback && target.length > 0 && variant === "overlay" && !def.overlay) {
+         // A View that cannot show this panel (the Quick overlay, a panel window showing another panel)
+         // hands the target to the panel's fallback instead; without one, a panel window does nothing.
+         const cannotShow =
+            popout !== undefined ? ref.id !== popout : variant === "overlay" && !def?.overlay;
+         if (cannotShow && def?.fallback && target.length > 0) {
             def.fallback(ctxRef.current!, target[0]);
             return;
          }
+         if (cannotShow && popout !== undefined) return;
          // A fresh object per call: the same value opened twice applies twice. Kept until the panel
          // mounts (hidden, or still loading), then applied once.
          if (target.length > 0)
@@ -85,7 +107,7 @@ export function usePanelHost(o: {
             }));
          update((l) => showPanel(l, ref.id));
       },
-      [update, variant, panels],
+      [update, variant, panels, popout, focusWindow],
    );
    const hide = useCallback(
       (ref: PanelRef<never>) => update((l) => hidePanel(l, ref.id)),
@@ -132,7 +154,8 @@ export function usePanelHost(o: {
          : {
               id,
               ...next,
-              show: () => update((l) => showPanel(l, id)),
+              show: () =>
+                 poppedRef.current.has(id) ? focusWindow(id) : update((l) => showPanel(l, id)),
               hide: () => update((l) => hidePanel(l, id)),
            };
       selvesRef.current.set(id, self);
