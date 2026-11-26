@@ -180,6 +180,21 @@ export function StartFromField({
             content: branchRow(b, true),
          }),
       ),
+      ...(choices.remoteHidden
+         ? [
+              {
+                 key: "remote-hidden",
+                 section: "Remote only",
+                 disabled: true,
+                 onSelect: () => {},
+                 content: (
+                    <span className="text-xs text-muted-foreground">
+                       {choices.remoteHidden.toLocaleString()} more. Type to find them.
+                    </span>
+                 ),
+              } satisfies PickItem,
+           ]
+         : []),
    ];
 
    // ---- PR list
