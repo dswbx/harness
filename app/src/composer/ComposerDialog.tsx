@@ -143,7 +143,7 @@ export function ComposerDialog({
 
    const isRepo = branches?.repo_root != null;
 
-   const { mode, setMode, prs, prAvailable, prFilter, setPrFilter, pr, setPr } = usePullRequests({
+   const { mode, setMode, prs, prError, prFilter, setPrFilter, pr, setPr } = usePullRequests({
       client,
       isOpen,
       folder,
@@ -287,7 +287,7 @@ export function ComposerDialog({
                         pr={pr}
                         setPr={setPr}
                         prs={prs}
-                        prAvailable={prAvailable}
+                        prError={prError}
                         prFilter={prFilter}
                         setPrFilter={setPrFilter}
                         updating={updating}
