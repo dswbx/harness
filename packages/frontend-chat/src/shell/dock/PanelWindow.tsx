@@ -1,5 +1,6 @@
 import {
    closeCurrentWindow,
+   closePanel,
    dockPanel,
    onWindowClose,
    panelWindowFrame,
@@ -25,8 +26,9 @@ export function projectOf(s: { folder?: string; quick?: boolean } | undefined): 
 
 /**
  * A panel window (`pane=panel`): one panel of the Session, full window, with the window header (see
- * `PanelHeader`). It docks the panel back when the user closes the window, and closes itself when the
- * panel is docked from elsewhere (its key is gone), when the panel does not exist once the log is here,
+ * `PanelHeader`). When the user closes the window it marks the panel closed (`closePanel`: the main
+ * view hides it). Dock back docks it and shows it in its zone. It closes itself when the panel is no
+ * longer popped (docked or closed from elsewhere), when the panel does not exist once the log is here,
  * or on Dock back. An archived Session shows a notice under the header.
  */
 export function PanelWindow({
@@ -67,9 +69,10 @@ export function PanelWindow({
       document.title = `${label} · ${sessionTitle}`;
    }, [label, sessionTitle]);
    useEffect(() => rememberWindowFrame(panelWindowFrame(sessionId, panelId)), [sessionId, panelId]);
-   // The user closed the window (red X, Cmd+W; in a browser: the tab): the panel docks back.
-   useEffect(() => onWindowClose(() => dockPanel(sessionId, panelId)), [sessionId, panelId]);
-   // Docked from elsewhere (the main window, the Session deleted, restore turned off): close.
+   // The user closed the window (red X, Cmd+W; in a browser: the tab): not popped, hidden in its zone.
+   // After Dock back the key is gone, so this does nothing.
+   useEffect(() => onWindowClose(() => closePanel(sessionId, panelId)), [sessionId, panelId]);
+   // Not popped any more (docked from the main window, the Session deleted, restore turned off, closed): close.
    const popped = usePanelWindows(sessionId).some((w) => w.panel === panelId);
    useEffect(() => {
       if (!popped) close();

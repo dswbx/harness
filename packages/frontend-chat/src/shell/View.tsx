@@ -57,6 +57,7 @@ import { PanelWindow, projectOf } from "./dock/PanelWindow";
 import { usePanelDrag } from "./dock/panelDrag";
 import { usePanelRecord } from "./dock/panelRecord";
 import { Stripe } from "./dock/Stripe";
+import { useClosedWindows } from "./dock/useClosedWindows";
 import { useDockLayout, useHostPlaces } from "./dock/useDockLayout";
 import { useStripes } from "./dock/useStripes";
 import { OverlayDock } from "./overlay/OverlayDock";
@@ -147,6 +148,8 @@ function ChatBody({
       [sessions],
    );
    const { lay, update, placesRef, setPlaces } = useDockLayout(api.sessionId, mode, popout);
+   // A panel window the user closed (red X): hidden here, then its key goes.
+   useClosedWindows(api.sessionId, mode === "main", lay, update);
    // The Session's panels open in windows of their own (a panel window leaves out its own panel).
    const poppedKey = usePanelWindows(api.sessionId)
       .map((w) => w.panel)

@@ -84,6 +84,17 @@ describe("planRestore", () => {
    ])("$name", (c) => {
       expect(planRestore(c.entries, c.sessions, c.reopen)).toEqual({ open: c.open, drop: c.drop });
    });
+
+   it.each([true, false])(
+      "closed entries: never opened, dropped only for a gone Session (reopen %s)",
+      (reopen) => {
+         const closed = [w("a", "tasks"), w("b", "plan"), w("gone", "plan")];
+         expect(planRestore([w("a", "plan")], [s("a"), s("b", true)], reopen, closed)).toEqual({
+            open: reopen ? [w("a", "plan")] : [],
+            drop: [...(reopen ? [] : [w("a", "plan")]), w("gone", "plan")],
+         });
+      },
+   );
 });
 
 const entry = (session: string, panel: string, at: number) =>
@@ -121,6 +132,15 @@ describe("restorePanelWindows", () => {
          // Off screen: moved to the main display, centered.
          frame: { x: 420, y: 100, width: 600, height: 700 },
       });
+   });
+
+   it("closed entries: not reopened; kept unless the Session is gone", async () => {
+      mem.set("harness.panelWindow.a#plan", JSON.stringify({ v: 1, at: 1, closed: true }));
+      mem.set("harness.panelWindow.gone#plan", JSON.stringify({ v: 1, at: 2, closed: true }));
+      const { restorePanelWindows } = await import("./restorePanelWindows");
+      await restorePanelWindows([s("a")]);
+      expect(api.popPanel).not.toHaveBeenCalled();
+      expect(api.dockPanel.mock.calls).toEqual([["gone", "plan"]]);
    });
 
    it("no saved frame: opens without one", async () => {

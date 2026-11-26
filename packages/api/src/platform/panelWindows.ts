@@ -8,23 +8,24 @@ import { type Frame, focusWindow, openWindow, parseFrame } from "./window";
 /**
  * Panel windows: a Session's panel popped out into its own OS window. One key per pop-out
  * (`harness.panelWindow.{session}#{panel}`), so two webviews never race on one shared list. The
- * key present means popped; the pop-out keeps its frame under `harness.panelWindowFrame.…`.
+ * key present means popped, unless it is marked `closed`: the user closed the window (red X), and the
+ * main view of the Session hides the panel and then removes the key. The pop-out keeps its frame
+ * under `harness.panelWindowFrame.…`.
  */
 export type PanelWindow = { session: string; panel: string };
-type Entry = { v: 1; at: number };
+type Entry = { v: 1; at: number; closed?: true };
 
 const ENTRY = "harness.panelWindow.";
 const FRAME = "harness.panelWindowFrame.";
 const ENTRY_PATTERN = `${ENTRY}{session}#{name}`;
 
-/** A stored entry; anything else (bad JSON, another version) is null. */
+/** A stored entry; anything else (bad JSON, another version) is null. Older builds wrote no `closed`. */
 export function parsePanelWindow(raw: string | null): Entry | null {
    if (raw === null) return null;
    try {
       const e = JSON.parse(raw);
-      return e && typeof e === "object" && e.v === 1 && Number.isFinite(e.at)
-         ? { v: 1, at: e.at }
-         : null;
+      if (!(e && typeof e === "object" && e.v === 1 && Number.isFinite(e.at))) return null;
+      return e.closed === true ? { v: 1, at: e.at, closed: true } : { v: 1, at: e.at };
    } catch {
       return null;
    }
@@ -86,46 +87,59 @@ function entryOf(key: string): PanelWindow | null {
    return { session: m.session, panel: key.slice(ENTRY.length + m.session.length + 1) };
 }
 
-/** The popped panels, oldest first, and whether a key held bad data. */
-function scan(clean: boolean): { list: PanelWindow[]; bad: boolean } {
+type Scan = { list: PanelWindow[]; closed: PanelWindow[] };
+const strip = (l: (PanelWindow & { at: number })[]): PanelWindow[] =>
+   l.sort((a, b) => a.at - b.at).map(({ session, panel }) => ({ session, panel }));
+
+/** The popped and the closed panels, oldest first, and whether a key held bad data. */
+function scan(clean: boolean): Scan & { bad: boolean } {
    const out: (PanelWindow & { at: number })[] = [];
+   const closed: (PanelWindow & { at: number })[] = [];
    let bad = false;
    for (const key of storedKeys()) {
       const w = entryOf(key);
       if (!w) continue;
       const store = entryStore(w.session, w.panel);
       const e = store.get();
-      if (e) out.push({ ...w, at: e.at });
+      if (e) (e.closed ? closed : out).push({ ...w, at: e.at });
       else if (store.has()) {
          bad = true;
          if (clean) store.remove();
       }
    }
-   const list = out.sort((a, b) => a.at - b.at).map(({ session, panel }) => ({ session, panel }));
-   return { list, bad };
+   return { list: strip(out), closed: strip(closed), bad };
 }
 
-/** Every popped panel, oldest first. A key with bad data counts as absent and is removed. */
+/** Every popped panel (closed ones not), oldest first. A key with bad data counts as absent and is removed. */
 export const listPanelWindows = (): PanelWindow[] => scan(true).list;
 
-let cache: { sig: string; list: PanelWindow[] } | undefined;
-const snapshot = (): PanelWindow[] => {
-   const { list, bad } = scan(false);
+/** Every panel whose window the user closed and whose key is not removed yet, oldest first. */
+export const listClosedPanelWindows = (): PanelWindow[] => scan(true).closed;
+
+let cache: { sig: string; value: Scan } | undefined;
+const snapshot = (): Scan => {
+   const { list, closed, bad } = scan(false);
    // Not while React reads a snapshot: removing a key notifies the listeners.
    if (bad) queueMicrotask(listPanelWindows);
-   const sig = JSON.stringify(list);
-   if (cache?.sig !== sig) cache = { sig, list };
-   return cache.list;
+   const sig = JSON.stringify([list, closed]);
+   if (cache?.sig !== sig) cache = { sig, value: { list, closed } };
+   return cache.value;
 };
 const subscribe = (l: () => void) =>
    onStoredChange((key) => {
       if (key === null || entryOf(key)) l();
    });
 
-/** The popped panels (of one Session when given) as React state; follows other windows. */
+/** The popped panels (of one Session when given) as React state; follows other windows. Closed ones are not popped. */
 export function usePanelWindows(session?: string): PanelWindow[] {
-   const all = useSyncExternalStore(subscribe, snapshot, snapshot);
+   const all = useSyncExternalStore(subscribe, snapshot, snapshot).list;
    return session === undefined ? all : all.filter((w) => w.session === session);
+}
+
+/** The panels of `session` whose window the user closed (red X), as React state, for the main view to hide. */
+export function useClosedPanelWindows(session: string): PanelWindow[] {
+   const { closed } = useSyncExternalStore(subscribe, snapshot, snapshot);
+   return closed.filter((w) => w.session === session);
 }
 
 /** Pops `panel` of `session` out: marks it popped, then opens its window (or focuses it when open). */
@@ -135,7 +149,8 @@ export async function popPanel(
    opts: { title: string; quiet?: boolean; frame?: Frame },
 ): Promise<void> {
    const entry = entryStore(session, panel);
-   if (!entry.get()) entry.set({ v: 1, at: Date.now() });
+   const e = entry.get();
+   if (!e || e.closed) entry.set({ v: 1, at: Date.now() });
    await openWindow(panelWindowLabel(session, panel), panelWindowUrl(session, panel), {
       title: opts.title,
       width: 560,
@@ -148,9 +163,20 @@ export async function popPanel(
    });
 }
 
-/** Docks `panel` back: removes its key (the pop-out closes itself when it sees that). */
+/** Docks `panel` back: removes its key (the pop-out closes itself when it sees that). It shows in its zone again. */
 export function dockPanel(session: string, panel: string): void {
    entryStore(session, panel).remove();
+}
+
+/**
+ * The user closed the pop-out of `panel` (red X, Cmd+W, a closed tab): marks its key `closed`. The
+ * panel is no longer popped; the main view of the Session hides it in its zone and then removes the
+ * key. Does nothing when the panel is not popped (docked already, or closed).
+ */
+export function closePanel(session: string, panel: string): void {
+   const entry = entryStore(session, panel);
+   const e = entry.get();
+   if (e && !e.closed) entry.set({ v: 1, at: e.at, closed: true });
 }
 
 /** Brings the pop-out of `panel` to the front; false when it is not open. */

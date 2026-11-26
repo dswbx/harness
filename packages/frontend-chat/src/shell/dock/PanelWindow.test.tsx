@@ -7,6 +7,7 @@ import { PanelWindow, projectOf } from "./PanelWindow";
 
 const api = vi.hoisted(() => ({
    dockPanel: vi.fn(),
+   closePanel: vi.fn(),
    closeCurrentWindow: vi.fn(async () => {}),
    showSession: vi.fn(async () => {}),
    popped: [{ session: "s1", panel: "plan" }] as { session: string; panel: string }[],
@@ -14,6 +15,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@harness/api", async (orig) => ({
    ...(await orig<typeof import("@harness/api")>()),
    dockPanel: api.dockPanel,
+   closePanel: api.closePanel,
    closeCurrentWindow: api.closeCurrentWindow,
    showSession: api.showSession,
    usePanelWindows: (session?: string) => api.popped.filter((w) => w.session === session),
@@ -104,10 +106,11 @@ describe("PanelWindow", () => {
       expect(api.showSession).toHaveBeenCalledWith("s1");
    });
 
-   it("in a browser, leaving the page docks back", () => {
+   it("closing the window (in a browser: leaving the page) marks it closed, not docked", () => {
       setup({ entry: plan });
       window.dispatchEvent(new Event("pagehide"));
-      expect(api.dockPanel).toHaveBeenCalledWith("s1", "plan");
+      expect(api.closePanel).toHaveBeenCalledWith("s1", "plan");
+      expect(api.dockPanel).not.toHaveBeenCalled();
    });
 });
 

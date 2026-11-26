@@ -117,7 +117,7 @@ A piece of a View docked beside or under the main content, shown in a Zone and t
 _Avoid_: tab, pane, sidebar
 
 **Panel window**:
-An OS window that shows one Panel of one Session, popped out of the main window; the main window shows the Panel as closed until it docks back, then it shows in its Zone again. It stays bound to its Session and reopens after quit and relaunch (ADR 0030).
+An OS window that shows one Panel of one Session, popped out of the main window; the main window shows the Panel as closed until it docks back, then it shows in its Zone again. Closing the window (red X) docks it hidden: its Stripe icon opens it. It stays bound to its Session and reopens after quit and relaunch (ADR 0030).
 _Avoid_: popout, detached panel, floating panel
 
 **Panel family**:

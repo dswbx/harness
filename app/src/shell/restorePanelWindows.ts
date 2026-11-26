@@ -2,6 +2,7 @@ import {
    dockPanel,
    fitFrame,
    inTauri,
+   listClosedPanelWindows,
    listDisplays,
    listPanelWindows,
    type PanelWindow,
@@ -17,12 +18,14 @@ type SessionRef = Pick<SessionSummary, "id" | "archived" | "title">;
 /**
  * What to do with the panel windows left from the last run: `open` them again, or `drop` them
  * (dock back). A deleted Session's go; an archived Session's dock back (its layout still has the
- * panel open in its zone); with the setting off all dock back.
+ * panel open in its zone); with the setting off all dock back. `closed` (windows the user closed) are
+ * never opened: they stay for the Session's main view to hide, and go only when the Session is gone.
  */
 export function planRestore(
    entries: readonly PanelWindow[],
    sessions: readonly Pick<SessionSummary, "id" | "archived">[],
    reopen: boolean,
+   closed: readonly PanelWindow[] = [],
 ): { open: PanelWindow[]; drop: PanelWindow[] } {
    const open: PanelWindow[] = [];
    const drop: PanelWindow[] = [];
@@ -31,6 +34,7 @@ export function planRestore(
       const s = byId.get(e.session);
       (reopen && s && !s.archived ? open : drop).push(e);
    }
+   for (const e of closed) if (!byId.has(e.session)) drop.push(e);
    return { open, drop };
 }
 
@@ -41,13 +45,18 @@ let ran = false;
 
 /**
  * Restores the panel windows once per app launch (not again on StrictMode's second effect or HMR).
- * Browser tabs outlive the main page, and a closed tab removes its own key, so outside Tauri only
+ * Browser tabs outlive the main page, and a closed tab marks its own key closed, so outside Tauri only
  * the drops run.
  */
 export async function restorePanelWindows(sessions: readonly SessionRef[]): Promise<void> {
    if (ran) return;
    ran = true;
-   const plan = planRestore(listPanelWindows(), sessions, panelWindowsReopen().get());
+   const plan = planRestore(
+      listPanelWindows(),
+      sessions,
+      panelWindowsReopen().get(),
+      listClosedPanelWindows(),
+   );
    for (const w of plan.drop) dockPanel(w.session, w.panel);
    if (plan.open.length === 0 || !inTauri()) return;
    const displays = await listDisplays().catch(() => ({ all: [], current: null }));

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+   closePanel,
    dockPanel,
    fitFrame,
+   listClosedPanelWindows,
    listPanelWindows,
    panelWindowLabel,
    panelWindowUrl,
@@ -65,6 +67,38 @@ describe("storage", () => {
       expect(parsePanelWindow('{"v":1,"at":"x"}')).toBeNull();
       expect(parsePanelWindow("null")).toBeNull();
       expect(parsePanelWindow('{"v":1,"at":5}')).toEqual({ v: 1, at: 5 });
+   });
+
+   it("parses old entries (no closed) and closed ones", () => {
+      expect(parsePanelWindow('{"v":1,"at":5,"closed":true}')).toEqual({
+         v: 1,
+         at: 5,
+         closed: true,
+      });
+      expect(parsePanelWindow('{"v":1,"at":5,"closed":false}')).toEqual({ v: 1, at: 5 });
+   });
+
+   it("closed entries are not popped; they are listed apart", () => {
+      mem.setItem("harness.panelWindow.s1#plan", '{"v":1,"at":2}');
+      mem.setItem("harness.panelWindow.s1#tasks", '{"v":1,"at":1,"closed":true}');
+      expect(listPanelWindows()).toEqual([{ session: "s1", panel: "plan" }]);
+      expect(listClosedPanelWindows()).toEqual([{ session: "s1", panel: "tasks" }]);
+   });
+
+   it("close marks a popped key closed; on a docked panel it does nothing", async () => {
+      await popPanel("s1", "plan", { title: "Plan" });
+      closePanel("s1", "plan");
+      expect(JSON.parse(mem.getItem("harness.panelWindow.s1#plan")!)).toMatchObject({
+         v: 1,
+         closed: true,
+      });
+      expect(listPanelWindows()).toEqual([]);
+      expect(listClosedPanelWindows()).toEqual([{ session: "s1", panel: "plan" }]);
+      closePanel("s1", "tasks");
+      expect(mem.getItem("harness.panelWindow.s1#tasks")).toBeNull();
+      // Popping again clears the mark.
+      await popPanel("s1", "plan", { title: "Plan" });
+      expect(listPanelWindows()).toEqual([{ session: "s1", panel: "plan" }]);
    });
 
    it("lists popped panels oldest first; bad data is absent and removed", () => {
