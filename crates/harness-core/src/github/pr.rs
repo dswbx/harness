@@ -13,6 +13,11 @@ baseRefName additions deletions changedFiles updatedAt author { login } commits(
 contexts(first: 100) { nodes { ... on CheckRun { name status conclusion startedAt checkSuite { workflowRun { workflow { name } } } } \
 ... on StatusContext { context state createdAt } } } } } } } }";
 
+/// `PR_FRAGMENT` without the check runs: GitHub's own summary state only. A list of 50 PRs with every check run
+/// fails with a 502 on busy repositories (many checks per PR).
+const PR_LIST_FRAGMENT: &str = "fragment pr on PullRequest { number title isDraft isCrossRepository headRefName baseRefName updatedAt \
+author { login } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }";
+
 /// The check runs and statuses of a PR from `PR_FRAGMENT`.
 fn rollup(pr: &Value) -> &[Value] {
     pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].as_array().map_or(&[][..], Vec::as_slice)
@@ -34,26 +39,31 @@ pub async fn list_prs(folder: &Path, filter: PrFilter) -> anyhow::Result<Vec<Pul
         PrFilter::Open => {
             let q = format!(
                 "query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ pullRequests(first: 50, \
-                 states: OPEN, orderBy: {{field: CREATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {PR_FRAGMENT}"
+                 states: OPEN, orderBy: {{field: CREATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {PR_LIST_FRAGMENT}"
             );
             graphql(&q, json!({ "owner": repo.owner, "name": repo.name })).await?["repository"]["pullRequests"]["nodes"].take()
         }
-        PrFilter::Mine => search_prs(&search("author:@me"), 50).await?,
-        PrFilter::ReviewRequested => search_prs(&search("review-requested:@me"), 50).await?,
+        PrFilter::Mine => search_nodes(&search("author:@me"), 50, PR_LIST_FRAGMENT).await?,
+        PrFilter::ReviewRequested => search_nodes(&search("review-requested:@me"), 50, PR_LIST_FRAGMENT).await?,
     };
     Ok(nodes.as_array().map_or(&[][..], Vec::as_slice).iter().filter_map(pull_request).collect())
 }
 
 /// PR nodes of an issue search (`query` is GitHub search syntax).
 pub(crate) async fn search_prs(query: &str, first: u32) -> anyhow::Result<Value> {
-    let q = format!("query($q: String!, $first: Int!) {{ search(query: $q, type: ISSUE, first: $first) {{ nodes {{ ...pr }} }} }} {PR_FRAGMENT}");
+    search_nodes(query, first, PR_FRAGMENT).await
+}
+
+async fn search_nodes(query: &str, first: u32, fragment: &str) -> anyhow::Result<Value> {
+    let q = format!("query($q: String!, $first: Int!) {{ search(query: $q, type: ISSUE, first: $first) {{ nodes {{ ...pr }} }} }} {fragment}");
     Ok(graphql(&q, json!({ "q": query, "first": first })).await?["search"]["nodes"].take())
 }
 
 fn pull_request(v: &Value) -> Option<PullRequest> {
     let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
+    let summary = v["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["state"].as_str();
     Some(PullRequest {
-        checks: checks(rollup(v)),
+        checks: summary.map_or_else(|| checks(rollup(v)), summary_checks),
         number: v["number"].as_u64()? as u32,
         title: text("title"),
         author: author(v),
@@ -63,6 +73,15 @@ fn pull_request(v: &Value) -> Option<PullRequest> {
         fork: v["isCrossRepository"].as_bool().unwrap_or(false),
         updated_at: text("updatedAt"),
     })
+}
+
+/// GitHub's rollup state (`PR_LIST_FRAGMENT`) as `PrChecks`.
+fn summary_checks(state: &str) -> PrChecks {
+    match state {
+        "SUCCESS" => PrChecks::Passing,
+        "FAILURE" | "ERROR" => PrChecks::Failing,
+        _ => PrChecks::Pending,
+    }
 }
 
 /// Rolls check runs (`conclusion`/`status`) and commit statuses (`state`) up into one state.
@@ -218,6 +237,16 @@ mod tests {
 
     fn repo(o: &str, n: &str) -> RepoId {
         RepoId { owner: o.into(), name: n.into() }
+    }
+
+    #[test]
+    fn reads_summary_state() {
+        let pr = |state: Value| json!({"number": 1, "commits": {"nodes": [{"commit": {"statusCheckRollup": state}}]}});
+        let c = |v: Value| pull_request(&v).unwrap().checks;
+        assert_eq!(c(pr(json!({"state": "SUCCESS"}))), PrChecks::Passing);
+        assert_eq!(c(pr(json!({"state": "ERROR"}))), PrChecks::Failing);
+        assert_eq!(c(pr(json!({"state": "EXPECTED"}))), PrChecks::Pending);
+        assert_eq!(c(pr(Value::Null)), PrChecks::None);
     }
 
     #[test]
