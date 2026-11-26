@@ -131,12 +131,19 @@ export function dropRects(
    };
 }
 
-/** The layout with what cannot render (no icon, no content) taken out of `open`, for geometry and drawing. The stored layout keeps it, so it comes back. */
-export function shownOpen(l: Layout, renderable: ReadonlySet<string>): Layout {
+/**
+ * The layout with what cannot render (no icon, no content) and what is `closed` here (open in a window of its
+ * own) taken out of `open`, for geometry and drawing. The stored layout keeps it, so it comes back.
+ */
+export function shownOpen(
+   l: Layout,
+   renderable: ReadonlySet<string>,
+   closed: ReadonlySet<string> = new Set(),
+): Layout {
    let changed = false;
    const open = { ...l.open };
    for (const z of ZONES) {
-      if (open[z] && !renderable.has(open[z]!)) {
+      if (open[z] && (!renderable.has(open[z]!) || closed.has(open[z]!))) {
          open[z] = null;
          changed = true;
       }

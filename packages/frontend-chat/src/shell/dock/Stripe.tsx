@@ -1,4 +1,11 @@
-import { Button, cn, Tooltip } from "@harness/ui";
+import {
+   Button,
+   ContextMenu,
+   ContextMenuContent,
+   ContextMenuTrigger,
+   cn,
+   Tooltip,
+} from "@harness/ui";
 import { AppWindow } from "lucide-react";
 import { Fragment, type PointerEvent, type ReactNode } from "react";
 import { ZONE_LABEL, type Zone } from "./model";
@@ -27,7 +34,8 @@ export type StripeGroup = { zone: Zone; items: StripeItem[] };
 
 /**
  * A stripe of panel icons along the left or right edge: two side zones, a separator, and the bottom zone
- * at the foot. Click toggles a panel (a popped one: focuses its window); dragging an icon moves it (a dashed slot shows where it lands).
+ * at the foot. Click toggles a panel (a popped one: focuses its window); dragging an icon moves it (a dashed slot shows where it lands);
+ * right-click opens `menu` (the panel's menu, as in its ⋮ menu).
  * `overlay`: the stripe is empty and hidden except while dragging, then it covers the edge as a drop target.
  */
 export function Stripe({
@@ -37,6 +45,7 @@ export function Stripe({
    overlay,
    onToggle,
    onPress,
+   menu,
 }: {
    side: "left" | "right";
    groups: [StripeGroup, StripeGroup, StripeGroup?];
@@ -44,7 +53,52 @@ export function Stripe({
    overlay?: boolean;
    onToggle: (id: string) => void;
    onPress: (item: StripeItem, e: PointerEvent) => void;
+   /** The entries of an icon's context menu. Absent: no context menu. */
+   menu?: (id: string) => ReactNode;
 }) {
+   const button = (it: StripeItem) => (
+      <Tooltip
+         content={
+            <span className="flex items-center gap-1.5">
+               {it.tip}
+               {it.count != null && (
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold text-foreground tabular-nums">
+                     {it.count}
+                  </span>
+               )}
+            </span>
+         }
+         shortcut={it.shortcut}
+         side={side === "left" ? "right" : "left"}
+         className={drag ? "hidden" : undefined}
+      >
+         <Button
+            size="icon"
+            variant="ghost"
+            data-drop-index={it.index}
+            className={cn(
+               "relative size-7 touch-none text-muted-foreground hover:text-accent-foreground",
+               it.on && "bg-accent text-accent-foreground",
+               drag?.id === it.id && "opacity-35",
+            )}
+            aria-label={it.label}
+            aria-pressed={it.on}
+            onPointerDown={(e) => onPress(it, e)}
+            onClick={() => onToggle(it.id)}
+         >
+            {it.icon}
+            {it.dot && <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />}
+            {it.popped && (
+               <span
+                  data-testid="window-badge"
+                  className="absolute right-0 bottom-0 grid size-3 place-items-center rounded-sm bg-background text-foreground [&>svg]:size-2.5!"
+               >
+                  <AppWindow />
+               </span>
+            )}
+         </Button>
+      </Tooltip>
+   );
    const group = (g: StripeGroup) => {
       const hot = drag?.target?.zone === g.zone;
       const at = hot ? (drag.target!.index ?? Infinity) : -1;
@@ -72,49 +126,14 @@ export function Stripe({
             {g.items.map((it, i) => (
                <Fragment key={it.id}>
                   {i === slotAt && marker}
-                  <Tooltip
-                     content={
-                        <span className="flex items-center gap-1.5">
-                           {it.tip}
-                           {it.count != null && (
-                              <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold text-foreground tabular-nums">
-                                 {it.count}
-                              </span>
-                           )}
-                        </span>
-                     }
-                     shortcut={it.shortcut}
-                     side={side === "left" ? "right" : "left"}
-                     className={drag ? "hidden" : undefined}
-                  >
-                     <Button
-                        size="icon"
-                        variant="ghost"
-                        data-drop-index={it.index}
-                        className={cn(
-                           "relative size-7 touch-none text-muted-foreground hover:text-accent-foreground",
-                           it.on && "bg-accent text-accent-foreground",
-                           drag?.id === it.id && "opacity-35",
-                        )}
-                        aria-label={it.label}
-                        aria-pressed={it.on}
-                        onPointerDown={(e) => onPress(it, e)}
-                        onClick={() => onToggle(it.id)}
-                     >
-                        {it.icon}
-                        {it.dot && (
-                           <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
-                        )}
-                        {it.popped && (
-                           <span
-                              data-testid="window-badge"
-                              className="absolute right-0 bottom-0 grid size-3 place-items-center rounded-sm bg-background text-foreground [&>svg]:size-2.5!"
-                           >
-                              <AppWindow />
-                           </span>
-                        )}
-                     </Button>
-                  </Tooltip>
+                  {menu ? (
+                     <ContextMenu>
+                        <ContextMenuTrigger asChild>{button(it)}</ContextMenuTrigger>
+                        <ContextMenuContent className="w-48">{menu(it.id)}</ContextMenuContent>
+                     </ContextMenu>
+                  ) : (
+                     button(it)
+                  )}
                </Fragment>
             ))}
             {slotAt === g.items.length && marker}

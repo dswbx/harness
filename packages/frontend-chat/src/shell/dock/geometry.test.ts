@@ -30,6 +30,17 @@ describe("shownOpen", () => {
       expect(shownOpen(l, new Set<string>()).expanded).toBeNull();
       expect(shownOpen(l, new Set<string>(["events"]))).toBe(l);
    });
+   it("a popped panel is closed in the drawn layout only: its zone collapses, the layout keeps it open", () => {
+      const l = expand(open(empty, "changes", "events"), "changes");
+      const all = new Set<string>(["events", "changes"]);
+      const s = shownOpen(l, all, new Set(["changes"]));
+      expect(s.open.leftTop).toBeNull();
+      expect(s.expanded).toBeNull();
+      expect(computeRects(s, 1000, 800).zones.leftTop).toBeUndefined();
+      // The stored layout is untouched: docked back (no longer popped), it shows again as it was.
+      expect(l.open.leftTop).toBe("changes");
+      expect(shownOpen(l, all, new Set())).toBe(l);
+   });
 });
 
 describe("dropRects", () => {

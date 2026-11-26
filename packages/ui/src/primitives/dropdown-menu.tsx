@@ -1,15 +1,35 @@
+import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 import { cn } from "../lib/utils";
+import { InContextMenu } from "./menu-kind";
 import { ScrollArea } from "./scroll-area";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
-const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
-const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+
+/**
+ * The Radix parts for where an item is: the context-menu ones inside a `ContextMenuContent`. So the item-level
+ * `DropdownMenu*` parts (Item, Sub, Separator, Label, Checkbox, Switch, Group) also fill a context menu, and
+ * one item list (a panel's menu) can show in its ⋮ menu and in its rail icon's context menu.
+ */
+const usePrimitive = (): typeof DropdownMenuPrimitive =>
+   React.useContext(InContextMenu)
+      ? (ContextMenuPrimitive as unknown as typeof DropdownMenuPrimitive)
+      : DropdownMenuPrimitive;
+
+function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
+   const P = usePrimitive();
+   return <P.Group {...props} />;
+}
+
+function DropdownMenuSub(props: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
+   const P = usePrimitive();
+   return <P.Sub {...props} />;
+}
 
 const itemBase =
    "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
@@ -17,12 +37,16 @@ const contentBase =
    "z-50 min-w-[8rem] overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md";
 
 /** Menu items scroll in a ScrollArea capped to the space left in the window. */
-const Scroll = ({ children }: { children: React.ReactNode }) => (
+const Scroll = ({ children, context }: { children: React.ReactNode; context?: boolean }) => (
    <ScrollArea
-      className="max-h-[var(--radix-dropdown-menu-content-available-height)]"
+      className={
+         context
+            ? "max-h-[var(--radix-context-menu-content-available-height)]"
+            : "max-h-[var(--radix-dropdown-menu-content-available-height)]"
+      }
       viewportClassName="max-h-[inherit] p-1"
    >
-      {children}
+      <InContextMenu.Provider value={!!context}>{children}</InContextMenu.Provider>
    </ScrollArea>
 );
 
@@ -51,16 +75,18 @@ function DropdownMenuSubContent({
    children,
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+   const context = React.useContext(InContextMenu);
+   const P = usePrimitive();
    return (
-      <DropdownMenuPrimitive.Portal>
-         <DropdownMenuPrimitive.SubContent
+      <P.Portal>
+         <P.SubContent
             sideOffset={sideOffset}
             className={cn(contentBase, "shadow-lg", className)}
             {...props}
          >
-            <Scroll>{children}</Scroll>
-         </DropdownMenuPrimitive.SubContent>
-      </DropdownMenuPrimitive.Portal>
+            <Scroll context={context}>{children}</Scroll>
+         </P.SubContent>
+      </P.Portal>
    );
 }
 
@@ -69,9 +95,8 @@ function DropdownMenuItem({
    inset,
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }) {
-   return (
-      <DropdownMenuPrimitive.Item className={cn(itemBase, inset && "pl-8", className)} {...props} />
-   );
+   const P = usePrimitive();
+   return <P.Item className={cn(itemBase, inset && "pl-8", className)} {...props} />;
 }
 
 /**
@@ -96,14 +121,15 @@ function DropdownMenuSubTrigger({
    children,
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }) {
+   const P = usePrimitive();
    return (
-      <DropdownMenuPrimitive.SubTrigger
+      <P.SubTrigger
          className={cn(itemBase, "data-[state=open]:bg-accent", inset && "pl-8", className)}
          {...props}
       >
          {children}
          <ChevronRight className="ml-auto size-4 text-muted-foreground" />
-      </DropdownMenuPrimitive.SubTrigger>
+      </P.SubTrigger>
    );
 }
 
@@ -112,15 +138,16 @@ function DropdownMenuCheckboxItem({
    children,
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+   const P = usePrimitive();
    return (
-      <DropdownMenuPrimitive.CheckboxItem className={cn(itemBase, "pl-8", className)} {...props}>
+      <P.CheckboxItem className={cn(itemBase, "pl-8", className)} {...props}>
          <span className="absolute left-2 flex size-4 items-center justify-center">
-            <DropdownMenuPrimitive.ItemIndicator>
+            <P.ItemIndicator>
                <Check className="size-4" />
-            </DropdownMenuPrimitive.ItemIndicator>
+            </P.ItemIndicator>
          </span>
          {children}
-      </DropdownMenuPrimitive.CheckboxItem>
+      </P.CheckboxItem>
    );
 }
 
@@ -132,15 +159,12 @@ function DropdownMenuSwitchItem({
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
    const on = checked === true;
+   const P = usePrimitive();
    return (
-      <DropdownMenuPrimitive.CheckboxItem
-         checked={checked}
-         className={cn(itemBase, className)}
-         {...props}
-      >
+      <P.CheckboxItem checked={checked} className={cn(itemBase, className)} {...props}>
          {children}
          <Switch checked={on} className="ml-auto" />
-      </DropdownMenuPrimitive.CheckboxItem>
+      </P.CheckboxItem>
    );
 }
 
@@ -206,8 +230,9 @@ function DropdownMenuLabel({
    inset,
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Label> & { inset?: boolean }) {
+   const P = usePrimitive();
    return (
-      <DropdownMenuPrimitive.Label
+      <P.Label
          className={cn(
             "px-2 py-1.5 text-xs font-medium text-muted-foreground",
             inset && "pl-8",
@@ -222,12 +247,8 @@ function DropdownMenuSeparator({
    className,
    ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
-   return (
-      <DropdownMenuPrimitive.Separator
-         className={cn("-mx-1 my-1 h-px bg-border", className)}
-         {...props}
-      />
-   );
+   const P = usePrimitive();
+   return <P.Separator className={cn("-mx-1 my-1 h-px bg-border", className)} {...props} />;
 }
 
 function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<"span">) {

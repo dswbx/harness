@@ -2,40 +2,23 @@ import { Suspense } from "react";
 import { PanelHeader } from "../../panels/PanelHeader";
 import type { HostedPanel } from "../usePanelHost";
 import type { DockPanel } from "./DockLayout";
-import { PopoutPlaceholder } from "./PopoutPlaceholder";
 
 /**
  * The hosted panels the dock keeps mounted: open ones, and (by their definition) once opened or while they
  * can show. A panel in `placeholders` (id to label: recorded, its model not loaded yet) shows only an empty
- * frame with its header while shown, never its body. A panel in `popout.ids` is open in its own window: while
- * shown, its zone has its header and a `PopoutPlaceholder`, never its body (one live copy only).
+ * frame with its header while shown, never its body. A panel in `popped` is open in its own window: never
+ * mounted here (one live copy only; its zone shows as if it were hidden).
  */
 export function mountedPanels(
    entries: HostedPanel[],
    isShown: (id: string) => boolean,
    renderable: ReadonlySet<string>,
    placeholders: ReadonlyMap<string, string> = new Map(),
-   popout?: { sessionId: string; ids: ReadonlySet<string> },
+   popped: ReadonlySet<string> = new Set(),
 ): DockPanel[] {
    const panels: DockPanel[] = [];
-   const popped = popout?.ids ?? new Set<string>();
-   const poppedPanel = (id: string, label: string): DockPanel => ({
-      id,
-      label,
-      popped: true,
-      children: (
-         <>
-            <PanelHeader title={label} />
-            <PopoutPlaceholder sessionId={popout!.sessionId} panelId={id} label={label} />
-         </>
-      ),
-   });
    for (const [id, label] of placeholders) {
-      if (!isShown(id)) continue;
-      if (popped.has(id)) {
-         panels.push(poppedPanel(id, label));
-         continue;
-      }
+      if (!isShown(id) || popped.has(id)) continue;
       panels.push({
          id,
          label,
@@ -48,11 +31,7 @@ export function mountedPanels(
       });
    }
    for (const e of entries) {
-      if (placeholders.has(e.id)) continue;
-      if (popped.has(e.id)) {
-         if (isShown(e.id)) panels.push(poppedPanel(e.id, e.label));
-         continue;
-      }
+      if (placeholders.has(e.id) || popped.has(e.id)) continue;
       const mounted =
          e.mount === "afterFirstOpen"
             ? e.self.opened

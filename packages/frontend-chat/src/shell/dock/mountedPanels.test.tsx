@@ -1,15 +1,6 @@
-import { TooltipProvider } from "@harness/ui";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { HostedPanel } from "../usePanelHost";
 import { mountedPanels } from "./mountedPanels";
-
-const api = vi.hoisted(() => ({ focus: vi.fn(async () => true), dock: vi.fn() }));
-vi.mock("@harness/api", async (orig) => ({
-   ...(await orig<typeof import("@harness/api")>()),
-   focusPanelWindow: api.focus,
-   dockPanel: api.dock,
-}));
 
 const entry = (id: string, mount: HostedPanel["mount"], opened = false): HostedPanel => ({
    id,
@@ -46,45 +37,26 @@ describe("mountedPanels", () => {
 });
 
 describe("mountedPanels: popped panels", () => {
-   afterEach(cleanup);
-   const body = vi.fn(() => <div data-testid="body" />);
-   const plan: HostedPanel = {
-      ...entry("plan", "afterFirstOpen", true),
-      label: "Plan",
-      Body: body,
-   };
+   const plan: HostedPanel = { ...entry("plan", "afterFirstOpen", true), label: "Plan" };
+   const popped = new Set(["plan", "slot:x"]);
 
-   it("a shown popped panel gets its header and the placeholder, never the body", () => {
-      const panels = mountedPanels([plan], () => true, new Set(), new Map(), {
-         sessionId: "s1",
-         ids: new Set(["plan"]),
-      });
-      expect(panels.map((p) => [p.id, p.popped])).toEqual([["plan", true]]);
-      render(<TooltipProvider>{panels[0]!.children}</TooltipProvider>);
-      expect(screen.getByText("Plan is open in its own window.")).toBeTruthy();
-      expect(screen.queryByTestId("body")).toBeNull();
-      expect(body).not.toHaveBeenCalled();
-
-      fireEvent.click(screen.getByRole("button", { name: "Show window" }));
-      expect(api.focus).toHaveBeenCalledWith("s1", "plan");
-      fireEvent.click(screen.getByRole("button", { name: "Dock back" }));
-      expect(api.dock).toHaveBeenCalledWith("s1", "plan");
+   it("a popped panel is never mounted here, shown or not (its window has the one live copy)", () => {
+      expect(mountedPanels([plan], () => true, new Set(["plan"]), new Map(), popped)).toEqual([]);
+      expect(mountedPanels([plan], () => false, new Set(), new Map(), popped)).toEqual([]);
    });
 
-   it("a hidden popped panel is not mounted, even once opened", () => {
-      const ids = mountedPanels([plan], () => false, new Set(), new Map(), {
-         sessionId: "s1",
-         ids: new Set(["plan"]),
-      }).map((p) => p.id);
-      expect(ids).toEqual([]);
+   it("a recorded (not loaded) popped panel gets no frame either", () => {
+      const panels = mountedPanels(
+         [],
+         () => true,
+         new Set(),
+         new Map([["slot:x", "Board"]]),
+         popped,
+      );
+      expect(panels).toEqual([]);
    });
 
-   it("a recorded (not loaded) popped panel shows the placeholder too", () => {
-      const panels = mountedPanels([], () => true, new Set(), new Map([["slot:x", "Board"]]), {
-         sessionId: "s1",
-         ids: new Set(["slot:x"]),
-      });
-      render(<TooltipProvider>{panels[0]!.children}</TooltipProvider>);
-      expect(screen.getByText("Board is open in its own window.")).toBeTruthy();
+   it("mounts the panel again once it is docked back", () => {
+      expect(mountedPanels([plan], () => true, new Set()).map((p) => p.id)).toEqual(["plan"]);
    });
 });

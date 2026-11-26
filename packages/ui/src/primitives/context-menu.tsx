@@ -1,11 +1,14 @@
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
+import { ChevronRight } from "lucide-react";
 import type * as React from "react";
 import { cn } from "../lib/utils";
+import { InContextMenu } from "./menu-kind";
 import { ScrollArea } from "./scroll-area";
 
 const ContextMenu = ContextMenuPrimitive.Root;
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
 const ContextMenuGroup = ContextMenuPrimitive.Group;
+const ContextMenuSub = ContextMenuPrimitive.Sub;
 
 const itemBase =
    "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
@@ -24,10 +27,51 @@ function ContextMenuContent({
                className="max-h-[var(--radix-context-menu-content-available-height)]"
                viewportClassName="max-h-[inherit] p-1"
             >
-               {children}
+               <InContextMenu.Provider value={true}>{children}</InContextMenu.Provider>
             </ScrollArea>
          </ContextMenuPrimitive.Content>
       </ContextMenuPrimitive.Portal>
+   );
+}
+
+function ContextMenuSubContent({
+   className,
+   sideOffset = 4,
+   children,
+   ...props
+}: React.ComponentProps<typeof ContextMenuPrimitive.SubContent>) {
+   return (
+      <ContextMenuPrimitive.Portal>
+         <ContextMenuPrimitive.SubContent
+            sideOffset={sideOffset}
+            className={cn(contentBase, "shadow-lg", className)}
+            {...props}
+         >
+            <ScrollArea
+               className="max-h-[var(--radix-context-menu-content-available-height)]"
+               viewportClassName="max-h-[inherit] p-1"
+            >
+               <InContextMenu.Provider value={true}>{children}</InContextMenu.Provider>
+            </ScrollArea>
+         </ContextMenuPrimitive.SubContent>
+      </ContextMenuPrimitive.Portal>
+   );
+}
+
+function ContextMenuSubTrigger({
+   className,
+   inset,
+   children,
+   ...props
+}: React.ComponentProps<typeof ContextMenuPrimitive.SubTrigger> & { inset?: boolean }) {
+   return (
+      <ContextMenuPrimitive.SubTrigger
+         className={cn(itemBase, "data-[state=open]:bg-accent", inset && "pl-8", className)}
+         {...props}
+      >
+         {children}
+         <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+      </ContextMenuPrimitive.SubTrigger>
    );
 }
 
@@ -77,5 +121,8 @@ export {
    ContextMenuItem,
    ContextMenuLabel,
    ContextMenuSeparator,
+   ContextMenuSub,
+   ContextMenuSubContent,
+   ContextMenuSubTrigger,
    ContextMenuTrigger,
 };

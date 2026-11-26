@@ -2,7 +2,7 @@
 
 Users want to move a Panel (Plan, Tasks, Terminal, ...) out of the main window, for example onto a second display. The main window switches between Sessions, so a moved Panel must show which Session it belongs to, must dock back into its Zone, and must come back after quit and relaunch. Before this, only Changes (DiffWindow) and Files had windows of their own.
 
-**Decision:** any Panel can pop out into a Panel window: an OS window that shows only that Panel of one Session. The main window keeps the Panel's Zone and shows a placeholder there; the Stripe icon and the sidebar row get a window badge.
+**Decision:** any Panel can pop out into a Panel window: an OS window that shows only that Panel of one Session. In the main window the Panel shows as closed (its Zone collapses when nothing else is open there), but the stored layout keeps it open in its Zone, so docking back shows it there again. The Stripe icon and the sidebar row get a window badge; a click on the icon focuses the window, and its context menu (the same entries as the Panel's ⋮ menu) has Show window and Dock back.
 
 **Bound to one Session.** A Panel window shows one Panel of one Session for its whole life. Switching Sessions in the main window does not change it. The same Panel id in two Sessions gives two windows. Popping a Panel that is already popped focuses its window. The window label is `panel-{session}:{panel}` with both parts escaped (`panelWindowLabel`, injective), so the label finds the open window.
 

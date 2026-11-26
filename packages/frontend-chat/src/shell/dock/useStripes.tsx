@@ -1,9 +1,20 @@
 import { PanelLeft, PanelRight } from "lucide-react";
 import { useMemo } from "react";
 import type { PanelStatus } from "../../panels/contract";
+import type { PanelMenuModel } from "../../panels/PanelHeader";
 import type { HostedPanel } from "../usePanelHost";
 import { stripeGroup } from "../viewState";
-import { isOpen, type Layout, toggle, type Zone } from "./model";
+import {
+   expand,
+   isOpen,
+   type Layout,
+   move,
+   toggle,
+   ZONE_LABEL,
+   ZONES,
+   type Zone,
+   zoneOf,
+} from "./model";
 import type { PanelHint } from "./panelRecord";
 import type { StripeGroup } from "./Stripe";
 
@@ -24,8 +35,15 @@ export function useStripes(o: {
    /** Panels open in a window of their own: a window badge, and a click focuses that window. */
    popped?: ReadonlySet<string>;
    onFocusWindow?: (id: string) => void;
+   /** Docks a popped panel back (its rail menu's Dock back). */
+   onDockBack?: (id: string) => void;
+   /** Opens a panel in a window of its own (its rail menu's Move to › New window). Absent: not offered. */
+   onPopOut?: (id: string) => void;
+   /** The zones Move to offers. Default all six; the Quick overlay offers only the sides. */
+   zones?: readonly Zone[];
 }) {
    const { entries, statuses, lay, shown, available, update, hints, popped, onFocusWindow } = o;
+   const { onDockBack, onPopOut, zones = ZONES } = o;
    const entryOf = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
    const label = (id: string) => entryOf.get(id)?.label ?? hints?.get(id)?.label ?? id;
    // A panel without an icon of its own (a render_ui one without `icon`) gets the one of the side it is on.
@@ -80,5 +98,24 @@ export function useStripes(o: {
       if (!isOpen(shown, id) && entry?.activate) entry.activate();
       else update((l) => toggle(l, id));
    };
-   return { left, right, leftEmpty, icon, onToggle };
+
+   /** The host part of a stripe icon's context menu: the same entries as the panel's ⋮ menu. */
+   const menuOf = (id: string): PanelMenuModel => {
+      const home = zoneOf(lay, id);
+      const isPopped = !!popped?.has(id);
+      const expanded = shown.expanded === id;
+      return {
+         moves: zones.map((z) => ({ id: z, label: ZONE_LABEL[z], current: z === home })),
+         onMove: (z) => update((l) => move(l, id, z as Zone)),
+         expand:
+            entryOf.get(id)?.expandable && isOpen(shown, id)
+               ? { expanded, onToggle: () => update((l) => expand(l, expanded ? null : id)) }
+               : undefined,
+         onPopOut: onPopOut && (() => onPopOut(id)),
+         window: isPopped
+            ? { onShow: () => onFocusWindow?.(id), onDockBack: () => onDockBack?.(id) }
+            : undefined,
+      };
+   };
+   return { left, right, leftEmpty, icon, onToggle, menuOf };
 }

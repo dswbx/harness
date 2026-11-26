@@ -28,8 +28,6 @@ export type DockPanel = {
    id: string;
    label: string;
    expandable?: boolean;
-   /** Open in a window of its own: no Open in window. */
-   popped?: boolean;
    children: ReactNode;
 };
 
@@ -302,7 +300,7 @@ export function DockLayout({
                            onMove: (z) => onMove(p.id, z as Zone),
                            onHide: () => onHide(p.id),
                            onDragStart: (e) => onDragStart(p.id, p.label, e),
-                           onPopOut: onPopOut && !p.popped ? () => onPopOut(p.id) : undefined,
+                           onPopOut: onPopOut ? () => onPopOut(p.id) : undefined,
                         }}
                      >
                         {isExpanded && (

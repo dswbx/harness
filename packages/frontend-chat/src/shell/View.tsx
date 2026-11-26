@@ -1,6 +1,7 @@
 import {
    type AgentSwitch,
    type AttachmentInput,
+   dockPanel,
    focusPanelWindow,
    type OverlayFrame,
    type PanelWidth,
@@ -42,10 +43,16 @@ import { tasksPanel } from "../features/tasks/panel";
 import { OpenTerminal } from "../features/terminal/openTerminal";
 import { terminalPanel } from "../features/terminal/panel";
 import { OpenStep } from "../features/toolDisplay/openStep";
+import {
+   createPanelMenus,
+   PanelMenusContext,
+   RegisteredPanelMenuItems,
+} from "../panels/PanelHeader";
 import { DockLayout } from "./dock/DockLayout";
 import { shownOpen } from "./dock/geometry";
-import { expand, hide, isOpen, move, resetLayout, resize, show } from "./dock/model";
+import { expand, hide, isOpen, move, resetLayout, resize, show, ZONES } from "./dock/model";
 import { mountedPanels } from "./dock/mountedPanels";
+import { OVERLAY_ZONES } from "./dock/overlay";
 import { PanelWindow, projectOf } from "./dock/PanelWindow";
 import { usePanelDrag } from "./dock/panelDrag";
 import { usePanelRecord } from "./dock/panelRecord";
@@ -156,16 +163,11 @@ function ChatBody({
          ),
       [api.sessionId],
    );
-   // A panel docked back (from its window, the placeholder, or closing the window) shows again in its zone.
-   const lastPopped = useRef({ sessionId: api.sessionId, popped });
-   useEffect(() => {
-      const last = lastPopped.current;
-      lastPopped.current = { sessionId: api.sessionId, popped };
-      if (mode !== "main" || last.sessionId !== api.sessionId) return;
-      for (const id of last.popped) if (!popped.has(id)) update((l) => show(l, id));
-   }, [api.sessionId, popped, mode, update]);
+   const onDockBack = useCallback((id: string) => dockPanel(api.sessionId, id), [api.sessionId]);
    // A panel window has no other panels to toggle.
-   useShortcuts(mode !== "main", update);
+   useShortcuts(mode !== "main", update, popped, focusWindow);
+   // The panels' own menu entries, for the stripe icons' context menus.
+   const panelMenus = useMemo(createPanelMenus, []);
    const env = useUiEnv(api, state.uiState);
    const list = useRef<VirtualListHandle>(null);
    const { jumpToRow, jumpToStep, openStep } = useJump(list, rows, subagents);
@@ -276,13 +278,25 @@ function ChatBody({
       available: availableNow,
       renderable: renderableNow,
    });
-   const shown = useMemo(() => shownOpen(lay, renderable), [lay, renderable]);
+   // A popped panel is closed here (its zone shows as if it were hidden), but stays open in the stored
+   // layout: docked back, it shows in its zone again.
+   const shown = useMemo(() => shownOpen(lay, renderable, popped), [lay, renderable, popped]);
    useHostPlaces({ placesRef, setPlaces }, panelHost.places);
 
    const { drag, start: startDrag } = usePanelDrag((id, t) =>
       update((l) => move(l, id, t.zone, t.index ?? undefined)),
    );
-   const { left, right, leftEmpty, icon, onToggle } = useStripes({
+   const sessionTitle = sessionMap?.get(api.sessionId)?.title ?? state.title ?? "New Session";
+   /** Opens a panel in a window of its own. It stays open in the stored layout, so it comes back when docked. */
+   const popOut = (id: string) => {
+      if (popped.has(id)) return focusWindow(id);
+      const label = panelHost.entries.find((e) => e.id === id)?.label ?? hints.get(id)?.label ?? id;
+      update((l) => show(l, id));
+      popPanel(api.sessionId, id, { title: `${label} · ${sessionTitle}` }).catch((e) =>
+         console.error("open panel window failed", e),
+      );
+   };
+   const { left, right, leftEmpty, icon, onToggle, menuOf } = useStripes({
       entries: panelHost.entries,
       statuses: panelHost.statuses,
       lay,
@@ -292,7 +306,11 @@ function ChatBody({
       hints,
       popped,
       onFocusWindow: focusWindow,
+      onDockBack,
+      onPopOut: mode === "main" ? popOut : undefined,
+      zones: overlay ? OVERLAY_ZONES : ZONES,
    });
+   const stripeMenu = (id: string) => <RegisteredPanelMenuItems id={id} model={menuOf(id)} />;
    /** What both trees (main and Quick overlay) give the dock. */
    const dock = {
       drag,
@@ -307,18 +325,8 @@ function ChatBody({
       (id) => isOpen(shown, id),
       renderable,
       placeholders,
-      { sessionId: api.sessionId, ids: popped },
+      popped,
    );
-   const sessionTitle = sessionMap?.get(api.sessionId)?.title ?? state.title ?? "New Session";
-   /** Opens a panel in a window of its own; its zone stays open for the placeholder. */
-   const popOut = (id: string) => {
-      if (popped.has(id)) return focusWindow(id);
-      const label = panelHost.entries.find((e) => e.id === id)?.label ?? hints.get(id)?.label ?? id;
-      update((l) => show(l, id));
-      popPanel(api.sessionId, id, { title: `${label} · ${sessionTitle}` }).catch((e) =>
-         console.error("open panel window failed", e),
-      );
-   };
 
    // The host's header shows the process state as a dot on its info icon; a header of our own (no host header) a badge.
    const pending = usePendingMessages(api.sessionId);
@@ -411,73 +419,78 @@ function ChatBody({
    );
 
    return (
-      <Env.Provider value={env}>
-         <OpenTask.Provider value={overlay && !onOpenTasks ? null : openTask}>
-            <OpenTerminal.Provider value={overlay ? null : openTerminal}>
-               <FileViewProvider onView={openFile}>
-                  {/* `contents`: no box of its own, the layout stays as it is. */}
-                  <div className="contents" inert={inert}>
-                     {popout ? (
-                        <PanelWindow
-                           sessionId={api.sessionId}
-                           panelId={popout}
-                           entry={panelHost.entries.find((e) => e.id === popout)}
-                           hint={hints.get(popout)}
-                           loaded={state.loaded && !inert}
-                           archived={state.archived}
-                           sessionTitle={sessionTitle}
-                           project={projectOf(sessionMap?.get(api.sessionId))}
-                        />
-                     ) : overlay ? (
-                        <OverlayDock
-                           draft={overlayDraft}
-                           promptBox={promptBox}
-                           chat={chat}
-                           chatFrame={chatFrame}
-                           onPanelWidth={onPanelWidth}
-                           overlayFrame={overlayFrame}
-                           shown={shown}
-                           left={left}
-                           right={right}
-                           panels={panels}
-                           dock={dock}
-                           onToggle={onToggle}
-                           ghost={ghost}
-                        />
-                     ) : (
-                        <div className="relative flex h-full">
-                           {(!leftEmpty || drag) && (
+      <PanelMenusContext.Provider value={panelMenus}>
+         <Env.Provider value={env}>
+            <OpenTask.Provider value={overlay && !onOpenTasks ? null : openTask}>
+               <OpenTerminal.Provider value={overlay ? null : openTerminal}>
+                  <FileViewProvider onView={openFile}>
+                     {/* `contents`: no box of its own, the layout stays as it is. */}
+                     <div className="contents" inert={inert}>
+                        {popout ? (
+                           <PanelWindow
+                              sessionId={api.sessionId}
+                              panelId={popout}
+                              entry={panelHost.entries.find((e) => e.id === popout)}
+                              hint={hints.get(popout)}
+                              loaded={state.loaded && !inert}
+                              archived={state.archived}
+                              sessionTitle={sessionTitle}
+                              project={projectOf(sessionMap?.get(api.sessionId))}
+                           />
+                        ) : overlay ? (
+                           <OverlayDock
+                              draft={overlayDraft}
+                              promptBox={promptBox}
+                              chat={chat}
+                              chatFrame={chatFrame}
+                              onPanelWidth={onPanelWidth}
+                              overlayFrame={overlayFrame}
+                              shown={shown}
+                              left={left}
+                              right={right}
+                              panels={panels}
+                              dock={dock}
+                              onToggle={onToggle}
+                              menu={stripeMenu}
+                              ghost={ghost}
+                           />
+                        ) : (
+                           <div className="relative flex h-full">
+                              {(!leftEmpty || drag) && (
+                                 <Stripe
+                                    side="left"
+                                    groups={left}
+                                    drag={drag}
+                                    overlay={leftEmpty}
+                                    onToggle={onToggle}
+                                    onPress={(it, e) => startDrag(it.id, it.label, e)}
+                                    menu={stripeMenu}
+                                 />
+                              )}
+                              <DockLayout
+                                 {...dock}
+                                 layout={shown}
+                                 chat={chat}
+                                 panels={panels}
+                                 leftStripeOverlay={leftEmpty}
+                                 onPopOut={popOut}
+                              />
                               <Stripe
-                                 side="left"
-                                 groups={left}
+                                 side="right"
+                                 groups={right}
                                  drag={drag}
-                                 overlay={leftEmpty}
                                  onToggle={onToggle}
                                  onPress={(it, e) => startDrag(it.id, it.label, e)}
+                                 menu={stripeMenu}
                               />
-                           )}
-                           <DockLayout
-                              {...dock}
-                              layout={shown}
-                              chat={chat}
-                              panels={panels}
-                              leftStripeOverlay={leftEmpty}
-                              onPopOut={popOut}
-                           />
-                           <Stripe
-                              side="right"
-                              groups={right}
-                              drag={drag}
-                              onToggle={onToggle}
-                              onPress={(it, e) => startDrag(it.id, it.label, e)}
-                           />
-                           {ghost}
-                        </div>
-                     )}
-                  </div>
-               </FileViewProvider>
-            </OpenTerminal.Provider>
-         </OpenTask.Provider>
-      </Env.Provider>
+                              {ghost}
+                           </div>
+                        )}
+                     </div>
+                  </FileViewProvider>
+               </OpenTerminal.Provider>
+            </OpenTask.Provider>
+         </Env.Provider>
+      </PanelMenusContext.Provider>
    );
 }

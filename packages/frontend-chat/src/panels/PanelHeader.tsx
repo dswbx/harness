@@ -13,6 +13,7 @@ import {
    Tooltip,
 } from "@harness/ui";
 import {
+   AppWindow,
    Check,
    Maximize2,
    MessageSquare,
@@ -21,7 +22,14 @@ import {
    MoreVertical,
    MoveUpRight,
 } from "lucide-react";
-import { createContext, type PointerEvent, type ReactNode, useContext } from "react";
+import {
+   createContext,
+   type PointerEvent,
+   type ReactNode,
+   useContext,
+   useLayoutEffect,
+   useSyncExternalStore,
+} from "react";
 
 /** What the host tells the panel it is in, for its header: where it can move and what the header can do. */
 export type PanelChrome = {
@@ -59,6 +67,128 @@ export type PanelWindowChrome = {
 
 export const PanelContext = createContext<PanelChrome | null>(null);
 
+/** The host's part of a panel's menu (after the panel's own entries): Expand, Move to and the window entries. */
+export type PanelMenuModel = {
+   /** The places Move to offers, in order; `current` is where the panel sits now. */
+   moves: { id: string; label: string; current: boolean }[];
+   onMove: (id: string) => void;
+   /** Offers Expand (Collapse while expanded). Absent: not offered. */
+   expand?: { expanded: boolean; onToggle: () => void };
+   /** Offers Move to › New window. */
+   onPopOut?: () => void;
+   /** The panel is open in a window of its own: Show window and Dock back, no Expand and no New window. */
+   window?: { onShow: () => void; onDockBack: () => void };
+};
+
+/**
+ * A panel's menu entries: its own (`own`), then the host's (`model`). One list for the panel's ⋮ menu and its
+ * rail icon's context menu, so the two never differ. The `DropdownMenu*` item parts also fill a context menu.
+ */
+export function PanelMenuItems({ model, own }: { model: PanelMenuModel; own?: ReactNode }) {
+   const w = model.window;
+   return (
+      <>
+         {own != null && own !== false && (
+            <>
+               {own}
+               <DropdownMenuSeparator />
+            </>
+         )}
+         {w ? (
+            <>
+               <DropdownMenuItem onSelect={w.onShow}>
+                  <AppWindow /> Show window
+               </DropdownMenuItem>
+               <DropdownMenuItem onSelect={w.onDockBack}>
+                  <Minimize2 /> Dock back
+               </DropdownMenuItem>
+               <DropdownMenuSeparator />
+            </>
+         ) : (
+            model.expand && (
+               <>
+                  <DropdownMenuItem onSelect={model.expand.onToggle}>
+                     {model.expand.expanded ? <Minimize2 /> : <Maximize2 />}{" "}
+                     {model.expand.expanded ? "Collapse" : "Expand"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+               </>
+            )
+         )}
+         <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+               <MoveUpRight /> Move to
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-44">
+               {model.moves.map((m) => (
+                  <DropdownMenuItem key={m.id} onSelect={() => !m.current && model.onMove(m.id)}>
+                     {m.label}
+                     {m.current && <Check className="ml-auto" />}
+                  </DropdownMenuItem>
+               ))}
+               {!w && model.onPopOut && (
+                  <>
+                     <DropdownMenuSeparator />
+                     <DropdownMenuItem onSelect={model.onPopOut}>
+                        <Maximize2 /> New window
+                     </DropdownMenuItem>
+                  </>
+               )}
+            </DropdownMenuSubContent>
+         </DropdownMenuSub>
+      </>
+   );
+}
+
+/** The panels' own menu entries by panel id, as their mounted headers last rendered them (for the rail menus). */
+export type PanelMenus = {
+   get: (id: string) => ReactNode;
+   set: (id: string, menu: ReactNode) => void;
+   subscribe: (listener: () => void) => () => void;
+};
+
+export function createPanelMenus(): PanelMenus {
+   const menus = new Map<string, ReactNode>();
+   const listeners = new Set<() => void>();
+   return {
+      get: (id) => menus.get(id),
+      set: (id, menu) => {
+         if (menus.get(id) === menu) return;
+         if (menu === undefined) menus.delete(id);
+         else menus.set(id, menu);
+         for (const l of listeners) l();
+      },
+      subscribe: (l) => {
+         listeners.add(l);
+         return () => listeners.delete(l);
+      },
+   };
+}
+
+/** Where the mounted panel headers put their own menu entries. Absent: they put them nowhere. */
+export const PanelMenusContext = createContext<PanelMenus | null>(null);
+
+/** The menu of panel `id` outside its header (a rail icon's context menu): its own entries while it is mounted, then `model`. */
+export function RegisteredPanelMenuItems({ id, model }: { id: string; model: PanelMenuModel }) {
+   const menus = useContext(PanelMenusContext);
+   const own = useSyncExternalStore(
+      menus?.subscribe ?? noSubscribe,
+      () => menus?.get(id),
+      () => menus?.get(id),
+   );
+   return <PanelMenuItems model={model} own={own} />;
+}
+
+const noSubscribe = () => () => {};
+
+/** The host part of the ⋮ menu of a panel in a zone. */
+const chromeMenu = (p: PanelChrome): PanelMenuModel => ({
+   moves: p.moves,
+   onMove: p.onMove,
+   expand: p.expandable ? { expanded: p.expanded, onToggle: p.onExpand } : undefined,
+   onPopOut: p.onPopOut,
+});
+
 /**
  * The header every panel shares: `title`, the panel's own controls (`children`), a menu (the panel's own
  * entries in `menu`, then Expand, Move to), Open in window (when offered) and the hide button. Dragging the header drags the panel to another zone.
@@ -77,6 +207,17 @@ export function PanelHeader({
    className?: string;
 }) {
    const p = useContext(PanelContext);
+   // The rail icon's context menu shows the panel's own entries too (the main window's headers only).
+   const menus = useContext(PanelMenusContext);
+   const registerAs = p && !p.window ? p.id : undefined;
+   useLayoutEffect(() => {
+      if (!menus || !registerAs) return;
+      menus.set(registerAs, menu);
+   });
+   useLayoutEffect(() => {
+      if (!menus || !registerAs) return;
+      return () => menus.set(registerAs, undefined);
+   }, [menus, registerAs]);
    if (p?.window)
       return (
          <WindowHeader
@@ -132,45 +273,7 @@ export function PanelHeader({
                      </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
-                     {menu && (
-                        <>
-                           {menu}
-                           <DropdownMenuSeparator />
-                        </>
-                     )}
-                     {p.expandable && (
-                        <>
-                           <DropdownMenuItem onSelect={p.onExpand}>
-                              {p.expanded ? <Minimize2 /> : <Maximize2 />}{" "}
-                              {p.expanded ? "Collapse" : "Expand"}
-                           </DropdownMenuItem>
-                           <DropdownMenuSeparator />
-                        </>
-                     )}
-                     <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                           <MoveUpRight /> Move to
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-44">
-                           {p.moves.map((m) => (
-                              <DropdownMenuItem
-                                 key={m.id}
-                                 onSelect={() => !m.current && p.onMove(m.id)}
-                              >
-                                 {m.label}
-                                 {m.current && <Check className="ml-auto" />}
-                              </DropdownMenuItem>
-                           ))}
-                           {p.onPopOut && (
-                              <>
-                                 <DropdownMenuSeparator />
-                                 <DropdownMenuItem onSelect={p.onPopOut}>
-                                    <Maximize2 /> New window
-                                 </DropdownMenuItem>
-                              </>
-                           )}
-                        </DropdownMenuSubContent>
-                     </DropdownMenuSub>
+                     <PanelMenuItems model={chromeMenu(p)} own={menu} />
                   </DropdownMenuContent>
                </DropdownMenu>
                <Tooltip content="Hide" side="bottom">
@@ -215,8 +318,9 @@ function WindowHeader({
    const session = w.project ? `${w.project} · ${w.sessionTitle}` : w.sessionTitle;
    return (
       <>
+         {/* "deep": a press anywhere in the header drags the window, except on clickable parts (buttons, links, inputs, tabs). */}
          <div
-            data-tauri-drag-region
+            data-tauri-drag-region="deep"
             className={cn(
                "@container flex shrink-0 items-center gap-1.5 border-b pr-2",
                className,
