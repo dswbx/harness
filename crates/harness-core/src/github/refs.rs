@@ -18,6 +18,11 @@ use crate::api::{PrInfo, PrRefKey, PrState, RepoId};
 const OPEN_TTL: Duration = Duration::from_secs(60);
 const DONE_TTL: Duration = Duration::from_secs(24 * 3600);
 const NOT_FOUND_TTL: Duration = Duration::from_secs(10 * 60);
+/// PRs per lookup query, fetched in parallel. Every check run of 15+ PRs at once can take GitHub over 10s and
+/// end in a 502 on busy repositories (turso: 10 PRs ~2s, 25 fail).
+const LOOKUP_CHUNK: usize = 10;
+/// Only the numbers: `search` gets the rest through `lookup`, in chunks.
+const NUMBER_FRAGMENT: &str = "fragment pr on PullRequest { number }";
 
 /// Lowercased `owner/name`: GitHub names ignore case.
 type Key = (String, u32);
@@ -58,7 +63,7 @@ impl PrRefs {
         self.cache.lock().entries.remove(&(repo_key(repo), number));
     }
 
-    /// PRs in the order of `refs`, from the cache or one GraphQL call for the rest.
+    /// PRs in the order of `refs`, from the cache or GraphQL calls of up to `LOOKUP_CHUNK` PRs for the rest.
     pub async fn lookup(&self, refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
         let keys: Vec<Key> = refs.iter().map(key).collect();
         let mut out = vec![None; refs.len()];
@@ -77,8 +82,8 @@ impl PrRefs {
                     missing.push(r.clone());
                 }
             }
-            if !missing.is_empty() {
-                batches.push(self.start_fetch(missing, &mut c));
+            for chunk in missing.chunks(LOOKUP_CHUNK) {
+                batches.push(self.start_fetch(chunk.to_vec(), &mut c));
             }
         }
         for b in batches {
@@ -123,24 +128,28 @@ impl PrRefs {
         }
         let search = query.map(str::trim).filter(|q| !q.is_empty());
         let list = async {
-            match search {
-                Some(q) => search_prs(&format!("repo:{}/{} is:pr {q} in:title sort:updated-desc", repo.owner, repo.name), 30).await,
+            let nodes = match search {
+                Some(q) => search_prs(&format!("repo:{}/{} is:pr {q} in:title sort:updated-desc", repo.owner, repo.name), 30, NUMBER_FRAGMENT).await?,
                 None => {
                     let q = format!(
                         "query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ pullRequests(first: 30, \
-                         orderBy: {{field: UPDATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {PR_FRAGMENT}"
+                         orderBy: {{field: UPDATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {NUMBER_FRAGMENT}"
                     );
-                    Ok(graphql(&q, json!({ "owner": repo.owner, "name": repo.name })).await?["repository"]["pullRequests"]["nodes"].take())
+                    graphql(&q, json!({ "owner": repo.owner, "name": repo.name })).await?["repository"]["pullRequests"]["nodes"].take()
                 }
-            }
+            };
+            let refs: Vec<PrRefKey> = nodes
+                .as_array()
+                .map_or(&[][..], Vec::as_slice)
+                .iter()
+                .filter_map(|v| Some(PrRefKey { repo: repo.clone(), number: v["number"].as_u64()? as u32 }))
+                .collect();
+            // Fills the cache.
+            anyhow::Ok(self.lookup(refs).await?.into_iter().flatten().collect::<Vec<_>>())
         };
-        let (out, me) = tokio::join!(list, self.me());
-        let out = out?;
-        let list = out.as_array().map_or(&[][..], Vec::as_slice);
-        let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
+        let (prs, me) = tokio::join!(list, self.me());
+        let mut prs = prs?;
         prs.sort_by_key(|p| me.as_deref() != Some(p.author.as_str()));
-        let now = Instant::now();
-        self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
         Ok(prs)
     }
 
@@ -367,6 +376,19 @@ mod tests {
         let again = refs.lookup(vec![pr_ref("o", "r", 3), pr_ref("o", "r", 1)]).await.unwrap();
         assert_eq!(again.iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), [None, Some(1)]);
         assert_eq!(calls.lock().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn splits_lookups_into_chunks() {
+        let calls = Arc::new(Mutex::new(Vec::<usize>::new()));
+        let seen = calls.clone();
+        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>| {
+            seen.lock().push(refs.len());
+            async move { Ok(refs.iter().map(|r| Some(info(r, PrState::Open))).collect()) }.boxed()
+        }));
+        let out = refs.lookup((1..=25).map(|n| pr_ref("o", "r", n)).collect()).await.unwrap();
+        assert_eq!(out.iter().map(|p| p.as_ref().map(|p| p.number)).collect::<Vec<_>>(), (1..=25).map(Some).collect::<Vec<_>>());
+        assert_eq!(*calls.lock(), [10, 10, 5]);
     }
 
     #[tokio::test]

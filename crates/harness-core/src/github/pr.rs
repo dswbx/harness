@@ -43,18 +43,14 @@ pub async fn list_prs(folder: &Path, filter: PrFilter) -> anyhow::Result<Vec<Pul
             );
             graphql(&q, json!({ "owner": repo.owner, "name": repo.name })).await?["repository"]["pullRequests"]["nodes"].take()
         }
-        PrFilter::Mine => search_nodes(&search("author:@me"), 50, PR_LIST_FRAGMENT).await?,
-        PrFilter::ReviewRequested => search_nodes(&search("review-requested:@me"), 50, PR_LIST_FRAGMENT).await?,
+        PrFilter::Mine => search_prs(&search("author:@me"), 50, PR_LIST_FRAGMENT).await?,
+        PrFilter::ReviewRequested => search_prs(&search("review-requested:@me"), 50, PR_LIST_FRAGMENT).await?,
     };
     Ok(nodes.as_array().map_or(&[][..], Vec::as_slice).iter().filter_map(pull_request).collect())
 }
 
-/// PR nodes of an issue search (`query` is GitHub search syntax).
-pub(crate) async fn search_prs(query: &str, first: u32) -> anyhow::Result<Value> {
-    search_nodes(query, first, PR_FRAGMENT).await
-}
-
-async fn search_nodes(query: &str, first: u32, fragment: &str) -> anyhow::Result<Value> {
+/// PR nodes of an issue search (`query` is GitHub search syntax), with the fields of `fragment` (a `fragment pr on PullRequest`).
+pub(crate) async fn search_prs(query: &str, first: u32, fragment: &str) -> anyhow::Result<Value> {
     let q = format!("query($q: String!, $first: Int!) {{ search(query: $q, type: ISSUE, first: $first) {{ nodes {{ ...pr }} }} }} {fragment}");
     Ok(graphql(&q, json!({ "q": query, "first": first })).await?["search"]["nodes"].take())
 }
