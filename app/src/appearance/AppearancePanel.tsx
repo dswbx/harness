@@ -1,4 +1,4 @@
-import type { FrontendToggle, HarnessClient } from "@harness/api";
+import { type FrontendToggle, type HarnessClient, panelWindowsReopen } from "@harness/api";
 import {
    Button,
    cn,
@@ -10,7 +10,7 @@ import {
    SelectValue,
 } from "@harness/ui";
 import { Minus, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { frontendToggles } from "../platform/frontends";
 import { useReportError } from "../platform/toast";
 import { SectionHeader } from "../settings/SectionHeader";
@@ -190,6 +190,24 @@ function ToggleRow({ toggle }: { toggle: FrontendToggle }) {
 /** The switch rows the Frontends offer for `group`. */
 function FrontendToggles({ group }: { group: FrontendToggle["group"] }) {
    return frontendToggles(group).map((t) => <ToggleRow key={t.id} toggle={t} />);
+}
+
+const reopenStore = panelWindowsReopen();
+
+/** App setting: reopen the panel windows on launch (ADR 0030). */
+function ReopenPanelWindowsRow() {
+   const on = useSyncExternalStore(reopenStore.subscribe, reopenStore.get);
+   return (
+      <Row
+         label="Panel windows"
+         htmlFor="reopen-panel-windows"
+         help="Off: panels in their own window dock back when Harness starts."
+      >
+         <Toggle id="reopen-panel-windows" on={on} onChange={(v) => reopenStore.set(v)}>
+            Reopen panel windows on launch
+         </Toggle>
+      </Row>
+   );
 }
 
 /** px stepper: typing, arrows, +/- buttons, clamped to min..max (FONT_SIZE_MIN..MAX by default), with Reset. */
@@ -444,6 +462,9 @@ export function AppearancePanel({ client }: { client: HarnessClient }) {
                   />
                </Row>
                <FrontendToggles group="terminal" />
+            </Group>
+            <Group title="Windows">
+               <ReopenPanelWindowsRow />
             </Group>
          </div>
       </div>

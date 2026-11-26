@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Monitor } from "@tauri-apps/api/window";
 import { inTauri } from "../transport/transport";
 import { type Stored, storedValue } from "./storage";
 
@@ -129,6 +130,19 @@ function withQuery(url: string, name: string, value: string): string {
    const [path = "", hash] = url.split("#", 2);
    const sep = path.includes("?") ? "&" : "?";
    return `${path}${sep}${encodeURIComponent(name)}=${encodeURIComponent(value)}${hash === undefined ? "" : `#${hash}`}`;
+}
+
+/** The displays' work areas (without dock and menu bar) and the one this window is on, in logical pixels (Tauri only; else none). */
+export async function listDisplays(): Promise<{ all: Frame[]; current: Frame | null }> {
+   if (!inTauri()) return { all: [], current: null };
+   const { availableMonitors, currentMonitor } = await import("@tauri-apps/api/window");
+   const area = (m: Monitor): Frame => {
+      const p = m.workArea.position.toLogical(m.scaleFactor);
+      const s = m.workArea.size.toLogical(m.scaleFactor);
+      return { x: p.x, y: p.y, width: s.width, height: s.height };
+   };
+   const [all, current] = await Promise.all([availableMonitors(), currentMonitor()]);
+   return { all: all.map(area), current: current ? area(current) : null };
 }
 
 /** Shows a file in the system file manager (Tauri only; frontends can't import Tauri, so this lives here). */

@@ -44,11 +44,12 @@ export function applyStatus(
 
 /**
  * The Session list, kept fresh: SessionsChanged reloads, SessionStatus patches one row, a slow
- * poll is the safety net. `settled`: the first load answered (or failed).
+ * poll is the safety net. `settled`: the first load answered (or failed); `loaded`: a load succeeded.
  */
 export function useSessions(client: HarnessClient, onAgentsChanged?: () => void) {
    const [sessions, setSessions] = useState<SessionSummary[]>([]);
    const [settled, setSettled] = useState(false);
+   const [loaded, setLoaded] = useState(false);
    // The list as last rendered: titles for the notice.
    const shown = useRef(sessions);
    shown.current = sessions;
@@ -79,6 +80,7 @@ export function useSessions(client: HarnessClient, onAgentsChanged?: () => void)
                if (!stop) {
                   setSessions(l);
                   setSettled(true);
+                  setLoaded(true);
                   for (const s of l) tell(l, s.id, s.log_error);
                }
             },
@@ -114,5 +116,5 @@ export function useSessions(client: HarnessClient, onAgentsChanged?: () => void)
          unsub?.();
       };
    }, [client, report]);
-   return { sessions, setSessions, settled };
+   return { sessions, setSessions, settled, loaded };
 }
