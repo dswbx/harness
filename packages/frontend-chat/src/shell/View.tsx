@@ -43,6 +43,7 @@ import { DockLayout } from "./dock/DockLayout";
 import { shownOpen } from "./dock/geometry";
 import { expand, hide, isOpen, move, resetLayout, resize, show } from "./dock/model";
 import { mountedPanels } from "./dock/mountedPanels";
+import { PanelWindow, projectOf } from "./dock/PanelWindow";
 import { usePanelDrag } from "./dock/panelDrag";
 import { usePanelRecord } from "./dock/panelRecord";
 import { Stripe } from "./dock/Stripe";
@@ -72,7 +73,15 @@ export type ChatProps = {
    onOpenShared?: (id: string) => void;
    onOpenTasks?: (taskId?: string) => void;
    onStartFromTask?: (taskId: string) => void;
-   sessions?: readonly { id: string; title: string; status?: SessionStatus }[];
+   sessions?: readonly {
+      id: string;
+      title: string;
+      status?: SessionStatus;
+      folder?: string;
+      quick?: boolean;
+   }[];
+   /** A panel window (`pane=panel`): the View shows only this panel, full window (`PanelWindow`). */
+   popout?: string;
 };
 
 /**
@@ -107,8 +116,10 @@ function ChatBody({
    onOpenTasks,
    onStartFromTask,
    sessions,
+   popout,
 }: ChatProps) {
    const overlay = variant === "overlay";
+   const mode = overlay ? "overlay" : popout ? "window" : "main";
    // `inert`: a cached fold not confirmed whole yet can be behind the log (useChatLog).
    const { state, inert } = useChatLog(api);
    // A Session with nothing in it yet is waiting for a message. Known once its log is here.
@@ -125,8 +136,9 @@ function ChatBody({
       () => sessions && new Map(sessions.map((s) => [s.id, s])),
       [sessions],
    );
-   const { lay, update, placesRef, setPlaces } = useDockLayout(api.sessionId, overlay);
-   useShortcuts(overlay, update);
+   const { lay, update, placesRef, setPlaces } = useDockLayout(api.sessionId, mode, popout);
+   // A panel window has no other panels to toggle.
+   useShortcuts(mode !== "main", update);
    const env = useUiEnv(api, state.uiState);
    const list = useRef<VirtualListHandle>(null);
    const { jumpToRow, jumpToStep, openStep } = useJump(list, rows, subagents);
@@ -363,7 +375,20 @@ function ChatBody({
                <FileViewProvider onView={openFile}>
                   {/* `contents`: no box of its own, the layout stays as it is. */}
                   <div className="contents" inert={inert}>
-                     {overlay ? (
+                     {popout ? (
+                        <PanelWindow
+                           sessionId={api.sessionId}
+                           panelId={popout}
+                           entry={panelHost.entries.find((e) => e.id === popout)}
+                           hint={hints.get(popout)}
+                           loaded={state.loaded && !inert}
+                           archived={state.archived}
+                           sessionTitle={
+                              sessionMap?.get(api.sessionId)?.title ?? state.title ?? "New Session"
+                           }
+                           project={projectOf(sessionMap?.get(api.sessionId))}
+                        />
+                     ) : overlay ? (
                         <OverlayDock
                            draft={overlayDraft}
                            promptBox={promptBox}

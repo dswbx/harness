@@ -50,7 +50,7 @@ type Frame = { open: Zone | null; shown: string | null; mounted: string[] };
 let frames: Frame[] = [];
 
 function Harness({ state, overlay = false }: { state: ChatState; overlay?: boolean }) {
-   const { lay, update, placesRef, setPlaces } = useDockLayout("s1", overlay);
+   const { lay, update, placesRef, setPlaces } = useDockLayout("s1", overlay ? "overlay" : "main");
    const host = usePanelHost({
       api: { sessionId: "s1" } as SessionApi,
       state,

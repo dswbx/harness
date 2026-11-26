@@ -169,6 +169,38 @@ export function rememberWindowFrame(store: FrameStore): () => void {
 }
 
 /**
+ * Runs `cb` when the user closes this window (Tauri: the red X or Cmd+W; quitting the app raises no
+ * close request). The close goes on. In a browser: the page is left (`pagehide`). Returns a cleanup.
+ */
+export function onWindowClose(cb: () => void): () => void {
+   if (!inTauri()) {
+      window.addEventListener("pagehide", cb);
+      return () => window.removeEventListener("pagehide", cb);
+   }
+   let off = false;
+   let unlisten: (() => void) | undefined;
+   void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+      const u = await getCurrentWindow().onCloseRequested(() => cb());
+      if (off) u();
+      else unlisten = u;
+   });
+   return () => {
+      off = true;
+      unlisten?.();
+   };
+}
+
+/** Closes this page's window without a close request (Tauri: destroys it; a browser: `window.close()`). */
+export async function closeCurrentWindow(): Promise<void> {
+   if (!inTauri()) {
+      window.close();
+      return;
+   }
+   const { getCurrentWindow } = await import("@tauri-apps/api/window");
+   await getCurrentWindow().destroy();
+}
+
+/**
  * Opens a web URL in the user's browser (inside Tauri via the opener plugin; in a plain browser a
  * new tab). Frontends can't import Tauri, so this lives here. A failure goes to `onError`
  * (default: the console).

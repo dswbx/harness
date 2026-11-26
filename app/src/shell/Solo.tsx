@@ -1,5 +1,5 @@
 import type { Transport } from "@harness/api";
-import { HarnessClient as Client } from "@harness/api";
+import { HarnessClient as Client, closeCurrentWindow } from "@harness/api";
 import { useEffect, useMemo, useState } from "react";
 import { ViewHost } from "../platform/ViewHost";
 import { SessionHeader, trafficLights } from "../session-header/SessionHeader";
@@ -32,8 +32,14 @@ export function Solo({
    useMarkSeen(client, params.get("pane") ? null : session);
    useTurnNotices(client, sessions, sessionId, setSessionId, !params.get("pane"));
    useEffect(() => {
-      if (session) document.title = session.title;
+      // A panel window sets its own title ("<Panel> · <Session>").
+      if (session && params.get("pane") !== "panel") document.title = session.title;
    }, [session]);
+   // A panel window of a deleted Session has nothing left to show.
+   const gone = session === null && params.get("pane") === "panel";
+   useEffect(() => {
+      if (gone) closeCurrentWindow().catch((e) => console.error("close window failed", e));
+   }, [gone]);
    if (session === undefined) return null;
    if (session === null)
       return <div className="p-6 text-sm text-destructive">Session not found.</div>;
@@ -45,6 +51,8 @@ export function Solo({
                transport={transport}
                sessionId={session.id}
                frontendId={session.frontend_id}
+               // A panel window's header shows the Session's title and folder.
+               sessions={params.get("pane") === "panel" ? sessions : undefined}
             />
          </div>
       );

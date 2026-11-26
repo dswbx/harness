@@ -1,22 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelPlace } from "../usePanelHost";
-import { defaultLayout, type Layout, reconcile } from "./model";
+import { defaultLayout, type Layout, reconcile, show } from "./model";
 import { overlayProfile } from "./overlay";
 import { loadLayout, saveLayout } from "./persist";
 
 /**
- * Where the panels sit and their sizes. Kept per Session. The Quick overlay has only the side zones
- * (`overlayProfile`) and keeps its layout in memory: the main window's stored layout of the Session stays as it is.
+ * Which window the layout is for. `main`: the Session's stored layout. `overlay`: the Quick overlay, only the
+ * side zones (`overlayProfile`). `window`: a panel window, `panel` always shown. Only `main` saves.
+ */
+export type DockMode = "main" | "overlay" | "window";
+
+/**
+ * Where the panels sit and their sizes. Kept per Session. The Quick overlay and a panel window keep their
+ * layout in memory: the main window's stored layout of the Session stays as it is.
  * `lay` is the layout with every hosted panel placed; `update` takes a change to it.
  */
-export function useDockLayout(sessionId: string, overlay: boolean) {
-   const fit = useCallback((l: Layout) => (overlay ? overlayProfile(l) : l), [overlay]);
+export function useDockLayout(sessionId: string, mode: DockMode, panel?: string) {
+   const fit = useCallback(
+      (l: Layout) =>
+         mode === "overlay" ? overlayProfile(l) : mode === "window" && panel ? show(l, panel) : l,
+      [mode, panel],
+   );
    const [layout, setLayout] = useState<Layout>(() =>
-      overlay ? overlayProfile(defaultLayout()) : loadLayout(sessionId),
+      fit(mode === "overlay" ? defaultLayout() : loadLayout(sessionId)),
    );
    useEffect(() => {
-      if (!overlay) saveLayout(sessionId, layout);
-   }, [overlay, sessionId, layout]);
+      if (mode === "main") saveLayout(sessionId, layout);
+   }, [mode, sessionId, layout]);
    /** Every change goes through reconcile first, so a panel that just appeared (a slot) has its place. */
    const placesRef = useRef<PanelPlace[]>([]);
    const update = useCallback(
