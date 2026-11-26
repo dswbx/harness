@@ -49,7 +49,7 @@ impl Harness {
                     if refresh {
                         refs.forget(repo, number);
                     }
-                    refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten()
+                    refs.full(repo, number).await?
                 }
                 None => match crate::git::current_branch(Path::new(&meta.folder)).await? {
                     Some(branch) => session.pr_watch().lookup(repo, &branch).await?,

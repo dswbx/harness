@@ -18,6 +18,17 @@ contexts(first: 100) { nodes { ... on CheckRun { name status conclusion startedA
 const PR_LIST_FRAGMENT: &str = "fragment pr on PullRequest { number title isDraft isCrossRepository headRefName baseRefName updatedAt \
 author { login } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }";
 
+/// `PR_FRAGMENT` with GitHub's summary check state instead of the check runs: cheap for lists. `PrInfo`s from it
+/// have no check counts (0 of 0).
+pub(crate) const PR_SUMMARY_FRAGMENT: &str = "fragment pr on PullRequest { number title url state isDraft isCrossRepository \
+headRefName baseRefName additions deletions changedFiles updatedAt author { login } commits(last: 1) { nodes { commit { \
+statusCheckRollup { state } } } } }";
+
+/// GitHub's summary check state, from `PR_LIST_FRAGMENT` or `PR_SUMMARY_FRAGMENT`.
+fn summary(pr: &Value) -> Option<&str> {
+    pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["state"].as_str()
+}
+
 /// The check runs and statuses of a PR from `PR_FRAGMENT`.
 fn rollup(pr: &Value) -> &[Value] {
     pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].as_array().map_or(&[][..], Vec::as_slice)
@@ -57,9 +68,8 @@ pub(crate) async fn search_prs(query: &str, first: u32, fragment: &str) -> anyho
 
 fn pull_request(v: &Value) -> Option<PullRequest> {
     let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
-    let summary = v["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["state"].as_str();
     Some(PullRequest {
-        checks: summary.map_or_else(|| checks(rollup(v)), summary_checks),
+        checks: summary(v).map_or_else(|| checks(rollup(v)), summary_checks),
         number: v["number"].as_u64()? as u32,
         title: text("title"),
         author: author(v),
@@ -197,10 +207,13 @@ pub(super) fn branch_prs(repo: &RepoId, list: &[Value]) -> Vec<PrInfo> {
     list.iter().filter(|v| v["isCrossRepository"] != true).filter_map(|v| pr_info(repo, v)).collect()
 }
 
-/// A PR from `PR_FRAGMENT`.
+/// A PR from `PR_FRAGMENT`, or `PR_SUMMARY_FRAGMENT` (no check counts).
 pub(super) fn pr_info(repo: &RepoId, v: &Value) -> Option<PrInfo> {
     let rollup = rollup(v);
-    let (checks_passed, checks_total) = check_counts(rollup);
+    let (checks, (checks_passed, checks_total)) = match summary(v) {
+        Some(s) => (summary_checks(s), (0, 0)),
+        None => (checks(rollup), check_counts(rollup)),
+    };
     let num = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
     let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
     let state = match (v["state"].as_str()?, v["isDraft"].as_bool().unwrap_or(false)) {
@@ -215,7 +228,7 @@ pub(super) fn pr_info(repo: &RepoId, v: &Value) -> Option<PrInfo> {
         title: text("title"),
         author: author(v),
         state,
-        checks: checks(rollup),
+        checks,
         checks_passed,
         checks_total,
         additions: num("additions"),
