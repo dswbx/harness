@@ -41,6 +41,28 @@ pub enum OverlayPosition {
     Bottom,
 }
 
+/// Sub Session settings (`sub_sessions.json`, ADR 0026). Missing fields take their defaults, so an
+/// older file, or none, still loads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct SubSessionSettings {
+    /// The most Sub Sessions of one parent that may be working or waiting for the user at a time.
+    /// 0: no limit. At most `SubSessionSettings::MAX_RUNNING_LIMIT`.
+    pub max_running: u32,
+}
+
+impl SubSessionSettings {
+    pub const DEFAULT_MAX_RUNNING: u32 = 4;
+    /// The highest `max_running` the setting takes.
+    pub const MAX_RUNNING_LIMIT: u32 = 32;
+}
+
+impl Default for SubSessionSettings {
+    fn default() -> Self {
+        Self { max_running: Self::DEFAULT_MAX_RUNNING }
+    }
+}
+
 /// What new Session branches start with: `<prefix>/<short id>` (no prefix: `<title slug>-<short id>`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]

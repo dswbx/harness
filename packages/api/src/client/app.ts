@@ -20,6 +20,7 @@ import type {
    SharedArtifactMeta,
    StartupNotice,
    StatePatchOp,
+   SubSessionSettings,
    Task,
    TaskPatch,
    TaskStart,
@@ -159,6 +160,16 @@ export class HarnessClient {
    /** null resets to `harness`. */
    async setBranchPrefix(prefix: BranchPrefix | null): Promise<void> {
       await this.transport.execute({ type: "SetBranchPrefix", prefix });
+   }
+   /** Sub Session settings: `max_running` caps a parent's working children (0: no limit). */
+   async getSubSessionSettings(): Promise<SubSessionSettings> {
+      return (
+         await expectResult(this.transport, { type: "GetSubSessionSettings" }, "SubSessionSettings")
+      ).settings;
+   }
+   /** null resets to the defaults. The core refuses `max_running` over 32. */
+   async setSubSessionSettings(settings: SubSessionSettings | null): Promise<void> {
+      await this.transport.execute({ type: "SetSubSessionSettings", settings });
    }
    /** The editor for "Open in editor"; null until chosen. */
    async getEditor(): Promise<Editor | null> {

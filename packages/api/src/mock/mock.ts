@@ -15,6 +15,7 @@ import type {
    PermissionRule,
    SessionSummary,
    StartupNotice,
+   SubSessionSettings,
    WorkspaceInfo,
 } from "../generated";
 import type { TerminalOutput, Transport, Unsubscribe } from "../transport/transport";
@@ -87,6 +88,8 @@ export class MockTransport implements Transport {
       if (p.type === "custom") return p.prefix;
       return "harness";
    }
+   /** @internal */
+   subSessionSettings: SubSessionSettings = { max_running: 4 };
    /** @internal */
    appSettings: Record<string, unknown> = {};
    /** Custom Instructions by "global" or repository folder. @internal */

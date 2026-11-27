@@ -45,6 +45,20 @@ impl Harness {
         crate::git::resolve_branch_prefix(prefix, login.as_deref())
     }
 
+    pub(in crate::host) fn cmd_get_sub_session_settings(&self) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::SubSessionSettings { settings: self.sub_session_settings() })
+    }
+
+    pub(in crate::host) fn cmd_set_sub_session_settings(&self, settings: Option<SubSessionSettings>) -> anyhow::Result<CommandResult> {
+        crate::sub_sessions::save_settings(&self.data_dir, settings.as_ref())?;
+        Ok(CommandResult::Ok)
+    }
+
+    /// The Sub Session settings, read on each use (the defaults when none are saved).
+    pub(crate) fn sub_session_settings(&self) -> SubSessionSettings {
+        crate::sub_sessions::load_settings(&self.data_dir)
+    }
+
     pub(in crate::host) fn cmd_get_editor(&self) -> anyhow::Result<CommandResult> {
         Ok(CommandResult::Editor { editor: crate::editor::load(&self.data_dir) })
     }

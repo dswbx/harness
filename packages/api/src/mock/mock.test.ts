@@ -224,6 +224,19 @@ describe("MockTransport Shared Artifacts (ADR 0024)", () => {
       kind: { type: "FrontendToolOutput", tool: "render_ui", call_id: id, path: "p", input },
    });
 
+   it("keeps the Sub Session limit: 4 by default, 0 to 32, null resets", async () => {
+      const client = new HarnessClient(new MockTransport([], []));
+      expect(await client.getSubSessionSettings()).toEqual({ max_running: 4 });
+      await client.setSubSessionSettings({ max_running: 0 });
+      expect(await client.getSubSessionSettings()).toEqual({ max_running: 0 });
+      await expect(client.setSubSessionSettings({ max_running: 33 })).rejects.toThrow(
+         "0 (no limit) to 32",
+      );
+      expect(await client.getSubSessionSettings()).toEqual({ max_running: 0 });
+      await client.setSubSessionSettings(null);
+      expect(await client.getSubSessionSettings()).toEqual({ max_running: 4 });
+   });
+
    it("opens a shared artifact's content file in the editor without a Session", async () => {
       const transport = new MockTransport([], []);
       const client = new HarnessClient(transport);

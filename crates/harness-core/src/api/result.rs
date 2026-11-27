@@ -139,6 +139,10 @@ pub enum CommandResult {
         prefix: BranchPrefix,
         resolved: String,
     },
+    /// `GetSubSessionSettings`.
+    SubSessionSettings {
+        settings: SubSessionSettings,
+    },
     /// An app setting's value, or fetched JSON (`FetchJson`).
     Json {
         #[specta(type = Option<specta_typescript::Unknown>)]
