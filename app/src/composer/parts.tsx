@@ -91,3 +91,23 @@ export function Pill({ children }: { children: React.ReactNode }) {
       </span>
    );
 }
+
+/** Widths of the placeholder title lines: they vary like real titles. */
+const SKELETON_WIDTHS = ["72%", "55%", "80%", "48%", "64%"];
+
+/** Still placeholder rows (no shimmer) in the shape of list items: an icon and one or two text lines. */
+export function SkeletonRows({ lines = 1 }: { lines?: 1 | 2 }) {
+   return (
+      <div aria-hidden className="flex flex-col">
+         {SKELETON_WIDTHS.map((width) => (
+            <div key={width} className="flex items-start gap-2 px-2 py-1.5">
+               <span className="mt-0.5 size-4 shrink-0 rounded-full bg-muted" />
+               <span className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
+                  <span className="h-3 rounded bg-muted" style={{ width }} />
+                  {lines === 2 && <span className="h-2.5 w-2/5 rounded bg-muted/70" />}
+               </span>
+            </div>
+         ))}
+      </div>
+   );
+}

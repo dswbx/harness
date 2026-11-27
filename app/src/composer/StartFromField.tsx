@@ -7,12 +7,12 @@ import {
    type PullRequest,
    parsePrRef,
 } from "@harness/api";
-import { cn, Tooltip } from "@harness/ui";
+import { cn, Spinner, Tooltip } from "@harness/ui";
 import { GitBranch, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { branchChoices, loadWorktreePref, matchesWords, saveWorktreePref } from "./composer";
 import { FieldButton, Picker, type PickItem } from "./Picker";
-import { AheadBehind, Label, Pill, PrIcon, UpdateBranch } from "./parts";
+import { AheadBehind, Label, Pill, PrIcon, SkeletonRows, UpdateBranch } from "./parts";
 import { type Target, targetInfo, worktreeAfterPick, worktreeSwitch } from "./startPoint";
 import type { PickedPr } from "./usePullRequests";
 
@@ -36,7 +36,7 @@ export function StartFromField({
    pr,
    setPr,
    prs,
-   prAvailable,
+   prError,
    prFilter,
    setPrFilter,
    updating,
@@ -60,7 +60,8 @@ export function StartFromField({
    pr: PickedPr | null;
    setPr: (p: PickedPr) => void;
    prs: PullRequest[] | null;
-   prAvailable: boolean;
+   /** Why the PR list failed; shown in the Pull request tab. */
+   prError: string | null;
    prFilter: PrFilter;
    setPrFilter: (f: PrFilter) => void;
    updating: string | null;
@@ -179,9 +180,25 @@ export function StartFromField({
             content: branchRow(b, true),
          }),
       ),
+      ...(choices.remoteHidden
+         ? [
+              {
+                 key: "remote-hidden",
+                 section: "Remote only",
+                 disabled: true,
+                 onSelect: () => {},
+                 content: (
+                    <span className="text-xs text-muted-foreground">
+                       {choices.remoteHidden.toLocaleString()} more. Type to find them.
+                    </span>
+                 ),
+              } satisfies PickItem,
+           ]
+         : []),
    ];
 
    // ---- PR list
+   const prLoading = prs === null && !prError;
    const pq = prQuery.trim();
    const typedPr = parsePrRef(pq);
    const pickPr = (p: PickedPr) => {
@@ -262,61 +279,55 @@ export function StartFromField({
                     }
             }
             header={
-               prAvailable && (
-                  <div className="flex items-center gap-1.5 border-b px-2 py-1.5">
-                     <div
-                        role="tablist"
-                        aria-label="Start from"
-                        className="flex shrink-0 rounded-md bg-muted p-0.5 text-xs"
-                     >
-                        {(["branch", "pr"] as const).map((m) => (
+               <div className="flex items-center gap-1.5 border-b px-2 py-1.5">
+                  <div
+                     role="tablist"
+                     aria-label="Start from"
+                     className="flex shrink-0 rounded-md bg-muted p-0.5 text-xs"
+                  >
+                     {(["branch", "pr"] as const).map((m) => (
+                        <button
+                           key={m}
+                           type="button"
+                           role="tab"
+                           aria-selected={mode === m}
+                           onClick={() => setMode(m)}
+                           className={cn(
+                              "h-6 rounded px-2.5",
+                              mode === m
+                                 ? "bg-background text-foreground shadow-xs"
+                                 : "text-muted-foreground hover:text-foreground",
+                           )}
+                        >
+                           {m === "branch" ? "Branch" : "Pull request"}
+                        </button>
+                     ))}
+                  </div>
+                  {prLoading && <Spinner className="size-3.5 text-muted-foreground" />}
+                  {mode === "pr" && (
+                     <div className="ml-auto flex gap-1">
+                        {PR_FILTERS.map(([f, name]) => (
                            <button
-                              key={m}
+                              key={f}
                               type="button"
-                              role="tab"
-                              aria-selected={mode === m}
-                              onClick={() => setMode(m)}
+                              onClick={() => setPrFilter(f)}
                               className={cn(
-                                 "h-6 rounded px-2.5",
-                                 mode === m
-                                    ? "bg-background text-foreground shadow-xs"
-                                    : "text-muted-foreground hover:text-foreground",
+                                 "h-6 rounded-full px-2 text-xs",
+                                 prFilter === f
+                                    ? "bg-accent text-accent-foreground"
+                                    : "border text-muted-foreground hover:text-foreground",
                               )}
                            >
-                              {m === "branch" ? "Branch" : "Pull request"}
+                              {name}
                            </button>
                         ))}
                      </div>
-                     {mode === "pr" && (
-                        <div className="ml-auto flex gap-1">
-                           {PR_FILTERS.map(([f, name]) => (
-                              <button
-                                 key={f}
-                                 type="button"
-                                 onClick={() => setPrFilter(f)}
-                                 className={cn(
-                                    "h-6 rounded-full px-2 text-xs",
-                                    prFilter === f
-                                       ? "bg-accent text-accent-foreground"
-                                       : "border text-muted-foreground hover:text-foreground",
-                                 )}
-                              >
-                                 {name}
-                              </button>
-                           ))}
-                        </div>
-                     )}
-                  </div>
-               )
+                  )}
+               </div>
             }
             items={mode === "branch" ? branchItems : prItems}
-            empty={
-               mode === "pr"
-                  ? prs === null
-                     ? "Loading pull requests…"
-                     : "No pull requests"
-                  : undefined
-            }
+            loading={mode === "pr" && prLoading && <SkeletonRows lines={2} />}
+            empty={mode === "pr" ? (prError ?? "No pull requests") : undefined}
             hint={
                mode === "branch"
                   ? "Another branch than the folder's opens in a new worktree."
