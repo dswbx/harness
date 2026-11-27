@@ -264,10 +264,11 @@ function FileRefView({
                className={cn(
                   // `select-text`: part of the message text (a copy keeps the path), though a `role="button"`.
                   "cursor-pointer select-text rounded-[0.35em] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  // On the code itself: its box would hide a decoration drawn by this span. Locked: amber.
+                  "*:underline *:decoration-dotted *:decoration-1 *:underline-offset-[3px]",
                   slice
-                     ? // On the code itself: its box would hide a decoration drawn by this span.
-                       "*:underline *:decoration-sky-500/60 *:decoration-dotted *:decoration-1 *:underline-offset-[3px] hover:*:decoration-sky-500"
-                     : "border border-amber-500/50 border-dashed px-0.5 *:text-muted-foreground hover:border-amber-500",
+                     ? "*:decoration-sky-500/60 hover:*:decoration-sky-500"
+                     : "*:decoration-amber-500/70 hover:*:decoration-amber-500",
                )}
                onClick={(e) => {
                   e.preventDefault();
@@ -285,12 +286,6 @@ function FileRefView({
                   !contentRef.current?.contains(e.relatedTarget as Node | null) && hover(false, 0)
                }
             >
-               {!slice && (
-                  <Lock
-                     className="mr-0.5 inline size-3 align-[-0.1em] text-amber-500"
-                     aria-hidden
-                  />
-               )}
                {children}
             </span>
          </PopoverAnchor>
