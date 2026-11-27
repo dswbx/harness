@@ -450,6 +450,36 @@ async fn editor_setting_and_open_guard() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn approving_a_secret_file_outside_the_folder_survives_a_restart() {
+    use harness_core::api::{ErrorCode, FileScope};
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let repo = repo(dir.path());
+    // An `.env` file can hold secrets wherever it is.
+    std::fs::write(dir.path().join(".env"), "TOKEN=made-up\n").unwrap();
+    let h = harness(&data, &[]);
+    let sid = create(&h, &repo, vec![]).await;
+    let read = |sid: &str| Command::ReadSessionFile { session_id: sid.into(), path: "../.env".into(), start: None, end: None };
+    let e = h.execute(read(&sid)).await.unwrap_err();
+    assert_eq!((e.code, e.message.as_str()), (ErrorCode::NeedsApproval, "an .env file"));
+    h.execute(Command::ApproveSessionFile { session_id: sid.clone(), path: "../.env".into() }).await.unwrap();
+    drop(h);
+
+    let h = harness(&data, &[]);
+    let Ok(CommandResult::FileLines { lines, scope, .. }) = h.execute(read(&sid)).await else { panic!() };
+    assert_eq!((lines, scope), (vec!["TOKEN=made-up".to_string()], FileScope::Allowed));
+    h.execute(Command::RevokeSessionFile { session_id: sid.clone(), path: "../.env".into() }).await.unwrap();
+    assert_eq!(h.execute(read(&sid)).await.unwrap_err().code, ErrorCode::NeedsApproval);
+    // The folder's own files need no approval.
+    let Ok(CommandResult::FileLines { scope, .. }) =
+        h.execute(Command::ReadSessionFile { session_id: sid.clone(), path: "a.txt".into(), start: None, end: None }).await
+    else {
+        panic!()
+    };
+    assert_eq!(scope, FileScope::Inside);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn set_title_tool_names_the_session() {
     let dir = tempfile::tempdir().unwrap();
     let h = harness(&dir.path().join("data"), &[]);

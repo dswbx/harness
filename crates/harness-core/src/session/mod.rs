@@ -91,6 +91,7 @@ impl Session {
             agent_title: None,
             parent: None,
             initial_config: Default::default(),
+            allowed_files: Vec::new(),
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;

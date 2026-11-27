@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CommandError } from "../errors";
 import type { Command, CommandResult, Note, Task } from "../generated";
 import type { Transport } from "../transport/transport";
-import { createSessionApi, HarnessClient, type SessionApi } from "./client";
+import { createSessionApi, folderGit, HarnessClient, type SessionApi } from "./client";
 
 const meta = {
    v: 1,
@@ -70,7 +70,14 @@ const replies: Partial<Record<Command["type"], CommandResult>> = {
    GetEditor: { type: "Editor", editor: null },
    ExportPlan: { type: "PlanFile", path: "/p.md" },
    ListSessionFiles: { type: "SessionFiles", files: [], prefix: "" },
-   ReadSessionFile: { type: "FileLines", path: "a", start: 1, lines: [], total: 0 },
+   ReadSessionFile: {
+      type: "FileLines",
+      path: "a",
+      start: 1,
+      lines: [],
+      total: 0,
+      scope: "inside",
+   },
    GetState: { type: "State", state: {} },
    FrontendList: { type: "Files", files: [] },
    ListTerminals: { type: "Terminals", terminals: [] },
@@ -160,6 +167,8 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    exportPlan: (a) => a.exportPlan("n", "# m", true),
    listSessionFiles: (a) => a.listSessionFiles(),
    readSessionFile: (a) => a.readSessionFile("p"),
+   approveSessionFile: (a) => a.approveSessionFile("~/.x/a.md"),
+   revokeSessionFile: (a) => a.revokeSessionFile("~/.x/a.md"),
    getState: (a) => a.getState(),
    patchState: (a) => a.patchState([{ op: "remove", path: "/x" }]),
    reportFrontendError: (a) => a.reportFrontendError("t", "i", "m"),
@@ -292,6 +301,30 @@ describe("HarnessClient wire shape", () => {
    });
 });
 
+describe("folderGit wire shape", () => {
+   it("sends the Folder Commands with the Session's defaults", async () => {
+      const { sent, transport } = recorder((cmd) => {
+         const byType: Partial<Record<Command["type"], CommandResult>> = {
+            FolderGitDiff: replies.GitDiff,
+            FolderGitLog: replies.GitLog,
+            FolderGitShowFile: replies.GitShowFile,
+         };
+         return byType[cmd.type] ?? { type: "Ok" };
+      });
+      const git = folderGit(transport, "/repo");
+      expect(await git.gitDiff()).toEqual({ from: "a", to: "b", files: [], patch: "" });
+      await git.gitDiff("HEAD", "x");
+      expect(await git.gitLog()).toEqual([]);
+      expect(await git.gitShowFile("abc", "a.ts")).toBe("x");
+      expect(sent).toEqual([
+         { type: "FolderGitDiff", folder: "/repo", from: null, to: null },
+         { type: "FolderGitDiff", folder: "/repo", from: "HEAD", to: "x" },
+         { type: "FolderGitLog", folder: "/repo" },
+         { type: "FolderGitShowFile", folder: "/repo", rev: "abc", path: "a.ts" },
+      ]);
+   });
+});
+
 /** A result of another type than the Command's is a bug: every method rejects with `internal`, none returns an empty value. */
 describe("unexpected results", () => {
    const { transport } = recorder(() => ({ type: "Committed", commit: "x" }));
@@ -315,6 +348,7 @@ describe("unexpected results", () => {
       ["session getEditor", () => api.getEditor()],
       ["listShared", () => api.listShared()],
       ["gitLog", () => api.gitLog()],
+      ["folder gitLog", () => folderGit(transport, "/f").gitLog()],
    ];
    it.each(calls)("%s", async (_name, call) => {
       const err = await call().then(

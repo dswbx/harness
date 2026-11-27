@@ -23,6 +23,10 @@ test("paths with lines and ranges", () => {
    expect(parseFileRef("Makefile")).toEqual(ref("Makefile"));
    expect(parseFileRef("packages/@scope/x/index.tsx")).toEqual(ref("packages/@scope/x/index.tsx"));
    expect(parseFileRef("src/foo.weird")).toEqual(ref("src/foo.weird"));
+   expect(parseFileRef("~/notes.md")).toEqual(ref("~/notes.md"));
+   expect(parseFileRef("~/notes/todo.md:4")).toEqual(ref("~/notes/todo.md", 4));
+   expect(parseFileRef("~/.aws/config")).toEqual(ref("~/.aws/config"));
+   expect(parseFileRef("~/.zshrc")).toEqual(ref("~/.zshrc"));
 });
 
 test("trailing punctuation is ignored", () => {
@@ -49,7 +53,10 @@ test("things that are not file refs", () => {
       "1.5",
       "src/",
       "..",
-      "~/notes.md",
+      "~",
+      "~/",
+      "~user/notes.md",
+      "a/~/b.md",
       "a b.ts",
       "src/*.ts",
       "{ a: 1 }",

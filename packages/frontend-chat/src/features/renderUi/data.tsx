@@ -10,6 +10,7 @@ import {
    type Renderers,
    runActions,
    ScopeCtx,
+   Sel,
    structuredCloneSet,
    type Tone,
    tip,
@@ -60,6 +61,8 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
             const done = checked[it.id] === true;
             const t = tones[it.tone ?? "neutral"];
             const status = it.status ? statusIcons[it.status] : undefined;
+            // A checkable row is a button (a control): its text stays out of a selection.
+            const text = (c: React.ReactNode) => (path ? c : <Sel>{c}</Sel>);
             const row = (
                <>
                   {path && (
@@ -90,11 +93,11 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
                            done && "text-muted-foreground line-through",
                         )}
                      >
-                        <Md>{it.title}</Md>
+                        {text(<Md>{it.title}</Md>)}
                      </span>
                      {it.description && (
                         <span className="block text-ui-sm text-muted-foreground">
-                           <Md>{it.description}</Md>
+                           {text(<Md>{it.description}</Md>)}
                         </span>
                      )}
                   </span>
@@ -111,7 +114,7 @@ function List({ node }: { node: Extract<UiNode, { type: "List" }> }) {
                   )}
                   {it.meta && (
                      <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">
-                        {it.meta}
+                        {text(it.meta)}
                      </span>
                   )}
                </>
@@ -166,10 +169,12 @@ function Timeline({ node }: { node: Extract<UiNode, { type: "Timeline" }> }) {
                   </div>
                   <div className={cn("min-w-0 flex-1", !last && "pb-4")}>
                      <div className="flex items-baseline gap-2">
-                        <span className="min-w-0 flex-1 text-ui font-medium">{it.title}</span>
+                        <span className="min-w-0 flex-1 text-ui font-medium">
+                           <Sel>{it.title}</Sel>
+                        </span>
                         {it.time && (
                            <span className="shrink-0 text-ui-sm text-muted-foreground tabular-nums">
-                              {it.time}
+                              <Sel>{it.time}</Sel>
                            </span>
                         )}
                      </div>
@@ -207,7 +212,12 @@ const rowTone: Record<Tone, string> = {
 };
 
 function TableCell({ cell }: { cell: Cell }) {
-   if (typeof cell !== "object" || cell === null) return <Md>{cell}</Md>;
+   if (typeof cell !== "object" || cell === null)
+      return (
+         <Sel>
+            <Md>{cell}</Md>
+         </Sel>
+      );
    const t = tones[cell.tone ?? "neutral"];
    return tip(
       cell.tooltip,
@@ -220,7 +230,9 @@ function TableCell({ cell }: { cell: Cell }) {
          )}
       >
          {cell.icon && <IconOf name={cell.icon} className="size-3.5" />}
-         <Md>{cellText(cell)}</Md>
+         <Sel>
+            <Md>{cellText(cell)}</Md>
+         </Sel>
       </span>,
       true,
    );
@@ -253,6 +265,43 @@ export function tableRows(
    return out;
 }
 
+/**
+ * The text of `range` inside `table`, as a spreadsheet pastes it: a tab between cells, a newline between rows.
+ * A plain copy joins the cells with nothing between them.
+ */
+export function tableSelectionText(table: HTMLTableElement, range: Range): string {
+   const lines: string[] = [];
+   for (const row of table.rows) {
+      if (!range.intersectsNode(row)) continue;
+      const cells: string[] = [];
+      for (const cell of row.cells) {
+         if (!range.intersectsNode(cell)) continue;
+         const r = document.createRange();
+         r.selectNodeContents(cell);
+         if (r.compareBoundaryPoints(Range.START_TO_START, range) < 0)
+            r.setStart(range.startContainer, range.startOffset);
+         if (r.compareBoundaryPoints(Range.END_TO_END, range) > 0)
+            r.setEnd(range.endContainer, range.endOffset);
+         cells.push(r.toString().trim());
+      }
+      lines.push(cells.join("\t"));
+   }
+   return lines.join("\n");
+}
+
+/** A copy of a selection inside one table: cells and rows keep their separators. */
+function copyTable(e: React.ClipboardEvent<HTMLTableElement>) {
+   const sel = getSelection();
+   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+   const range = sel.getRangeAt(0);
+   // A selection that starts or ends outside the table copies as usual.
+   if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
+   const text = tableSelectionText(e.currentTarget, range);
+   if (!text.includes("\t") && !text.includes("\n")) return;
+   e.clipboardData.setData("text/plain", text);
+   e.preventDefault();
+}
+
 function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
    const [sort, setSort] = useState<{ col: number; desc: boolean } | null>(null);
    const [q, setQ] = useState("");
@@ -277,7 +326,7 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
             </div>
          )}
          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-ui">
+            <table className="w-full text-ui" onCopy={copyTable}>
                <thead className="bg-muted/50 text-left">
                   <tr>
                      {columns.map((c, i) => (
@@ -303,7 +352,9 @@ function DataTable({ node }: { node: Extract<UiNode, { type: "Table" }> }) {
                                     ))}
                               </button>
                            ) : (
-                              <Md>{c}</Md>
+                              <Sel>
+                                 <Md>{c}</Md>
+                              </Sel>
                            )}
                         </th>
                      ))}

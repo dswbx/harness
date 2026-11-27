@@ -3,6 +3,7 @@ import manifest from "../manifest.json";
 import { ArtifactRequest } from "./features/artifacts/ArtifactRequest";
 import { RenderUiGallery } from "./features/artifacts/Gallery";
 import { SharedArtifactView } from "./features/artifacts/SharedArtifactView";
+import { FolderDiff } from "./features/changes/DiffWindow";
 import { setWrapCode, useWrapCode } from "./features/markdown/CodeBlock";
 import { setGuessInlineCode, useGuessInlineCode } from "./features/markdown/inlineCode";
 import { MarkdownEditor } from "./features/prompt/MarkdownEditor";
@@ -15,6 +16,7 @@ export const frontend: Frontend = {
    View,
    Request: ArtifactRequest,
    SharedView: SharedArtifactView,
+   FolderDiff,
    TasksView,
    Gallery: RenderUiGallery,
    MarkdownEditor,

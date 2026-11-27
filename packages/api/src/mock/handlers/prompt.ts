@@ -435,6 +435,14 @@ const promptMain: Handler<"Prompt"> = async (mock, cmd) => {
       });
       return { type: "Ok" };
    }
+   // Typing "/files" simulates a reply naming files in the folder, outside it, and one that can hold secrets.
+   if (cmd.text.trim() === "/files") {
+      mock.emit(sid, {
+         type: "AgentMessageChunk",
+         text: "Files: `src/hello.ts:2` in the folder, `~/notes/ideas.md` outside it, and `~/.aws/config` in a hidden folder (locked until allowed). `~/missing.md` does not exist.",
+      });
+      return { type: "Ok" };
+   }
    // Typing "/permission" simulates two pending permission requests: a multi-line command and an edit with a diff.
    if (cmd.text.trim() === "/permission") {
       const turn = `t${mock.logs.get(sid)!.length}`;

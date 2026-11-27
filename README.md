@@ -26,6 +26,18 @@ The Vite dev server uses port 1420, or the next free one if that is taken (so se
 
 First steps in the app: **Agents** → install Claude or Codex → **New Session** → pick a folder → chat. Sign in when the Agent asks.
 
+## The `harness` command
+
+In the installed app, choose **Harness → Install 'harness' Command in PATH…**. It links `/usr/local/bin/harness` to the app. Then, in a terminal:
+
+```bash
+harness diff [dir]   # the diff of the folder's repository, in a window (default: the current folder)
+harness new [dir]    # the New Session dialog with the folder filled in
+harness --help
+```
+
+The command starts Harness if it is not running. A dev build (`target/debug/harness`) talks only to the dev app (`bun run dev`).
+
 ## Layout
 
 | Path                                                    | What                                                                                                                    |

@@ -36,7 +36,8 @@ export function FileView({
    comments: readonly LineCommentState[];
    target?: LineRange | null;
    wrap?: boolean;
-   mode: "comment";
+   /** `read`: no comments (a file outside the Session folder). */
+   mode: "comment" | "read";
    className?: string;
 }) {
    const fontSize = useCodeFontSize();

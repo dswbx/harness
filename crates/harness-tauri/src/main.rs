@@ -10,5 +10,11 @@ fn main() {
         }
         return;
     }
+    // `harness diff|new [dir]`, `--help`, `--version`; with no command, a running instance of this
+    // data dir comes to the front instead of a second app starting (ADR 0030).
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let Some(code) = harness_tauri::cli::client(&args) {
+        std::process::exit(code);
+    }
     harness_tauri::run()
 }

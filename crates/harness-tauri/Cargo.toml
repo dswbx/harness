@@ -30,6 +30,7 @@ specta-serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 parking_lot.workspace = true
+libc = "0.2"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-updater = "2"

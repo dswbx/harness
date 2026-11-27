@@ -1,4 +1,4 @@
-import type { HarnessClient, PrFilter, PullRequest } from "@harness/api";
+import { errText, type HarnessClient, type PrFilter, type PullRequest } from "@harness/api";
 import { useEffect, useState } from "react";
 
 /** A PR picked from the list, or typed by number (title unknown). */
@@ -18,8 +18,8 @@ export function usePullRequests({
 }) {
    const [mode, setMode] = useState<"branch" | "pr">("branch");
    const [prs, setPrs] = useState<PullRequest[] | null>(null);
-   /** `false` when `gh` can't list PRs here: the Pull request tab is hidden. */
-   const [prAvailable, setPrAvailable] = useState(false);
+   /** Why the list failed (no `gh`, no GitHub remote, ...): the Pull request tab shows it. */
+   const [prError, setPrError] = useState<string | null>(null);
    const [prFilter, setPrFilter] = useState<PrFilter>("open");
    const [pr, setPr] = useState<PickedPr | null>(null);
 
@@ -27,7 +27,7 @@ export function usePullRequests({
    // biome-ignore lint/correctness/useExhaustiveDependencies: the folder and the dialog being open are what resets
    useEffect(() => {
       setPrs(null);
-      setPrAvailable(false);
+      setPrError(null);
       setPr(null);
       setMode("branch");
    }, [folder, isOpen, client]);
@@ -36,22 +36,19 @@ export function usePullRequests({
       if (!isRepo || !folder.trim()) return;
       let off = false;
       setPrs(null);
+      setPrError(null);
       client
          .listPullRequests(folder.trim(), prFilter)
          .then((l) => {
-            if (off) return;
-            setPrs(l);
-            setPrAvailable(true);
+            if (!off) setPrs(l);
          })
-         .catch(() => {
-            if (off) return;
-            setPrAvailable(false);
-            setMode("branch");
+         .catch((e) => {
+            if (!off) setPrError(errText(e));
          });
       return () => {
          off = true;
       };
    }, [isRepo, folder, prFilter, client]);
 
-   return { mode, setMode, prs, prAvailable, prFilter, setPrFilter, pr, setPr };
+   return { mode, setMode, prs, prError, prFilter, setPrFilter, pr, setPr };
 }

@@ -8,6 +8,7 @@ import {
    mergeRecent,
    pathsToRequest,
    quickAgent,
+   REMOTE_BRANCH_LIMIT,
    sessionFolders,
    sourceFolders,
    startFromTaskArgs,
@@ -179,7 +180,18 @@ describe("branchChoices", () => {
          defaultRemote: undefined,
          local: [],
          remote: [],
+         remoteHidden: 0,
       });
+   });
+
+   it("renders at most REMOTE_BRANCH_LIMIT remote branches and counts the rest", () => {
+      const remote = Array.from({ length: REMOTE_BRANCH_LIMIT + 7 }, (_, i) => br(`origin/f${i}`));
+      const c = branchChoices(repo({ remote }), "");
+      expect(c.remote).toHaveLength(REMOTE_BRANCH_LIMIT);
+      expect(c.remoteHidden).toBe(7);
+      const typed = branchChoices(repo({ remote }), "f5");
+      expect(c.remote.length + c.remoteHidden).toBe(remote.length);
+      expect(typed.remoteHidden).toBe(0);
    });
 });
 

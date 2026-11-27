@@ -457,6 +457,9 @@ mod tests {
         assert!(started.elapsed() < Duration::from_millis(1200), "waited {:?}", started.elapsed());
         assert_ne!(sh(&clone, &["rev-parse", "refs/remotes/origin/main"]), tip);
         assert!(until(|| sh(&clone, &["rev-parse", "refs/remotes/origin/main"]) == tip).await, "fetch did not finish");
+        // The ref moves before git exits (it still writes FETCH_HEAD etc.): wait for the task to end, or the
+        // removal below races git and fails with "Directory not empty".
+        assert!(until(|| fetches.0.lock().unwrap().is_empty()).await, "fetch task did not end");
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 

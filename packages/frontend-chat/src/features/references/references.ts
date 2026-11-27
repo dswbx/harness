@@ -215,8 +215,9 @@ export function collectReferences(
    return [...byKey.values()];
 }
 
-/** A path that can't be in the Session's folder unless the read says so; the read can't tell if it exists. */
-export const outsidePath = (path: string) => path.startsWith("/") || path.startsWith("../");
+/** A path that can't be in the Session's folder unless the read says so. */
+export const outsidePath = (path: string) =>
+   path.startsWith("/") || path.startsWith("../") || path.startsWith("~/");
 
 const newestFirst = (m: Mention[]) => [...m].sort((a, b) => b.ts - a.ts);
 const latest = (m: Mention[]) => m.reduce((t, x) => Math.max(t, x.ts), 0);
@@ -232,17 +233,18 @@ const siteOf = (url: string) => {
    }
 };
 
-/** What resolving needs: the PR store's entry, and a file's real path (undefined: not read yet; null: no such file). */
+/** What resolving needs: the PR store's entry, and a file's real path (undefined: not read yet; null: no such file or
+ * locked). `inside: false`: read, but outside the Session's folder. */
 export type ReferenceLookups = {
    pr: (ref: PrRefKey) => PrEntry | null;
-   file: (ref: FileRef) => { path: string } | null | undefined;
+   file: (ref: FileRef) => { path: string; inside?: boolean } | null | undefined;
    changed: ReadonlySet<string>;
 };
 
 /**
- * The candidates that exist. PRs: found by a lookup. Files: read from the Session's folder, merged by the real path (a
- * name can be the end of a path). Absolute and `../` paths can't be read, so they stay, unchecked and without lines,
- * except when the read found them inside. Links always stay.
+ * The candidates that exist. PRs: found by a lookup. Files: read, merged by the real path (a name can be the end of a
+ * path); only files read in the Session's folder are `inside`. Absolute, `../` and `~/` paths stay even when the read
+ * found nothing (locked, or gone). Links always stay.
  */
 export function resolveReferences(
    candidates: ReferenceCandidate[],
@@ -284,9 +286,9 @@ export function resolveReferences(
                key: path,
                path,
                ...splitPath(path),
-               inside: !!found,
+               inside: !!found && found.inside !== false,
                ranges: [],
-               changed: !!found && changed.has(path),
+               changed: !!found && found.inside !== false && changed.has(path),
                ts: 0,
                mentions: [],
             };

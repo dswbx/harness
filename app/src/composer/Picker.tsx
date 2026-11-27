@@ -33,6 +33,7 @@ export function Picker({
    search,
    header,
    empty = "Nothing found",
+   loading,
    hint,
    label,
 }: {
@@ -44,6 +45,8 @@ export function Picker({
    /** Above the list, under the filter (e.g. filter chips). */
    header?: ReactNode;
    empty?: ReactNode;
+   /** Placeholder rows under the items while they load (e.g. `SkeletonRows`). */
+   loading?: ReactNode;
    /** Muted line under the list. */
    hint?: ReactNode;
    label: string;
@@ -127,7 +130,7 @@ export function Picker({
                   tabIndex={search ? undefined : -1}
                   className="p-1 outline-none"
                >
-                  {items.length === 0 && (
+                  {items.length === 0 && !loading && (
                      <div className="px-3 py-6 text-center text-sm text-muted-foreground">
                         {empty}
                      </div>
@@ -158,6 +161,7 @@ export function Picker({
                         </button>
                      </div>
                   ))}
+                  {loading}
                </div>
             </ScrollArea>
             {hint ? (

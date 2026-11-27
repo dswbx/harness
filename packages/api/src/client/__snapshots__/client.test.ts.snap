@@ -201,6 +201,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "AnswerFrontendRequest",
     },
   ],
+  "approveSessionFile": [
+    {
+      "path": "~/.x/a.md",
+      "session_id": "s1",
+      "type": "ApproveSessionFile",
+    },
+  ],
   "archive": [
     {
       "session_id": "s1",
@@ -603,6 +610,13 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "session_id": "s1",
       "thread_id": "t2",
       "type": "ResolveSideThread",
+    },
+  ],
+  "revokeSessionFile": [
+    {
+      "path": "~/.x/a.md",
+      "session_id": "s1",
+      "type": "RevokeSessionFile",
     },
   ],
   "searchPrs": [

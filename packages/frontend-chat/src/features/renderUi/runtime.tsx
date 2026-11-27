@@ -226,6 +226,14 @@ export const tip = (text: string | undefined, el: React.ReactElement, focus = fa
    ) : (
       el
    );
+/**
+ * Text a user can select and copy. The body turns selection off (app chrome), so a panel's text opts in here, on the
+ * text alone (an inline span): padding, gaps and controls stay out, and a drag from blank space selects nothing.
+ */
+export const Sel = ({ children }: { children: ReactNode }) => (
+   <span className="select-text">{children}</span>
+);
+
 export const IconOf = ({ name, className }: { name?: string; className?: string }) => {
    const I = name ? uiIcons[name as keyof typeof uiIcons] : undefined;
    return I ? <I className={cn("size-4 shrink-0", className)} /> : null;

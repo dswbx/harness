@@ -41,22 +41,25 @@ function subscribeTo(api: SessionApi, cb: () => void) {
    };
 }
 
+const none = () => () => {};
+
 /**
  * The Session's Review Comments for views that have no `ChatState` (the diff and Files panels, and their
- * pop-out windows).
+ * pop-out windows). No Session (a Folder Diff): none.
  */
-export function useLineComments(api: SessionApi): readonly LineCommentState[] {
+export function useLineComments(api: SessionApi | undefined): readonly LineCommentState[] {
    const apiRef = useRef(api);
    apiRef.current = api;
+   const sessionId = api?.sessionId;
    // Stable per Session: a new function each render would resubscribe (and replay) in a loop.
    // biome-ignore lint/correctness/useExhaustiveDependencies: `apiRef` is a ref; the Session id keys the subscription.
    const subscribe = useCallback(
-      (cb: () => void) => subscribeTo(apiRef.current, cb),
-      [api.sessionId],
+      (cb: () => void) => (apiRef.current ? subscribeTo(apiRef.current, cb) : none()),
+      [sessionId],
    );
    return useSyncExternalStore(
       subscribe,
-      () => entries.get(api.sessionId)?.list ?? EMPTY,
+      () => (sessionId ? (entries.get(sessionId)?.list ?? EMPTY) : EMPTY),
       () => EMPTY,
    );
 }
