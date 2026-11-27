@@ -645,8 +645,9 @@ export type ErrorCode =
 /**  The Harness cannot serve the Command now (it is shutting down) or a service it needs cannot be reached (the network is down, `gh` is missing). */
 "unavailable" | 
 /**
- *  The file can hold secrets (a hidden folder in the home folder, an `.env` or key file, outside the home
- *  folder): the user must allow it for the Session first (`ApproveSessionFile`). The message is the reason only.
+ *  The file can hold secrets (`editor::sensitive`: a hidden folder in the home folder, `~/Library`, an `.env`,
+ *  key or credentials file, outside the home folder): the user must allow it for the Session first (`ApproveSessionFile`). The message is the reason only;
+ *  `HarnessError::path` is the real file an approval unlocks.
  */
 "needs_approval" | 
 /**  Anything else. */
@@ -922,6 +923,11 @@ export type GitStatus = {
 export type HarnessError = {
 	code: ErrorCode,
 	message: string,
+	/**
+	 *  With `NeedsApproval`: the real file (symlinks followed) an approval unlocks, `~/…` in the home folder, else
+	 *  absolute. It can differ from the path asked for (a symlink in the folder); approve this one.
+	 */
+	path?: string | null,
 };
 
 /**

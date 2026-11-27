@@ -1,9 +1,9 @@
 import type { SessionApi } from "@harness/api";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Item } from "../../state/reducer";
-import { FileRefProvider } from "../files/FileRef";
+import { FileRefProvider, useFileRefs } from "../files/FileRef";
 import { PrRefProvider } from "../prRefs/prRefs";
 import { useReferences } from "./ReferencesPanel";
 
@@ -29,6 +29,8 @@ function setup() {
    const api = {
       readSessionFile,
       openInEditor: vi.fn(),
+      approveSessionFile: vi.fn(async () => {}),
+      revokeSessionFile: vi.fn(async () => {}),
       prContext: () => new Promise(() => {}),
       lookupPrs: vi.fn(),
       searchPrs: vi.fn(),
@@ -65,5 +67,25 @@ describe("useReferences", () => {
       // Opened once, the lookups are not repeated by later renders.
       rerender({ on: true });
       expect(readSessionFile).toHaveBeenCalledTimes(1);
+   });
+
+   it("reads the files again after access to a file changed", async () => {
+      const { readSessionFile, wrapper } = setup();
+      const { result, rerender } = renderHook(
+         () => ({ refs: useReferences(items, true), reader: useFileRefs()! }),
+         { wrapper },
+      );
+      await waitFor(() => expect(result.current.refs.count).toBe(1));
+      expect(readSessionFile).toHaveBeenCalledTimes(1);
+      // Allow and Remove access drop the reader's reads: the panel reads again and keeps its refs.
+      for (const change of ["allow", "revoke"] as const) {
+         const calls = readSessionFile.mock.calls.length;
+         await act(() => result.current.reader[change]("~/.made-up/notes.txt"));
+         rerender();
+         await waitFor(() => expect(readSessionFile).toHaveBeenCalledTimes(calls + 1));
+         await waitFor(() => expect(result.current.refs.checking).toBe(false));
+         expect(result.current.refs.count).toBe(1);
+         expect(result.current.refs.refs).toHaveLength(1);
+      }
    });
 });

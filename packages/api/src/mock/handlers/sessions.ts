@@ -203,7 +203,7 @@ export const sessionsHandlers = {
       const path = hits[0]!;
       const reason = lockedReason(path);
       const allowed = !!reason && !!allowedFiles.get(cmd.session_id)?.has(path);
-      if (reason && !allowed) throw new CommandError("needs_approval", reason);
+      if (reason && !allowed) throw new CommandError("needs_approval", reason, path);
       const text = outside ? MOCK_HOME[path]! : MOCK_NEW[path]!;
       const all = text.replace(/\n$/, "").split("\n");
       const start = Math.max(1, cmd.start ?? 1);

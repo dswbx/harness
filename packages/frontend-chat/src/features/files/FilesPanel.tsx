@@ -209,9 +209,12 @@ export function FilesPanel({
       lines: string[];
       scope: FileScope;
    } | null>(null);
-   const [fileError, setFileError] = useState<string | null>(null);
-   /** The open file can hold secrets and is not allowed: why. */
-   const [locked, setLocked] = useState<string | null>(null);
+   /** Why `req` could not be read. Kept with its path: another file never shows it. */
+   const [readFailure, setFileError] = useState<{ req: string; text: string } | null>(null);
+   /** `req` can hold secrets and is not allowed: why, and the real file an approval unlocks (`path`). */
+   const [lockedFile, setLocked] = useState<{ req: string; reason: string; path: string } | null>(
+      null,
+   );
    /** Allowing a file goes through the file refs' reader when there is one, so their lenses update too. */
    const reader = useFileRefs();
    const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
@@ -302,8 +305,10 @@ export function FilesPanel({
             if (off) return;
             setFile(null);
             const needs = isCommandError(e, "needs_approval");
-            setLocked(needs ? e.message : null);
-            setFileError(needs ? null : readError(selected, e));
+            setLocked(
+               needs ? { req: selected, reason: e.message, path: e.path ?? selected } : null,
+            );
+            setFileError(needs ? null : { req: selected, text: readError(selected, e) });
          },
       );
       return () => {
@@ -409,9 +414,13 @@ export function FilesPanel({
    const tab = tabs.find((t) => t.path === view?.req);
    /** Outside the Session folder: shown read-only, not in the tree. */
    const outside = !!view && view.scope !== "inside";
+   // Only the open file's state: right after a switch, the last file's reason or error is not shown.
+   const locked = lockedFile?.req === selected ? lockedFile : null;
+   const fileError = readFailure?.req === selected ? readFailure.text : null;
+   /** Approves the real file the error named; a failure shows in the notice. */
    const allow = async () => {
-      if (!selected) return;
-      await (reader ? reader.allow(selected) : api.approveSessionFile(selected));
+      if (!locked) return;
+      await (reader ? reader.allow(locked.path) : api.approveSessionFile(locked.path));
       setTick((t) => t + 1);
    };
    const markdown = !!view && isMarkdown(view.req);
@@ -559,7 +568,7 @@ export function FilesPanel({
                )}
                {!selected ? (
                   <p className="p-4 text-sm text-muted-foreground">Select a file in the list.</p>
-               ) : locked !== null ? (
+               ) : locked ? (
                   <ScrollArea className="min-h-0 flex-1">
                      <div className="@container">
                         <div className="p-2 @[20rem]:p-4">
@@ -567,7 +576,12 @@ export function FilesPanel({
                               <div className="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground">
                                  {selected}
                               </div>
-                              <LockedNotice reason={locked} onAllow={allow} />
+                              <LockedNotice
+                                 reason={locked.reason}
+                                 path={locked.path}
+                                 written={selected}
+                                 onAllow={allow}
+                              />
                            </div>
                         </div>
                      </div>

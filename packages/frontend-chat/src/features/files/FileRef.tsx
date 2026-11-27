@@ -36,11 +36,12 @@ export type FileSlice = {
    scope: FileScope;
 };
 
-/** A read: the lines; `locked` while the file can hold secrets and is not allowed (`reason` says why); `none`: no such
- * text file. */
+/** A read: the lines; `locked` while the file can hold secrets and is not allowed (`reason` says why; `path`: the real
+ * file an approval unlocks, `~/…` or absolute, which a symlink makes differ from the path read); `none`: no such text
+ * file. */
 export type FileResult =
    | { kind: "ok"; slice: FileSlice }
-   | { kind: "locked"; reason: string }
+   | { kind: "locked"; reason: string; path: string }
    | { kind: "none" };
 
 type FileApi = Pick<
@@ -54,7 +55,7 @@ export type FileReader = {
    peek(path: string, from: number, to: number): FileResult | undefined;
    read(path: string, from: number, to: number): Promise<FileResult>;
    open(path: string, line?: number): Promise<void>;
-   /** Lets the Session read a locked file; all reads are done again. */
+   /** Lets the Session read a locked file (pass the result's real `path`); all reads are done again. */
    allow(path: string): Promise<void>;
    /** Takes `allow` back; all reads are done again. */
    revoke(path: string): Promise<void>;
@@ -87,7 +88,7 @@ export function createFileReader(api: FileApi): FileReader {
                (s): FileResult => ({ kind: "ok", slice: s }),
                (e): FileResult =>
                   isCommandError(e, "needs_approval")
-                     ? { kind: "locked", reason: e.message }
+                     ? { kind: "locked", reason: e.message, path: e.path ?? path }
                      : { kind: "none" },
             );
             p.then((r) => {
@@ -352,11 +353,15 @@ function FileRefView({
             {slice ? (
                <FileLines reader={reader} base={slice} fileRef={ref} />
             ) : (
-               <LockedNotice
-                  reason={result.kind === "locked" ? result.reason : ""}
-                  onAllow={() => access(reader.allow, ref.path)}
-                  onDismiss={close}
-               />
+               result.kind === "locked" && (
+                  <LockedNotice
+                     reason={result.reason}
+                     path={result.path}
+                     written={ref.path}
+                     onAllow={() => access(reader.allow, result.path)}
+                     onDismiss={close}
+                  />
+               )
             )}
          </PopoverContent>
       </Popover>
@@ -382,19 +387,25 @@ export function ScopeBadge({ kind }: { kind: "locked" | "outside" | "allowed" })
 }
 
 /** Asks to show a file outside the Session folder that can hold secrets. `reason`: why (`in the hidden folder ~/.aws`).
- * `onDismiss`: a "Not now" button. */
+ * `path`: the real file "Allow" unlocks, named when it is not `written` (the path asked for, e.g. a symlink). A failed
+ * `onAllow` shows its error here. `onDismiss`: a "Not now" button. */
 export function LockedNotice({
    reason,
+   path,
+   written,
    onAllow,
    onDismiss,
    className,
 }: {
    reason: string;
+   path: string;
+   written: string;
    onAllow: () => Promise<unknown>;
    onDismiss?: () => void;
    className?: string;
 }) {
    const [busy, setBusy] = useState(false);
+   const [error, setError] = useState<string | null>(null);
    return (
       // A container: in a narrow place (the Files panel beside its tree) the icon goes above the text.
       <div className={cn("@container font-sans", className)}>
@@ -403,6 +414,11 @@ export function LockedNotice({
             <div className="flex min-w-0 flex-col gap-1.5 break-words text-xs text-muted-foreground">
                <p className="text-sm font-medium text-foreground">This file can hold secrets</p>
                {reason && <p>It is {reason}.</p>}
+               {path !== written && (
+                  <p>
+                     Allows <span className="font-mono text-foreground">{path}</span>
+                  </p>
+               )}
                <div className="flex flex-wrap gap-2 pt-1">
                   <Button
                      size="sm"
@@ -410,7 +426,10 @@ export function LockedNotice({
                      disabled={busy}
                      onClick={() => {
                         setBusy(true);
-                        onAllow().finally(() => setBusy(false));
+                        setError(null);
+                        onAllow()
+                           .catch((e: unknown) => setError(errText(e)))
+                           .finally(() => setBusy(false));
                      }}
                   >
                      Allow and show
@@ -426,6 +445,11 @@ export function LockedNotice({
                      </Button>
                   )}
                </div>
+               {error && (
+                  <p role="alert" className="text-destructive">
+                     Could not allow it: {error}
+                  </p>
+               )}
                <p className="text-[11px]">
                   Allowed for this file in this Session only. You can remove it later.
                </p>
@@ -451,7 +475,12 @@ export function FilePreview({
    if (result?.kind === "locked")
       return (
          <div className="rounded-md border border-amber-500/40 border-dashed">
-            <LockedNotice reason={result.reason} onAllow={() => reader.allow(ref.path)} />
+            <LockedNotice
+               reason={result.reason}
+               path={result.path}
+               written={ref.path}
+               onAllow={() => reader.allow(result.path)}
+            />
          </div>
       );
    if (result?.kind !== "ok") return <>{fallback}</>;

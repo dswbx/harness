@@ -82,9 +82,12 @@ export function useReferences(
    }, [active, items]);
    const store = prRefs?.store;
    useEffect(() => (subscribe ? store?.subscribe(bump) : undefined), [store, subscribe]);
+   /** Bumped when the file reader dropped its reads (a file allowed or locked again): they are done again. */
+   const [readerGen, bumpReader] = useReducer((n: number) => n + 1, 0);
+   useEffect(() => reader?.subscribe(bumpReader), [reader]);
    // Each lookup once per target; both caches keep the answers.
    const wanted = useMemo(() => candidates.map((c) => c.key).join("\n"), [candidates]);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event; `readerGen` only triggers the reads again.
    useEffect(() => {
       if (!active) return;
       let off = false;
@@ -97,8 +100,8 @@ export function useReferences(
          }
       }
       return () => void (off = true);
-   }, [wanted, store, reader, active]);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is when the caches changed.
+   }, [wanted, store, reader, active, readerGen]);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` and `readerGen` are when the caches changed.
    const resolved = useMemo(() => {
       const file = (f: FileRef) => {
          const w = refWindow(f);
@@ -124,7 +127,7 @@ export function useReferences(
          checking,
          count: known ? r.refs.length : undefined,
       };
-   }, [candidates, store, reader, changed, tick, active]);
+   }, [candidates, store, reader, changed, tick, readerGen, active]);
    return resolved;
 }
 
