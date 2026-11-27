@@ -435,7 +435,17 @@ comment_ids?: string[] } |
  *  The mode option value the Side Thread starts in. `None`, or a value the Agent does not
  *  offer, starts it in the mode that asks before writes.
  */
-mode?: string | null } | { type: "ResolvePermission"; session_id: string; request_id: string; 
+mode?: string | null; 
+/**
+ *  Makes it an Inline Thread: the quoted text in a finished Main Thread agent message. Not
+ *  allowed with `source: Fresh`.
+ */
+anchor?: TextAnchor | null } | 
+/**
+ *  Resolves (`resolved: true`) or reopens a Side Thread. Nothing happens when it is already in
+ *  that state. The Main Thread cannot be resolved.
+ */
+{ type: "ResolveSideThread"; session_id: string; thread_id: string; resolved: boolean } | { type: "ResolvePermission"; session_id: string; request_id: string; 
 /**  `None` answers "cancelled". Choosing an `*_always` option also adds a Session rule. */
 option_id: string | null; 
 /**  With an `*_always` option, the rule applies to every Session (Global scope) instead of this Session. */
@@ -650,7 +660,14 @@ export type EventKind = { type: "SessionCreated"; title: string; frontend_id: st
  *  Side Threads: the Main Thread's last finished Turn when this one started. `None` for the
  *  Main Thread and a fresh Side Thread.
  */
-forked_from?: ForkPoint | null } | 
+forked_from?: ForkPoint | null; 
+/**
+ *  Inline Threads: the quoted text in a finished Main Thread agent message the Side Thread
+ *  is about. `None` for every other Thread and in older logs.
+ */
+anchor?: TextAnchor | null } | 
+/**  A Side Thread was resolved (`resolved: true`) or reopened (`false`). Logged on that Thread. */
+{ type: "SideThreadResolved"; resolved: boolean } | 
 /**  The Agent needs the user to sign in before it can work. */
 { type: "AuthRequired"; methods: AuthMethodInfo[]; message: string; 
 /**  The Agent's display name, for "Sign in to <name>". Absent in older logs. */
@@ -1543,6 +1560,19 @@ export type TerminalInfo = {
 	running: boolean,
 	/**  A program other than the shell is in the foreground. */
 	busy: boolean,
+};
+
+/**
+ *  Quoted text in a Main Thread agent message (a W3C-style TextQuoteSelector). `seq` is the
+ *  message's first `AgentMessageChunk`, which is its identity. `prefix` and `suffix`: up to 32
+ *  characters of rendered text on each side of `quote`.
+ */
+export type TextAnchor = {
+	thread_id: string,
+	seq: number,
+	quote: string,
+	prefix: string,
+	suffix: string,
 };
 
 /**

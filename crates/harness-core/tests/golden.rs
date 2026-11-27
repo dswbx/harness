@@ -53,6 +53,7 @@ fn variant_name(kind: &EventKind) -> &'static str {
         EventKind::SessionCreated { .. } => "SessionCreated",
         EventKind::SessionStatusChanged { .. } => "SessionStatusChanged",
         EventKind::ThreadStarted { .. } => "ThreadStarted",
+        EventKind::SideThreadResolved { .. } => "SideThreadResolved",
         EventKind::AuthRequired { .. } => "AuthRequired",
         EventKind::AuthFinished { .. } => "AuthFinished",
         EventKind::ThreadReadOnly { .. } => "ThreadReadOnly",

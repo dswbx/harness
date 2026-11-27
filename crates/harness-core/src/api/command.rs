@@ -491,6 +491,17 @@ pub enum Command {
         /// offer, starts it in the mode that asks before writes.
         #[serde(default)]
         mode: Option<String>,
+        /// Makes it an Inline Thread: the quoted text in a finished Main Thread agent message. Not
+        /// allowed with `source: Fresh`.
+        #[serde(default)]
+        anchor: Option<TextAnchor>,
+    },
+    /// Resolves (`resolved: true`) or reopens a Side Thread. Nothing happens when it is already in
+    /// that state. The Main Thread cannot be resolved.
+    ResolveSideThread {
+        session_id: SessionId,
+        thread_id: ThreadId,
+        resolved: bool,
     },
     ResolvePermission {
         session_id: SessionId,

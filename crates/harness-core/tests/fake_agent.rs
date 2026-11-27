@@ -9,7 +9,7 @@ use std::time::Duration;
 use harness_core::Harness;
 use harness_core::api::{
     AgentInfo, Attachment, AttachmentInput, AttachmentKind, Boundary, Command, CommandResult, Decision, Event, EventKind, ForkPoint, FrontendManifest,
-    NewPermissionRule, ProcessState, Resolver, RuleScope, SessionStatus, ThreadStart,
+    NewPermissionRule, ProcessState, Resolver, RuleScope, SessionStatus, TextAnchor, ThreadStart,
 };
 
 async fn setup() -> (Arc<Harness>, String, tempfile::TempDir) {
@@ -640,12 +640,12 @@ async fn idle_agent_stops_only_without_views_and_restarts_on_prompt() {
 }
 
 async fn start_side(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart) -> (String, bool) {
-    start_side_in(h, sid, seed, source, None).await
+    start_side_in(h, sid, seed, source, None, None).await
 }
 
-async fn start_side_in(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart, mode: Option<&str>) -> (String, bool) {
+async fn start_side_in(h: &Harness, sid: &str, seed: Option<&str>, source: ThreadStart, mode: Option<&str>, anchor: Option<TextAnchor>) -> (String, bool) {
     let CommandResult::ThreadStarted { thread_id, forked } =
-        h.execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source, mode: mode.map(Into::into) }).await.unwrap()
+        h.execute(Command::StartSideThread { session_id: sid.into(), seed: seed.map(Into::into), source, mode: mode.map(Into::into), anchor }).await.unwrap()
     else {
         panic!()
     };
@@ -779,11 +779,11 @@ async fn side_thread_starts_in_the_chosen_mode() {
         let (h, sid, _dir) = setup_with(flags, Duration::from_secs(900)).await;
         turn(&h, &sid, None, "main").await;
         h.execute(Command::SetConfigOption { session_id: sid.clone(), thread_id: None, config_id: "mode".into(), value: "default".into() }).await.unwrap();
-        let (side, _) = start_side_in(&h, &sid, None, source, Some("auto")).await;
+        let (side, _) = start_side_in(&h, &sid, None, source, Some("auto"), None).await;
         ask_in(&h, &sid, &side, "hi").await;
         assert_eq!(thread_config(&h, &sid, &side, "mode").as_deref(), Some("auto"), "{source:?}");
         // A mode the Agent does not offer: the asking mode.
-        let (side, _) = start_side_in(&h, &sid, None, source, Some("yolo")).await;
+        let (side, _) = start_side_in(&h, &sid, None, source, Some("yolo"), None).await;
         ask_in(&h, &sid, &side, "hi").await;
         assert_eq!(thread_config(&h, &sid, &side, "mode").as_deref(), Some("default"), "{source:?}");
     }
@@ -1612,7 +1612,7 @@ async fn a_log_from_a_newer_harness_stays_listed_and_refuses_prompts() {
     let e = h2.execute(prompt).await.unwrap_err();
     assert_eq!(e.code, harness_core::api::ErrorCode::Conflict, "{e}");
     assert!(e.message.contains("newer version"), "{e}");
-    let side = Command::StartSideThread { session_id: sid.clone(), seed: None, source: ThreadStart::Fresh, mode: None };
+    let side = Command::StartSideThread { session_id: sid.clone(), seed: None, source: ThreadStart::Fresh, mode: None, anchor: None };
     assert_eq!(h2.execute(side).await.unwrap_err().code, harness_core::api::ErrorCode::Conflict);
     h2.execute(Command::WarmUp { session_id: sid.clone() }).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -1935,4 +1935,116 @@ async fn transcript_size_counts_the_main_thread() {
     let CommandResult::TranscriptSize { size, chars } = h.execute(Command::ReadTranscriptSize { session_id: sid }).await.unwrap() else { panic!() };
     assert_eq!((size.kept_turns, size.total_turns), (1, 1));
     assert!(chars > 0);
+}
+
+/// An anchor on the Event at `seq` of the Main Thread.
+fn anchor_at(h: &Harness, sid: &str, seq: u64) -> TextAnchor {
+    TextAnchor { thread_id: main_thread(h, sid), seq, quote: "on it".into(), prefix: "Working ".into(), suffix: ".".into() }
+}
+
+/// The seq of the Main Thread's first own agent message chunk.
+fn first_main_chunk(h: &Harness, sid: &str) -> u64 {
+    let main = main_thread(h, sid);
+    events(h, sid)
+        .into_iter()
+        .find(|e| e.thread_id.as_deref() == Some(&main) && matches!(&e.kind, EventKind::AgentMessageChunk { parent_tool_call_id: None, .. }))
+        .unwrap()
+        .seq
+}
+
+fn main_events(h: &Harness, sid: &str) -> Vec<String> {
+    let main = main_thread(h, sid);
+    events(h, sid).into_iter().filter(|e| e.thread_id.as_deref() == Some(&main)).map(|e| serde_json::to_string(&e).unwrap()).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inline_thread_forks_and_logs_its_anchor() {
+    let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main one").await;
+    let anchor = anchor_at(&h, &sid, first_main_chunk(&h, &sid));
+    let main_before = main_events(&h, &sid);
+    let (side, forked) = start_side_in(&h, &sid, None, ThreadStart::Fork, None, Some(anchor.clone())).await;
+    assert!(forked);
+    assert_eq!(ask_in(&h, &sid, &side, "history").await, "history: main one");
+    assert!(matches!(&thread_kinds(&h, &sid, &side)[0], EventKind::ThreadStarted { anchor: Some(a), forked_from: Some(_), .. } if *a == anchor));
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Forked]);
+    assert_eq!(main_events(&h, &sid), main_before, "the Main Thread log is not changed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inline_thread_without_fork_support_is_seeded_and_keeps_its_anchor() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "main").await;
+    let anchor = anchor_at(&h, &sid, first_main_chunk(&h, &sid));
+    let (side, _) = start_side_in(&h, &sid, None, ThreadStart::Fork, None, Some(anchor.clone())).await;
+    assert!(ask_in(&h, &sid, &side, "side").await.starts_with("seeded"));
+    assert_eq!(thread_boundaries(&h, &sid, &side), vec![Boundary::Initial]);
+    assert!(matches!(&thread_kinds(&h, &sid, &side)[0], EventKind::ThreadStarted { anchor: Some(a), .. } if *a == anchor));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inline_thread_anchor_is_refused_unless_it_is_a_finished_main_message() {
+    let (h, sid, _dir) = setup_with(&["--fork"], Duration::from_secs(900)).await;
+    turn(&h, &sid, None, "main").await;
+    let done = first_main_chunk(&h, &sid);
+    let start = |source: ThreadStart, anchor: TextAnchor| {
+        h.execute(Command::StartSideThread { session_id: sid.clone(), seed: None, source, mode: None, anchor: Some(anchor) })
+    };
+    let count = || events(&h, &sid).len();
+    let before = count();
+
+    // `Fresh` with an anchor.
+    assert!(start(ThreadStart::Fresh, anchor_at(&h, &sid, done)).await.is_err());
+    // Not an agent message chunk (the Turn's start).
+    assert!(start(ThreadStart::Fork, anchor_at(&h, &sid, done - 1)).await.is_err());
+    // A seq past the log.
+    assert!(start(ThreadStart::Fork, anchor_at(&h, &sid, 10_000)).await.is_err());
+    // Not the Main Thread.
+    assert!(start(ThreadStart::Fork, TextAnchor { thread_id: "other".into(), ..anchor_at(&h, &sid, done) }).await.is_err());
+    assert_eq!(count(), before, "nothing logged");
+
+    // A message of the running Turn is not finished.
+    let (_all, mut rx) = collect(&h, &sid);
+    h.execute(Command::Prompt { session_id: sid.clone(), thread_id: None, text: "needs permission".into(), attachments: vec![], comment_ids: vec![] })
+        .await
+        .unwrap();
+    let e = until(&mut rx, |k| matches!(k, EventKind::PermissionRequested { .. })).await;
+    let EventKind::PermissionRequested { request_id, .. } = e.kind else { unreachable!() };
+    let running = events(&h, &sid).into_iter().rev().find(|e| matches!(e.kind, EventKind::AgentMessageChunk { .. })).unwrap().seq;
+    assert!(running > done);
+    assert!(start(ThreadStart::Fork, anchor_at(&h, &sid, running)).await.is_err());
+    h.execute(Command::ResolvePermission { session_id: sid.clone(), request_id, option_id: Some("allow".into()), global: false }).await.unwrap();
+    until(&mut rx, |k| matches!(k, EventKind::TurnEnded { .. })).await;
+    // Once the Turn ended it can be anchored.
+    assert!(start(ThreadStart::Fork, anchor_at(&h, &sid, running)).await.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn side_threads_resolve_and_reopen() {
+    let (h, sid, _dir) = setup().await;
+    turn(&h, &sid, None, "main").await;
+    let (side, _) = start_side(&h, &sid, None, ThreadStart::Fork).await;
+    let resolve = |thread: &str, resolved: bool| h.execute(Command::ResolveSideThread { session_id: sid.clone(), thread_id: thread.into(), resolved });
+    let states = || {
+        thread_kinds(&h, &sid, &side)
+            .into_iter()
+            .filter_map(|k| match k {
+                EventKind::SideThreadResolved { resolved } => Some(resolved),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    resolve(&side, false).await.unwrap();
+    assert_eq!(states(), Vec::<bool>::new(), "already open: nothing logged");
+    resolve(&side, true).await.unwrap();
+    resolve(&side, true).await.unwrap();
+    assert_eq!(states(), vec![true], "a repeated resolve does nothing");
+    resolve(&side, false).await.unwrap();
+    assert_eq!(states(), vec![true, false]);
+
+    let main = main_thread(&h, &sid);
+    let main_before = main_events(&h, &sid);
+    assert!(resolve(&main, true).await.is_err(), "the Main Thread cannot be resolved");
+    assert!(resolve("unknown", true).await.is_err());
+    assert_eq!(main_events(&h, &sid), main_before);
 }

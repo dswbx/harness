@@ -40,6 +40,14 @@ pub enum EventKind {
         /// Main Thread and a fresh Side Thread.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         forked_from: Option<ForkPoint>,
+        /// Inline Threads: the quoted text in a finished Main Thread agent message the Side Thread
+        /// is about. `None` for every other Thread and in older logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        anchor: Option<TextAnchor>,
+    },
+    /// A Side Thread was resolved (`resolved: true`) or reopened (`false`). Logged on that Thread.
+    SideThreadResolved {
+        resolved: bool,
     },
     /// The Agent needs the user to sign in before it can work.
     AuthRequired {
@@ -679,6 +687,19 @@ pub struct ForkPoint {
     pub seq: u64,
 }
 
+/// Quoted text in a Main Thread agent message (a W3C-style TextQuoteSelector). `seq` is the
+/// message's first `AgentMessageChunk`, which is its identity. `prefix` and `suffix`: up to 32
+/// characters of rendered text on each side of `quote`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TextAnchor {
+    pub thread_id: ThreadId,
+    #[specta(type = specta_typescript::Number)]
+    pub seq: u64,
+    pub quote: String,
+    pub prefix: String,
+    pub suffix: String,
+}
+
 /// How a terminal sign-in ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
@@ -785,6 +806,19 @@ mod tests {
         // Skipped when unknown, so older logs and Agents without a mode option stay unchanged.
         let json = serde_json::to_value(EventKind::config_options(Json::Null)).unwrap();
         assert!(json.get("side_mode").is_none());
+    }
+
+    #[test]
+    fn old_thread_started_lines_load_without_an_anchor() {
+        let old = r#"{"type":"ThreadStarted","agent_id":"a","main":false,"forked_from":{"thread_id":"m","turn":1,"seq":4}}"#;
+        let k: EventKind = serde_json::from_str(old).unwrap();
+        assert!(matches!(k, EventKind::ThreadStarted { anchor: None, forked_from: Some(_), .. }));
+        // Written back without the field, so older builds read new plain Side Threads unchanged.
+        assert!(serde_json::to_value(&k).unwrap().get("anchor").is_none());
+        let anchor = TextAnchor { thread_id: "m".into(), seq: 3, quote: "q".into(), prefix: "p".into(), suffix: "s".into() };
+        let k = EventKind::ThreadStarted { agent_id: "a".into(), main: false, forked_from: None, anchor: Some(anchor.clone()) };
+        let back: EventKind = serde_json::from_value(serde_json::to_value(&k).unwrap()).unwrap();
+        assert!(matches!(back, EventKind::ThreadStarted { anchor: Some(a), .. } if a == anchor));
     }
 }
 
