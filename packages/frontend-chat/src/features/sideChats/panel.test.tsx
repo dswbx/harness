@@ -1,5 +1,7 @@
 import type { SessionApi, TextAnchor, ThreadInfo, ViewVariant } from "@harness/api";
+import { TooltipProvider } from "@harness/ui";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultLayout, isOpen, type Layout, resetLayout } from "../../shell/dock/model";
@@ -12,6 +14,9 @@ import { getPendingMessages } from "../prompt/pendingMessages";
 import { composerKey } from "../review/reviewComments";
 import { type SideChatsModel, sideChatsPanel } from "./panel";
 import { INLINE_TAB } from "./threadTabs";
+
+/** InlineList has tooltips: they need the app's provider. */
+const renderList = (ui: ReactElement) => render(ui, { wrapper: TooltipProvider });
 
 const PANELS = [sideChatsPanel];
 const NO_FAMILIES: never[] = [];
@@ -430,7 +435,7 @@ describe("InlineList", () => {
          drafts: { "draft:d": { itemId: "e5", anchor: anchor("delta") } },
          statusOf: (id) => (id === "a" ? "running" : id === "b" ? "unread" : null),
       });
-      render(<InlineList sessionId="s1" inline={inline} />);
+      renderList(<InlineList sessionId="s1" inline={inline} onOpenInSideChats={() => {}} />);
       expect(rows()).toEqual(["Draft", "Inline thread", "Inline thread"]);
       expect(screen.getByText("“delta”")).toBeTruthy();
       expect(screen.getByText("Agent is replying")).toBeTruthy();
@@ -446,13 +451,32 @@ describe("InlineList", () => {
       expect(inline.showInChat).toHaveBeenCalledWith("draft:d");
    });
 
+   it("renders the reply as Markdown; Open in side chats opens the Thread as a tab", () => {
+      const t = thread("a", "alpha");
+      t.state!.items[1] = {
+         type: "agent",
+         id: "g",
+         text: "**Vogelscheuche**",
+         ts: 0,
+         parent: null,
+      };
+      const open = vi.fn();
+      const { container } = renderList(
+         <InlineList sessionId="s1" inline={model({ threads: [t] })} onOpenInSideChats={open} />,
+      );
+      expect(container.querySelector("strong")?.textContent).toBe("Vogelscheuche");
+      expect(screen.queryByText("**Vogelscheuche**")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Open in side chats" }));
+      expect(open).toHaveBeenCalledWith("a");
+   });
+
    it("not found: a Thread has no button, a draft offers Discard", () => {
       const inline = model({
          threads: [thread("a", "alpha")],
          drafts: { "draft:d": { itemId: "e5", anchor: anchor("delta") } },
          notFound: new Set(["a", "draft:d"]),
       });
-      render(<InlineList sessionId="s1" inline={inline} />);
+      renderList(<InlineList sessionId="s1" inline={inline} onOpenInSideChats={() => {}} />);
       expect(screen.getByText("Not found in chat")).toBeTruthy();
       expect(screen.getByText("Draft · not found in chat")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Show in chat" })).toBeNull();

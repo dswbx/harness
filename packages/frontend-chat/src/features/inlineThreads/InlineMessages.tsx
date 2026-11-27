@@ -75,7 +75,6 @@ export function InlineMessages({
                   streaming={running && i === rows.length - 1}
                   threadId={threadId}
                   side
-                  footer={false}
                />
             ))}
          </div>

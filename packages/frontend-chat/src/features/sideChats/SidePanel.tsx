@@ -170,7 +170,7 @@ export function SidePanel({
          </PanelHeader>
          <div className="relative min-h-0 flex-1">
             {inline && active === INLINE_TAB && (
-               <InlineList sessionId={api.sessionId} inline={inline} />
+               <InlineList sessionId={api.sessionId} inline={inline} onOpenInSideChats={onReopen} />
             )}
             {threads.map((id) => (
                <div key={id} className={cn("h-full", id !== active && "hidden")}>

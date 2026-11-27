@@ -5,11 +5,13 @@ import {
    CollapsibleTrigger,
    cn,
    ScrollArea,
+   Tooltip,
 } from "@harness/ui";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, PanelRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { plural } from "../../lib/plural";
 import type { ChatState } from "../../state/reducer";
+import { Markdown } from "../markdown/Markdown";
 import { getDraft } from "../prompt/drafts";
 import { composerKey } from "../review/reviewComments";
 import { type InlineModel, type InlineThread, lastReply } from "./model";
@@ -26,6 +28,10 @@ function snapshotText(node: unknown): string {
       .join(" ");
 }
 
+/** Reply snippets: a bit smaller than chat text, no block margins. */
+const SNIPPET =
+   "[--typeset-size:calc(var(--chat-font-size,14px)*0.93)] [&_:is(p,ul,ol,pre,blockquote,h1,h2,h3,h4)]:my-0";
+
 /** The Thread's own messages (user and agent), for "N messages". */
 const messageCount = (t: ChatState | null) =>
    t?.items.filter((i) => i.type === "user" || (i.type === "agent" && i.parent === null)).length ??
@@ -36,12 +42,15 @@ function Card({
    draft,
    quote,
    text,
+   markdown,
    children,
 }: {
    label: string;
    draft?: boolean;
    quote: string;
    text?: string;
+   /** `text` is an agent reply in Markdown (a draft's text is plain). */
+   markdown?: boolean;
    children: ReactNode;
 }) {
    return (
@@ -53,7 +62,15 @@ function Card({
          )}
       >
          <p className="line-clamp-1 text-xs text-muted-foreground">“{quote}”</p>
-         {text && <p className="line-clamp-2 text-ui-sm text-foreground/90">{text}</p>}
+         {text &&
+            (markdown ? (
+               // A short look at the reply: rendered like the chat, cut to about two lines.
+               <div className="max-h-[2.9lh] overflow-hidden text-foreground/90">
+                  <Markdown className={SNIPPET}>{text}</Markdown>
+               </div>
+            ) : (
+               <p className="line-clamp-2 text-ui-sm text-foreground/90">{text}</p>
+            ))}
          <div className="flex min-h-6 items-center gap-2 text-xs text-muted-foreground">
             {children}
          </div>
@@ -71,6 +88,22 @@ function RowAction({ children, onClick }: { children: ReactNode; onClick: () => 
       >
          {children}
       </Button>
+   );
+}
+
+function OpenInSideChats({ onClick }: { onClick: () => void }) {
+   return (
+      <Tooltip content="Open in side chats">
+         <Button
+            variant="ghost"
+            size="icon"
+            className="-mr-1.5 size-6 text-muted-foreground [&_svg]:size-3.5"
+            aria-label="Open in side chats"
+            onClick={onClick}
+         >
+            <PanelRight />
+         </Button>
+      </Tooltip>
    );
 }
 
@@ -98,7 +131,16 @@ function ThreadState({ inline, t }: { inline: InlineModel; t: InlineThread }) {
  * The side chats panel's Inline tab (ADR 0030): drafts first, then the open Inline Threads, newest first, then
  * the resolved ones in a collapsed group. "Show in chat" scrolls to the quote and opens its popover.
  */
-export function InlineList({ sessionId, inline }: { sessionId: string; inline: InlineModel }) {
+export function InlineList({
+   sessionId,
+   inline,
+   onOpenInSideChats,
+}: {
+   sessionId: string;
+   inline: InlineModel;
+   /** Opens the Inline Thread as a normal side chat tab, as the popover's "Open in side chats" does. */
+   onOpenInSideChats: (id: string) => void;
+}) {
    const drafts = Object.entries(inline.drafts);
    const open = inline.threads.filter((t) => !t.resolved);
    const resolved = inline.threads.filter((t) => t.resolved);
@@ -130,9 +172,13 @@ export function InlineList({ sessionId, inline }: { sessionId: string; inline: I
                         label="Inline thread"
                         quote={t.anchor.quote}
                         text={lastReply(t.state)}
+                        markdown
                      >
                         {inline.notFound.has(t.id) ? (
-                           <span>Not found in chat</span>
+                           <>
+                              <span>Not found in chat</span>
+                              <span className="flex-1" />
+                           </>
                         ) : (
                            <>
                               <ThreadState inline={inline} t={t} />
@@ -141,6 +187,7 @@ export function InlineList({ sessionId, inline }: { sessionId: string; inline: I
                               </RowAction>
                            </>
                         )}
+                        <OpenInSideChats onClick={() => onOpenInSideChats(t.id)} />
                      </Card>
                   ))}
                </ul>
@@ -159,11 +206,13 @@ export function InlineList({ sessionId, inline }: { sessionId: string; inline: I
                               label="Resolved inline thread"
                               quote={t.anchor.quote}
                               text={lastReply(t.state)}
+                              markdown
                            >
                               <span>Resolved</span>
                               <RowAction onClick={() => inline.resolve(t.id, false)}>
                                  Reopen
                               </RowAction>
+                              <OpenInSideChats onClick={() => onOpenInSideChats(t.id)} />
                            </Card>
                         ))}
                      </ul>

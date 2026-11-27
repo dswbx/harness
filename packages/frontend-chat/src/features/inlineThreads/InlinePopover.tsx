@@ -10,19 +10,15 @@ import {
    PopoverContent,
    ScrollArea,
    Tooltip,
-   useCopied,
 } from "@harness/ui";
 import {
-   Check,
    ChevronLeft,
    ChevronRight,
    CircleCheck,
-   Copy,
    Ellipsis,
    PanelRight,
    RotateCcw,
    Trash2,
-   Undo2,
    X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -31,10 +27,9 @@ import { type ChatState, initialState } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
 import { PromptBox, type PromptBoxHandle } from "../prompt/PromptBox";
 import type { UiEnv } from "../renderUi/RenderUi";
-import { sendReplyToMain } from "../sideChats/sendReplyToMain";
 import { type AnchorRegistry, isDraftAnchor } from "./anchors";
 import { InlineMessages } from "./InlineMessages";
-import { type InlineModel, lastReply } from "./model";
+import type { InlineModel } from "./model";
 
 const iconButton = "size-7 text-muted-foreground hover:text-accent-foreground";
 
@@ -148,16 +143,7 @@ export function InlinePopover({
       if (open && draft) requestAnimationFrame(() => prompt.current?.focus());
    }, [open, draft]);
 
-   const [copied, copy] = useCopied();
-   const [sent, setSent] = useState(false);
-   useEffect(() => {
-      if (!sent) return;
-      const t = setTimeout(() => setSent(false), 1500);
-      return () => clearTimeout(t);
-   }, [sent]);
-
    if (!open || !virtualRef) return null;
-   const reply = lastReply(threadState);
    return (
       <Popover open onOpenChange={(o) => !o && inline.close()}>
          <PopoverAnchor virtualRef={virtualRef} />
@@ -229,17 +215,9 @@ export function InlinePopover({
                         >
                            <PanelRight />
                         </IconButton>
-                        {reply && (
-                           <IconButton
-                              label={sent ? "Added to Main" : "Send last reply to main"}
-                              onClick={() => setSent(sendReplyToMain(api.sessionId, reply))}
-                           >
-                              {sent ? <Check /> : <Undo2 />}
-                           </IconButton>
-                        )}
                      </>
                   )}
-                  {(draft || reply) && (
+                  {draft && (
                      <DropdownMenu>
                         <Tooltip content="More">
                            <DropdownMenuTrigger asChild>
@@ -254,19 +232,12 @@ export function InlinePopover({
                            </DropdownMenuTrigger>
                         </Tooltip>
                         <DropdownMenuContent align="end">
-                           {reply && (
-                              <DropdownMenuItem onSelect={() => void copy(reply)}>
-                                 {copied ? <Check /> : <Copy />} Copy reply
-                              </DropdownMenuItem>
-                           )}
-                           {draft && (
-                              <DropdownMenuItem
-                                 className="text-destructive focus:text-destructive"
-                                 onSelect={() => inline.discard(id)}
-                              >
-                                 <Trash2 /> Discard draft
-                              </DropdownMenuItem>
-                           )}
+                           <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => inline.discard(id)}
+                           >
+                              <Trash2 /> Discard draft
+                           </DropdownMenuItem>
                         </DropdownMenuContent>
                      </DropdownMenu>
                   )}

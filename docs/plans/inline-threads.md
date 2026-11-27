@@ -93,10 +93,9 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
 - **Popover** `InlinePopover` (one instance in `View.tsx`):
   - Radix `Popover` with `PopoverAnchor virtualRef={{ current: { getBoundingClientRect: () => range.getBoundingClientRect(), contextElement: rowEl } }}`, `hideWhenDetached`, `side="bottom" align="start"`;
   - root `ScrollArea` with `max-h-[var(--radix-popover-content-available-height)]` and `viewportClassName="max-h-[inherit]"`;
-  - header: Resolve/Reopen, "Open in side chats" (`reopen(id)`), "Send last reply to main", More (Copy reply), Close;
-  - "Send last reply to main": move `sendReplyToMain(sessionId, text, note)` out of `SideReplyFooter.tsx:30` and use it in both places;
+  - header: Resolve/Reopen, "Open in side chats" (`reopen(id)`), More (Discard draft, drafts only), Close;
   - messages: new `InlineMessages` renders `chatRowsOf(thread.items)` through `Row` in a plain list (threads are short, so no `VirtualList`). Messages look like the chat and the Quick overlay chat: user messages as the same `UserMessage` bubble (via `Row`), pending ones as `PendingRow`, agent text, thoughts and tools as the same rows. No extra header line or avatar. The Anchor's quote chip is removed from the first prompt, because the highlight shows it;
-  - `Row` gets `footer={false}`, so `SideReplyFooter` and `MessageFooter` hide in the popover;
+  - each reply keeps the Side Thread reply footer (`SideReplyFooter`: copy, send to main), as in a side chat tab;
   - replies stream through the normal reducer.
 - **Composer**: `PromptBox` gets one new prop, `contextRing?: boolean` (default true). The popover passes false.
   - Before send: `threadId = composing` (a draftId) (`draft:<uuid>`, so draft keys and cleanup follow `isDraftThread`). It uses a draft `ChatState` built like `SideDraft` (mode set to `sideMode`), `onSend` calls `inline.send`, and `onConfigChange` stays local.
