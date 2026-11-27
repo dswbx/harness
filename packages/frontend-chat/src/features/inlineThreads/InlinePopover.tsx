@@ -1,6 +1,7 @@
 import type { SessionApi } from "@harness/api";
 import {
    Button,
+   cn,
    DropdownMenu,
    DropdownMenuContent,
    DropdownMenuItem,
@@ -255,8 +256,8 @@ export function InlinePopover({
                      onOpenDiff={onOpenDiff}
                   />
                )}
-               {/* The Side Thread prompt box without the context ring. */}
-               <div className="pt-2 *:px-3 *:pb-3">
+               {/* The Side Thread prompt box without the context ring; space above it when messages show. */}
+               <div className={cn("*:px-3 *:pb-3", thread ? "pt-6" : "pt-2")}>
                   {draft ? (
                      <PromptBox
                         key={id}
