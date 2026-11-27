@@ -4,6 +4,7 @@ import { ShieldCheck, ShieldX } from "lucide-react";
 import { memo } from "react";
 import type { Item } from "../../state/reducer";
 import type { DiffScope } from "../changes/DiffPanel";
+import { AnchoredText } from "../inlineThreads/anchors";
 import { AuthCard } from "../interaction/Auth";
 import { PermissionCard } from "../interaction/Permission";
 import { Markdown } from "../markdown/Markdown";
@@ -38,6 +39,7 @@ function RowView({
    streaming,
    threadId,
    side,
+   footer = true,
 }: {
    item: Item | ToolGroup;
    api: SessionApi;
@@ -52,6 +54,8 @@ function RowView({
    active: boolean;
    /** The last row while a Turn runs: an agent message is still coming in. */
    streaming?: boolean;
+   /** False: no actions under messages (an Inline Thread's popover). */
+   footer?: boolean;
 }) {
    switch (item.type) {
       case "changes":
@@ -69,14 +73,29 @@ function RowView({
          );
       case "user":
          return <UserMessage item={item} api={api} />;
-      case "agent":
+      case "agent": {
+         const markdown = <Markdown streaming={streaming}>{item.text}</Markdown>;
          return (
             <div className={cn("group", bleed)}>
-               <div {...quotableAttrs(threadId, side)}>
-                  <Markdown streaming={streaming}>{item.text}</Markdown>
-               </div>
+               {side ? (
+                  <div {...quotableAttrs(threadId, side)}>{markdown}</div>
+               ) : (
+                  // Main Thread: Inline Threads anchor here, on messages of finished Turns (ADR 0031).
+                  <AnchoredText
+                     itemId={item.id}
+                     attrs={{
+                        ...quotableAttrs(threadId, side),
+                        "data-item-id": item.id,
+                        ...(!streaming &&
+                           !active &&
+                           item.parent === null && { "data-anchorable": "" }),
+                     }}
+                  >
+                     {markdown}
+                  </AnchoredText>
+               )}
                {/* Only a Turn's final message (it carries the duration); the streaming one keeps the space. */}
-               {(item.durationMs !== undefined || streaming) && !side && (
+               {footer && (item.durationMs !== undefined || streaming) && !side && (
                   <MessageFooter
                      text={item.text}
                      ts={item.ts}
@@ -84,11 +103,12 @@ function RowView({
                      hidden={streaming}
                   />
                )}
-               {side && item.durationMs !== undefined && !streaming && (
+               {footer && side && item.durationMs !== undefined && !streaming && (
                   <SideReplyFooter sessionId={api.sessionId} text={item.text} />
                )}
             </div>
          );
+      }
       case "thought":
          return (
             <ToolGroupRow

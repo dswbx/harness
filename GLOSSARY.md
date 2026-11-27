@@ -69,8 +69,16 @@ The Session's primary Thread; every Session has exactly one.
 _Avoid_: main chat, root thread
 
 **Side Thread**:
-A secondary Thread in a Session (e.g. sidechat, btw window, comment thread) that never feeds the Main Thread's Agent context unless the user explicitly says so.
+A secondary Thread in a Session (e.g. sidechat, btw window) that never feeds the Main Thread's Agent context unless the user explicitly says so.
 _Avoid_: subthread, branch, sidechat (as the general term)
+
+**Inline Thread**:
+A Side Thread anchored to quoted text in a finished Main Thread agent message. It shows in a popover beside that text and always starts as a fork. Resolving it hides its highlight; it stays in the Session Log (ADR 0031).
+_Avoid_: comment thread, annotation, inline comment
+
+**Anchor**:
+What ties an Inline Thread to text: the quote, up to 32 characters of text before and after it (prefix and suffix), and the `seq` of the message's first agent chunk (ADR 0031).
+_Avoid_: selection, position, offset
 
 **Sub Session**:
 A whole Session (own Session Log, Agent process and Worktree) that the Agent of another Session, its parent, started with the `session_start` tool; it shows under the parent, and archive and delete follow the parent (ADR 0026).

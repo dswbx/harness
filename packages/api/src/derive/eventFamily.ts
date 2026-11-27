@@ -30,6 +30,7 @@ const FAMILY: Record<EventKind["type"], string> = {
    SessionCreated: "Session",
    SessionStatusChanged: "Session",
    ThreadStarted: "Session",
+   SideThreadResolved: "Session",
    ThreadReadOnly: "Session",
    SessionInfoUpdated: "Session",
    StateChanged: "Session",

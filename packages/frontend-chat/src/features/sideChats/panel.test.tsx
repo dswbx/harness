@@ -1,13 +1,22 @@
-import type { SessionApi, ViewVariant } from "@harness/api";
-import { act, cleanup, render } from "@testing-library/react";
+import type { SessionApi, TextAnchor, ThreadInfo, ViewVariant } from "@harness/api";
+import { TooltipProvider } from "@harness/ui";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultLayout, isOpen, type Layout, resetLayout } from "../../shell/dock/model";
 import { usePanelHost } from "../../shell/usePanelHost";
 import { type ChatState, initialState } from "../../state/reducer";
+import { InlineList } from "../inlineThreads/InlineList";
+import type { InlineModel, InlineThread } from "../inlineThreads/model";
+import { setDraft } from "../prompt/drafts";
 import { getPendingMessages } from "../prompt/pendingMessages";
 import { composerKey } from "../review/reviewComments";
 import { type SideChatsModel, sideChatsPanel } from "./panel";
+import { INLINE_TAB } from "./threadTabs";
+
+/** InlineList has tooltips: they need the app's provider. */
+const renderList = (ui: ReactElement) => render(ui, { wrapper: TooltipProvider });
 
 const PANELS = [sideChatsPanel];
 const NO_FAMILIES: never[] = [];
@@ -22,8 +31,12 @@ const api = {
 let known: string[] = [];
 // Fields of a known Thread's state.
 let threadOf: Record<string, Partial<ChatState>> = {};
+// The Session's Threads (Inline ones have an Anchor).
+let listed: ThreadInfo[] = [];
 const stateWith = (): ChatState => ({
    ...initialState(),
+   mainThreadId: "main",
+   threadList: listed,
    threads: Object.fromEntries(
       known.map((id) => [id, { ...initialState(), ...threadOf[id] }]),
    ) as ChatState["threads"],
@@ -70,6 +83,7 @@ beforeEach(() => {
    });
    known = [];
    threadOf = {};
+   listed = [];
 });
 afterEach(() => {
    cleanup();
@@ -299,5 +313,174 @@ describe("Past chats", () => {
       expect(sideOpen(out.lay)).toBe(true);
       act(() => out.model.move("t1", "t2"));
       expect(out.model.open).toEqual(["t1", "t2"]);
+   });
+});
+
+const anchor = (quote: string): TextAnchor => ({
+   thread_id: "main",
+   seq: 5,
+   quote,
+   prefix: "",
+   suffix: "",
+});
+const info = (id: string, a: TextAnchor | null, resolved = false, lastAt = 0): ThreadInfo => ({
+   id,
+   main: false,
+   title: id,
+   agentTitle: null,
+   forkedFrom: null,
+   anchor: a,
+   resolved,
+   turns: 1,
+   lastAt,
+});
+
+describe("Inline tab", () => {
+   it("is hidden without Inline Threads or drafts; shown, first and counted when there are", () => {
+      listed = [info("plain", null)];
+      const first = setup();
+      expect(first.out.model.inlineCount).toBeNull();
+      expect(first.out.model.active).toBeNull();
+      expect(first.out.host.statuses.get("side")?.presence).toBe("icon");
+      cleanup();
+      listed = [info("a", anchor("one")), info("b", anchor("two"), true)];
+      mem.set(
+         "harness.chat.inlineDrafts.s1",
+         JSON.stringify({
+            v: 1,
+            d: JSON.stringify({ "draft:d": { itemId: "e5", anchor: anchor("three") } }),
+         }),
+      );
+      // Its composer has text (drafts with nothing in it go on load).
+      setDraft(composerKey("s1", "draft:d"), { root: { children: [] } } as never);
+      const { out } = setup();
+      // One open Thread and one draft; the resolved one is not counted.
+      expect(out.model.inlineCount).toBe(2);
+      // No other tab: it is the one shown, and the panel can show.
+      expect(out.model.active).toBe(INLINE_TAB);
+      expect(out.host.statuses.get("side")?.presence).toBe("ready");
+   });
+
+   it("stays active when selected, and the last closed tab selects it instead of hiding the panel", () => {
+      known = ["t1"];
+      listed = [info("a", anchor("one")), info("t1", null)];
+      mem.set(
+         "harness.chat.sideThreads.s1",
+         JSON.stringify({ v: 1, threads: ["t1"], thread: INLINE_TAB }),
+      );
+      const { out } = setup();
+      expect(out.model.active).toBe(INLINE_TAB);
+      act(() => out.model.select("t1"));
+      expect(out.model.active).toBe("t1");
+      act(() => out.host.selves.side!.show());
+      act(() => out.model.close("t1"));
+      expect(out.model.active).toBe(INLINE_TAB);
+      expect(sideOpen(out.lay)).toBe(true);
+   });
+
+   it("an unknown active id (another build's) falls back to the last tab", () => {
+      known = ["t1", "t2"];
+      mem.set(
+         "harness.chat.sideThreads.s1",
+         JSON.stringify({ v: 1, threads: ["t1", "t2"], thread: "something-new" }),
+      );
+      const { out } = setup();
+      expect(out.model.active).toBe("t2");
+   });
+
+   it("Inline Threads stay out of Past chats, and open as a normal tab", () => {
+      known = ["a", "p"];
+      listed = [info("a", anchor("one"), false, 2), info("p", null, false, 1)];
+      const { out } = setup();
+      expect(out.model.past.map((t) => t.id)).toEqual(["p"]);
+      // "Open in side chats" in the popover.
+      act(() => out.model.reopen("a"));
+      expect(out.model.open).toEqual(["a"]);
+      expect(out.model.active).toBe("a");
+      expect(sideOpen(out.lay)).toBe(true);
+   });
+});
+
+describe("InlineList", () => {
+   const thread = (id: string, quote: string, resolved = false): InlineThread => ({
+      id,
+      anchor: anchor(quote),
+      itemId: "e5",
+      resolved,
+      state: {
+         ...initialState(),
+         items: [
+            { type: "user", id: "u", text: "q", ts: 0, attachments: [], context: null, from: null },
+            { type: "agent", id: "g", text: `reply to ${quote}`, ts: 0, parent: null },
+         ],
+      },
+   });
+   const model = (over: Partial<InlineModel>): InlineModel =>
+      ({
+         threads: [],
+         drafts: {},
+         notFound: new Set(),
+         statusOf: () => null,
+         showInChat: vi.fn(),
+         discard: vi.fn(),
+         resolve: vi.fn(),
+         ...over,
+      }) as unknown as InlineModel;
+   const rows = () =>
+      screen.getAllByRole("listitem").map((li) => li.getAttribute("aria-label") ?? "");
+
+   it("lists drafts first, then open Threads with their state; resolved ones collapsed, with Reopen", () => {
+      const inline = model({
+         threads: [thread("a", "alpha"), thread("b", "beta"), thread("r", "gamma", true)],
+         drafts: { "draft:d": { itemId: "e5", anchor: anchor("delta") } },
+         statusOf: (id) => (id === "a" ? "running" : id === "b" ? "unread" : null),
+      });
+      renderList(<InlineList sessionId="s1" inline={inline} onOpenInSideChats={() => {}} />);
+      expect(rows()).toEqual(["Draft", "Inline thread", "Inline thread"]);
+      expect(screen.getByText("“delta”")).toBeTruthy();
+      expect(screen.getByText("Agent is replying")).toBeTruthy();
+      expect(screen.getByText("Unread · 2 messages")).toBeTruthy();
+      expect(screen.getByText("reply to beta")).toBeTruthy();
+      // Resolved: collapsed.
+      expect(screen.queryByText("“gamma”")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Resolved · 1/ }));
+      expect(screen.getByText("“gamma”")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+      expect(inline.resolve).toHaveBeenCalledWith("r", false);
+      fireEvent.click(screen.getAllByRole("button", { name: "Show in chat" })[0]!);
+      expect(inline.showInChat).toHaveBeenCalledWith("draft:d");
+   });
+
+   it("renders the reply as Markdown; Open in side chats opens the Thread as a tab", () => {
+      const t = thread("a", "alpha");
+      t.state!.items[1] = {
+         type: "agent",
+         id: "g",
+         text: "**Vogelscheuche**",
+         ts: 0,
+         parent: null,
+      };
+      const open = vi.fn();
+      const { container } = renderList(
+         <InlineList sessionId="s1" inline={model({ threads: [t] })} onOpenInSideChats={open} />,
+      );
+      expect(container.querySelector("strong")?.textContent).toBe("Vogelscheuche");
+      expect(screen.queryByText("**Vogelscheuche**")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Open in side chats" }));
+      expect(open).toHaveBeenCalledWith("a");
+   });
+
+   it("not found: a Thread has no button, a draft offers Discard", () => {
+      const inline = model({
+         threads: [thread("a", "alpha")],
+         drafts: { "draft:d": { itemId: "e5", anchor: anchor("delta") } },
+         notFound: new Set(["a", "draft:d"]),
+      });
+      renderList(<InlineList sessionId="s1" inline={inline} onOpenInSideChats={() => {}} />);
+      expect(screen.getByText("Not found in chat")).toBeTruthy();
+      expect(screen.getByText("Draft · not found in chat")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Show in chat" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(inline.discard).toHaveBeenCalledWith("draft:d");
    });
 });

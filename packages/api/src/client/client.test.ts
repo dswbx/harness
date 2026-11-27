@@ -142,6 +142,7 @@ const calls: Record<Plain, (api: SessionApi) => Promise<unknown>> = {
    warmUp: (a) => a.warmUp(),
    continueWithSummary: (a) => a.continueWithSummary("t"),
    startSideThread: (a) => a.startSideThread(),
+   resolveSideThread: (a) => a.resolveSideThread("t2", true),
    resolvePermission: (a) => a.resolvePermission("r", "o"),
    setConfigOption: (a) => a.setConfigOption("c", "v"),
    setMode: (a) => a.setMode("m"),

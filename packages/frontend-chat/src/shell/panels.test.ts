@@ -220,18 +220,22 @@ describe("Plan status", () => {
 
 describe("Side chats status", () => {
    test("has an icon always, and shows once a tab has something to show", () => {
-      expect(statusOf("side", { open: [], count: 0, unread: 0 })).toEqual({
+      expect(statusOf("side", { open: [], count: 0, unread: 0, inlineCount: null })).toEqual({
          presence: "icon",
          badge: 0,
          dot: false,
          tip: "Side chats (⇧⌘B new)",
       });
-      expect(statusOf("side", { open: ["a"], count: 3, unread: 1 })).toEqual({
+      expect(statusOf("side", { open: ["a"], count: 3, unread: 1, inlineCount: null })).toEqual({
          presence: "ready",
          badge: 3,
          dot: true,
          tip: "Side chats (⇧⌘B new)",
       });
+      // The Inline tab alone has something to show.
+      expect(statusOf("side", { open: [], count: 1, unread: 0, inlineCount: 0 }).presence).toBe(
+         "ready",
+      );
    });
    test("has no shortcut of the generic kind: its key starts a new chat", () => {
       expect(panelDef("side")!.shortcut).toBeUndefined();

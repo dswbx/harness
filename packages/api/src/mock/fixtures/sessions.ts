@@ -1,4 +1,4 @@
-import type { SessionSummary, WorkspaceInfo } from "../../generated";
+import type { SessionSummary, TextAnchor, WorkspaceInfo } from "../../generated";
 import type { MockTransport } from "../mock";
 import { mockSubSessionLogs } from "../mockSubSessions";
 
@@ -196,6 +196,7 @@ export function seedSessions(mock: MockTransport): void {
          });
       }
    });
+   seedInlineThreads(mock, ws("/Users/me/fetchkit"));
    // A parent with two Sub Sessions in other repositories: one with a PR, one needing attention.
    const subs: [
       string,
@@ -307,4 +308,104 @@ function seedComments(mock: MockTransport): void {
       { type: "CommentResolved", id: "c3", by: "agent", note: "Greeting now uses the name." },
       null,
    );
+}
+
+/**
+ * A Session with Inline Threads (ADR 0031) on one finished agent message: two overlapping open ones
+ * with replies, and a resolved one.
+ */
+function seedInlineThreads(mock: MockTransport, workspace: WorkspaceInfo): void {
+   const sid = "mock-inline";
+   mock.addSession(sid, "Retry loop questions", "chat", false, "/Users/me/fetchkit", workspace);
+   const s = mock.sessions.at(-1)!;
+   const start = Date.now() - 2 * 3600e3;
+   s.created_ms = start;
+   s.updated_ms = Date.now() - 600e3;
+   const main = mock.mainThread(sid);
+   const lastSeq = () => mock.logs.get(sid)!.at(-1)!.seq;
+   mock.emit(sid, {
+      type: "TurnStarted",
+      turn_id: "t-main-1",
+      text: "How does the retry loop in fetchWithRetry work?",
+   });
+   const chunks = [
+      "The retry loop in `fetchWithRetry` tries the request up to three times. After each failure it waits twice as long as the time before, starting at 200 ms, so the delays are 200, 400 and 800 ms.",
+      "\n\nA 4xx response is not retried, because the request itself is wrong. Only network errors and 5xx responses start a new try.",
+   ];
+   mock.emit(sid, { type: "AgentMessageChunk", text: chunks[0]! });
+   const message = lastSeq();
+   mock.emit(sid, { type: "AgentMessageChunk", text: chunks[1]! });
+   mock.emit(sid, { type: "TurnEnded", turn_id: "t-main-1", stop_reason: "end_turn" });
+   const forkedFrom = { thread_id: main, turn: 1, seq: lastSeq() };
+   // Rendered text: Markdown drops the backticks and turns the paragraph break into one.
+   const rendered = chunks.join("").replaceAll("`", "").replace("\n\n", "\n");
+   const anchorOf = (quote: string): TextAnchor => {
+      const at = rendered.indexOf(quote);
+      return {
+         thread_id: main,
+         seq: message,
+         quote,
+         prefix: rendered.slice(Math.max(0, at - 32), at),
+         suffix: rendered.slice(at + quote.length, at + quote.length + 32),
+      };
+   };
+   const threads: [string, string, string, string, boolean][] = [
+      [
+         "inline-1",
+         "waits twice as long as the time before",
+         "Is there a cap on the wait?",
+         "No. With three tries the longest wait is 800 ms, so a cap is not needed. If the number of tries grows, add one.",
+         false,
+      ],
+      [
+         "inline-2",
+         "twice as long as the time before, starting at 200 ms",
+         "Why start at 200 ms?",
+         "It is short enough that a user does not notice one retry, and long enough for a busy server to recover.",
+         false,
+      ],
+      [
+         "inline-3",
+         "A 4xx response is not retried",
+         "What about 429?",
+         "429 is a 4xx code, so it is not retried now. It should be: the server asks the client to wait. I can add that.",
+         true,
+      ],
+   ];
+   for (const [id, quote, question, reply, resolved] of threads) {
+      const a = anchorOf(quote);
+      mock.emit(
+         sid,
+         {
+            type: "ThreadStarted",
+            agent_id: "codex",
+            main: false,
+            forked_from: forkedFrom,
+            anchor: a,
+         },
+         id,
+      );
+      mock.emit(
+         sid,
+         { type: "AgentSessionStarted", acp_session_id: `acp-${id}`, boundary: "forked" },
+         id,
+      );
+      mock.emit(
+         sid,
+         {
+            type: "TurnStarted",
+            turn_id: `t-${id}`,
+            text: `Comments on the conversation:\n\n> ${quote}\n\n---\n\n${question}`,
+         },
+         id,
+      );
+      mock.emit(sid, { type: "AgentMessageChunk", text: reply }, id);
+      mock.emit(sid, { type: "TurnEnded", turn_id: `t-${id}`, stop_reason: "end_turn" }, id);
+      if (resolved) mock.emit(sid, { type: "SideThreadResolved", resolved: true }, id);
+   }
+   // Spread over the Session's life, oldest first.
+   const log = mock.logs.get(sid)!;
+   log.forEach((e, i) => {
+      e.ts_ms = start + (i * (s.updated_ms - start)) / log.length;
+   });
 }

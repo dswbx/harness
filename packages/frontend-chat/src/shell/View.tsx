@@ -10,7 +10,7 @@ import type {
 } from "@harness/api";
 import { MenuButton, Portal, type VirtualListHandle } from "@harness/ui";
 import { RotateCcw } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { blockMarkdown } from "../features/artifacts/artifacts";
 import type { ArtifactsModel } from "../features/artifacts/panel";
 import { useSharedMetas } from "../features/artifacts/useSharedMetas";
@@ -22,6 +22,8 @@ import { ScrollUnder } from "../features/conversation/ScrollUnder";
 import { FileRefProvider, FileViewProvider } from "../features/files/FileRef";
 import type { FileTarget } from "../features/files/FilesPanel";
 import { filesPanel } from "../features/files/panel";
+import { AnchorRegistry, InlineAnchorsProvider } from "../features/inlineThreads/anchors";
+import { InlinePopover } from "../features/inlineThreads/InlinePopover";
 import { ShareBlock } from "../features/markdown/Expandable";
 import { planPanel } from "../features/plan/panel";
 import { PromptBox, type PromptBoxHandle } from "../features/prompt/PromptBox";
@@ -204,7 +206,22 @@ function ChatBody({
 
    // The side chats' own actions: `/btw` in the Main prompt box, and "Ask in side thread" on a selection.
    const side = panelHost.models.side as SideChatsModel;
-   const { start: startSideThread, ask: askSideThread } = side;
+   const { start: startSideThread, ask: askSideThread, inline, reopen: openSideThread } = side;
+   // Inline Threads: highlights in the Main Thread's messages and one popover. Not in the Quick overlay.
+   const [anchors] = useState(() => new AnchorRegistry());
+   // "Show in chat": scroll to the anchored message, then open its popover once the row found the quote.
+   const reveal = inline.reveal;
+   const revealRef = useRef({ threads: inline.threads, drafts: inline.drafts, open: inline.open });
+   revealRef.current = { threads: inline.threads, drafts: inline.drafts, open: inline.open };
+   useEffect(() => {
+      if (!reveal) return;
+      const { threads, drafts, open } = revealRef.current;
+      // A Thread or a draft.
+      const itemId = threads.find((x) => x.id === reveal.id)?.itemId ?? drafts[reveal.id]?.itemId;
+      if (!itemId) return;
+      list.current?.scrollToKey(itemId);
+      open([reveal.id]);
+   }, [reveal]);
    const btw = useCallback(
       (text: string, attachments: AttachmentInput[], item: PendingMessage) =>
          startSideThread(text, attachments, { item }),
@@ -305,7 +322,19 @@ function ChatBody({
          <SelectionComment
             sessionId={api.sessionId}
             onAskSideThread={(quote) => void askSideThread(quote)}
+            onAskInline={overlay ? undefined : inline.begin}
          />
+         {!overlay && (
+            <InlinePopover
+               api={api}
+               state={state}
+               inline={inline}
+               registry={anchors}
+               env={env}
+               onOpenDiff={openDiff}
+               onShowInSideChats={openSideThread}
+            />
+         )}
          <SlotStrip slots={ui.slots.top} env={env} className="border-b pt-3" />
          <ScrollUnder
             bottom={
@@ -320,28 +349,39 @@ function ChatBody({
                </>
             }
          >
-            {(inset) => (
-               <ShareBlock.Provider value={overlay ? null : shareBlock}>
-                  <OpenStep value={openStep}>
-                     <MessageList
-                        handle={list}
-                        api={api}
-                        state={state}
-                        threadId={state.mainThreadId ?? ""}
-                        side={false}
-                        env={env}
-                        ui={ui}
-                        rows={rows}
-                        subagents={subagents}
-                        onOpenDiff={openDiff}
-                        onOpenPlan={overlay ? undefined : openPlan}
-                        // Not before the log is here: a Session with messages showed this for a moment.
-                        empty={state.loaded ? "Send a message to start." : null}
-                        inset={inset}
-                     />
-                  </OpenStep>
-               </ShareBlock.Provider>
-            )}
+            {(inset) => {
+               const messages = (
+                  <MessageList
+                     handle={list}
+                     api={api}
+                     state={state}
+                     threadId={state.mainThreadId ?? ""}
+                     side={false}
+                     env={env}
+                     ui={ui}
+                     rows={rows}
+                     subagents={subagents}
+                     onOpenDiff={openDiff}
+                     onOpenPlan={overlay ? undefined : openPlan}
+                     // Not before the log is here: a Session with messages showed this for a moment.
+                     empty={state.loaded ? "Send a message to start." : null}
+                     inset={inset}
+                  />
+               );
+               return (
+                  <ShareBlock.Provider value={overlay ? null : shareBlock}>
+                     <OpenStep value={openStep}>
+                        {overlay ? (
+                           messages
+                        ) : (
+                           <InlineAnchorsProvider inline={inline} registry={anchors}>
+                              {messages}
+                           </InlineAnchorsProvider>
+                        )}
+                     </OpenStep>
+                  </ShareBlock.Provider>
+               );
+            }}
          </ScrollUnder>
       </>
    );

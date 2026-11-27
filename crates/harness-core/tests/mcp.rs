@@ -1794,8 +1794,10 @@ async fn sub_session_start_send_and_wait() {
     assert!(!tools.contains("session_"), "{tools}");
     let refused = ask(&h, &child, &format!(r#"mcp session_wait {{"id":"{child}"}}"#), None).await;
     assert!(refused.starts_with("mcp error: session_wait is only available"), "{refused}");
-    let CommandResult::ThreadStarted { thread_id, .. } =
-        h.execute(Command::StartSideThread { session_id: sid.clone(), seed: None, source: harness_core::api::ThreadStart::Fresh, mode: None }).await.unwrap()
+    let CommandResult::ThreadStarted { thread_id, .. } = h
+        .execute(Command::StartSideThread { session_id: sid.clone(), seed: None, source: harness_core::api::ThreadStart::Fresh, mode: None, anchor: None })
+        .await
+        .unwrap()
     else {
         panic!()
     };

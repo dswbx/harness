@@ -75,6 +75,8 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    session("harness.chat.layout.{session}", "frontend-chat/shell/dock"),
    session("harness.chat.dockPanels.{session}", "frontend-chat/shell/dock"),
    session("harness.chat.sideThreads.{session}", "frontend-chat/sideChats"),
+   session("harness.chat.inlineSeen.{session}", "frontend-chat/inlineThreads"),
+   session("harness.chat.inlineDrafts.{session}", "frontend-chat/inlineThreads"),
    session("harness.chat.dockedPanels.{session}", "frontend-chat/renderUi"),
    session("harness.chat.panel.{session}", "frontend-chat/shell/dock", true),
    session("harness.files.{session}", "frontend-chat/files"),

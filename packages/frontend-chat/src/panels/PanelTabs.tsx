@@ -25,6 +25,8 @@ export type PanelTab<Id extends string | number = string> = {
    /** After the label: status dots. */
    after?: ReactNode;
    onDoubleClick?: () => void;
+   /** A fixed tab: no close button, not moved by dragging. */
+   fixed?: boolean;
 };
 
 /**
@@ -87,7 +89,13 @@ export function PanelTabs<Id extends string | number = string>({
    }, [active, order]);
 
    const press = (e: ReactPointerEvent, id: Id) => {
-      if (!onMove || e.button !== 0 || (e.target as Element).closest("[data-tab-close]")) return;
+      if (
+         !onMove ||
+         e.button !== 0 ||
+         tabs.find((t) => t.id === id)?.fixed ||
+         (e.target as Element).closest("[data-tab-close]")
+      )
+         return;
       // The panel header would start dragging the whole panel.
       e.stopPropagation();
       const x0 = e.clientX;
@@ -138,14 +146,15 @@ export function PanelTabs<Id extends string | number = string>({
                      key={t.id}
                      data-tab={t.id}
                      className={cn(
-                        "flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 pr-[3px] text-xs",
+                        "flex h-[26px] max-w-[170px] shrink-0 items-center gap-1 rounded-md pl-2.5 text-xs",
+                        t.fixed ? "pr-2.5" : "pr-[3px]",
                         on
                            ? "bg-accent text-accent-foreground"
                            : "text-muted-foreground hover:bg-accent/50",
                         t.className,
                      )}
                      onPointerDown={(e) => press(e, t.id)}
-                     onAuxClick={(e) => e.button === 1 && onClose(t.id)}
+                     onAuxClick={(e) => e.button === 1 && !t.fixed && onClose(t.id)}
                   >
                      <button
                         type="button"
@@ -162,15 +171,17 @@ export function PanelTabs<Id extends string | number = string>({
                         {t.label ?? t.name}
                      </button>
                      {t.after}
-                     <button
-                        type="button"
-                        data-tab-close
-                        className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"
-                        aria-label={`Close ${t.name}`}
-                        onClick={() => onClose(t.id)}
-                     >
-                        <X className="size-3" />
-                     </button>
+                     {!t.fixed && (
+                        <button
+                           type="button"
+                           data-tab-close
+                           className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background/60 hover:text-accent-foreground"
+                           aria-label={`Close ${t.name}`}
+                           onClick={() => onClose(t.id)}
+                        >
+                           <X className="size-3" />
+                        </button>
+                     )}
                   </div>
                );
             })}

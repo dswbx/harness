@@ -96,7 +96,7 @@ impl Session {
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
         log.append(None, EventKind::SessionCreated { title, frontend_id, agent_id: agent.id.clone(), folder })?;
-        log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted { agent_id: agent.id, main: true, forked_from: None })?;
+        log.append(Some(meta.main_thread_id.clone()), EventKind::ThreadStarted { agent_id: agent.id, main: true, forked_from: None, anchor: None })?;
         log.sync()?;
         Ok(Self::from_parts(dir, meta, log, shared))
     }
@@ -522,12 +522,23 @@ impl Session {
     }
 
     /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
-    /// whether that will be a fork of the Main Thread's Agent Session.
-    pub fn start_side_thread(&self, seed: Option<String>, source: crate::api::ThreadStart, mode: Option<String>) -> anyhow::Result<(ThreadId, bool)> {
+    /// whether that will be a fork of the Main Thread's Agent Session. With an `anchor` it is an
+    /// Inline Thread (ADR 0031).
+    pub fn start_side_thread(
+        &self,
+        seed: Option<String>,
+        source: crate::api::ThreadStart,
+        mode: Option<String>,
+        anchor: Option<crate::api::TextAnchor>,
+    ) -> anyhow::Result<(ThreadId, bool)> {
         self.log.writable()?;
         let thread = uuid::Uuid::now_v7().to_string();
         let main = self.meta().main_thread_id;
-        let point = crate::summary::last_finished_turn(&self.log.events()?, &main);
+        let events = self.log.events()?;
+        if let Some(anchor) = &anchor {
+            check_anchor(&events, &main, source, anchor)?;
+        }
+        let point = crate::summary::last_finished_turn(&events, &main);
         let forked = source == crate::api::ThreadStart::Fork && self.meta().agent_sessions.contains_key(&main);
         let agent_id = self.update_meta(|m| {
             m.side_threads.push(thread.clone());
@@ -538,8 +549,35 @@ impl Session {
             m.agent.id.clone()
         })?;
         let forked_from = (source != crate::api::ThreadStart::Fresh).then_some(point);
-        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false, forked_from })?;
+        self.log.append(Some(thread.clone()), EventKind::ThreadStarted { agent_id, main: false, forked_from, anchor })?;
         Ok((thread, forked))
+    }
+
+    /// Resolves or reopens a Side Thread. Logs nothing when it is already in that state.
+    pub fn resolve_side_thread(&self, thread: &ThreadId, resolved: bool) -> anyhow::Result<()> {
+        self.log.writable()?;
+        let m = self.meta();
+        if *thread == m.main_thread_id {
+            return Err(crate::error::invalid("the Main Thread cannot be resolved"));
+        }
+        if !m.side_threads.contains(thread) {
+            return Err(crate::error::not_found(format!("unknown thread {thread}")));
+        }
+        let now = self
+            .log
+            .events()?
+            .iter()
+            .rev()
+            .filter(|e| e.thread_id.as_ref() == Some(thread))
+            .find_map(|e| match e.kind {
+                EventKind::SideThreadResolved { resolved } => Some(resolved),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if now != resolved {
+            self.log.append(Some(thread.clone()), EventKind::SideThreadResolved { resolved })?;
+        }
+        Ok(())
     }
 
     /// Whether the Thread is a Side Thread started without the Main Thread's conversation.
@@ -630,5 +668,54 @@ impl Session {
             let watch = self.pr_watch();
             drop(rt.spawn(async move { watch.find().await }));
         }
+    }
+}
+
+/// Refuses an Inline Thread anchor unless it points to a finished Main Thread agent message: the
+/// Event at `seq` is the Main Thread's own `AgentMessageChunk`, and a later Main `TurnEnded` exists.
+/// Then the fork point always covers the anchored message.
+fn check_anchor(events: &[Arc<crate::api::Event>], main: &ThreadId, source: crate::api::ThreadStart, anchor: &crate::api::TextAnchor) -> anyhow::Result<()> {
+    if source == crate::api::ThreadStart::Fresh {
+        return Err(crate::error::invalid("an anchored Side Thread cannot start fresh"));
+    }
+    if anchor.thread_id != *main {
+        return Err(crate::error::invalid("an anchor must point to the Main Thread"));
+    }
+    let at = events.iter().find(|e| e.seq == anchor.seq).ok_or_else(|| crate::error::invalid(format!("no event at seq {}", anchor.seq)))?;
+    let own_chunk = at.thread_id.as_ref() == Some(main) && matches!(&at.kind, EventKind::AgentMessageChunk { parent_tool_call_id: None, .. });
+    if !own_chunk {
+        return Err(crate::error::invalid(format!("event {} is not a Main Thread agent message", anchor.seq)));
+    }
+    let finished = events.iter().any(|e| e.seq > anchor.seq && e.thread_id.as_ref() == Some(main) && matches!(e.kind, EventKind::TurnEnded { .. }));
+    if !finished {
+        return Err(crate::error::conflict("the anchored message is not finished yet"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::*;
+    use crate::api::{Event, TextAnchor, ThreadStart};
+
+    fn ev(seq: u64, thread: &str, kind: EventKind) -> Arc<Event> {
+        Arc::new(Event { v: 1, seq, session_id: "s".into(), thread_id: Some(thread.into()), ts_ms: 0, kind })
+    }
+
+    #[test]
+    fn subagent_chunks_cannot_be_anchored() {
+        let chunk = |parent: Option<&str>| EventKind::AgentMessageChunk { text: "x".into(), parent_tool_call_id: parent.map(Into::into) };
+        let events = vec![
+            ev(0, "m", EventKind::TurnStarted { turn_id: "t".into(), text: "hi".into(), context: None, attachments: vec![], origin: None }),
+            ev(1, "m", chunk(Some("task-1"))),
+            ev(2, "m", chunk(None)),
+            ev(3, "m", EventKind::TurnEnded { turn_id: "t".into(), stop_reason: "end_turn".into() }),
+        ];
+        let anchor = |seq| TextAnchor { thread_id: "m".into(), seq, quote: "x".into(), prefix: String::new(), suffix: String::new() };
+        let main: ThreadId = "m".into();
+        assert!(check_anchor(&events, &main, ThreadStart::Fork, &anchor(1)).is_err());
+        assert!(check_anchor(&events, &main, ThreadStart::Fork, &anchor(2)).is_ok());
+        assert!(check_anchor(&events, &main, ThreadStart::Seed, &anchor(2)).is_ok());
+        assert!(check_anchor(&events, &main, ThreadStart::Fresh, &anchor(2)).is_err());
     }
 }

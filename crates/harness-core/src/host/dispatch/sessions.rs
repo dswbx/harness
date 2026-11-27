@@ -92,9 +92,10 @@ impl Harness {
         seed: Option<String>,
         source: ThreadStart,
         mode: Option<String>,
+        anchor: Option<TextAnchor>,
     ) -> anyhow::Result<CommandResult> {
         let session = self.session(&session_id)?;
-        let (thread_id, forked) = session.start_side_thread(seed, source, mode)?;
+        let (thread_id, forked) = session.start_side_thread(seed, source, mode, anchor)?;
         if forked {
             // Fork now, so the Side Thread sees the Main Thread as it was when opened.
             let thread = thread_id.clone();
@@ -105,6 +106,11 @@ impl Harness {
             });
         }
         Ok(CommandResult::ThreadStarted { thread_id, forked })
+    }
+
+    pub(in crate::host) fn cmd_resolve_side_thread(&self, session_id: SessionId, thread_id: ThreadId, resolved: bool) -> anyhow::Result<CommandResult> {
+        self.session(&session_id)?.resolve_side_thread(&thread_id, resolved)?;
+        Ok(CommandResult::Ok)
     }
 
     pub(in crate::host) async fn cmd_open_in_editor(&self, session_id: SessionId, path: Option<String>, line: Option<u32>) -> anyhow::Result<CommandResult> {

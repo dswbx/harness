@@ -604,6 +604,14 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
       "type": "ResolvePermission",
     },
   ],
+  "resolveSideThread": [
+    {
+      "resolved": true,
+      "session_id": "s1",
+      "thread_id": "t2",
+      "type": "ResolveSideThread",
+    },
+  ],
   "revokeSessionFile": [
     {
       "path": "~/.x/a.md",
@@ -657,6 +665,7 @@ exports[`createSessionApi wire shape > sends these Commands 1`] = `
   ],
   "startSideThread": [
     {
+      "anchor": null,
       "mode": null,
       "seed": null,
       "session_id": "s1",
