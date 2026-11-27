@@ -102,7 +102,9 @@ export function useReferences(
    const resolved = useMemo(() => {
       const file = (f: FileRef) => {
          const w = refWindow(f);
-         return reader ? reader.peek(f.path, w.from, w.to) : undefined;
+         const r = reader?.peek(f.path, w.from, w.to);
+         if (r?.kind !== "ok") return r && null;
+         return { path: r.slice.path, inside: r.slice.scope === "inside" };
       };
       const r = resolveReferences(candidates, {
          pr: (k) => store?.peek(k) ?? null,
@@ -810,6 +812,11 @@ function CodeDetail({
    reader: FileReader | null;
 }) {
    const [at, setAt] = useState(0);
+   const noPreview = (
+      <p className="rounded-md border border-dashed px-2.5 py-2 text-xs text-foreground/80">
+         {outsidePath(r.path) ? "This file can't be read, so there is no preview." : "No preview."}
+      </p>
+   );
    const bare: FileRef = { path: r.path, start: null, end: null };
    const ref = r.ranges[Math.min(at, r.ranges.length - 1)] ?? bare;
    return (
@@ -833,15 +840,7 @@ function CodeDetail({
                ))}
             </div>
          )}
-         {r.inside && reader ? (
-            <FilePreview reader={reader} fileRef={ref} />
-         ) : (
-            <p className="rounded-md border border-dashed px-2.5 py-2 text-xs text-foreground/80">
-               {outsidePath(r.path)
-                  ? "This path is outside the Session folder, so there is no preview."
-                  : "No preview."}
-            </p>
-         )}
+         {reader ? <FilePreview reader={reader} fileRef={ref} fallback={noPreview} /> : noPreview}
       </>
    );
 }

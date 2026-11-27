@@ -23,6 +23,7 @@ const CODE_TABLE = {
    invalid: true,
    timeout: true,
    unavailable: true,
+   needs_approval: true,
    internal: true,
 } satisfies Record<ErrorCode, true>;
 const CODES: ReadonlySet<string> = new Set(Object.keys(CODE_TABLE));

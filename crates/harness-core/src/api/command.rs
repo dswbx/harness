@@ -190,7 +190,8 @@ pub enum Command {
     SetEditor {
         editor: Option<Editor>,
     },
-    /// Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor.
+    /// Opens the Session's folder, or `path` (relative, absolute or `~/…`, at `line`), in the user's editor. A file
+    /// outside the folder follows the rules of `ReadSessionFile`.
     OpenInEditor {
         session_id: SessionId,
         #[serde(default)]
@@ -212,10 +213,10 @@ pub enum Command {
     ListSessionFiles {
         session_id: SessionId,
     },
-    /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
-    /// (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
-    /// for a file reference in a message. Fails for files outside the folder,
-    /// missing, too large, binary or not UTF-8.
+    /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file (relative to the Session's
+    /// folder, absolute, or `~/…`; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+    /// for a file reference in a message. Fails for files missing, too large, binary or not UTF-8. A file outside the
+    /// folder that can hold secrets (`editor::sensitive`) fails with `NeedsApproval` until `ApproveSessionFile`.
     ReadSessionFile {
         session_id: SessionId,
         path: String,
@@ -223,6 +224,17 @@ pub enum Command {
         start: Option<u32>,
         #[serde(default)]
         end: Option<u32>,
+    },
+    /// Lets the Session read a text file outside its folder that can hold secrets (`ReadSessionFile` fails with
+    /// `NeedsApproval` for it). Kept with the Session, by the file's real path.
+    ApproveSessionFile {
+        session_id: SessionId,
+        path: String,
+    },
+    /// Takes back `ApproveSessionFile` for that file.
+    RevokeSessionFile {
+        session_id: SessionId,
+        path: String,
     },
     /// The Session State (ADR 0015).
     GetState {

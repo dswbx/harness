@@ -24,6 +24,9 @@ pub enum ErrorCode {
     Timeout,
     /// The Harness cannot serve the Command now (it is shutting down) or a service it needs cannot be reached (the network is down, `gh` is missing).
     Unavailable,
+    /// The file can hold secrets (a hidden folder in the home folder, an `.env` or key file, outside the home
+    /// folder): the user must allow it for the Session first (`ApproveSessionFile`). The message is the reason only.
+    NeedsApproval,
     /// Anything else.
     Internal,
 }

@@ -44,6 +44,10 @@ pub fn policy_denied(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::PolicyDenied, message)
 }
 
+pub fn needs_approval(reason: impl Into<String>) -> anyhow::Error {
+    coded(ErrorCode::NeedsApproval, reason)
+}
+
 pub fn invalid(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::Invalid, message)
 }

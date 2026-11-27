@@ -445,6 +445,8 @@ impl Harness {
             Command::ExportPlan { session_id, name, markdown, open_in_editor } => self.cmd_export_plan(session_id, name, markdown, open_in_editor).await,
             Command::ListSessionFiles { session_id } => self.cmd_list_session_files(session_id).await,
             Command::ReadSessionFile { session_id, path, start, end } => self.cmd_read_session_file(session_id, path, start, end).await,
+            Command::ApproveSessionFile { session_id, path } => self.cmd_approve_session_file(session_id, path, true).await,
+            Command::RevokeSessionFile { session_id, path } => self.cmd_approve_session_file(session_id, path, false).await,
             Command::GetState { session_id } => self.cmd_get_state(session_id),
             Command::PatchState { session_id, ops } => self.cmd_patch_state(session_id, ops),
             Command::ReportFrontendError { session_id, tool, item, message } => self.cmd_report_frontend_error(session_id, tool, item, message),

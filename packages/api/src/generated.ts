@@ -274,7 +274,10 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 { type: "MoveInstructions"; from: string; to: string } | 
 /**  The user's editor for "Open in editor" (None until chosen). */
 { type: "GetEditor" } | { type: "SetEditor"; editor: Editor | null } | 
-/**  Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor. */
+/**
+ *  Opens the Session's folder, or `path` (relative, absolute or `~/…`, at `line`), in the user's editor. A file
+ *  outside the folder follows the rules of `ReadSessionFile`.
+ */
 { type: "OpenInEditor"; session_id: string; path?: string | null; line?: number | null } | 
 /**
  *  Writes `markdown` to `<Session dir>/plans/<name>.md` (`name` is cut to `[a-z0-9-]`) and returns the path
@@ -287,12 +290,19 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
  */
 { type: "ListSessionFiles"; session_id: string } | 
 /**
- *  Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
- *  (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
- *  for a file reference in a message. Fails for files outside the folder,
- *  missing, too large, binary or not UTF-8.
+ *  Lines `start..=end` (1-based, clipped; default: the whole file) of a text file (relative to the Session's
+ *  folder, absolute, or `~/…`; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+ *  for a file reference in a message. Fails for files missing, too large, binary or not UTF-8. A file outside the
+ *  folder that can hold secrets (`editor::sensitive`) fails with `NeedsApproval` until `ApproveSessionFile`.
  */
 { type: "ReadSessionFile"; session_id: string; path: string; start?: number | null; end?: number | null } | 
+/**
+ *  Lets the Session read a text file outside its folder that can hold secrets (`ReadSessionFile` fails with
+ *  `NeedsApproval` for it). Kept with the Session, by the file's real path.
+ */
+{ type: "ApproveSessionFile"; session_id: string; path: string } | 
+/**  Takes back `ApproveSessionFile` for that file. */
+{ type: "RevokeSessionFile"; session_id: string; path: string } | 
 /**  The Session State (ADR 0015). */
 { type: "GetState"; session_id: string } | 
 /**  Changes the Session State as the user (e.g. a bound UI component). */
@@ -535,8 +545,11 @@ export type CommandResult = { type: "Ok" } |
  *  absolute (for "copy path").
  */
 { type: "PanelSource"; content: string; hash: string; path: string; mtime_ms: number } | 
-/**  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder. */
-{ type: "FileLines"; path: string; start: number; lines: string[]; total: number } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | { type: "Instructions"; entries: InstructionsEntry[] } | { type: "InstructionsText"; text: string } | 
+/**
+ *  `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the
+ *  folder when `scope` is `inside`, else its real path (`~/…` under the home folder, else absolute).
+ */
+{ type: "FileLines"; path: string; start: number; lines: string[]; total: number; scope: FileScope } | { type: "State"; state: unknown } | { type: "Editor"; editor: Editor | null } | { type: "Instructions"; entries: InstructionsEntry[] } | { type: "InstructionsText"; text: string } | 
 /**  `MoveInstructions`: the scope the text is saved under now (the new folder's main checkout). */
 { type: "InstructionsMoved"; scope: InstructionsScope } | 
 /**  The file `ExportPlan` wrote (absolute). */
@@ -631,6 +644,11 @@ export type ErrorCode =
 "timeout" | 
 /**  The Harness cannot serve the Command now (it is shutting down) or a service it needs cannot be reached (the network is down, `gh` is missing). */
 "unavailable" | 
+/**
+ *  The file can hold secrets (a hidden folder in the home folder, an `.env` or key file, outside the home
+ *  folder): the user must allow it for the Session first (`ApproveSessionFile`). The message is the reason only.
+ */
+"needs_approval" | 
 /**  Anything else. */
 "internal";
 
@@ -845,6 +863,9 @@ export type FileChange = {
 	additions: number | null,
 	deletions: number | null,
 };
+
+/**  Where a file read for a Session is: in its folder, outside it (nothing secret), or outside and allowed by the user. */
+export type FileScope = "inside" | "outside" | "allowed";
 
 /**  A place in a Thread: after its `turn`-th finished Turn (1-based, 0 = none), at log `seq`. */
 export type ForkPoint = {

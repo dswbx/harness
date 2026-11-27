@@ -1,6 +1,8 @@
 import {
    errText,
+   type FileScope,
    inTauri,
+   isCommandError,
    onSessionForgotten,
    openWindow,
    rememberWindowFrame,
@@ -42,6 +44,7 @@ import { setWrapCode, useWrapCode } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
 import { activeCommentsOn, fileViewComments } from "../review/reviewComments";
 import { useLineComments } from "../review/useLineComments";
+import { LockedNotice, ScopeBadge, useFileRefs } from "./FileRef";
 import { FileView, type LineRange } from "./FileView";
 import {
    closeTab,
@@ -200,8 +203,17 @@ export function FilesPanel({
    const [showTree, setShowTree] = useState(saved.tree ?? true);
    const [query, setQuery] = useState("");
    /** The open file: `req` the path asked for, `path` the one found (a partial path finds the whole one). */
-   const [file, setFile] = useState<{ req: string; path: string; lines: string[] } | null>(null);
+   const [file, setFile] = useState<{
+      req: string;
+      path: string;
+      lines: string[];
+      scope: FileScope;
+   } | null>(null);
    const [fileError, setFileError] = useState<string | null>(null);
+   /** The open file can hold secrets and is not allowed: why. */
+   const [locked, setLocked] = useState<string | null>(null);
+   /** Allowing a file goes through the file refs' reader when there is one, so their lenses update too. */
+   const reader = useFileRefs();
    const [workspace, setWorkspace] = useState<WorkspaceInfo | null | undefined>(undefined);
    /** Bumped by Refresh and by a git status change: the list and the open file load again. */
    const [tick, setTick] = useState(0);
@@ -274,17 +286,24 @@ export function FilesPanel({
          (r) => {
             if (off) return;
             setFileError(null);
+            setLocked(null);
             // The same text keeps the same object: a poll that found no change renders nothing.
             setFile((f) =>
-               f && f.req === selected && f.path === r.path && sameLines(f.lines, r.lines)
+               f &&
+               f.req === selected &&
+               f.path === r.path &&
+               f.scope === r.scope &&
+               sameLines(f.lines, r.lines)
                   ? f
-                  : { req: selected, path: r.path, lines: r.lines },
+                  : { req: selected, path: r.path, lines: r.lines, scope: r.scope },
             );
          },
          (e) => {
             if (off) return;
             setFile(null);
-            setFileError(readError(selected, e));
+            const needs = isCommandError(e, "needs_approval");
+            setLocked(needs ? e.message : null);
+            setFileError(needs ? null : readError(selected, e));
          },
       );
       return () => {
@@ -388,6 +407,13 @@ export function FilesPanel({
    // The last loaded file stays until the next one loads (no "Loading" flash between files).
    const view = selected ? file : null;
    const tab = tabs.find((t) => t.path === view?.req);
+   /** Outside the Session folder: shown read-only, not in the tree. */
+   const outside = !!view && view.scope !== "inside";
+   const allow = async () => {
+      if (!selected) return;
+      await (reader ? reader.allow(selected) : api.approveSessionFile(selected));
+      setTick((t) => t + 1);
+   };
    const markdown = !!view && isMarkdown(view.req);
    const rendered = markdown && !tab?.source;
    const setSource = (source: boolean) =>
@@ -523,8 +549,25 @@ export function FilesPanel({
                      ))}
                   </div>
                )}
+               {outside && !locked && !fileError && (
+                  <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1 font-mono text-[11px] text-muted-foreground">
+                     <span className="min-w-0 truncate [direction:rtl] text-left">
+                        <bdi>{view.path}</bdi>
+                     </span>
+                     <ScopeBadge kind={view.scope === "allowed" ? "allowed" : "outside"} />
+                  </div>
+               )}
                {!selected ? (
                   <p className="p-4 text-sm text-muted-foreground">Select a file in the list.</p>
+               ) : locked !== null ? (
+                  <div className="p-4">
+                     <div className="max-w-md rounded-md border border-amber-500/40 border-dashed">
+                        <div className="border-b px-3 py-1 font-mono text-[11px] text-muted-foreground">
+                           {selected}
+                        </div>
+                        <LockedNotice reason={locked} onAllow={allow} />
+                     </div>
+                  </div>
                ) : fileError ? (
                   <p role="alert" className="p-4 text-sm text-destructive">
                      Can't show this file: {fileError}
@@ -546,7 +589,7 @@ export function FilesPanel({
                      comments={comments}
                      target={range}
                      wrap={wrap}
-                     mode="comment"
+                     mode={outside ? "read" : "comment"}
                   />
                )}
             </div>
