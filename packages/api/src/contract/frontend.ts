@@ -182,10 +182,17 @@ export interface Frontend {
       /** Starts a Session from a task (the host's dialog). Absent: the View offers none. */
       onStartFromTask?: (taskId: string) => void;
       /**
-       * The host's Sessions, for live Session titles (a task's origin and linked Sessions); a Session not listed
-       * shows as deleted. Absent: the titles the tasks stored.
+       * The host's Sessions, for live Session titles (a task's origin and linked Sessions, a panel window's
+       * session chip with the folder's name); a Session not listed shows as deleted. Absent: the titles the
+       * tasks stored.
        */
-      sessions?: readonly { id: string; title: string; status?: SessionStatus }[];
+      sessions?: readonly {
+         id: string;
+         title: string;
+         status?: SessionStatus;
+         folder?: string;
+         quick?: boolean;
+      }[];
    }>;
    /**
     * Answers one request. The host mounts it apart from the View, as the Session may not be on screen, and only

@@ -35,3 +35,28 @@ describe("mountedPanels", () => {
       ]);
    });
 });
+
+describe("mountedPanels: popped panels", () => {
+   const plan: HostedPanel = { ...entry("plan", "afterFirstOpen", true), label: "Plan" };
+   const popped = new Set(["plan", "slot:x"]);
+
+   it("a popped panel is never mounted here, shown or not (its window has the one live copy)", () => {
+      expect(mountedPanels([plan], () => true, new Set(["plan"]), new Map(), popped)).toEqual([]);
+      expect(mountedPanels([plan], () => false, new Set(), new Map(), popped)).toEqual([]);
+   });
+
+   it("a recorded (not loaded) popped panel gets no frame either", () => {
+      const panels = mountedPanels(
+         [],
+         () => true,
+         new Set(),
+         new Map([["slot:x", "Board"]]),
+         popped,
+      );
+      expect(panels).toEqual([]);
+   });
+
+   it("mounts the panel again once it is docked back", () => {
+      expect(mountedPanels([plan], () => true, new Set()).map((p) => p.id)).toEqual(["plan"]);
+   });
+});

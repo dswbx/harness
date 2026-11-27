@@ -434,10 +434,8 @@ fn receive<R: Runtime>(app: &AppHandle<R>, req: CliRequest) {
 /// once painted. Main thread only.
 pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     match app.get_webview_window("main") {
-        Some(main) => {
-            let _ = main.unminimize();
-            let _ = main.set_focus();
-        }
+        // Hidden (closed on macOS, see `run`) or minimized: shown and focused.
+        Some(main) => crate::bring_to_front(&main),
         None => {
             let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else { return };
             match tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.build()) {

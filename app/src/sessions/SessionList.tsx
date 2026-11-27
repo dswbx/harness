@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@harness/api";
+import { type SessionSummary, usePanelWindows } from "@harness/api";
 import { cn, noAutocorrect, ScrollArea } from "@harness/ui";
 import { ChevronRight, Folder, Search, X } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
@@ -62,6 +62,7 @@ export function SessionList({
    onNewQuick?: () => void;
    children?: ReactNode;
 }) {
+   const panelWindows = usePanelWindows();
    const [query, setQuery] = useState("");
    const [sort, setSort] = useStored<SortBy>(
       "harness.sessionList.sort",
@@ -135,6 +136,11 @@ export function SessionList({
    const toggle = (id: string) =>
       setCollapsed(collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id]);
 
+   const popped = useMemo(() => {
+      const m = new Map<string, string[]>();
+      for (const w of panelWindows) m.set(w.session, [...(m.get(w.session) ?? []), w.panel]);
+      return m;
+   }, [panelWindows]);
    const row = (s: SessionSummary, parent?: SessionSummary) => (
       <SessionRow
          key={s.id}
@@ -152,6 +158,7 @@ export function SessionList({
          onRename={() => onRename(s)}
          onResetTitle={() => onResetTitle(s)}
          onOpenWindow={onOpenWindow && (() => onOpenWindow(s))}
+         windows={popped.get(s.id)}
       />
    );
    /** A root row, with its Sub Sessions indented below (expanded unless collapsed as `sub:<id>`). */
@@ -179,6 +186,7 @@ export function SessionList({
                onRename={() => onRename(s)}
                onResetTitle={() => onResetTitle(s)}
                onOpenWindow={onOpenWindow && (() => onOpenWindow(s))}
+               windows={popped.get(s.id)}
             />
             {open && (
                <li>

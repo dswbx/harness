@@ -24,13 +24,13 @@ import {
    useResizableWidth,
 } from "@harness/ui";
 import {
+   AppWindow,
    Check,
    Code,
    ExternalLink,
    Eye,
    File,
    ListTree,
-   Maximize2,
    RefreshCw,
    WrapText,
 } from "lucide-react";
@@ -515,14 +515,14 @@ export function FilesPanel({
                      <DropdownMenuItem disabled={!shownPath} onSelect={openInEditor}>
                         <ExternalLink /> Open in editor
                      </DropdownMenuItem>
+                     <DropdownMenuItem onSelect={openPopout}>
+                        <AppWindow /> Open files in window
+                     </DropdownMenuItem>
                   </>
                }
             >
                {tabStrip}
                {refreshButton}
-               <HeaderButton label="Open in window" onClick={openPopout}>
-                  <Maximize2 />
-               </HeaderButton>
                {treeButton}
             </PanelHeader>
          )}

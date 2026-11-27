@@ -4,8 +4,6 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_os = "macos")]
-use super::panel;
 use super::poll::{start_context, stop_context};
 use super::window::{hide, menu_room, on_main, resize, set_panels, show, user_resize};
 use super::{LABEL, Mode, Overlay, SHADOW};
@@ -77,23 +75,13 @@ pub fn overlay_hide(app: AppHandle) {
 /// Opens the Session in the main window (shown, focused, Harness the active app) and hides the overlay.
 #[tauri::command]
 pub fn overlay_merge(app: AppHandle, session_id: String) -> Result<(), String> {
-    app.emit_to("main", "select-session", session_id).map_err(|e| e.to_string())?;
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        hide(&handle);
+    crate::show_session_in_main(&app, session_id, |handle| {
+        hide(handle);
         let state = handle.state::<Overlay>();
         *state.menu_base.lock() = None;
         *state.mode.lock() = Mode::Prompt;
         *state.panels.lock() = (0.0, 0.0);
-        if let Some(main) = handle.get_webview_window("main") {
-            let _ = main.unminimize();
-            let _ = main.show();
-            let _ = main.set_focus();
-        }
-        #[cfg(target_os = "macos")]
-        panel::activate_app();
     })
-    .map_err(|e| e.to_string())
 }
 
 /// The last window context sent (the page may mount after `overlay-context` was sent).

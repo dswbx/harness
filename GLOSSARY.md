@@ -124,6 +124,10 @@ _Avoid_: window, tab, subscriber
 A piece of a View docked beside or under the main content, shown in a Zone and toggled from the Stripe (e.g. the chat's Changes, Terminal, Events, Side chats, Artifacts, References, or a `render_ui` item placed left or right; ADR 0019).
 _Avoid_: tab, pane, sidebar
 
+**Panel window**:
+An OS window that shows one Panel of one Session, popped out of the main window; the main window shows the Panel as closed until it docks back, then it shows in its Zone again. Closing the window (red X) docks it hidden: its Stripe icon opens it. It stays bound to its Session and reopens after quit and relaunch (ADR 0032).
+_Avoid_: popout, detached panel, floating panel
+
 **Panel family**:
 Panels the Agent creates at runtime (the `render_ui` items placed left or right), defined once as a family instead of one by one: each instance is a Panel with the id `<prefix>:<key>` (ADR 0025).
 _Avoid_: dynamic panel, panel group

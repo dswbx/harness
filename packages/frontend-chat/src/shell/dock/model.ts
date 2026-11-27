@@ -142,6 +142,13 @@ export function move(l: Layout, id: string, to: Zone, index?: number): Layout {
    return settle({ ...l, zones, open });
 }
 
+/**
+ * Moves a panel that is open in a window of its own: only its place changes. It is hidden first (it
+ * shows nowhere here), so no zone's open panel changes; docked back, it opens in its new zone.
+ */
+export const movePopped = (l: Layout, id: string, to: Zone, index?: number): Layout =>
+   move(hide(l, id), id, to, index);
+
 /** Grows an open panel to near full-screen, or shrinks (null). */
 export const expand = (l: Layout, id: string | null): Layout =>
    id === null

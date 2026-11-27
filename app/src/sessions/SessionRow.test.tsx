@@ -2,6 +2,13 @@ import type { SessionSummary } from "@harness/api";
 import { TooltipProvider } from "@harness/ui";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const showPanelWindow = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@harness/api", async (orig) => ({
+   ...(await orig<typeof import("@harness/api")>()),
+   showPanelWindow,
+}));
+
 import { SessionRow } from "./SessionRow";
 
 const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
@@ -29,7 +36,7 @@ const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
    ...over,
 });
 
-function setup(s: SessionSummary) {
+function setup(s: SessionSummary, windows?: string[]) {
    const h = {
       onSelect: vi.fn(),
       onArchive: vi.fn(),
@@ -47,6 +54,7 @@ function setup(s: SessionSummary) {
                query=""
                showFolder={false}
                now={10}
+               windows={windows}
                {...h}
             />
          </ul>
@@ -77,5 +85,23 @@ describe("SessionRow menus", () => {
       expect(names()).toEqual(["Rename…", "Use automatic title", "Unarchive", "Delete"]);
       fireEvent.click(screen.getByRole("menuitem", { name: "Use automatic title" }));
       expect(h.onResetTitle).toHaveBeenCalledOnce();
+   });
+});
+
+describe("SessionRow panel windows", () => {
+   afterEach(() => showPanelWindow.mockClear());
+   it("hides the icon without popped panels", () => {
+      setup(session());
+      expect(screen.queryByRole("button", { name: /in own window/ })).toBeNull();
+   });
+   it("shows the icon with a count label", () => {
+      setup(session(), ["files", "diff"]);
+      expect(screen.getByRole("button", { name: "2 panels in own window" })).toBeTruthy();
+   });
+   it("click shows the first window (focused, or opened again) and does not select the row", () => {
+      const h = setup(session(), ["files"]);
+      fireEvent.click(screen.getByRole("button", { name: "1 panel in own window" }));
+      expect(showPanelWindow).toHaveBeenCalledWith("s1", "files", { title: "Sample task" });
+      expect(h.onSelect).not.toHaveBeenCalled();
    });
 });

@@ -34,6 +34,7 @@ export function OverlayDock({
    panels,
    dock,
    onToggle,
+   menu,
    ghost,
 }: {
    /** Before the first message. */
@@ -49,6 +50,8 @@ export function OverlayDock({
    panels: DockPanel[];
    dock: DockCallbacks;
    onToggle: (id: string) => void;
+   /** The entries of a stripe icon's context menu. */
+   menu?: (id: string) => ReactNode;
    ghost: ReactNode;
 }) {
    const sideL: [StripeGroup, StripeGroup] = [left[0], left[1]];
@@ -87,6 +90,7 @@ export function OverlayDock({
             groups={groups}
             drag={dock.drag}
             onToggle={onToggle}
+            menu={menu}
             onPress={(it, e) => dock.onDragStart(it.id, it.label, e)}
          />
       </div>

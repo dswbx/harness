@@ -3,6 +3,7 @@ import {
    formatAge,
    type SessionStatus,
    type SessionSummary,
+   showPanelWindow,
    useSessionHasDraft,
 } from "@harness/api";
 import {
@@ -172,6 +173,7 @@ export function SessionRow({
    onRename,
    onResetTitle,
    onOpenWindow,
+   windows = [],
 }: {
    s: SessionSummary;
    /** The dot's status; a collapsed parent shows its Sub Sessions'. */
@@ -193,6 +195,8 @@ export function SessionRow({
    onRename: () => void;
    onResetTitle: () => void;
    onOpenWindow?: () => void;
+   /** Panels of this Session popped out into their own windows. */
+   windows?: string[];
 }) {
    const menuProps = { s, onArchive, onDelete, onRename, onResetTitle, onOpenWindow };
    const hit = highlight(s.title, query);
@@ -200,6 +204,7 @@ export function SessionRow({
    const sub =
       display === "detail" && (showFolder || !!branchOf(s.workspace) || s.workspace.pr != null);
    const inlineDate = display === "detail" && !sub;
+   const windowsLabel = `${windows.length} panel${windows.length === 1 ? "" : "s"} in own window`;
    return (
       <ContextMenu>
          <ContextMenuTrigger asChild>
@@ -290,6 +295,29 @@ export function SessionRow({
                               </span>
                               <span className="flex-1" />
                            </>
+                        )}
+                        {windows.length > 0 && (
+                           <Tooltip content={windowsLabel}>
+                              {/* A span: a button may not hold another button. */}
+                              <span
+                                 role="button"
+                                 tabIndex={0}
+                                 aria-label={windowsLabel}
+                                 onClick={(e) => {
+                                    e.stopPropagation();
+                                    void showPanelWindow(s.id, windows[0], { title: s.title });
+                                 }}
+                                 onKeyDown={(e) => {
+                                    if (e.key !== "Enter" && e.key !== " ") return;
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void showPanelWindow(s.id, windows[0], { title: s.title });
+                                 }}
+                                 className="grid size-4 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+                              >
+                                 <AppWindow className="size-3" />
+                              </span>
+                           </Tooltip>
                         )}
                         <StatusDot status={status} className="group-hover:hidden" />
                         {inlineDate && (

@@ -38,6 +38,7 @@ import { TasksEntry } from "../tasks/TasksEntry";
 import { UpdateFooter } from "../updates/UpdateFooter";
 import { useUpdate } from "../updates/updates";
 import { needsEditor } from "./editorError";
+import { useRestorePanelWindows } from "./restorePanelWindows";
 import { useCliRequests } from "./useCliRequests";
 import { useNavHistory } from "./useNavHistory";
 import { useSidebarOpen, useSidebarWidth } from "./useSidebar";
@@ -61,7 +62,8 @@ export function Shell({ transport }: { transport: Transport }) {
    const client = useMemo<HarnessClient>(() => new Client(transport), [transport]);
    const [agentsVersion, setAgentsVersion] = useState(0);
    const bumpAgents = useCallback(() => setAgentsVersion((v) => v + 1), []);
-   const { sessions, setSessions } = useSessions(client, bumpAgents);
+   const { sessions, setSessions, loaded } = useSessions(client, bumpAgents);
+   useRestorePanelWindows(sessions, loaded);
    const sharedSource = useMemo(
       () => ({
          list: () => client.listSharedArtifacts(),

@@ -2,11 +2,26 @@ import type { SessionApi } from "@harness/api";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { type ComponentType, lazy, Suspense, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { definePanel, type PanelBodyProps, type PanelCtx } from "../panels/contract";
+import {
+   definePanel,
+   type PanelBodyProps,
+   type PanelCtx,
+   type PanelSelf,
+} from "../panels/contract";
 import { usePanelTarget } from "../panels/usePanelTarget";
 import { initialState } from "../state/reducer";
 import { defaultLayout, isOpen, type Layout } from "./dock/model";
 import { usePanelHost } from "./usePanelHost";
+
+const windows = vi.hoisted(() => ({
+   focus: vi.fn(async () => true),
+   send: vi.fn(async (..._a: unknown[]) => {}),
+}));
+vi.mock("@harness/api", async (orig) => ({
+   ...(await orig<typeof import("@harness/api")>()),
+   showPanelWindow: windows.focus,
+   sendPanelOpen: windows.send,
+}));
 
 const applied: string[] = [];
 const fallback = vi.fn();
@@ -59,8 +74,11 @@ const plan = definePanel<null, string>({
 
 const PANELS = [files, terminal, plan];
 
-function setup(variant: "full" | "overlay" = "full") {
-   const out = {} as { ctx: PanelCtx; lay: Layout };
+function setup(
+   variant: "full" | "overlay" = "full",
+   o: { popped?: ReadonlySet<string>; popout?: string } = {},
+) {
+   const out = {} as { ctx: PanelCtx; lay: Layout; selves: Record<string, PanelSelf<unknown>> };
    function Harness() {
       const [lay, setLay] = useState(defaultLayout);
       const host = usePanelHost({
@@ -72,8 +90,11 @@ function setup(variant: "full" | "overlay" = "full") {
          chat: null,
          host: {},
          panels: PANELS,
+         popped: o.popped,
+         popout: o.popout,
       });
       out.ctx = host.ctx;
+      out.selves = host.selves;
       out.lay = lay;
       return (
          <>
@@ -139,5 +160,45 @@ describe("usePanelHost targets", () => {
       expect(isOpen(out.lay, "files")).toBe(false);
       expect(view.queryByTestId("files")).toBeNull();
       expect(applied).toEqual([]);
+   });
+});
+
+describe("usePanelHost panel windows", () => {
+   it("sends an open of a popped panel to its window, with the target; no layout change", () => {
+      applied.length = 0;
+      windows.send.mockClear();
+      const { out } = setup("full", { popped: new Set(["files"]) });
+      act(() => out.ctx.open(files, "a.ts"));
+      expect(windows.send).toHaveBeenCalledWith("s", "files", "a.ts");
+      expect(isOpen(out.lay, "files")).toBe(false);
+      expect(applied).toEqual([]);
+      act(() => out.ctx.open(plan, "p0"));
+      expect(isOpen(out.lay, "plan")).toBe(true);
+      expect(windows.send).toHaveBeenCalledTimes(1);
+   });
+
+   it("self.show on a popped panel shows its window", () => {
+      windows.focus.mockClear();
+      const { out } = setup("full", { popped: new Set(["plan"]) });
+      act(() => out.selves.plan!.show());
+      expect(windows.focus).toHaveBeenCalledWith("s", "plan");
+      expect(isOpen(out.lay, "plan")).toBe(false);
+   });
+
+   it("in a panel window: another panel is sent to the main window (also one with a fallback)", () => {
+      applied.length = 0;
+      fallback.mockClear();
+      windows.send.mockClear();
+      const { out } = setup("full", { popout: "plan" });
+      act(() => out.ctx.open(files, "d.ts"));
+      expect(windows.send).toHaveBeenCalledWith("s", "files", "d.ts");
+      expect(fallback).not.toHaveBeenCalled();
+      expect(isOpen(out.lay, "files")).toBe(false);
+      act(() => out.ctx.open(terminal, "ls"));
+      expect(windows.send).toHaveBeenCalledWith("s", "terminal", "ls");
+      expect(isOpen(out.lay, "terminal")).toBe(false);
+      act(() => out.ctx.open(plan, "p2"));
+      expect(applied).toEqual(["plan:p2"]);
+      expect(windows.send).toHaveBeenCalledTimes(2);
    });
 });
