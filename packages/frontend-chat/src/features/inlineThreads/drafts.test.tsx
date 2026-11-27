@@ -182,7 +182,14 @@ describe("inline drafts", () => {
       const { out, begin } = setup();
       const id = begin();
       act(() => void setDraft(composerKey(SID, id), typed("Why?")));
-      await act(() => out.m.send(id, "Why?", [], { id: "p", prompt: "Why?" } as PendingMessage));
+      await act(() =>
+         out.m.send(id, "Why?", [], {
+            id: "p",
+            prompt: "Why?",
+            files: [],
+            status: "sending",
+         } as unknown as PendingMessage),
+      );
       expect(out.m.drafts).toEqual({});
       expect(getDraft(composerKey(SID, id))).toBeNull();
       // Still open, now on the Thread (at the same text until its own range is found).

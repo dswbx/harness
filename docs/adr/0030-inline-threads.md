@@ -16,10 +16,10 @@ The user wants to ask about one passage of an agent message and keep the answer 
 
 **Drafts.** The text and the Anchor of an unsent question are kept as a draft, one per Anchor.
 - An outside click does not close a popover that has text. Only an explicit close (Close button or Esc) closes it, because the popover can cover text the user wants to read.
-- An explicit close keeps the draft and its text. The highlight shows in a draft color: blue with a dashed underline, not amber. A click on the highlight or its marker reopens the composer.
+- An explicit close keeps the draft and its text. The highlight shows in a draft color: gray (muted text color) with a dashed underline and a light gray tint. A click on the highlight or its marker reopens the composer.
 - With no text, any close removes the draft.
 - "Discard draft" removes the draft, its text and its highlight.
-- Send turns the draft into an Inline Thread, and the highlight turns amber.
+- Send turns the draft into an Inline Thread, and the highlight turns blue (sky tint, solid underline). Inline Threads use no amber or orange: in this app amber means a warning.
 - A draft whose Anchor is not found stays in the Inline tab, marked "not found in chat", with a Discard button.
 
 **Resolve.** New Event `SideThreadResolved { resolved }` on the Side Thread, and Command `ResolveSideThread`. Resolving hides the highlight. The thread stays in the Session Log and can be reopened with `resolved: false`. It works for any Side Thread. The Main Thread cannot be resolved.

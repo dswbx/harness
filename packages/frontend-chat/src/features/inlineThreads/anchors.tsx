@@ -329,8 +329,8 @@ function InlineMarker({
             className={cn(
                "absolute left-[calc(100%+0.5rem)] flex h-5 items-center gap-1 rounded-full border px-1.5 text-[11px] font-medium tabular-nums shadow-xs",
                draft
-                  ? "border-blue-400/50 bg-blue-400/15 text-blue-600 dark:text-blue-300"
-                  : "border-amber-500/50 bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                  ? "border-dashed border-muted-foreground/50 bg-muted text-muted-foreground"
+                  : "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
                running && "animate-pulse",
             )}
          >
@@ -340,10 +340,10 @@ function InlineMarker({
             ) : (
                <>
                   {threads.length}
-                  {hasDraft && <Pencil className="size-3 text-blue-500" />}
+                  {hasDraft && <Pencil className="size-3 text-muted-foreground" />}
                </>
             )}
-            {unread && <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />}
+            {unread && <span className="size-1.5 rounded-full bg-foreground" aria-hidden />}
          </button>
       </Tooltip>
    );

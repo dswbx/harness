@@ -49,17 +49,10 @@ function Card({
          aria-label={label}
          className={cn(
             "flex flex-col gap-1 rounded-lg border bg-muted/40 px-3 py-2.5",
-            draft && "border-dashed border-sky-500/40",
+            draft && "border-dashed",
          )}
       >
-         <p
-            className={cn(
-               "line-clamp-1 text-xs",
-               draft ? "text-sky-600 dark:text-sky-300" : "text-amber-700 dark:text-amber-300",
-            )}
-         >
-            “{quote}”
-         </p>
+         <p className="line-clamp-1 text-xs text-muted-foreground">“{quote}”</p>
          {text && <p className="line-clamp-2 text-ui-sm text-foreground/90">{text}</p>}
          <div className="flex min-h-6 items-center gap-2 text-xs text-muted-foreground">
             {children}
@@ -94,7 +87,7 @@ function ThreadState({ inline, t }: { inline: InlineModel; t: InlineThread }) {
    if (status === "unread")
       return (
          <span className="flex items-center gap-1.5">
-            <span className="size-[7px] rounded-full bg-orange-500" />
+            <span className="size-[7px] rounded-full bg-foreground" />
             Unread · {n}
          </span>
       );
