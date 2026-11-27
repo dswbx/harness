@@ -59,7 +59,7 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
   - a new `ResolveSideThread` handler emits `SideThreadResolved`;
   - add both to `mock/commands.test.ts:132` and `mock.test.ts`;
   - add one fixture Session with an anchored Inline Thread that has a reply, for the preview.
-- `platform/storageKeys.ts`: `session("harness.chat.inlineSeen.{session}", "frontend-chat/inlineThreads")`.
+- `platform/storageKeys.ts`: `session("harness.chat.inlineSeen.{session}", "frontend-chat/inlineThreads")` and `session("harness.chat.inlineDrafts.{session}", "frontend-chat/inlineThreads")`.
 
 ## 3. Chat state and anchor resolution
 
@@ -75,14 +75,15 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
 
 - **Model**: in `sideChats/panel.tsx` `useModel`, which already owns `start`, focus and unread. It exposes `inline: InlineModel`:
   - `threads`: `threadList` entries with an `anchor`, plus `state.threads[id]`;
-  - `pending: { itemId, anchor, draftId } | null`;
+  - `drafts: Record<draftId, { itemId, anchor }>` (`storedValue`, versioned), so a draft survives a closed popover and a restart. The draft text is already saved per composer by `useDraft` (`prompt/drafts.ts`); only the anchor is new. Several drafts can exist at once, one per anchor;
+  - `composing: draftId | null`: the draft whose popover is open;
   - `openIds: string[] | null`, `reveal: { id, n }`, and `seen` (`storedValue` `Record<threadId, turnEndedAt>`, versioned);
   - actions: `begin(spot)`, `send(text, files, item, mode)`, `open(ids)`, `close()`, `resolve(id, b)`, `showInChat(id)`.
   - `send` calls `api.startSideThread({ source: "fork", mode, anchor })`. Then it prompts with `withReviewComments(text, [{ kind: "quote", quote, text: "" }])`, so the quote leads the first prompt in the same format as a quote chip. The popover does not show a chip for it. It reuses `deliverPending`, as `start` does.
   - Unread: `turnEndedAt > (seen[id] ?? mountedAt)`. Opening the popover writes `seen`.
 - **Anchors context** `InlineAnchors` (`{ byItem: Map<itemId, Thread[]>, register, unregister }`), provided in `View.tsx` around `MessageList` (like `PlanContext`).
 - **Highlights**: `useAnchorRanges(itemId, ref)` runs in the agent row.
-  - In a layout effect, and after each Markdown commit or `ResizeObserver` change, it finds each anchor with `findQuote` and adds the `Range` to one shared `Highlight` per class: `inline-thread` (amber), `inline-thread-active` (popover open), `inline-thread-pending`.
+  - In a layout effect, and after each Markdown commit or `ResizeObserver` change, it finds each anchor with `findQuote` and adds the `Range` to one shared `Highlight` per class: `inline-thread` (amber), `inline-thread-active` (popover open), `inline-thread-draft` (not sent yet: a different color than amber, for example blue, with a dashed underline).
   - It removes the ranges on unmount, so virtualized rows leave and return cleanly.
   - `CSS.highlights` entries are registered once per module. Styles go in `ui/styles.css` next to `quote-comment`. Pending uses a dashed underline plus a light tint. WebKit support for `text-decoration` in `::highlight` must be checked; the fallback is tint only.
   - Resolved threads are not registered. An anchor that is not found marks the thread `notFound` for the panel.
@@ -98,12 +99,19 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
   - `Row` gets `footer={false}`, so `SideReplyFooter` and `MessageFooter` hide in the popover;
   - replies stream through the normal reducer.
 - **Composer**: `PromptBox` gets one new prop, `contextRing?: boolean` (default true). The popover passes false.
-  - Before send: `threadId = pending.draftId` (`draft:<uuid>`, so draft keys and cleanup follow `isDraftThread`). It uses a draft `ChatState` built like `SideDraft` (mode set to `sideMode`), `onSend` calls `inline.send`, and `onConfigChange` stays local.
+  - Before send: `threadId = composing` (a draftId) (`draft:<uuid>`, so draft keys and cleanup follow `isDraftThread`). It uses a draft `ChatState` built like `SideDraft` (mode set to `sideMode`), `onSend` calls `inline.send`, and `onConfigChange` stays local.
   - After send: `threadId = id`, `state = state.threads[id]`.
 - **Entry**: `SelectionComment` gets a third button, "Ask inline ⌘I". It shows only when `spot.anchorable` is true and the selection is not in a Side Thread.
   - ⌘I is handled in a capture `keydown`. It fires only while the selection box shows and focus is not in an editor, so italic in `PromptEditor` still works.
-  - `begin` stores `describeRange(row, spot.range)`, closes the box, and opens the popover on the pending range.
-  - Esc or an outside click with empty text cancels: the pending highlight and the draft are removed. Esc with text closes the popover and keeps the draft until the next `begin`.
+  - `begin` stores `describeRange(row, spot.range)` as a new draft, closes the box, and opens the popover on the draft range.
+- **Closing a draft**:
+  - Empty text: Esc, Close or an outside click removes the draft and its highlight.
+  - With text: an outside click does NOT close the popover (Radix `onInteractOutside` → `preventDefault`). Only an explicit close (Close button or Esc) closes it. The draft and its text stay, and the highlight shows the draft color. Use case: the popover covers text the user wants to read.
+  - A click on a draft highlight, or its marker (pencil icon, "Draft"), reopens the composer with the saved text.
+  - "Discard draft" (in the popover's More menu, or by clearing the text and closing) removes the draft, its text and its highlight.
+  - Send turns the draft into an Inline Thread: the draft entry and its saved text are removed, and the highlight turns amber.
+  - A draft whose anchor is not found stays in the Inline tab with "Draft · not found in chat" and a Discard button.
+- The Inline tab (section 5) also lists drafts at the top, so they are easy to find.
 
 ## 5. Side chats panel: Inline tab
 
@@ -138,7 +146,8 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
   - `derive/threads.test.ts` (anchor, resolve, reopen);
   - reducer golden snapshot;
   - `inlineThreads/model.test.tsx`: `send` makes the fork call with the quoted first prompt; unread from `seen`; old, missing and broken stored values load;
-  - `app/src/storageFormats.hook.test.tsx`: pins the `inlineSeen` stored format;
+  - `app/src/storageFormats.hook.test.tsx`: pins the `inlineSeen` and `inlineDrafts` stored formats;
+  - `inlineThreads/drafts.test.tsx`: outside click with text keeps the popover open; Close keeps the draft and its text; reopen restores the text; empty close and Discard remove it; send removes the draft;
   - `sideChats/panel.test.tsx`: Inline tab hidden and shown, resolved group collapsed, not found.
 - Preview (`app-alt-port`, fixture Session):
   - select text, press ⌘I, send: the highlight turns amber and the reply streams in the popover;
@@ -165,7 +174,7 @@ Each phase can land and be tested alone.
 1. Rendered text can change with settings (`guessInlineCode`) or a Markdown upgrade. Fuzzy match? Suggest: no. Use exact match with prefix/suffix scoring, and list "not found".
 2. If `e{seq}` is missing (messages merged differently), search the whole Turn? Suggest: yes, as a fallback.
 3. Show anchors in transcript tools (`threads_list`)? Suggest: no. Main does not know.
-4. Outside click with draft text: keep or drop? Suggest: keep the draft, drop the highlight, and restore both on the next ⌘I on the same text.
+4. Draft highlight color: blue dashed, or gray dashed? Suggest: blue (the selection color), so it reads as "not sent yet".
 5. "Ask inline" in the Quick Overlay? Suggest: no. It has no side chats panel.
 6. Can the Agent resolve threads (MCP)? Suggest: not now. User only.
 7. Agent without fork support: seed fallback or hide "Ask inline"? Suggest: seed fallback, same as Side Threads.
