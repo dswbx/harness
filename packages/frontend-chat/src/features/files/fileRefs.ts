@@ -20,8 +20,8 @@ const BARE_NAMES = new Set([
 ]);
 
 const LINES = /(?::(\d+)(?:[-–](\d+)|:\d+)?|#L(\d+)(?:-L?(\d+))?)$/;
-/** A path: no spaces, quotes, brackets, globs or call syntax. */
-const PATH = /^(?:\.{1,2}\/|\/)?[\w@.+-]+(?:\/[\w@.+-]+)*$/;
+/** A path: no spaces, quotes, brackets, globs or call syntax. May start at the home folder (`~/`). */
+const PATH = /^(?:\.{1,2}\/|\/|~\/)?[\w@.+-]+(?:\/[\w@.+-]+)*$/;
 
 /** The file reference `text` is, or null: `crates/engine/src/lib.rs:220-230` is one; `a.b`, `foo()`, URLs are not.
  * Trailing punctuation (`lib.rs:12.`) is ignored. Whether the file exists is up to the reader. */
@@ -42,9 +42,12 @@ export function parseFileRef(text: string): FileRef | null {
    const name = t.slice(t.lastIndexOf("/") + 1);
    const dot = name.lastIndexOf(".");
    const ext = dot > 0 ? name.slice(dot + 1) : "";
-   const isFile = t.includes("/")
-      ? /^[a-z][a-z0-9]{0,9}$/i.test(ext) || BARE_NAMES.has(name)
-      : FILE_EXTENSIONS.has(ext.toLowerCase()) || BARE_NAMES.has(name);
+   // Under the home folder any name counts (`~/.ssh/config`, `~/.zshrc`): the read tells.
+   const isFile =
+      t.startsWith("~/") ||
+      (t.includes("/")
+         ? /^[a-z][a-z0-9]{0,9}$/i.test(ext) || BARE_NAMES.has(name)
+         : FILE_EXTENSIONS.has(ext.toLowerCase()) || BARE_NAMES.has(name));
    return isFile ? { path: t, start, end } : null;
 }
 

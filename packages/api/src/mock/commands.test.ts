@@ -73,6 +73,8 @@ const table: Record<Command["type"], () => Command> = {
    ExportPlan: () => ({ type: "ExportPlan", session_id: S, name: "plan", markdown: "# p" }),
    ListSessionFiles: () => ({ type: "ListSessionFiles", session_id: S }),
    ReadSessionFile: () => ({ type: "ReadSessionFile", session_id: S, path: "a.ts" }),
+   ApproveSessionFile: () => ({ type: "ApproveSessionFile", session_id: S, path: "~/.aws/config" }),
+   RevokeSessionFile: () => ({ type: "RevokeSessionFile", session_id: S, path: "~/.aws/config" }),
    GetState: () => ({ type: "GetState", session_id: S }),
    PatchState: () => ({ type: "PatchState", session_id: S, ops: [] }),
    ReportFrontendError: () => ({

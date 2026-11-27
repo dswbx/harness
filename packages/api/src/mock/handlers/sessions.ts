@@ -16,6 +16,16 @@ const setOne = (mock: MockTransport, id: string, archived: boolean) => {
    mock.emit(id, { type: "SessionArchived", archived });
 };
 
+/** Files outside the mock Session folder, by `~/` path. Under `~/.aws/` they can hold secrets (locked until allowed). */
+const MOCK_HOME: Record<string, string> = {
+   "~/notes/ideas.md": "# Ideas\n\n- A dark theme for the docs site.\n- Shorter release notes.\n",
+   "~/.aws/config": "[default]\nregion = made-up-1\noutput = json\n",
+};
+const lockedReason = (path: string) =>
+   path.startsWith("~/.aws/") ? "in the hidden folder ~/.aws" : null;
+/** Files each mock Session may read although they can hold secrets (`ApproveSessionFile`). */
+const allowedFiles = new Map<string, Set<string>>();
+
 /** Sub Sessions of `id`, oldest first. */
 const children = (mock: MockTransport, id: string) =>
    mock.sessions
@@ -182,12 +192,19 @@ export const sessionsHandlers = {
    },
    ReadSessionFile: (_mock, cmd) => {
       const want = cmd.path.replace(/^\.\//, "");
-      const hits =
-         want in MOCK_NEW ? [want] : Object.keys(MOCK_NEW).filter((p) => p.endsWith(`/${want}`));
+      const outside = want in MOCK_HOME;
+      const hits = outside
+         ? [want]
+         : want in MOCK_NEW
+           ? [want]
+           : Object.keys(MOCK_NEW).filter((p) => p.endsWith(`/${want}`));
       if (hits.length !== 1)
          throw new CommandError("internal", `${cmd.path}: No such file or directory`);
       const path = hits[0]!;
-      const text = MOCK_NEW[path]!;
+      const reason = lockedReason(path);
+      const allowed = !!reason && !!allowedFiles.get(cmd.session_id)?.has(path);
+      if (reason && !allowed) throw new CommandError("needs_approval", reason, path);
+      const text = outside ? MOCK_HOME[path]! : MOCK_NEW[path]!;
       const all = text.replace(/\n$/, "").split("\n");
       const start = Math.max(1, cmd.start ?? 1);
       const end = Math.min(all.length, cmd.end ?? all.length);
@@ -197,6 +214,19 @@ export const sessionsHandlers = {
          start,
          lines: all.slice(start - 1, Math.max(start - 1, end)),
          total: all.length,
+         scope: allowed ? "allowed" : outside ? "outside" : "inside",
       };
+   },
+   ApproveSessionFile: (_mock, cmd) => {
+      if (!(cmd.path in MOCK_HOME))
+         throw new CommandError("internal", `${cmd.path}: No such file or directory`);
+      const set = allowedFiles.get(cmd.session_id) ?? new Set();
+      set.add(cmd.path);
+      allowedFiles.set(cmd.session_id, set);
+      return { type: "Ok" };
+   },
+   RevokeSessionFile: (_mock, cmd) => {
+      allowedFiles.get(cmd.session_id)?.delete(cmd.path);
+      return { type: "Ok" };
    },
 } satisfies Partial<Handlers>;

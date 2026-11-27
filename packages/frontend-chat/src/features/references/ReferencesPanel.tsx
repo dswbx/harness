@@ -82,9 +82,12 @@ export function useReferences(
    }, [active, items]);
    const store = prRefs?.store;
    useEffect(() => (subscribe ? store?.subscribe(bump) : undefined), [store, subscribe]);
+   /** Bumped when the file reader dropped its reads (a file allowed or locked again): they are done again. */
+   const [readerGen, bumpReader] = useReducer((n: number) => n + 1, 0);
+   useEffect(() => reader?.subscribe(bumpReader), [reader]);
    // Each lookup once per target; both caches keep the answers.
    const wanted = useMemo(() => candidates.map((c) => c.key).join("\n"), [candidates]);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event.
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for `candidates`, which change with every Event; `readerGen` only triggers the reads again.
    useEffect(() => {
       if (!active) return;
       let off = false;
@@ -97,12 +100,14 @@ export function useReferences(
          }
       }
       return () => void (off = true);
-   }, [wanted, store, reader, active]);
-   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is when the caches changed.
+   }, [wanted, store, reader, active, readerGen]);
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` and `readerGen` are when the caches changed.
    const resolved = useMemo(() => {
       const file = (f: FileRef) => {
          const w = refWindow(f);
-         return reader ? reader.peek(f.path, w.from, w.to) : undefined;
+         const r = reader?.peek(f.path, w.from, w.to);
+         if (r?.kind !== "ok") return r && null;
+         return { path: r.slice.path, inside: r.slice.scope === "inside" };
       };
       const r = resolveReferences(candidates, {
          pr: (k) => store?.peek(k) ?? null,
@@ -122,7 +127,7 @@ export function useReferences(
          checking,
          count: known ? r.refs.length : undefined,
       };
-   }, [candidates, store, reader, changed, tick, active]);
+   }, [candidates, store, reader, changed, tick, readerGen, active]);
    return resolved;
 }
 
@@ -810,6 +815,11 @@ function CodeDetail({
    reader: FileReader | null;
 }) {
    const [at, setAt] = useState(0);
+   const noPreview = (
+      <p className="rounded-md border border-dashed px-2.5 py-2 text-xs text-foreground/80">
+         {outsidePath(r.path) ? "This file can't be read, so there is no preview." : "No preview."}
+      </p>
+   );
    const bare: FileRef = { path: r.path, start: null, end: null };
    const ref = r.ranges[Math.min(at, r.ranges.length - 1)] ?? bare;
    return (
@@ -833,15 +843,7 @@ function CodeDetail({
                ))}
             </div>
          )}
-         {r.inside && reader ? (
-            <FilePreview reader={reader} fileRef={ref} />
-         ) : (
-            <p className="rounded-md border border-dashed px-2.5 py-2 text-xs text-foreground/80">
-               {outsidePath(r.path)
-                  ? "This path is outside the Session folder, so there is no preview."
-                  : "No preview."}
-            </p>
-         )}
+         {reader ? <FilePreview reader={reader} fileRef={ref} fallback={noPreview} /> : noPreview}
       </>
    );
 }

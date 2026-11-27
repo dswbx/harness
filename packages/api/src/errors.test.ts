@@ -11,6 +11,15 @@ describe("CommandError", () => {
       expect(isCommandError(e, "not_found")).toBe(true);
       expect(isCommandError(e, "conflict")).toBe(false);
       expect(e.message).toBe("unknown session x");
+      expect(e.path).toBeUndefined();
+   });
+
+   it("keeps the real path of a needs_approval error", () => {
+      const e = toCommandError({ code: "needs_approval", message: "a hidden file", path: "~/.a" });
+      expect(e).toMatchObject({ code: "needs_approval", message: "a hidden file", path: "~/.a" });
+      expect(
+         toCommandError({ code: "needs_approval", message: "m", path: 3 }).path,
+      ).toBeUndefined();
    });
 
    it("makes anything else internal", () => {
