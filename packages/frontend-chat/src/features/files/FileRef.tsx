@@ -354,7 +354,6 @@ function FileRefView({
                      path={result.path}
                      written={ref.path}
                      onAllow={() => access(reader.allow, result.path)}
-                     onDismiss={close}
                   />
                )
             )}
@@ -383,20 +382,18 @@ export function ScopeBadge({ kind }: { kind: "locked" | "outside" | "allowed" })
 
 /** Asks to show a file outside the Session folder that can hold secrets. `reason`: why (`in the hidden folder ~/.aws`).
  * `path`: the real file "Allow" unlocks, named when it is not `written` (the path asked for, e.g. a symlink). A failed
- * `onAllow` shows its error here. `onDismiss`: a "Not now" button. */
+ * `onAllow` shows its error here. */
 export function LockedNotice({
    reason,
    path,
    written,
    onAllow,
-   onDismiss,
    className,
 }: {
    reason: string;
    path: string;
    written: string;
    onAllow: () => Promise<unknown>;
-   onDismiss?: () => void;
    className?: string;
 }) {
    const [busy, setBusy] = useState(false);
@@ -429,16 +426,6 @@ export function LockedNotice({
                   >
                      Allow and show
                   </Button>
-                  {onDismiss && (
-                     <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-auto min-h-7 max-w-full whitespace-normal py-1"
-                        onClick={onDismiss}
-                     >
-                        Not now
-                     </Button>
-                  )}
                </div>
                {error && (
                   <p role="alert" className="text-destructive">
