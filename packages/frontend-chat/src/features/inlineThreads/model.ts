@@ -3,11 +3,12 @@ import { useStoredValue } from "@harness/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TextQuote } from "../../lib/textQuote";
 import type { ChatState } from "../../state/reducer";
-import { clearDraft, getDraft } from "../prompt/drafts";
+import { clearDraft, getDraft, getDraftAttachments, setDraft } from "../prompt/drafts";
 import type { PendingMessage } from "../prompt/pendingMessages";
 import { deliverPending } from "../prompt/usePendingSend";
 import {
    composerKey,
+   getReviewComments,
    parseReviewComments,
    setReviewComments,
    withReviewComments,
@@ -41,8 +42,10 @@ export type InlineModel = {
    /** Threads and drafts whose quote was looked for in the chat and not found. */
    notFound: ReadonlySet<string>;
    statusOf: (id: string) => InlineStatus;
-   /** Whether a draft has text in its composer. */
-   hasText: (draftId: string) => boolean;
+   /** Whether a draft has something in its composer (text, quotes, attachments) or is being sent. */
+   hasContent: (draftId: string) => boolean;
+   /** The Thread a draft was sent as (this mount only); null if it was not. */
+   sentAs: (draftId: string) => string | null;
    /** "Ask inline" on `quote` in agent message `itemId`: a new draft, shown at once. Null: not anchorable. */
    begin: (itemId: string, quote: TextQuote) => string | null;
    /** Sends a draft's first message: the Inline Thread starts (forked), and the draft goes. */
@@ -159,10 +162,22 @@ export function useInlineThreads({
       if (changed) seen$.set(next);
    }, [openEnds, persist, seen$]);
 
-   const hasText = useCallback(
-      (draftId: string) => getDraft(composerKey(sessionId, draftId)) !== null,
+   // Drafts whose first message is on its way (the fork can take seconds), and what drafts were sent as.
+   const sending = useRef(new Set<string>());
+   const sentTo = useRef(new Map<string, string>());
+   const hasContent = useCallback(
+      (draftId: string) => {
+         const key = composerKey(sessionId, draftId);
+         return (
+            sending.current.has(draftId) ||
+            getDraft(key) !== null ||
+            getReviewComments(key).length > 0 ||
+            getDraftAttachments(key).length > 0
+         );
+      },
       [sessionId],
    );
+   const sentAs = useCallback((draftId: string) => sentTo.current.get(draftId) ?? null, []);
    const discard = useCallback(
       (draftId: string) => {
          const key = composerKey(sessionId, draftId);
@@ -201,6 +216,7 @@ export function useInlineThreads({
       ) => {
          const draft = drafts$.get()[draftId];
          if (!draft) throw new Error("This draft is gone.");
+         if (sending.current.has(draftId)) throw new Error("This question is already being sent.");
          const { anchor } = draft;
          // The quote leads the first prompt, like a quote chip.
          const typed = parseReviewComments(text);
@@ -208,12 +224,24 @@ export function useInlineThreads({
             { id: "anchor", kind: "quote", quote: anchor.quote, text: "" },
             ...typed.comments,
          ]);
-         // Rejects when the Thread did not start: the composer gets its text back.
-         const { thread_id } = await api.startSideThread({
-            source: "fork",
-            ...(mode && { mode }),
-            anchor,
-         });
+         // Rejects when the Thread did not start: the composer gets its text back. The text is also stored
+         // again here, since the popover may have closed meanwhile.
+         sending.current.add(draftId);
+         let thread_id: string;
+         try {
+            ({ thread_id } = await api.startSideThread({
+               source: "fork",
+               ...(mode && { mode }),
+               anchor,
+            }));
+         } catch (err) {
+            if (drafts$.get()[draftId] && item.snap)
+               setDraft(composerKey(sessionId, draftId), item.snap);
+            throw err;
+         } finally {
+            sending.current.delete(draftId);
+         }
+         sentTo.current.set(draftId, thread_id);
          setStarted((m) => ({ ...m, [thread_id]: { itemId: draft.itemId, anchor } }));
          const sent = deliverPending(
             composerKey(sessionId, thread_id),
@@ -237,9 +265,9 @@ export function useInlineThreads({
    const openRef = useRef(openIds);
    openRef.current = openIds;
    const close = useCallback(() => {
-      for (const id of openRef.current ?? []) if (isDraftId(id) && !hasText(id)) discard(id);
+      for (const id of openRef.current ?? []) if (isDraftId(id) && !hasContent(id)) discard(id);
       setOpenIds(null);
-   }, [hasText, discard]);
+   }, [hasContent, discard]);
    const resolve = useCallback(
       (id: string, resolved: boolean) => {
          api.resolveSideThread(id, resolved).catch((e) => console.error("resolve failed", e));
@@ -262,6 +290,19 @@ export function useInlineThreads({
       [],
    );
 
+   // Drafts with nothing in their composer go when the model loads and when it goes (a reload, a Session
+   // switch): an empty draft would otherwise stay forever (highlight, empty card).
+   useEffect(() => {
+      if (!persist) return;
+      const prune = () => {
+         const all = drafts$.get();
+         const left = Object.fromEntries(Object.entries(all).filter(([id]) => hasContent(id)));
+         if (Object.keys(left).length !== Object.keys(all).length) drafts$.set(left);
+      };
+      prune();
+      return prune;
+   }, [persist, drafts$, hasContent]);
+
    // A Thread started here shows from the list once its `ThreadStarted` is folded in.
    useEffect(() => {
       setStarted((m) => {
@@ -282,7 +323,8 @@ export function useInlineThreads({
          reveal,
          notFound,
          statusOf,
-         hasText,
+         hasContent,
+         sentAs,
          begin,
          send,
          open,
@@ -300,7 +342,8 @@ export function useInlineThreads({
          reveal,
          notFound,
          statusOf,
-         hasText,
+         hasContent,
+         sentAs,
          begin,
          send,
          open,

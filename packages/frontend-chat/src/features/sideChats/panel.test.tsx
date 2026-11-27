@@ -7,6 +7,7 @@ import { usePanelHost } from "../../shell/usePanelHost";
 import { type ChatState, initialState } from "../../state/reducer";
 import { InlineList } from "../inlineThreads/InlineList";
 import type { InlineModel, InlineThread } from "../inlineThreads/model";
+import { setDraft } from "../prompt/drafts";
 import { getPendingMessages } from "../prompt/pendingMessages";
 import { composerKey } from "../review/reviewComments";
 import { type SideChatsModel, sideChatsPanel } from "./panel";
@@ -345,6 +346,8 @@ describe("Inline tab", () => {
             d: JSON.stringify({ "draft:d": { itemId: "e5", anchor: anchor("three") } }),
          }),
       );
+      // Its composer has text (drafts with nothing in it go on load).
+      setDraft(composerKey("s1", "draft:d"), { root: { children: [] } } as never);
       const { out } = setup();
       // One open Thread and one draft; the resolved one is not counted.
       expect(out.model.inlineCount).toBe(2);

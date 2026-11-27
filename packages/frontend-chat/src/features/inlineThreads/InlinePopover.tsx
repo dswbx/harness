@@ -97,7 +97,12 @@ export function InlinePopover({
    const last = useRef<{ id: string; range: Range; row: Element } | null>(null);
    const found = id ? registry.get(id) : null;
    if (id && found) last.current = { id, ...found };
-   const target = found ?? (last.current?.row.isConnected ? last.current : null);
+   // The kept range is for the same id only, or for the Thread its draft was just sent as.
+   const kept =
+      id && last.current && (last.current.id === id || inline.sentAs(last.current.id) === id)
+         ? last.current
+         : null;
+   const target = found ?? (kept?.row.isConnected ? kept : null);
    const virtualRef = useMemo(
       () =>
          target && {
@@ -165,7 +170,11 @@ export function InlinePopover({
             onOpenAutoFocus={(e) => e.preventDefault()}
             // With text in a draft, only Close or Esc closes it: the popover may cover text the user wants to read.
             onInteractOutside={(e) => {
-               if (ids.some((x) => isDraftAnchor(x) && inline.hasText(x))) e.preventDefault();
+               if (ids.some((x) => isDraftAnchor(x) && inline.hasContent(x))) e.preventDefault();
+            }}
+            // Esc in the composer's "/" or "#" menu closes that menu (the editor handles it), not the popover.
+            onEscapeKeyDown={(e) => {
+               if (prompt.current?.menuOpen()) e.preventDefault();
             }}
          >
             <ScrollArea

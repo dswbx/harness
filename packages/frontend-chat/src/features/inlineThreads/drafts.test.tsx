@@ -1,4 +1,4 @@
-import type { SessionApi } from "@harness/api";
+import type { SessionApi, ThreadInfo } from "@harness/api";
 import { TooltipProvider } from "@harness/ui";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,12 @@ const api = {
    setConfigOption: vi.fn(async () => {}),
    cancel: vi.fn(async () => {}),
 } as unknown as SessionApi;
-const state: ChatState = { ...initialState(), mainThreadId: "main", loaded: true };
+const state: ChatState = {
+   ...initialState(),
+   mainThreadId: "main",
+   loaded: true,
+   commands: [{ name: "compact", description: "", hint: null }],
+};
 const quote = { quote: "twice", prefix: "waits ", suffix: " as long" };
 
 /** A saved composer text (the editor's JSON) for a draft. */
@@ -57,19 +62,19 @@ const typed = (text: string) =>
       },
    }) as never;
 
-function setup() {
+function setup(s: ChatState = state) {
    const row = document.createElement("p");
    row.textContent = "The loop waits twice as long each time.";
    document.body.append(row);
    const registry = new AnchorRegistry();
    const out = { m: null as unknown as InlineModel };
    function Harness() {
-      const m = useInlineThreads({ api, state });
+      const m = useInlineThreads({ api, state: s });
       out.m = m;
       return (
          <InlinePopover
             api={api}
-            state={state}
+            state={s}
             inline={m}
             registry={registry}
             env={{} as UiEnv}
@@ -95,7 +100,7 @@ function setup() {
       });
       return id;
    };
-   return { out, begin, row };
+   return { out, begin, row, registry };
 }
 
 // Hidden from the accessibility tree in happy-dom (no layout: the anchor looks detached).
@@ -183,5 +188,50 @@ describe("inline drafts", () => {
       // Still open, now on the Thread (at the same text until its own range is found).
       expect(out.m.openIds).toEqual(["t9"]);
       expect(popover()?.getAttribute("aria-label")).toBe("Inline thread");
+   });
+   it("Esc in the composer's slash menu closes the menu, not the popover", async () => {
+      const { out, begin } = setup();
+      const id = begin();
+      act(() => out.m.open([]));
+      setDraft(composerKey(SID, id), typed("/"));
+      act(() => out.m.open([id]));
+      await tick();
+      expect(document.querySelector('[role="option"]')).not.toBeNull();
+      const ed = popover()!.querySelector<HTMLElement>("[contenteditable]")!;
+      fireEvent.keyDown(ed, { key: "Escape" });
+      expect(popover()).not.toBeNull();
+      expect(document.querySelector('[role="option"]')).toBeNull();
+      // With the menu closed, Esc closes the popover (the draft has text: it stays).
+      fireEvent.keyDown(ed, { key: "Escape" });
+      expect(popover()).toBeNull();
+      expect(out.m.drafts[id]).toBeDefined();
+   });
+
+   it("a Thread whose text is not on screen does not open at another Thread's text", () => {
+      const thread = (id: string, seq: number): ThreadInfo => ({
+         id,
+         main: false,
+         title: null,
+         agentTitle: null,
+         forkedFrom: null,
+         anchor: { thread_id: "main", seq, ...quote },
+         resolved: false,
+         turns: 1,
+         lastAt: 0,
+      });
+      const { out, row, registry } = setup({
+         ...state,
+         threadList: [thread("a", 5), thread("b", 9)],
+      });
+      act(() => {
+         const r = document.createRange();
+         r.setStart(row.firstChild!, 15);
+         r.setEnd(row.firstChild!, 20);
+         registry.set("a", r, row);
+         out.m.open(["a"]);
+      });
+      expect(popover()).not.toBeNull();
+      act(() => out.m.open(["b"]));
+      expect(popover()).toBeNull();
    });
 });

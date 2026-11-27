@@ -47,6 +47,9 @@ export function updateDraftAttachments(
    for (const l of listeners) l();
 }
 
+/** The attachments waiting in `key`'s composer (memory only: gone after a reload). */
+export const getDraftAttachments = (key: string): PendingAttachment[] => files.get(key) ?? EMPTY;
+
 /** Drops everything waiting in `key`'s composer (e.g. a closed side chat tab). */
 export function clearDraft(key: string) {
    setDraft(key, null);

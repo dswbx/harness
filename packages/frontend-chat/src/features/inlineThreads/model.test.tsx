@@ -2,9 +2,9 @@ import type { SessionApi, TextAnchor, ThreadInfo } from "@harness/api";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ChatState, initialState } from "../../state/reducer";
-import { getDraft, setDraft } from "../prompt/drafts";
+import { getDraft, setDraft, updateDraftAttachments } from "../prompt/drafts";
 import type { PendingMessage } from "../prompt/pendingMessages";
-import { composerKey, withReviewComments } from "../review/reviewComments";
+import { composerKey, setQuotes, withReviewComments } from "../review/reviewComments";
 import { type InlineModel, useInlineThreads } from "./model";
 
 const SID = "s1";
@@ -47,6 +47,9 @@ const item = (prompt: string): PendingMessage => ({
    base: 0,
 });
 
+const draftsKey = `harness.chat.inlineDrafts.${SID}`;
+const stored = () => JSON.parse(JSON.parse(localStorage.getItem(draftsKey)!).d);
+
 function setup(state: ChatState = mainState()) {
    const out = { current: null as unknown as InlineModel };
    const view = renderHook(
@@ -57,7 +60,7 @@ function setup(state: ChatState = mainState()) {
       },
       { initialProps: { s: state } },
    );
-   return { out, rerender: (s: ChatState) => view.rerender({ s }) };
+   return { out, rerender: (s: ChatState) => view.rerender({ s }), unmount: view.unmount };
 }
 
 const mem = new Map<string, string>();
@@ -207,6 +210,8 @@ describe("useInlineThreads", () => {
          seenKey,
          JSON.stringify({ v: 1, d: JSON.stringify({ a: 5, b: "x", c: null }) }),
       );
+      // (draft:a has text: drafts with nothing in their composer go on load.)
+      setDraft(composerKey(SID, "draft:a"), { root: { children: [] } } as never);
       const s = mainState({
          threadList: [info("a", anchor()), info("b", anchor())],
          threads: {
@@ -236,5 +241,84 @@ describe("useInlineThreads", () => {
       act(() => out.current.showInChat("a"));
       act(() => out.current.showInChat("a"));
       expect(out.current.reveal).toEqual({ id: "a", n: 2 });
+   });
+   it("a draft being sent stays on close, refuses a second send, and gets its text back on failure", async () => {
+      const { out } = setup();
+      let id = "";
+      act(() => {
+         id = out.current.begin("e5", quote)!;
+      });
+      const key = composerKey(SID, id);
+      const snap = { root: { children: [] } } as never;
+      let fail: (e: Error) => void = () => {};
+      api.startSideThread.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+      let first: Promise<void> = Promise.resolve();
+      act(() => {
+         first = out.current.send(id, "Why?", [], { ...item("Why?"), snap });
+      });
+      // The composer cleared its text when it sent; an outside click or Esc closes now.
+      expect(getDraft(key)).toBeNull();
+      expect(out.current.hasContent(id)).toBe(true);
+      act(() => out.current.close());
+      expect(out.current.drafts[id]).toBeDefined();
+      await expect(out.current.send(id, "Again", [], item("Again"))).rejects.toThrow(
+         "already being sent",
+      );
+      expect(api.startSideThread).toHaveBeenCalledTimes(1);
+      await act(async () => {
+         fail(new Error("fork failed"));
+         await expect(first).rejects.toThrow("fork failed");
+      });
+      // The popover is gone: the text is stored again for when it opens.
+      expect(getDraft(key)).toEqual(snap);
+      expect(out.current.drafts[id]).toBeDefined();
+      expect(out.current.sentAs(id)).toBeNull();
+   });
+
+   it("sentAs names the Thread a draft became", async () => {
+      const { out } = setup();
+      let id = "";
+      act(() => {
+         id = out.current.begin("e5", quote)!;
+      });
+      await act(() => out.current.send(id, "Why?", [], item("Why?")));
+      expect(out.current.sentAs(id)).toBe("t9");
+   });
+
+   it("a draft with only a quote or an attachment stays on close", () => {
+      const { out } = setup();
+      let q = "";
+      let f = "";
+      act(() => {
+         q = out.current.begin("e5", quote)!;
+      });
+      setQuotes(composerKey(SID, q), [{ id: "c1", kind: "quote", quote: "x", text: "" }]);
+      act(() => out.current.close());
+      act(() => {
+         f = out.current.begin("e5", quote)!;
+      });
+      updateDraftAttachments(composerKey(SID, f), () => [{ id: "a1" } as never]);
+      act(() => out.current.close());
+      expect(Object.keys(out.current.drafts).sort()).toEqual([q, f].sort());
+      updateDraftAttachments(composerKey(SID, f), () => []);
+   });
+
+   it("drops drafts with nothing in their composer on load and on unmount", () => {
+      const good = { itemId: "e5", anchor: anchor() };
+      localStorage.setItem(
+         draftsKey,
+         JSON.stringify({ v: 1, d: JSON.stringify({ "draft:a": good, "draft:b": good }) }),
+      );
+      setDraft(composerKey(SID, "draft:a"), { root: { children: [] } } as never);
+      const { out, unmount } = setup();
+      expect(Object.keys(out.current.drafts)).toEqual(["draft:a"]);
+      // An empty draft begun now (Ask inline, then a reload or Session switch) goes too.
+      let id = "";
+      act(() => {
+         id = out.current.begin("e5", quote)!;
+      });
+      expect(stored()[id]).toBeDefined();
+      unmount();
+      expect(Object.keys(stored())).toEqual(["draft:a"]);
    });
 });

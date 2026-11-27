@@ -48,7 +48,11 @@ const NARROW_BOX = 460;
 
 const isQuote = (c: ReviewComment): c is QuoteComment => c.kind === "quote";
 
-export type PromptBoxHandle = { focus(): void };
+export type PromptBoxHandle = {
+   focus(): void;
+   /** Whether its "/" or "#" menu is open (Escape closes that menu first). */
+   menuOpen(): boolean;
+};
 
 /**
  * The prompt box of the Main Thread, or of a Side Thread (`threadId`). Comments and quotes waiting in it are
@@ -103,7 +107,12 @@ export function PromptBox({
    const [lines, setLines] = useState(0);
    const [overflow, setOverflow] = useState(false);
    const ref = useRef<PromptEditorHandle>(null);
-   useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
+   const menuOpen = useRef(false);
+   useImperativeHandle(
+      handle,
+      () => ({ focus: () => ref.current?.focus(), menuOpen: () => menuOpen.current }),
+      [],
+   );
    const key = composerKey(api.sessionId, threadId);
    const saveDraft = useDraft(key, ref);
    const running = state.turnId !== null;
@@ -126,6 +135,7 @@ export function PromptBox({
       onSideThread,
       editor: ref,
    });
+   menuOpen.current = count > 0;
    const pct = state.usage
       ? Math.min(100, Math.round((state.usage.used / state.usage.size) * 100))
       : null;
