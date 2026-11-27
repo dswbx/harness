@@ -433,6 +433,19 @@ pub fn run() {
                 api.prevent_close();
                 overlay::hide(window.app_handle());
             }
+            // The main window (red X, Cmd+W): on macOS it only hides, so panel windows keep it and
+            // the Dock icon (`Reopen`) or a Session chip shows it again. Elsewhere closing it quits,
+            // so panel windows never run without it (they stay popped and restore on launch).
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                if cfg!(target_os = "macos") {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    window.app_handle().exit(0);
+                }
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 drop_webview(window.app_handle(), window.label());
                 window.app_handle().state::<Subscriptions>().forget_label(window.label());
@@ -475,6 +488,13 @@ pub fn run() {
             // SIGINT/SIGTERM (`stop_on_signal`). A restart cannot be prevented, so shutdown runs
             // right here and blocks (bounded) instead of deferring the exit.
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => shut_down(app),
+            // Dock icon click (macOS): the main window comes back (it hides on close).
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                if let Some(main) = app.get_webview_window("main") {
+                    bring_to_front(&main);
+                }
+            }
             _ => {}
         });
 }

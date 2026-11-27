@@ -13,10 +13,14 @@ import { initialState } from "../state/reducer";
 import { defaultLayout, isOpen, type Layout } from "./dock/model";
 import { usePanelHost } from "./usePanelHost";
 
-const windows = vi.hoisted(() => ({ focus: vi.fn(async () => true) }));
+const windows = vi.hoisted(() => ({
+   focus: vi.fn(async () => true),
+   send: vi.fn(async (..._a: unknown[]) => {}),
+}));
 vi.mock("@harness/api", async (orig) => ({
    ...(await orig<typeof import("@harness/api")>()),
    showPanelWindow: windows.focus,
+   sendPanelOpen: windows.send,
 }));
 
 const applied: string[] = [];
@@ -160,16 +164,17 @@ describe("usePanelHost targets", () => {
 });
 
 describe("usePanelHost panel windows", () => {
-   it("shows the window of a popped panel (focus, or reopen), no layout change", () => {
+   it("sends an open of a popped panel to its window, with the target; no layout change", () => {
       applied.length = 0;
-      windows.focus.mockClear();
+      windows.send.mockClear();
       const { out } = setup("full", { popped: new Set(["files"]) });
       act(() => out.ctx.open(files, "a.ts"));
-      expect(windows.focus).toHaveBeenCalledWith("s", "files");
+      expect(windows.send).toHaveBeenCalledWith("s", "files", "a.ts");
       expect(isOpen(out.lay, "files")).toBe(false);
       expect(applied).toEqual([]);
       act(() => out.ctx.open(plan, "p0"));
       expect(isOpen(out.lay, "plan")).toBe(true);
+      expect(windows.send).toHaveBeenCalledTimes(1);
    });
 
    it("self.show on a popped panel shows its window", () => {
@@ -180,16 +185,20 @@ describe("usePanelHost panel windows", () => {
       expect(isOpen(out.lay, "plan")).toBe(false);
    });
 
-   it("in a panel window: another panel uses its fallback, or does nothing", () => {
+   it("in a panel window: another panel is sent to the main window (also one with a fallback)", () => {
       applied.length = 0;
       fallback.mockClear();
+      windows.send.mockClear();
       const { out } = setup("full", { popout: "plan" });
       act(() => out.ctx.open(files, "d.ts"));
-      expect(fallback).toHaveBeenCalledWith("d.ts");
+      expect(windows.send).toHaveBeenCalledWith("s", "files", "d.ts");
+      expect(fallback).not.toHaveBeenCalled();
       expect(isOpen(out.lay, "files")).toBe(false);
       act(() => out.ctx.open(terminal, "ls"));
+      expect(windows.send).toHaveBeenCalledWith("s", "terminal", "ls");
       expect(isOpen(out.lay, "terminal")).toBe(false);
       act(() => out.ctx.open(plan, "p2"));
       expect(applied).toEqual(["plan:p2"]);
+      expect(windows.send).toHaveBeenCalledTimes(2);
    });
 });

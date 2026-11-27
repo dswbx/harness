@@ -47,4 +47,12 @@ A reload of the main window (dev: a full reload, Cmd+R) runs the restore again w
 
 In the browser mock, tabs outlive the main page and a closed tab marks its own key `closed` (`pagehide`), so only the removals and docks run there.
 
-**Consequences.** Each Panel window runs the full chat fold and the Panel models of its Session (more memory on long Sessions). A target sent to a popped Panel from the main window (a diff link while Changes is popped) only shows its window for now. Closing the main window while Panel windows are open leaves them without a main window (an older issue: there is no reopen handler).
+**Opens between windows (panel inbox).** A `ctx.open(ref, target)` that a View cannot show goes to the View that owns that Panel for this Session: the Panel window when the Panel is popped, else the main window (which first switches to the Session, `showSession`). Examples: "Show in artifacts" in a popped slot opens Artifacts in the main window at the item; a diff link in the main window while Changes is popped opens the Changes window at that scope. The fallback of a Panel (Files) is now for the Quick Overlay only; a Panel window sends to the main window instead.
+
+- `harness.panelOpen.{session}#{name}` → `{v:1, at, target?}`, one key per (Session, Panel) like the window keys. `target` is the JSON value of the open (all targets are JSON). `sendPanelOpen` writes the key, then shows the owner's window (`showPanelWindow` or `showSession`). `forgetSession` removes the family.
+- The owner applies it (`useInbox`): the main view owns the Panels that are not popped, a Panel window only its own Panel, the Quick Overlay none. Each entry is applied once through `ctx.open`, then `takePanelOpen` removes the key. An entry for a Panel the View does not host (yet) stays: a slot made just before the open shows on the next render and then matches.
+- An entry older than 30 s (`PANEL_OPEN_TTL`) is stale: removed, never applied. So an open that no View took does not fire on the next launch. Bad data is removed too.
+
+**Main window close.** On macOS the main window's red X (or Cmd+W) only hides it; Panel windows stay open. The Dock icon (`RunEvent::Reopen`) shows it again, and so does a Session chip or a sent open (`show_session` shows a hidden main window). On other platforms closing the main window quits the app, so Panel windows never run without it; quit keeps their keys, so they restore on the next launch.
+
+**Consequences.** Each Panel window runs the full chat fold and the Panel models of its Session (more memory on long Sessions).

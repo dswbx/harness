@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { inTauri } from "../transport/transport";
 import { codec, onOffText, onStoredChange, type Stored, storedKeys, storedValue } from "./storage";
 import { matchKey } from "./storageKeys";
@@ -241,6 +241,115 @@ export async function panelWindowOpen(session: string, panel: string): Promise<b
 /** Shows `session` in the main window and brings that window to the front (Tauri only). */
 export async function showSession(session: string): Promise<void> {
    if (inTauri()) await invoke("show_session", { sessionId: session });
+}
+
+/**
+ * Panel inbox: an open (`ctx.open`) that a View cannot show goes to the View that owns the panel for
+ * this Session (its pop-out when popped, else the main view). One key per (Session, panel):
+ * `harness.panelOpen.{session}#{panel}` → `{v:1, at, target?}`; `target` is a JSON value. The owner
+ * applies it once and removes the key. An entry older than `PANEL_OPEN_TTL` is stale: removed, never
+ * applied (a request that no View took does not fire on the next launch).
+ */
+export type PanelOpen = PanelWindow & { at: number; target?: unknown };
+type OpenEntry = { v: 1; at: number; target?: unknown };
+
+const OPEN = "harness.panelOpen.";
+const OPEN_PATTERN = `${OPEN}{session}#{name}`;
+/** How long an open waits for its owner (ms). */
+export const PANEL_OPEN_TTL = 30_000;
+
+/** A stored open; anything else (bad JSON, another version) is null. */
+export function parsePanelOpen(raw: string | null): OpenEntry | null {
+   if (raw === null) return null;
+   try {
+      const e = JSON.parse(raw);
+      if (!(e && typeof e === "object" && e.v === 1 && Number.isFinite(e.at))) return null;
+      return "target" in e ? { v: 1, at: e.at, target: e.target } : { v: 1, at: e.at };
+   } catch {
+      return null;
+   }
+}
+
+const openStore = (session: string, panel: string): Stored<OpenEntry | null> =>
+   storedValue<OpenEntry | null>({
+      key: `${OPEN}${session}#${panel}`,
+      scope: { session },
+      parse: parsePanelOpen,
+   });
+
+/** The open key a storage key belongs to; null for any other key. */
+function openOf(key: string): PanelWindow | null {
+   const m = matchKey(key);
+   if (m?.def.pattern !== OPEN_PATTERN || m.session === null) return null;
+   return { session: m.session, panel: key.slice(OPEN.length + m.session.length + 1) };
+}
+
+const isStale = (at: number, now: number) => now - at > PANEL_OPEN_TTL;
+
+/** The live opens, oldest first, and whether a key held bad or stale data (removed when `clean`). */
+function scanOpens(clean: boolean): { list: PanelOpen[]; bad: boolean } {
+   const now = Date.now();
+   const out: PanelOpen[] = [];
+   let bad = false;
+   for (const key of storedKeys()) {
+      const w = openOf(key);
+      if (!w) continue;
+      const store = openStore(w.session, w.panel);
+      const e = store.get();
+      if (e && !isStale(e.at, now))
+         out.push({ ...w, at: e.at, ...("target" in e && { target: e.target }) });
+      else if (store.has()) {
+         bad = true;
+         if (clean) store.remove();
+      }
+   }
+   return { list: byAge(out), bad };
+}
+
+/** Every live open, oldest first. Keys with bad or stale data are removed. */
+export const listPanelOpens = (): PanelOpen[] => scanOpens(true).list;
+
+let openCache: { sig: string; value: PanelOpen[] } | undefined;
+const openSnapshot = (): PanelOpen[] => {
+   const { list, bad } = scanOpens(false);
+   // Not while React reads a snapshot: removing a key notifies the listeners.
+   if (bad) queueMicrotask(listPanelOpens);
+   const sig = JSON.stringify(list);
+   if (openCache?.sig !== sig) openCache = { sig, value: list };
+   return openCache.value;
+};
+const subscribeOpens = (l: () => void) =>
+   onStoredChange((key) => {
+      if (key === null || openOf(key)) l();
+   });
+
+/** The live opens of `session` as React state, oldest first; follows other windows. */
+export function usePanelOpens(session: string): PanelOpen[] {
+   const all = useSyncExternalStore(subscribeOpens, openSnapshot, openSnapshot);
+   return useMemo(() => all.filter((o) => o.session === session), [all, session]);
+}
+
+/** Removes the open of `panel` (its owner applied it). */
+export function takePanelOpen(session: string, panel: string): void {
+   openStore(session, panel).remove();
+}
+
+/**
+ * Sends an open of `panel` (at `target`, a JSON value) to the View that owns it: writes the key,
+ * then brings that View forward: the pop-out when `panel` is popped, else the main window at `session`.
+ */
+export async function sendPanelOpen(
+   session: string,
+   panel: string,
+   target?: unknown,
+): Promise<void> {
+   openStore(session, panel).set({
+      v: 1,
+      at: Date.now(),
+      ...(target !== undefined && { target }),
+   });
+   if (isPanelPopped(session, panel)) await showPanelWindow(session, panel);
+   else await showSession(session);
 }
 
 /** Part of a window that must be on a display for it to count as on screen: its title bar. */

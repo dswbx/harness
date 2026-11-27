@@ -86,6 +86,7 @@ export const STORAGE_KEYS: readonly KeyDef[] = [
    session("harness.draft.{session}#{thread}", "api/contract/drafts"),
    session("harness.panelWindow.{session}#{name}", "api/platform/panelWindows"),
    session("harness.panelWindowFrame.{session}#{name}", "api/platform/panelWindows"),
+   session("harness.panelOpen.{session}#{name}", "api/platform/panelWindows"),
 ];
 
 export type KeyMatch = { def: KeyDef; session: string | null };

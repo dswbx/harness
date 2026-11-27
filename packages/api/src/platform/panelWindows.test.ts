@@ -6,12 +6,17 @@ import {
    forgetPanelWindow,
    isPanelPopped,
    listEndedPanelWindows,
+   listPanelOpens,
    listPanelWindows,
+   PANEL_OPEN_TTL,
    panelWindowLabel,
    panelWindowUrl,
+   parsePanelOpen,
    parsePanelWindow,
    popPanel,
+   sendPanelOpen,
    showPanelWindow,
+   takePanelOpen,
 } from "./panelWindows";
 
 class MemStorage {
@@ -238,5 +243,63 @@ describe("fitFrame", () => {
    it("no displays known: the fallback", () => {
       const f = { x: 10, y: 10, width: 300, height: 300 };
       expect(fitFrame(f, [], main)).toEqual({ x: 570, y: 300, width: 300, height: 300 });
+   });
+});
+
+describe("panel inbox", () => {
+   const KEY = "harness.panelOpen.s1#files";
+
+   it("parses only v1 entries; target is any JSON value", () => {
+      expect(parsePanelOpen(null)).toBeNull();
+      expect(parsePanelOpen("{bad")).toBeNull();
+      expect(parsePanelOpen('{"v":2,"at":1}')).toBeNull();
+      expect(parsePanelOpen('{"v":1}')).toBeNull();
+      expect(parsePanelOpen('{"v":1,"at":5}')).toEqual({ v: 1, at: 5 });
+      expect(parsePanelOpen('{"v":1,"at":5,"target":"a.ts"}')).toEqual({
+         v: 1,
+         at: 5,
+         target: "a.ts",
+      });
+      expect(parsePanelOpen('{"v":1,"at":5,"target":{"path":"a.ts","line":3}}')).toEqual({
+         v: 1,
+         at: 5,
+         target: { path: "a.ts", line: 3 },
+      });
+   });
+
+   it("send writes the key with the target; take removes it", async () => {
+      await sendPanelOpen("s1", "files", { path: "a.ts" });
+      expect(JSON.parse(mem.getItem(KEY)!)).toMatchObject({ v: 1, target: { path: "a.ts" } });
+      expect(listPanelOpens()).toEqual([
+         expect.objectContaining({ session: "s1", panel: "files", target: { path: "a.ts" } }),
+      ]);
+      takePanelOpen("s1", "files");
+      expect(mem.getItem(KEY)).toBeNull();
+   });
+
+   it("send without a target stores none", async () => {
+      await sendPanelOpen("s1", "plan");
+      expect(JSON.parse(mem.getItem("harness.panelOpen.s1#plan")!)).not.toHaveProperty("target");
+      expect(listPanelOpens()[0]).not.toHaveProperty("target");
+   });
+
+   it("send to a popped panel shows its window", async () => {
+      mem.setItem("harness.panelWindow.s1#files", '{"v":1,"at":1}');
+      await sendPanelOpen("s1", "files", "a.ts");
+      expect(open).toHaveBeenCalledWith(
+         panelWindowUrl("s1", "files"),
+         panelWindowLabel("s1", "files"),
+      );
+   });
+
+   it("stale and bad entries are dropped and removed; live ones stay", () => {
+      const now = Date.now();
+      mem.setItem(KEY, JSON.stringify({ v: 1, at: now - PANEL_OPEN_TTL - 1, target: "old.ts" }));
+      mem.setItem("harness.panelOpen.s1#plan", "garbage");
+      mem.setItem("harness.panelOpen.s2#plan", JSON.stringify({ v: 1, at: now, target: "p" }));
+      expect(listPanelOpens()).toEqual([{ session: "s2", panel: "plan", at: now, target: "p" }]);
+      expect(mem.getItem(KEY)).toBeNull();
+      expect(mem.getItem("harness.panelOpen.s1#plan")).toBeNull();
+      expect(mem.getItem("harness.panelOpen.s2#plan")).not.toBeNull();
    });
 });

@@ -259,6 +259,7 @@ describe("registry", () => {
          "session harness.draft.{session}#{thread}",
          "session harness.panelWindow.{session}#{name}",
          "session harness.panelWindowFrame.{session}#{name}",
+         "session harness.panelOpen.{session}#{name}",
       ]);
    });
 
@@ -299,6 +300,7 @@ describe("forgetSession", () => {
          "harness.draft.s1#t2",
          "harness.panelWindow.s1#plan",
          "harness.panelWindowFrame.s1#slot:a b",
+         "harness.panelOpen.s1#slot:a b",
       ];
       const others = [
          "harness.chat.layout.s10",
@@ -308,6 +310,7 @@ describe("forgetSession", () => {
          "harness.draft.s2#s1",
          "harness.panelWindow.s10#plan",
          "harness.panelWindowFrame.s2#s1",
+         "harness.panelOpen.s10#plan",
          "harness.panelWindows.reopen",
          "harness.sidebarOpen",
          "harness:window-frame:s1",

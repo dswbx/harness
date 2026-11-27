@@ -70,6 +70,7 @@ import { usePanelRecord } from "./dock/panelRecord";
 import { Stripe } from "./dock/Stripe";
 import { useDockLayout, useHostPlaces } from "./dock/useDockLayout";
 import { useEndedWindows } from "./dock/useEndedWindows";
+import { useInbox } from "./dock/useInbox";
 import { useStripes } from "./dock/useStripes";
 import { OverlayDock } from "./overlay/OverlayDock";
 import { useProcessStatus } from "./ProcessStatus";
@@ -229,6 +230,15 @@ function ChatBody({
       host: panelHostApi,
       popped,
       popout,
+   });
+   // Opens another window sent for a panel this View owns (panel inbox).
+   useInbox({
+      sessionId: api.sessionId,
+      mode,
+      popout,
+      popped,
+      hosted: panelHost.entries.map((e) => e.id),
+      open: panelHost.ctx.open,
    });
    // Opening a panel at a target goes through the context (stable, so the chat's callbacks keep their identity).
    const openPanel = panelHost.ctx.open;
