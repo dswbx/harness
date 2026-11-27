@@ -396,32 +396,40 @@ export function LockedNotice({
 }) {
    const [busy, setBusy] = useState(false);
    return (
-      <div className={cn("flex gap-3 p-3 font-sans", className)}>
-         <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-500" aria-hidden />
-         <div className="flex min-w-0 flex-col gap-1.5 text-xs text-muted-foreground">
-            <p className="text-sm font-medium text-foreground">This file can hold secrets</p>
-            {reason && <p>It is {reason}.</p>}
-            <div className="flex gap-2 pt-1">
-               <Button
-                  size="sm"
-                  className="h-7"
-                  disabled={busy}
-                  onClick={() => {
-                     setBusy(true);
-                     onAllow().finally(() => setBusy(false));
-                  }}
-               >
-                  Allow and show
-               </Button>
-               {onDismiss && (
-                  <Button size="sm" variant="ghost" className="h-7" onClick={onDismiss}>
-                     Not now
+      // A container: in a narrow place (the Files panel beside its tree) the icon goes above the text.
+      <div className={cn("@container font-sans", className)}>
+         <div className="flex flex-col gap-2 p-3 @[16rem]:flex-row @[16rem]:gap-3">
+            <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-500" aria-hidden />
+            <div className="flex min-w-0 flex-col gap-1.5 break-words text-xs text-muted-foreground">
+               <p className="text-sm font-medium text-foreground">This file can hold secrets</p>
+               {reason && <p>It is {reason}.</p>}
+               <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                     size="sm"
+                     className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+                     disabled={busy}
+                     onClick={() => {
+                        setBusy(true);
+                        onAllow().finally(() => setBusy(false));
+                     }}
+                  >
+                     Allow and show
                   </Button>
-               )}
+                  {onDismiss && (
+                     <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+                        onClick={onDismiss}
+                     >
+                        Not now
+                     </Button>
+                  )}
+               </div>
+               <p className="text-[11px]">
+                  Allowed for this file in this Session only. You can remove it later.
+               </p>
             </div>
-            <p className="text-[11px]">
-               Allowed for this file in this Session only. You can remove it later.
-            </p>
          </div>
       </div>
    );

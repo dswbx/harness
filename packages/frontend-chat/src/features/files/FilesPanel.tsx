@@ -560,14 +560,18 @@ export function FilesPanel({
                {!selected ? (
                   <p className="p-4 text-sm text-muted-foreground">Select a file in the list.</p>
                ) : locked !== null ? (
-                  <div className="p-4">
-                     <div className="max-w-md rounded-md border border-amber-500/40 border-dashed">
-                        <div className="border-b px-3 py-1 font-mono text-[11px] text-muted-foreground">
-                           {selected}
+                  <ScrollArea className="min-h-0 flex-1">
+                     <div className="@container">
+                        <div className="p-2 @[20rem]:p-4">
+                           <div className="max-w-md rounded-md border border-amber-500/40 border-dashed">
+                              <div className="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground">
+                                 {selected}
+                              </div>
+                              <LockedNotice reason={locked} onAllow={allow} />
+                           </div>
                         </div>
-                        <LockedNotice reason={locked} onAllow={allow} />
                      </div>
-                  </div>
+                  </ScrollArea>
                ) : fileError ? (
                   <p role="alert" className="p-4 text-sm text-destructive">
                      Can't show this file: {fileError}
