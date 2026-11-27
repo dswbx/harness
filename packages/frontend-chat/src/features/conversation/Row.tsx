@@ -80,7 +80,7 @@ function RowView({
                {side ? (
                   <div {...quotableAttrs(threadId, side)}>{markdown}</div>
                ) : (
-                  // Main Thread: Inline Threads anchor here, on messages of finished Turns (ADR 0030).
+                  // Main Thread: Inline Threads anchor here, on messages of finished Turns (ADR 0031).
                   <AnchoredText
                      itemId={item.id}
                      attrs={{

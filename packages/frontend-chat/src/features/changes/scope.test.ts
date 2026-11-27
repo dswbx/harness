@@ -32,6 +32,8 @@ describe("toggleSelection", () => {
 describe("selectionScope", () => {
    it("All and Uncommitted", () => {
       expect(selectionScope([ALL], commits)).toBe(ALL_CHANGES);
+      // ALL_CHANGES lives in @harness/api; its selection must be this pane's ALL.
+      expect(ALL_CHANGES.sel).toEqual([ALL]);
       expect(selectionScope([WIP], commits)).toBe(UNCOMMITTED);
    });
    it("one commit diffs against its parent", () => {

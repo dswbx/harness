@@ -72,7 +72,7 @@ export type SideChatsModel = {
    ask: (quote: string) => void;
    /** Side Threads in the Session (open or not). */
    count: number;
-   /** Inline Threads (ADR 0030): anchored Side Threads, their drafts and popover. */
+   /** Inline Threads (ADR 0031): anchored Side Threads, their drafts and popover. */
    inline: InlineModel;
 };
 

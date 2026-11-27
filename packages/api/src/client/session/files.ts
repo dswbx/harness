@@ -1,6 +1,6 @@
 import type { Transport } from "../../transport/transport";
 import { getEditor, openInEditor } from "../commands";
-import { expectResult } from "../expect";
+import { expectResult, run } from "../expect";
 import type { SessionApi } from "../session";
 
 type Files = Pick<
@@ -12,6 +12,8 @@ type Files = Pick<
    | "getEditor"
    | "listSessionFiles"
    | "readSessionFile"
+   | "approveSessionFile"
+   | "revokeSessionFile"
 >;
 
 /** Files of the Session's folder and its attachments, and the editor. */
@@ -64,6 +66,10 @@ export const filesApi = (transport: Transport, sessionId: string): Files => ({
          },
          "FileLines",
       );
-      return { path: r.path, start: r.start, lines: r.lines, total: r.total };
+      return { path: r.path, start: r.start, lines: r.lines, total: r.total, scope: r.scope };
    },
+   approveSessionFile: (path) =>
+      run(transport, { type: "ApproveSessionFile", session_id: sessionId, path }),
+   revokeSessionFile: (path) =>
+      run(transport, { type: "RevokeSessionFile", session_id: sessionId, path }),
 });

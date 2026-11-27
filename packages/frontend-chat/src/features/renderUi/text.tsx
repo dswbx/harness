@@ -1,7 +1,7 @@
 import { cn } from "@harness/ui";
 import { InlineMarkdown as Md } from "../markdown/InlineMarkdown";
 import { Markdown } from "../markdown/Markdown";
-import { IconOf, type Renderers, tip, tones } from "./runtime";
+import { IconOf, type Renderers, Sel, tip, tones } from "./runtime";
 import { SourceMarkdown } from "./source";
 
 export * from "./text.spec";
@@ -23,7 +23,7 @@ export const renderers = {
          p.tooltip,
          <span
             className={cn(
-               "min-w-0 break-words",
+               "min-w-0 select-text break-words",
                p.tooltip && "underline decoration-dotted underline-offset-2",
                textSize[p.size ?? "md"],
                p.mono && "font-mono",
@@ -43,7 +43,9 @@ export const renderers = {
             {(node.props.items ?? []).map((it, i) => (
                <div key={i} className="contents">
                   <dt className="text-muted-foreground">
-                     <Md>{it.label}</Md>
+                     <Sel>
+                        <Md>{it.label}</Md>
+                     </Sel>
                   </dt>
                   <dd
                      className={cn(
@@ -55,13 +57,15 @@ export const renderers = {
                      {it.tooltip ? (
                         tip(
                            it.tooltip,
-                           <span className="underline decoration-dotted underline-offset-2">
+                           <span className="select-text underline decoration-dotted underline-offset-2">
                               <Md>{it.value}</Md>
                            </span>,
                            true,
                         )
                      ) : (
-                        <Md>{it.value}</Md>
+                        <Sel>
+                           <Md>{it.value}</Md>
+                        </Sel>
                      )}
                   </dd>
                </div>

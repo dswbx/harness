@@ -11,7 +11,7 @@ use futures_util::future::{BoxFuture, FutureExt, Shared};
 use serde_json::json;
 
 use super::client::{graphql, graphql_data, graphql_raw, rest_get};
-use super::pr::{PR_FRAGMENT, branch_prs, pr_info, search_prs};
+use super::pr::{PR_FRAGMENT, PR_SUMMARY_FRAGMENT, branch_prs, pr_info, search_prs};
 use super::repos::{repo_key, valid_repo};
 use crate::api::{PrInfo, PrRefKey, PrState, RepoId};
 
@@ -24,12 +24,34 @@ type Key = (String, u32);
 type Found = Arc<HashMap<Key, Option<PrInfo>>>;
 /// A lookup in flight; later lookups of the same PRs wait for it.
 type Batch = Shared<BoxFuture<'static, Result<Found, String>>>;
-type Fetch = Arc<dyn Fn(Vec<PrRefKey>) -> BoxFuture<'static, anyhow::Result<Vec<Option<PrInfo>>>> + Send + Sync>;
+/// Fetches `refs`: with every check run when `full` (`PR_FRAGMENT`), else the summary (`PR_SUMMARY_FRAGMENT`).
+type Fetch = Arc<dyn Fn(Vec<PrRefKey>, bool) -> BoxFuture<'static, anyhow::Result<Vec<Option<PrInfo>>>> + Send + Sync>;
 
+/// Lists, PR references and the status sweep get the summary: every check run of a few PRs at once can take GitHub
+/// over 10s and end in a 502 on busy repositories (turso: ~225 check runs per PR). Only the Session's own PR (the
+/// header) gets every check run, one PR at a time.
 #[derive(Default)]
 struct Cache {
-    entries: HashMap<Key, (Instant, Option<PrInfo>)>,
-    inflight: HashMap<Key, Batch>,
+    /// When fetched, the PR, and whether it has every check run (`full`).
+    entries: HashMap<Key, (Instant, Option<PrInfo>, bool)>,
+    /// Per PR and `full`.
+    inflight: HashMap<(Key, bool), Batch>,
+}
+
+impl Cache {
+    /// A fresh entry good enough for a `full` (or summary) lookup; a missing PR is missing either way.
+    fn fresh(&self, k: &Key, full: bool) -> Option<&Option<PrInfo>> {
+        let (at, pr, has_all) = self.entries.get(k)?;
+        (at.elapsed() < ttl(pr.as_ref()) && (*has_all || !full || pr.is_none())).then_some(pr)
+    }
+
+    /// Stores a fetched PR; a summary does not replace a fresh full entry.
+    fn put(&mut self, k: Key, pr: Option<PrInfo>, full: bool, now: Instant) {
+        if !full && self.fresh(&k, true).is_some_and(Option::is_some) {
+            return;
+        }
+        self.entries.insert(k, (now, pr, full));
+    }
 }
 
 pub struct PrRefs {
@@ -44,7 +66,7 @@ pub struct PrRefs {
 
 impl Default for PrRefs {
     fn default() -> Self {
-        Self::with_fetch(Arc::new(|refs| fetch_lookup(refs).boxed()))
+        Self::with_fetch(Arc::new(|refs, full| fetch_lookup(refs, full).boxed()))
     }
 }
 
@@ -58,8 +80,18 @@ impl PrRefs {
         self.cache.lock().entries.remove(&(repo_key(repo), number));
     }
 
-    /// PRs in the order of `refs`, from the cache or one GraphQL call for the rest.
+    /// PRs in the order of `refs` with the summary check state (no check counts), from the cache or one GraphQL call
+    /// for the rest.
     pub async fn lookup(&self, refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
+        self.get(refs, false).await
+    }
+
+    /// One PR with every check run (and the counts), for the Session's own PR.
+    pub async fn full(&self, repo: &RepoId, number: u32) -> anyhow::Result<Option<PrInfo>> {
+        Ok(self.get(vec![PrRefKey { repo: repo.clone(), number }], true).await?.pop().flatten())
+    }
+
+    async fn get(&self, refs: Vec<PrRefKey>, full: bool) -> anyhow::Result<Vec<Option<PrInfo>>> {
         let keys: Vec<Key> = refs.iter().map(key).collect();
         let mut out = vec![None; refs.len()];
         let mut batches = vec![];
@@ -67,18 +99,16 @@ impl PrRefs {
             let mut c = self.cache.lock();
             let mut missing: Vec<PrRefKey> = vec![];
             for (i, (r, k)) in refs.iter().zip(&keys).enumerate() {
-                if let Some((at, pr)) = c.entries.get(k)
-                    && at.elapsed() < ttl(pr.as_ref())
-                {
+                if let Some(pr) = c.fresh(k, full) {
                     out[i] = pr.clone();
-                } else if let Some(b) = c.inflight.get(k) {
+                } else if let Some(b) = c.inflight.get(&(k.clone(), full)) {
                     batches.push(b.clone());
                 } else if !missing.iter().any(|m| key(m) == *k) {
                     missing.push(r.clone());
                 }
             }
             if !missing.is_empty() {
-                batches.push(self.start_fetch(missing, &mut c));
+                batches.push(self.start_fetch(missing, full, &mut c));
             }
         }
         for b in batches {
@@ -93,25 +123,27 @@ impl PrRefs {
     }
 
     /// Runs the fetch as its own task, so it fills the cache even when the caller goes away.
-    fn start_fetch(&self, refs: Vec<PrRefKey>, c: &mut Cache) -> Batch {
+    fn start_fetch(&self, refs: Vec<PrRefKey>, full: bool, c: &mut Cache) -> Batch {
         let keys: Vec<Key> = refs.iter().map(key).collect();
-        let fetch = (self.fetch)(refs);
+        let fetch = (self.fetch)(refs, full);
         let cache = self.cache.clone();
         let task_keys = keys.clone();
         let task = tokio::spawn(async move {
             let result = fetch.await;
             let mut c = cache.lock();
             for k in &task_keys {
-                c.inflight.remove(k);
+                c.inflight.remove(&(k.clone(), full));
             }
             let found: HashMap<Key, Option<PrInfo>> = task_keys.into_iter().zip(result.map_err(|e| format!("{e:#}"))?).collect();
             let now = Instant::now();
-            c.entries.extend(found.iter().map(|(k, pr)| (k.clone(), (now, pr.clone()))));
+            for (k, pr) in &found {
+                c.put(k.clone(), pr.clone(), full, now);
+            }
             Ok(Arc::new(found))
         });
         let batch = async move { task.await.map_err(|e| e.to_string())? }.boxed().shared();
         for k in keys {
-            c.inflight.insert(k, batch.clone());
+            c.inflight.insert((k, full), batch.clone());
         }
         batch
     }
@@ -124,11 +156,11 @@ impl PrRefs {
         let search = query.map(str::trim).filter(|q| !q.is_empty());
         let list = async {
             match search {
-                Some(q) => search_prs(&format!("repo:{}/{} is:pr {q} in:title sort:updated-desc", repo.owner, repo.name), 30).await,
+                Some(q) => search_prs(&format!("repo:{}/{} is:pr {q} in:title sort:updated-desc", repo.owner, repo.name), 30, PR_SUMMARY_FRAGMENT).await,
                 None => {
                     let q = format!(
                         "query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ pullRequests(first: 30, \
-                         orderBy: {{field: UPDATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {PR_FRAGMENT}"
+                         orderBy: {{field: UPDATED_AT, direction: DESC}}) {{ nodes {{ ...pr }} }} }} }} {PR_SUMMARY_FRAGMENT}"
                     );
                     Ok(graphql(&q, json!({ "owner": repo.owner, "name": repo.name })).await?["repository"]["pullRequests"]["nodes"].take())
                 }
@@ -136,11 +168,14 @@ impl PrRefs {
         };
         let (out, me) = tokio::join!(list, self.me());
         let out = out?;
-        let list = out.as_array().map_or(&[][..], Vec::as_slice);
-        let mut prs: Vec<PrInfo> = list.iter().filter_map(|v| pr_info(repo, v)).collect();
+        let mut prs: Vec<PrInfo> = out.as_array().map_or(&[][..], Vec::as_slice).iter().filter_map(|v| pr_info(repo, v)).collect();
         prs.sort_by_key(|p| me.as_deref() != Some(p.author.as_str()));
         let now = Instant::now();
-        self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
+        let mut c = self.cache.lock();
+        for p in &prs {
+            c.put((repo_key(&p.repo), p.number), Some(p.clone()), false, now);
+        }
+        drop(c);
         Ok(prs)
     }
 
@@ -157,7 +192,11 @@ impl PrRefs {
         let list = data["repository"]["pullRequests"]["nodes"].take();
         let mut prs = branch_prs(repo, list.as_array().map_or(&[][..], Vec::as_slice));
         let now = Instant::now();
-        self.cache.lock().entries.extend(prs.iter().map(|p| ((repo_key(&p.repo), p.number), (now, Some(p.clone())))));
+        let mut c = self.cache.lock();
+        for p in &prs {
+            c.put((repo_key(&p.repo), p.number), Some(p.clone()), true, now);
+        }
+        drop(c);
         prs.sort_by(|a, b| {
             let open = |p: &PrInfo| matches!(p.state, PrState::Open | PrState::Draft);
             open(b).cmp(&open(a)).then_with(|| b.updated_at.cmp(&a.updated_at))
@@ -192,15 +231,15 @@ fn key(r: &PrRefKey) -> Key {
     (repo_key(&r.repo), r.number)
 }
 
-async fn fetch_lookup(refs: Vec<PrRefKey>) -> anyhow::Result<Vec<Option<PrInfo>>> {
-    let Some((query, repos)) = lookup_query(&refs) else { return Ok(vec![None; refs.len()]) };
+async fn fetch_lookup(refs: Vec<PrRefKey>, full: bool) -> anyhow::Result<Vec<Option<PrInfo>>> {
+    let Some((query, repos)) = lookup_query(&refs, if full { PR_FRAGMENT } else { PR_SUMMARY_FRAGMENT }) else { return Ok(vec![None; refs.len()]) };
     let body = graphql_raw(&query, json!({})).await?;
     parse_lookup(&refs, &repos, &body)
 }
 
 /// One query for all `refs`: an `rN: repository` block per repo with a `pN: pullRequest(number: N)` per PR. Returns
 /// it with the repo keys in alias order; None when no ref has a valid repo.
-fn lookup_query(refs: &[PrRefKey]) -> Option<(String, Vec<String>)> {
+fn lookup_query(refs: &[PrRefKey], fragment: &str) -> Option<(String, Vec<String>)> {
     let mut repos: Vec<(String, &RepoId, Vec<u32>)> = vec![];
     for r in refs.iter().filter(|r| valid_repo(&r.repo)) {
         let k = repo_key(&r.repo);
@@ -222,7 +261,7 @@ fn lookup_query(refs: &[PrRefKey]) -> Option<(String, Vec<String>)> {
         q.push_str(" }");
     }
     q.push_str(" } ");
-    q.push_str(PR_FRAGMENT);
+    q.push_str(fragment);
     Some((q, repos.into_iter().map(|g| g.0).collect()))
 }
 
@@ -280,14 +319,14 @@ mod tests {
             pr_ref("dswbx", "harness", 17),
             pr_ref("bad\"", "x", 1),
         ];
-        let (q, repos) = lookup_query(&refs).unwrap();
+        let (q, repos) = lookup_query(&refs, PR_FRAGMENT).unwrap();
         assert_eq!(repos, ["dswbx/harness", "supabase/spark"]);
         assert!(q.starts_with(
             "query { r0: repository(owner: \"dswbx\", name: \"harness\") { p17: pullRequest(number: 17) { ...pr } \
              p18: pullRequest(number: 18) { ...pr } } r1: repository(owner: \"supabase\", name: \"spark\") { \
              p3: pullRequest(number: 3) { ...pr } } } fragment pr on PullRequest {"
         ));
-        assert_eq!(lookup_query(&[pr_ref("a b", "x", 1)]), None);
+        assert_eq!(lookup_query(&[pr_ref("a b", "x", 1)], PR_FRAGMENT), None);
     }
 
     #[test]
@@ -351,7 +390,7 @@ mod tests {
     async fn dedupes_and_caches_lookups() {
         let calls = Arc::new(Mutex::new(Vec::<Vec<u32>>::new()));
         let seen = calls.clone();
-        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>| {
+        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>, _| {
             seen.lock().push(refs.iter().map(|r| r.number).collect());
             async move {
                 tokio::time::sleep(Duration::from_millis(20)).await;
@@ -370,10 +409,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn full_lookup_does_not_take_a_summary() {
+        let calls = Arc::new(Mutex::new(Vec::<bool>::new()));
+        let seen = calls.clone();
+        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>, full| {
+            seen.lock().push(full);
+            async move { Ok(refs.iter().map(|r| Some(info(r, PrState::Open))).collect()) }.boxed()
+        }));
+        let r = pr_ref("o", "r", 1);
+        refs.lookup(vec![r.clone()]).await.unwrap();
+        refs.full(&r.repo, 1).await.unwrap();
+        refs.full(&r.repo, 1).await.unwrap();
+        // A summary lookup takes the fresh full entry, and does not replace it.
+        refs.lookup(vec![r.clone()]).await.unwrap();
+        refs.full(&r.repo, 1).await.unwrap();
+        assert_eq!(*calls.lock(), [false, true]);
+    }
+
+    #[tokio::test]
     async fn forget_makes_the_next_lookup_fetch() {
         let n = Arc::new(AtomicUsize::new(0));
         let count = n.clone();
-        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>| {
+        let refs = PrRefs::with_fetch(Arc::new(move |refs: Vec<PrRefKey>, _| {
             count.fetch_add(1, Ordering::SeqCst);
             async move { Ok(refs.iter().map(|r| Some(info(r, PrState::Open))).collect()) }.boxed()
         }));
@@ -390,7 +447,7 @@ mod tests {
     async fn failed_lookup_is_not_cached() {
         let n = Arc::new(AtomicUsize::new(0));
         let count = n.clone();
-        let refs = PrRefs::with_fetch(Arc::new(move |_| {
+        let refs = PrRefs::with_fetch(Arc::new(move |_, _| {
             count.fetch_add(1, Ordering::SeqCst);
             async { Err(anyhow::anyhow!("GitHub 401 Unauthorized: Bad credentials")) }.boxed()
         }));

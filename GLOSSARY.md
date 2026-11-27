@@ -73,11 +73,11 @@ A secondary Thread in a Session (e.g. sidechat, btw window) that never feeds the
 _Avoid_: subthread, branch, sidechat (as the general term)
 
 **Inline Thread**:
-A Side Thread anchored to quoted text in a finished Main Thread agent message. It shows in a popover beside that text and always starts as a fork. Resolving it hides its highlight; it stays in the Session Log (ADR 0030).
+A Side Thread anchored to quoted text in a finished Main Thread agent message. It shows in a popover beside that text and always starts as a fork. Resolving it hides its highlight; it stays in the Session Log (ADR 0031).
 _Avoid_: comment thread, annotation, inline comment
 
 **Anchor**:
-What ties an Inline Thread to text: the quote, up to 32 characters of text before and after it (prefix and suffix), and the `seq` of the message's first agent chunk (ADR 0030).
+What ties an Inline Thread to text: the quote, up to 32 characters of text before and after it (prefix and suffix), and the `seq` of the message's first agent chunk (ADR 0031).
 _Avoid_: selection, position, offset
 
 **Sub Session**:
@@ -135,6 +135,10 @@ _Avoid_: file panel, live file, source panel
 **Shared Artifact**:
 An artifact (a `render_ui` item, a file-backed panel, or a diagram or table from a message) moved out of its Session into `<data dir>/shared/<id>/` with its own state; any Session can attach it and show it as a Panel, and it can be opened without a Session (ADR 0024).
 _Avoid_: document, global artifact, pinned artifact
+
+**Folder Diff**:
+The diff window for a folder's git repository with no Session (`harness diff`, ADR 0030): the same viewer as a Session's diff, without Review Comments.
+_Avoid_: repo diff, standalone diff
 
 **Task**:
 A work item of the user, kept across Sessions in `<data dir>/tasks/<id>/` and not part of the Session Log; it records the Session it was created in and can be linked to others. Not the Agent's Task List (ADR 0028).

@@ -74,6 +74,10 @@ pub struct SessionMeta {
     /// ones (a Sub Session's model and effort). Never written to the remembered config.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub initial_config: std::collections::BTreeMap<String, String>,
+    /// Real paths of files outside `folder` that can hold secrets which the user let the Session read
+    /// (`ApproveSessionFile`). Missing in older `session.json` files: none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_files: Vec<String>,
 }
 
 /// Title of a Quick Session until its first prompt.
@@ -225,6 +229,17 @@ mod meta_tests {
         assert!(!json.contains("parent") && !json.contains("initial_config"), "{json}");
         let again: SessionMeta = serde_json::from_str(&json).unwrap();
         assert_eq!(again.id, "s");
+    }
+
+    #[test]
+    fn old_session_json_without_allowed_files_loads_with_none() {
+        let old = r#"{"id":"s","title":"T","folder":"/f","agent":{"id":"a","name":"A","command":"a","args":[],"env":{}},"frontend_id":"chat","created_ms":1,"main_thread_id":"m","archived":false}"#;
+        let mut m: SessionMeta = serde_json::from_str(old).unwrap();
+        assert!(m.allowed_files.is_empty());
+        assert!(!serde_json::to_string(&m).unwrap().contains("allowed_files"));
+        m.allowed_files.push("/home/u/.aws/config".into());
+        let back: SessionMeta = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+        assert_eq!(back.allowed_files, ["/home/u/.aws/config"]);
     }
 
     #[test]

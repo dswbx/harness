@@ -311,7 +311,7 @@ function seedComments(mock: MockTransport): void {
 }
 
 /**
- * A Session with Inline Threads (ADR 0030) on one finished agent message: two overlapping open ones
+ * A Session with Inline Threads (ADR 0031) on one finished agent message: two overlapping open ones
  * with replies, and a resolved one.
  */
 function seedInlineThreads(mock: MockTransport, workspace: WorkspaceInfo): void {

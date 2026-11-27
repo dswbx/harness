@@ -1,6 +1,6 @@
 # Inline Threads plan
 
-Status: proposed. Design: ADR 0030 (to write), built on [ADR 0018](../adr/0018-side-threads-fork-with-transcript-tools.md). Mockups: Design canvas "Inline Side Threads" (https://claude.ai/artifact/HSydYFBizJW9jkxgSGRAm1).
+Status: proposed. Design: ADR 0031 (to write), built on [ADR 0018](../adr/0018-side-threads-fork-with-transcript-tools.md). Mockups: Design canvas "Inline Side Threads" (https://claude.ai/artifact/HSydYFBizJW9jkxgSGRAm1).
 
 **Directories:** `crates/harness-core` (api, session, host, tests), `packages/api` (client, derive, mock, platform), `packages/ui`, `packages/frontend-chat` (features/review, features/sideChats, new features/inlineThreads, features/conversation, features/prompt, lib, state), `app/src`, `docs/`.
 
@@ -124,7 +124,7 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
 
 ## 6. Docs
 
-- ADR `docs/adr/0030-inline-threads.md`. It records:
+- ADR `docs/adr/0031-inline-threads.md`. It records:
   - the anchor is a TextQuoteSelector on `ThreadStarted`;
   - message identity is the first chunk's `seq`;
   - only finished messages can be anchored;
@@ -166,7 +166,7 @@ Each phase can land and be tested alone.
 3. `lib/textQuote` and tests, Row attributes, reducer route.
 4. Chat: selection action, pending popover and composer, start flow, highlights, hit test, marker, popover for started threads.
 5. Side chats Inline tab, unread `storedValue`, "Show in chat".
-6. ADR 0030, Glossary, preview check.
+6. ADR 0031, Glossary, preview check.
 
 ## Unresolved questions
 

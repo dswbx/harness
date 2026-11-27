@@ -256,6 +256,60 @@ async fn git_log_without_worktree() {
     assert_eq!(log(h.clone(), sid.clone()).await, ["d"]);
 }
 
+async fn folder_diff(h: &Harness, folder: &Path) -> harness_core::api::Diff {
+    let cmd = Command::FolderGitDiff { folder: folder.display().to_string(), from: None, to: None };
+    let CommandResult::Diff { diff } = h.execute(cmd).await.unwrap() else { panic!() };
+    diff
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn folder_git_matches_the_session_and_reads_files() {
+    let (_dir, repo, data) = repo();
+    sh(&repo, &["checkout", "-q", "-b", "feat"]);
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    std::fs::write(repo.join("sub/a.txt"), "a\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-q", "-m", "add a"]);
+    std::fs::write(repo.join("README.md"), "changed\n").unwrap();
+    std::fs::write(repo.join("new.txt"), "untracked\n").unwrap();
+    let h = harness(&data);
+
+    // Uncommitted and untracked files count; a subfolder shows the whole repository.
+    let diff = folder_diff(&h, &repo.join("sub")).await;
+    let mut paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["README.md", "new.txt", "sub/a.txt"]);
+
+    // Same result as a Session's GitDiff on the same folder.
+    let sid = create(&h, &repo, None, false).await.unwrap();
+    let CommandResult::Diff { diff: session } = h.execute(Command::GitDiff { session_id: sid, from: None, to: None }).await.unwrap() else { panic!() };
+    assert_eq!((session.from, session.to, session.patch), (diff.from.clone(), diff.to.clone(), diff.patch));
+
+    let folder = repo.display().to_string();
+    let CommandResult::GitLog { commits } = h.execute(Command::FolderGitLog { folder: folder.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["add a"]);
+    let show = |rev: String, path: &str| Command::FolderGitShowFile { folder: folder.clone(), rev, path: path.into() };
+    let CommandResult::FileContent { content } = h.execute(show(diff.from, "README.md")).await.unwrap() else { panic!() };
+    assert_eq!(content, "hi\n");
+    let CommandResult::FileContent { content } = h.execute(show(diff.to, "new.txt")).await.unwrap() else { panic!() };
+    assert_eq!(content, "untracked\n");
+}
+
+#[tokio::test]
+async fn folder_git_refuses_relative_missing_and_non_git_folders() {
+    let (dir, _repo, data) = repo();
+    let h = harness(&data);
+    let plain = dir.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    let err = |folder: String| {
+        let h = h.clone();
+        async move { h.execute(Command::FolderGitLog { folder }).await.unwrap_err().message }
+    };
+    assert!(err("proj".into()).await.contains("not an absolute path"));
+    assert!(err(dir.path().join("missing").display().to_string()).await.contains("missing"));
+    assert!(err(plain.display().to_string()).await.contains("not in a git repository"));
+}
+
 async fn branches(h: &Harness, folder: &Path) -> harness_core::api::Branches {
     let CommandResult::Branches { branches } = h.execute(Command::ListBranches { folder: folder.display().to_string() }).await.unwrap() else { panic!() };
     branches

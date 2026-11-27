@@ -1,15 +1,11 @@
-import type { Commit } from "@harness/api";
+import { ALL_CHANGES, type Commit, type DiffScope } from "@harness/api";
 
 /** Commits-pane items besides the commits themselves. */
 export const ALL = "all";
 export const WIP = "wip";
 
-/**
- * Diff range; `null` bounds mean "where the Session's changes start" / "the working tree now".
- * `sel` is the commits-pane selection it came from (commit shas, ALL, WIP); absent for other ranges (a Turn's changes).
- */
-export type DiffScope = { from: string | null; to: string | null; label: string; sel?: string[] };
-export const ALL_CHANGES: DiffScope = { from: null, to: null, label: "All changes", sel: [ALL] };
+// The range type and ALL_CHANGES live in `@harness/api`: the host opens Folder Diff windows with them too.
+export { ALL_CHANGES, type DiffScope };
 export const UNCOMMITTED: DiffScope = {
    from: "HEAD",
    to: null,

@@ -15,7 +15,7 @@ import {
 } from "../review/reviewComments";
 import { draftsStore, type InlineDrafts, seenStore } from "./store";
 
-/** An Inline Thread of the Session: a Side Thread with an Anchor (ADR 0030). */
+/** An Inline Thread of the Session: a Side Thread with an Anchor (ADR 0031). */
 export type InlineThread = {
    id: string;
    anchor: TextAnchor;

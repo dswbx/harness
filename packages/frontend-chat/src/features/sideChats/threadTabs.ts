@@ -16,7 +16,7 @@ export type ThreadTabs = {
 export const NO_TABS: ThreadTabs = { threads: [], thread: null };
 
 /**
- * The reserved active id of the fixed "Inline" tab (ADR 0030): never in `threads`. An older build reads it as an
+ * The reserved active id of the fixed "Inline" tab (ADR 0031): never in `threads`. An older build reads it as an
  * unknown active id and falls back to the last tab.
  */
 export const INLINE_TAB = "inline";

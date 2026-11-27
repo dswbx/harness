@@ -1,8 +1,12 @@
 import type { HarnessClient, InstructionsScope, SessionSummary, Transport } from "@harness/api";
 import {
+   ALL_CHANGES,
+   baseName,
    HarnessClient as Client,
+   diffWindowUrl,
    errText,
    forgetSession,
+   openWindow,
    useSharedArtifacts,
    useTasks,
 } from "@harness/api";
@@ -34,6 +38,7 @@ import { TasksEntry } from "../tasks/TasksEntry";
 import { UpdateFooter } from "../updates/UpdateFooter";
 import { useUpdate } from "../updates/updates";
 import { needsEditor } from "./editorError";
+import { useCliRequests } from "./useCliRequests";
 import { useNavHistory } from "./useNavHistory";
 import { useSidebarOpen, useSidebarWidth } from "./useSidebar";
 import { DevBadge, WindowControls } from "./WindowControls";
@@ -201,6 +206,24 @@ export function Shell({ transport }: { transport: Transport }) {
             client.listSessions().then(setSessions, (e) => report("Could not load sessions", e));
          }),
       [client, report, setSelected],
+   );
+   // The `harness` command (ADR 0030): `diff` opens a Folder Diff window, `new` the Composer with the folder.
+   useCliRequests(
+      useCallback(
+         (r) => {
+            if (r.kind === "diff")
+               openWindow("diff-folder", diffWindowUrl({ folder: r.folder }, ALL_CHANGES), {
+                  title: `Diff: ${baseName(r.folder)}`,
+                  remember: "diff",
+                  overlayTitleBar: true,
+               }).catch((e) => report("Could not open the diff window", e));
+            else if (r.kind === "new") {
+               setComposerFolder(r.folder);
+               setComposer(true);
+            }
+         },
+         [report, setComposer],
+      ),
    );
    // The overlay's draft (a Quick Session nobody wrote in yet) is not listed until it is used.
    const listed = useMemo(() => hideUnusedQuick(sessions, selected), [sessions, selected]);

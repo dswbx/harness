@@ -100,12 +100,14 @@ pub enum CommandResult {
         #[specta(type = specta_typescript::Number)]
         mtime_ms: i64,
     },
-    /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the folder.
+    /// `lines` start at line `start` (1-based); `total`: the file's line count; `path`: the file, relative to the
+    /// folder when `scope` is `inside`, else its real path (`~/…` under the home folder, else absolute).
     FileLines {
         path: String,
         start: u32,
         lines: Vec<String>,
         total: u32,
+        scope: FileScope,
     },
     State {
         #[specta(type = specta_typescript::Unknown)]
@@ -197,4 +199,14 @@ pub enum CommandResult {
         size: TranscriptSize,
         chars: u32,
     },
+}
+
+/// Where a file read for a Session is: in its folder, outside it (nothing secret), or outside and allowed by the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FileScope {
+    #[default]
+    Inside,
+    Outside,
+    Allowed,
 }

@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import type { HarnessClient } from "../client/app";
-import type { SessionApi } from "../client/client";
+import type { GitSource, SessionApi } from "../client/client";
 import type {
    AppEvent,
    AttachmentInput,
@@ -9,6 +9,7 @@ import type {
    SessionStatus,
    SharedArtifactMeta,
 } from "../generated";
+import type { DiffScope } from "../platform/diffWindow";
 
 /** A call of a Frontend Tool with `replies`: the Frontend answers it, and the Agent gets the answer. */
 export type FrontendRequest = Extract<AppEvent, { type: "FrontendRequest" }>;
@@ -62,6 +63,9 @@ export type OverlayFrame = { card: number; room: PanelWidth };
 
 /** `full`: a main or pop-out window. `overlay`: the Quick overlay's small floating window (ADR 0022). */
 export type ViewVariant = "full" | "overlay";
+
+/** A Folder Diff window: `folder` (absolute) at `scope`, read through `git`. */
+export type FolderDiffProps = { folder: string; git: GitSource; scope: DiffScope };
 
 /**
  * A Shared Artifact in the host's main pane, without a Session (ADR 0024). Everything the host owns
@@ -190,6 +194,8 @@ export interface Frontend {
    Request?: ComponentType<FrontendRequestProps>;
    /** Renders a Shared Artifact in the host's main pane. Absent: the host opens none with this Frontend. */
    SharedView?: ComponentType<SharedViewProps>;
+   /** Renders a Folder Diff window: the diff of a folder's repository, with no Session (no comments). Absent: the host shows a notice. */
+   FolderDiff?: ComponentType<FolderDiffProps>;
    /** Renders the All tasks view in the host's main pane. Absent: the host has no such view. */
    TasksView?: ComponentType<TasksViewProps>;
    /** Its preferences, as rows in Settings > Appearance. Absent: none. */

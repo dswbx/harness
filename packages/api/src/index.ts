@@ -21,6 +21,7 @@ export * from "./generated";
 export * from "./github/prGrammar";
 export * from "./github/prRefs";
 export * from "./github/prStore";
+export * from "./platform/diffWindow";
 export * from "./platform/files";
 export * from "./platform/forgetSession";
 export * from "./platform/storage";

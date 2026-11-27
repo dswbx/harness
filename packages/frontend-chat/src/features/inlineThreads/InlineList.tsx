@@ -128,7 +128,7 @@ function ThreadState({ inline, t }: { inline: InlineModel; t: InlineThread }) {
 }
 
 /**
- * The side chats panel's Inline tab (ADR 0030): drafts first, then the open Inline Threads, newest first, then
+ * The side chats panel's Inline tab (ADR 0031): drafts first, then the open Inline Threads, newest first, then
  * the resolved ones in a collapsed group. "Show in chat" scrolls to the quote and opens its popover.
  */
 export function InlineList({

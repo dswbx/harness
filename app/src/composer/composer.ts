@@ -113,6 +113,10 @@ export function matchesWords(q: string, ...fields: (string | undefined)[]): bool
 }
 
 /** The branch picker's rows for search `q`: the default branch apart (to pin it on top), then the rest. Branches checked out in another worktree or left by an archived Session only show when searching (the current one always does). */
+/** Remote branches the picker renders at most: a repository can have thousands (turso: ~1,200), and rendering
+ * them all makes opening the picker and switching its tabs slow. The rest are found by typing. */
+export const REMOTE_BRANCH_LIMIT = 50;
+
 export function branchChoices(b: Branches | null, q: string) {
    const isDefault = (x: BranchInfo) => x.name === b?.default_branch;
    const shown = (x: BranchInfo) =>
@@ -122,11 +126,14 @@ export function branchChoices(b: Branches | null, q: string) {
    const local = b?.branches ?? [];
    const remote = b?.remote ?? [];
    const pick = (x?: BranchInfo) => (x && matchesWords(q, x.name) ? x : undefined);
+   const remoteShown = remote.filter(shown);
    return {
       defaultLocal: pick(local.find(isDefault)),
       defaultRemote: pick(remote.find(isDefault)),
       local: local.filter(shown),
-      remote: remote.filter(shown),
+      remote: remoteShown.slice(0, REMOTE_BRANCH_LIMIT),
+      /** Matching remote branches left out (over `REMOTE_BRANCH_LIMIT`). */
+      remoteHidden: Math.max(0, remoteShown.length - REMOTE_BRANCH_LIMIT),
    };
 }
 

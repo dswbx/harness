@@ -9,7 +9,7 @@ export type ThreadInfo = {
    /** The Agent's newest title for the Thread; null until it sends one. */
    agentTitle: string | null;
    forkedFrom: ForkPoint | null;
-   /** Inline Threads: the quoted Main Thread text the Thread is about (ADR 0030). */
+   /** Inline Threads: the quoted Main Thread text the Thread is about (ADR 0031). */
    anchor: TextAnchor | null;
    /** Resolved by the user (`SideThreadResolved`); reopening clears it. */
    resolved: boolean;

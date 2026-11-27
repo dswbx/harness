@@ -46,6 +46,12 @@ pub fn auto_mode(mode_id: &str) -> bool {
     matches!(mode_id, "auto" | "bypassPermissions" | "agent" | "agent-full-access")
 }
 
+/// Hidden folders in the home folder that hold Agent instructions and plans, not secrets: file refs into them
+/// need no approval (`editor::sensitive`).
+pub fn agent_home_folders() -> &'static [&'static str] {
+    &[".claude", ".agents"]
+}
+
 /// How Agents prefix the title of a Harness MCP tool call: Claude `mcp__harness__git_status`,
 /// Codex `mcp.harness.git_status`. Titles are the Agent's own text, so they only name a tool; they
 /// never vouch for it (`mcp::trusted_harness_call`).

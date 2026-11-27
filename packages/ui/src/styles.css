@@ -375,7 +375,7 @@
    background-color: color-mix(in oklch, Highlight 70%, transparent);
 }
 
-/* Chat: text with Inline Threads (ADR 0030): a blue tint and underline (sky, the app's blue for selection and
+/* Chat: text with Inline Threads (ADR 0031): a blue tint and underline (sky, the app's blue for selection and
    running; never amber, which means a warning); the one whose popover is open stronger; a draft (not sent yet)
    gray and dashed. An engine that ignores text-decoration in ::highlight shows the tint only. */
 ::highlight(inline-thread) {

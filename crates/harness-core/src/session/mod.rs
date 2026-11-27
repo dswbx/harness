@@ -91,6 +91,7 @@ impl Session {
             agent_title: None,
             parent: None,
             initial_config: Default::default(),
+            allowed_files: Vec::new(),
         };
         write_meta(dir, &meta)?;
         let log = SessionLog::open(id, &dir.join("log.jsonl"))?;
@@ -522,7 +523,7 @@ impl Session {
 
     /// Opens a Side Thread; its Agent Session starts with the first prompt. Returns the Thread and
     /// whether that will be a fork of the Main Thread's Agent Session. With an `anchor` it is an
-    /// Inline Thread (ADR 0030).
+    /// Inline Thread (ADR 0031).
     pub fn start_side_thread(
         &self,
         seed: Option<String>,
