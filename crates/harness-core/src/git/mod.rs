@@ -9,7 +9,7 @@ mod worktree;
 
 pub use cmd::{current_branch, find_repo_root, folder_prefix, git, head_branch, repo_root};
 pub(crate) use diff::default_branch;
-pub use diff::{commit, diff, diff_base, list_branches, log, push, show_file, snapshot, status};
+pub use diff::{commit, diff, diff_base, diff_range, list_branches, log, log_since_base, push, show_file, snapshot, status};
 pub use parse::slug;
 pub use prefix::{branch_prefix, prefixed, resolve_branch_prefix, set_branch_prefix};
 pub use worktree::{

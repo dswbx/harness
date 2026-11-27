@@ -22,7 +22,7 @@ export function View({
 }) {
    const { api } = props;
    return diffScope ? (
-      <DiffWindow api={api} scope={diffScope} />
+      <DiffWindow source={{ kind: "session", api }} scope={diffScope} />
    ) : filesWindow ? (
       <FileRefProvider api={api}>
          <FilesPanel api={api} target={filesWindowFirst} popout />

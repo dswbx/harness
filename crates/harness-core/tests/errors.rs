@@ -204,6 +204,12 @@ async fn state_in_the_way_is_a_conflict() {
 
 #[test]
 fn the_wire_shape_is_code_and_message() {
-    let e = harness_core::api::HarnessError { code: ErrorCode::AuthRequired, message: "sign in".into() };
+    let e = harness_core::api::HarnessError { code: ErrorCode::AuthRequired, message: "sign in".into(), path: None };
     assert_eq!(serde_json::to_value(&e).unwrap(), serde_json::json!({ "code": "auth_required", "message": "sign in" }));
+    let e = harness_core::api::HarnessError { code: ErrorCode::NeedsApproval, message: "a hidden file".into(), path: Some("~/.a".into()) };
+    let v = serde_json::json!({ "code": "needs_approval", "message": "a hidden file", "path": "~/.a" });
+    assert_eq!(serde_json::to_value(&e).unwrap(), v);
+    // The shape older builds sent (no `path`) still reads.
+    let old: harness_core::api::HarnessError = serde_json::from_value(serde_json::json!({ "code": "invalid", "message": "m" })).unwrap();
+    assert_eq!(old.path, None);
 }

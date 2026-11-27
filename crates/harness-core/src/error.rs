@@ -10,6 +10,8 @@ use crate::api::{ErrorCode, HarnessError};
 struct Coded {
     code: ErrorCode,
     message: String,
+    /// `HarnessError::path`.
+    path: Option<String>,
 }
 
 impl fmt::Display for Coded {
@@ -21,7 +23,7 @@ impl fmt::Display for Coded {
 impl std::error::Error for Coded {}
 
 pub fn coded(code: ErrorCode, message: impl Into<String>) -> anyhow::Error {
-    anyhow::Error::new(Coded { code, message: message.into() })
+    anyhow::Error::new(Coded { code, message: message.into(), path: None })
 }
 
 pub fn not_found(message: impl Into<String>) -> anyhow::Error {
@@ -44,6 +46,11 @@ pub fn policy_denied(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::PolicyDenied, message)
 }
 
+/// `reason`: why the file can hold secrets; `path`: the real file an approval unlocks, as shown to the user.
+pub fn needs_approval(reason: impl Into<String>, path: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(Coded { code: ErrorCode::NeedsApproval, message: reason.into(), path: Some(path.into()) })
+}
+
 pub fn invalid(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::Invalid, message)
 }
@@ -56,10 +63,10 @@ pub fn timeout(message: impl Into<String>) -> anyhow::Error {
     coded(ErrorCode::Timeout, message)
 }
 
-/// `e` with a new message, keeping its code.
+/// `e` with a new message, keeping its code (and path).
 pub fn reword(e: &anyhow::Error, message: impl Into<String>) -> anyhow::Error {
     match e.chain().find_map(|c| c.downcast_ref::<Coded>()) {
-        Some(c) => coded(c.code, message),
+        Some(c) => anyhow::Error::new(Coded { code: c.code, message: message.into(), path: c.path.clone() }),
         None => anyhow::anyhow!(message.into()),
     }
 }
@@ -82,8 +89,10 @@ pub fn from_http(e: &crate::http::Error, message: impl Into<String>) -> anyhow::
 
 impl From<anyhow::Error> for HarnessError {
     fn from(e: anyhow::Error) -> Self {
-        let code = e.chain().find_map(|c| c.downcast_ref::<Coded>()).map_or(ErrorCode::Internal, |c| c.code);
-        HarnessError { code, message: format!("{e:#}") }
+        let coded = e.chain().find_map(|c| c.downcast_ref::<Coded>());
+        let code = coded.map_or(ErrorCode::Internal, |c| c.code);
+        let path = coded.and_then(|c| c.path.clone());
+        HarnessError { code, message: format!("{e:#}"), path }
     }
 }
 

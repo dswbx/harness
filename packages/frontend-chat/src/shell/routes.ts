@@ -1,4 +1,4 @@
-import { diffWindowScope } from "../features/changes/DiffWindow";
+import { diffWindowScope } from "@harness/api";
 import { type FileTarget, filesWindowTarget } from "../features/files/FilesPanel";
 
 /**

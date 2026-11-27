@@ -49,7 +49,7 @@ impl Harness {
                     if refresh {
                         refs.forget(repo, number);
                     }
-                    refs.lookup(vec![PrRefKey { repo: repo.clone(), number }]).await?.pop().flatten()
+                    refs.full(repo, number).await?
                 }
                 None => match crate::git::current_branch(Path::new(&meta.folder)).await? {
                     Some(branch) => session.pr_watch().lookup(repo, &branch).await?,
@@ -110,6 +110,18 @@ impl Harness {
         Ok(CommandResult::FileContent { content: self.session(&session_id)?.git_show_file(&rev, &path).await? })
     }
 
+    pub(in crate::host) async fn cmd_folder_git_diff(&self, folder: String, from: Option<String>, to: Option<String>) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::Diff { diff: crate::git::diff_range(&folder_repo(&folder).await?, None, from, to).await? })
+    }
+
+    pub(in crate::host) async fn cmd_folder_git_log(&self, folder: String) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::GitLog { commits: crate::git::log_since_base(&folder_repo(&folder).await?, None).await? })
+    }
+
+    pub(in crate::host) async fn cmd_folder_git_show_file(&self, folder: String, rev: String, path: String) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult::FileContent { content: crate::git::show_file(&folder_repo(&folder).await?, &rev, &path).await? })
+    }
+
     pub(in crate::host) async fn cmd_git_commit(&self, session_id: SessionId, message: String) -> anyhow::Result<CommandResult> {
         Ok(CommandResult::Committed { commit: self.session(&session_id)?.git_commit(message, GitActor::User).await? })
     }
@@ -118,4 +130,20 @@ impl Harness {
         self.session(&session_id)?.git_push(GitActor::User).await?;
         Ok(CommandResult::Ok)
     }
+}
+
+/// `folder` for a Folder Diff: an absolute path to a directory inside a git repository, canonicalized.
+async fn folder_repo(folder: &str) -> anyhow::Result<PathBuf> {
+    let path = Path::new(folder);
+    if !path.is_absolute() {
+        return Err(crate::error::invalid(format!("{folder} is not an absolute path")));
+    }
+    let dir = std::fs::canonicalize(path).map_err(|e| crate::error::invalid(format!("{folder}: {e}")))?;
+    if !dir.is_dir() {
+        return Err(crate::error::invalid(format!("{folder} is not a directory")));
+    }
+    if crate::git::repo_root(&dir).await.is_none() {
+        return Err(crate::error::invalid(format!("{folder} is not in a git repository")));
+    }
+    Ok(dir)
 }

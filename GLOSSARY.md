@@ -132,6 +132,10 @@ _Avoid_: file panel, live file, source panel
 An artifact (a `render_ui` item, a file-backed panel, or a diagram or table from a message) moved out of its Session into `<data dir>/shared/<id>/` with its own state; any Session can attach it and show it as a Panel, and it can be opened without a Session (ADR 0024).
 _Avoid_: document, global artifact, pinned artifact
 
+**Folder Diff**:
+The diff window for a folder's git repository with no Session (`harness diff`, ADR 0030): the same viewer as a Session's diff, without Review Comments.
+_Avoid_: repo diff, standalone diff
+
 **Task**:
 A work item of the user, kept across Sessions in `<data dir>/tasks/<id>/` and not part of the Session Log; it records the Session it was created in and can be linked to others. Not the Agent's Task List (ADR 0028).
 _Avoid_: todo, ticket, issue (for a Task), Task List

@@ -73,6 +73,8 @@ const table: Record<Command["type"], () => Command> = {
    ExportPlan: () => ({ type: "ExportPlan", session_id: S, name: "plan", markdown: "# p" }),
    ListSessionFiles: () => ({ type: "ListSessionFiles", session_id: S }),
    ReadSessionFile: () => ({ type: "ReadSessionFile", session_id: S, path: "a.ts" }),
+   ApproveSessionFile: () => ({ type: "ApproveSessionFile", session_id: S, path: "~/.aws/config" }),
+   RevokeSessionFile: () => ({ type: "RevokeSessionFile", session_id: S, path: "~/.aws/config" }),
    GetState: () => ({ type: "GetState", session_id: S }),
    PatchState: () => ({ type: "PatchState", session_id: S, ops: [] }),
    ReportFrontendError: () => ({
@@ -88,6 +90,14 @@ const table: Record<Command["type"], () => Command> = {
    FrontendWrite: () => ({ type: "FrontendWrite", session_id: S, path: "a.txt", content: "x" }),
    FrontendList: () => ({ type: "FrontendList", session_id: S }),
    ListBranches: () => ({ type: "ListBranches", folder: "/tmp/x" }),
+   FolderGitDiff: () => ({ type: "FolderGitDiff", folder: "/tmp/x", from: null, to: null }),
+   FolderGitLog: () => ({ type: "FolderGitLog", folder: "/tmp/x" }),
+   FolderGitShowFile: () => ({
+      type: "FolderGitShowFile",
+      folder: "/tmp/x",
+      rev: "HEAD",
+      path: "a.ts",
+   }),
    ListPullRequests: () => ({ type: "ListPullRequests", folder: "/tmp/x" }),
    UpdateBranch: () => ({ type: "UpdateBranch", folder: "/tmp/x", branch: "main" }),
    MarkSessionSeen: () => ({ type: "MarkSessionSeen", session_id: S }),

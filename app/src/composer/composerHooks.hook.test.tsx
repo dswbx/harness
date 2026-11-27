@@ -302,14 +302,14 @@ describe("useBranches", () => {
 });
 
 describe("usePullRequests", () => {
-   it("lists the PRs of a repository and makes the tab available", async () => {
+   it("lists the PRs of a repository", async () => {
       const client = mk();
       const hook = renderHook(() =>
          usePullRequests({ client, isOpen: true, folder: "/tmp/repo", isRepo: true }),
       );
-      expect(hook.result.current.prAvailable).toBe(false);
-      await waitFor(() => expect(hook.result.current.prAvailable).toBe(true));
-      expect(hook.result.current.prs?.length).toBeGreaterThan(0);
+      expect(hook.result.current.prs).toBeNull();
+      await waitFor(() => expect(hook.result.current.prs?.length).toBeGreaterThan(0));
+      expect(hook.result.current.prError).toBeNull();
    });
 
    it("lists nothing for a folder that is not a repository", async () => {
@@ -322,14 +322,14 @@ describe("usePullRequests", () => {
       expect(list).not.toHaveBeenCalled();
    });
 
-   it("without gh the tab is hidden and the mode falls back to branch", async () => {
+   it("without gh the Pull request tab stays and shows why", async () => {
       const client = mk();
       const hook = renderHook(() =>
          usePullRequests({ client, isOpen: true, folder: "/tmp/nogh", isRepo: true }),
       );
       act(() => hook.result.current.setMode("pr"));
-      await waitFor(() => expect(hook.result.current.mode).toBe("branch"));
-      expect(hook.result.current.prAvailable).toBe(false);
+      await waitFor(() => expect(hook.result.current.prError).toBeTruthy());
+      expect(hook.result.current.mode).toBe("pr");
       expect(hook.result.current.prs).toBeNull();
    });
 
@@ -341,7 +341,7 @@ describe("usePullRequests", () => {
             usePullRequests({ client, isOpen: true, folder: p.folder, isRepo: true }),
          { initialProps: { folder: "/tmp/a" } },
       );
-      await waitFor(() => expect(hook.result.current.prAvailable).toBe(true));
+      await waitFor(() => expect(hook.result.current.prs).not.toBeNull());
       act(() => {
          hook.result.current.setMode("pr");
          hook.result.current.setPr({ number: 7 });

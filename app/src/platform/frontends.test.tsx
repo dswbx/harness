@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const registry: Record<string, Frontend> = {};
 vi.mock("./registry", () => ({ registry }));
 
-const { frontendToggles, gallery, sharedView } = await import("./frontends");
+const { folderDiff, frontendToggles, gallery, sharedView } = await import("./frontends");
 
 const base = { manifest: { id: "x" }, View: () => null } as unknown as Frontend;
 const toggle = (id: string, group: "chat" | "terminal") => ({
@@ -58,9 +58,33 @@ describe("Frontend members through the registry", () => {
       expect(frontendToggles("terminal").map((t) => t.id)).toEqual(["t2"]);
    });
 
+   it("renders the FolderDiff of the Frontend that has one", () => {
+      registry.plain = base;
+      registry.rich = {
+         ...base,
+         FolderDiff: ({ folder, scope }) => (
+            <p>
+               diff {folder} {scope.label}
+            </p>
+         ),
+      };
+      const FolderDiff = folderDiff();
+      render(
+         FolderDiff && (
+            <FolderDiff
+               folder="/r"
+               git={{} as never}
+               scope={{ from: null, to: null, label: "All" }}
+            />
+         ),
+      );
+      expect(screen.getByText("diff /r All")).toBeTruthy();
+   });
+
    it("a Frontend without them offers nothing and does not crash", () => {
       registry.plain = base;
       expect(sharedView()).toBeUndefined();
+      expect(folderDiff()).toBeUndefined();
       expect(gallery()).toBeUndefined();
       expect(frontendToggles("chat")).toEqual([]);
    });

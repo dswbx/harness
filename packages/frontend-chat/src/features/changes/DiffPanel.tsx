@@ -1,5 +1,6 @@
 import {
    type Diff,
+   diffWindowUrl,
    errText,
    type LineCommentState,
    openWindow,
@@ -27,7 +28,6 @@ import { activeCommentsOn } from "../review/reviewComments";
 import { useLineComments } from "../review/useLineComments";
 import { CommitsPane, useCommits } from "./CommitsPane";
 import { CommentCount, DiffViewer } from "./DiffViewer";
-import { diffWindowUrl } from "./DiffWindow";
 import { type FilePatch, splitPatch } from "./diff";
 import { type DiffScope, selectionScope } from "./scope";
 
@@ -205,11 +205,15 @@ export function DiffPanel({
                <DropdownMenuItem
                   disabled={noRepo}
                   onSelect={() =>
-                     void openWindow(`diff-${api.sessionId}`, diffWindowUrl(api.sessionId, scope), {
-                        title: `Diff: ${scope.label}`,
-                        remember: "diff",
-                        overlayTitleBar: true,
-                     })
+                     void openWindow(
+                        `diff-${api.sessionId}`,
+                        diffWindowUrl({ sessionId: api.sessionId }, scope),
+                        {
+                           title: `Diff: ${scope.label}`,
+                           remember: "diff",
+                           overlayTitleBar: true,
+                        },
+                     )
                   }
                >
                   <AppWindow /> Open diff viewer

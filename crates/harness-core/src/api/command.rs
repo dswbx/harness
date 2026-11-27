@@ -190,7 +190,8 @@ pub enum Command {
     SetEditor {
         editor: Option<Editor>,
     },
-    /// Opens the Session's folder, or `path` in it (relative or absolute, at `line`), in the user's editor.
+    /// Opens the Session's folder, or `path` (relative, absolute or `~/…`, at `line`), in the user's editor. A file
+    /// outside the folder follows the rules of `ReadSessionFile`.
     OpenInEditor {
         session_id: SessionId,
         #[serde(default)]
@@ -212,10 +213,10 @@ pub enum Command {
     ListSessionFiles {
         session_id: SessionId,
     },
-    /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file in the Session's folder
-    /// (relative or absolute inside it; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
-    /// for a file reference in a message. Fails for files outside the folder,
-    /// missing, too large, binary or not UTF-8.
+    /// Lines `start..=end` (1-based, clipped; default: the whole file) of a text file (relative to the Session's
+    /// folder, absolute, or `~/…`; a relative path may also be the end of one, see `editor::find_by_suffix`), e.g.
+    /// for a file reference in a message. Fails for files missing, too large, binary or not UTF-8. A file outside the
+    /// folder that can hold secrets (`editor::sensitive`) fails with `NeedsApproval` until `ApproveSessionFile`.
     ReadSessionFile {
         session_id: SessionId,
         path: String,
@@ -223,6 +224,17 @@ pub enum Command {
         start: Option<u32>,
         #[serde(default)]
         end: Option<u32>,
+    },
+    /// Lets the Session read a text file outside its folder that can hold secrets (`ReadSessionFile` fails with
+    /// `NeedsApproval` for it). Kept with the Session, by the file's real path.
+    ApproveSessionFile {
+        session_id: SessionId,
+        path: String,
+    },
+    /// Takes back `ApproveSessionFile` for that file.
+    RevokeSessionFile {
+        session_id: SessionId,
+        path: String,
     },
     /// The Session State (ADR 0015).
     GetState {
@@ -280,6 +292,24 @@ pub enum Command {
     /// Branches of the repository containing `folder`.
     ListBranches {
         folder: String,
+    },
+    /// Diff of the repository containing `folder` (an absolute path), with no Session: the whole repository, like
+    /// `git status`. `from` defaults to where its changes start (fork point from the default branch, else upstream,
+    /// else HEAD; never fetches); `to` defaults to the working tree now.
+    FolderGitDiff {
+        folder: String,
+        from: Option<String>,
+        to: Option<String>,
+    },
+    /// Commits since where the changes of the repository containing `folder` start (see FolderGitDiff), newest first.
+    FolderGitLog {
+        folder: String,
+    },
+    /// A file's content at `rev` in the repository containing `folder`; empty if absent there.
+    FolderGitShowFile {
+        folder: String,
+        rev: String,
+        path: String,
     },
     /// Open pull requests of the GitHub repository containing `folder` (via `gh`). Fails when
     /// `gh` is missing, not signed in, or the folder has no GitHub remote.

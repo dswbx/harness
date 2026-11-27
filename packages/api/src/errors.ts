@@ -2,14 +2,17 @@ import type { ErrorCode, HarnessError } from "./generated";
 
 /**
  * What a failed Command rejects with. `code` says why (branch on it, never on `message`);
- * `message` is for the user. Every transport turns its own failures into this.
+ * `message` is for the user. Every transport turns its own failures into this. `path`: with
+ * `needs_approval`, the real file an approval unlocks (`~/…` or absolute).
  */
 export class CommandError extends Error implements HarnessError {
    readonly code: ErrorCode;
-   constructor(code: ErrorCode, message: string) {
+   readonly path?: string;
+   constructor(code: ErrorCode, message: string, path?: string) {
       super(message);
       this.name = "CommandError";
       this.code = code;
+      if (path !== undefined) this.path = path;
    }
 }
 
@@ -23,11 +26,12 @@ const CODE_TABLE = {
    invalid: true,
    timeout: true,
    unavailable: true,
+   needs_approval: true,
    internal: true,
 } satisfies Record<ErrorCode, true>;
 const CODES: ReadonlySet<string> = new Set(Object.keys(CODE_TABLE));
 
-/** The wire shape the core sends: `{ code, message }`. */
+/** The wire shape the core sends: `{ code, message, path? }`. */
 function isWire(e: unknown): e is HarnessError {
    const w = e as Partial<HarnessError> | null;
    return (
@@ -39,10 +43,11 @@ function isWire(e: unknown): e is HarnessError {
    );
 }
 
-/** Any rejection as a `CommandError`: the core's `{ code, message }`, or `internal` for anything else (a string, an Error). */
+/** Any rejection as a `CommandError`: the core's `{ code, message, path? }`, or `internal` for anything else (a string, an Error). */
 export function toCommandError(e: unknown): CommandError {
    if (e instanceof CommandError) return e;
-   if (isWire(e)) return new CommandError(e.code, e.message);
+   if (isWire(e))
+      return new CommandError(e.code, e.message, typeof e.path === "string" ? e.path : undefined);
    if (e instanceof Error) return new CommandError("internal", e.message);
    return new CommandError("internal", typeof e === "string" ? e : JSON.stringify(e));
 }

@@ -8,6 +8,7 @@ import {
    resolveValue,
    type Scope,
    ScopeCtx,
+   Sel,
    tones,
 } from "./runtime";
 import type { RawNode, UiNode } from "./tools";
@@ -161,11 +162,15 @@ export const renderers = {
                            )}
                         />
                      )}
-                     <span className="min-w-0">{node.props.title}</span>
+                     <span className="min-w-0">
+                        <Sel>{node.props.title}</Sel>
+                     </span>
                   </div>
                   {node.props.description && (
                      <div className="mt-0.5 text-ui-sm text-muted-foreground">
-                        <Md>{node.props.description}</Md>
+                        <Sel>
+                           <Md>{node.props.description}</Md>
+                        </Sel>
                      </div>
                   )}
                </div>

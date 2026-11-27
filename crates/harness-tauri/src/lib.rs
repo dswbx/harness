@@ -1,6 +1,6 @@
 //! Thin Tauri adapter over harness-core (ADR 0001): `execute`, Session Log pages and subscriptions, app subscriptions, the
 //! Terminal byte stream, plus macOS niceties (dock badge, notifications), opt-in self-update and
-//! the Quick overlay (`overlay/`).
+//! the Quick overlay (`overlay/`) and the `harness` command's socket (`cli.rs`).
 //! Subscriptions are tied to their webview so reloads and closed windows never leak them.
 
 use parking_lot::Mutex;
@@ -13,6 +13,7 @@ use subscriptions::Subscriptions;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, Webview};
 
+pub mod cli;
 mod context;
 pub mod host_types;
 mod links;
@@ -66,7 +67,7 @@ fn order_front(window: tauri::Window) -> tauri::Result<()> {
 }
 
 /// Unminimizes, shows and focuses a window, and makes Harness the active app. Main thread only.
-pub(crate) fn bring_to_front(window: &tauri::WebviewWindow) {
+pub(crate) fn bring_to_front<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
@@ -384,11 +385,13 @@ pub fn run() {
         .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))
         .manage(Subscriptions::default())
         .manage(updates::Updates::default())
+        .manage(cli::CliQueue::default())
+        .manage(cli::CliServer::default())
         .setup(|app| {
             let data_dir = harness_core::host::default_data_dir(app.path().home_dir()?, std::env::var_os("HARNESS_HOME"), cfg!(debug_assertions));
             let exe = std::env::current_exe()?.display().to_string();
             let options = harness_core::host::Options { mcp_shim: Some((exe, vec!["mcp-shim".to_owned()])), ..Default::default() };
-            let harness = Harness::with_options(data_dir, Vec::new(), options)?;
+            let harness = Harness::with_options(data_dir.clone(), Vec::new(), options)?;
             for manifest in harness_core::host::builtin_frontends() {
                 harness.register_frontend(manifest);
             }
@@ -400,6 +403,7 @@ pub fn run() {
                 main.set_title(&app.package_info().name)?;
             }
             updates::spawn_checks(app.handle());
+            cli::serve(app.handle(), &data_dir);
             stop_on_signal(app.handle());
             Ok(())
         })
@@ -464,6 +468,7 @@ pub fn run() {
             subscribe_app,
             terminal_attach,
             terminal_detach,
+            cli::cli_take,
             updates::update_state,
             updates::update_check,
             updates::update_install,
@@ -488,13 +493,10 @@ pub fn run() {
             // SIGINT/SIGTERM (`stop_on_signal`). A restart cannot be prevented, so shutdown runs
             // right here and blocks (bounded) instead of deferring the exit.
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => shut_down(app),
-            // Dock icon click (macOS): the main window comes back (it hides on close).
+            // Dock icon click (macOS): the main window comes back (it hides on close; made anew if
+            // it is gone).
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen { .. } => {
-                if let Some(main) = app.get_webview_window("main") {
-                    bring_to_front(&main);
-                }
-            }
+            tauri::RunEvent::Reopen { .. } => cli::show_main(app),
             _ => {}
         });
 }
@@ -512,6 +514,8 @@ fn shut_down(app: &tauri::AppHandle) {
     if QUITTING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
+    // First: a client must not hand requests to an app that is going away.
+    cli::stop(app);
     let Some(harness) = app.try_state::<Arc<Harness>>() else { return };
     for window in app.webview_windows().values() {
         let _ = window.hide();

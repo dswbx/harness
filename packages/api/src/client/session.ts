@@ -5,6 +5,7 @@ import type {
    Diff,
    Editor,
    Event,
+   FileScope,
    FrontendAnswer,
    GitStatus,
    KnownRepo,
@@ -163,15 +164,21 @@ export interface SessionApi {
     */
    listSessionFiles(): Promise<{ files: string[]; prefix: string }>;
    /**
-    * Lines `start..=end` (1-based, clipped; default: all) of a text file in the Session's folder (relative or absolute
-    * inside it; a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the
-    * file found, relative to the folder. Fails for files outside it, missing, too large, binary or not UTF-8.
+    * Lines `start..=end` (1-based, clipped; default: all) of a text file: relative to the Session's folder, absolute,
+    * or `~/…` (a relative path may also be the end of one, e.g. `src/a.rs` for `crates/x/src/a.rs`). `path`: the file
+    * found, relative to the folder when `scope` is `inside`, else `~/…` or absolute. Fails for files missing, too
+    * large, binary or not UTF-8; with `needs_approval` (message: the reason) for a file outside the folder that can
+    * hold secrets until `approveSessionFile`.
     */
    readSessionFile(
       path: string,
       start?: number,
       end?: number,
-   ): Promise<{ path: string; start: number; lines: string[]; total: number }>;
+   ): Promise<{ path: string; start: number; lines: string[]; total: number; scope: FileScope }>;
+   /** Lets this Session read a file outside its folder that can hold secrets (kept with the Session). */
+   approveSessionFile(path: string): Promise<void>;
+   /** Takes back `approveSessionFile` for that file. */
+   revokeSessionFile(path: string): Promise<void>;
    /** The Session State (ADR 0015); also rebuilt from `StateChanged` events. */
    getState(): Promise<unknown>;
    /** Changes the Session State as the user (all or nothing). */
