@@ -36,7 +36,7 @@ The Main list is a `VirtualList` (`MessageList.tsx:107`). Rows unmount when they
   - the anchor's `thread_id` is the Main Thread;
   - the Event at `seq` is a Main `AgentMessageChunk` with `parent_tool_call_id: None`;
   - a Main `TurnEnded` with a higher `seq` exists (the message is finished).
-  
+
   With these checks, the fork point always covers the anchored message.
 - Model, config and `side_mode` need no change.
 - No change to `harness_context` or the transcript tools.

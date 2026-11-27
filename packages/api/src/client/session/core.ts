@@ -13,6 +13,7 @@ type Core = Pick<
    | "warmUp"
    | "continueWithSummary"
    | "startSideThread"
+   | "resolveSideThread"
    | "resolvePermission"
    | "setConfigOption"
    | "setMode"
@@ -47,14 +48,21 @@ export const coreApi = (transport: Transport, sessionId: string): Core => ({
          text,
          attachments,
       }),
-   startSideThread: async ({ seed = null, source, mode = null } = {}) => {
+   startSideThread: async ({ seed = null, source, mode = null, anchor = null } = {}) => {
       const r = await expectResult(
          transport,
-         { type: "StartSideThread", session_id: sessionId, seed, source, mode },
+         { type: "StartSideThread", session_id: sessionId, seed, source, mode, anchor },
          "ThreadStarted",
       );
       return { thread_id: r.thread_id, forked: r.forked };
    },
+   resolveSideThread: (threadId, resolved) =>
+      run(transport, {
+         type: "ResolveSideThread",
+         session_id: sessionId,
+         thread_id: threadId,
+         resolved,
+      }),
    cancel: (threadId = null) =>
       run(transport, { type: "Cancel", session_id: sessionId, thread_id: threadId }),
    warmUp: () => run(transport, { type: "WarmUp", session_id: sessionId }),

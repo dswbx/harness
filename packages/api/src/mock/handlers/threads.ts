@@ -98,6 +98,7 @@ export const threadsHandlers = {
                   seq: log.length - 1,
                },
             }),
+            ...(cmd.anchor && { anchor: cmd.anchor }),
          },
          thread_id,
       );
@@ -121,6 +122,21 @@ export const threadsHandlers = {
          mock.emit(sid, { type: "ConfigOptionsChanged", options: side }, thread_id);
       }
       return { type: "ThreadStarted", thread_id, forked };
+   },
+   ResolveSideThread: (mock, cmd) => {
+      const sid = cmd.session_id;
+      const log = mock.logs.get(sid) ?? [];
+      if (cmd.thread_id === mock.mainThread(sid))
+         throw new CommandError("invalid", "the Main Thread cannot be resolved");
+      if (!log.some((e) => e.thread_id === cmd.thread_id && e.kind.type === "ThreadStarted"))
+         throw new CommandError("not_found", `unknown thread ${cmd.thread_id}`);
+      const last = log
+         .filter((e) => e.thread_id === cmd.thread_id && e.kind.type === "SideThreadResolved")
+         .at(-1)?.kind;
+      const now = last?.type === "SideThreadResolved" && last.resolved;
+      if (now !== cmd.resolved)
+         mock.emit(sid, { type: "SideThreadResolved", resolved: cmd.resolved }, cmd.thread_id);
+      return { type: "Ok" };
    },
    SetConfigOption: setOption,
    SetMode: setOption,

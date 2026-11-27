@@ -21,6 +21,7 @@ import type {
    TaskPatch,
    TaskSummary,
    TerminalInfo,
+   TextAnchor,
    ThreadStart,
    WorkspaceInfo,
 } from "../generated";
@@ -94,13 +95,17 @@ export interface SessionApi {
    /**
     * Opens a Side Thread (ADR 0018): a fork of the Main Thread when the Agent can, else a text seed.
     * `source: "fresh"` starts a new Agent Session without the conversation. Starts in `mode` when given, else in the
-    * Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here.
+    * Agent's asking mode. Quoted text goes in its prompt box as a quote chip, not here. With `anchor` it is an
+    * Inline Thread (ADR 0030): the core refuses it unless it points to a finished Main Thread agent message.
     */
    startSideThread(args?: {
       seed?: string | null;
       source?: ThreadStart;
       mode?: string | null;
+      anchor?: TextAnchor | null;
    }): Promise<{ thread_id: string; forked: boolean }>;
+   /** Resolves (`true`) or reopens (`false`) a Side Thread. Does nothing when it is already in that state. */
+   resolveSideThread(threadId: string, resolved: boolean): Promise<void>;
    /** `null` answers "cancelled". With an `*_always` option, `global` makes the rule apply to every Session. */
    resolvePermission(requestId: string, optionId: string | null, global?: boolean): Promise<void>;
    setConfigOption(id: string, value: string, threadId?: string | null): Promise<void>;

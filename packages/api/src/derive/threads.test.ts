@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Event, EventKind } from "../generated";
-import { threadsOf } from "./threads";
+import { stepThreads, threadsOf } from "./threads";
 
 let seq = 0;
 const ev = (thread_id: string | null, kind: EventKind): Event => ({
@@ -64,6 +64,42 @@ describe("threadsOf", () => {
       ]);
       expect(later).toHaveLength(1);
       expect(later[0]).toMatchObject({ title: "Migration format", turns: 2 });
+   });
+});
+
+describe("Inline Threads", () => {
+   const anchor = { thread_id: "m", seq: 4, quote: "q", prefix: "p ", suffix: " s" };
+
+   it("carries the anchor, and folds resolve and reopen", () => {
+      const events = [
+         ev("m", { type: "ThreadStarted", agent_id: "a", main: true }),
+         ev("s1", { type: "ThreadStarted", agent_id: "a", main: false, anchor }),
+         ev("s2", { type: "ThreadStarted", agent_id: "a", main: false }),
+         ev("s1", { type: "SideThreadResolved", resolved: true }),
+      ];
+      const list = threadsOf(events);
+      expect(list[0]).toMatchObject({ anchor: null, resolved: false });
+      expect(list[1]).toMatchObject({ anchor, resolved: true });
+      expect(list[2]).toMatchObject({ anchor: null, resolved: false });
+      const reopened = threadsOf([
+         ...events,
+         ev("s1", { type: "SideThreadResolved", resolved: false }),
+      ]);
+      expect(reopened[1]).toMatchObject({ anchor, resolved: false });
+   });
+
+   it("ignores a resolve that changes nothing, or of an unknown or Main Thread", () => {
+      const list = threadsOf([
+         ev("m", { type: "ThreadStarted", agent_id: "a", main: true }),
+         ev("s1", { type: "ThreadStarted", agent_id: "a", main: false, anchor }),
+      ]);
+      for (const e of [
+         ev("s1", { type: "SideThreadResolved", resolved: false }),
+         ev("m", { type: "SideThreadResolved", resolved: true }),
+         ev("x", { type: "SideThreadResolved", resolved: true }),
+         ev(null, { type: "SideThreadResolved", resolved: true }),
+      ])
+         expect(stepThreads(list, e)).toBe(list);
    });
 });
 

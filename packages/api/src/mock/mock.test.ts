@@ -212,6 +212,33 @@ describe("MockTransport Side Threads", () => {
       expect(started).toMatchObject({ forked_from: { thread_id: "main", turn: 0 } });
       expect(sideMode(events, r.thread_id)).toBe("read-only");
    });
+
+   it("logs an Inline Thread's anchor, and resolves and reopens it", async () => {
+      const { api, events } = await setup();
+      const anchor = { thread_id: "main", seq: 1, quote: "q", prefix: "", suffix: "" };
+      const r = await api.startSideThread({ anchor });
+      const started = events.find(
+         (e) => e.thread_id === r.thread_id && e.kind.type === "ThreadStarted",
+      )!.kind;
+      expect(started).toMatchObject({ anchor });
+      const plain = await api.startSideThread();
+      expect(
+         events.find((e) => e.thread_id === plain.thread_id && e.kind.type === "ThreadStarted")!
+            .kind,
+      ).not.toHaveProperty("anchor");
+
+      const states = () =>
+         events
+            .filter((e) => e.thread_id === r.thread_id && e.kind.type === "SideThreadResolved")
+            .map((e) => (e.kind as { resolved: boolean }).resolved);
+      await api.resolveSideThread(r.thread_id, false);
+      await api.resolveSideThread(r.thread_id, true);
+      await api.resolveSideThread(r.thread_id, true);
+      await api.resolveSideThread(r.thread_id, false);
+      expect(states()).toEqual([true, false]);
+      await expect(api.resolveSideThread("main", true)).rejects.toThrow("Main Thread");
+      await expect(api.resolveSideThread("nope", true)).rejects.toThrow("unknown thread");
+   });
 });
 
 describe("MockTransport Shared Artifacts (ADR 0024)", () => {

@@ -130,6 +130,12 @@ const table: Record<Command["type"], () => Command> = {
       text: null,
    }),
    StartSideThread: () => ({ type: "StartSideThread", session_id: S }),
+   ResolveSideThread: () => ({
+      type: "ResolveSideThread",
+      session_id: S,
+      thread_id: "side-1",
+      resolved: true,
+   }),
    ResolvePermission: () => ({
       type: "ResolvePermission",
       session_id: S,

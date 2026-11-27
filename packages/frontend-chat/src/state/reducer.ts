@@ -104,6 +104,7 @@ const ROUTES: Record<EventKind["type"], readonly Slice[]> = {
    CommentDeleted: NONE,
    CommentsSent: NONE,
    CommentResolved: NONE,
+   SideThreadResolved: NONE,
    AgentUpdate: NONE,
    FrontendError: NONE,
    ModeChanged: [configSlice],
