@@ -7,6 +7,15 @@
  */
 export type Anchor = "top" | "bottom";
 
+/**  One request from the `harness` command. `folder` is absolute and canonical (the client resolves it). */
+export type CliRequest = 
+/**  Open the Folder Diff window of `folder`. */
+{ kind: "diff"; folder: string } | 
+/**  Open the Composer with `folder` filled in. */
+{ kind: "new"; folder: string } | 
+/**  Only bring the app to the front (a second launch with no command). Never queued. */
+{ kind: "focus" };
+
 export type Missing = "accessibility" | "automation";
 
 /**  Where the overlay's prompt box opens: at the mouse, or at the bottom center of that screen. */

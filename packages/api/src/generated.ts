@@ -323,6 +323,16 @@ mcp_servers?: string[] } | { type: "ListMcpServers" } |
 /**  Branches of the repository containing `folder`. */
 { type: "ListBranches"; folder: string } | 
 /**
+ *  Diff of the repository containing `folder` (an absolute path), with no Session: the whole repository, like
+ *  `git status`. `from` defaults to where its changes start (fork point from the default branch, else upstream,
+ *  else HEAD; never fetches); `to` defaults to the working tree now.
+ */
+{ type: "FolderGitDiff"; folder: string; from: string | null; to: string | null } | 
+/**  Commits since where the changes of the repository containing `folder` start (see FolderGitDiff), newest first. */
+{ type: "FolderGitLog"; folder: string } | 
+/**  A file's content at `rev` in the repository containing `folder`; empty if absent there. */
+{ type: "FolderGitShowFile"; folder: string; rev: string; path: string } | 
+/**
  *  Open pull requests of the GitHub repository containing `folder` (via `gh`). Fails when
  *  `gh` is missing, not signed in, or the folder has no GitHub remote.
  */

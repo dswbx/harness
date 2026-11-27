@@ -1,6 +1,10 @@
 import {
+   baseName,
    type Diff,
+   diffWindowUrl,
    errText,
+   type FolderDiffProps,
+   type GitSource,
    inTauri,
    rememberWindowFrame,
    type SessionApi,
@@ -18,6 +22,7 @@ import {
    FilePlus,
    List,
    ListTree,
+   RefreshCw,
    Rows2,
    WrapText,
 } from "lucide-react";
@@ -31,33 +36,6 @@ import { CommentCount, DiffViewer, type FileContents } from "./DiffViewer";
 import { type FilePatch, splitPatch } from "./diff";
 import { type FileView, viewStore, wrapStore } from "./diffPrefs";
 import { type DiffScope, selectionScope } from "./scope";
-
-/** URL of the pop-out diff window. Boots through the app entry like any solo View window. */
-export function diffWindowUrl(sessionId: string, scope: DiffScope) {
-   const q = new URLSearchParams({
-      session: sessionId,
-      solo: "1",
-      pane: "diff",
-      label: scope.label,
-   });
-   if (scope.from) q.set("from", scope.from);
-   if (scope.to) q.set("to", scope.to);
-   if (scope.sel) q.set("sel", scope.sel.join(","));
-   return `/?${q}`;
-}
-
-/** The diff window's scope, or null when this window is a normal View. */
-export function diffWindowScope(search: string): DiffScope | null {
-   const q = new URLSearchParams(search);
-   if (q.get("pane") !== "diff") return null;
-   const sel = q.get("sel");
-   return {
-      from: q.get("from"),
-      to: q.get("to"),
-      label: q.get("label") ?? "Changes",
-      ...(sel && { sel: sel.split(",") }),
-   };
-}
 
 const STATUS = {
    A: { Icon: FilePlus, className: "text-emerald-600", label: "added" },
@@ -84,9 +62,30 @@ const fileKey = (f: FilePatch) => fileRowKey(f.path);
 
 const sidebarWidth = storedNumber("harness:diff-sidebar-width");
 
+/**
+ * Where the diff window reads from: a Session (with its Review Comments), or a folder's repository with no Session
+ * (Folder Diff: read-only, no comments). Everything else is the same window.
+ */
+export type DiffSource =
+   | { kind: "session"; api: SessionApi }
+   | { kind: "folder"; folder: string; git: GitSource };
+
 /** JetBrains-like diff viewer: files (list or tree) and commits left, one file's diff right, keyboard navigation through files and changes. */
-export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scope: DiffScope }) {
+export function DiffWindow({
+   source,
+   scope: initialScope,
+}: {
+   source: DiffSource;
+   scope: DiffScope;
+}) {
+   const git = source.kind === "session" ? source.api : source.git;
+   const session = source.kind === "session" ? source.api : undefined;
+   const sessionId = session?.sessionId;
+   const folder = source.kind === "folder" ? source.folder : undefined;
    const [scope, setScope] = useState(initialScope);
+   /** Bumped by Refresh: reloads the diff, the commits and the open file, keeping the scope and selection. */
+   const [tick, setTick] = useState(0);
+   const shownScope = useRef<DiffScope | null>(null);
    const [diff, setDiff] = useState<Diff | null>(null);
    const [error, setError] = useState<string | null>(null);
    /** Selected row key; null = the first file. */
@@ -96,8 +95,8 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    const [wrap, setWrap] = useState(wrapStore.get);
    const [closed, setClosed] = useState<Set<string>>(new Set());
    const [contents, setContents] = useState<Map<string, FileContents>>(new Map());
-   const comments = useLineComments(api);
-   const commits = useCommits(api);
+   const comments = useLineComments(session);
+   const commits = useCommits(git, tick);
    const sidebar = useResizableWidth({
       store: sidebarWidth,
       initial: 320,
@@ -111,23 +110,40 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
    const pendingJump = useRef<"first" | "last" | null>(null);
 
    useEffect(() => {
-      let off = false;
-      document.title = `Diff: ${scope.label}`;
+      const target = folder !== undefined ? { folder } : { sessionId: sessionId! };
+      document.title =
+         folder !== undefined
+            ? `Diff: ${baseName(folder)} · ${scope.label}`
+            : `Diff: ${scope.label}`;
       // A reload keeps the current selection.
-      history.replaceState(null, "", diffWindowUrl(api.sessionId, scope));
-      setDiff(null);
+      history.replaceState(null, "", diffWindowUrl(target, scope));
+   }, [folder, sessionId, scope]);
+
+   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is the Refresh button.
+   useEffect(() => {
+      let off = false;
+      // A new scope starts over; a refresh keeps the selection and shows the old diff until the new one is in.
+      const fresh = shownScope.current !== scope;
+      shownScope.current = scope;
+      if (fresh) {
+         setDiff(null);
+         setCursor(null);
+         setContents(new Map());
+         change.current = -1;
+      }
       setError(null);
-      setCursor(null);
-      setContents(new Map());
-      change.current = -1;
-      api.gitDiff(scope.from, scope.to).then(
-         (d) => !off && setDiff(d),
+      git.gitDiff(scope.from, scope.to).then(
+         (d) => {
+            if (off) return;
+            setContents(new Map());
+            setDiff(d);
+         },
          (e) => !off && setError(errText(e)),
       );
       return () => {
          off = true;
       };
-   }, [api, scope]);
+   }, [git, scope, tick]);
 
    const files = useMemo(() => (diff ? splitPatch(diff.patch) : []), [diff]);
    const tree = useMemo(() => fileTree(files, closed), [files, closed]);
@@ -160,7 +176,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       if (!diff || !file || contents.has(file.path)) return;
       let off = false;
       const read = (rev: string, path: string | null) =>
-         path ? api.gitShowFile(rev, path) : Promise.resolve("");
+         path ? git.gitShowFile(rev, path) : Promise.resolve("");
       Promise.all([read(diff.from, file.oldPath), read(diff.to, file.newPath)]).then(
          ([o, n]) => !off && setContents((m) => new Map(m).set(file.path, { old: o, new: n })),
          () => {}, // Without contents the diff still renders; only expanding is off.
@@ -168,7 +184,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
       return () => {
          off = true;
       };
-   }, [api, diff, file, contents]);
+   }, [git, diff, file, contents]);
 
    /** Selects a file by its place in `order`, opening its folders. */
    const goFile = useCallback(
@@ -363,6 +379,17 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                   <span className="text-red-500">−{file.deletions}</span>
                </span>
             )}
+            <Tooltip content="Refresh" side="bottom">
+               <Button
+                  size="icon"
+                  variant="ghost"
+                  className="ml-2 size-7"
+                  aria-label="Refresh diff"
+                  onClick={() => setTick((t) => t + 1)}
+               >
+                  <RefreshCw />
+               </Button>
+            </Tooltip>
             <Tooltip content="Soft wrap" side="bottom">
                <Button
                   size="icon"
@@ -499,7 +526,7 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
                {file ? (
                   <DiffViewer
                      key={file.path}
-                     api={api}
+                     api={session}
                      file={file}
                      comments={comments}
                      mode={mode}
@@ -514,4 +541,9 @@ export function DiffWindow({ api, scope: initialScope }: { api: SessionApi; scop
          </div>
       </div>
    );
+}
+
+/** The Frontend's Folder Diff window: the same diff window, reading a folder's repository with no Session. */
+export function FolderDiff({ folder, git, scope }: FolderDiffProps) {
+   return <DiffWindow source={{ kind: "folder", folder, git }} scope={scope} />;
 }

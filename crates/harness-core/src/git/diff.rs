@@ -82,6 +82,26 @@ pub async fn log(dir: &Path, base: &str) -> anyhow::Result<Vec<Commit>> {
     Ok(parse_log(&out))
 }
 
+/// Diff of `dir` from `from` (default: where its changes start, see [`diff_base`] with `base`) to `to` (default: the
+/// working tree now). Session and Folder Diff share it, so both default the same way.
+pub async fn diff_range(dir: &Path, base: Option<&str>, from: Option<String>, to: Option<String>) -> anyhow::Result<Diff> {
+    let from = match from {
+        Some(f) => f,
+        None => diff_base(dir, base).await?,
+    };
+    let to = match to {
+        Some(t) => t,
+        None => snapshot(dir).await?,
+    };
+    diff(dir, &from, &to).await
+}
+
+/// Commits since where `dir`'s changes start (see [`diff_base`] with `base`), newest first.
+pub async fn log_since_base(dir: &Path, base: Option<&str>) -> anyhow::Result<Vec<Commit>> {
+    let base = diff_base(dir, base).await?;
+    log(dir, &base).await
+}
+
 /// Where a Session's changes start: the closest merge base with its base branch (a Worktree's, or a PR's), local or on
 /// any remote; a base found nowhere (a PR into a branch never fetched) is fetched once. Without a base, or when it is
 /// gone: on a branch, where it forked from the default branch (`origin/HEAD`, else `main`/`master`); on the default
