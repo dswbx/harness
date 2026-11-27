@@ -93,7 +93,7 @@ export function usePanelHost(o: {
    const open = useCallback(
       (ref: PanelRef<unknown>, ...target: unknown[]) => {
          // Open in a window of its own, or this is a panel window showing another panel: the View that
-         // owns the panel applies the open (panel inbox, ADR 0030).
+         // owns the panel applies the open (panel inbox, ADR 0032).
          if (poppedRef.current.has(ref.id) || (popout !== undefined && ref.id !== popout)) {
             send(ref.id, target);
             return;

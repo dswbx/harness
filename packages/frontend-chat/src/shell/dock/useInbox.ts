@@ -4,7 +4,7 @@ import type { PanelCtx, PanelRef } from "../../panels/contract";
 import type { DockMode } from "./useDockLayout";
 
 /**
- * The panel inbox of one View (ADR 0030): applies the opens another window sent for a panel this View
+ * The panel inbox of one View (ADR 0032): applies the opens another window sent for a panel this View
  * owns, each once through `open`, then removes its key. Owner: the main view owns the panels that are
  * not popped, a panel window only its own panel, the Quick overlay none. An open for a panel this View
  * does not host (yet, like a slot made just before) stays until it is hosted or stale.

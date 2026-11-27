@@ -194,7 +194,7 @@ function FrontendToggles({ group }: { group: FrontendToggle["group"] }) {
 
 const reopenStore = panelWindowsReopen();
 
-/** App setting: reopen the panel windows on launch (ADR 0030). */
+/** App setting: reopen the panel windows on launch (ADR 0032). */
 function ReopenPanelWindowsRow() {
    const on = useSyncExternalStore(reopenStore.subscribe, reopenStore.get);
    return (
