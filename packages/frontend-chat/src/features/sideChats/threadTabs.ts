@@ -15,6 +15,12 @@ export type ThreadTabs = {
 
 export const NO_TABS: ThreadTabs = { threads: [], thread: null };
 
+/**
+ * The reserved active id of the fixed "Inline" tab (ADR 0030): never in `threads`. An older build reads it as an
+ * unknown active id and falls back to the last tab.
+ */
+export const INLINE_TAB = "inline";
+
 /** A side chat tab not started yet: its Side Thread forks on the first message (`draft:<uuid>`). */
 export const isDraftThread = (id: string) => id.startsWith("draft:");
 
@@ -33,9 +39,9 @@ export const replaceThread = (t: ThreadTabs, from: string, to: string): ThreadTa
         }
       : t;
 
-/** Selects an open Side Thread. */
+/** Selects an open Side Thread, or the Inline tab. */
 export const selectThread = (t: ThreadTabs, id: string): ThreadTabs =>
-   t.threads.includes(id) ? { ...t, thread: id } : t;
+   t.threads.includes(id) || id === INLINE_TAB ? { ...t, thread: id } : t;
 
 /** Closes a Side Thread; if it was active the neighbour on its left (else right) takes over. */
 export function closeThread(t: ThreadTabs, id: string): ThreadTabs {
@@ -73,6 +79,19 @@ export function activeThreadId(selected: string | null, open: readonly string[])
    return selected && open.includes(selected) ? selected : (open.at(-1) ?? null);
 }
 
+/**
+ * The tab shown: the Inline tab when selected and shown (`inline`), else the active Side Thread, else the Inline
+ * tab when it is the only one.
+ */
+export function shownTab(
+   selected: string | null,
+   open: readonly string[],
+   inline: boolean,
+): string | null {
+   if (selected === INLINE_TAB && inline) return INLINE_TAB;
+   return activeThreadId(selected, open) ?? (inline ? INLINE_TAB : null);
+}
+
 /** The tab "new side chat" shows: an open draft is reused. */
 export function newThreadTabId(t: ThreadTabs, uuid: () => string): string {
    return t.threads.find(isDraftThread) ?? `draft:${uuid()}`;
@@ -96,14 +115,17 @@ const RIGHT_PANEL_KEY = (sessionId: string) => `harness.chat.panel.${sessionId}`
 
 const readJson = (key: string, sessionId: string): unknown => sessionJson(key, sessionId).get();
 
-/** `threads` and `thread` of a stored value, dropping what is invalid; the active one falls back to the last. */
+/**
+ * `threads` and `thread` of a stored value, dropping what is invalid; an unknown active one falls back to the
+ * last. The Inline tab's id is kept (it is never in `threads`).
+ */
 export function parseThreadTabs(raw: unknown): ThreadTabs {
    const v = (raw ?? {}) as { threads?: unknown; thread?: unknown };
    const threads = Array.isArray(v.threads)
-      ? v.threads.filter((t): t is string => typeof t === "string")
+      ? v.threads.filter((t): t is string => typeof t === "string" && t !== INLINE_TAB)
       : [];
    const thread =
-      typeof v.thread === "string" && threads.includes(v.thread)
+      typeof v.thread === "string" && (threads.includes(v.thread) || v.thread === INLINE_TAB)
          ? v.thread
          : (threads.at(-1) ?? null);
    return { threads, thread };

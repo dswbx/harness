@@ -211,14 +211,16 @@ function ChatBody({
    const [anchors] = useState(() => new AnchorRegistry());
    // "Show in chat": scroll to the anchored message, then open its popover once the row found the quote.
    const reveal = inline.reveal;
-   const revealRef = useRef({ threads: inline.threads, open: inline.open });
-   revealRef.current = { threads: inline.threads, open: inline.open };
+   const revealRef = useRef({ threads: inline.threads, drafts: inline.drafts, open: inline.open });
+   revealRef.current = { threads: inline.threads, drafts: inline.drafts, open: inline.open };
    useEffect(() => {
       if (!reveal) return;
-      const t = revealRef.current.threads.find((x) => x.id === reveal.id);
-      if (!t) return;
-      list.current?.scrollToKey(t.itemId);
-      revealRef.current.open([t.id]);
+      const { threads, drafts, open } = revealRef.current;
+      // A Thread or a draft.
+      const itemId = threads.find((x) => x.id === reveal.id)?.itemId ?? drafts[reveal.id]?.itemId;
+      if (!itemId) return;
+      list.current?.scrollToKey(itemId);
+      open([reveal.id]);
    }, [reveal]);
    const btw = useCallback(
       (text: string, attachments: AttachmentInput[], item: PendingMessage) =>

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
    activeThreadId,
    closeThread,
+   INLINE_TAB,
    loadThreadTabs,
    moveThread,
    NO_TABS,
@@ -11,6 +12,7 @@ import {
    replaceThread,
    saveThreadTabs,
    selectThread,
+   shownTab,
    type ThreadTabs,
    threadStarted,
 } from "./threadTabs";
@@ -40,6 +42,14 @@ describe("Side Thread tabs", () => {
       expect(activeThreadId("gone", ["t1", "t2"])).toBe("t2");
       expect(activeThreadId(null, ["t1"])).toBe("t1");
       expect(activeThreadId(null, [])).toBeNull();
+   });
+   test("the Inline tab: shown when selected and present, else the active Thread, else it when alone", () => {
+      expect(shownTab(INLINE_TAB, ["t1"], true)).toBe(INLINE_TAB);
+      expect(shownTab(INLINE_TAB, ["t1"], false)).toBe("t1");
+      expect(shownTab("t1", ["t1"], true)).toBe("t1");
+      expect(shownTab("gone", [], true)).toBe(INLINE_TAB);
+      expect(shownTab(null, [], false)).toBeNull();
+      expect(selectThread(tabs(["t1"], "t1"), INLINE_TAB)).toEqual(tabs(["t1"], INLINE_TAB));
    });
    test("new tab reuses an open draft", () => {
       expect(newThreadTabId(tabs(["t1", "draft:a"], null), () => "zz")).toBe("draft:a");
@@ -126,6 +136,15 @@ describe("storage", () => {
       expect(loadThreadTabs("s1")).toEqual(NO_TABS);
       localStorage.setItem(own, JSON.stringify({ v: 1, threads: ["a", 3, "b"], thread: "zzz" }));
       expect(loadThreadTabs("s1")).toEqual(tabs(["a", "b"], "b"));
+   });
+   test("keeps the Inline tab active; an unknown active id (another build's) falls back to the last", () => {
+      localStorage.setItem(own, JSON.stringify({ v: 1, threads: ["a", "b"], thread: INLINE_TAB }));
+      expect(loadThreadTabs("s1")).toEqual(tabs(["a", "b"], INLINE_TAB));
+      localStorage.setItem(own, JSON.stringify({ v: 1, threads: ["a", "b"], thread: "pinned:x" }));
+      expect(loadThreadTabs("s1")).toEqual(tabs(["a", "b"], "b"));
+      // An older build that put it among the tabs: it is not a Thread.
+      localStorage.setItem(own, JSON.stringify({ v: 1, threads: [INLINE_TAB, "a"], thread: "a" }));
+      expect(loadThreadTabs("s1")).toEqual(tabs(["a"], "a"));
    });
 });
 

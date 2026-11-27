@@ -19,7 +19,6 @@ import {
 import { type SideChatStatus, SidePanel } from "./SidePanel";
 import type { SideStart } from "./ThreadView";
 import {
-   activeThreadId,
    closeThread,
    isDraftThread,
    moveThread,
@@ -27,6 +26,7 @@ import {
    openThread,
    openThreadIds,
    selectThread,
+   shownTab,
    takesDraftTab,
    threadStarted,
    useThreadTabs,
@@ -35,7 +35,10 @@ import {
 export type SideChatsModel = {
    /** Open tabs that have something to show. */
    open: string[];
+   /** The tab shown: a Side Thread, or `INLINE_TAB`. */
    active: string | null;
+   /** The fixed Inline tab's count (unresolved Inline Threads and drafts); null: the tab is hidden. */
+   inlineCount: number | null;
    titleOf: (id: string) => string;
    statusOf: (id: string) => SideChatStatus;
    /** Open tabs with a reply not seen yet. */
@@ -105,7 +108,12 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
          () => openThreadIds(tabs.threads, state.threads, sent),
          [tabs, state.threads, sent],
       );
-      const active = activeThreadId(tabs.thread, open);
+      const draftCount = Object.keys(inline.drafts).length;
+      const inlineCount =
+         inline.threads.length > 0 || draftCount > 0
+            ? inline.threads.filter((t) => !t.resolved).length + draftCount
+            : null;
+      const active = shownTab(tabs.thread, open, inlineCount !== null);
       const sideThreads = useMemo(
          () => state.threadList.filter((t) => !t.main),
          [state.threadList],
@@ -143,13 +151,16 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
          [open, statusOf],
       );
 
+      const hasInline = useRef(false);
+      hasInline.current = inlineCount !== null;
       const select = useCallback((id: string) => apply((t) => selectThread(t, id)), [apply]);
       const move = useCallback(
          (id: string, before: string | null) => apply((t) => moveThread(t, id, before)),
          [apply],
       );
+      // Inline Threads are listed in the Inline tab, not in Past chats.
       const past = useMemo(
-         () => [...sideThreads].sort((a, b) => b.lastAt - a.lastAt),
+         () => sideThreads.filter((t) => !t.anchor).sort((a, b) => b.lastAt - a.lastAt),
          [sideThreads],
       );
       const reopen = useCallback(
@@ -165,8 +176,9 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
                setReviewComments(composerKey(api.sessionId, id), []);
                clearDraft(composerKey(api.sessionId, id));
             }
-            // The last tab hides the panel.
-            if (apply((t) => closeThread(t, id)).threads.length === 0) selfRef.current.hide();
+            // The last tab hides the panel, unless the Inline tab is there.
+            if (apply((t) => closeThread(t, id)).threads.length === 0 && !hasInline.current)
+               selfRef.current.hide();
          },
          [api.sessionId, apply],
       );
@@ -252,6 +264,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
          () => ({
             open,
             active,
+            inlineCount,
             titleOf,
             statusOf,
             unread,
@@ -271,6 +284,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
          [
             open,
             active,
+            inlineCount,
             titleOf,
             statusOf,
             unread,
@@ -290,7 +304,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
       );
    },
    status: (m) => ({
-      presence: m.open.length > 0 ? "ready" : "icon",
+      presence: m.open.length > 0 || m.inlineCount !== null ? "ready" : "icon",
       badge: m.count,
       dot: m.unread > 0,
       tip: "Side chats (⇧⌘B new)",
@@ -310,6 +324,8 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             state={ctx.state}
             threads={model.open}
             active={model.active}
+            inline={model.inlineCount === null ? null : model.inline}
+            inlineCount={model.inlineCount ?? 0}
             titleOf={model.titleOf}
             statusOf={model.statusOf}
             env={env}

@@ -34,7 +34,7 @@ import type { UiEnv } from "../renderUi/RenderUi";
 import { sendReplyToMain } from "../sideChats/sendReplyToMain";
 import { type AnchorRegistry, isDraftAnchor } from "./anchors";
 import { InlineMessages } from "./InlineMessages";
-import type { InlineModel } from "./model";
+import { type InlineModel, lastReply } from "./model";
 
 const iconButton = "size-7 text-muted-foreground hover:text-accent-foreground";
 
@@ -60,15 +60,6 @@ function IconButton({
          </Button>
       </Tooltip>
    );
-}
-
-/** The text of a Thread's last agent message. */
-function lastReply(t: ChatState | null): string {
-   for (let i = (t?.items.length ?? 0) - 1; i >= 0; i--) {
-      const it = t!.items[i]!;
-      if (it.type === "agent" && it.parent === null) return it.text;
-   }
-   return "";
 }
 
 /**

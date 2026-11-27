@@ -36,7 +36,7 @@ export type InlineModel = {
    openIds: string[] | null;
    /** The draft whose composer the popover shows, if any. */
    composing: string | null;
-   /** "Show in chat": the chat scrolls to the Thread's message and opens it. */
+   /** "Show in chat": the chat scrolls to the message of the Thread (or draft) and opens it. */
    reveal: { id: string; n: number } | null;
    /** Threads and drafts whose quote was looked for in the chat and not found. */
    notFound: ReadonlySet<string>;
@@ -69,6 +69,15 @@ export const seqOfItem = (itemId: string): number | null => {
    const m = /^e(\d+)$/.exec(itemId);
    return m ? Number(m[1]) : null;
 };
+
+/** The text of a Thread's last agent message. */
+export function lastReply(t: ChatState | null): string {
+   for (let i = (t?.items.length ?? 0) - 1; i >= 0; i--) {
+      const it = t!.items[i]!;
+      if (it.type === "agent" && it.parent === null) return it.text;
+   }
+   return "";
+}
 
 const isDraftId = (id: string) => id.startsWith("draft:");
 
