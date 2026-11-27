@@ -111,7 +111,7 @@ impl Harness {
         let editor = crate::editor::load(&self.data_dir).ok_or_else(|| crate::error::invalid("choose an editor in Settings first"))?;
         let meta = self.session(&session_id)?.meta();
         let folder = PathBuf::from(meta.folder);
-        let file = crate::editor::resolve(&folder, path.as_deref(), crate::editor::home().as_deref(), &meta.allowed_files)?;
+        let file = crate::editor::resolve(&folder, path.as_deref(), &crate::editor::homes(), &meta.allowed_files)?;
         let target = crate::editor::target(&editor, &file, line);
         crate::editor::open(&target).await?;
         Ok(CommandResult::Ok)
@@ -155,8 +155,7 @@ impl Harness {
         let meta = self.session(&session_id)?.meta();
         let folder = PathBuf::from(meta.folder);
         let allowed = meta.allowed_files;
-        let f =
-            tokio::task::spawn_blocking(move || crate::editor::read_lines(&folder, &path, start, end, crate::editor::home().as_deref(), &allowed)).await??;
+        let f = tokio::task::spawn_blocking(move || crate::editor::read_lines(&folder, &path, start, end, &crate::editor::homes(), &allowed)).await??;
         Ok(CommandResult::FileLines { path: f.path, start: f.start, lines: f.lines, total: f.total, scope: f.scope })
     }
 
@@ -165,9 +164,9 @@ impl Harness {
         let session = self.session(&session_id)?;
         let meta = session.meta();
         let folder = PathBuf::from(meta.folder);
-        let home = crate::editor::home();
+        let homes = crate::editor::homes();
         if allow {
-            let real = tokio::task::spawn_blocking(move || crate::editor::approvable(&folder, &path, home.as_deref())).await??;
+            let real = tokio::task::spawn_blocking(move || crate::editor::approvable(&folder, &path, &homes)).await??;
             session.update_meta(|m| {
                 if !m.allowed_files.contains(&real) {
                     m.allowed_files.push(real);
@@ -175,7 +174,7 @@ impl Harness {
             })?;
         } else {
             let allowed = meta.allowed_files;
-            let gone = tokio::task::spawn_blocking(move || crate::editor::revoked(&folder, &path, home.as_deref(), &allowed)).await?;
+            let gone = tokio::task::spawn_blocking(move || crate::editor::revoked(&folder, &path, &homes, &allowed)).await?;
             if !gone.is_empty() {
                 session.update_meta(|m| m.allowed_files.retain(|a| !gone.contains(a)))?;
             }

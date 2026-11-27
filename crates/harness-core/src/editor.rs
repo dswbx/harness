@@ -22,17 +22,45 @@ pub fn save(data_dir: &Path, editor: Option<&Editor>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The user's home folder (`$HOME`), for `~/` paths and `sensitive`.
-pub fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+/// The user's home folders, for `~/` paths and `sensitive`: `$HOME` first, then the account's home folder (from the
+/// system user record) when it is a different folder. `$HOME` can be set to another folder than the account's. Missing
+/// ones are skipped; two that are the same real folder count once.
+pub fn homes() -> Vec<PathBuf> {
+    let env = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for h in env.into_iter().chain(account_home()) {
+        if let Ok(real) = h.canonicalize()
+            && !seen.contains(&real)
+        {
+            seen.push(real);
+            out.push(h);
+        }
+    }
+    out
 }
 
-/// `path` with a leading `~/` (or a bare `~`) put under `home`; other paths as they are.
-pub fn expand_home(path: &str, home: Option<&Path>) -> anyhow::Result<PathBuf> {
+/// The home folder of the user this process runs as, from the system user record (not `$HOME`).
+#[cfg(unix)]
+fn account_home() -> Option<PathBuf> {
+    let user = nix::unistd::User::from_uid(nix::unistd::getuid()).ok()??;
+    (!user.dir.as_os_str().is_empty()).then_some(user.dir)
+}
+
+#[cfg(not(unix))]
+fn account_home() -> Option<PathBuf> {
+    None
+}
+
+/// `path` with a leading `~/` (or a bare `~`) put under a home folder (`homes`, `$HOME` first): the first one where
+/// that path exists, else the first one. Other paths as they are.
+pub fn expand_home(path: &str, homes: &[PathBuf]) -> anyhow::Result<PathBuf> {
     match path.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => {
-            let home = home.ok_or_else(|| crate::error::invalid(format!("{path}: no home folder")))?;
-            Ok(home.join(rest.trim_start_matches('/')))
+            let rest = rest.trim_start_matches('/');
+            let first = homes.first().ok_or_else(|| crate::error::invalid(format!("{path}: no home folder")))?;
+            let found = homes.iter().map(|h| h.join(rest)).find(|p| std::fs::symlink_metadata(p).is_ok());
+            Ok(found.unwrap_or_else(|| first.join(rest)))
         }
         _ => Ok(PathBuf::from(path)),
     }
@@ -43,16 +71,19 @@ const KEY_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "ppk", "jks", "key
 /// Files that hold credentials, by name (lower case).
 const CREDENTIAL_NAMES: &[&str] = &["credentials", "credentials.json", ".netrc", ".npmrc", ".pypirc"];
 
-/// Why the file at `real` (a real path outside the Session's folder) can hold secrets, or `None`. `home`: the real
-/// home folder. Sensitive:
+/// Why the file at `real` (a real path outside the Session's folder) can hold secrets, or `None`. `homes`: the real
+/// home folders, the first one is `~`. Sensitive:
 /// - `.env` and `.env.*` files; key files (`id_*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.ppk`, `*.jks`, `*.keystore`,
 ///   `*.kdbx`, `*.asc`, `*.gpg`); credential files (`credentials`, `credentials.json`, `.netrc`, `.npmrc`, `.pypirc`);
 ///   secret files (`secrets.*`, `*.secret`, `*.tfvars`). Names and extensions in any case, `.env` aside.
-/// - anything outside the home folder, and anything under `~/Library` (app data and settings).
-/// - anything in the home folder with a part that starts with `.` (`~/.ssh/config`, `~/.zshrc`), except inside the
+/// - anything outside all home folders, and anything under `Library` in a home folder (app data and settings).
+/// - anything in a home folder with a part that starts with `.` (`~/.ssh/config`, `~/.zshrc`), except inside the
 ///   Agents' own folders (`agent_quirks::agent_home_folders`). There only Markdown files (`*.md`) are open; other files
 ///   and deeper hidden parts are sensitive.
-pub fn sensitive(real: &Path, home: Option<&Path>) -> Option<String> {
+///
+/// When one home folder is inside another, each judges the parts up to the next deeper one, and the deepest judges
+/// the rest. Any rule that matches locks the file.
+pub fn sensitive(real: &Path, homes: &[PathBuf]) -> Option<String> {
     let name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if name == ".env" || name.starts_with(".env.") {
         return Some("an .env file".into());
@@ -68,43 +99,58 @@ pub fn sensitive(real: &Path, home: Option<&Path>) -> Option<String> {
     if lower.starts_with("secrets.") || ext == "secret" || ext == "tfvars" {
         return Some("a secrets file".into());
     }
-    let Some(rel) = home.and_then(|h| real.strip_prefix(h).ok()) else {
+    // Home folders that hold `real`, deepest first.
+    let mut matching: Vec<(usize, &PathBuf)> = homes.iter().enumerate().filter(|(_, h)| real.starts_with(h)).collect();
+    if matching.is_empty() {
         return Some("outside your home folder".into());
-    };
-    let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-    if parts.first().is_some_and(|p| p.eq_ignore_ascii_case("Library")) {
-        return Some("in ~/Library (app data and settings)".into());
     }
-    let agent_folder = parts.len() > 1 && crate::agent_quirks::agent_home_folders().contains(&parts[0].as_str());
-    for (i, part) in parts.iter().enumerate() {
-        let last = i + 1 == parts.len();
-        if !part.starts_with('.') || (i == 0 && agent_folder) {
-            continue;
+    matching.sort_by_key(|(_, h)| std::cmp::Reverse(h.components().count()));
+    let parts_of = |p: &Path| -> Vec<String> { p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect() };
+    let mut deeper: Option<&PathBuf> = None;
+    for (i, home) in matching {
+        let label = if i == 0 { "~".to_string() } else { home.to_string_lossy().replace('\\', "/") };
+        let all = parts_of(real.strip_prefix(home).unwrap_or(real));
+        // Parts up to the next deeper home folder: only folders, judged as such.
+        let whole = deeper.is_none();
+        let parts = match deeper.and_then(|d| d.strip_prefix(home).ok()) {
+            Some(rel) => parts_of(rel),
+            None => all,
+        };
+        deeper = Some(home);
+        if parts.first().is_some_and(|p| p.eq_ignore_ascii_case("Library")) {
+            return Some(format!("in {label}/Library (app data and settings)"));
         }
-        return Some(if last { "a hidden file".into() } else { format!("in the hidden folder ~/{}", parts[..=i].join("/")) });
-    }
-    if agent_folder && ext != "md" {
-        return Some(format!("a settings or data file in ~/{}", parts[0]));
+        let agent_folder = whole && parts.len() > 1 && crate::agent_quirks::agent_home_folders().contains(&parts[0].as_str());
+        for (j, part) in parts.iter().enumerate() {
+            let last = whole && j + 1 == parts.len();
+            if !part.starts_with('.') || (j == 0 && agent_folder) {
+                continue;
+            }
+            return Some(if last { "a hidden file".into() } else { format!("in the hidden folder {label}/{}", parts[..=j].join("/")) });
+        }
+        if agent_folder && ext != "md" {
+            return Some(format!("a settings or data file in {label}/{}", parts[0]));
+        }
     }
     None
 }
 
 /// Where `real` is for a Session whose real folder is `root`; `Err(reason)`: outside, can hold secrets
 /// (`sensitive`) and not in `allowed` (the Session's approved real paths).
-pub fn scope_of(root: &Path, real: &Path, home: Option<&Path>, allowed: &[String]) -> Result<FileScope, String> {
+pub fn scope_of(root: &Path, real: &Path, homes: &[PathBuf], allowed: &[String]) -> Result<FileScope, String> {
     if real.starts_with(root) {
         return Ok(FileScope::Inside);
     }
     if allowed.iter().any(|a| Path::new(a) == real) {
         return Ok(FileScope::Allowed);
     }
-    sensitive(real, home).map_or(Ok(FileScope::Outside), Err)
+    sensitive(real, homes).map_or(Ok(FileScope::Outside), Err)
 }
 
 /// The real path (symlinks followed) of `path`: relative to `root`, absolute, or `~/…`. A relative path that does not
 /// exist may be the end of one in the folder (`find_by_suffix`).
-fn real_path(root: &Path, path: &str, home: Option<&Path>) -> anyhow::Result<PathBuf> {
-    let p = expand_home(path, home)?;
+fn real_path(root: &Path, path: &str, homes: &[PathBuf]) -> anyhow::Result<PathBuf> {
+    let p = expand_home(path, homes)?;
     let full = root.join(&p);
     match full.canonicalize() {
         Ok(real) => Ok(real),
@@ -115,31 +161,38 @@ fn real_path(root: &Path, path: &str, home: Option<&Path>) -> anyhow::Result<Pat
     }
 }
 
-/// How a file is shown: relative to `root` inside it, `~/…` in the home folder (`home`: the real one), else absolute.
-fn shown(root: &Path, real: &Path, home: Option<&Path>) -> String {
+/// How a file is shown: relative to `root` inside it, `~/…` in the first home folder (`homes`: the real ones; `~` is
+/// `$HOME` to Agents too), else absolute. `expand_home` reads a shown path back as the same file.
+fn shown(root: &Path, real: &Path, homes: &[PathBuf]) -> String {
     let slash = |p: &Path| p.to_string_lossy().replace('\\', "/");
     if let Ok(rel) = real.strip_prefix(root) {
         return slash(rel);
     }
-    match home.and_then(|h| real.strip_prefix(h).ok()) {
+    match homes.first().and_then(|h| real.strip_prefix(h).ok()) {
         Some(rel) => format!("~/{}", slash(rel)),
         None => slash(real),
     }
 }
 
-/// The real home folder, for comparing with real paths.
-fn real_home(home: Option<&Path>) -> Option<PathBuf> {
-    home.and_then(|h| h.canonicalize().ok())
+/// The real paths of `homes` (in order; missing ones skipped, each once), for comparing with real paths.
+fn real_homes(homes: &[PathBuf]) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for real in homes.iter().filter_map(|h| h.canonicalize().ok()) {
+        if !out.contains(&real) {
+            out.push(real);
+        }
+    }
+    out
 }
 
 /// `path` (relative to `folder`, absolute or `~/…`) for "Open in editor"; `None` is the folder. A path outside the folder
 /// that can hold secrets and is not in `allowed` fails with `NeedsApproval` (with the real path, `shown`).
-pub fn resolve(folder: &Path, path: Option<&str>, home: Option<&Path>, allowed: &[String]) -> anyhow::Result<PathBuf> {
+pub fn resolve(folder: &Path, path: Option<&str>, homes: &[PathBuf], allowed: &[String]) -> anyhow::Result<PathBuf> {
     let root = std::fs::canonicalize(folder)?;
     let Some(p) = path.filter(|p| !p.trim().is_empty()) else { return Ok(root) };
-    let real = real_path(&root, p, home)?;
-    let home = real_home(home);
-    scope_of(&root, &real, home.as_deref(), allowed).map_err(|r| crate::error::needs_approval(r, shown(&root, &real, home.as_deref())))?;
+    let real = real_path(&root, p, homes)?;
+    let homes = real_homes(homes);
+    scope_of(&root, &real, &homes, allowed).map_err(|r| crate::error::needs_approval(r, shown(&root, &real, &homes)))?;
     Ok(real)
 }
 
@@ -154,9 +207,9 @@ fn read_text(file: &Path, path: &str) -> anyhow::Result<String> {
 }
 
 /// The real path of a text file outside `folder` to put on the Session's allow list (`ApproveSessionFile`).
-pub fn approvable(folder: &Path, path: &str, home: Option<&Path>) -> anyhow::Result<String> {
+pub fn approvable(folder: &Path, path: &str, homes: &[PathBuf]) -> anyhow::Result<String> {
     let root = std::fs::canonicalize(folder)?;
-    let real = real_path(&root, path, home)?;
+    let real = real_path(&root, path, homes)?;
     read_text(&real, path)?;
     if real.starts_with(&root) {
         return Err(crate::error::invalid(format!("{path} is in the Session's folder")));
@@ -165,15 +218,17 @@ pub fn approvable(folder: &Path, path: &str, home: Option<&Path>) -> anyhow::Res
 }
 
 /// The entries of `allowed` that are `path` (`RevokeSessionFile`): by its real path, or as written when it is gone
-/// (`~/` under the real home folder, and with its parent folder's real path when that still exists).
-pub fn revoked(folder: &Path, path: &str, home: Option<&Path>, allowed: &[String]) -> Vec<String> {
+/// (`~/` under each real home folder, and with its parent folder's real path when that still exists).
+pub fn revoked(folder: &Path, path: &str, homes: &[PathBuf], allowed: &[String]) -> Vec<String> {
     let root = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
     let mut want = Vec::new();
-    if let Ok(real) = real_path(&root, path, home) {
+    if let Ok(real) = real_path(&root, path, homes) {
         want.push(real);
     }
-    let real_home = real_home(home).or_else(|| home.map(Path::to_path_buf));
-    if let Ok(p) = expand_home(path, real_home.as_deref()) {
+    let each: Vec<PathBuf> = homes.iter().map(|h| h.canonicalize().unwrap_or_else(|_| h.clone())).collect();
+    let lists: Vec<&[PathBuf]> = if each.is_empty() { vec![&[]] } else { each.iter().map(std::slice::from_ref).collect() };
+    for list in lists {
+        let Ok(p) = expand_home(path, list) else { continue };
         let full = root.join(p);
         if let (Some(parent), Some(name)) = (full.parent(), full.file_name())
             && let Ok(dir) = parent.canonicalize()
@@ -213,24 +268,24 @@ pub struct FileLines {
 }
 
 /// Lines `start..=end` (1-based, clipped to the file) of the UTF-8 text file `path` (relative to `folder`, absolute,
-/// or `~/…` under `home`). Refuses files over `MAX_READ` and binary files. Also finds a relative `path` that does not
+/// or `~/…` under a home folder, `expand_home`). Refuses files over `MAX_READ` and binary files. Also finds a relative `path` that does not
 /// start at the folder (`embed/src/a.rs` for `crates/embed/src/a.rs`) when exactly one file ends with it (see
 /// `find_by_suffix`). A readable file outside the folder that can hold secrets (`sensitive`) and is not in `allowed`
 /// fails with `NeedsApproval`: the reason and the real path (`shown`) only, no lines, no line count.
-pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32>, home: Option<&Path>, allowed: &[String]) -> anyhow::Result<FileLines> {
+pub fn read_lines(folder: &Path, path: &str, start: Option<u32>, end: Option<u32>, homes: &[PathBuf], allowed: &[String]) -> anyhow::Result<FileLines> {
     anyhow::ensure!(!path.trim().is_empty(), "no path");
     let root = std::fs::canonicalize(folder)?;
-    let file = real_path(&root, path, home)?;
+    let file = real_path(&root, path, homes)?;
     // Every check that can fail runs first: approval is only asked for a file that can be shown.
     let text = read_text(&file, path)?;
-    let home = real_home(home);
-    let scope = scope_of(&root, &file, home.as_deref(), allowed).map_err(|r| crate::error::needs_approval(r, shown(&root, &file, home.as_deref())))?;
+    let homes = real_homes(homes);
+    let scope = scope_of(&root, &file, &homes, allowed).map_err(|r| crate::error::needs_approval(r, shown(&root, &file, &homes)))?;
     let all: Vec<&str> = text.lines().collect();
     let total = all.len() as u32;
     let start = start.unwrap_or(1).max(1);
     let end = end.unwrap_or(total).min(total);
     let lines = if start > end { vec![] } else { all[start as usize - 1..end as usize].iter().map(|l| l.to_string()).collect() };
-    Ok(FileLines { path: shown(&root, &file, home.as_deref()), start, lines, total, scope })
+    Ok(FileLines { path: shown(&root, &file, &homes), start, lines, total, scope })
 }
 
 /// Folders `walk_files` skips (besides hidden ones).
@@ -424,8 +479,8 @@ mod tests {
 
     #[test]
     fn classifies_files_that_can_hold_secrets() {
-        let home = Path::new("/h");
-        let s = |p: &str| sensitive(Path::new(p), Some(home));
+        let home = [PathBuf::from("/h")];
+        let s = |p: &str| sensitive(Path::new(p), &home);
         assert_eq!(s("/h/code/notes.md"), None);
         assert_eq!(s("/h/.claude/CLAUDE.md"), None);
         assert_eq!(s("/h/.agents/plans/a.md"), None);
@@ -439,7 +494,7 @@ mod tests {
         assert_eq!(s("/h/.claude/.env.local").as_deref(), Some("an .env file"));
         assert_eq!(s("/h/code/.envrc").as_deref(), Some("a hidden file"));
         for key in ["/h/code/id_ed25519", "/h/code/id_rsa.pub", "/h/code/server.pem", "/h/code/tls.KEY", "/h/a.p12", "/h/a.pfx"] {
-            assert_eq!(sensitive(Path::new(key), Some(home)).as_deref(), Some("a key file"), "{key}");
+            assert_eq!(sensitive(Path::new(key), &home).as_deref(), Some("a key file"), "{key}");
         }
         assert_eq!(s("/etc/hosts").as_deref(), Some("outside your home folder"));
         assert_eq!(s("/h/.claude/.env").as_deref(), Some("an .env file"));
@@ -447,8 +502,8 @@ mod tests {
 
     #[test]
     fn locks_more_key_credential_and_secret_files() {
-        let home = Path::new("/h");
-        let s = |p: &str| sensitive(Path::new(p), Some(home));
+        let home = [PathBuf::from("/h")];
+        let s = |p: &str| sensitive(Path::new(p), &home);
         for key in ["/h/code/a.ppk", "/h/code/app.jks", "/h/code/release.keystore", "/h/vault.KDBX", "/h/code/pub.asc", "/h/notes.gpg"] {
             assert_eq!(s(key).as_deref(), Some("a key file"), "{key}");
         }
@@ -465,8 +520,8 @@ mod tests {
 
     #[test]
     fn locks_the_library_folder() {
-        let home = Path::new("/h");
-        let s = |p: &str| sensitive(Path::new(p), Some(home));
+        let home = [PathBuf::from("/h")];
+        let s = |p: &str| sensitive(Path::new(p), &home);
         for f in ["/h/Library/Application Support/App/state.md", "/h/Library/Preferences/app.plist", "/h/library/notes.md"] {
             assert_eq!(s(f).as_deref(), Some("in ~/Library (app data and settings)"), "{f}");
         }
@@ -476,8 +531,8 @@ mod tests {
 
     #[test]
     fn opens_only_markdown_in_the_agent_folders() {
-        let home = Path::new("/h");
-        let s = |p: &str| sensitive(Path::new(p), Some(home));
+        let home = [PathBuf::from("/h")];
+        let s = |p: &str| sensitive(Path::new(p), &home);
         for f in ["/h/.agents/AGENTS.md", "/h/.agents/plans/a.md", "/h/.agents/notes/B.MD"] {
             assert_eq!(s(f), None, "{f}");
         }
@@ -490,17 +545,17 @@ mod tests {
         // Other hidden folders: everything, Markdown too.
         assert_eq!(s("/h/.aws/notes.md").as_deref(), Some("in the hidden folder ~/.aws"));
         assert_eq!(s("/home2/x.md").as_deref(), Some("outside your home folder"));
-        assert_eq!(sensitive(Path::new("/h/code/a.md"), None).as_deref(), Some("outside your home folder"));
+        assert_eq!(sensitive(Path::new("/h/code/a.md"), &[]).as_deref(), Some("outside your home folder"));
     }
 
     #[test]
     fn expands_a_leading_tilde() {
-        let home = Path::new("/h");
-        assert_eq!(expand_home("~/a/b.md", Some(home)).unwrap(), Path::new("/h/a/b.md"));
-        assert_eq!(expand_home("~", Some(home)).unwrap(), Path::new("/h"));
-        assert_eq!(expand_home("~x/a.md", Some(home)).unwrap(), Path::new("~x/a.md"));
-        assert_eq!(expand_home("src/~/a.md", Some(home)).unwrap(), Path::new("src/~/a.md"));
-        assert!(expand_home("~/a.md", None).is_err());
+        let home = [PathBuf::from("/h")];
+        assert_eq!(expand_home("~/a/b.md", &home).unwrap(), Path::new("/h/a/b.md"));
+        assert_eq!(expand_home("~", &home).unwrap(), Path::new("/h"));
+        assert_eq!(expand_home("~x/a.md", &home).unwrap(), Path::new("~x/a.md"));
+        assert_eq!(expand_home("src/~/a.md", &home).unwrap(), Path::new("src/~/a.md"));
+        assert!(expand_home("~/a.md", &[]).is_err());
     }
 
     #[test]
@@ -509,7 +564,7 @@ mod tests {
         put(&t.folder.join("src/a.rs"), b"");
         put(&t.home.join("notes/todo.md"), b"x");
         put(&t.top.join("secret.txt"), b"s");
-        let home = Some(t.home.as_path());
+        let home = std::slice::from_ref(&t.home);
         assert_eq!(resolve(&t.folder, None, home, &[]).unwrap(), t.folder);
         assert_eq!(resolve(&t.folder, Some("src/a.rs"), home, &[]).unwrap(), t.folder.join("src/a.rs"));
         assert_eq!(resolve(&t.folder, Some("~/notes/todo.md"), home, &[]).unwrap(), t.home.join("notes/todo.md"));
@@ -527,7 +582,7 @@ mod tests {
         put(&folder.join("src/a.rs"), b"one\ntwo\nthree\nfour\n");
         put(&folder.join("bin.dat"), &[0u8, 1, 2]);
         put(&folder.join("latin1.txt"), &[0xE9u8, b'a']);
-        let read = |p: &str, s: Option<u32>, e: Option<u32>| read_lines(folder, p, s, e, Some(&t.home), &[]);
+        let read = |p: &str, s: Option<u32>, e: Option<u32>| read_lines(folder, p, s, e, std::slice::from_ref(&t.home), &[]);
         let f = read("src/a.rs", Some(2), Some(3)).unwrap();
         assert_eq!(f, FileLines { path: "src/a.rs".into(), start: 2, lines: vec!["two".into(), "three".into()], total: 4, scope: FileScope::Inside });
         // Clipped to the file; absolute paths inside the folder are fine.
@@ -554,7 +609,7 @@ mod tests {
         put(&t.home.join(".aws/config"), b"[default]\n");
         put(&t.home.join(".aws/blob.bin"), &[0u8, 1]);
         put(&t.top.join("secret.txt"), b"made-up secret\n");
-        let read = |p: &str, allowed: &[String]| read_lines(folder, p, None, None, Some(&t.home), allowed);
+        let read = |p: &str, allowed: &[String]| read_lines(folder, p, None, None, std::slice::from_ref(&t.home), allowed);
 
         // Outside, nothing secret: readable without approval, shown under `~/`.
         let f = read("~/notes/todo.md", &[]).unwrap();
@@ -591,26 +646,27 @@ mod tests {
         assert_ne!(code(read("~/.aws", &[]).unwrap_err()), ErrorCode::NeedsApproval);
 
         // Approved: readable, by any path that leads to it; revoked: locked again.
-        let real = approvable(folder, "~/.aws/credentials", Some(&t.home)).unwrap();
+        let real = approvable(folder, "~/.aws/credentials", std::slice::from_ref(&t.home)).unwrap();
         assert_eq!(real, t.home.join(".aws/credentials").to_string_lossy());
         let allowed = vec![real];
         let f = read("~/.aws/credentials", &allowed).unwrap();
         assert_eq!((f.path.as_str(), f.lines, f.scope), ("~/.aws/credentials", vec!["key = made-up-value".to_string()], FileScope::Allowed));
         #[cfg(unix)]
         assert_eq!(read("link.txt", &allowed).unwrap().scope, FileScope::Allowed);
-        assert_eq!(revoked(folder, "~/.aws/credentials", Some(&t.home), &allowed), allowed);
-        assert!(revoked(folder, "~/notes/todo.md", Some(&t.home), &allowed).is_empty());
-        let left: Vec<String> = allowed.iter().filter(|a| !revoked(folder, "~/.aws/credentials", Some(&t.home), &allowed).contains(a)).cloned().collect();
+        assert_eq!(revoked(folder, "~/.aws/credentials", std::slice::from_ref(&t.home), &allowed), allowed);
+        assert!(revoked(folder, "~/notes/todo.md", std::slice::from_ref(&t.home), &allowed).is_empty());
+        let left: Vec<String> =
+            allowed.iter().filter(|a| !revoked(folder, "~/.aws/credentials", std::slice::from_ref(&t.home), &allowed).contains(a)).cloned().collect();
         assert_eq!(code(read("~/.aws/credentials", &left).unwrap_err()), ErrorCode::NeedsApproval);
         // A file that is gone can still be revoked by its path.
         std::fs::remove_file(t.home.join(".aws/credentials")).unwrap();
-        assert_eq!(revoked(folder, "~/.aws/credentials", Some(&t.home), &allowed), allowed);
+        assert_eq!(revoked(folder, "~/.aws/credentials", std::slice::from_ref(&t.home), &allowed), allowed);
 
         // Only readable files outside the folder can be approved.
-        assert!(approvable(folder, "~/.aws/blob.bin", Some(&t.home)).is_err());
-        assert!(approvable(folder, "~/.aws/missing", Some(&t.home)).is_err());
+        assert!(approvable(folder, "~/.aws/blob.bin", std::slice::from_ref(&t.home)).is_err());
+        assert!(approvable(folder, "~/.aws/missing", std::slice::from_ref(&t.home)).is_err());
         put(&folder.join("src/a.rs"), b"x");
-        assert!(approvable(folder, "src/a.rs", Some(&t.home)).is_err());
+        assert!(approvable(folder, "src/a.rs", std::slice::from_ref(&t.home)).is_err());
     }
 
     #[cfg(unix)]
@@ -621,7 +677,7 @@ mod tests {
         put(&t.home.join(".zshrc"), b"export MADE_UP=1\n");
         std::fs::create_dir_all(t.folder.join("docs")).unwrap();
         std::os::unix::fs::symlink(t.home.join(".zshrc"), t.folder.join("docs/notes.md")).unwrap();
-        let home = Some(t.home.as_path());
+        let home = std::slice::from_ref(&t.home);
         for e in [read_lines(&t.folder, "docs/notes.md", None, None, home, &[]).unwrap_err(), resolve(&t.folder, Some("docs/notes.md"), home, &[]).unwrap_err()]
         {
             let h = HarnessError::from(e);
@@ -642,13 +698,83 @@ mod tests {
         put(&t.home.join(".ssh/key.txt"), b"made-up\n");
         put(&t.home.join("dotfiles/aws/credentials"), b"made-up\n");
         std::os::unix::fs::symlink(t.home.join("dotfiles/aws"), t.home.join(".aws")).unwrap();
-        let home = Some(link_home.as_path());
+        let home = std::slice::from_ref(&link_home);
         let allowed = vec![approvable(&t.folder, "~/.ssh/key.txt", home).unwrap(), approvable(&t.folder, "~/.aws/credentials", home).unwrap()];
         assert_eq!(allowed, [t.home.join(".ssh/key.txt").to_string_lossy(), t.home.join("dotfiles/aws/credentials").to_string_lossy()]);
         std::fs::remove_file(t.home.join(".ssh/key.txt")).unwrap();
         std::fs::remove_file(t.home.join("dotfiles/aws/credentials")).unwrap();
         assert_eq!(revoked(&t.folder, "~/.ssh/key.txt", home, &allowed), [allowed[0].clone()]);
         assert_eq!(revoked(&t.folder, "~/.aws/credentials", home, &allowed), [allowed[1].clone()]);
+    }
+
+    #[test]
+    fn judges_files_under_two_home_folders() {
+        // `$HOME` (first) set to a folder inside the account's home folder.
+        let homes = [PathBuf::from("/u/personal"), PathBuf::from("/u")];
+        let s = |p: &str| sensitive(Path::new(p), &homes);
+        for f in ["/u/personal/notes.md", "/u/code/AGENTS.md", "/u/personal/.claude/CLAUDE.md", "/u/.agents/plans/a.md"] {
+            assert_eq!(s(f), None, "{f}");
+        }
+        assert_eq!(s("/u/personal/.ssh/key.txt").as_deref(), Some("in the hidden folder ~/.ssh"));
+        assert_eq!(s("/u/.ssh/key.txt").as_deref(), Some("in the hidden folder /u/.ssh"));
+        assert_eq!(s("/u/personal/.zshrc").as_deref(), Some("a hidden file"));
+        assert_eq!(s("/u/.zshrc").as_deref(), Some("a hidden file"));
+        assert_eq!(s("/u/personal/Library/a.md").as_deref(), Some("in ~/Library (app data and settings)"));
+        assert_eq!(s("/u/Library/a.md").as_deref(), Some("in /u/Library (app data and settings)"));
+        assert_eq!(s("/u/personal/.claude/settings.json").as_deref(), Some("a settings or data file in ~/.claude"));
+        assert_eq!(s("/etc/hosts").as_deref(), Some("outside your home folder"));
+        // The outer home folder still judges the parts up to the inner one.
+        let hidden = [PathBuf::from("/u/.home"), PathBuf::from("/u")];
+        assert_eq!(sensitive(Path::new("/u/.home/notes.md"), &hidden).as_deref(), Some("in the hidden folder /u/.home"));
+        // Order does not change the outcome, only which home folder is `~`.
+        let swapped = [PathBuf::from("/u"), PathBuf::from("/u/personal")];
+        assert_eq!(sensitive(Path::new("/u/personal/.ssh/key.txt"), &swapped).as_deref(), Some("in the hidden folder /u/personal/.ssh"));
+        assert_eq!(sensitive(Path::new("/u/personal/notes.md"), &swapped), None);
+    }
+
+    #[test]
+    fn reads_files_under_the_account_home_folder_when_home_is_set_elsewhere() {
+        use crate::api::{ErrorCode, HarnessError};
+        let t = tree();
+        // `t.home` is the account's home folder; `$HOME` is `t.home/personal`, the Session folder is in it.
+        let env_home = t.home.join("personal");
+        let folder = env_home.join("proj");
+        std::fs::create_dir_all(&folder).unwrap();
+        let homes = [env_home.clone(), t.home.clone()];
+        put(&t.home.join("code/app/AGENTS.md"), b"made-up\n");
+        put(&env_home.join("notes/todo.md"), b"made-up\n");
+        put(&t.home.join(".ssh/key.txt"), b"made-up\n");
+        put(&env_home.join(".ssh/key.txt"), b"made-up\n");
+        put(&t.top.join("secret.txt"), b"made-up\n");
+        let read = |p: &str, allowed: &[String]| read_lines(&folder, p, None, None, &homes, allowed);
+
+        // `~/x` falls back to the account's home folder when `$HOME` has no `x`; shown absolute, so it reads back.
+        let account_file = t.home.join("code/app/AGENTS.md");
+        assert_eq!(expand_home("~/code/app/AGENTS.md", &homes).unwrap(), account_file);
+        assert_eq!(expand_home("~/missing.md", &homes).unwrap(), env_home.join("missing.md"));
+        let f = read("~/code/app/AGENTS.md", &[]).unwrap();
+        assert_eq!((f.path.as_str(), f.scope), (account_file.to_str().unwrap(), FileScope::Outside));
+        assert_eq!(read(account_file.to_str().unwrap(), &[]).unwrap().scope, FileScope::Outside);
+        // Under `$HOME`: `~/…`.
+        assert_eq!(read("~/notes/todo.md", &[]).unwrap().path, "~/notes/todo.md");
+
+        // Hidden folders under either home folder are locked; outside both too.
+        let h = HarnessError::from(read("~/.ssh/key.txt", &[]).unwrap_err());
+        assert_eq!((h.code, h.message.as_str(), h.path.as_deref()), (ErrorCode::NeedsApproval, "in the hidden folder ~/.ssh", Some("~/.ssh/key.txt")));
+        let outer = t.home.join(".ssh/key.txt");
+        let h = HarnessError::from(read(outer.to_str().unwrap(), &[]).unwrap_err());
+        let want = format!("in the hidden folder {}/.ssh", t.home.display());
+        assert_eq!((h.code, h.message.as_str(), h.path.as_deref()), (ErrorCode::NeedsApproval, want.as_str(), outer.to_str()));
+        let h = HarnessError::from(read(t.top.join("secret.txt").to_str().unwrap(), &[]).unwrap_err());
+        assert_eq!((h.code, h.message.as_str()), (ErrorCode::NeedsApproval, "outside your home folder"));
+
+        // A file found under the account's home folder can be approved and, once gone, revoked by the same path.
+        put(&t.home.join("code/prod.tfvars"), b"made-up\n");
+        let allowed = vec![approvable(&folder, "~/code/prod.tfvars", &homes).unwrap()];
+        assert_eq!(allowed, [t.home.join("code/prod.tfvars").to_string_lossy()]);
+        assert_eq!(read("~/code/prod.tfvars", &allowed).unwrap().scope, FileScope::Allowed);
+        std::fs::remove_file(t.home.join("code/prod.tfvars")).unwrap();
+        assert_eq!(revoked(&folder, "~/code/prod.tfvars", &homes, &allowed), allowed);
     }
 
     #[test]

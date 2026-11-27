@@ -32,7 +32,7 @@ portable-pty = "0.9"
 notify = "8"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", default-features = false, features = ["signal"] }
+nix = { version = "0.31", default-features = false, features = ["signal", "user"] }
 
 [dev-dependencies]
 tempfile.workspace = true
