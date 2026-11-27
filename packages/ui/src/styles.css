@@ -375,6 +375,28 @@
    background-color: color-mix(in oklch, Highlight 70%, transparent);
 }
 
+/* Chat: text with Inline Threads (ADR 0030): amber; the one whose popover is open stronger; a draft (not sent
+   yet) blue and dashed. An engine that ignores text-decoration in ::highlight shows the tint only. */
+::highlight(inline-thread) {
+   background-color: rgb(234 179 8 / 0.2);
+   text-decoration-line: underline;
+   text-decoration-color: rgb(234 179 8);
+   text-decoration-thickness: 2px;
+}
+::highlight(inline-thread-active) {
+   background-color: rgb(234 179 8 / 0.38);
+   text-decoration-line: underline;
+   text-decoration-color: rgb(234 179 8);
+   text-decoration-thickness: 2px;
+}
+::highlight(inline-thread-draft) {
+   background-color: rgb(96 165 250 / 0.2);
+   text-decoration-line: underline;
+   text-decoration-style: dashed;
+   text-decoration-color: rgb(96 165 250);
+   text-decoration-thickness: 2px;
+}
+
 /* Spinning SVG icons: rotate the icon's shapes around the viewBox center, not the <svg> box.
    WebKit snaps the <svg> box (and any compositing layer) to device pixels, so a rotated box
    pivots up to ~1px off the drawn center and the icon orbits (wobble). Inside the SVG the

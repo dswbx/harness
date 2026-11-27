@@ -1,6 +1,7 @@
 import { Button } from "@harness/ui";
 import { MessageSquarePlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { describeRange, type TextQuote } from "../../lib/textQuote";
 import { PromptEditor, type PromptEditorHandle } from "../prompt/PromptEditor";
 import { addReviewComment, composerKey } from "./reviewComments";
 
@@ -36,6 +37,11 @@ type Spot = {
    threadId: string | null;
    source?: "plan" | "artifact";
    label?: string;
+   /** The agent message the text is in (`data-item-id`), and its element: the root of an Inline Thread's quote. */
+   itemId: string | null;
+   host: Element;
+   /** A finished Main Thread agent message: Inline Threads can anchor here (`data-anchorable`). */
+   anchorable: boolean;
 };
 
 /** CSS Custom Highlight that keeps the quote looking selected while the comment box has focus (styles.css). */
@@ -59,7 +65,11 @@ function selectedSpot(): Spot | null {
    const r = range.getBoundingClientRect();
    const threadId = host.getAttribute("data-thread-id");
    const source = host.getAttribute("data-source");
+   const itemId = host.getAttribute("data-item-id");
    return {
+      itemId,
+      host,
+      anchorable: itemId !== null && host.hasAttribute("data-anchorable"),
       quote,
       range,
       x: r.left + r.width / 2,
@@ -81,9 +91,12 @@ function selectedSpot(): Spot | null {
 export function SelectionComment({
    sessionId,
    onAskSideThread,
+   onAskInline,
 }: {
    sessionId: string;
    onAskSideThread?: (quote: string) => void;
+   /** "Ask inline" (⌘I) on a finished Main Thread agent message: an Inline Thread on the quote. */
+   onAskInline?: (itemId: string, quote: TextQuote) => void;
 }) {
    const [spot, setSpot] = useState<Spot | null>(null);
    const [editing, setEditing] = useState(false);
@@ -151,6 +164,33 @@ export function SelectionComment({
       window.getSelection()?.removeAllRanges();
       close();
    };
+
+   const inline = spot?.anchorable && !spot.side && onAskInline ? onAskInline : null;
+   const askInline = () => {
+      if (!spot?.itemId || !inline) return;
+      const quote = describeRange(spot.host, spot.range);
+      window.getSelection()?.removeAllRanges();
+      close();
+      if (quote) inline(spot.itemId, quote);
+   };
+   // ⌘I while the box offers its buttons. Not from an editor, where it is italic.
+   const askInlineRef = useRef(askInline);
+   askInlineRef.current = askInline;
+   const offersInline = !!inline && !editing;
+   useEffect(() => {
+      if (!offersInline) return;
+      const onKey = (e: KeyboardEvent) => {
+         if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.code !== "KeyI") return;
+         const t = document.activeElement;
+         if (t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea")))
+            return;
+         e.preventDefault();
+         e.stopPropagation();
+         askInlineRef.current();
+      };
+      window.addEventListener("keydown", onKey, true);
+      return () => window.removeEventListener("keydown", onKey, true);
+   }, [offersInline]);
 
    const ask = () => {
       if (!spot || !onAskSideThread) return;
@@ -240,6 +280,18 @@ export function SelectionComment({
                      onClick={ask}
                   >
                      Ask in side thread
+                  </Button>
+               )}
+               {inline && (
+                  <Button
+                     size="sm"
+                     variant="ghost"
+                     className="h-8 gap-1.5 rounded-lg"
+                     onMouseDown={(e) => e.preventDefault()}
+                     onClick={askInline}
+                  >
+                     Ask inline
+                     <kbd className="font-sans text-[11px] text-muted-foreground">⌘I</kbd>
                   </Button>
                )}
             </div>

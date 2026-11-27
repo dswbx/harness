@@ -66,6 +66,7 @@ export function PromptBox({
    menuSide = "top",
    context,
    commands = state.commands,
+   contextRing = true,
    ref: handle,
 }: {
    api: SessionApi;
@@ -94,6 +95,8 @@ export function PromptBox({
    context?: PromptContext;
    /** The slash commands offered (default `state.commands`; a Side Thread falls back to the Main Thread's). */
    commands?: SlashCommand[];
+   /** False: no context ring in the footer (an Inline Thread's popover). */
+   contextRing?: boolean;
    ref?: Ref<PromptBoxHandle>;
 }) {
    const [text, setText] = useState("");
@@ -379,7 +382,7 @@ export function PromptBox({
                {overflow && (
                   <span className="text-xs tabular-nums text-muted-foreground">{lines} lines</span>
                )}
-               {pct != null && (
+               {contextRing && pct != null && (
                   <ContextRing pct={pct} used={state.usage!.used} size={state.usage!.size} />
                )}
                <SendStopButton

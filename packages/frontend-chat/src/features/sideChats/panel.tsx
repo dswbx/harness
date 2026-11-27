@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { definePanel, type PanelBodyProps } from "../../panels/contract";
 import { waitsForUser } from "../../state/waiting";
 import { changesPanel } from "../changes/panel";
+import { type InlineModel, useInlineThreads } from "../inlineThreads/model";
 import { clearDraft } from "../prompt/drafts";
 import type { PendingMessage } from "../prompt/pendingMessages";
 import { deliverPending } from "../prompt/usePendingSend";
@@ -68,6 +69,8 @@ export type SideChatsModel = {
    ask: (quote: string) => void;
    /** Side Threads in the Session (open or not). */
    count: number;
+   /** Inline Threads (ADR 0030): anchored Side Threads, their drafts and popover. */
+   inline: InlineModel;
 };
 
 /** Cmd/Ctrl+Shift+B: a new Side Thread ("by the way"). */
@@ -89,6 +92,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
    useModel: ({ api, state, variant }, self) => {
       const overlay = variant === "overlay";
       const { tabs, apply, tabsRef } = useThreadTabs(api.sessionId, !overlay);
+      const inline = useInlineThreads({ api, state, persist: !overlay });
       const selfRef = useRef(self);
       selfRef.current = self;
       const [focus, setFocus] = useState<{ id: string; n: number }>({ id: "", n: 0 });
@@ -262,6 +266,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             start,
             ask,
             count: sideThreads.length,
+            inline,
          }),
          [
             open,
@@ -280,6 +285,7 @@ export const sideChatsPanel = definePanel<SideChatsModel>({
             start,
             ask,
             sideThreads.length,
+            inline,
          ],
       );
    },

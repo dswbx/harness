@@ -13,7 +13,7 @@ import {
 } from "@harness/ui";
 import { Check, Copy, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { addReviewComment } from "../review/reviewComments";
+import { sendReplyToMain } from "./sendReplyToMain";
 
 /** True for ~1.5s after `set()`, for "done" check marks. */
 function useFlash() {
@@ -35,15 +35,7 @@ export function SideReplyFooter({ sessionId, text }: { sessionId: string; text: 
    const [commenting, setCommenting] = useState(false);
    const [note, setNote] = useState("");
    const send = (comment: string) => {
-      const quote = text.trim();
-      if (!quote) return;
-      addReviewComment(sessionId, {
-         kind: "quote",
-         quote,
-         text: comment.trim(),
-         source: "side_thread",
-      });
-      flashSent();
+      if (sendReplyToMain(sessionId, text, comment)) flashSent();
    };
    return (
       <div className="mt-1 flex items-center gap-0.5">
